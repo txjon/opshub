@@ -4,6 +4,11 @@ import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
 import { logJobActivity } from "@/components/JobActivityPanel";
 import { useIsMobile } from "@/lib/useIsMobile";
+import SizeGrid from "@/components/SizeGrid";
+import { parseSizeMatrix } from "@/lib/size-grid";
+
+// Dark-app palette for the shared <SizeGrid/> cut-ticket renderer.
+const GRID_PALETTE = { text: T.text, muted: T.muted, faint: T.faint, border: T.border, surface: T.surface, accent: T.accent };
 
 const tQty = (q) => Object.values(q || {}).reduce((a, v) => a + v, 0);
 const ic = { width: "100%", padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, fontSize: 12, fontFamily: font, boxSizing: "border-box", outline: "none" };
@@ -135,10 +140,19 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
     if (saveTimers.current[key]) clearTimeout(saveTimers.current[key]);
     const doSave = async () => {
       delete pendingSaves.current[key];
-      const dbVal = field === "blanks_order_cost" ? (parseFloat(String(value).replace(/[^0-9.\-]/g, "")) || null) : (value || null);
+      // Empty input → null (not ordered). An explicit "0" → 0 (ordered, free —
+      // e.g. client-supplied or already-owned blanks). null vs 0 is the
+      // ordered/not-ordered signal everywhere; never coerce 0 to null.
+      const parseCost = (value) => {
+        const s = String(value).replace(/[^0-9.\-]/g, "");
+        if (s === "") return null;
+        const n = parseFloat(s);
+        return isNaN(n) ? null : n;
+      };
+      const dbVal = field === "blanks_order_cost" ? parseCost(value) : (value || null);
       await supabase.from("items").update({ [field]: dbVal }).eq("id", itemId);
       if (onUpdateItem) onUpdateItem(itemId, { [field]: dbVal });
-      if (field === "blanks_order_cost" && dbVal && dbVal > 0) {
+      if (field === "blanks_order_cost" && dbVal != null) {
         const item = items.find(it => it.id === itemId);
         if (item) {
           const supplier = item.blank_vendor || "blank vendor";
@@ -175,7 +189,9 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
   // entry on the parent job so the order is traceable.
   async function applyBulkOrder() {
     const total = parseFloat(String(bulkTotal).replace(/[^0-9.\-]/g, ""));
-    if (!total || total <= 0) return;
+    // Allow exactly 0 (mark free/zero-cost blanks as ordered); reject only
+    // empty/invalid/negative input.
+    if (bulkTotal === "" || isNaN(total) || total < 0) return;
     const targets = items.filter(it => selectedIds.has(it.id));
     if (targets.length === 0) return;
 
@@ -499,16 +515,22 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
                   onKeyDown={e => { if (e.key === "Enter") applyBulkOrder(); }}
                   style={{ width: 100, background: "transparent", border: "none", outline: "none", color: T.text, fontSize: 13, fontFamily: mono, fontWeight: 700, textAlign: "right", padding: 0 }} />
               </div>
-              <button onClick={applyBulkOrder}
-                disabled={!bulkTotal || parseFloat(String(bulkTotal).replace(/[^0-9.\-]/g, "")) <= 0}
-                style={{
-                  background: T.green, color: "#fff", border: "none", borderRadius: 5,
-                  padding: "6px 14px", fontSize: 12, fontWeight: 700, fontFamily: font,
-                  cursor: "pointer",
-                  opacity: !bulkTotal || parseFloat(String(bulkTotal).replace(/[^0-9.\-]/g, "")) <= 0 ? 0.5 : 1,
-                }}>
-                Apply
-              </button>
+              {(() => {
+                // Valid when a number ≥ 0 is entered (0 marks free blanks ordered).
+                const n = parseFloat(String(bulkTotal).replace(/[^0-9.\-]/g, ""));
+                const invalid = bulkTotal === "" || isNaN(n) || n < 0;
+                return (
+                  <button onClick={applyBulkOrder} disabled={invalid}
+                    style={{
+                      background: T.green, color: "#fff", border: "none", borderRadius: 5,
+                      padding: "6px 14px", fontSize: 12, fontWeight: 700, fontFamily: font,
+                      cursor: invalid ? "not-allowed" : "pointer",
+                      opacity: invalid ? 0.5 : 1,
+                    }}>
+                    Apply
+                  </button>
+                );
+              })()}
             </div>
           </div>
         )}
@@ -538,6 +560,9 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
           if (selectedItemId && item.id !== selectedItemId) return null;
           const f = localFields[item.id] || {};
           const totalUnits = tQty(item.qtys || {});
+          // Multi-dimensional sizes (pants: Fit/Waist/Inseam) → cut-ticket grid;
+          // null for 1-D sizes (S/M/L) so tees/hats keep the inline stacks.
+          const sizeMatrix = parseSizeMatrix(item.sizes || [], item.qtys || {});
           const calcCost = item.cost_per_unit != null ? (item.cost_per_unit * totalUnits) : null;
           // Prefer localFields (in-progress edits), fall back to the
           // items prop so a remount or stale local state still shows
@@ -545,9 +570,12 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
           const effectiveOrderCost = (f.blanks_order_cost != null && f.blanks_order_cost !== "")
             ? f.blanks_order_cost
             : (item.blanks_order_cost != null ? item.blanks_order_cost : "");
-          const actualCost = effectiveOrderCost ? parseFloat(String(effectiveOrderCost).replace(/[^0-9.\-]/g, "")) : null;
+          // An order is "entered" when the field has any value — including 0
+          // (free blanks). Empty = not ordered. 0 must not read as null here.
+          const orderEntered = effectiveOrderCost !== "" && effectiveOrderCost != null;
+          const actualCost = orderEntered ? (parseFloat(String(effectiveOrderCost).replace(/[^0-9.\-]/g, "")) || 0) : null;
           const costDiff = calcCost !== null && actualCost !== null ? actualCost - calcCost : null;
-          const hasOrder = (actualCost ?? 0) > 0;
+          const hasOrder = orderEntered;
           const itemLetter = letterByItemId[item.id] || String.fromCharCode(65 + i);
           // QB invoice # is the primary reference for ordering. Format
           // matches the PO PDF naming: invoice number + item letter.
@@ -586,16 +614,23 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
                 {/* Row 2: blank info */}
                 <div style={{ fontSize: 13, fontWeight: 600, color: T.text, paddingLeft: 26 }}>{blankInfo || "—"}</div>
 
-                {/* Row 3: sizes wrap */}
-                <div style={{ display: "flex", gap: 14, alignItems: "flex-end", flexWrap: "wrap", paddingLeft: 26 }}>
-                  {(item.sizes || []).filter(sz => (item.qtys || {})[sz] > 0).map(sz => (
-                    <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", lineHeight: 1.1 }}>
-                      <span style={{ fontSize: 11, color: T.muted, fontFamily: mono, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 2 }}>{sz}</span>
-                      <span style={{ fontSize: 14, color: T.text, fontWeight: 700, fontFamily: mono }}>{(item.qtys || {})[sz].toLocaleString()}</span>
-                    </div>
-                  ))}
-                  <span style={{ fontSize: 12, color: T.muted, fontFamily: mono, fontWeight: 600, paddingBottom: 1 }}>· {totalUnits.toLocaleString()} units</span>
-                </div>
+                {/* Row 3: sizes — cut-ticket grid for multi-dim, inline stacks otherwise */}
+                {sizeMatrix ? (
+                  <div style={{ paddingLeft: 26 }}>
+                    <SizeGrid labels={item.sizes || []} qtys={item.qtys || {}} palette={GRID_PALETTE} mono={mono} />
+                    <div style={{ fontSize: 11, color: T.muted, fontFamily: mono, fontWeight: 600, marginTop: 5 }}>{totalUnits.toLocaleString()} units</div>
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", gap: 14, alignItems: "flex-end", flexWrap: "wrap", paddingLeft: 26 }}>
+                    {(item.sizes || []).filter(sz => (item.qtys || {})[sz] > 0).map(sz => (
+                      <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", lineHeight: 1.1 }}>
+                        <span style={{ fontSize: 11, color: T.muted, fontFamily: mono, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 2 }}>{sz}</span>
+                        <span style={{ fontSize: 14, color: T.text, fontWeight: 700, fontFamily: mono }}>{(item.qtys || {})[sz].toLocaleString()}</span>
+                      </div>
+                    ))}
+                    <span style={{ fontSize: 12, color: T.muted, fontFamily: mono, fontWeight: 600, paddingBottom: 1 }}>· {totalUnits.toLocaleString()} units</span>
+                  </div>
+                )}
 
                 {/* Row 4: order total input + variance */}
                 <div style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: "space-between", paddingLeft: 26, marginTop: 2 }}>
@@ -624,7 +659,7 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
           return (
             <div key={item.id} style={{
               display: "grid", gridTemplateColumns: "22px 32px 90px 1fr 150px 160px",
-              gap: 12, padding: "10px 14px", alignItems: "center",
+              gap: 12, padding: "10px 14px", alignItems: sizeMatrix ? "flex-start" : "center",
               borderBottom: isLast ? "none" : `1px solid ${T.border}`,
               background: selectedIds.has(item.id) ? T.accentDim + "55" : "transparent",
             }}>
@@ -644,15 +679,22 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
               {/* Blank info + sizes — sizes stacked label-over-number, bigger */}
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: T.text, marginBottom: 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{blankInfo || "—"}</div>
-                <div style={{ display: "flex", gap: 14, alignItems: "flex-end", flexWrap: "wrap" }}>
-                  {(item.sizes || []).filter(sz => (item.qtys || {})[sz] > 0).map(sz => (
-                    <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", lineHeight: 1.1 }}>
-                      <span style={{ fontSize: 13, color: T.muted, fontFamily: mono, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 3 }}>{sz}</span>
-                      <span style={{ fontSize: 16, color: T.text, fontWeight: 700, fontFamily: mono }}>{(item.qtys || {})[sz].toLocaleString()}</span>
-                    </div>
-                  ))}
-                  <span style={{ fontSize: 14, color: T.muted, fontFamily: mono, fontWeight: 600, paddingBottom: 1 }}>· {totalUnits.toLocaleString()} units</span>
-                </div>
+                {sizeMatrix ? (
+                  <div>
+                    <SizeGrid labels={item.sizes || []} qtys={item.qtys || {}} palette={GRID_PALETTE} mono={mono} />
+                    <div style={{ fontSize: 13, color: T.muted, fontFamily: mono, fontWeight: 600, marginTop: 6 }}>{totalUnits.toLocaleString()} units</div>
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", gap: 14, alignItems: "flex-end", flexWrap: "wrap" }}>
+                    {(item.sizes || []).filter(sz => (item.qtys || {})[sz] > 0).map(sz => (
+                      <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", lineHeight: 1.1 }}>
+                        <span style={{ fontSize: 13, color: T.muted, fontFamily: mono, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 3 }}>{sz}</span>
+                        <span style={{ fontSize: 16, color: T.text, fontWeight: 700, fontFamily: mono }}>{(item.qtys || {})[sz].toLocaleString()}</span>
+                      </div>
+                    ))}
+                    <span style={{ fontSize: 14, color: T.muted, fontFamily: mono, fontWeight: 600, paddingBottom: 1 }}>· {totalUnits.toLocaleString()} units</span>
+                  </div>
+                )}
               </div>
               {/* Order total input — sized for $100,000.00, right-aligned */}
               <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
@@ -683,9 +725,9 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
       {/* Summary — counts items where the order total has been entered. */}
       <div style={{ fontSize: 11, color: T.muted, textAlign: "center" }}>
         {items.filter(it => {
-          const v = localFields[it.id]?.blanks_order_cost;
-          const n = v ? parseFloat(String(v).replace(/[^0-9.\-]/g, "")) : 0;
-          return n > 0;
+          const lv = localFields[it.id]?.blanks_order_cost;
+          const v = lv !== undefined ? lv : it.blanks_order_cost;
+          return v !== "" && v != null; // ordered if a total was entered, incl. 0
         }).length}/{items.length} items ordered
       </div>
     </div>

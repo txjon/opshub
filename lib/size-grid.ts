@@ -129,32 +129,38 @@ export function sizeMatrixHtml(
   if (!matrix) return null;
   const mono = opts?.mono || "ui-monospace, monospace";
 
-  const th = "padding:2px 5px;font-size:7px;font-weight:700;color:#999;text-align:center;border-bottom:0.5px solid #ddd";
-  const td = `padding:2px 5px;font-size:8.5px;text-align:center;font-family:${mono};color:#333`;
-  const totCol = `padding:2px 5px;font-size:8.5px;text-align:center;font-family:${mono};font-weight:700;color:#1a1a1a;background:#f0f0f0`;
+  // Match the host document: hairline rules (0.5px #e5e7eb), uppercase muted
+  // labels, mono numerals — no filled cards or gray total fills. Reads as part
+  // of the invoice/quote/PO, not a widget dropped onto it.
+  const rule = "0.5px solid #e5e7eb";
+  const label = "font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#aaa";
+  const th = `padding:3px 7px;font-size:7px;font-weight:700;color:#aaa;text-align:center;text-transform:uppercase;letter-spacing:0.04em;border-bottom:${rule}`;
+  const td = `padding:3px 7px;font-size:8.5px;text-align:center;font-family:${mono};color:#444`;
+  const totCol = `padding:3px 7px;font-size:8.5px;text-align:center;font-family:${mono};font-weight:700;color:#1a1a1a`;
+  const rowLabel = `padding:3px 10px 3px 2px;font-size:8.5px;font-weight:600;font-family:${mono};color:#555;text-align:left`;
 
   const groupHtml = matrix.groups.map((g) => {
     const head = g.cols.map((c) => {
       const [n, sub] = splitColHead(c);
-      return `<th style="${th}">${n}${sub ? `<div style="font-size:6px;font-weight:600;color:#bbb">${sub}</div>` : ""}</th>`;
+      return `<th style="${th}">${n}${sub ? `<div style="font-size:6px;font-weight:600;color:#c4c4c4;letter-spacing:0">${sub}</div>` : ""}</th>`;
     }).join("");
     const body = g.rows.map((r) => {
-      const cells = r.cells.map((v) => `<td style="${td}">${v == null ? '<span style="color:#ccc">·</span>' : v}</td>`).join("");
-      return `<tr><td style="padding:2px 6px;font-size:8.5px;font-weight:700;font-family:${mono};color:#1a1a1a;border-right:0.5px solid #eee">${r.label}</td>${cells}<td style="${totCol}">${r.total}</td></tr>`;
+      const cells = r.cells.map((v) => `<td style="${td}">${v == null ? '<span style="color:#d5d5d5">·</span>' : v}</td>`).join("");
+      return `<tr><td style="${rowLabel}">${r.label}</td>${cells}<td style="${totCol};border-left:${rule}">${r.total}</td></tr>`;
     }).join("");
-    const foot = g.colTotals.map((t) => `<td style="${totCol}">${t}</td>`).join("");
+    const foot = g.colTotals.map((t) => `<td style="${totCol};border-top:${rule}">${t}</td>`).join("");
     return `<div>
-      ${g.name ? `<div style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#888;margin:0 0 2px">${g.name}</div>` : ""}
+      ${g.name ? `<div style="${label};color:#999;margin:0 0 3px">${g.name}</div>` : ""}
       <table style="border-collapse:collapse">
         <thead><tr><th style="${th};text-align:left;color:#bbb">Waist</th>${head}<th style="${th}">Total</th></tr></thead>
         <tbody>${body}</tbody>
-        <tfoot><tr><td style="padding:2px 6px;font-size:7px;font-weight:700;text-transform:uppercase;color:#999;border-top:0.5px solid #ddd">Total</td>${foot}<td style="${totCol};border-top:0.5px solid #ddd">${g.grandTotal}</td></tr></tfoot>
+        <tfoot><tr><td style="padding:3px 10px 3px 2px;font-size:7px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#aaa;border-top:${rule}">Total</td>${foot}<td style="${totCol};border-top:${rule};border-left:${rule}">${g.grandTotal}</td></tr></tfoot>
       </table>
     </div>`;
   }).join("");
 
-  return `<div style="padding:5px 8px;background:#f7f7f7;border-radius:3px;margin-bottom:4px">
-    <div style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#aaa;margin-bottom:3px">Sizes</div>
-    <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start">${groupHtml}</div>
+  return `<div style="margin:4px 0 2px">
+    <div style="${label};margin-bottom:5px">Sizes</div>
+    <div style="display:flex;flex-wrap:wrap;gap:24px;align-items:flex-start">${groupHtml}</div>
   </div>`;
 }

@@ -35,6 +35,24 @@ export function lookupTagPrice(printers: Record<string, any>, pk: string, qty: n
   return p.tagPrices[idx] ?? 0;
 }
 
+// Per-unit shipping buffer by garment type — an internal cost estimate folded
+// into margin (not real freight). SINGLE source of truth (was duplicated in
+// both calc branches). A per-item override (costProd.shipRate, set in the job's
+// Shipping modal) wins when present — including an explicit 0.
+export const DEFAULT_SHIP_RATES: Record<string, number> = {
+  bandana:0.25, banner:1.5, beanie:0.3, crewneck:1.5, flag:0.4, hat:0.6,
+  hoodie:1.5, jacket:1.5, koozie:0.1, lighter:0.15, longsleeve:0.8, pants:0.8,
+  patch:0.10, pin:0.25, poster:0.1, shorts:0.5, socks:0.5, sticker:0.01,
+  tee:0.65, tote:0.75, towel:0.75, water_bottle:0.75,
+};
+
+// Effective per-unit shipping rate for a costProd: an explicit per-item
+// override (incl. 0) wins; otherwise the garment-type default.
+export function effectiveShipRate(p: any): number {
+  if (p && p.shipRate != null && p.shipRate !== "") return parseFloat(p.shipRate) || 0;
+  return DEFAULT_SHIP_RATES[p?.garment_type || ""] ?? 0;
+}
+
 export function calcCostProduct(p: any, margin: string, inclShip: boolean, inclCC: boolean, allProds: any[], printers: Record<string, any>) {
   const qty = p.totalQty || 0; if (qty === 0) return null;
   const NON_GARMENT = ["accessory","patch","sticker","poster","pin","koozie","banner","flag","lighter","towel","water_bottle","samples","custom","key_chain","woven_labels","bandana","socks","tote","custom_bag","pillow","rug","pens","napkins","balloons","stencils"];
@@ -66,8 +84,7 @@ export function calcCostProduct(p: any, margin: string, inclShip: boolean, inclC
       return a + (isFlat ? v : v * qty);
     }, 0);
     const poTotal = customTotal;
-    const SHIP_RATES: Record<string, number> = { bandana:0.25,banner:1.5,beanie:0.3,crewneck:1.5,flag:0.4,hat:0.6,hoodie:1.5,jacket:1.5,koozie:0.1,lighter:0.15,longsleeve:0.8,pants:0.8,patch:0.10,pin:0.25,poster:0.1,shorts:0.5,socks:0.5,sticker:0.01,tee:0.65,tote:0.75,towel:0.75,water_bottle:0.75 };
-    const shipRate = SHIP_RATES[p.garment_type || ""] ?? 0;
+    const shipRate = effectiveShipRate(p);
     const shipping = inclShip && shipRate > 0 ? qty * shipRate : 0;
     const totalCost = poTotal + shipping;  // blankCost is 0 for non-garment
     const marginPct = (parseFloat((margin || "30%").replace("%", "")) / 100) || 0.30;
@@ -241,13 +258,7 @@ export function calcCostProduct(p: any, margin: string, inclShip: boolean, inclC
   // Totals
   const perUnitPORate = printTotal + finUnitRate + specUnitRate;
   const poTotal = perUnitPORate * qty + setupTotal + customTotal;
-  const SHIP_RATES: Record<string, number> = {
-    bandana:0.25, banner:1.5, beanie:0.3, crewneck:1.5, flag:0.4, hat:0.6,
-    hoodie:1.5, jacket:1.5, koozie:0.1, lighter:0.15, longsleeve:0.8, pants:0.8,
-    patch:0.10, pin:0.25, poster:0.1, shorts:0.5, socks:0.5, sticker:0.01,
-    tee:0.65, tote:0.75, towel:0.75, water_bottle:0.75,
-  };
-  const shipRate = SHIP_RATES[p.garment_type || ""] ?? 0;
+  const shipRate = effectiveShipRate(p);
   const shipping = inclShip && shipRate > 0 ? qty * shipRate : 0;
   const totalCost = blankCost + poTotal + shipping;
   const marginPct = (parseFloat((margin || "30%").replace("%", "")) / 100) || 0.30;

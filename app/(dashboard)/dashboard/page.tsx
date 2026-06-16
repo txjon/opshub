@@ -333,7 +333,7 @@ export default async function DashboardPage() {
     // once it's moved to production / receiving / fulfillment, blanks
     // are obviously ordered and this alert is just stale noise.
     if (j.phase === "ready" && quoteApproved && paymentGateMet && allProofsApproved) {
-      const needsBlanks = apparelItems.filter((it: any) => (it.blanks_order_cost ?? 0) <= 0);
+      const needsBlanks = apparelItems.filter((it: any) => it.blanks_order_cost == null);
       if (needsBlanks.length > 0) {
         alerts.push({ ...base, priority: 1, type: "order_blanks", color: T.accent,
           action: `Order blanks · ${needsBlanks.length} item${needsBlanks.length !== 1 ? "s" : ""}`,
@@ -342,7 +342,7 @@ export default async function DashboardPage() {
     }
 
     // 9. Send PO — same phase gate as order_blanks.
-    const allBlanksHandled = apparelItems.length === 0 || apparelItems.every((it: any) => (it.blanks_order_cost ?? 0) > 0);
+    const allBlanksHandled = apparelItems.length === 0 || apparelItems.every((it: any) => it.blanks_order_cost != null);
     if (j.phase === "ready" && quoteApproved && paymentGateMet && allProofsApproved && allBlanksHandled && unsentVendors.length > 0) {
       alerts.push({ ...base, priority: 1, type: "send_po", color: T.accent,
         action: `Send PO · ${unsentVendors.join(", ")}`,

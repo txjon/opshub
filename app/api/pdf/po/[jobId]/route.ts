@@ -390,7 +390,7 @@ function renderPOHTML(data: any): string {
   ${itemBlocks}
 
   <div style="border-top:1.5px solid #1a1a1a;padding-top:12px;margin-bottom:24px;text-align:right">
-    <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#aaa;margin-bottom:4px">PO Total — Decoration</div>
+    <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#aaa;margin-bottom:4px">PO Total</div>
     <div style="font-size:24px;font-weight:800;letter-spacing:-0.5px;font-family:${mono}">${fmtD(grandTotal)}</div>
   </div>
 

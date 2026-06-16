@@ -48,6 +48,7 @@ type PreorderProduct = {
   retail_price: number | null;
   mockup_drive_file_id: string | null;
   shopify_product_url: string | null;
+  image_url: string | null;
   sort_order: number;
   is_built_in_shopify: boolean;
   built_in_shopify_at: string | null;
@@ -73,6 +74,22 @@ const STATUS_OWNERS: Record<PreorderStatus, string> = {
   fulfilling: "ShipStation — daily orders",
   complete: "Done",
 };
+
+// Strip a "pre-order" marker from a product name when it becomes a Labs item.
+// Handles the variants Shopify gives us — Pre-Order, Preorder, Pre Order,
+// PreOrder — plus a wrapping separator/parens, anywhere in the string. The
+// e-comm product keeps its name; only the pushed Labs item is cleaned.
+function stripPreorderName(name: string): string {
+  const cleaned = String(name || "")
+    .replace(/\s*[(\[]?\s*pre[\s_-]*order\s*[)\]]?\s*/gi, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim()
+    .replace(/[\s_–—-]+$/g, "")
+    .replace(/^[\s_–—-]+/g, "")
+    .trim();
+  // Degenerate case (name was only "Pre-Order") → keep the original.
+  return cleaned || String(name || "").trim();
+}
 
 function toneFor(s: PreorderStatus | null) {
   if (!s) return T.border;
@@ -121,6 +138,13 @@ export default function PreorderDetail() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string>("");
+  // Undo a push — returns the pre-order to "closed" and unlinks the Labs
+  // job so sold qtys can be re-imported and re-pushed. The Labs job itself
+  // is NOT touched (Jon may have cancelled it deliberately). Without this
+  // the producing state is a one-way dead end (NextActionButton only
+  // advances), which strands the pre-order if a push is cancelled.
+  const [confirmRevert, setConfirmRevert] = useState(false);
+  const [reverting, setReverting] = useState(false);
   // Import products from a Shopify product-export CSV (the standard
   // first step — products are built in Shopify, then announced here).
   // Maps Title→name, combined Option values→sizes, Variant Price→retail,
@@ -177,6 +201,17 @@ export default function PreorderDetail() {
     router.push("/ecomm");
   }
 
+  async function revertPush() {
+    if (!preorder || reverting) return;
+    setReverting(true);
+    await (supabase.from("fulfillment_projects") as any)
+      .update({ preorder_status: "closed", source_job_id: null })
+      .eq("id", preorderId);
+    setPreorder(p => p ? { ...p, preorder_status: "closed", source_job_id: null } : p);
+    setReverting(false);
+    setConfirmRevert(false);
+  }
+
   async function updateField(field: keyof Preorder, value: any) {
     if (!preorder) return;
     setPreorder(p => p ? { ...p, [field]: value } as Preorder : p);
@@ -203,16 +238,31 @@ export default function PreorderDetail() {
         (byHandle[handle] ||= []).push(r);
       }
 
-      const existing = new Set(products.map(p => p.name.toLowerCase().trim()));
+      const existingByName = new Map(products.map(p => [p.name.toLowerCase().trim(), p]));
       const domain = (preorder?.store_account || "").replace(/^https?:\/\//, "").replace(/\/+$/, "");
       const toInsert: any[] = [];
+      // Re-importing the same CSV is how images get back-filled onto products
+      // that were imported before image capture existed: if an existing product
+      // is missing its image_url and the export has one, enrich it rather than
+      // skip silently (otherwise the push has no mockup to upload).
+      const imageUpdates: { id: string; image_url: string }[] = [];
       let order = products.length;
       let skipped = 0;
 
       for (const [handle, group] of Object.entries(byHandle)) {
         const name = (group.find(r => (r["Title"] || "").trim())?.["Title"] || "").trim();
         if (!name) { continue; }
-        if (existing.has(name.toLowerCase())) { skipped++; continue; }
+        // Product image — first non-empty "Image Src" across the variant rows
+        // (Shopify puts the primary product image on the first row). Public CDN
+        // URL; on push it's auto-uploaded to Drive as the item mockup.
+        const imageUrl = (group.find(r => (r["Image Src"] || "").trim())?.["Image Src"] || "").trim() || null;
+        const already = existingByName.get(name.toLowerCase());
+        if (already) {
+          // Back-fill a missing image; otherwise leave the existing product be.
+          if (imageUrl && !already.image_url) imageUpdates.push({ id: already.id, image_url: imageUrl });
+          skipped++;
+          continue;
+        }
         const priceRow = group.find(r => (r["Variant Price"] || "").trim());
         const retail = priceRow ? parseFloat(priceRow["Variant Price"]) : NaN;
         // Combine each variant's option values into one label — handles
@@ -234,6 +284,7 @@ export default function PreorderDetail() {
           name,
           sizes,
           retail_price: isNaN(retail) ? null : retail,
+          image_url: imageUrl,
           shopify_product_url: domain ? `https://${domain}/products/${handle}` : null,
           sort_order: order++,
           // Came from a Shopify export → it's built in Shopify by
@@ -244,15 +295,35 @@ export default function PreorderDetail() {
         });
       }
 
+      // Back-fill missing images on existing products (e.g. re-importing after
+      // the image feature shipped) so the next push has mockups to upload.
+      let enriched = 0;
+      if (imageUpdates.length > 0) {
+        for (const u of imageUpdates) {
+          const { error: upErr } = await (supabase.from("preorder_products") as any)
+            .update({ image_url: u.image_url }).eq("id", u.id);
+          if (!upErr) enriched++;
+        }
+        const enrichedMap = new Map(imageUpdates.map(u => [u.id, u.image_url]));
+        setProducts(prev => prev.map(p => enrichedMap.has(p.id) ? { ...p, image_url: enrichedMap.get(p.id)! } : p));
+      }
+
       if (toInsert.length === 0) {
-        setImportResult(skipped > 0 ? `Nothing new — ${skipped} product(s) already imported.` : "No products found in that CSV.");
+        const parts: string[] = [];
+        if (enriched > 0) parts.push(`back-filled ${enriched} image${enriched === 1 ? "" : "s"}`);
+        if (skipped > 0) parts.push(`${skipped} already present`);
+        setImportResult(parts.length ? `Nothing new — ${parts.join(" · ")}.` : "No products found in that CSV.");
         setImporting(false);
         return;
       }
       const { data: inserted, error } = await (supabase.from("preorder_products") as any).insert(toInsert).select();
       if (error) throw error;
       setProducts(prev => [...prev, ...((inserted || []) as any[]).map(r => ({ ...r, sizes: r.sizes || [] }))]);
-      setImportResult(`Imported ${(inserted as any[])?.length ?? toInsert.length} product${((inserted as any[])?.length ?? toInsert.length) === 1 ? "" : "s"}${skipped ? ` · skipped ${skipped} already present` : ""}.`);
+      const n = (inserted as any[])?.length ?? toInsert.length;
+      const tail: string[] = [];
+      if (enriched > 0) tail.push(`back-filled ${enriched} image${enriched === 1 ? "" : "s"}`);
+      if (skipped > 0) tail.push(`skipped ${skipped} already present`);
+      setImportResult(`Imported ${n} product${n === 1 ? "" : "s"}${tail.length ? ` · ${tail.join(" · ")}` : ""}.`);
     } catch (e: any) {
       setImportResult("Import failed: " + (e?.message || String(e)));
     } finally {
@@ -286,6 +357,13 @@ export default function PreorderDetail() {
       const hasProdQty = fields.includes("Variant Inventory Qty");      // products export
       const committedCol = fields.find(f => /^committed/i.test(f));      // inventory export (preferred)
       const availableCol = fields.find(f => /^available/i.test(f));      // inventory export (fallback)
+      // The products export also carries the product image (Image Src). The
+      // inventory export does not. When it's present, opportunistically
+      // back-fill image_url on matched products that lack one, so the push that
+      // follows this same import has a mockup to upload — no separate product
+      // re-import needed. (Keyed by product id below; applied after the loop.)
+      const hasImageSrc = fields.includes("Image Src");
+      const imageUpdates = new Map<string, string>();
       const soldFromRow = (r: Record<string, string>): number => {
         if (hasProdQty) { const q = parseInt(r["Variant Inventory Qty"] || "0", 10) || 0; return q < 0 ? -q : 0; }
         if (committedCol) { const c = parseInt(r[committedCol] || "0", 10) || 0; return c > 0 ? c : 0; } // "not stocked" → NaN → 0
@@ -304,6 +382,10 @@ export default function PreorderDetail() {
         const name = (group.find(r => (r["Title"] || "").trim())?.["Title"] || "").trim();
         const p = byName[name.toLowerCase()];
         if (!p) { if (name) unmatchedProducts.add(name); continue; }
+        if (hasImageSrc && !p.image_url) {
+          const img = (group.find(r => (r["Image Src"] || "").trim())?.["Image Src"] || "").trim();
+          if (img) imageUpdates.set(p.id, img);
+        }
         next[p.id] ||= {};
         for (const r of group) {
           const combo = [r["Option1 Value"], r["Option2 Value"], r["Option3 Value"]]
@@ -334,7 +416,21 @@ export default function PreorderDetail() {
       setSoldQtys(merged);
       // Pre-fill the editable Buffer column from the freshly imported sold × %.
       setBufferQtys(seedBuffers(merged, parseFloat(pushBuffer) || 0));
+
+      // Back-fill any images captured from a products export so the push picks
+      // them up (push reads image_url off products state). Persist + reflect.
+      let enriched = 0;
+      if (imageUpdates.size > 0) {
+        for (const [id, url] of Array.from(imageUpdates.entries())) {
+          const { error: upErr } = await (supabase.from("preorder_products") as any)
+            .update({ image_url: url }).eq("id", id);
+          if (!upErr) enriched++;
+        }
+        setProducts(prev => prev.map(p => imageUpdates.has(p.id) ? { ...p, image_url: imageUpdates.get(p.id)! } : p));
+      }
+
       const parts = [`Filled ${matched} variant${matched === 1 ? "" : "s"} (${soldTotal.toLocaleString()} unit${soldTotal === 1 ? "" : "s"} sold) from ${files.length} file${files.length === 1 ? "" : "s"}`];
+      if (enriched > 0) parts.push(`captured ${enriched} product image${enriched === 1 ? "" : "s"}`);
       if (unmatchedProducts.size) parts.push(`${unmatchedProducts.size} CSV product(s) not in this pre-order`);
       if (unmatchedVariants) parts.push(`${unmatchedVariants} variant row(s) didn't match a size`);
       setSoldImportResult(parts.join(" · ") + ".");
@@ -483,11 +579,16 @@ export default function PreorderDetail() {
       const newJobId = (newJob as any).id;
 
       // 2. For each product with units, create an items row + buy_sheet_lines.
+      // Collect {itemId, name, imageUrl} so we can auto-import Shopify product
+      // images as Drive mockups once all items exist (step 4).
+      const mockupTargets: { itemId: string; name: string; imageUrl: string }[] = [];
       for (let i = 0; i < productsToCreate.length; i++) {
         const r = productsToCreate[i];
+        // Drop the "pre-order" marker — the Labs item is just the product.
+        const itemName = stripPreorderName(r.product.name);
         const { data: newItem, error: itemErr } = await (supabase.from("items") as any).insert({
           job_id: newJobId,
-          name: r.product.name,
+          name: itemName,
           blank_vendor: r.product.blank_vendor,
           blank_sku: r.product.blank_sku,
           status: "tbd",
@@ -496,6 +597,8 @@ export default function PreorderDetail() {
         }).select("id").single();
         if (itemErr || !newItem) throw new Error(itemErr?.message || "Failed to create item");
         const itemId = (newItem as any).id;
+        // Use the cleaned name so the Drive folder + "{name} mockup" file match the item.
+        if (r.product.image_url) mockupTargets.push({ itemId, name: itemName, imageUrl: r.product.image_url });
 
         const lines = r.sizes
           .filter(s => s.total > 0)
@@ -521,8 +624,27 @@ export default function PreorderDetail() {
 
       setPreorder(p => p ? { ...p, source_job_id: newJobId, preorder_status: "producing", buffer_pct: bufferPct } : p);
       setPushOpen(false);
-      // Open the new Labs job in a new tab so Drake can review.
+      // Open the new Labs job in a new tab so Drake can review. Done BEFORE the
+      // mockup import so the popup fires inside the click gesture (a long import
+      // first would get the tab blocked).
       window.open(`/jobs/${newJobId}`, "_blank");
+
+      // 4. Auto-import Shopify product images as Drive mockups. Best-effort:
+      //    the job is already created and open — a mockup hiccup must never
+      //    look like a failed push. Items without an image are simply skipped.
+      if (mockupTargets.length > 0) {
+        try {
+          await fetch("/api/ecomm/import-mockups", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              clientName: preorder.client_name,
+              projectTitle: preorder.name,
+              items: mockupTargets,
+            }),
+          });
+        } catch { /* mockups are a convenience; never block the push */ }
+      }
     } catch (e: any) {
       setPushError(e?.message || "Push failed");
     } finally {
@@ -586,10 +708,17 @@ export default function PreorderDetail() {
     }
     if (s === "producing") {
       return (
-        <button onClick={() => advanceStatus("fulfilling")}
-          style={{ background: T.purple, border: "none", borderRadius: 8, color: "#fff", fontSize: 12, fontWeight: 700, padding: "8px 18px", cursor: "pointer", fontFamily: font }}>
-          → Fulfilling (received + in Shopify)
-        </button>
+        <>
+          <button onClick={() => advanceStatus("fulfilling")}
+            style={{ background: T.purple, border: "none", borderRadius: 8, color: "#fff", fontSize: 12, fontWeight: 700, padding: "8px 18px", cursor: "pointer", fontFamily: font }}>
+            → Fulfilling (received + in Shopify)
+          </button>
+          <button onClick={() => setConfirmRevert(true)}
+            title="Undo the push — unlink the Labs job and return to Closed so you can re-import sold qtys and re-push"
+            style={{ background: "transparent", border: `1px solid ${T.border}`, borderRadius: 8, color: T.muted, fontSize: 12, fontWeight: 600, padding: "8px 16px", cursor: "pointer", fontFamily: font }}>
+            ↩ Undo push
+          </button>
+        </>
       );
     }
     if (s === "fulfilling") {
@@ -1024,6 +1153,15 @@ export default function PreorderDetail() {
         confirmLabel={deleting ? "Deleting…" : "Delete"}
         onConfirm={deletePreorder}
         onCancel={() => setConfirmDelete(false)}
+      />
+
+      <ConfirmDialog
+        open={confirmRevert}
+        title="Undo push?"
+        message={`This returns "${preorder.name}" to Closed and unlinks the Labs job so you can re-import sold qtys and push again. The Labs job itself is not deleted. Sold/buffer/sample quantities aren't stored on the pre-order, so nothing else is lost.`}
+        confirmLabel={reverting ? "Reverting…" : "Undo push"}
+        onConfirm={revertPush}
+        onCancel={() => setConfirmRevert(false)}
       />
     </div>
   );

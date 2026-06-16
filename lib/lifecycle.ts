@@ -88,11 +88,12 @@ export function calculatePhase(input: LifecycleInput): LifecycleResult {
   const receivedAtHpd = toHpdItems.filter(it => it.received_at_hpd).length;
   const dropShipShipped = dropShipItems.filter(it => it.pipeline_stage === "shipped").length;
   // Match BlanksTab + ProjectProgress: only real garments need blanks.
-  // "Ordered" signal is order total > 0 (entered after ordering externally) —
-  // the order # field was removed from the UI.
+  // "Ordered" signal is a NON-NULL order total — an explicit 0 marks free /
+  // client-supplied blanks as ordered, so null (never entered) is the only
+  // not-ordered state.
   const NON_GARMENT = ["accessory","patch","sticker","poster","pin","koozie","banner","flag","lighter","towel","water_bottle","samples","custom","key_chain","woven_labels","bandana","socks","tote","custom_bag","pillow","rug","pens","napkins","balloons","stencils"];
   const apparelItems = items.filter(it => !NON_GARMENT.includes(it.garment_type || ""));
-  const blanksOrdered = apparelItems.filter(it => (it.blanks_order_cost ?? 0) > 0).length;
+  const blanksOrdered = apparelItems.filter(it => it.blanks_order_cost != null).length;
   const allProofsApproved = items.every(it => proofStatus[it.id]?.allApproved || it.artwork_status === "approved");
 
   // Stage-route "done" requires both received AND webstore_entered on
