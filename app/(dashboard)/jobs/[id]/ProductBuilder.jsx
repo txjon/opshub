@@ -376,12 +376,14 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
     // RLS narrows company_item_types to the active tenant.
     createClient().from("company_item_types").select("id, name, sort_order").order("sort_order").then(({ data }) => setItemTypes(data || []));
   }, [cutSew]);
+  const [newItemName, setNewItemName] = useState("");
   const addItemOfType = (typeName) => {
     addItem({
-      id: Date.now() + Math.random(), name: "", blank_vendor: "", blank_sku: "",
+      id: Date.now() + Math.random(), name: newItemName.trim(), blank_vendor: "", blank_sku: "",
       garment_type: "custom", qb_item_type: typeName,
       sizes: [], qtys: {}, curve: DEFAULT_CURVE, totalQty: 0, blankCosts: {}, cost_per_unit: 0,
     });
+    setNewItemName("");
     setShowAddModal(false);
   };
   const addNewItemType = async () => {
@@ -789,9 +791,15 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
           <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: 24, width: 420, maxWidth: "90vw" }}>
             <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>{(!cutSew && assignBlankTo) ? "Assign Blank" : "Add Item"}</div>
             {cutSew ? (
-              // DMD-style: pick a managed item type (their QB category). No blanks.
+              // DMD-style: name the item + pick a managed type (QB category). No blanks.
               <>
-                <div style={{ fontSize: 12, color: T.muted, marginBottom: 14 }}>Choose an item type</div>
+                <div style={{ marginBottom: 14 }}>
+                  <label style={{ fontSize: 10, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 5 }}>Item name</label>
+                  <input value={newItemName} onChange={e => setNewItemName(e.target.value)} autoFocus
+                    placeholder="e.g. Crocodile Ridgeline Pant"
+                    style={{ width: "100%", padding: "10px 12px", border: `1px solid ${T.border}`, borderRadius: 8, background: T.surface, color: T.text, fontSize: 13, outline: "none", fontFamily: font, boxSizing: "border-box" }} />
+                </div>
+                <div style={{ fontSize: 12, color: T.muted, marginBottom: 8 }}>Choose a type to add it</div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
                   {itemTypes.map(t => (
                     <button key={t.id} onClick={() => addItemOfType(t.name)}
