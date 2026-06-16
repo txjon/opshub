@@ -40,11 +40,8 @@ See `project_dmd_tenant` memory for the full build plan/phases.
       account, then set `companies.drive_folder_id` (so art files file under DMD).
 
 ## Assets
-- [ ] **Outlined DMD logo SVG** — re-export from Illustrator with **Type → Create
-      Outlines** (current export has live GothamBlack text Browserless can't render).
-      Claude is using a temporary system-font placeholder until then.
-- [~] **favicon-dmd.svg** — placeholder "DMD" monogram created; swap for the
-      branded mark when ready.
+- [x] **Outlined DMD logo SVG** — installed (real wordmark, renders in app + PDFs).
+- [~] **favicon-dmd.svg** — placeholder "DMD" monogram; swap for a branded mark if wanted.
 
 ## Deferred (needs Jon present to test)
 - [ ] **Cut-and-sew item auto-default** — new DMD items auto-set garment_type to
