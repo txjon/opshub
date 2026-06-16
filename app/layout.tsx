@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { headers } from "next/headers";
 import { Inter } from "next/font/google";
 import "./globals.css";
+import { resolveSlugFromHost } from "@/lib/tenants";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -12,19 +13,14 @@ const inter = Inter({ subsets: ["latin"] });
 const TENANT_TAB_META: Record<string, { title: string; icon: string }> = {
   hpd: { title: "OpsHub · HPD", icon: "/favicon-hpd.svg" },
   ihm: { title: "OpsHub · IHM", icon: "/favicon-ihm.svg" },
+  dmd: { title: "OpsHub · DMD", icon: "/favicon-hpd.svg" }, // TODO: favicon-dmd.svg asset
 };
-function slugFromHost(host: string | null): string {
-  if (!host) return "hpd";
-  const h = host.toLowerCase().split(":")[0];
-  if (h === "app.inhousemerchandise.com" || h === "ihm.localhost") return "ihm";
-  return "hpd";
-}
 
 export async function generateMetadata(): Promise<Metadata> {
   let slug = "hpd";
   try {
     const h = await headers();
-    slug = h.get("x-company-slug") || slugFromHost(h.get("host"));
+    slug = h.get("x-company-slug") || resolveSlugFromHost(h.get("host"));
   } catch {
     // Outside request context (build) — leave as default.
   }

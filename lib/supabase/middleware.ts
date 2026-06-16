@@ -1,24 +1,14 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
-
-// Multi-tenant routing — map a request Host to a company slug. Used by
-// middleware to stamp the active company onto request headers, which
-// server components + API routes read via headers().get("x-company-slug").
-// Default = HPD so the existing Vercel URL + any unmatched host keeps
-// the single-tenant past behavior. Add new tenants here.
-function resolveCompanySlug(host: string | null): string {
-  if (!host) return "hpd";
-  const h = host.toLowerCase().split(":")[0];
-  if (h === "app.inhousemerchandise.com" || h === "ihm.localhost") return "ihm";
-  return "hpd";
-}
+import { resolveSlugFromHost } from "@/lib/tenants";
 
 export async function updateSession(request: NextRequest) {
   // Clone the request headers so we can add x-company-slug. The slug is
   // available to every downstream handler (page, API route, server
   // component) via next/headers headers().get("x-company-slug").
+  // Host→slug map lives in lib/tenants.ts (single source of truth).
   const requestHeaders = new Headers(request.headers);
-  requestHeaders.set("x-company-slug", resolveCompanySlug(request.headers.get("host")));
+  requestHeaders.set("x-company-slug", resolveSlugFromHost(request.headers.get("host")));
 
   let supabaseResponse = NextResponse.next({ request: { headers: requestHeaders } });
 

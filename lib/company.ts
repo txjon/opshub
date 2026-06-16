@@ -1,6 +1,7 @@
 import { headers } from "next/headers";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { cache } from "react";
+import { resolveSlugFromHost } from "@/lib/tenants";
 
 // Active company resolution for server-side code. Reads the slug
 // stamped onto the request by lib/supabase/middleware.ts, looks up the
@@ -27,21 +28,11 @@ export type ActiveCompany = {
   drive_folder_id: string | null;
 };
 
-// Same Host → slug map as lib/supabase/middleware.ts. Used as a
-// fallback when x-company-slug isn't on the request — that header is
-// only stamped on routes that go through middleware, and /api/* is
-// explicitly excluded so API routes have to derive the slug from the
-// Host themselves.
-function slugFromHost(host: string | null): string {
-  if (!host) return "hpd";
-  const h = host.toLowerCase().split(":")[0];
-  if (h === "app.inhousemerchandise.com" || h === "ihm.localhost") return "ihm";
-  return "hpd";
-}
-
 export const getActiveCompany = cache(async (): Promise<ActiveCompany> => {
   const h = await headers();
-  const slug = h.get("x-company-slug") || slugFromHost(h.get("host"));
+  // Host→slug fallback for when x-company-slug isn't stamped (e.g. /api/*
+  // routes that bypass middleware). Map lives in lib/tenants.ts.
+  const slug = h.get("x-company-slug") || resolveSlugFromHost(h.get("host"));
   // Service-role client: companies branding is essentially public config
   // (name, address, emails, logos) and the slug is already trust-checked
   // by middleware (or derived from the request Host). Using anon + RLS
