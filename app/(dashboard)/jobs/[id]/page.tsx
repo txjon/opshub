@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { clientShippingRoutes } from "@/lib/tenants";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { CostingTabWrapper } from "./CostingTab";
 import { POTab } from "./POTab.jsx";
@@ -581,6 +582,8 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   }, []);
 
   const upd = (k: string, v: any) => { if (!job) return; setJob(prev => { if (!prev) return prev; const u = {...prev, [k]:v} as Job; saveJob({[k]:v}); return u; }); };
+  // Shipping routes this tenant may pick (DMD = ship_through only).
+  const allowedRoutes = clientShippingRoutes();
   const updItem = (id: string, p: Partial<Item>) => saveItem(id, p);
 
   if (loading && !initialLoadDone.current) return React.createElement(JobSkeleton, null);
@@ -1240,9 +1243,9 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:0}}>HPD plan</div>
                 <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Shipping route</label>
                   <select style={{...ic,height:34}} value={(job as any).shipping_route||"ship_through"} onChange={e=>upd("shipping_route",e.target.value)}>
-                    <option value="drop_ship">Drop ship (direct to client)</option>
-                    <option value="ship_through">Ship-through (forward from HPD)</option>
-                    <option value="stage">Stage (fulfillment from HPD)</option>
+                    {allowedRoutes.includes("drop_ship") && <option value="drop_ship">Drop ship (direct to client)</option>}
+                    {allowedRoutes.includes("ship_through") && <option value="ship_through">Ship-through (forward from HPD)</option>}
+                    {allowedRoutes.includes("stage") && <option value="stage">Stage (fulfillment from HPD)</option>}
                   </select>
                 </div>
                 <div><label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Shipping notes</label>

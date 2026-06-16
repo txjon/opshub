@@ -49,3 +49,21 @@ export const TENANT_NAMES: Record<string, string> = {
 export function nameForSlug(slug: string): string {
   return TENANT_NAMES[slug] || TENANT_NAMES[DEFAULT_SLUG];
 }
+
+// Shipping routes a tenant is allowed to choose on a project. DMD is the
+// importer of record — every order must land at the HPD warehouse and forward
+// out — so it's ship_through only. Others get the full set. Default = all.
+const ALL_SHIPPING_ROUTES = ["drop_ship", "ship_through", "stage"];
+const TENANT_SHIPPING_ROUTES: Record<string, string[]> = {
+  dmd: ["ship_through"],
+};
+export function shippingRoutesForSlug(slug: string): string[] {
+  return TENANT_SHIPPING_ROUTES[slug] || ALL_SHIPPING_ROUTES;
+}
+
+// Active-tenant allowed routes from the browser (client components). Falls back
+// to the full set during SSR / outside the browser.
+export function clientShippingRoutes(): string[] {
+  if (typeof window === "undefined") return ALL_SHIPPING_ROUTES;
+  return shippingRoutesForSlug(resolveSlugFromHost(window.location.hostname));
+}
