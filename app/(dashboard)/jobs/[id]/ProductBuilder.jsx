@@ -1531,6 +1531,24 @@ function EditSizesModal({ item, onClose, onSave }) {
 
   const total = Object.values(qtys).reduce((a, v) => a + (Number(v) || 0), 0);
 
+  // Waist × Inseam (cut-and-sew pants) — pre-loaded with the Ridgeline ranges.
+  // Selecting cells produces "{waist} / {inseam} ({name})" labels, the same
+  // dimensional format the size grid pivots into a cut-ticket (waist rows ×
+  // inseam cols) on the card + PDFs.
+  const WI_WAISTS = [28, 30, 32, 34, 36, 38, 40, 42];
+  const WI_INSEAMS = [{ num: 30, name: "Short" }, { num: 32, name: "Regular" }, { num: 34, name: "Long" }, { num: 36, name: "Tall" }];
+  const wiLabel = (w, i) => `${w} / ${i.num} (${i.name})`;
+  const [showWI, setShowWI] = useState(() => !!parseSizeMatrix(item.sizes || [], null));
+  const setMany = (labels, on) => {
+    const next = new Set(sizes);
+    if (on) { for (const o of ONE_SIZE) next.delete(o); labels.forEach(l => next.add(l)); }
+    else { labels.forEach(l => next.delete(l)); }
+    setSizes(sortSizesLocal([...next]));
+    if (!on) { const q = { ...qtys }; labels.forEach(l => delete q[l]); setQtys(q); }
+  };
+  const toggleWaistRow = (w) => { const ls = WI_INSEAMS.map(i => wiLabel(w, i)); setMany(ls, !ls.every(l => sizes.includes(l))); };
+  const toggleInseamCol = (i) => { const ls = WI_WAISTS.map(w => wiLabel(w, i)); setMany(ls, !ls.every(l => sizes.includes(l))); };
+
   return (
     <div onClick={onClose}
       style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 110, display: "flex", alignItems: "center", justifyContent: "center", padding: "clamp(12px, 3vw, 32px)", fontFamily: font }}>
@@ -1589,6 +1607,51 @@ function EditSizesModal({ item, onClose, onSave }) {
                 );
               })}
             </div>
+          </div>
+
+          {/* Waist × Inseam (pants) — pre-loaded Ridgeline ranges; click cells to select. */}
+          <div>
+            <button onClick={() => setShowWI(v => !v)}
+              style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", padding: 0, fontSize: 10, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em" }}>
+              Waist × Inseam (pants) <span style={{ fontSize: 9 }}>{showWI ? "▾" : "▸"}</span>
+            </button>
+            {showWI && (
+              <div style={{ overflowX: "auto", marginTop: 8 }}>
+                <table style={{ borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr>
+                      <th style={{ padding: 4, fontSize: 9, color: T.faint, fontWeight: 700 }}>W \ I</th>
+                      {WI_INSEAMS.map(i => (
+                        <th key={i.num} onClick={() => toggleInseamCol(i)} title="Toggle whole column"
+                          style={{ padding: "4px 6px", fontSize: 11, fontFamily: mono, fontWeight: 700, color: T.muted, cursor: "pointer", textAlign: "center" }}>
+                          {i.num}<div style={{ fontSize: 8, fontWeight: 600, color: T.faint }}>{i.name}</div>
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {WI_WAISTS.map(w => (
+                      <tr key={w}>
+                        <td onClick={() => toggleWaistRow(w)} title="Toggle whole row"
+                          style={{ padding: "4px 8px", fontSize: 12, fontFamily: mono, fontWeight: 700, color: T.muted, cursor: "pointer", textAlign: "center" }}>{w}</td>
+                        {WI_INSEAMS.map(i => {
+                          const label = wiLabel(w, i); const on = sizes.includes(label);
+                          return (
+                            <td key={i.num} style={{ padding: 2 }}>
+                              <button onClick={() => toggleSize(label)}
+                                style={{ width: 38, height: 30, borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 700, background: on ? T.accent : T.card, color: on ? "#fff" : T.faint, border: `1px solid ${on ? T.accent : T.border}` }}>
+                                {on ? "✓" : ""}
+                              </button>
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div style={{ fontSize: 10, color: T.faint, marginTop: 6 }}>Click a cell to include that size · click a W or I header to toggle the whole row / column.</div>
+              </div>
+            )}
           </div>
 
           {/* Qty grid for active sizes */}
