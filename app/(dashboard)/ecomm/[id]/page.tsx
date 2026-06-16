@@ -341,6 +341,13 @@ export default function PreorderDetail() {
       const hasProdQty = fields.includes("Variant Inventory Qty");      // products export
       const committedCol = fields.find(f => /^committed/i.test(f));      // inventory export (preferred)
       const availableCol = fields.find(f => /^available/i.test(f));      // inventory export (fallback)
+      // The products export also carries the product image (Image Src). The
+      // inventory export does not. When it's present, opportunistically
+      // back-fill image_url on matched products that lack one, so the push that
+      // follows this same import has a mockup to upload — no separate product
+      // re-import needed. (Keyed by product id below; applied after the loop.)
+      const hasImageSrc = fields.includes("Image Src");
+      const imageUpdates = new Map<string, string>();
       const soldFromRow = (r: Record<string, string>): number => {
         if (hasProdQty) { const q = parseInt(r["Variant Inventory Qty"] || "0", 10) || 0; return q < 0 ? -q : 0; }
         if (committedCol) { const c = parseInt(r[committedCol] || "0", 10) || 0; return c > 0 ? c : 0; } // "not stocked" → NaN → 0
@@ -359,6 +366,10 @@ export default function PreorderDetail() {
         const name = (group.find(r => (r["Title"] || "").trim())?.["Title"] || "").trim();
         const p = byName[name.toLowerCase()];
         if (!p) { if (name) unmatchedProducts.add(name); continue; }
+        if (hasImageSrc && !p.image_url) {
+          const img = (group.find(r => (r["Image Src"] || "").trim())?.["Image Src"] || "").trim();
+          if (img) imageUpdates.set(p.id, img);
+        }
         next[p.id] ||= {};
         for (const r of group) {
           const combo = [r["Option1 Value"], r["Option2 Value"], r["Option3 Value"]]
@@ -389,7 +400,21 @@ export default function PreorderDetail() {
       setSoldQtys(merged);
       // Pre-fill the editable Buffer column from the freshly imported sold × %.
       setBufferQtys(seedBuffers(merged, parseFloat(pushBuffer) || 0));
+
+      // Back-fill any images captured from a products export so the push picks
+      // them up (push reads image_url off products state). Persist + reflect.
+      let enriched = 0;
+      if (imageUpdates.size > 0) {
+        for (const [id, url] of Array.from(imageUpdates.entries())) {
+          const { error: upErr } = await (supabase.from("preorder_products") as any)
+            .update({ image_url: url }).eq("id", id);
+          if (!upErr) enriched++;
+        }
+        setProducts(prev => prev.map(p => imageUpdates.has(p.id) ? { ...p, image_url: imageUpdates.get(p.id)! } : p));
+      }
+
       const parts = [`Filled ${matched} variant${matched === 1 ? "" : "s"} (${soldTotal.toLocaleString()} unit${soldTotal === 1 ? "" : "s"} sold) from ${files.length} file${files.length === 1 ? "" : "s"}`];
+      if (enriched > 0) parts.push(`captured ${enriched} product image${enriched === 1 ? "" : "s"}`);
       if (unmatchedProducts.size) parts.push(`${unmatchedProducts.size} CSV product(s) not in this pre-order`);
       if (unmatchedVariants) parts.push(`${unmatchedVariants} variant row(s) didn't match a size`);
       setSoldImportResult(parts.join(" · ") + ".");
