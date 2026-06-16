@@ -61,8 +61,7 @@ type FileRow = {
   uploading: boolean;
   uploaded: boolean;
   error: string | null;
-  url: string | null;
-  path: string | null;   // storage object path — used to delete on × click
+  path: string | null;   // storage object path — source of truth; used to delete on × click and sent on submit
   size: number;
   loaded: number;        // bytes uploaded so far (XHR upload progress)
 };
@@ -220,10 +219,12 @@ export default function StartPage() {
               return acc;
             }, {}),
           })),
-        // Step 3 — only successfully-uploaded files
+        // Step 3 — only successfully-uploaded files. Key off `path` (set
+        // once the blob lands in storage), NOT `url`: the download URL is
+        // signed server-side in /api/onboard now, so it isn't known here.
         files: form.files
-          .filter(f => f.uploaded && f.url)
-          .map(f => ({ filename: f.file.name, url: f.url, size: f.size, path: f.path })),
+          .filter(f => f.uploaded && f.path)
+          .map(f => ({ filename: f.file.name, size: f.size, path: f.path })),
       };
 
       const res = await fetch("/api/onboard", {
@@ -294,7 +295,7 @@ export default function StartPage() {
       setForm(f => ({
         ...f,
         files: f.files.map(r => r.id === row.id
-          ? { ...r, uploading: false, uploaded: true, url: init.downloadUrl, path: init.path, error: null, loaded: r.size }
+          ? { ...r, uploading: false, uploaded: true, path: init.path, error: null, loaded: r.size }
           : r),
       }));
     } catch (e: any) {
@@ -318,7 +319,6 @@ export default function StartPage() {
         uploading: false,
         uploaded: false,
         error: oversize ? `Too large (${Math.round(file.size / 1024 / 1024)}MB). Max 50MB per file. Paste a link to it in the description instead.` : null,
-        url: null,
         path: null,
         size: file.size,
         loaded: 0,

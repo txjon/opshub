@@ -18,10 +18,6 @@ import { createClient } from "@supabase/supabase-js";
 // Bucket is private, auto-created on first call.
 
 const BUCKET = "intake-uploads";
-// Long-lived signed download URL so the team can access the file weeks
-// after the lead lands. If a lead goes cold and gets revisited later, a
-// stale URL doesn't block them.
-const DOWNLOAD_TTL = 60 * 60 * 24 * 30; // 30 days
 
 function admin() {
   return createClient(
@@ -95,18 +91,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: uploadErr?.message || "Upload URL failed" }, { status: 500 });
     }
 
-    // Signed download URL — valid for 30 days, returns 404 until the
-    // PUT lands, then starts working automatically.
-    const { data: downloadData } = await sb.storage
-      .from(BUCKET)
-      .createSignedUrl(path, DOWNLOAD_TTL);
-
+    // NOTE: we do NOT sign a download URL here. At this point the object
+    // doesn't exist yet (the browser PUTs it next), and Supabase's
+    // createSignedUrl validates existence at sign time — it returns
+    // "Object not found" + a null URL, which used to silently drop every
+    // file from the submission. The download URL is minted later, in
+    // /api/onboard, once the blob is actually in storage. `path` is the
+    // durable source of truth and is all the client needs to send back.
     return NextResponse.json({
       ok: true,
       uploadUrl: uploadData.signedUrl,
       token: uploadData.token,
       path,
-      downloadUrl: downloadData?.signedUrl || null,
       session: sessionId,
     });
   } catch (e: any) {
