@@ -48,6 +48,7 @@ type PreorderProduct = {
   retail_price: number | null;
   mockup_drive_file_id: string | null;
   shopify_product_url: string | null;
+  image_url: string | null;
   sort_order: number;
   is_built_in_shopify: boolean;
   built_in_shopify_at: string | null;
@@ -247,11 +248,16 @@ export default function PreorderDetail() {
         }
         // Single-variant item (only Shopify's "Default Title") → one "One Size" line.
         if (sizes.length === 0) sizes.push("One Size");
+        // Product image — first non-empty "Image Src" across the variant rows
+        // (Shopify puts the primary product image on the first row). Public CDN
+        // URL; on push it's auto-uploaded to Drive as the item mockup.
+        const imageUrl = (group.find(r => (r["Image Src"] || "").trim())?.["Image Src"] || "").trim() || null;
         toInsert.push({
           preorder_id: preorderId,
           name,
           sizes,
           retail_price: isNaN(retail) ? null : retail,
+          image_url: imageUrl,
           shopify_product_url: domain ? `https://${domain}/products/${handle}` : null,
           sort_order: order++,
           // Came from a Shopify export → it's built in Shopify by
@@ -501,6 +507,9 @@ export default function PreorderDetail() {
       const newJobId = (newJob as any).id;
 
       // 2. For each product with units, create an items row + buy_sheet_lines.
+      // Collect {itemId, name, imageUrl} so we can auto-import Shopify product
+      // images as Drive mockups once all items exist (step 4).
+      const mockupTargets: { itemId: string; name: string; imageUrl: string }[] = [];
       for (let i = 0; i < productsToCreate.length; i++) {
         const r = productsToCreate[i];
         const { data: newItem, error: itemErr } = await (supabase.from("items") as any).insert({
@@ -514,6 +523,7 @@ export default function PreorderDetail() {
         }).select("id").single();
         if (itemErr || !newItem) throw new Error(itemErr?.message || "Failed to create item");
         const itemId = (newItem as any).id;
+        if (r.product.image_url) mockupTargets.push({ itemId, name: r.product.name, imageUrl: r.product.image_url });
 
         const lines = r.sizes
           .filter(s => s.total > 0)
@@ -539,8 +549,27 @@ export default function PreorderDetail() {
 
       setPreorder(p => p ? { ...p, source_job_id: newJobId, preorder_status: "producing", buffer_pct: bufferPct } : p);
       setPushOpen(false);
-      // Open the new Labs job in a new tab so Drake can review.
+      // Open the new Labs job in a new tab so Drake can review. Done BEFORE the
+      // mockup import so the popup fires inside the click gesture (a long import
+      // first would get the tab blocked).
       window.open(`/jobs/${newJobId}`, "_blank");
+
+      // 4. Auto-import Shopify product images as Drive mockups. Best-effort:
+      //    the job is already created and open — a mockup hiccup must never
+      //    look like a failed push. Items without an image are simply skipped.
+      if (mockupTargets.length > 0) {
+        try {
+          await fetch("/api/ecomm/import-mockups", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              clientName: preorder.client_name,
+              projectTitle: preorder.name,
+              items: mockupTargets,
+            }),
+          });
+        } catch { /* mockups are a convenience; never block the push */ }
+      }
     } catch (e: any) {
       setPushError(e?.message || "Push failed");
     } finally {
