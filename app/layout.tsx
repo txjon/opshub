@@ -13,7 +13,7 @@ const inter = Inter({ subsets: ["latin"] });
 const TENANT_TAB_META: Record<string, { title: string; icon: string }> = {
   hpd: { title: "OpsHub · HPD", icon: "/favicon-hpd.svg" },
   ihm: { title: "OpsHub · IHM", icon: "/favicon-ihm.svg" },
-  dmd: { title: "OpsHub · DMD", icon: "/favicon-hpd.svg" }, // TODO: favicon-dmd.svg asset
+  dmd: { title: "OpsHub · DMD", icon: "/favicon-dmd.svg" }, // placeholder monogram; swap for branded mark
 };
 
 export async function generateMetadata(): Promise<Metadata> {

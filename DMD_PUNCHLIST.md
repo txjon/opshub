@@ -43,8 +43,18 @@ See `project_dmd_tenant` memory for the full build plan/phases.
 - [ ] **Outlined DMD logo SVG** — re-export from Illustrator with **Type → Create
       Outlines** (current export has live GothamBlack text Browserless can't render).
       Claude is using a temporary system-font placeholder until then.
-- [ ] **favicon-dmd.svg** in `/public` (DMD currently reuses the HPD favicon).
+- [~] **favicon-dmd.svg** — placeholder "DMD" monogram created; swap for the
+      branded mark when ready.
+
+## Deferred (needs Jon present to test)
+- [ ] **Cut-and-sew item auto-default** — new DMD items auto-set garment_type to
+      "custom" (flat per-unit, no blank). The MODEL already works (pick "Custom"
+      type → accessory costing layout, no blank gate, no "No blank" nag). Auto-
+      defaulting it touches the buy-sheet add path (saving-sensitive), so left for
+      a session where Jon can verify saving. For now: pick "Custom" type manually.
 
 ---
 
-_Last updated by Claude: Phase 1a shipped (tenant scaffolding); Phase 1b in progress._
+_Last updated by Claude: Phase 1a + 1b shipped to dev (tenant scaffolding,
+all routing centralized in lib/tenants.ts, no-blank nag suppressed, favicon
+placeholder). Cut-sew auto-default deferred; Phase 2 (QB multi-tenancy) next._
