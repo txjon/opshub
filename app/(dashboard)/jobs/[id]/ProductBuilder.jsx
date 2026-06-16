@@ -19,6 +19,11 @@ import {
   SSPicker, ASColourPicker, LAApparelPicker, FavoritesPicker, OtherPicker, CottonCollectivePicker,
 } from "./BuySheetTab";
 
+// Non-apparel garment types — no catalog blank, priced via custom-cost lines.
+// Mirrors lib/pricing.ts / lib/lifecycle.ts. Used to suppress the "No blank"
+// nag for cut-and-sew / accessory items (e.g. all DMD items, garment_type "custom").
+const NON_GARMENT = ["accessory","patch","sticker","poster","pin","koozie","banner","flag","lighter","towel","water_bottle","samples","custom","key_chain","woven_labels","bandana","socks","tote","custom_bag","pillow","rug","pens","napkins","balloons","stencils"];
+
 /**
  * Product Builder — unified tab: PSD drop + blank assignment + sizes/qty + art files
  * Layout: collapsed items by default, expand one to work on it.
@@ -1256,7 +1261,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
               {!(isMobile && isExpanded) && (
                 <>
                   {hasBlank && <span style={{ fontSize: 11, color: T.muted, flexShrink: 0, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.blank_vendor}{(item.color || item.blank_sku) ? ` · ${item.color || item.blank_sku}` : ""}</span>}
-                  {!hasBlank && item.garment_type !== "accessory" && <span style={{ fontSize: 11, color: T.amber, flexShrink: 0 }}>No blank</span>}
+                  {!hasBlank && !NON_GARMENT.includes(item.garment_type) && <span style={{ fontSize: 11, color: T.amber, flexShrink: 0 }}>No blank</span>}
                   <span style={{ fontSize: 12, fontWeight: 600, fontFamily: mono, flexShrink: 0, minWidth: 50, textAlign: "right", color: item.totalQty > 0 ? T.text : T.faint }}>{item.totalQty > 0 ? item.totalQty : "—"}</span>
                   <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
                     {fileSummary[item.id]?.printReady && <span style={{ fontSize: 9, fontWeight: 700, color: T.green, letterSpacing: "0.06em", textTransform: "uppercase" }}>Print-ready</span>}
