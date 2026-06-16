@@ -79,10 +79,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
-    // Tenant slug — Host header → slug, matches the marketing site's
-    // tenant routing. Defaults to HPD.
+    // Tenant slug for the stored lead. /api/* routes aren't stamped with
+    // x-company-slug by middleware, so derive from the Host header (NOT a
+    // blind "hpd" default — that mis-attributed every tenant's leads to HPD).
     const h = await headers();
-    const slug = h.get("x-company-slug") || "hpd";
+    const slug = h.get("x-company-slug") || resolveSlugFromHost(h.get("host"));
 
     // Coerce legacy form fields into the new shape.
     const description = body.description?.trim()

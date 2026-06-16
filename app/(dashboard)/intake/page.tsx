@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { resolveSlugFromHost, DEFAULT_SLUG } from "@/lib/tenants";
 import { T, font, mono } from "@/lib/theme";
 
 // /intake — leads inbox. Submissions from the public /start form land
@@ -61,8 +62,13 @@ export default function IntakePage() {
   const [open, setOpen] = useState<Submission | null>(null);
 
   async function load() {
+    // Scope to the active tenant. intake_submissions uses company_slug (text,
+    // set by the public /start form) and sits OUTSIDE the company_id RLS wall,
+    // so this filter is what keeps one tenant's leads out of another's inbox.
+    const activeSlug = typeof window === "undefined" ? DEFAULT_SLUG : resolveSlugFromHost(window.location.hostname);
     const { data } = await (supabase.from("intake_submissions") as any)
       .select("*")
+      .eq("company_slug", activeSlug)
       .order("created_at", { ascending: false });
     setRows(data || []);
   }
