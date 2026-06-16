@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { resendForSlug } from "@/lib/resend-client";
+import { resolveSlugFromHost } from "@/lib/tenants";
 
 export async function POST(req: NextRequest) {
   try {
@@ -11,10 +12,9 @@ export async function POST(req: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    // Pick the tenant Resend key from the request Host (middleware
-    // doesn't run on /api/* routes).
-    const _h = (req.headers.get("host") || "").toLowerCase().split(":")[0];
-    const _slug = (_h === "app.inhousemerchandise.com" || _h === "ihm.localhost") ? "ihm" : "hpd";
+    // Pick the tenant Resend key from the request Host (middleware doesn't
+    // run on /api/* routes). Map lives in lib/tenants.ts.
+    const _slug = resolveSlugFromHost(req.headers.get("host"));
     const resend = resendForSlug(_slug);
     const body = await req.json();
     const { jobId, toEmail, ccEmails, subject, channel, decoratorId } = body;

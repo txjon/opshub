@@ -8,14 +8,13 @@ import { getPortalUrl, getVendorPortalUrl } from "@/lib/auto-email";
 import { renderBrandedEmail, tenantClosing } from "@/lib/email-template";
 import { refreshPaymentLink } from "@/lib/quickbooks";
 import { resendForSlug } from "@/lib/resend-client";
+import { resolveSlugFromHost } from "@/lib/tenants";
 
 // Resolve active tenant from request Host (middleware doesn't run on
-// /api/* routes). Used to pick which company's from-addresses + name
-// the email gets sent with.
+// /api/* routes). Picks which company's from-addresses + name the email
+// gets sent with. Map lives in lib/tenants.ts.
 function resolveCompanySlugFromRequest(req: NextRequest): string {
-  const h = (req.headers.get("host") || "").toLowerCase().split(":")[0];
-  if (h === "app.inhousemerchandise.com" || h === "ihm.localhost") return "ihm";
-  return "hpd";
+  return resolveSlugFromHost(req.headers.get("host"));
 }
 
 export async function POST(req: NextRequest) {

@@ -6,6 +6,7 @@ import { headers } from "next/headers";
 import { resendForSlug } from "@/lib/resend-client";
 import { renderBrandedEmail } from "@/lib/email-template";
 import { appBaseUrlForSlug } from "@/lib/public-url";
+import { resolveSlugFromHost } from "@/lib/tenants";
 
 // POST /api/onboard
 //
@@ -155,13 +156,7 @@ export async function POST(req: NextRequest) {
     // resolve the tenant from the Host header (same approach as the notify
     // route + lib/public-url).
     try {
-      const host = (req.headers.get("host") || "").toLowerCase().split(":")[0];
-      const tenantSlug =
-        host === "app.inhousemerchandise.com" ||
-        host === "inhousemerchandise.com" ||
-        host === "ihm.localhost"
-          ? "ihm"
-          : "hpd";
+      const tenantSlug = resolveSlugFromHost(req.headers.get("host"));
 
       const { data: companyRow } = await sb
         .from("companies")
