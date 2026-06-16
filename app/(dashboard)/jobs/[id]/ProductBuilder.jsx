@@ -1840,7 +1840,16 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
           )}
 
           {/* Simple qty for non-sized items (patches, stickers, etc.) */}
-          {(item.sizes.length === 0 || (item.sizes.length === 1 && item.sizes[0] === "OSFA")) && (
+          {/* Cut-and-sew (DMD): no blanks, so a fresh item has no sizes. Surface
+              the size editor directly (it handles multi-size runs + qtys) rather
+              than the one-size "Qty units" shortcut. */}
+          {cutSew && item.sizes.length === 0 && !costingLocked && (
+            <button onClick={() => setEditSizesItemId(item.id)}
+              style={{ fontSize: 13, fontWeight: 700, color: "#fff", background: T.accent, border: "none", borderRadius: 8, padding: "10px 18px", cursor: "pointer", fontFamily: font }}>
+              + Set sizes &amp; quantities
+            </button>
+          )}
+          {!cutSew && (item.sizes.length === 0 || (item.sizes.length === 1 && item.sizes[0] === "OSFA")) && (
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span style={{ fontSize: 10, fontWeight: 600, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em" }}>Qty</span>
               <input type="text" inputMode="numeric" value={item.totalQty || ""} disabled={costingLocked}
@@ -1950,7 +1959,7 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
             )}
           </div>
         )}
-        {!hasBlank && item.sizes.length === 0 && item.garment_type !== "accessory" && (
+        {!cutSew && !hasBlank && item.sizes.length === 0 && item.garment_type !== "accessory" && (
           <div style={{ fontSize: 11, color: T.faint }}>Assign a blank to set available sizes</div>
         )}
 
