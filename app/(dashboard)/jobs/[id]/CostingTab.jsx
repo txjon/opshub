@@ -11,7 +11,7 @@ import { DecorationPanel } from "./DecorationPanel";
 import { SettingsModal } from "./SettingsModal";
 import { DriveThumb } from "@/components/DriveThumb";
 import { PdfCanvasPreview } from "@/components/PdfCanvasPreview";
-import { calcCostProduct as sharedCalcCostProduct, lookupPrintPrice as sharedLookupPrintPrice, lookupTagPrice as sharedLookupTagPrice, buildPrintersMap } from "@/lib/pricing";
+import { calcCostProduct as sharedCalcCostProduct, lookupPrintPrice as sharedLookupPrintPrice, lookupTagPrice as sharedLookupTagPrice, buildPrintersMap, effectiveShipRate, DEFAULT_SHIP_RATES } from "@/lib/pricing";
 import { useClientBranding } from "@/lib/branding-client";
 import { useIsMobile } from "@/lib/useIsMobile";
 
@@ -266,6 +266,10 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
     return () => cancelAnimationFrame(raf);
   }, []);
   const [showSendEmail,setShowSendEmail]=useState(false);
+  // Per-item shipping-rate modal (job-level override of the buffer). Draft is a
+  // { [costProdId]: string } of the rate as typed; applied to costProds on Save.
+  const [shipModalOpen,setShipModalOpen]=useState(false);
+  const [shipDraft,setShipDraft]=useState({});
   const [showRfqModal,setShowRfqModal]=useState(false);
   const [rfqVendor,setRfqVendor]=useState("");
   const [rfqSelected,setRfqSelected]=useState({});         // { itemId: bool }
@@ -459,6 +463,31 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
   const mc=netMarg>=0.30?T.green:netMarg>=0.20?T.amber:T.red;
 
   const updateProd=(i,d)=>setCostProds(p=>p.map((x,j)=>j===i?d:x));
+
+  // Shipping-rate modal helpers. Seed the draft from each item's current
+  // effective rate; apply writes a per-item override (costProd.shipRate),
+  // clearing it back to null when the typed rate equals the type default so
+  // unchanged items keep tracking the default table.
+  const shipItems=()=>costProds.filter(p=>(p.totalQty||0)>0);
+  const openShipModal=()=>{
+    const d={};
+    shipItems().forEach(p=>{ d[p.id]=String(effectiveShipRate(p)); });
+    setShipDraft(d);
+    setShipModalOpen(true);
+  };
+  const applyShipRates=()=>{
+    setCostProds(prev=>prev.map(p=>{
+      if(!(p.id in shipDraft)) return p;
+      const def=DEFAULT_SHIP_RATES[p.garment_type||""]??0;
+      const raw=shipDraft[p.id];
+      const parsed=parseFloat(raw);
+      const val=isNaN(parsed)?def:parsed;
+      // Equal to the type default → drop the override so it tracks the table.
+      if(val===def){ const rest={...p}; delete rest.shipRate; return rest; }
+      return {...p,shipRate:val};
+    }));
+    setShipModalOpen(false);
+  };
   const focusNext=(e,reverse=false)=>{
     e.preventDefault();
     const all=Array.from(document.querySelectorAll("[data-costfield]"));
@@ -1187,18 +1216,21 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                       ["Blanks",     fmtD(totBlank),    T.text],
                       ["PO Total",   fmtD(totPO),       T.text],
                       ...vendorEntries.map(([v,t])=>["  "+v, fmtD(t), T.faint]),
-                      ...(inclShip?[["Shipping", fmtD(totShip), T.text]]:[]),
+                      ...(inclShip?[["Shipping", fmtD(totShip), T.text, openShipModal]]:[]),
                       ...(inclCC?[["CC Fees", fmtD(results.reduce((a,r)=>a+(r.ccFees||0),0)), T.text]]:[]),
                       ["Net Profit", fmtD(totProfit),   mc],
                       ["Margin",     fmtP(netMarg),     mc],
                       ["Per Piece",  fmtD(profitPc),    mc],
                       ...(totActualBlanks>0?[["Actual Blanks", fmtD(totActualBlanks), totActualBlanks>totBlank?T.red:T.green]]:[]),
-                    ].map(([l,v,c],idx)=>{
+                    ].map(([l,v,c,onClick],idx)=>{
                       const isProfit=["Net Profit","Margin","Per Piece"].includes(l);
                       const isVendorSub=l.startsWith("  ");
                       return (
-                      <tr key={l+idx} style={{background:T.card,borderTop:l==="Net Profit"?`1px solid ${T.border}`:"none"}}>
-                        <td style={{padding:isVendorSub?"1px 10px 1px 18px":"2px 10px",color:isVendorSub?T.faint:T.muted,fontFamily:font,fontWeight:isVendorSub?400:500,fontSize:isVendorSub?10:11,lineHeight:1.25}}>{l}</td>
+                      <tr key={l+idx} onClick={onClick||undefined} title={onClick?"Edit per-item shipping rates for this job":undefined}
+                        style={{background:T.card,borderTop:l==="Net Profit"?`1px solid ${T.border}`:"none",cursor:onClick?"pointer":"default"}}
+                        onMouseEnter={onClick?(e=>e.currentTarget.style.background=T.surface):undefined}
+                        onMouseLeave={onClick?(e=>e.currentTarget.style.background=T.card):undefined}>
+                        <td style={{padding:isVendorSub?"1px 10px 1px 18px":"2px 10px",color:isVendorSub?T.faint:T.muted,fontFamily:font,fontWeight:isVendorSub?400:500,fontSize:isVendorSub?10:11,lineHeight:1.25}}>{l}{onClick?<span style={{color:T.accent,marginLeft:5,fontSize:9}}>edit ›</span>:null}</td>
                         <td style={{padding:isVendorSub?"1px 10px":"2px 10px",color:c,fontFamily:mono,fontWeight:isVendorSub?500:700,textAlign:"right",fontSize:isVendorSub?10:11,lineHeight:1.25}}>{v}</td>
                       </tr>
                     );})}
@@ -1521,6 +1553,75 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
               )}
             </div>
           </div>
+        );
+      })()}
+
+      {shipModalOpen && (()=>{
+        const items=shipItems();
+        const draftTotal=items.reduce((a,p)=>a+(p.totalQty||0)*(parseFloat(shipDraft[p.id])||0),0);
+        const cellTd={padding:"7px 10px",fontSize:12,fontFamily:font,borderTop:`1px solid ${T.border}`};
+        return (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={()=>setShipModalOpen(false)}>
+          <div onClick={e=>e.stopPropagation()} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:12,width:"min(640px,100%)",maxHeight:"86vh",overflow:"auto",boxShadow:"0 20px 60px rgba(0,0,0,0.5)"}}>
+            <div style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",gap:10,padding:"16px 18px 6px"}}>
+              <div>
+                <div style={{fontSize:15,fontWeight:800,color:T.text}}>Shipping rates</div>
+                <div style={{fontSize:11,color:T.muted,marginTop:3}}>Per-unit buffer for <strong style={{color:T.muted}}>this job only</strong>. Set <strong style={{color:T.muted}}>0</strong> for landed items. Defaults come from the garment-type table.</div>
+              </div>
+              <button onClick={()=>setShipModalOpen(false)} style={{background:"none",border:"none",color:T.faint,fontSize:18,cursor:"pointer",padding:"0 4px"}}>×</button>
+            </div>
+            <table style={{borderCollapse:"collapse",width:"100%",marginTop:6}}>
+              <thead>
+                <tr style={{background:T.surface}}>
+                  {["Item","Type","Qty","Rate","Shipping",""].map((h,i)=>(
+                    <th key={h+i} style={{padding:"7px 10px",fontSize:9.5,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.06em",textAlign:i>=2&&i<=4?"right":"left"}}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {items.map(p=>{
+                  const def=DEFAULT_SHIP_RATES[p.garment_type||""]??0;
+                  const raw=shipDraft[p.id]??"";
+                  const rate=parseFloat(raw)||0;
+                  const overridden=rate!==def;
+                  return (
+                    <tr key={p.id}>
+                      <td style={{...cellTd,color:T.text,fontWeight:600}}>{p.style||p.name||"Item"}</td>
+                      <td style={{...cellTd,color:T.muted}}>{p.garment_type||"—"}</td>
+                      <td style={{...cellTd,color:T.muted,fontFamily:mono,textAlign:"right"}}>{(p.totalQty||0).toLocaleString()}</td>
+                      <td style={{...cellTd,textAlign:"right"}}>
+                        <div style={{display:"flex",alignItems:"center",justifyContent:"flex-end",gap:3}}>
+                          <span style={{color:T.faint,fontSize:11}}>$</span>
+                          <input type="text" inputMode="decimal" value={raw}
+                            onChange={e=>setShipDraft(d=>({...d,[p.id]:e.target.value}))}
+                            onFocus={e=>e.target.select()}
+                            style={{width:58,padding:"5px 7px",border:`1px solid ${overridden?T.accent:T.border}`,borderRadius:6,background:T.surface,color:T.text,fontSize:12,fontFamily:mono,textAlign:"right",outline:"none"}}/>
+                        </div>
+                      </td>
+                      <td style={{...cellTd,color:T.text,fontFamily:mono,fontWeight:700,textAlign:"right"}}>{fmtD((p.totalQty||0)*rate)}</td>
+                      <td style={{...cellTd,textAlign:"right",width:46}}>
+                        {overridden
+                          ? <button title={`Reset to default $${def.toFixed(2)}`} onClick={()=>setShipDraft(d=>({...d,[p.id]:String(def)}))} style={{background:"none",border:"none",color:T.accent,fontSize:10,cursor:"pointer",fontFamily:font,padding:0}}>reset</button>
+                          : null}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr style={{background:T.surface}}>
+                  <td colSpan={4} style={{padding:"9px 10px",fontSize:11,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.06em",textAlign:"right"}}>Total</td>
+                  <td style={{padding:"9px 10px",fontSize:13,fontWeight:800,color:T.text,fontFamily:mono,textAlign:"right"}}>{fmtD(draftTotal)}</td>
+                  <td/>
+                </tr>
+              </tfoot>
+            </table>
+            <div style={{display:"flex",justifyContent:"flex-end",gap:8,padding:"12px 18px 16px"}}>
+              <button onClick={()=>setShipModalOpen(false)} style={{padding:"7px 16px",background:"transparent",border:`1px solid ${T.border}`,borderRadius:8,color:T.muted,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:font}}>Cancel</button>
+              <button onClick={applyShipRates} style={{padding:"7px 18px",background:T.accent,border:"none",borderRadius:8,color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:font}}>Apply</button>
+            </div>
+          </div>
+        </div>
         );
       })()}
 
