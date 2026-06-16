@@ -1668,6 +1668,7 @@ function sortSizesLocal(arr) {
 // ═══════════════════════════════════════════════════════════════
 function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, project, hasBlank, getLocalQty, setLocalQty, commitQty, scheduleCommit, inputRefs, distRow, setDistRow, distTotal, setDistTotal, handleDist, removeItem, setAssignBlankTo, setEditSizesItemId, setShowAddModal, setMobilePickerOpen, onItemsChanged, onUpdateItem, onFilesChanged, preloadedMockupId, ic, costingLocked, requestMove, requestCopy }) {
   const isMobile = useIsMobile();
+  const cutSew = isCutSewOnly(useClientBranding().slug); // DMD: no blanks
   const [files, setFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(null);
