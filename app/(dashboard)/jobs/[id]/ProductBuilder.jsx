@@ -12,6 +12,8 @@ import { parsePsd } from "./ProcessingTab";
 import MoveItemDialog from "@/components/MoveItemDialog";
 import { DriveFileLink } from "@/components/DriveFileLink";
 import { useIsMobile } from "@/lib/useIsMobile";
+import { useClientBranding } from "@/lib/branding-client";
+import { isCutSewOnly } from "@/lib/tenants";
 import { MobileBlankPicker } from "./MobileBlankPicker";
 // ItemArtSection from ArtTab is no longer rendered — removed after workflow merge
 import {
@@ -162,6 +164,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
           cost_per_unit: item.cost_per_unit || null,
           blank_costs: item.blankCosts && Object.keys(item.blankCosts).length > 0 ? item.blankCosts : null,
           garment_type: item.garment_type || null,
+          qb_item_type: item.qb_item_type || null,
           status: "tbd", artwork_status: "not_started", sort_order: current.indexOf(item),
         }).select("id").single();
         if (data) {
@@ -180,6 +183,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
         const nameChanged = item.name !== prev?.name;
         if (nameChanged) dbUpdates.name = item.name;
         if (item.garment_type !== prev?.garment_type) dbUpdates.garment_type = item.garment_type || null;
+        if (item.qb_item_type !== prev?.qb_item_type) dbUpdates.qb_item_type = item.qb_item_type || null;
         if (item.cost_per_unit !== prev?.cost_per_unit) dbUpdates.cost_per_unit = item.cost_per_unit || null;
         if (JSON.stringify(item.blankCosts) !== JSON.stringify(prev?.blankCosts)) dbUpdates.blank_costs = item.blankCosts || null;
         if (item.blank_vendor) dbUpdates.blank_vendor = item.blank_vendor;
@@ -360,6 +364,36 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
   const [showAddType, setShowAddType] = useState(null);
   const [assignBlankTo, setAssignBlankTo] = useState(null);
   const [moveItemTarget, setMoveItemTarget] = useState(null); // { id, name } — opens MoveItemDialog
+  // Cut-and-sew tenants (DMD): no blanks. The Add Item modal becomes a managed
+  // item-type list (their QB categories) instead of blank-supplier pickers.
+  const branding = useClientBranding();
+  const cutSew = isCutSewOnly(branding.slug);
+  const [itemTypes, setItemTypes] = useState([]);
+  const [newItemType, setNewItemType] = useState("");
+  const [savingType, setSavingType] = useState(false);
+  useEffect(() => {
+    if (!cutSew) return;
+    // RLS narrows company_item_types to the active tenant.
+    createClient().from("company_item_types").select("id, name, sort_order").order("sort_order").then(({ data }) => setItemTypes(data || []));
+  }, [cutSew]);
+  const addItemOfType = (typeName) => {
+    addItem({
+      id: Date.now() + Math.random(), name: "", blank_vendor: "", blank_sku: "",
+      garment_type: "custom", qb_item_type: typeName,
+      sizes: [], qtys: {}, curve: DEFAULT_CURVE, totalQty: 0, blankCosts: {}, cost_per_unit: 0,
+    });
+    setShowAddModal(false);
+  };
+  const addNewItemType = async () => {
+    const name = newItemType.trim();
+    if (!name || savingType) return;
+    setSavingType(true);
+    const { data } = await createClient().from("company_item_types")
+      .insert({ name, sort_order: itemTypes.length }).select("id, name, sort_order").single();
+    if (data) setItemTypes(prev => [...prev, data]);
+    setNewItemType("");
+    setSavingType(false);
+  };
   const [copyItemTarget, setCopyItemTarget] = useState(null); // { id, name } — opens MoveItemDialog in copy mode
   const [favorites, setFavorites] = useState([]);
   // Mobile picker — one search-driven sheet that replaces the desktop
@@ -753,27 +787,55 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
       {showAddModal && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => { setShowAddModal(false); setAssignBlankTo(null); }}>
           <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: 24, width: 420, maxWidth: "90vw" }}>
-            <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>{assignBlankTo ? "Assign Blank" : "Add Item"}</div>
-            <div style={{ fontSize: 12, color: T.muted, marginBottom: 16 }}>{assignBlankTo ? (() => {
-              const ids = Array.isArray(assignBlankTo) ? assignBlankTo : [assignBlankTo];
-              const names = ids.map(id => (workingItems || []).find(it => it.id === id)?.name).filter(Boolean);
-              return names.length > 0 ? names.join(", ") : "Select a blank source";
-            })() : "Choose a source"}</div>
-            <button onClick={() => { setShowAddModal(false); setShowFavorites(true); }} style={{ width: "100%", padding: 12, borderRadius: 8, border: "none", background: "#5795b2", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", marginBottom: 10 }}>
-              House Party Favorites {favorites.length > 0 && <span style={{ fontSize: 10, opacity: 0.7, marginLeft: 4 }}>{favorites.length}</span>}
-            </button>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-              {[
-                { label: "S&S Activewear", bg: "#b65722", color: "#fff", action: () => { setShowAddModal(false); setShowPicker(true); } },
-                { label: "AS Colour", bg: "#000", color: "#fff", action: () => { setShowAddModal(false); setShowASColour(true); } },
-                { label: "LA Apparel", bg: "#fff", color: "#000", border: true, action: () => { setShowAddModal(false); setShowLAApparel(true); } },
-                { label: "Cotton Collective", bg: "#2d6b4f", color: "#fff", action: () => { setShowAddModal(false); setShowCCPicker(true); } },
-                { label: "Custom Accessory", bg: T.surface, color: T.text, border: true, action: () => { setShowAddModal(false); setShowAddType("accessory"); } },
-                { label: "Other", bg: T.surface, color: T.text, border: true, action: () => { setShowAddModal(false); setShowOtherPicker(true); } },
-              ].map(opt => (
-                <button key={opt.label} onClick={opt.action} style={{ padding: "10px 14px", borderRadius: 8, border: opt.border ? `1px solid ${T.border}` : "none", background: opt.bg, cursor: "pointer", fontSize: 12, fontWeight: 600, color: opt.color }}>{opt.label}</button>
-              ))}
-            </div>
+            <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>{(!cutSew && assignBlankTo) ? "Assign Blank" : "Add Item"}</div>
+            {cutSew ? (
+              // DMD-style: pick a managed item type (their QB category). No blanks.
+              <>
+                <div style={{ fontSize: 12, color: T.muted, marginBottom: 14 }}>Choose an item type</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
+                  {itemTypes.map(t => (
+                    <button key={t.id} onClick={() => addItemOfType(t.name)}
+                      style={{ width: "100%", textAlign: "left", padding: "12px 16px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                      {t.name}
+                    </button>
+                  ))}
+                  {itemTypes.length === 0 && <div style={{ fontSize: 12, color: T.faint }}>No item types yet — add one below.</div>}
+                </div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", borderTop: `1px solid ${T.border}`, paddingTop: 14 }}>
+                  <input value={newItemType} onChange={e => setNewItemType(e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter") addNewItemType(); }}
+                    placeholder="New type (e.g. Hat)"
+                    style={{ flex: 1, padding: "9px 12px", border: `1px solid ${T.border}`, borderRadius: 8, background: T.surface, color: T.text, fontSize: 13, outline: "none", fontFamily: font }} />
+                  <button onClick={addNewItemType} disabled={!newItemType.trim() || savingType}
+                    style={{ padding: "9px 16px", borderRadius: 8, border: "none", background: T.accent, color: "#fff", fontSize: 12, fontWeight: 700, cursor: (!newItemType.trim() || savingType) ? "default" : "pointer", opacity: (!newItemType.trim() || savingType) ? 0.5 : 1 }}>
+                    + Add
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ fontSize: 12, color: T.muted, marginBottom: 16 }}>{assignBlankTo ? (() => {
+                  const ids = Array.isArray(assignBlankTo) ? assignBlankTo : [assignBlankTo];
+                  const names = ids.map(id => (workingItems || []).find(it => it.id === id)?.name).filter(Boolean);
+                  return names.length > 0 ? names.join(", ") : "Select a blank source";
+                })() : "Choose a source"}</div>
+                <button onClick={() => { setShowAddModal(false); setShowFavorites(true); }} style={{ width: "100%", padding: 12, borderRadius: 8, border: "none", background: "#5795b2", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", marginBottom: 10 }}>
+                  House Party Favorites {favorites.length > 0 && <span style={{ fontSize: 10, opacity: 0.7, marginLeft: 4 }}>{favorites.length}</span>}
+                </button>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  {[
+                    { label: "S&S Activewear", bg: "#b65722", color: "#fff", action: () => { setShowAddModal(false); setShowPicker(true); } },
+                    { label: "AS Colour", bg: "#000", color: "#fff", action: () => { setShowAddModal(false); setShowASColour(true); } },
+                    { label: "LA Apparel", bg: "#fff", color: "#000", border: true, action: () => { setShowAddModal(false); setShowLAApparel(true); } },
+                    { label: "Cotton Collective", bg: "#2d6b4f", color: "#fff", action: () => { setShowAddModal(false); setShowCCPicker(true); } },
+                    { label: "Custom Accessory", bg: T.surface, color: T.text, border: true, action: () => { setShowAddModal(false); setShowAddType("accessory"); } },
+                    { label: "Other", bg: T.surface, color: T.text, border: true, action: () => { setShowAddModal(false); setShowOtherPicker(true); } },
+                  ].map(opt => (
+                    <button key={opt.label} onClick={opt.action} style={{ padding: "10px 14px", borderRadius: 8, border: opt.border ? `1px solid ${T.border}` : "none", background: opt.bg, cursor: "pointer", fontSize: 12, fontWeight: 600, color: opt.color }}>{opt.label}</button>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -1094,7 +1156,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
                     {item.name || "Untitled"}
                   </div>
                   <div style={{ fontSize: 12, color: T.muted, marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {[item.blank_vendor, item.blank_sku].filter(Boolean).join(" · ") || "No blank"}
+                    {cutSew ? (item.qb_item_type || "—") : ([item.blank_vendor, item.blank_sku].filter(Boolean).join(" · ") || "No blank")}
                   </div>
                   <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 10 }}>
                     <span style={{ fontSize: 11, fontFamily: mono, color: T.text }}>
@@ -1260,8 +1322,12 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
                   metadata. */}
               {!(isMobile && isExpanded) && (
                 <>
-                  {hasBlank && <span style={{ fontSize: 11, color: T.muted, flexShrink: 0, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.blank_vendor}{(item.color || item.blank_sku) ? ` · ${item.color || item.blank_sku}` : ""}</span>}
-                  {!hasBlank && !NON_GARMENT.includes(item.garment_type) && <span style={{ fontSize: 11, color: T.amber, flexShrink: 0 }}>No blank</span>}
+                  {cutSew
+                    ? <span style={{ fontSize: 11, color: T.muted, flexShrink: 0 }}>{item.qb_item_type || "—"}</span>
+                    : <>
+                        {hasBlank && <span style={{ fontSize: 11, color: T.muted, flexShrink: 0, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.blank_vendor}{(item.color || item.blank_sku) ? ` · ${item.color || item.blank_sku}` : ""}</span>}
+                        {!hasBlank && !NON_GARMENT.includes(item.garment_type) && <span style={{ fontSize: 11, color: T.amber, flexShrink: 0 }}>No blank</span>}
+                      </>}
                   <span style={{ fontSize: 12, fontWeight: 600, fontFamily: mono, flexShrink: 0, minWidth: 50, textAlign: "right", color: item.totalQty > 0 ? T.text : T.faint }}>{item.totalQty > 0 ? item.totalQty : "—"}</span>
                   <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
                     {fileSummary[item.id]?.printReady && <span style={{ fontSize: 9, fontWeight: 700, color: T.green, letterSpacing: "0.06em", textTransform: "uppercase" }}>Print-ready</span>}
@@ -1698,6 +1764,13 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
               so a long vendor/sku doesn't truncate; type selector
               drops to its own line, "click to change" hint is hidden
               (the whole row is already the affordance). */}
+          {cutSew ? (
+            // DMD: no blanks. Show the item type (their QB category) read-only.
+            <div style={{ padding: "12px 16px", background: T.surface, borderRadius: 8, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em" }}>Type</span>
+              <span style={{ fontSize: 15, fontWeight: 700, color: item.qb_item_type ? T.text : T.faint }}>{item.qb_item_type || "—"}</span>
+            </div>
+          ) : (
           <div onClick={e => { e.stopPropagation(); if (costingLocked) return; setAssignBlankTo(item.id); if (isMobile) { setMobilePickerOpen(true); } else { setShowAddModal(true); } }}
             style={{ cursor: costingLocked ? "default" : "pointer", padding: "12px 16px", background: T.surface, borderRadius: 8, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10, transition: "border-color 0.15s", flexWrap: isMobile ? "wrap" : "nowrap" }}
             onMouseEnter={e => e.currentTarget.style.borderColor = T.accent}
@@ -1763,6 +1836,7 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
               </>
             )}
           </div>
+          )}
 
           {/* Simple qty for non-sized items (patches, stickers, etc.) */}
           {(item.sizes.length === 0 || (item.sizes.length === 1 && item.sizes[0] === "OSFA")) && (

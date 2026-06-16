@@ -61,6 +61,14 @@ export function shippingRoutesForSlug(slug: string): string[] {
   return TENANT_SHIPPING_ROUTES[slug] || ALL_SHIPPING_ROUTES;
 }
 
+// Cut-and-sew tenants buy COMPLETE items from vendors — no blanks, single
+// purchase point. Their Product Builder uses a managed item-type list instead
+// of blank-supplier pickers, and Costing hides the blanks panel.
+const CUT_SEW_ONLY = new Set(["dmd"]);
+export function isCutSewOnly(slug: string | null | undefined): boolean {
+  return !!slug && CUT_SEW_ONLY.has(slug);
+}
+
 // Active-tenant allowed routes from the browser (client components). Falls back
 // to the full set during SSR / outside the browser.
 export function clientShippingRoutes(): string[] {
