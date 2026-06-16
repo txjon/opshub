@@ -222,16 +222,31 @@ export default function PreorderDetail() {
         (byHandle[handle] ||= []).push(r);
       }
 
-      const existing = new Set(products.map(p => p.name.toLowerCase().trim()));
+      const existingByName = new Map(products.map(p => [p.name.toLowerCase().trim(), p]));
       const domain = (preorder?.store_account || "").replace(/^https?:\/\//, "").replace(/\/+$/, "");
       const toInsert: any[] = [];
+      // Re-importing the same CSV is how images get back-filled onto products
+      // that were imported before image capture existed: if an existing product
+      // is missing its image_url and the export has one, enrich it rather than
+      // skip silently (otherwise the push has no mockup to upload).
+      const imageUpdates: { id: string; image_url: string }[] = [];
       let order = products.length;
       let skipped = 0;
 
       for (const [handle, group] of Object.entries(byHandle)) {
         const name = (group.find(r => (r["Title"] || "").trim())?.["Title"] || "").trim();
         if (!name) { continue; }
-        if (existing.has(name.toLowerCase())) { skipped++; continue; }
+        // Product image — first non-empty "Image Src" across the variant rows
+        // (Shopify puts the primary product image on the first row). Public CDN
+        // URL; on push it's auto-uploaded to Drive as the item mockup.
+        const imageUrl = (group.find(r => (r["Image Src"] || "").trim())?.["Image Src"] || "").trim() || null;
+        const already = existingByName.get(name.toLowerCase());
+        if (already) {
+          // Back-fill a missing image; otherwise leave the existing product be.
+          if (imageUrl && !already.image_url) imageUpdates.push({ id: already.id, image_url: imageUrl });
+          skipped++;
+          continue;
+        }
         const priceRow = group.find(r => (r["Variant Price"] || "").trim());
         const retail = priceRow ? parseFloat(priceRow["Variant Price"]) : NaN;
         // Combine each variant's option values into one label — handles
@@ -248,10 +263,6 @@ export default function PreorderDetail() {
         }
         // Single-variant item (only Shopify's "Default Title") → one "One Size" line.
         if (sizes.length === 0) sizes.push("One Size");
-        // Product image — first non-empty "Image Src" across the variant rows
-        // (Shopify puts the primary product image on the first row). Public CDN
-        // URL; on push it's auto-uploaded to Drive as the item mockup.
-        const imageUrl = (group.find(r => (r["Image Src"] || "").trim())?.["Image Src"] || "").trim() || null;
         toInsert.push({
           preorder_id: preorderId,
           name,
@@ -268,15 +279,35 @@ export default function PreorderDetail() {
         });
       }
 
+      // Back-fill missing images on existing products (e.g. re-importing after
+      // the image feature shipped) so the next push has mockups to upload.
+      let enriched = 0;
+      if (imageUpdates.length > 0) {
+        for (const u of imageUpdates) {
+          const { error: upErr } = await (supabase.from("preorder_products") as any)
+            .update({ image_url: u.image_url }).eq("id", u.id);
+          if (!upErr) enriched++;
+        }
+        const enrichedMap = new Map(imageUpdates.map(u => [u.id, u.image_url]));
+        setProducts(prev => prev.map(p => enrichedMap.has(p.id) ? { ...p, image_url: enrichedMap.get(p.id)! } : p));
+      }
+
       if (toInsert.length === 0) {
-        setImportResult(skipped > 0 ? `Nothing new — ${skipped} product(s) already imported.` : "No products found in that CSV.");
+        const parts: string[] = [];
+        if (enriched > 0) parts.push(`back-filled ${enriched} image${enriched === 1 ? "" : "s"}`);
+        if (skipped > 0) parts.push(`${skipped} already present`);
+        setImportResult(parts.length ? `Nothing new — ${parts.join(" · ")}.` : "No products found in that CSV.");
         setImporting(false);
         return;
       }
       const { data: inserted, error } = await (supabase.from("preorder_products") as any).insert(toInsert).select();
       if (error) throw error;
       setProducts(prev => [...prev, ...((inserted || []) as any[]).map(r => ({ ...r, sizes: r.sizes || [] }))]);
-      setImportResult(`Imported ${(inserted as any[])?.length ?? toInsert.length} product${((inserted as any[])?.length ?? toInsert.length) === 1 ? "" : "s"}${skipped ? ` · skipped ${skipped} already present` : ""}.`);
+      const n = (inserted as any[])?.length ?? toInsert.length;
+      const tail: string[] = [];
+      if (enriched > 0) tail.push(`back-filled ${enriched} image${enriched === 1 ? "" : "s"}`);
+      if (skipped > 0) tail.push(`skipped ${skipped} already present`);
+      setImportResult(`Imported ${n} product${n === 1 ? "" : "s"}${tail.length ? ` · ${tail.join(" · ")}` : ""}.`);
     } catch (e: any) {
       setImportResult("Import failed: " + (e?.message || String(e)));
     } finally {
