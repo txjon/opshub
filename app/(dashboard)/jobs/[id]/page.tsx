@@ -156,6 +156,19 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   // navigation never fires. We race against a 1.5s timeout so the
   // user always gets out; stragglers continue in the background.
   const [navigating, setNavigating] = useState(false);
+  // Hard-navigation escape hatch. If the client router wedges (a stalled RSC
+  // fetch or a render-loop bail-out), router.push() silently no-ops, the page
+  // never unmounts, and the back button is trapped on "Saving…" forever — the
+  // only way out is the URL bar. This timer fires a full document navigation
+  // (which CANNOT be blocked by React/the client router) if we're still mounted
+  // shortly after a push. Cleared on unmount when the SPA nav succeeds, so the
+  // happy path never triggers a full reload.
+  const navFallbackTimer = useRef<ReturnType<typeof setTimeout>|null>(null);
+  useEffect(() => () => { if (navFallbackTimer.current) clearTimeout(navFallbackTimer.current); }, []);
+  const escapeTo = useCallback((href: string) => {
+    if (navFallbackTimer.current) clearTimeout(navFallbackTimer.current);
+    navFallbackTimer.current = setTimeout(() => { window.location.href = href; }, 1200);
+  }, []);
   const saveErrorTimer = useRef<ReturnType<typeof setTimeout>|null>(null);
   const saveOkTimer = useRef<ReturnType<typeof setTimeout>|null>(null);
   const handleSaveStatus = useCallback((s: string) => {
@@ -634,6 +647,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           // failed save leaves the button stuck on "Saving…" with no way out.
           try { await flushAllSavesWithTimeout(); } catch (e) { console.error("nav flush failed:", e); }
           router.push("/jobs");
+          escapeTo("/jobs");
         }} disabled={navigating}
           style={{background:"transparent",border:"none",color:T.accent,fontSize:14,fontWeight:600,cursor:navigating?"default":"pointer",padding:"4px 8px 4px 0",fontFamily:font,display:"inline-flex",alignItems:"center",gap:2,minHeight:36,marginLeft:-4,opacity:navigating?0.55:1,transition:"opacity 0.12s"}}
           onMouseEnter={(e:any)=>{ if (!navigating) e.currentTarget.style.opacity="0.75";}}
@@ -1783,6 +1797,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           await supabase.from("job_contacts").delete().eq("job_id", params.id);
           await supabase.from("jobs").delete().eq("id", params.id);
           router.push("/jobs");
+          escapeTo("/jobs");
         }}
         onCancel={() => setConfirmDeleteProject(false)}
       />
