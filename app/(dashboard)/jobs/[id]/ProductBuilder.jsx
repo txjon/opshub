@@ -1618,7 +1618,7 @@ function EditSizesModal({ item, onClose, onSave }) {
           </div>
 
           {/* WAIST × INSEAM + QUANTITIES — side by side */}
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 32, alignItems: "flex-start", justifyContent: "center" }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 28, alignItems: "flex-start" }}>
           {/* Waist × Inseam (pants) — pre-loaded Ridgeline ranges; click cells to select. */}
           <div>
             <button onClick={() => setShowWI(v => !v)}
@@ -1701,12 +1701,14 @@ function EditSizesModal({ item, onClose, onSave }) {
               )}
             </div>
           )}
+          </div>{/* /RIGHT — qty only */}
+          </div>{/* /side-by-side row */}
 
-          {/* Distribute helper — fills sizes by curve */}
+          {/* Distribute helper — full width below the grids */}
           {sizes.length > 0 && !ONE_SIZE.includes(sizes[0]) && (
             <div>
               <div style={{ fontSize: 10, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>Distribute total</div>
-              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
                 <input type="text" inputMode="numeric" value={distTotal}
                   onChange={e => setDistTotal(e.target.value)}
                   onKeyDown={e => e.key === "Enter" && doDist()}
@@ -1720,8 +1722,6 @@ function EditSizesModal({ item, onClose, onSave }) {
               </div>
             </div>
           )}
-          </div>{/* /RIGHT */}
-          </div>{/* /side-by-side row */}
         </div>
 
         <div style={{ padding: "12px 20px", borderTop: `1px solid ${T.border}`, display: "flex", gap: 8, justifyContent: "flex-end" }}>
