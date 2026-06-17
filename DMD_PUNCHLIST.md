@@ -52,6 +52,10 @@ See `project_dmd_tenant` memory for the full build plan/phases.
 
 ---
 
-_Last updated by Claude: Phase 1a + 1b shipped to dev (tenant scaffolding,
-all routing centralized in lib/tenants.ts, no-blank nag suppressed, favicon
-placeholder). Cut-sew auto-default deferred; Phase 2 (QB multi-tenancy) next._
+_Last updated by Claude: **Phase 1 SHIPPED TO PROD Jun 17 (main 71ce30e6)** —
+tenant scaffolding, faithful outlined logo + favicon, ship-through-only routes,
+cut-sew Product Builder (editable QB item-type list, no blanks), waist×inseam
+size selector + Ridgeline distribution curve, click-in size modals, cut-and-sew
+quote/invoice PDF terms + contact@ email. **Phase 2 (QB multi-tenancy) is next and
+BLOCKS DMD invoicing** — also needs Jon to connect DMD's QuickBooks + verify the
+Resend domain (above) before any DMD invoice/email will actually send._
