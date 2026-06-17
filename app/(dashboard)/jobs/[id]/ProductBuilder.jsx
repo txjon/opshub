@@ -1561,7 +1561,7 @@ function EditSizesModal({ item, onClose, onSave }) {
     <div onClick={onClose}
       style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 110, display: "flex", alignItems: "center", justifyContent: "center", padding: "clamp(12px, 3vw, 32px)", fontFamily: font }}>
       <div onClick={e => e.stopPropagation()}
-        style={{ background: T.card, borderRadius: 12, width: "min(640px, 100%)", maxHeight: "90vh", display: "flex", flexDirection: "column", overflow: "hidden", border: `1px solid ${T.border}` }}>
+        style={{ background: T.card, borderRadius: 12, width: "min(900px, 100%)", maxHeight: "90vh", display: "flex", flexDirection: "column", overflow: "hidden", border: `1px solid ${T.border}` }}>
         <div style={{ padding: "14px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em" }}>Edit sizes & qtys</div>
@@ -1571,7 +1571,9 @@ function EditSizesModal({ item, onClose, onSave }) {
             style={{ background: "none", border: "none", color: T.muted, fontSize: 22, cursor: "pointer", padding: "0 6px", lineHeight: 1 }}>×</button>
         </div>
 
-        <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 18 }}>
+        <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "row", flexWrap: "wrap", alignItems: "flex-start", gap: 24 }}>
+          {/* LEFT column — size selection */}
+          <div style={{ flex: "1 1 240px", minWidth: 220, display: "flex", flexDirection: "column", gap: 18 }}>
           {/* Size toggle row — adult sizes, youth sizes, one-size. */}
           <div>
             <div style={{ fontSize: 10, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>Sizes</div>
@@ -1661,7 +1663,10 @@ function EditSizesModal({ item, onClose, onSave }) {
               </div>
             )}
           </div>
+          </div>{/* /LEFT column */}
 
+          {/* RIGHT column — quantities */}
+          <div style={{ flex: "1 1 320px", minWidth: 280, display: "flex", flexDirection: "column", gap: 18 }}>
           {/* Qty grid for active sizes */}
           {sizes.length > 0 && (
             <div>
@@ -1716,6 +1721,7 @@ function EditSizesModal({ item, onClose, onSave }) {
               </div>
             </div>
           )}
+          </div>{/* /RIGHT column */}
         </div>
 
         <div style={{ padding: "12px 20px", borderTop: `1px solid ${T.border}`, display: "flex", gap: 8, justifyContent: "flex-end" }}>
