@@ -8,7 +8,7 @@
 // ("scrambled"). The .st3 rect is display:none (artboard bg). The CSS classes
 // are scoped inside the SVG's <defs>; only one tenant's logo renders per page.
 
-export const DMD_LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1791.64 633.09" style="height:44px;display:block;margin-bottom:8px">
+export const DMD_LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1791.64 633.09" style="height:48px;display:block;margin-bottom:8px">
   <defs>
     <style>
       .dmdst0 { fill: none; stroke-width: 27px; }
