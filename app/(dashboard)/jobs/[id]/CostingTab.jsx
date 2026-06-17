@@ -603,8 +603,8 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                       <div style={{display:"flex",alignItems:"center",gap:10,flex:isMobile?"0 0 auto":1,minWidth:0}}>
                         <span style={{width:24,height:24,borderRadius:5,background:T.purpleDim,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:T.purple,fontFamily:mono,flexShrink:0}}>{String.fromCharCode(64+i+1)}</span>
                         <div style={{flex:1,display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap",minWidth:0}}>
-                          <span style={{color:T.text,fontFamily:font,fontSize:13,fontWeight:600}}>{p.name||"Accessory"}</span>
-                          <span style={{fontSize:10,color:T.purple,fontWeight:600}}>Accessory</span>
+                          <span style={{color:T.text,fontFamily:font,fontSize:13,fontWeight:600}}>{p.name||p.qb_item_type||"Item"}</span>
+                          <span style={{fontSize:10,color:T.purple,fontWeight:600}}>{p.qb_item_type||"Accessory"}</span>
                           <RfqBadge itemId={p.id} />
                         </div>
                         {isMobile && !selectedItemId && <span style={{fontSize:14,color:T.faint,marginLeft:6,flexShrink:0,lineHeight:1}}>›</span>}
@@ -806,7 +806,8 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                             <tbody>
                               {[
                                 ["Revenue",    fmtD(r.grossRev),       T.accent],
-                                ["Blanks",     fmtD(r.blankCost),      T.text],
+                                // No "Blanks" line — accessory / cut-and-sew items have no blank
+                                // (blankCost is always 0 here); the vendor cost is the PO Total.
                                 ["PO Total",   fmtD(r.poTotal),        T.text],
                                 ...(r.shipping>0?[["Shipping", fmtD(r.shipping), T.text]]:[]),
                                 ...(r.ccFees>0?[["CC Fees", fmtD(r.ccFees), T.text]]:[]),
@@ -1960,7 +1961,7 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
         const blankCosts = it.blankCosts && Object.keys(it.blankCosts).length > 0 ? it.blankCosts : seedBlankCosts(styleKey, it.color || it.blank_sku || "", it.sizes || []);
         const vnd = (it.blank_vendor || "").toLowerCase();
         const autoSupplier = vnd.startsWith("as colour")||vnd.startsWith("as color")?"AS Colour":vnd.startsWith("la apparel")||vnd.startsWith("los angeles")?"LA Apparel":vnd.startsWith("sanmar")||vnd.startsWith("port ")||vnd.startsWith("sport-tek")||vnd.startsWith("district")?"Sanmar":["comfort colors","gildan","bella","next level","tultex","hanes","champion","jerzees","fruit of the loom","independent trading","alternative","allmade","american apparel","rabbit skins","lat ","m&o ","augusta","badger","boxercraft"].some(b=>vnd.startsWith(b))?"S&S":"";
-        const newItem = { ...EMPTY_COST_PRODUCT(), id: it.id, name: it.name || "", style: it.blank_vendor || "", color: it.blank_sku || "", sizes: sortSizes(it.sizes || []), qtys: it.qtys || {}, blankCosts, totalQty: it.totalQty || Object.values(it.qtys || {}).reduce((a, v) => a + v, 0), garment_type: it.garment_type || null, supplier: autoSupplier };
+        const newItem = { ...EMPTY_COST_PRODUCT(), id: it.id, name: it.name || "", style: it.blank_vendor || "", color: it.blank_sku || "", sizes: sortSizes(it.sizes || []), qtys: it.qtys || {}, blankCosts, totalQty: it.totalQty || Object.values(it.qtys || {}).reduce((a, v) => a + v, 0), garment_type: it.garment_type || null, qb_item_type: it.qb_item_type || null, supplier: autoSupplier };
         { const NG=["accessory","patch","sticker","poster","pin","koozie","banner","flag","lighter","towel","water_bottle","samples","custom","key_chain","woven_labels","bandana","socks","tote","custom_bag","pillow","rug","pens","napkins","balloons","stencils"]; if (NG.includes(it.garment_type)) newItem.customCosts = [{desc:"",perUnit:0,flat:false},{desc:"",perUnit:0,flat:false}]; }
         return newItem;
       });
@@ -1976,7 +1977,7 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
         const totalQty = biHasQtyKeys
           ? (bi.totalQty || Object.values(bi.qtys).reduce((a, v) => a + v, 0))
           : cp.totalQty;
-        const updates = { name: bi.name || cp.name, sizes: sortSizes(bi.sizes || []), garment_type: bi.garment_type || cp.garment_type || null };
+        const updates = { name: bi.name || cp.name, sizes: sortSizes(bi.sizes || []), garment_type: bi.garment_type || cp.garment_type || null, qb_item_type: bi.qb_item_type ?? cp.qb_item_type ?? null };
         if (biHasQtyKeys) {
           updates.qtys = bi.qtys;
           updates.totalQty = totalQty;
