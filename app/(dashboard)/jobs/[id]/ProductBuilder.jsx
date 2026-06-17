@@ -1972,12 +1972,13 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
                     onCommit={sz => commitQty(idx, item.id, sz)}
                     disabled={costingLocked} ic={ic}
                   />
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
-                    <span style={{ fontSize: 18, fontWeight: 800, fontFamily: mono, color: T.text }}>{item.totalQty}</span>
-                    <span style={{ fontSize: 11, color: T.muted }}>units</span>
-                    <span style={{ flex: 1 }} />
-                    {!costingLocked && <button onClick={() => { setDistRow(idx); setDistTotal(""); }} style={{ fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "8px 14px", cursor: "pointer", fontFamily: font, minHeight: 36 }}>Distribute</button>}
-                    {!costingLocked && <button onClick={() => setEditSizesItemId(item.id)} style={{ fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "8px 14px", cursor: "pointer", fontFamily: font, minHeight: 36 }} title="Add or remove sizes without changing the blank">Edit sizes</button>}
+                  <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10, marginTop: 14, flexWrap: "wrap" }}>
+                    <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                      <span style={{ fontSize: 20, fontWeight: 800, fontFamily: mono, color: T.text }}>{(item.totalQty || 0).toLocaleString()}</span>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em" }}>units</span>
+                    </div>
+                    {!costingLocked && <button onClick={() => setEditSizesItemId(item.id)} title="Edit sizes & quantities"
+                      style={{ fontSize: 12, fontWeight: 600, color: T.muted, background: "transparent", border: `1px solid ${T.border}`, borderRadius: 7, padding: "7px 14px", cursor: "pointer", fontFamily: font }}>Edit sizes &amp; qty</button>}
                   </div>
                 </>
               ) : (<>
