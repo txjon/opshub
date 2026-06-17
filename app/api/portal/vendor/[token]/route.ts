@@ -230,18 +230,34 @@ export async function GET(
       return new Date(a.shipDate).getTime() - new Date(b.shipDate).getTime();
     });
 
-    // ── Completed orders — separate query, paginated, searchable ──
-    let completedQuery = sb
+    // ── Completed orders — this vendor only, paginated, searchable ──
+    // Vendor membership lives in costing_data.costProds[].printVendor (JSONB), which can't
+    // be filtered or counted in SQL. So load all complete jobs and filter in JS — the same
+    // way the active side above does — then paginate the FILTERED set. (Previously this used
+    // a raw count() over every complete job, so "Past (N)" showed all completed jobs
+    // company-wide, not just the ones sent to this vendor.)
+    let allCompletedQuery = sb
       .from("jobs")
-      .select("id, title, job_number, phase, target_ship_date, type_meta, client_id, costing_data, shipping_route", { count: "exact" })
+      .select("id, title, job_number, phase, target_ship_date, type_meta, client_id, costing_data, shipping_route")
       .in("phase", ["complete"])
       .order("job_number", { ascending: false });
 
     if (completedSearch) {
-      completedQuery = completedQuery.or(`job_number.ilike.%${completedSearch}%,title.ilike.%${completedSearch}%`);
+      allCompletedQuery = allCompletedQuery.or(`job_number.ilike.%${completedSearch}%,title.ilike.%${completedSearch}%`);
     }
 
-    const { data: completedJobs, count: completedTotal } = await completedQuery.range(completedOffset, completedOffset + completedLimit - 1);
+    const { data: allCompletedJobs } = await allCompletedQuery;
+
+    const vendorCompletedJobs = (allCompletedJobs || []).filter((job: any) => {
+      const cps = (job.costing_data as any)?.costProds;
+      if (!cps?.length) return false;
+      return cps.some((cp: any) =>
+        cp.printVendor === decorator.short_code || cp.printVendor === decorator.name
+      );
+    });
+
+    const completedTotal = vendorCompletedJobs.length;
+    const completedJobs = vendorCompletedJobs.slice(completedOffset, completedOffset + completedLimit);
 
     // Load any missing client names for completed jobs
     const missingClientIds = (completedJobs || []).map((j: any) => j.client_id).filter((id: string) => id && !clientMap[id]);
