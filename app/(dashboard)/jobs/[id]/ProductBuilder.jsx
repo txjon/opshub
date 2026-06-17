@@ -1659,7 +1659,7 @@ function EditSizesModal({ item, onClose, onSave }) {
                     ))}
                   </tbody>
                 </table>
-                <div style={{ fontSize: 10, color: T.faint, marginTop: 6 }}>Click a cell to include that size · click a W or I header to toggle the whole row / column.</div>
+                <div style={{ fontSize: 10, color: T.faint, marginTop: 8, maxWidth: 230, lineHeight: 1.4 }}>Click a cell to include that size. Click a W or I header to toggle a whole row / column.</div>
               </div>
             )}
           </div>
