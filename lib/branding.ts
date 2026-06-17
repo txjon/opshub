@@ -52,6 +52,9 @@ export type PdfBranding = {
    *  cross-tenant leaks. Empty object means no account on file → the
    *  account field is omitted from the PO. */
   shippingAccounts: Record<string, string>;
+  /** Active tenant slug — lets PDF routes branch tenant-specific copy
+   *  (e.g. cut-and-sew terms for DMD vs decoration terms for HPD). */
+  slug: string;
 };
 
 // Convert "Line 1\nLine 2" or "Line 1, City, State Zip" → "Line 1<br/>City, State Zip"
@@ -74,6 +77,7 @@ export async function getPdfBranding(): Promise<PdfBranding> {
   const fulfillmentRaw = (c.branding as any)?.fulfillment_address || c.warehouse_address || null;
   return {
     name: c.name,
+    slug: c.slug,
     logoSvg: LOGOS_BY_SLUG[c.slug] || "",
     headerAddressHtml: addressToHtml(c.warehouse_address || c.bill_to_address),
     billToAddressHtml: addressToHtml(c.bill_to_address || c.warehouse_address),
