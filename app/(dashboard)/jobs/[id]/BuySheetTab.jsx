@@ -3,6 +3,19 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 export const DEFAULT_CURVE = {S:5.13,M:20.57,L:38.14,XL:25.90,"2XL":7.69,"3XL":2.56};
+// Waist × Inseam sell-through curve, derived from real Ridgeline sales (units
+// sold per "{waist} / {inseam}" combo, summed across fits). Keys match the
+// size-grid wiLabel format; distribute() normalizes across the selected subset.
+export const WAIST_INSEAM_CURVE = {
+  "28 / 30 (Short)":93, "28 / 32 (Regular)":57, "28 / 34 (Long)":8, "30 / 30 (Short)":196,
+  "30 / 32 (Regular)":254, "30 / 34 (Long)":34, "32 / 30 (Short)":355, "32 / 32 (Regular)":653,
+  "32 / 34 (Long)":226, "32 / 36 (Tall)":53, "34 / 30 (Short)":318, "34 / 32 (Regular)":757,
+  "34 / 34 (Long)":378, "34 / 36 (Tall)":111, "36 / 30 (Short)":165, "36 / 32 (Regular)":366,
+  "36 / 34 (Long)":163, "36 / 36 (Tall)":73, "38 / 30 (Short)":77, "38 / 32 (Regular)":152,
+  "38 / 34 (Long)":88, "38 / 36 (Tall)":56, "40 / 30 (Short)":29, "40 / 32 (Regular)":38,
+  "40 / 34 (Long)":17, "40 / 36 (Tall)":9, "42 / 30 (Short)":14, "42 / 32 (Regular)":36,
+  "42 / 34 (Long)":7, "42 / 36 (Tall)":5,
+};
 
 // Auto-detect QB garment_type from supplier category + item name
 export function detectGarmentType(category, name) {

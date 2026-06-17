@@ -17,7 +17,7 @@ import { isCutSewOnly } from "@/lib/tenants";
 import { MobileBlankPicker } from "./MobileBlankPicker";
 // ItemArtSection from ArtTab is no longer rendered — removed after workflow merge
 import {
-  detectGarmentType, handleSizeToggle, distribute, DEFAULT_CURVE,
+  detectGarmentType, handleSizeToggle, distribute, DEFAULT_CURVE, WAIST_INSEAM_CURVE,
   SSPicker, ASColourPicker, LAApparelPicker, FavoritesPicker, OtherPicker, CottonCollectivePicker,
 } from "./BuySheetTab";
 
@@ -1532,7 +1532,10 @@ function EditSizesModal({ item, onClose, onSave }) {
   const doDist = () => {
     const total = parseInt(distTotal, 10);
     if (!Number.isFinite(total) || total <= 0 || sizes.length === 0) return;
-    const next = distribute(total, sizes, item.curve || DEFAULT_CURVE);
+    // Dimensional (waist × inseam) sizes distribute on the real WxL sell-through
+    // curve; letter sizes use the item's curve / the default tee curve.
+    const curve = parseSizeMatrix(sizes, null) ? WAIST_INSEAM_CURVE : (item.curve || DEFAULT_CURVE);
+    const next = distribute(total, sizes, curve);
     setQtys(next);
     setDistTotal("");
   };
