@@ -1571,13 +1571,11 @@ function EditSizesModal({ item, onClose, onSave }) {
             style={{ background: "none", border: "none", color: T.muted, fontSize: 22, cursor: "pointer", padding: "0 6px", lineHeight: 1 }}>×</button>
         </div>
 
-        <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "row", flexWrap: "wrap", alignItems: "flex-start", gap: 24 }}>
-          {/* LEFT column — size selection */}
-          <div style={{ flex: "1 1 240px", minWidth: 220, display: "flex", flexDirection: "column", gap: 18 }}>
-          {/* Size toggle row — adult sizes, youth sizes, one-size. */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 22 }}>
+          {/* SIZES — centered across the top */}
           <div>
-            <div style={{ fontSize: 10, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>Sizes</div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8, textAlign: "center" }}>Sizes</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8, justifyContent: "center" }}>
               {ADULT_SIZES.map(sz => {
                 const on = sizes.includes(sz);
                 return (
@@ -1590,7 +1588,7 @@ function EditSizesModal({ item, onClose, onSave }) {
                 );
               })}
             </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8, justifyContent: "center" }}>
               {YOUTH_SIZES.map(sz => {
                 const on = sizes.includes(sz);
                 return (
@@ -1603,7 +1601,7 @@ function EditSizesModal({ item, onClose, onSave }) {
                 );
               })}
             </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "center" }}>
               {ONE_SIZE.map(sz => {
                 const on = sizes.includes(sz);
                 return (
@@ -1619,6 +1617,8 @@ function EditSizesModal({ item, onClose, onSave }) {
             </div>
           </div>
 
+          {/* WAIST × INSEAM + QUANTITIES — side by side */}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 32, alignItems: "flex-start", justifyContent: "center" }}>
           {/* Waist × Inseam (pants) — pre-loaded Ridgeline ranges; click cells to select. */}
           <div>
             <button onClick={() => setShowWI(v => !v)}
@@ -1663,10 +1663,9 @@ function EditSizesModal({ item, onClose, onSave }) {
               </div>
             )}
           </div>
-          </div>{/* /LEFT column */}
 
-          {/* RIGHT column — quantities */}
-          <div style={{ flex: "1 1 320px", minWidth: 280, display: "flex", flexDirection: "column", gap: 18 }}>
+          {/* RIGHT — quantities + distribute */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
           {/* Qty grid for active sizes */}
           {sizes.length > 0 && (
             <div>
@@ -1721,7 +1720,8 @@ function EditSizesModal({ item, onClose, onSave }) {
               </div>
             </div>
           )}
-          </div>{/* /RIGHT column */}
+          </div>{/* /RIGHT */}
+          </div>{/* /side-by-side row */}
         </div>
 
         <div style={{ padding: "12px 20px", borderTop: `1px solid ${T.border}`, display: "flex", gap: 8, justifyContent: "flex-end" }}>
