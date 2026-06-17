@@ -1666,23 +1666,35 @@ function EditSizesModal({ item, onClose, onSave }) {
           {sizes.length > 0 && (
             <div>
               <div style={{ fontSize: 10, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>Quantities</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-                {sizes.map(sz => (
-                  <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
-                    <span style={{ fontSize: 10, fontWeight: 600, color: T.faint, fontFamily: mono }}>{sz}</span>
-                    <input type="text" inputMode="numeric" value={qtys[sz] ?? 0}
-                      onChange={e => setQty(sz, e.target.value)}
-                      onFocus={e => e.target.select()}
-                      style={{ width: 56, height: 36, textAlign: "center", fontSize: 14, fontWeight: 600,
-                        border: `1px solid ${T.border}`, borderRadius: 6, background: T.card, color: T.text,
-                        fontFamily: font, outline: "none" }} />
+              {parseSizeMatrix(sizes, null) ? (
+                // Dimensional (waist × inseam) → pivoted cut-ticket grid w/ totals.
+                <SizeGridInput
+                  sizes={sizes}
+                  getValue={sz => qtys[sz] ?? 0}
+                  onChange={(sz, v) => setQty(sz, v)}
+                  onCommit={() => {}}
+                  disabled={false}
+                  ic={{ border: `1px solid ${T.border}`, borderRadius: 6, background: T.card, color: T.text, fontFamily: font, outline: "none" }}
+                />
+              ) : (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                  {sizes.map(sz => (
+                    <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+                      <span style={{ fontSize: 10, fontWeight: 600, color: T.faint, fontFamily: mono }}>{sz}</span>
+                      <input type="text" inputMode="numeric" value={qtys[sz] ?? 0}
+                        onChange={e => setQty(sz, e.target.value)}
+                        onFocus={e => e.target.select()}
+                        style={{ width: 56, height: 36, textAlign: "center", fontSize: 14, fontWeight: 600,
+                          border: `1px solid ${T.border}`, borderRadius: 6, background: T.card, color: T.text,
+                          fontFamily: font, outline: "none" }} />
+                    </div>
+                  ))}
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, marginLeft: 8 }}>
+                    <span style={{ fontSize: 10, fontWeight: 600, color: T.faint }}>TOTAL</span>
+                    <span style={{ fontSize: 20, fontWeight: 800, fontFamily: mono, color: T.text }}>{total}</span>
                   </div>
-                ))}
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, marginLeft: 8 }}>
-                  <span style={{ fontSize: 10, fontWeight: 600, color: T.faint }}>TOTAL</span>
-                  <span style={{ fontSize: 20, fontWeight: 800, fontFamily: mono, color: T.text }}>{total}</span>
                 </div>
-              </div>
+              )}
             </div>
           )}
 
