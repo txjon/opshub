@@ -685,49 +685,60 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                         </select>
                       </div>
 
-                      {/* Size breakdown — compact qty editor for accessories with sizes (e.g. gloves S/M/L). No per-size cost since accessories are priced via custom costs. */}
-                      {(p.sizes||[]).length > 0 && (
-                        <div style={{marginBottom:12,padding:"8px 10px",background:T.surface,border:`1px solid ${T.border}`,borderRadius:6}}>
-                          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
-                            <div style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em"}}>Size breakdown</div>
-                            <div style={{fontSize:10,color:T.muted,fontFamily:mono}}>{(p.totalQty||0).toLocaleString()} total</div>
+                      {/* Size breakdown — summary chip; click opens the grid in a
+                          modal (matches the HPD blanks-chip → modal pattern, so a
+                          50+ variant pant doesn't bury the cost controls). */}
+                      {(p.sizes||[]).length > 0 && (() => {
+                        const onSizeQty = (sz, raw) => {
+                          const q = parseInt(raw) || 0;
+                          const newQtys = { ...(p.qtys||{}), [sz]: q };
+                          const newTotal = Object.values(newQtys).reduce((a,v)=>a+(v||0),0);
+                          updateProd(i,{...p,qtys:newQtys,totalQty:newTotal});
+                          if(onUpdateBuyItems){onUpdateBuyItems(prev=>prev.map(bi=>bi.id===p.id?{...bi,qtys:newQtys,totalQty:newTotal}:bi));}
+                        };
+                        const __dimM = parseSizeMatrix(p.sizes, p.qtys);
+                        const __active = (p.sizes||[]).filter(sz => (p.qtys?.[sz]||0) > 0);
+                        const sizeSummary = __dimM
+                          ? [__dimM.groups.map(g=>g.name).filter(Boolean).join(", "), `${__active.length} sizes`].filter(Boolean).join(" · ")
+                          : __active.map(sz=>`${sz}:${p.qtys[sz]}`).join(" · ");
+                        const gridIc = { background: T.card, border: `1px solid ${T.border}`, borderRadius: 5, color: T.text, fontFamily: mono, outline: "none" };
+                        return (
+                        <div style={{marginBottom:12}}>
+                          <div style={{fontSize:9,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Size breakdown</div>
+                          <div onClick={()=>{ if(!costingLocked) updateProd(i,{...p,_sizesExpanded:true}); }}
+                            style={{display:"flex",alignItems:"center",gap:12,padding:"8px 12px",borderRadius:10,background:T.surface,border:`1px solid ${T.border}`,cursor:costingLocked?"default":"pointer",transition:"all 0.15s"}}
+                            onMouseEnter={e=>{ if(!costingLocked) e.currentTarget.style.borderColor=T.accent+"55"; }}
+                            onMouseLeave={e=>{ e.currentTarget.style.borderColor=T.border; }}>
+                            <span style={{flex:1,minWidth:0,fontSize:12,fontWeight:700,color:sizeSummary?T.text:T.muted,fontFamily:mono,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{sizeSummary||"Set sizes"}</span>
+                            <span style={{fontSize:11,color:T.muted,fontFamily:mono,flexShrink:0}}>{(p.totalQty||0).toLocaleString()} total</span>
+                            <span style={{fontSize:12,color:T.faint,flexShrink:0,lineHeight:1}}>›</span>
                           </div>
-                          {(() => {
-                            const onSizeQty = (sz, raw) => {
-                              const q = parseInt(raw) || 0;
-                              const newQtys = { ...(p.qtys||{}), [sz]: q };
-                              const newTotal = Object.values(newQtys).reduce((a,v)=>a+(v||0),0);
-                              updateProd(i,{...p,qtys:newQtys,totalQty:newTotal});
-                              if(onUpdateBuyItems){onUpdateBuyItems(prev=>prev.map(bi=>bi.id===p.id?{...bi,qtys:newQtys,totalQty:newTotal}:bi));}
-                            };
-                            // Dimensional (pant-style) sizes pivot into the compact cut-ticket
-                            // grid so a 50+ variant custom item doesn't bury the cost controls.
-                            if (parseSizeMatrix(p.sizes, null)) return (
-                              <SizeGridInput
-                                sizes={p.sizes}
-                                getValue={sz => p.qtys?.[sz] ?? ""}
-                                onChange={(sz, v) => onSizeQty(sz, v)}
-                                onCommit={() => {}}
-                                disabled={costingLocked}
-                                ic={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 5, color: T.text, fontFamily: mono, outline: "none" }}
-                              />
-                            );
-                            return (
-                              <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
-                                {(p.sizes||[]).map(sz=>(
-                                  <div key={sz} style={{display:"flex",alignItems:"center",gap:5,background:T.card,border:`1px solid ${T.border}`,borderRadius:5,padding:"3px 6px"}}>
-                                    <span style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:mono,minWidth:24}}>{sz}</span>
-                                    <input type="text" inputMode="numeric" pattern="[0-9]*" value={p.qtys?.[sz]||""} placeholder="0"
-                                      onChange={e=>onSizeQty(sz, e.target.value)}
-                                      onFocus={e=>e.target.select()}
-                                      style={{width:48,textAlign:"center",background:"transparent",border:"none",outline:"none",color:T.text,fontSize:13,fontWeight:700,fontFamily:mono,padding:"2px 4px"}}/>
-                                  </div>
-                                ))}
+                          <SettingsModal open={!!p._sizesExpanded} onClose={()=>updateProd(i,{...p,_sizesExpanded:false})}
+                            title={`Sizes — ${p.name || "Item"}`} summary={sizeSummary || "Set sizes & quantities"} width={620}>
+                            <div>
+                              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                                <div style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em"}}>Size breakdown</div>
+                                <div style={{fontSize:11,color:T.muted,fontFamily:mono}}>{(p.totalQty||0).toLocaleString()} total</div>
                               </div>
-                            );
-                          })()}
+                              {parseSizeMatrix(p.sizes, null) ? (
+                                <SizeGridInput sizes={p.sizes} getValue={sz => p.qtys?.[sz] ?? ""} onChange={(sz, v) => onSizeQty(sz, v)} onCommit={() => {}} disabled={costingLocked} ic={gridIc} />
+                              ) : (
+                                <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+                                  {(p.sizes||[]).map(sz=>(
+                                    <div key={sz} style={{display:"flex",alignItems:"center",gap:5,background:T.card,border:`1px solid ${T.border}`,borderRadius:5,padding:"3px 6px"}}>
+                                      <span style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:mono,minWidth:24}}>{sz}</span>
+                                      <input type="text" inputMode="numeric" pattern="[0-9]*" value={p.qtys?.[sz]||""} placeholder="0"
+                                        onChange={e=>onSizeQty(sz, e.target.value)} onFocus={e=>e.target.select()}
+                                        style={{width:48,textAlign:"center",background:"transparent",border:"none",outline:"none",color:T.text,fontSize:13,fontWeight:700,fontFamily:mono,padding:"2px 4px"}}/>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </SettingsModal>
                         </div>
-                      )}
+                        );
+                      })()}
 
                       <div style={{display:"grid",gridTemplateColumns:"3fr 2fr",gap:12,alignItems:"start"}}>
                       <div style={{display:"flex",flexDirection:"column",gap:10}}>
