@@ -1,18 +1,11 @@
 import { createBrowserClient } from "@supabase/ssr";
 import type { Database } from "@/types/database";
-
-// Mirror lib/supabase/middleware.ts resolveCompanySlug. Client-side
-// can't read request headers but window.location.hostname tells us
-// which subdomain we're on, which is enough to pick the slug.
-function resolveSlugFromHost(): string {
-  if (typeof window === "undefined") return "hpd";
-  const h = window.location.hostname.toLowerCase();
-  if (h === "app.inhousemerchandise.com" || h === "ihm.localhost") return "ihm";
-  return "hpd";
-}
+import { resolveSlugFromHost, DEFAULT_SLUG } from "@/lib/tenants";
 
 export function createClient() {
-  const slug = resolveSlugFromHost();
+  // Client-side can't read request headers, but window.location.hostname
+  // tells us the subdomain → slug (map in lib/tenants.ts).
+  const slug = typeof window === "undefined" ? DEFAULT_SLUG : resolveSlugFromHost(window.location.hostname);
   return createBrowserClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,

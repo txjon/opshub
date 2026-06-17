@@ -1,4 +1,5 @@
 import { getActiveCompany } from "./company";
+import { DMD_LOGO_SVG } from "./tenant-logos";
 
 // Per-tenant branding for PDFs + outbound emails. Logos are inlined as
 // constants here (keyed by company slug) since they're shipped with
@@ -22,6 +23,7 @@ const IHM_LOGO_SVG = `<svg style="height:80px;display:block;margin-bottom:10px" 
 const LOGOS_BY_SLUG: Record<string, string> = {
   hpd: HPD_LOGO_SVG,
   ihm: IHM_LOGO_SVG,
+  dmd: DMD_LOGO_SVG,
 };
 
 export type PdfBranding = {
@@ -50,6 +52,9 @@ export type PdfBranding = {
    *  cross-tenant leaks. Empty object means no account on file → the
    *  account field is omitted from the PO. */
   shippingAccounts: Record<string, string>;
+  /** Active tenant slug — lets PDF routes branch tenant-specific copy
+   *  (e.g. cut-and-sew terms for DMD vs decoration terms for HPD). */
+  slug: string;
 };
 
 // Convert "Line 1\nLine 2" or "Line 1, City, State Zip" → "Line 1<br/>City, State Zip"
@@ -72,6 +77,7 @@ export async function getPdfBranding(): Promise<PdfBranding> {
   const fulfillmentRaw = (c.branding as any)?.fulfillment_address || c.warehouse_address || null;
   return {
     name: c.name,
+    slug: c.slug,
     logoSvg: LOGOS_BY_SLUG[c.slug] || "",
     headerAddressHtml: addressToHtml(c.warehouse_address || c.bill_to_address),
     billToAddressHtml: addressToHtml(c.bill_to_address || c.warehouse_address),

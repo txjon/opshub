@@ -15,17 +15,7 @@
 //      callers iterating across tenants should call appBaseUrlForSlug
 //      explicitly with each row's slug.
 
-const URLS_BY_SLUG: Record<string, string> = {
-  hpd: "https://app.housepartydistro.com",
-  ihm: "https://app.inhousemerchandise.com",
-};
-
-function resolveSlugFromHost(host: string | null): string {
-  if (!host) return "hpd";
-  const h = host.toLowerCase().split(":")[0];
-  if (h === "app.inhousemerchandise.com" || h === "ihm.localhost") return "ihm";
-  return "hpd";
-}
+import { resolveSlugFromHost, TENANT_URLS, urlForSlug } from "@/lib/tenants";
 
 export async function appBaseUrl(): Promise<string> {
   if (typeof window !== "undefined") return window.location.origin;
@@ -33,17 +23,17 @@ export async function appBaseUrl(): Promise<string> {
     const { headers } = await import("next/headers");
     const h = await headers();
     const slug = h.get("x-company-slug") || resolveSlugFromHost(h.get("host"));
-    if (URLS_BY_SLUG[slug]) return URLS_BY_SLUG[slug];
+    if (TENANT_URLS[slug]) return TENANT_URLS[slug];
   } catch {
     // Outside a request — fall through.
   }
-  return process.env.NEXT_PUBLIC_SITE_URL || URLS_BY_SLUG.hpd;
+  return process.env.NEXT_PUBLIC_SITE_URL || TENANT_URLS.hpd;
 }
 
 // Sync helper for cron / webhook callers that already know the tenant
 // slug (e.g. resolved from a job/client/designer row's company_id).
 export function appBaseUrlForSlug(slug: string): string {
-  return URLS_BY_SLUG[slug] || URLS_BY_SLUG.hpd;
+  return urlForSlug(slug);
 }
 
 // Sync helper for client components — returns the current tenant origin

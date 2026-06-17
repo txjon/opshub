@@ -6,6 +6,7 @@ import { SendEmailDialog } from "@/components/SendEmailDialog";
 import { logJobActivity } from "@/components/JobActivityPanel";
 import { applyPoSentToVendorItems, revertPoSentFromVendorItems } from "@/lib/po-actions";
 import { useClientBranding } from "@/lib/branding-client";
+import { shippingRoutesForSlug } from "@/lib/tenants";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { PdfCanvasPreview } from "@/components/PdfCanvasPreview";
 import { addBusinessDays } from "@/lib/dates";
@@ -140,6 +141,9 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
   const supabase = createClient();
   const branding = useClientBranding();
   const isMobile = useIsMobile();
+  // Per-item route override is limited to the tenant's allowed routes
+  // (DMD = ship_through only — importer of record).
+  const allowedRoutes = shippingRoutesForSlug(branding.slug);
   // Derive "HPD" / "IHM" from the company name initials so PO subjects
   // match the tenant the user is acting on. Falls back to HPD until the
   // companies row finishes loading.
@@ -747,9 +751,9 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
                       title={itemRoute ? `Override: ${routeLabel(itemRoute)}` : `Default: ${routeLabel(shippingRoute) || "—"}`}
                       style={{background:itemRoute?T.amber+"22":T.surface,border:`1px solid ${itemRoute?T.amber+"66":T.border}`,borderRadius:5,color:itemRoute?T.amber:T.muted,fontFamily:font,fontSize:10,padding:"3px 6px",outline:"none",cursor:"pointer",flex:isMobile?1:"none",minWidth:0}}>
                       <option value="">Route: job default</option>
-                      <option value="drop_ship">Drop ship</option>
-                      <option value="ship_through">Ship through HPD</option>
-                      <option value="stage">Stage at HPD</option>
+                      {allowedRoutes.includes("drop_ship") && <option value="drop_ship">Drop ship</option>}
+                      {allowedRoutes.includes("ship_through") && <option value="ship_through">Ship through HPD</option>}
+                      {allowedRoutes.includes("stage") && <option value="stage">Stage at HPD</option>}
                     </select>
                     <div style={{fontSize:11,color:T.muted,fontFamily:mono}}>{getCostProd(item.id)?.printVendor||"—"}</div>
                     {isSaving&&<div style={{fontSize:9,color:T.amber}}>saving…</div>}

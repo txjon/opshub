@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useRouter, useSearchParams } from "next/navigation";
 import { T, font, mono } from "@/lib/theme";
 import { useIsMobile } from "@/lib/useIsMobile";
+import { clientShippingRoutes } from "@/lib/tenants";
 
 type ClientOption = { id: string; name: string; default_terms: string | null; };
 
@@ -12,6 +13,8 @@ export default function NewJobPage() {
   const searchParams = useSearchParams();
   const supabase = createClient();
   const isMobile = useIsMobile();
+  // Routes this tenant may pick (DMD = ship_through only — importer of record).
+  const allowedRoutes = clientShippingRoutes();
   // Optional ?client=<id> to pre-select a client. Used by the "+ New
   // Project" button on the client detail page so the user lands here
   // with the client + payment terms already filled in.
@@ -255,9 +258,9 @@ export default function NewJobPage() {
             <div>
               <label style={s.label}>Shipping route</label>
               <select value={form.shipping_route} onChange={e => set("shipping_route", e.target.value)} style={s.select}>
-                <option value="drop_ship">Drop ship (direct to client)</option>
-                <option value="ship_through">Ship-through (forward from HPD)</option>
-                <option value="stage">Stage (fulfillment from HPD)</option>
+                {allowedRoutes.includes("drop_ship") && <option value="drop_ship">Drop ship (direct to client)</option>}
+                {allowedRoutes.includes("ship_through") && <option value="ship_through">Ship-through (forward from HPD)</option>}
+                {allowedRoutes.includes("stage") && <option value="stage">Stage (fulfillment from HPD)</option>}
               </select>
             </div>
           </div>

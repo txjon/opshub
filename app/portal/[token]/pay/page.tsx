@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import { loadStripe, type Stripe as StripeJs } from "@stripe/stripe-js";
 import { getLogoSvgForSlug } from "@/lib/branding-client";
+import { resolveSlugFromHost, DEFAULT_SLUG } from "@/lib/tenants";
 
 // White-label Stripe pay page. Mirrors the visual language of the
 // portal/quote/invoice pages (Helvetica Neue, document-style chrome,
@@ -53,14 +54,12 @@ const fmtMoney = (cents: number, currency: string) => {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: (currency || "usd").toUpperCase() }).format((cents || 0) / 100);
 };
 
-// Resolve the tenant slug from the URL the client is on so the logo
-// renders correctly even before the API responds (or if it errors).
-// Mirrors lib/supabase/client.ts resolveSlugFromHost.
+// Resolve the tenant slug from the URL the client is on so the logo renders
+// correctly even before the API responds (or if it errors). Host→slug map
+// lives in lib/tenants.ts.
 function slugFromCurrentHost(): string {
-  if (typeof window === "undefined") return "hpd";
-  const h = window.location.hostname.toLowerCase();
-  if (h === "app.inhousemerchandise.com" || h === "ihm.localhost") return "ihm";
-  return "hpd";
+  if (typeof window === "undefined") return DEFAULT_SLUG;
+  return resolveSlugFromHost(window.location.hostname);
 }
 
 export default function PayPage({ params }: { params: { token: string } }) {

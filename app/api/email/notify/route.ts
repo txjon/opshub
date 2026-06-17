@@ -35,6 +35,7 @@ const BASE_URL = () =>
 
 // User-facing URL — shows up in the email body. Branded, never a Vercel URL.
 import { appBaseUrl } from "@/lib/public-url";
+import { resolveSlugFromHost } from "@/lib/tenants";
 
 const FROM_ADDR = () => process.env.EMAIL_FROM_QUOTES || "hello@housepartydistro.com";
 
@@ -90,8 +91,7 @@ export async function POST(req: NextRequest) {
     const sb = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
     // Pick the Resend key + branding matching the active tenant. Falls
     // back to RESEND_API_KEY / "House Party Distro" when nothing's set.
-    const _h = (req.headers.get("host") || "").toLowerCase().split(":")[0];
-    const _slug = (_h === "app.inhousemerchandise.com" || _h === "ihm.localhost") ? "ihm" : "hpd";
+    const _slug = resolveSlugFromHost(req.headers.get("host"));
     const resend = resendForSlug(_slug);
     const { data: _tenantRow } = await sb.from("companies").select("name, from_email_quotes, from_email_production").eq("slug", _slug).maybeSingle();
     const tenantName = (_tenantRow as any)?.name || "House Party Distro";

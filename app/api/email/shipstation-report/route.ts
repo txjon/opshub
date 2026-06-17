@@ -7,6 +7,7 @@ import { createClient as createAdmin } from "@supabase/supabase-js";
 import { renderBrandedEmail } from "@/lib/email-template";
 import { refreshPaymentLink } from "@/lib/quickbooks";
 import { resendForSlug } from "@/lib/resend-client";
+import { resolveSlugFromHost } from "@/lib/tenants";
 
 // Send a generated ShipStation Sales Report to the client as a branded
 // email with the PDF attached + Pay Online button (if the report has
@@ -20,8 +21,7 @@ export async function POST(req: NextRequest) {
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     // Pick the tenant Resend key from the request Host.
-    const _h = (req.headers.get("host") || "").toLowerCase().split(":")[0];
-    const _slug = (_h === "app.inhousemerchandise.com" || _h === "ihm.localhost") ? "ihm" : "hpd";
+    const _slug = resolveSlugFromHost(req.headers.get("host"));
     const resend = resendForSlug(_slug);
     const { reportId, recipientEmail, ccEmails, recipientName, subject, customBody } = await req.json();
 

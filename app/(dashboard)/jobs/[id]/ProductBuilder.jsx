@@ -12,12 +12,19 @@ import { parsePsd } from "./ProcessingTab";
 import MoveItemDialog from "@/components/MoveItemDialog";
 import { DriveFileLink } from "@/components/DriveFileLink";
 import { useIsMobile } from "@/lib/useIsMobile";
+import { useClientBranding } from "@/lib/branding-client";
+import { isCutSewOnly } from "@/lib/tenants";
 import { MobileBlankPicker } from "./MobileBlankPicker";
 // ItemArtSection from ArtTab is no longer rendered — removed after workflow merge
 import {
-  detectGarmentType, handleSizeToggle, distribute, DEFAULT_CURVE,
+  detectGarmentType, handleSizeToggle, distribute, DEFAULT_CURVE, WAIST_INSEAM_CURVE,
   SSPicker, ASColourPicker, LAApparelPicker, FavoritesPicker, OtherPicker, CottonCollectivePicker,
 } from "./BuySheetTab";
+
+// Non-apparel garment types — no catalog blank, priced via custom-cost lines.
+// Mirrors lib/pricing.ts / lib/lifecycle.ts. Used to suppress the "No blank"
+// nag for cut-and-sew / accessory items (e.g. all DMD items, garment_type "custom").
+const NON_GARMENT = ["accessory","patch","sticker","poster","pin","koozie","banner","flag","lighter","towel","water_bottle","samples","custom","key_chain","woven_labels","bandana","socks","tote","custom_bag","pillow","rug","pens","napkins","balloons","stencils"];
 
 /**
  * Product Builder — unified tab: PSD drop + blank assignment + sizes/qty + art files
@@ -157,6 +164,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
           cost_per_unit: item.cost_per_unit || null,
           blank_costs: item.blankCosts && Object.keys(item.blankCosts).length > 0 ? item.blankCosts : null,
           garment_type: item.garment_type || null,
+          qb_item_type: item.qb_item_type || null,
           status: "tbd", artwork_status: "not_started", sort_order: current.indexOf(item),
         }).select("id").single();
         if (data) {
@@ -175,6 +183,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
         const nameChanged = item.name !== prev?.name;
         if (nameChanged) dbUpdates.name = item.name;
         if (item.garment_type !== prev?.garment_type) dbUpdates.garment_type = item.garment_type || null;
+        if (item.qb_item_type !== prev?.qb_item_type) dbUpdates.qb_item_type = item.qb_item_type || null;
         if (item.cost_per_unit !== prev?.cost_per_unit) dbUpdates.cost_per_unit = item.cost_per_unit || null;
         if (JSON.stringify(item.blankCosts) !== JSON.stringify(prev?.blankCosts)) dbUpdates.blank_costs = item.blankCosts || null;
         if (item.blank_vendor) dbUpdates.blank_vendor = item.blank_vendor;
@@ -355,6 +364,38 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
   const [showAddType, setShowAddType] = useState(null);
   const [assignBlankTo, setAssignBlankTo] = useState(null);
   const [moveItemTarget, setMoveItemTarget] = useState(null); // { id, name } — opens MoveItemDialog
+  // Cut-and-sew tenants (DMD): no blanks. The Add Item modal becomes a managed
+  // item-type list (their QB categories) instead of blank-supplier pickers.
+  const branding = useClientBranding();
+  const cutSew = isCutSewOnly(branding.slug);
+  const [itemTypes, setItemTypes] = useState([]);
+  const [newItemType, setNewItemType] = useState("");
+  const [savingType, setSavingType] = useState(false);
+  useEffect(() => {
+    if (!cutSew) return;
+    // RLS narrows company_item_types to the active tenant.
+    createClient().from("company_item_types").select("id, name, sort_order").order("sort_order").then(({ data }) => setItemTypes(data || []));
+  }, [cutSew]);
+  const [newItemName, setNewItemName] = useState("");
+  const addItemOfType = (typeName) => {
+    addItem({
+      id: Date.now() + Math.random(), name: newItemName.trim(), blank_vendor: "", blank_sku: "",
+      garment_type: "custom", qb_item_type: typeName,
+      sizes: [], qtys: {}, curve: DEFAULT_CURVE, totalQty: 0, blankCosts: {}, cost_per_unit: 0,
+    });
+    setNewItemName("");
+    setShowAddModal(false);
+  };
+  const addNewItemType = async () => {
+    const name = newItemType.trim();
+    if (!name || savingType) return;
+    setSavingType(true);
+    const { data } = await createClient().from("company_item_types")
+      .insert({ name, sort_order: itemTypes.length }).select("id, name, sort_order").single();
+    if (data) setItemTypes(prev => [...prev, data]);
+    setNewItemType("");
+    setSavingType(false);
+  };
   const [copyItemTarget, setCopyItemTarget] = useState(null); // { id, name } — opens MoveItemDialog in copy mode
   const [favorites, setFavorites] = useState([]);
   // Mobile picker — one search-driven sheet that replaces the desktop
@@ -748,27 +789,61 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
       {showAddModal && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => { setShowAddModal(false); setAssignBlankTo(null); }}>
           <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: 24, width: 420, maxWidth: "90vw" }}>
-            <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>{assignBlankTo ? "Assign Blank" : "Add Item"}</div>
-            <div style={{ fontSize: 12, color: T.muted, marginBottom: 16 }}>{assignBlankTo ? (() => {
-              const ids = Array.isArray(assignBlankTo) ? assignBlankTo : [assignBlankTo];
-              const names = ids.map(id => (workingItems || []).find(it => it.id === id)?.name).filter(Boolean);
-              return names.length > 0 ? names.join(", ") : "Select a blank source";
-            })() : "Choose a source"}</div>
-            <button onClick={() => { setShowAddModal(false); setShowFavorites(true); }} style={{ width: "100%", padding: 12, borderRadius: 8, border: "none", background: "#5795b2", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", marginBottom: 10 }}>
-              House Party Favorites {favorites.length > 0 && <span style={{ fontSize: 10, opacity: 0.7, marginLeft: 4 }}>{favorites.length}</span>}
-            </button>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-              {[
-                { label: "S&S Activewear", bg: "#b65722", color: "#fff", action: () => { setShowAddModal(false); setShowPicker(true); } },
-                { label: "AS Colour", bg: "#000", color: "#fff", action: () => { setShowAddModal(false); setShowASColour(true); } },
-                { label: "LA Apparel", bg: "#fff", color: "#000", border: true, action: () => { setShowAddModal(false); setShowLAApparel(true); } },
-                { label: "Cotton Collective", bg: "#2d6b4f", color: "#fff", action: () => { setShowAddModal(false); setShowCCPicker(true); } },
-                { label: "Custom Accessory", bg: T.surface, color: T.text, border: true, action: () => { setShowAddModal(false); setShowAddType("accessory"); } },
-                { label: "Other", bg: T.surface, color: T.text, border: true, action: () => { setShowAddModal(false); setShowOtherPicker(true); } },
-              ].map(opt => (
-                <button key={opt.label} onClick={opt.action} style={{ padding: "10px 14px", borderRadius: 8, border: opt.border ? `1px solid ${T.border}` : "none", background: opt.bg, cursor: "pointer", fontSize: 12, fontWeight: 600, color: opt.color }}>{opt.label}</button>
-              ))}
-            </div>
+            <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>{(!cutSew && assignBlankTo) ? "Assign Blank" : "Add Item"}</div>
+            {cutSew ? (
+              // DMD-style: name the item + pick a managed type (QB category). No blanks.
+              <>
+                <div style={{ marginBottom: 14 }}>
+                  <label style={{ fontSize: 10, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 5 }}>Item name</label>
+                  <input value={newItemName} onChange={e => setNewItemName(e.target.value)} autoFocus
+                    placeholder="e.g. Crocodile Ridgeline Pant"
+                    style={{ width: "100%", padding: "10px 12px", border: `1px solid ${T.border}`, borderRadius: 8, background: T.surface, color: T.text, fontSize: 13, outline: "none", fontFamily: font, boxSizing: "border-box" }} />
+                </div>
+                <div style={{ fontSize: 12, color: T.muted, marginBottom: 8 }}>Choose a type to add it</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
+                  {itemTypes.map(t => (
+                    <button key={t.id} onClick={() => addItemOfType(t.name)}
+                      style={{ width: "100%", textAlign: "left", padding: "12px 16px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                      {t.name}
+                    </button>
+                  ))}
+                  {itemTypes.length === 0 && <div style={{ fontSize: 12, color: T.faint }}>No item types yet — add one below.</div>}
+                </div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", borderTop: `1px solid ${T.border}`, paddingTop: 14 }}>
+                  <input value={newItemType} onChange={e => setNewItemType(e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter") addNewItemType(); }}
+                    placeholder="New type (e.g. Hat)"
+                    style={{ flex: 1, padding: "9px 12px", border: `1px solid ${T.border}`, borderRadius: 8, background: T.surface, color: T.text, fontSize: 13, outline: "none", fontFamily: font }} />
+                  <button onClick={addNewItemType} disabled={!newItemType.trim() || savingType}
+                    style={{ padding: "9px 16px", borderRadius: 8, border: "none", background: T.accent, color: "#fff", fontSize: 12, fontWeight: 700, cursor: (!newItemType.trim() || savingType) ? "default" : "pointer", opacity: (!newItemType.trim() || savingType) ? 0.5 : 1 }}>
+                    + Add
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ fontSize: 12, color: T.muted, marginBottom: 16 }}>{assignBlankTo ? (() => {
+                  const ids = Array.isArray(assignBlankTo) ? assignBlankTo : [assignBlankTo];
+                  const names = ids.map(id => (workingItems || []).find(it => it.id === id)?.name).filter(Boolean);
+                  return names.length > 0 ? names.join(", ") : "Select a blank source";
+                })() : "Choose a source"}</div>
+                <button onClick={() => { setShowAddModal(false); setShowFavorites(true); }} style={{ width: "100%", padding: 12, borderRadius: 8, border: "none", background: "#5795b2", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", marginBottom: 10 }}>
+                  House Party Favorites {favorites.length > 0 && <span style={{ fontSize: 10, opacity: 0.7, marginLeft: 4 }}>{favorites.length}</span>}
+                </button>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  {[
+                    { label: "S&S Activewear", bg: "#b65722", color: "#fff", action: () => { setShowAddModal(false); setShowPicker(true); } },
+                    { label: "AS Colour", bg: "#000", color: "#fff", action: () => { setShowAddModal(false); setShowASColour(true); } },
+                    { label: "LA Apparel", bg: "#fff", color: "#000", border: true, action: () => { setShowAddModal(false); setShowLAApparel(true); } },
+                    { label: "Cotton Collective", bg: "#2d6b4f", color: "#fff", action: () => { setShowAddModal(false); setShowCCPicker(true); } },
+                    { label: "Custom Accessory", bg: T.surface, color: T.text, border: true, action: () => { setShowAddModal(false); setShowAddType("accessory"); } },
+                    { label: "Other", bg: T.surface, color: T.text, border: true, action: () => { setShowAddModal(false); setShowOtherPicker(true); } },
+                  ].map(opt => (
+                    <button key={opt.label} onClick={opt.action} style={{ padding: "10px 14px", borderRadius: 8, border: opt.border ? `1px solid ${T.border}` : "none", background: opt.bg, cursor: "pointer", fontSize: 12, fontWeight: 600, color: opt.color }}>{opt.label}</button>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -1089,7 +1164,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
                     {item.name || "Untitled"}
                   </div>
                   <div style={{ fontSize: 12, color: T.muted, marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {[item.blank_vendor, item.blank_sku].filter(Boolean).join(" · ") || "No blank"}
+                    {cutSew ? (item.qb_item_type || "—") : ([item.blank_vendor, item.blank_sku].filter(Boolean).join(" · ") || "No blank")}
                   </div>
                   <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 10 }}>
                     <span style={{ fontSize: 11, fontFamily: mono, color: T.text }}>
@@ -1255,8 +1330,12 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
                   metadata. */}
               {!(isMobile && isExpanded) && (
                 <>
-                  {hasBlank && <span style={{ fontSize: 11, color: T.muted, flexShrink: 0, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.blank_vendor}{(item.color || item.blank_sku) ? ` · ${item.color || item.blank_sku}` : ""}</span>}
-                  {!hasBlank && item.garment_type !== "accessory" && <span style={{ fontSize: 11, color: T.amber, flexShrink: 0 }}>No blank</span>}
+                  {cutSew
+                    ? <span style={{ fontSize: 11, color: T.muted, flexShrink: 0 }}>{item.qb_item_type || "—"}</span>
+                    : <>
+                        {hasBlank && <span style={{ fontSize: 11, color: T.muted, flexShrink: 0, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.blank_vendor}{(item.color || item.blank_sku) ? ` · ${item.color || item.blank_sku}` : ""}</span>}
+                        {!hasBlank && !NON_GARMENT.includes(item.garment_type) && <span style={{ fontSize: 11, color: T.amber, flexShrink: 0 }}>No blank</span>}
+                      </>}
                   <span style={{ fontSize: 12, fontWeight: 600, fontFamily: mono, flexShrink: 0, minWidth: 50, textAlign: "right", color: item.totalQty > 0 ? T.text : T.faint }}>{item.totalQty > 0 ? item.totalQty : "—"}</span>
                   <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
                     {fileSummary[item.id]?.printReady && <span style={{ fontSize: 9, fontWeight: 700, color: T.green, letterSpacing: "0.06em", textTransform: "uppercase" }}>Print-ready</span>}
@@ -1453,18 +1532,39 @@ function EditSizesModal({ item, onClose, onSave }) {
   const doDist = () => {
     const total = parseInt(distTotal, 10);
     if (!Number.isFinite(total) || total <= 0 || sizes.length === 0) return;
-    const next = distribute(total, sizes, item.curve || DEFAULT_CURVE);
+    // Dimensional (waist × inseam) sizes distribute on the real WxL sell-through
+    // curve; letter sizes use the item's curve / the default tee curve.
+    const curve = parseSizeMatrix(sizes, null) ? WAIST_INSEAM_CURVE : (item.curve || DEFAULT_CURVE);
+    const next = distribute(total, sizes, curve);
     setQtys(next);
     setDistTotal("");
   };
 
   const total = Object.values(qtys).reduce((a, v) => a + (Number(v) || 0), 0);
 
+  // Waist × Inseam (cut-and-sew pants) — pre-loaded with the Ridgeline ranges.
+  // Selecting cells produces "{waist} / {inseam} ({name})" labels, the same
+  // dimensional format the size grid pivots into a cut-ticket (waist rows ×
+  // inseam cols) on the card + PDFs.
+  const WI_WAISTS = [28, 30, 32, 34, 36, 38, 40, 42];
+  const WI_INSEAMS = [{ num: 30, name: "Short" }, { num: 32, name: "Regular" }, { num: 34, name: "Long" }, { num: 36, name: "Tall" }];
+  const wiLabel = (w, i) => `${w} / ${i.num} (${i.name})`;
+  const [showWI, setShowWI] = useState(() => !!parseSizeMatrix(item.sizes || [], null));
+  const setMany = (labels, on) => {
+    const next = new Set(sizes);
+    if (on) { for (const o of ONE_SIZE) next.delete(o); labels.forEach(l => next.add(l)); }
+    else { labels.forEach(l => next.delete(l)); }
+    setSizes(sortSizesLocal([...next]));
+    if (!on) { const q = { ...qtys }; labels.forEach(l => delete q[l]); setQtys(q); }
+  };
+  const toggleWaistRow = (w) => { const ls = WI_INSEAMS.map(i => wiLabel(w, i)); setMany(ls, !ls.every(l => sizes.includes(l))); };
+  const toggleInseamCol = (i) => { const ls = WI_WAISTS.map(w => wiLabel(w, i)); setMany(ls, !ls.every(l => sizes.includes(l))); };
+
   return (
     <div onClick={onClose}
       style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 110, display: "flex", alignItems: "center", justifyContent: "center", padding: "clamp(12px, 3vw, 32px)", fontFamily: font }}>
       <div onClick={e => e.stopPropagation()}
-        style={{ background: T.card, borderRadius: 12, width: "min(640px, 100%)", maxHeight: "90vh", display: "flex", flexDirection: "column", overflow: "hidden", border: `1px solid ${T.border}` }}>
+        style={{ background: T.card, borderRadius: 12, width: "min(900px, 100%)", maxHeight: "90vh", display: "flex", flexDirection: "column", overflow: "hidden", border: `1px solid ${T.border}` }}>
         <div style={{ padding: "14px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em" }}>Edit sizes & qtys</div>
@@ -1474,11 +1574,11 @@ function EditSizesModal({ item, onClose, onSave }) {
             style={{ background: "none", border: "none", color: T.muted, fontSize: 22, cursor: "pointer", padding: "0 6px", lineHeight: 1 }}>×</button>
         </div>
 
-        <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 18 }}>
-          {/* Size toggle row — adult sizes, youth sizes, one-size. */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 22 }}>
+          {/* SIZES — centered across the top */}
           <div>
-            <div style={{ fontSize: 10, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>Sizes</div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8, textAlign: "center" }}>Sizes</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8, justifyContent: "center" }}>
               {ADULT_SIZES.map(sz => {
                 const on = sizes.includes(sz);
                 return (
@@ -1491,7 +1591,7 @@ function EditSizesModal({ item, onClose, onSave }) {
                 );
               })}
             </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8, justifyContent: "center" }}>
               {YOUTH_SIZES.map(sz => {
                 const on = sizes.includes(sz);
                 return (
@@ -1504,7 +1604,7 @@ function EditSizesModal({ item, onClose, onSave }) {
                 );
               })}
             </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "center" }}>
               {ONE_SIZE.map(sz => {
                 const on = sizes.includes(sz);
                 return (
@@ -1520,35 +1620,98 @@ function EditSizesModal({ item, onClose, onSave }) {
             </div>
           </div>
 
+          {/* WAIST × INSEAM + QUANTITIES — side by side */}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 28, alignItems: "flex-start" }}>
+          {/* Waist × Inseam (pants) — pre-loaded Ridgeline ranges; click cells to select. */}
+          <div>
+            <button onClick={() => setShowWI(v => !v)}
+              style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", padding: 0, fontSize: 10, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em" }}>
+              Waist × Inseam (pants) <span style={{ fontSize: 9 }}>{showWI ? "▾" : "▸"}</span>
+            </button>
+            {showWI && (
+              <div style={{ overflowX: "auto", marginTop: 8 }}>
+                <table style={{ borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr>
+                      <th style={{ padding: 4, fontSize: 9, color: T.faint, fontWeight: 700 }}>W \ I</th>
+                      {WI_INSEAMS.map(i => (
+                        <th key={i.num} onClick={() => toggleInseamCol(i)} title="Toggle whole column"
+                          style={{ padding: "4px 6px", fontSize: 11, fontFamily: mono, fontWeight: 700, color: T.muted, cursor: "pointer", textAlign: "center" }}>
+                          {i.num}<div style={{ fontSize: 8, fontWeight: 600, color: T.faint }}>{i.name}</div>
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {WI_WAISTS.map(w => (
+                      <tr key={w}>
+                        <td onClick={() => toggleWaistRow(w)} title="Toggle whole row"
+                          style={{ padding: "4px 8px", fontSize: 12, fontFamily: mono, fontWeight: 700, color: T.muted, cursor: "pointer", textAlign: "center" }}>{w}</td>
+                        {WI_INSEAMS.map(i => {
+                          const label = wiLabel(w, i); const on = sizes.includes(label);
+                          return (
+                            <td key={i.num} style={{ padding: 2 }}>
+                              <button onClick={() => toggleSize(label)}
+                                style={{ width: 38, height: 30, borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 700, background: on ? T.accent : T.card, color: on ? "#fff" : T.faint, border: `1px solid ${on ? T.accent : T.border}` }}>
+                                {on ? "✓" : ""}
+                              </button>
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div style={{ fontSize: 10, color: T.faint, marginTop: 8, maxWidth: 230, lineHeight: 1.4 }}>Click a cell to include that size. Click a W or I header to toggle a whole row / column.</div>
+              </div>
+            )}
+          </div>
+
+          {/* RIGHT — quantities + distribute */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
           {/* Qty grid for active sizes */}
           {sizes.length > 0 && (
             <div>
               <div style={{ fontSize: 10, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>Quantities</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-                {sizes.map(sz => (
-                  <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
-                    <span style={{ fontSize: 10, fontWeight: 600, color: T.faint, fontFamily: mono }}>{sz}</span>
-                    <input type="text" inputMode="numeric" value={qtys[sz] ?? 0}
-                      onChange={e => setQty(sz, e.target.value)}
-                      onFocus={e => e.target.select()}
-                      style={{ width: 56, height: 36, textAlign: "center", fontSize: 14, fontWeight: 600,
-                        border: `1px solid ${T.border}`, borderRadius: 6, background: T.card, color: T.text,
-                        fontFamily: font, outline: "none" }} />
+              {parseSizeMatrix(sizes, null) ? (
+                // Dimensional (waist × inseam) → pivoted cut-ticket grid w/ totals.
+                <SizeGridInput
+                  sizes={sizes}
+                  getValue={sz => qtys[sz] ?? 0}
+                  onChange={(sz, v) => setQty(sz, v)}
+                  onCommit={() => {}}
+                  disabled={false}
+                  ic={{ border: `1px solid ${T.border}`, borderRadius: 6, background: T.card, color: T.text, fontFamily: font, outline: "none" }}
+                />
+              ) : (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                  {sizes.map(sz => (
+                    <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+                      <span style={{ fontSize: 10, fontWeight: 600, color: T.faint, fontFamily: mono }}>{sz}</span>
+                      <input type="text" inputMode="numeric" value={qtys[sz] ?? 0}
+                        onChange={e => setQty(sz, e.target.value)}
+                        onFocus={e => e.target.select()}
+                        style={{ width: 56, height: 36, textAlign: "center", fontSize: 14, fontWeight: 600,
+                          border: `1px solid ${T.border}`, borderRadius: 6, background: T.card, color: T.text,
+                          fontFamily: font, outline: "none" }} />
+                    </div>
+                  ))}
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, marginLeft: 8 }}>
+                    <span style={{ fontSize: 10, fontWeight: 600, color: T.faint }}>TOTAL</span>
+                    <span style={{ fontSize: 20, fontWeight: 800, fontFamily: mono, color: T.text }}>{total}</span>
                   </div>
-                ))}
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, marginLeft: 8 }}>
-                  <span style={{ fontSize: 10, fontWeight: 600, color: T.faint }}>TOTAL</span>
-                  <span style={{ fontSize: 20, fontWeight: 800, fontFamily: mono, color: T.text }}>{total}</span>
                 </div>
-              </div>
+              )}
             </div>
           )}
+          </div>{/* /RIGHT — qty only */}
+          </div>{/* /side-by-side row */}
 
-          {/* Distribute helper — fills sizes by curve */}
+          {/* Distribute helper — full width below the grids */}
           {sizes.length > 0 && !ONE_SIZE.includes(sizes[0]) && (
             <div>
               <div style={{ fontSize: 10, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>Distribute total</div>
-              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
                 <input type="text" inputMode="numeric" value={distTotal}
                   onChange={e => setDistTotal(e.target.value)}
                   onKeyDown={e => e.key === "Enter" && doDist()}
@@ -1597,6 +1760,7 @@ function sortSizesLocal(arr) {
 // ═══════════════════════════════════════════════════════════════
 function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, project, hasBlank, getLocalQty, setLocalQty, commitQty, scheduleCommit, inputRefs, distRow, setDistRow, distTotal, setDistTotal, handleDist, removeItem, setAssignBlankTo, setEditSizesItemId, setShowAddModal, setMobilePickerOpen, onItemsChanged, onUpdateItem, onFilesChanged, preloadedMockupId, ic, costingLocked, requestMove, requestCopy }) {
   const isMobile = useIsMobile();
+  const cutSew = isCutSewOnly(useClientBranding().slug); // DMD: no blanks
   const [files, setFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(null);
@@ -1693,6 +1857,13 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
               so a long vendor/sku doesn't truncate; type selector
               drops to its own line, "click to change" hint is hidden
               (the whole row is already the affordance). */}
+          {cutSew ? (
+            // DMD: no blanks. Show the item type (their QB category) read-only.
+            <div style={{ padding: "12px 16px", background: T.surface, borderRadius: 8, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em" }}>Type</span>
+              <span style={{ fontSize: 15, fontWeight: 700, color: item.qb_item_type ? T.text : T.faint }}>{item.qb_item_type || "—"}</span>
+            </div>
+          ) : (
           <div onClick={e => { e.stopPropagation(); if (costingLocked) return; setAssignBlankTo(item.id); if (isMobile) { setMobilePickerOpen(true); } else { setShowAddModal(true); } }}
             style={{ cursor: costingLocked ? "default" : "pointer", padding: "12px 16px", background: T.surface, borderRadius: 8, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10, transition: "border-color 0.15s", flexWrap: isMobile ? "wrap" : "nowrap" }}
             onMouseEnter={e => e.currentTarget.style.borderColor = T.accent}
@@ -1758,9 +1929,19 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
               </>
             )}
           </div>
+          )}
 
           {/* Simple qty for non-sized items (patches, stickers, etc.) */}
-          {(item.sizes.length === 0 || (item.sizes.length === 1 && item.sizes[0] === "OSFA")) && (
+          {/* Cut-and-sew (DMD): no blanks, so a fresh item has no sizes. Surface
+              the size editor directly (it handles multi-size runs + qtys) rather
+              than the one-size "Qty units" shortcut. */}
+          {cutSew && item.sizes.length === 0 && !costingLocked && (
+            <button onClick={() => setEditSizesItemId(item.id)}
+              style={{ fontSize: 13, fontWeight: 700, color: "#fff", background: T.accent, border: "none", borderRadius: 8, padding: "10px 18px", cursor: "pointer", fontFamily: font }}>
+              + Set sizes &amp; quantities
+            </button>
+          )}
+          {!cutSew && (item.sizes.length === 0 || (item.sizes.length === 1 && item.sizes[0] === "OSFA")) && (
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span style={{ fontSize: 10, fontWeight: 600, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em" }}>Qty</span>
               <input type="text" inputMode="numeric" value={item.totalQty || ""} disabled={costingLocked}
@@ -1791,12 +1972,13 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
                     onCommit={sz => commitQty(idx, item.id, sz)}
                     disabled={costingLocked} ic={ic}
                   />
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
-                    <span style={{ fontSize: 18, fontWeight: 800, fontFamily: mono, color: T.text }}>{item.totalQty}</span>
-                    <span style={{ fontSize: 11, color: T.muted }}>units</span>
-                    <span style={{ flex: 1 }} />
-                    {!costingLocked && <button onClick={() => { setDistRow(idx); setDistTotal(""); }} style={{ fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "8px 14px", cursor: "pointer", fontFamily: font, minHeight: 36 }}>Distribute</button>}
-                    {!costingLocked && <button onClick={() => setEditSizesItemId(item.id)} style={{ fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "8px 14px", cursor: "pointer", fontFamily: font, minHeight: 36 }} title="Add or remove sizes without changing the blank">Edit sizes</button>}
+                  <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10, marginTop: 14, flexWrap: "wrap" }}>
+                    <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                      <span style={{ fontSize: 20, fontWeight: 800, fontFamily: mono, color: T.text }}>{(item.totalQty || 0).toLocaleString()}</span>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em" }}>units</span>
+                    </div>
+                    {!costingLocked && <button onClick={() => setEditSizesItemId(item.id)} title="Edit sizes & quantities"
+                      style={{ fontSize: 12, fontWeight: 600, color: T.muted, background: "transparent", border: `1px solid ${T.border}`, borderRadius: 7, padding: "7px 14px", cursor: "pointer", fontFamily: font }}>Edit sizes &amp; qty</button>}
                   </div>
                 </>
               ) : (<>
@@ -1870,7 +2052,7 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
             )}
           </div>
         )}
-        {!hasBlank && item.sizes.length === 0 && item.garment_type !== "accessory" && (
+        {!cutSew && !hasBlank && item.sizes.length === 0 && item.garment_type !== "accessory" && (
           <div style={{ fontSize: 11, color: T.faint }}>Assign a blank to set available sizes</div>
         )}
 

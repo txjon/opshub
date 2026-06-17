@@ -2,13 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { appBaseUrl } from "@/lib/public-url";
+import { resolveSlugFromHost } from "@/lib/tenants";
 
-// Same Host → slug map as middleware. /api/* is excluded from middleware
-// so this route has to derive the active tenant from the request itself.
+// /api/* is excluded from middleware, so derive the active tenant from the
+// request Host. Map lives in lib/tenants.ts.
 function resolveCompanySlugFromRequest(req: NextRequest): string {
-  const h = (req.headers.get("host") || "").toLowerCase().split(":")[0];
-  if (h === "app.inhousemerchandise.com" || h === "ihm.localhost") return "ihm";
-  return "hpd";
+  return resolveSlugFromHost(req.headers.get("host"));
 }
 
 export async function POST(req: NextRequest) {

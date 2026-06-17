@@ -603,8 +603,8 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                       <div style={{display:"flex",alignItems:"center",gap:10,flex:isMobile?"0 0 auto":1,minWidth:0}}>
                         <span style={{width:24,height:24,borderRadius:5,background:T.purpleDim,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:T.purple,fontFamily:mono,flexShrink:0}}>{String.fromCharCode(64+i+1)}</span>
                         <div style={{flex:1,display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap",minWidth:0}}>
-                          <span style={{color:T.text,fontFamily:font,fontSize:13,fontWeight:600}}>{p.name||"Accessory"}</span>
-                          <span style={{fontSize:10,color:T.purple,fontWeight:600}}>Accessory</span>
+                          <span style={{color:T.text,fontFamily:font,fontSize:13,fontWeight:600}}>{p.name||p.qb_item_type||"Item"}</span>
+                          <span style={{fontSize:10,color:T.purple,fontWeight:600}}>{p.qb_item_type||"Accessory"}</span>
                           <RfqBadge itemId={p.id} />
                         </div>
                         {isMobile && !selectedItemId && <span style={{fontSize:14,color:T.faint,marginLeft:6,flexShrink:0,lineHeight:1}}>›</span>}
@@ -685,49 +685,60 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                         </select>
                       </div>
 
-                      {/* Size breakdown — compact qty editor for accessories with sizes (e.g. gloves S/M/L). No per-size cost since accessories are priced via custom costs. */}
-                      {(p.sizes||[]).length > 0 && (
-                        <div style={{marginBottom:12,padding:"8px 10px",background:T.surface,border:`1px solid ${T.border}`,borderRadius:6}}>
-                          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
-                            <div style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em"}}>Size breakdown</div>
-                            <div style={{fontSize:10,color:T.muted,fontFamily:mono}}>{(p.totalQty||0).toLocaleString()} total</div>
+                      {/* Size breakdown — summary chip; click opens the grid in a
+                          modal (matches the HPD blanks-chip → modal pattern, so a
+                          50+ variant pant doesn't bury the cost controls). */}
+                      {(p.sizes||[]).length > 0 && (() => {
+                        const onSizeQty = (sz, raw) => {
+                          const q = parseInt(raw) || 0;
+                          const newQtys = { ...(p.qtys||{}), [sz]: q };
+                          const newTotal = Object.values(newQtys).reduce((a,v)=>a+(v||0),0);
+                          updateProd(i,{...p,qtys:newQtys,totalQty:newTotal});
+                          if(onUpdateBuyItems){onUpdateBuyItems(prev=>prev.map(bi=>bi.id===p.id?{...bi,qtys:newQtys,totalQty:newTotal}:bi));}
+                        };
+                        const __dimM = parseSizeMatrix(p.sizes, p.qtys);
+                        const __active = (p.sizes||[]).filter(sz => (p.qtys?.[sz]||0) > 0);
+                        const sizeSummary = __dimM
+                          ? [__dimM.groups.map(g=>g.name).filter(Boolean).join(", "), `${__active.length} sizes`].filter(Boolean).join(" · ")
+                          : __active.map(sz=>`${sz}:${p.qtys[sz]}`).join(" · ");
+                        const gridIc = { background: T.card, border: `1px solid ${T.border}`, borderRadius: 5, color: T.text, fontFamily: mono, outline: "none" };
+                        return (
+                        <div style={{marginBottom:12}}>
+                          <div style={{fontSize:9,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Size breakdown</div>
+                          <div onClick={()=>{ if(!costingLocked) updateProd(i,{...p,_sizesExpanded:true}); }}
+                            style={{display:"flex",alignItems:"center",gap:12,padding:"8px 12px",borderRadius:10,background:T.surface,border:`1px solid ${T.border}`,cursor:costingLocked?"default":"pointer",transition:"all 0.15s"}}
+                            onMouseEnter={e=>{ if(!costingLocked) e.currentTarget.style.borderColor=T.accent+"55"; }}
+                            onMouseLeave={e=>{ e.currentTarget.style.borderColor=T.border; }}>
+                            <span style={{flex:1,minWidth:0,fontSize:12,fontWeight:700,color:sizeSummary?T.text:T.muted,fontFamily:mono,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{sizeSummary||"Set sizes"}</span>
+                            <span style={{fontSize:11,color:T.muted,fontFamily:mono,flexShrink:0}}>{(p.totalQty||0).toLocaleString()} total</span>
+                            <span style={{fontSize:12,color:T.faint,flexShrink:0,lineHeight:1}}>›</span>
                           </div>
-                          {(() => {
-                            const onSizeQty = (sz, raw) => {
-                              const q = parseInt(raw) || 0;
-                              const newQtys = { ...(p.qtys||{}), [sz]: q };
-                              const newTotal = Object.values(newQtys).reduce((a,v)=>a+(v||0),0);
-                              updateProd(i,{...p,qtys:newQtys,totalQty:newTotal});
-                              if(onUpdateBuyItems){onUpdateBuyItems(prev=>prev.map(bi=>bi.id===p.id?{...bi,qtys:newQtys,totalQty:newTotal}:bi));}
-                            };
-                            // Dimensional (pant-style) sizes pivot into the compact cut-ticket
-                            // grid so a 50+ variant custom item doesn't bury the cost controls.
-                            if (parseSizeMatrix(p.sizes, null)) return (
-                              <SizeGridInput
-                                sizes={p.sizes}
-                                getValue={sz => p.qtys?.[sz] ?? ""}
-                                onChange={(sz, v) => onSizeQty(sz, v)}
-                                onCommit={() => {}}
-                                disabled={costingLocked}
-                                ic={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 5, color: T.text, fontFamily: mono, outline: "none" }}
-                              />
-                            );
-                            return (
-                              <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
-                                {(p.sizes||[]).map(sz=>(
-                                  <div key={sz} style={{display:"flex",alignItems:"center",gap:5,background:T.card,border:`1px solid ${T.border}`,borderRadius:5,padding:"3px 6px"}}>
-                                    <span style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:mono,minWidth:24}}>{sz}</span>
-                                    <input type="text" inputMode="numeric" pattern="[0-9]*" value={p.qtys?.[sz]||""} placeholder="0"
-                                      onChange={e=>onSizeQty(sz, e.target.value)}
-                                      onFocus={e=>e.target.select()}
-                                      style={{width:48,textAlign:"center",background:"transparent",border:"none",outline:"none",color:T.text,fontSize:13,fontWeight:700,fontFamily:mono,padding:"2px 4px"}}/>
-                                  </div>
-                                ))}
+                          <SettingsModal open={!!p._sizesExpanded} onClose={()=>updateProd(i,{...p,_sizesExpanded:false})}
+                            title={`Sizes — ${p.name || "Item"}`} summary={sizeSummary || "Set sizes & quantities"} width={620}>
+                            <div>
+                              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                                <div style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em"}}>Size breakdown</div>
+                                <div style={{fontSize:11,color:T.muted,fontFamily:mono}}>{(p.totalQty||0).toLocaleString()} total</div>
                               </div>
-                            );
-                          })()}
+                              {parseSizeMatrix(p.sizes, null) ? (
+                                <SizeGridInput sizes={p.sizes} getValue={sz => p.qtys?.[sz] ?? ""} onChange={(sz, v) => onSizeQty(sz, v)} onCommit={() => {}} disabled={costingLocked} ic={gridIc} />
+                              ) : (
+                                <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+                                  {(p.sizes||[]).map(sz=>(
+                                    <div key={sz} style={{display:"flex",alignItems:"center",gap:5,background:T.card,border:`1px solid ${T.border}`,borderRadius:5,padding:"3px 6px"}}>
+                                      <span style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:mono,minWidth:24}}>{sz}</span>
+                                      <input type="text" inputMode="numeric" pattern="[0-9]*" value={p.qtys?.[sz]||""} placeholder="0"
+                                        onChange={e=>onSizeQty(sz, e.target.value)} onFocus={e=>e.target.select()}
+                                        style={{width:48,textAlign:"center",background:"transparent",border:"none",outline:"none",color:T.text,fontSize:13,fontWeight:700,fontFamily:mono,padding:"2px 4px"}}/>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </SettingsModal>
                         </div>
-                      )}
+                        );
+                      })()}
 
                       <div style={{display:"grid",gridTemplateColumns:"3fr 2fr",gap:12,alignItems:"start"}}>
                       <div style={{display:"flex",flexDirection:"column",gap:10}}>
@@ -795,7 +806,8 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                             <tbody>
                               {[
                                 ["Revenue",    fmtD(r.grossRev),       T.accent],
-                                ["Blanks",     fmtD(r.blankCost),      T.text],
+                                // No "Blanks" line — accessory / cut-and-sew items have no blank
+                                // (blankCost is always 0 here); the vendor cost is the PO Total.
                                 ["PO Total",   fmtD(r.poTotal),        T.text],
                                 ...(r.shipping>0?[["Shipping", fmtD(r.shipping), T.text]]:[]),
                                 ...(r.ccFees>0?[["CC Fees", fmtD(r.ccFees), T.text]]:[]),
@@ -1949,7 +1961,7 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
         const blankCosts = it.blankCosts && Object.keys(it.blankCosts).length > 0 ? it.blankCosts : seedBlankCosts(styleKey, it.color || it.blank_sku || "", it.sizes || []);
         const vnd = (it.blank_vendor || "").toLowerCase();
         const autoSupplier = vnd.startsWith("as colour")||vnd.startsWith("as color")?"AS Colour":vnd.startsWith("la apparel")||vnd.startsWith("los angeles")?"LA Apparel":vnd.startsWith("sanmar")||vnd.startsWith("port ")||vnd.startsWith("sport-tek")||vnd.startsWith("district")?"Sanmar":["comfort colors","gildan","bella","next level","tultex","hanes","champion","jerzees","fruit of the loom","independent trading","alternative","allmade","american apparel","rabbit skins","lat ","m&o ","augusta","badger","boxercraft"].some(b=>vnd.startsWith(b))?"S&S":"";
-        const newItem = { ...EMPTY_COST_PRODUCT(), id: it.id, name: it.name || "", style: it.blank_vendor || "", color: it.blank_sku || "", sizes: sortSizes(it.sizes || []), qtys: it.qtys || {}, blankCosts, totalQty: it.totalQty || Object.values(it.qtys || {}).reduce((a, v) => a + v, 0), garment_type: it.garment_type || null, supplier: autoSupplier };
+        const newItem = { ...EMPTY_COST_PRODUCT(), id: it.id, name: it.name || "", style: it.blank_vendor || "", color: it.blank_sku || "", sizes: sortSizes(it.sizes || []), qtys: it.qtys || {}, blankCosts, totalQty: it.totalQty || Object.values(it.qtys || {}).reduce((a, v) => a + v, 0), garment_type: it.garment_type || null, qb_item_type: it.qb_item_type || null, supplier: autoSupplier };
         { const NG=["accessory","patch","sticker","poster","pin","koozie","banner","flag","lighter","towel","water_bottle","samples","custom","key_chain","woven_labels","bandana","socks","tote","custom_bag","pillow","rug","pens","napkins","balloons","stencils"]; if (NG.includes(it.garment_type)) newItem.customCosts = [{desc:"",perUnit:0,flat:false},{desc:"",perUnit:0,flat:false}]; }
         return newItem;
       });
@@ -1965,7 +1977,7 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
         const totalQty = biHasQtyKeys
           ? (bi.totalQty || Object.values(bi.qtys).reduce((a, v) => a + v, 0))
           : cp.totalQty;
-        const updates = { name: bi.name || cp.name, sizes: sortSizes(bi.sizes || []), garment_type: bi.garment_type || cp.garment_type || null };
+        const updates = { name: bi.name || cp.name, sizes: sortSizes(bi.sizes || []), garment_type: bi.garment_type || cp.garment_type || null, qb_item_type: bi.qb_item_type ?? cp.qb_item_type ?? null };
         if (biHasQtyKeys) {
           updates.qtys = bi.qtys;
           updates.totalQty = totalQty;
