@@ -294,6 +294,20 @@ export async function GET(
 
     const typeMeta = (job.type_meta || {}) as any;
 
+    // Non-item invoice lines (service fees, passthru charges, discounts) added
+    // in OpsHub via type_meta.invoice_extra_lines. They live only in QB today,
+    // which made the items-only subtotal diverge from the QB total and tripped
+    // the invoiceStale "being updated" banner. Including them everywhere the
+    // subtotal is computed keeps OpsHub matching the QuickBooks invoice.
+    const extraLines = (Array.isArray(typeMeta.invoice_extra_lines) ? typeMeta.invoice_extra_lines : [])
+      .map((l: any) => ({ description: String(l?.description || "Additional charge"), amount: Number(l?.amount) || 0 }));
+    const extraTotal = extraLines.reduce((a: number, l: any) => a + l.amount, 0);
+    // Display shape mirrors QB (qty 1 × amount); status null so no per-item pill.
+    const extraQuoteItems = extraLines.map((l: any) => ({
+      name: l.description, style: "", color: "", sizes: [], qtys: {},
+      qty: 1, sellPerUnit: l.amount, total: l.amount, status: null,
+    }));
+
     const itemsWithProofs = (items || []).map((item: any) => {
       const manualApproved = item.artwork_status === "approved";
       const itemProofs = proofFiles
@@ -361,8 +375,12 @@ export async function GET(
     // client has been billed. Track that gate separately.
     const isQuoteSent = !!typeMeta.quote_sent_at;
     const isInvoiceSent = !!typeMeta.invoice_sent_at;
-    const showTotals = isQuoteSent || isInvoiceSent;
-    const portalQuoteItems = isQuoteSent ? quoteItems : [];
+    // A pushed QB invoice (or Stripe invoice) means the client has been billed,
+    // so the total must show even if OpsHub never emailed the quote/invoice
+    // itself — otherwise the Payment block reads Total: $0 on a billed order
+    // (e.g. invoice created + sent directly from QuickBooks).
+    const showTotals = isQuoteSent || isInvoiceSent || !!typeMeta.qb_invoice_id || !!typeMeta.stripe_invoice_number;
+    const portalQuoteItems = isQuoteSent ? [...quoteItems, ...extraQuoteItems] : [];
 
     return NextResponse.json({
       // PDF routes (invoice + quote) auth via the job's portal_token, not
@@ -401,7 +419,7 @@ export async function GET(
         // Manually-entered invoice numbers have no OpsHub-side QB totals
         // to compare against, so the staleness check would always fire.
         if (!typeMeta.qb_invoice_id) return false;
-        const quoteSubtotal = quoteItems.reduce((a: number, qi: any) => a + (qi.total || 0), 0);
+        const quoteSubtotal = quoteItems.reduce((a: number, qi: any) => a + (qi.total || 0), 0) + extraTotal;
         const qbSubtotal = (typeMeta.qb_total_with_tax || 0) - (typeMeta.qb_tax_amount || 0);
         return Math.abs(quoteSubtotal - qbSubtotal) > 0.01;
       })(),

@@ -24,6 +24,7 @@ function renderInvoiceHTML(data: {
   invoiceNum: string; today: string; terms: string; shipDate: string;
   clientName: string; shipToAddress: string; notes: string;
   prods: { name: string; style: string; color: string; sizes: string[]; qtys: Record<string,number>; totalQty: number; sellPerUnit: number; grossRev: number; }[];
+  extraLines: { description: string; amount: number }[];
   quoteTotal: number; taxAmount: number; totalPaid: number; balanceDue: number;
   branding: PdfBranding;
 }): string {
@@ -72,6 +73,17 @@ function renderInvoiceHTML(data: {
       ${qtyCell}${unitCell}${subCell}
     </tr>`;
   }).join("");
+
+  // Non-item invoice lines (service fees, passthru charges, discounts) added
+  // in OpsHub via jobs.type_meta.invoice_extra_lines. They span the Item →
+  // Unit-price columns and carry their amount in the Subtotal column so the
+  // invoice subtotal adds up to the QuickBooks invoice total.
+  const extraRows = (data.extraLines || []).map(l => `<tr style="border-bottom:0.5px solid #eeeeee">
+      <td colspan="4" style="padding:12px 12px 12px 0;vertical-align:top">
+        <div style="font-size:13px;font-weight:700;color:#1a1a1a">${l.description || "Additional charge"}</div>
+      </td>
+      <td style="padding:12px 0 12px 8px;text-align:right;font-family:monospace;font-size:12px;vertical-align:top;font-weight:700;color:#1a1a1a">${fmtD(l.amount)}</td>
+    </tr>`).join("");
 
   return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/>
 <style>
@@ -131,7 +143,7 @@ function renderInvoiceHTML(data: {
           <th style="font-size:9px;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:0.1em;text-align:right;padding:6px 0 10px;width:90px">Subtotal</th>
         </tr>
       </thead>
-      <tbody>${itemRows}</tbody>
+      <tbody>${itemRows}${extraRows}</tbody>
     </table>
 
     <!-- Total -->
@@ -292,7 +304,13 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       }).filter(Boolean);
     }
 
-    const quoteTotal = prods.reduce((a: number, p: any) => a + p.grossRev, 0);
+    // Non-item invoice lines (service fees, passthru, discounts) — included in
+    // the subtotal so it matches the QuickBooks invoice total. See
+    // jobs.type_meta.invoice_extra_lines.
+    const extraLines = (Array.isArray(job.type_meta?.invoice_extra_lines) ? job.type_meta.invoice_extra_lines : [])
+      .map((l: any) => ({ description: String(l?.description || "Additional charge"), amount: Number(l?.amount) || 0 }));
+    const extraTotal = extraLines.reduce((a: number, l: any) => a + l.amount, 0);
+    const quoteTotal = prods.reduce((a: number, p: any) => a + p.grossRev, 0) + extraTotal;
     const taxAmount = job.type_meta?.qb_tax_amount || 0;
     const totalPaid = (payments || []).filter((p: any) => p.status === "paid").reduce((a: number, p: any) => a + p.amount, 0);
     const balanceDue = quoteTotal + taxAmount - totalPaid;
@@ -316,6 +334,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       shipToAddress: job.type_meta?.venue_address || (job.clients as any)?.shipping_address || "",
       notes: orderInfo.notes || job.notes || "",
       prods,
+      extraLines,
       quoteTotal,
       taxAmount,
       totalPaid,
