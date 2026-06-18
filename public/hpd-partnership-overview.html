@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>House Party Distro · Partnership Overview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+  /* ============================================================
+     Partnership Overview · a tight prospectus, not a web page.
+     Brand-cohesive with housepartydistro.com (monochrome, Inter),
+     but document register: letterhead, hairline rules, dense
+     columns, one dark anchor. Built to read in 2-3 screens / 2 pages.
+     ============================================================ */
+  :root{
+    --ink:    #0a0a0c;
+    --paper:  #ffffff;
+    --paper2: #f6f6f8;
+    --text:   #1a1a1a;
+    --muted:  #6b6b78;
+    --faint:  #9a9aa6;
+    --line:   #e4e4e8;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    background:var(--paper);color:var(--text);
+    font-family:"Inter",system-ui,-apple-system,BlinkMacSystemFont,sans-serif;
+    font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased;
+  }
+  .page{max-width:900px;margin:0 auto;padding:0 30px}
+
+  /* shared roles */
+  .eyebrow{font-size:10px;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;color:var(--faint)}
+  h2.h{font-size:clamp(19px,2.4vw,25px);font-weight:800;letter-spacing:-0.015em;line-height:1.15;margin-top:7px;color:var(--text)}
+  .brand{display:inline-flex;align-items:center;line-height:0;text-decoration:none}
+  .brand svg{height:17px;width:135px;fill:currentColor;display:block}
+
+  /* letterhead */
+  .masthead{display:flex;align-items:center;justify-content:space-between;padding:22px 0 18px;border-bottom:1px solid var(--line)}
+  .masthead .brand{color:var(--text)}
+  .masthead .label{font-size:10px;font-weight:700;letter-spacing:0.18em;text-transform:uppercase;color:var(--muted)}
+
+  /* lead */
+  .lead{padding:34px 0 4px}
+  .lead h1{font-size:clamp(27px,4vw,40px);font-weight:800;letter-spacing:-0.025em;line-height:1.07;max-width:17ch}
+  .lead .sub{margin-top:13px;color:var(--muted);max-width:62ch;font-size:15.5px}
+
+  /* the deal · single dark anchor, compact */
+  .deal{background:var(--ink);color:#fff;border-radius:12px;padding:22px 24px;margin-top:24px}
+  .deal .row{display:flex;flex-wrap:wrap;align-items:center;gap:12px 18px}
+  .deal .cell{display:flex;flex-direction:column;gap:4px}
+  .deal .k{font-size:10px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:rgba(255,255,255,0.5)}
+  .deal .v{font-size:14.5px;font-weight:700;color:#fff}
+  .deal .op{font-size:17px;color:rgba(255,255,255,0.45);align-self:flex-end;padding-bottom:2px}
+  .deal .split{display:flex;gap:10px;flex-shrink:0}
+  .deal .chip{border:1px solid rgba(255,255,255,0.28);border-radius:999px;padding:10px 20px;font-size:14px;font-weight:700;color:#fff;white-space:nowrap;text-align:center}
+  .deal .chip.fill{background:#fff;border-color:#fff;color:var(--ink)}
+  .deal .dealfoot{display:flex;align-items:center;justify-content:space-between;gap:28px;margin-top:18px;flex-wrap:wrap}
+  .deal .note{margin:0;font-size:12.5px;color:rgba(255,255,255,0.62);max-width:58ch;line-height:1.5}
+
+  /* sections · hairline-separated, tight */
+  .sec{padding:30px 0;border-top:1px solid var(--line)}
+  .sec:first-of-type{border-top:none}
+  .cols2{display:grid;grid-template-columns:1fr 1fr;gap:38px}
+  .body p{color:var(--text);font-size:14.5px;line-height:1.55}
+  .body p + p{margin-top:11px}
+  .body p.muted,.muted{color:var(--muted)}
+
+  /* money lines */
+  .lines{margin-top:12px}
+  .ln{display:grid;grid-template-columns:108px 1fr;gap:14px;padding:11px 0;border-top:1px solid var(--line);align-items:baseline}
+  .ln:first-child{border-top:none}
+  .ln .lbl{font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--faint);padding-top:2px}
+  .ln .txt{color:var(--text);font-size:14px;line-height:1.5}
+  .ln .txt b{font-weight:600}
+
+  /* drops · compact light panel */
+  .drops{background:var(--paper2);border:1px solid var(--line);border-radius:12px;padding:22px 26px;display:grid;grid-template-columns:0.85fr 1.15fr;gap:30px;align-items:start}
+  .drops h3{font-size:19px;font-weight:800;letter-spacing:-0.01em;line-height:1.15}
+  .drops .eyebrow{margin-bottom:7px;display:block}
+  .drops p{font-size:13.5px;color:var(--muted);line-height:1.55}
+  .drops p b{color:var(--text);font-weight:600}
+
+  /* included vs billed */
+  .cards{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:14px}
+  .card{border:1px solid var(--line);border-radius:10px;padding:20px 22px}
+  .card h4{font-size:10px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:var(--faint);margin-bottom:14px}
+  .card ul{list-style:none;display:flex;flex-direction:column;gap:11px}
+  .card li{display:flex;gap:10px;font-size:13.5px;line-height:1.45;color:var(--text)}
+  .card li .b{font-weight:600}
+  .tick{flex-shrink:0;font-weight:700;color:var(--text)}
+
+  /* getting started */
+  .start{display:grid;grid-template-columns:0.7fr 1.3fr;gap:34px;align-items:center}
+  .num-big{font-size:clamp(40px,6vw,58px);font-weight:800;letter-spacing:-0.03em;line-height:0.88;color:var(--text)}
+
+  /* journey · compact 3x2, no boxes */
+  .journey{counter-reset:step;display:grid;grid-template-columns:repeat(3,1fr);gap:20px 30px;margin-top:14px}
+  .j{counter-increment:step}
+  .j .num{font-size:10px;font-weight:800;letter-spacing:0.1em;color:var(--faint);margin-bottom:6px}
+  .j .num::before{content:counter(step,decimal-leading-zero)}
+  .j h5{font-size:14px;font-weight:700;letter-spacing:-0.01em;margin-bottom:4px}
+  .j p{font-size:13px;color:var(--muted);line-height:1.45}
+
+  /* CTA · quiet horizontal band */
+  .cta{border-top:1px solid var(--line);margin-top:4px;padding:32px 0;display:flex;align-items:center;justify-content:space-between;gap:24px;flex-wrap:wrap}
+  .cta h2{font-size:clamp(20px,2.8vw,28px);font-weight:800;letter-spacing:-0.015em;line-height:1.1}
+  .cta .cta-sub{color:var(--muted);font-size:14px;margin-top:5px}
+  .btn{display:inline-block;background:var(--ink);color:#fff;font-size:12.5px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;text-decoration:none;padding:14px 26px;border-radius:999px;white-space:nowrap;transition:transform .15s ease}
+  .btn:hover{transform:translateY(-1px)}
+
+  /* footer · one quiet line */
+  .docfoot{border-top:1px solid var(--line);padding:20px 0 34px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
+  .docfoot .brand{color:var(--text)}
+  .docfoot .brand svg{height:14px;width:111px}
+  .docfoot .meta{font-size:11.5px;color:var(--muted);letter-spacing:0.02em}
+
+  a:focus-visible,.btn:focus-visible{outline:2px solid currentColor;outline-offset:3px}
+  @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}.btn{transition:none}}
+
+  /* PDF / print · keep the dense desktop layout (don't fall back to the
+     mobile stack at Letter width) and never split a block across a page. */
+  @media print{
+    .page{max-width:none;padding:0}
+    .cols2{grid-template-columns:1fr 1fr !important;gap:34px !important}
+    .drops{grid-template-columns:0.85fr 1.15fr !important}
+    .cards{grid-template-columns:1fr 1fr !important}
+    .start{grid-template-columns:0.7fr 1.3fr !important}
+    .journey{grid-template-columns:repeat(3,1fr) !important}
+    .deal,.drops,.start,.cards,.card,.j,.cta,.ln{break-inside:avoid}
+    .sec{padding:26px 0}
+    .cta{display:none}
+  }
+
+  @media (max-width:720px){
+    .cols2{grid-template-columns:1fr;gap:24px}
+    .drops{grid-template-columns:1fr;gap:16px}
+    .cards{grid-template-columns:1fr}
+    .start{grid-template-columns:1fr;gap:14px}
+    .journey{grid-template-columns:1fr 1fr;gap:18px 24px}
+    .deal .split{margin-left:0;width:100%}
+  }
+  @media (max-width:460px){
+    .journey{grid-template-columns:1fr}
+    .ln{grid-template-columns:1fr;gap:3px}
+  }
+</style>
+</head>
+<body>
+
+  <!-- HPD wordmark · defined once, referenced in masthead + footer -->
+  <svg width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute;width:0;height:0;overflow:hidden" xmlns="http://www.w3.org/2000/svg">
+    <symbol id="hpd-wordmark" viewBox="0 0 227.14 28.53">
+      <g>
+        <path d="M15.61,13.65v8.5c0,.13-.11.24-.24.24h-4.51c-.13,0-.24-.11-.24-.24v-8.27c0-.56-.03-1.2-.27-1.72-.11-.22-.25-.4-.42-.54-.28-.22-.65-.33-1.12-.33-.87,0-1.54.3-1.76.78-.24.52-.24,1.24-.24,1.81v8.27c0,.13-.11.24-.24.24H2.06c-.13,0-.24-.11-.24-.24V2.76c0-.13.11-.24.24-.24h4.22c.13,0,.24.11.24.24v5.17c0,.1.11.15.19.1,3.4-2.34,6.72.26,6.75.29.12.09.24.2.34.3h0c1.54,1.55,1.8,2.81,1.8,5.03Z"/>
+        <path d="M31.67,14.95c0,4.36-3.6,7.91-8.02,7.91s-8.02-3.55-8.02-7.91,3.6-7.91,8.02-7.91,8.02,3.55,8.02,7.91ZM27.15,14.95c0-1.9-1.57-3.45-3.5-3.45s-3.5,1.55-3.5,3.45,1.57,3.45,3.5,3.45,3.5-1.55,3.5-3.45Z"/>
+        <path d="M45.47,7.52v14.63c0,.13-.11.24-.24.24h-4.22c-.13,0-.24-.11-.24-.24v-.41c0-.1-.11-.15-.19-.1-1.06.73-2.1.98-3.04.98-2.1,0-3.68-1.24-3.71-1.26-.12-.09-.24-.2-.34-.3h0c-1.54-1.55-1.8-2.81-1.8-5.03V7.52c0-.13.11-.24.24-.24h4.51c.13,0,.24.11.24.24v8.27c0,.56.03,1.2.27,1.72.11.22.25.4.42.54.28.22.65.33,1.12.33.87,0,1.54-.3,1.76-.78.24-.52.24-1.24.24-1.81V7.52c0-.13.11-.24.24-.24h4.51c.13,0,.24.11.24.24Z"/>
+        <path d="M57.8,17.89c-.04.53-.17,1.09-.41,1.67-.9,1.93-2.99,3.07-5.59,3.07-.36,0-.73-.02-1.1-.07-1.17-.14-2.19-.45-3.04-.92-.87-.59-1.54-1.42-1.99-2.46-.06-.14.02-.3.17-.33l4.14-.89c.1-.02.2.02.25.1.29.43.78.64,1.05.68.63.08.96-.09,1.13-.25.17-.16.24-.37.21-.6-.07-.52-.38-.77-1.98-1.53h-.02c-.32-.16-.72-.35-1.16-.57-.31-.13-.6-.28-.88-.42h-.02s-.08-.06-.12-.08c-1.44-.82-2.28-1.83-2.49-2.98-.31-1.65.75-3.05.97-3.31.32-.36.69-.68,1.11-.95,1.26-.8,2.88-1.13,4.56-.94,1.01.12,1.93.39,2.73.81.38.2.73.43,1.05.7.22.19.89.86,1.1,1.89.03.13-.06.26-.19.28l-4.07.82c-.12.02-.23-.04-.27-.15-.11-.28-.37-.57-.9-.63-.36-.04-.68.06-.89.29-.16.17-.22.39-.17.56.08.27.36.7,1.88,1.32.3.12.58.23.86.34.35.13.7.26,1.02.4h0c.97.45,3.21,1.76,3.07,4.15Z"/>
+        <path d="M73.57,14.95c0,.44-.05.95-.13,1.4-.02.12-.12.2-.24.2h-10.58c-.19,0-.3.2-.21.37.65,1.1,1.81,1.79,3.1,1.79,1.09,0,2.11-.48,2.84-1.41.06-.07.15-.11.23-.09l4.05.73c.16.03.24.2.18.34-.09.19-.21.43-.27.54h0s-.07.11-.07.11c-.06.1-.13.21-.2.32-.09.14-.18.27-.27.38l-.05.07h0s-.06.07-.09.11l-.05.06c-.06.07-.11.13-.17.2l-.05.06c-.09.1-.18.2-.28.3l-.05.06c-.06.06-.13.13-.19.19l-.02.02c-.07.07-.14.13-.22.2l-.08.07-.09-.08.08.09c-.11.1-.22.18-.33.26l-.09.07c-.12.09-.25.18-.38.26l-.04.02c-.15.1-.3.19-.45.27l-.04.02s-.07.04-.11.06h-.03c-.07.05-.13.08-.2.11l-.04.02c-.14.07-.28.13-.41.18h-.03c-.09.05-.17.08-.25.11l-.1.04c-.1.04-.2.07-.3.1h-.02c-.11.04-.22.07-.35.11l-.09.02c-.23.06-.46.1-.69.14h-.09c-.24.05-.48.07-.72.09h-.09c-.14.01-.26.01-.37.01s-.23,0-.37,0c-.03,0-.06,0-.08,0h-.03c-.09,0-.18-.01-.27-.02h-.03s-.05,0-.08,0c-.13-.01-.25-.03-.35-.04h0s0,0,0,0h-.06c-.1-.03-.2-.04-.29-.06l-.1-.02c-.09-.02-.17-.04-.26-.06h-.03s-.05-.02-.08-.03c-.13-.03-.24-.06-.34-.1-.11-.04-.23-.07-.34-.11-.03,0-.05-.02-.08-.03h-.02c-.08-.04-.16-.07-.24-.1h-.02s-.05-.03-.07-.04c-.11-.05-.21-.09-.32-.14h-.01c-.1-.05-.2-.1-.3-.16-.02-.01-.05-.03-.07-.04h-.02c-.08-.05-.15-.09-.22-.14l-.09-.05c-.1-.06-.2-.12-.29-.18-.96-.64-1.78-1.49-2.38-2.46-.05-.08-.1-.16-.15-.25l-.02-.04c-.04-.08-.09-.16-.13-.24l-.02-.05s-.03-.05-.04-.07c-.15-.31-.29-.64-.4-.98-.06-.19-.11-.35-.15-.5-.03-.12-.06-.25-.09-.38-.08-.39-.13-.79-.15-1.19,0-.13-.01-.27-.01-.41s0-.27.01-.41c.04-.7.17-1.4.39-2.07.07-.22.15-.42.23-.6.05-.11.09-.21.14-.31.01-.02.02-.05.04-.07l.03-.06s.02-.05.04-.07c.01-.03.03-.05.04-.07l.07-.13c.06-.1.11-.2.17-.3.6-.97,1.42-1.82,2.38-2.46.1-.06.19-.12.29-.18l.09-.05c.07-.04.15-.09.22-.13h.02s.05-.04.07-.05c.1-.05.21-.11.31-.16.11-.05.21-.1.32-.14.02-.01.05-.02.07-.03h.02c.08-.04.16-.07.24-.1h.02s.05-.03.08-.04c.11-.04.22-.08.33-.11.11-.04.23-.07.34-.1.02,0,.05-.01.08-.02h.03c.09-.03.17-.05.26-.07h.06c.1-.03.28-.07.38-.08h.02s0,0,0,0h0c.11-.02.22-.03.35-.04.03,0,.05,0,.08,0h.03c.09-.01.18-.02.27-.02h.02s.06,0,.09,0c.14,0,.26,0,.37,0s.23,0,.37,0h.09c.24.02.48.04.72.08h.1c.23.05.46.1.68.15l.1.03c.13.03.24.07.34.1h.02c.11.04.2.07.3.11.03.01.06.02.09.03.09.03.17.07.25.1l.04.02c.13.05.27.12.41.18l.04.02c.07.03.13.07.19.1h.02s-.05.12-.05.12l.06-.1s.07.04.11.06c.14.08.36.21.49.29h.02c.14.1.27.19.4.28l.02.02s.05.04.08.06c.11.08.22.17.33.26l.06.05c.08.07.17.15.25.22l.02.02c.06.06.13.12.19.19l.05.05c.1.1.19.2.28.3l-.08.09.09-.08.04.05c.05.06.11.13.16.19l.05.06c.06.08.12.15.18.23h0c.05.07.09.14.14.21l.09.13c.04.06.08.12.11.18l.15.25h0c.3.52.54,1.08.7,1.64.22.73.33,1.48.33,2.23ZM68.85,12.95c-.19-1.11-1.48-1.98-3.11-1.98-1.49,0-2.9.86-3.11,1.98-.03.15.09.29.24.29h5.75c.15,0,.26-.14.24-.28Z"/>
+      </g>
+      <path d="M96.89,14.38c0,4.68-3.86,8.48-8.6,8.48-1.5,0-2.97-.39-4.27-1.12-.09-.05-.19.01-.19.11v5.59c0,.14-.12.26-.26.26h-4.52c-.14,0-.26-.12-.26-.26V6.41c0-.14.12-.26.26-.26h4.52c.14,0,.26.12.26.26v.49c0,.1.11.16.19.11,1.3-.73,2.76-1.12,4.27-1.12,4.74,0,8.6,3.8,8.6,8.48ZM91.46,14.38c0-2.14-1.77-3.89-3.94-3.89s-3.68,1.74-3.68,3.89,1.51,3.89,3.68,3.89,3.94-1.74,3.94-3.89Z"/>
+      <path d="M115.03,6.4v15.68c0,.14-.12.26-.26.26h-4.53c-.14,0-.26-.12-.26-.26v-.24c0-.1-.11-.16-.19-.11-1.3.73-2.76,1.12-4.27,1.12-4.74,0-8.6-3.8-8.6-8.48s3.86-8.48,8.6-8.48c1.5,0,2.97.39,4.27,1.12.09.05.19-.01.19-.11v-.49c0-.14.12-.26.26-.26h4.53c.14,0,.26.12.26.26ZM109.98,14.37c0-2.14-1.51-3.89-3.68-3.89s-3.94,1.74-3.94,3.89,1.77,3.89,3.94,3.89,3.68-1.74,3.68-3.89Z"/>
+      <path d="M124.4,6.42l-.15,3.79c0,.15-.13.26-.28.25-.44-.04-1.33-.1-1.85.03-.58.14-.92.59-1.02.81-.26.56-.26,1.06-.26,1.68v9.11c0,.14-.12.26-.26.26h-4.83c-.14,0-.26-.12-.26-.26V6.41c0-.14.12-.26.26-.26h4.52c.14,0,.26.12.26.26v.45c0,.1.11.16.2.11,1.07-.67,2.34-.81,3.41-.82.15,0,.27.12.26.27Z"/>
+      <path d="M134.38,18.43l-.58,3.83c-.02.12-.12.21-.24.22-.56.03-2.04.12-2.49.12-.04,0-.07,0-.09,0-2.75-.14-4.2-1.56-4.2-4.08v-7.77c0-.14-.12-.26-.26-.26h-1.68c-.14,0-.26-.12-.26-.26v-3.83c0-.14.12-.26.26-.26h1.68c.14,0,.26-.12.26-.26V1.44c0-.14.12-.26.26-.26h4.52c.14,0,.26.12.26.26v4.44c0,.14.12.26.26.26h1.68c.14,0,.26.12.26.26v3.83c0,.14-.12.26-.26.26h-1.68c-.14,0-.26.11-.26.26,0,1.34,0,5.32,0,5.36v.11c-.02.49-.04,1.17.35,1.57.23.24.59.36,1.07.36h.88c.16,0,.28.14.26.3Z"/>
+      <path d="M150.53,6.5l-5.1,14.17-2.37,6.74c-.04.1-.13.17-.24.17h-5.03c-.18,0-.3-.17-.25-.34l1.97-5.84c.02-.06.02-.12,0-.17l-5.39-14.72c-.06-.17.06-.35.24-.35h4.51c.11,0,.21.07.24.17l2.95,7.98c.08.23.41.22.49,0l2.72-7.97c.04-.1.13-.18.25-.18h4.77c.18,0,.3.18.24.35Z"/>
+      <path d="M171.39,1.09v21.08c0,.15-.12.26-.26.26h-4.59c-.14,0-.26-.12-.26-.26v-.24c0-.1-.11-.16-.2-.11-1.32.74-2.8,1.14-4.33,1.14-4.81,0-8.72-3.86-8.72-8.6s3.91-8.6,8.72-8.6c1.53,0,3.01.39,4.33,1.13.09.05.2-.01.2-.11V1.09c0-.14.12-.26.26-.26h4.59c.14,0,.26.12.26.26ZM166.27,14.34c0-2.18-1.53-3.95-3.74-3.95s-4,1.77-4,3.95,1.79,3.95,4,3.95,3.74-1.77,3.74-3.95Z"/>
+      <path d="M176.64,6.01h-4.59c-.15,0-.26.12-.26.26v15.9c0,.14.12.26.26.26h4.59c.15,0,.26-.12.26-.26V6.27c0-.15-.12-.26-.26-.26Z"/>
+      <path d="M176.84.93s0-.02-.02-.02c-1.55-.11-5.01,2.17-4.97,3.72,0,0,.01.01.02.02.04.04.11.07.17.07h4.59c.15,0,.26-.12.26-.26V1.1c0-.06-.02-.12-.06-.17Z"/>
+      <path d="M189.92,17.54c-.04.57-.19,1.19-.44,1.82-.98,2.09-3.25,3.34-6.08,3.34-.39,0-.79-.02-1.19-.07-1.27-.15-2.38-.49-3.3-1.01-.95-.64-1.67-1.54-2.16-2.67-.07-.15.02-.33.19-.36l4.5-.97c.11-.02.21.02.27.11.32.47.85.7,1.14.73.69.08,1.05-.1,1.22-.27.18-.17.26-.4.23-.66-.07-.57-.41-.83-2.15-1.66h-.02c-.35-.18-.78-.38-1.26-.62-.33-.14-.66-.3-.96-.46l-.03-.02s-.09-.05-.13-.08c-1.56-.9-2.47-1.99-2.71-3.24-.34-1.79.82-3.31,1.05-3.6.35-.39.75-.74,1.21-1.03,1.37-.87,3.13-1.23,4.96-1.02,1.1.13,2.1.43,2.96.88.41.22.8.47,1.14.76.24.21.97.94,1.2,2.05.03.14-.07.28-.21.31l-4.43.9c-.13.02-.25-.05-.29-.16-.12-.31-.4-.62-.98-.69-.39-.05-.74.07-.96.32-.17.19-.24.42-.19.61.08.29.39.76,2.04,1.44.33.13.63.24.93.37.38.14.76.29,1.11.44h0c1.05.49,3.48,1.92,3.34,4.51Z"/>
+      <path d="M199.41,18.47l-.59,3.89c-.02.12-.12.22-.24.22-.56.03-2.07.12-2.53.12-.04,0-.07,0-.09,0-2.79-.15-4.26-1.58-4.26-4.14v-7.89c0-.14-.12-.26-.26-.26h-1.71c-.14,0-.26-.12-.26-.26v-3.89c0-.14.12-.26.26-.26h1.71c.14,0,.26-.12.26-.26V1.22c0-.14.12-.26.26-.26h4.59c.14,0,.26.12.26.26v4.51c0,.14.12.26.26.26h1.71c.14,0,.26.12.26.26v3.89c0,.14-.12.26-.26.26h-1.71c-.14,0-.26.12-.26.26,0,1.36,0,5.39,0,5.44v.11c-.02.5-.04,1.18.36,1.59.23.24.6.36,1.09.36h.89c.16,0,.28.14.26.3Z"/>
+      <path d="M208.69,6.28l-.16,3.84c0,.15-.14.26-.29.25-.45-.04-1.35-.1-1.88.03-.59.14-.93.6-1.03.82-.27.57-.27,1.07-.27,1.71v9.25c0,.14-.12.26-.26.26h-4.9c-.15,0-.26-.12-.26-.26V6.27c0-.14.12-.26.26-.26h4.59c.15,0,.26.12.26.26v.46c0,.1.11.17.2.11,1.09-.68,2.38-.82,3.46-.83.15,0,.27.12.27.27Z"/>
+      <path d="M225.32,14.35c0,4.74-3.91,8.6-8.72,8.6s-8.72-3.86-8.72-8.6,3.91-8.6,8.72-8.6,8.72,3.86,8.72,8.6ZM220.4,14.35c0-2.07-1.71-3.75-3.8-3.75s-3.8,1.68-3.8,3.75,1.71,3.75,3.8,3.75,3.8-1.68,3.8-3.75Z"/>
+    </symbol>
+  </svg>
+
+  <div class="page">
+
+    <!-- LETTERHEAD -->
+    <div class="masthead">
+      <span class="brand" role="img" aria-label="House Party Distro">
+        <svg aria-hidden="true"><use href="#hpd-wordmark"/></svg>
+      </span>
+      <span class="label">Partnership Overview</span>
+    </div>
+
+    <!-- LEAD + THE DEAL -->
+    <div class="lead">
+      <div class="eyebrow">How we work</div>
+      <h1>Focus on building your brand. We'll do the rest.</h1>
+      <p class="sub">Full-service apparel and accessory production, storefront, warehousing, and fulfillment, for artists, brands, and teams who'd rather create than operate.</p>
+
+      <div class="deal">
+        <div class="row">
+          <div class="cell"><span class="k">Net sales</span><span class="v">Sales − discounts − refunds</span></div>
+          <span class="op">−</span>
+          <div class="cell"><span class="k">Cost of goods</span><span class="v">Actual production and freight costs</span></div>
+          <span class="op">=</span>
+          <div class="cell"><span class="k">Product net</span><span class="v">What we split</span></div>
+        </div>
+        <div class="dealfoot">
+          <p class="note">Our cut comes out of profit, not your top line, so we only make money when you do. No retainer, no markup on production.</p>
+          <div class="split">
+            <span class="chip fill">You 70%</span>
+            <span class="chip">HPD 30%</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- THE ROLE + THE MONEY -->
+    <div class="sec cols2">
+      <div>
+        <div class="eyebrow">01 · The role</div>
+        <h2 class="h">You bring the vision, we'll help bring it home.</h2>
+        <div class="body" style="margin-top:11px">
+          <p>You show up with finished artwork or a direction you want to chase. From there we handle the whole machine: complete product sourcing, optimizing your Shopify storefront, warehousing, and shipping every order.</p>
+          <p class="muted">We don't design from nothing. Our job is to take what you've got and build the best possible version of it, with your bottom line in mind.</p>
+        </div>
+      </div>
+      <div>
+        <div class="eyebrow">02 · The money</div>
+        <h2 class="h">Simple, and on your side.</h2>
+        <div class="lines">
+          <div class="ln"><span class="lbl">Your money</span><span class="txt">Banking is tied to <b>your</b> Shopify. Every customer payment lands in your account. We never sit between you and your sales.</span></div>
+          <div class="ln"><span class="lbl">Production</span><span class="txt">You front production at our <b>actual cost</b>: blanks, printing, freight, importing. What we pay is what you pay, no markup. Billed as goods are approved for production.</span></div>
+          <div class="ln"><span class="lbl">Our share</span><span class="txt">On the <b>1st of each month</b>, we invoice our 30% of product net, plus postage reimbursement at our exact cost.</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PRE-ORDER ADVANTAGE -->
+    <div class="sec">
+      <div class="drops">
+        <div>
+          <span class="eyebrow">03 · Built for pre-orders</span>
+          <h3>Your customers fund the run.</h3>
+        </div>
+        <p>Most of our clients run pre-orders, and that's by design. When you pre-sell, your customers' money funds production <b>before</b> we make a thing. No capital tied up in blanks, no warehouse full of stock that didn't move. We build to demand, not to a shelf.</p>
+      </div>
+    </div>
+
+    <!-- INCLUDED VS BILLED -->
+    <div class="sec">
+      <div class="eyebrow">04 · What's included</div>
+      <h2 class="h">Clear lines. No surprises.</h2>
+      <div class="cards">
+        <div class="card">
+          <h4>In the 30%</h4>
+          <ul>
+            <li><span class="tick">+</span><span>Running your store &amp; managing product lines</span></li>
+            <li><span class="tick">+</span><span>Coordinating production end to end</span></li>
+            <li><span class="tick">+</span><span>Warehousing active inventory</span></li>
+            <li><span class="tick">+</span><span>Picking, packing &amp; fulfilling orders</span></li>
+            <li><span class="tick">+</span><span>Customer service: returns, exchanges &amp; refunds, handled directly with your customers via your support inbox</span></li>
+          </ul>
+        </div>
+        <div class="card">
+          <h4>Billed separately, at cost</h4>
+          <ul>
+            <li><span class="tick">›</span><span><span class="b">Production &amp; postage</span>: passed through at our exact cost, never marked up.</span></li>
+            <li><span class="tick">›</span><span><span class="b">Return shipping</span>: passed through at our exact cost. Handling the return with your customer is part of your 30%.</span></li>
+            <li><span class="tick">›</span><span><span class="b">Storage</span>: free for the first 60 days while inventory moves. Stock that sits longer is billed at standard rates ($20/pallet or $3/bin per month). Most pre-order clients never see this.</span></li>
+            <li><span class="tick">›</span><span><span class="b">Monthly minimum</span>: a $250/month floor keeps your account active and supported. It only applies if your 30% share for the month comes in under it.</span></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- INITIATION -->
+    <div class="sec">
+      <div class="start">
+        <div>
+          <div class="eyebrow">05 · Getting started</div>
+          <div class="num-big" style="margin-top:10px">$750</div>
+          <p class="muted" style="margin-top:8px;font-size:13px">one-time initiation</p>
+        </div>
+        <div class="body">
+          <p>Covers all the up-front setup: your Shopify store build, brand and product-line configuration, account setup, and onboarding.</p>
+          <p>It's non-refundable, but if you move into production within 60 days, half credits toward your first launch. It's earnest money: it goes to work for you the moment you're ready to build.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- JOURNEY -->
+    <div class="sec">
+      <div class="eyebrow">06 · Signed to live</div>
+      <h2 class="h">The whole run.</h2>
+      <div class="journey">
+        <div class="j"><div class="num"></div><h5>Kickoff &amp; setup</h5><p>We're added as an admin on your Shopify, given access to your dedicated customer service inbox, and connect our fulfillment system. Everything we need to run the store, support your customers, and ship orders.</p></div>
+        <div class="j"><div class="num"></div><h5>Build the product</h5><p>You bring artwork or direction. We source the right blanks and dial in the best version: materials, decoration method, samples.</p></div>
+        <div class="j"><div class="num"></div><h5>Launch prep</h5><p>We set up your product line in your store, launch-ready.</p></div>
+        <div class="j"><div class="num"></div><h5>Production</h5><p>Goods get made, billed as produced at our cost.</p></div>
+        <div class="j"><div class="num"></div><h5>Live &amp; shipping</h5><p>Your launch goes live; orders ship from our warehouse.</p></div>
+        <div class="j"><div class="num"></div><h5>Ongoing</h5><p>Monthly billing, restocks, and your next launch.</p></div>
+      </div>
+    </div>
+
+    <!-- CTA -->
+    <div class="cta">
+      <div>
+        <h2>Ready to build something?</h2>
+        <div class="cta-sub">Let's talk through your first launch.</div>
+      </div>
+      <a class="btn" href="https://housepartydistro.com/start">Start the conversation</a>
+    </div>
+
+    <!-- FOOTER -->
+    <div class="docfoot">
+      <span class="brand" role="img" aria-label="House Party Distro">
+        <svg aria-hidden="true"><use href="#hpd-wordmark"/></svg>
+      </span>
+      <span class="meta">Las Vegas · hello@housepartydistro.com</span>
+    </div>
+
+  </div>
+
+</body>
+</html>
