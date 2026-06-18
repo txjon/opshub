@@ -8,7 +8,7 @@ import { T, font } from "@/lib/theme";
 // To add a new reference: drop the HTML file into /public/ and append
 // an entry to REFERENCES below. No routing changes needed.
 
-type Ref = { title: string; description: string; href: string };
+type Ref = { title: string; description: string; href: string; pdf?: string };
 type Section = { label: string; items: Ref[] };
 
 const SECTIONS: Section[] = [
@@ -57,6 +57,17 @@ const SECTIONS: Section[] = [
       },
     ],
   },
+  {
+    label: "Client-Facing",
+    items: [
+      {
+        title: "Partnership Overview",
+        description: "Full-service partnership model for prospects: the deal, what's included, and the process. The leave-behind for interested full-service leads.",
+        href: "/hpd-partnership-overview.html",
+        pdf: "/hpd-partnership-overview.pdf",
+      },
+    ],
+  },
 ];
 
 export default function ReferencesPage() {
@@ -76,7 +87,30 @@ export default function ReferencesPage() {
             {section.label.replace(/&amp;/g, "&")}
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {section.items.map(ref => (
+            {section.items.map(ref => ref.pdf ? (
+              <div key={ref.href}
+                style={{
+                  background: T.card, border: `1px solid ${T.border}`,
+                  borderRadius: 10, padding: "12px 14px", transition: "border-color 0.15s",
+                }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; }}
+              >
+                <a href={ref.href} target="_blank" rel="noopener noreferrer"
+                  style={{ display: "block", textDecoration: "none", color: T.text }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 3 }}>{ref.title}</div>
+                  <div style={{ fontSize: 11, color: T.muted, lineHeight: 1.5 }}>{ref.description}</div>
+                </a>
+                <a href={ref.pdf} download
+                  style={{
+                    display: "inline-block", marginTop: 10,
+                    fontSize: 11, fontWeight: 700, color: T.accent,
+                    textDecoration: "none", letterSpacing: "0.02em",
+                  }}>
+                  Download PDF ↓
+                </a>
+              </div>
+            ) : (
               <a key={ref.href} href={ref.href} target="_blank" rel="noopener noreferrer"
                 style={{
                   display: "block", background: T.card, border: `1px solid ${T.border}`,
