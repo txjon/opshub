@@ -260,6 +260,27 @@ function PaymentTabQB({ job, items = [], contacts, payments, onReload, onRecalcP
           </div>
         </div>
 
+        {/* Read-only echo of custom invoice line items so the full invoice
+            composition is visible right at push time. Edited on the
+            Costing → Client Quote tab; pushed to QB by the invoice route. */}
+        {(() => {
+          const extras = Array.isArray(job?.type_meta?.invoice_extra_lines) ? job.type_meta.invoice_extra_lines : [];
+          if (!extras.length) return null;
+          const fmtMoney = (n) => "$" + Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          return (
+            <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}` }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, fontFamily: font, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Additional charges</div>
+              {extras.map((l, i) => (
+                <div key={l.id || i} style={{ display: "flex", justifyContent: "space-between", gap: 12, fontSize: 12, color: T.text, padding: "3px 0" }}>
+                  <span>{l.description || "Additional charge"}{l.qb_item ? <span style={{ color: T.faint, marginLeft: 6 }}>· {l.qb_item}</span> : null}</span>
+                  <span style={{ fontFamily: mono }}>{fmtMoney(l.amount)}</span>
+                </div>
+              ))}
+              <div style={{ fontSize: 10, color: T.faint, marginTop: 6 }}>Edit on Costing → Client Quote.</div>
+            </div>
+          );
+        })()}
+
         {/* Action buttons — slimmer 3-step row, no big arrow icons */}
         <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 6 }}>
           <button onClick={pushToQB} disabled={pushingToQB || isManualInvoice}
