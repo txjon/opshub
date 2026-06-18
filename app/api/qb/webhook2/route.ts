@@ -156,18 +156,21 @@ async function processPayment(payment: any, supabase: any, paymentId: string) {
     const job = jobs[0];
     console.log("[QB Webhook2] Matched job:", job.id, job.title);
 
-    // Dedup: check if already recorded. Match across status values so a
-    // partial-then-final pattern doesn't double-record the same QB hit.
+    // Dedup on the QB payment identity, NOT (amount, date). QuickBooks caps
+    // each payment at $100k, so a large invoice is paid as several identical
+    // $100k payments within minutes — the old amount+date check treated those
+    // as duplicates and dropped all but the first (FOG 4348: 4×$100k → 1).
+    // Keying on (qb_payment_id, qb_invoice_id) records each distinct payment
+    // once, while still allowing one payment to apply across multiple invoices.
     const today = new Date().toISOString().split("T")[0];
     const { data: existing } = await supabase
       .from("payment_records")
       .select("id")
-      .eq("job_id", job.id)
-      .eq("amount", amount)
-      .eq("paid_date", today);
+      .eq("qb_payment_id", paymentId)
+      .eq("qb_invoice_id", qbInvoiceId);
 
     if (existing?.length) {
-      console.log("[QB Webhook2] Duplicate — already recorded for job:", job.id);
+      console.log("[QB Webhook2] Duplicate — payment", paymentId, "already recorded for invoice", qbInvoiceId);
       continue;
     }
 
@@ -203,7 +206,7 @@ async function processPayment(payment: any, supabase: any, paymentId: string) {
     if (pending && pending.length > 0) {
       const { error } = await supabase
         .from("payment_records")
-        .update({ status: "paid", paid_date: today, amount, type: paymentType })
+        .update({ status: "paid", paid_date: today, amount, type: paymentType, qb_payment_id: paymentId })
         .eq("id", pending[0].id);
       insertErr = error;
     } else {
@@ -212,6 +215,7 @@ async function processPayment(payment: any, supabase: any, paymentId: string) {
       const { error } = await supabase.from("payment_records").insert({
         job_id: job.id,
         qb_invoice_id: qbInvoiceId,
+        qb_payment_id: paymentId,
         type: paymentType,
         amount,
         status: "paid",
