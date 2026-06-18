@@ -664,6 +664,37 @@ export async function updateInvoice(
   };
 }
 
+// ── Item (Product/Service) catalog ──
+// Backs the custom-invoice-line-item editor: each extra line picks which QB
+// Product/Service it posts under (the `qb_item` field). Reading the live
+// catalog keeps that dropdown from drifting as items are added or renamed in
+// QB — the same names this returns are what createInvoice/updateInvoice look
+// up by Name when building line items.
+export type QBItem = {
+  id: string;
+  name: string;
+  fullyQualifiedName: string;
+  type: string; // Service | NonInventory | Inventory | ...
+};
+
+export async function listItems(): Promise<QBItem[]> {
+  // QB caps query results at 1000 rows; the HPD catalog is well under that.
+  // Active = true drops archived items. "Category"-type items are
+  // organizational headers, not sellable on an invoice line, so we drop them.
+  const query = encodeURIComponent("SELECT * FROM Item WHERE Active = true MAXRESULTS 1000");
+  const data = await qbFetch(`/query?query=${query}`);
+  const items = data?.QueryResponse?.Item || [];
+  return items
+    .filter((it: any) => it?.Type !== "Category")
+    .map((it: any) => ({
+      id: String(it.Id),
+      name: it.Name || "",
+      fullyQualifiedName: it.FullyQualifiedName || it.Name || "",
+      type: it.Type || "",
+    }))
+    .sort((a: QBItem, b: QBItem) => a.name.localeCompare(b.name));
+}
+
 // ── Check connection status ──
 export async function isConnected(): Promise<boolean> {
   try {
