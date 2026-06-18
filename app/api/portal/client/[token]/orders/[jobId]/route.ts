@@ -205,6 +205,9 @@ export async function GET(
         clientMsg = match ? `${match[1]} proof approved` : "Proof approved";
       }
       else if (/proofs sent to client/i.test(msg)) clientMsg = "Proofs delivered";
+      // Internal "All items shipped — invoice ready to update…" → strip the
+      // ops invoicing tail; the client just needs the shipped milestone.
+      else if (/all items shipped/i.test(msg)) clientMsg = "All Items Shipped";
       else if (/shipped|tracking/i.test(msg) && !/decorator|warehouse|production/i.test(msg)) {
         // Scrub vendor / decorator names from shipped messages — the
         // client never needs to know which printer touched the order.
