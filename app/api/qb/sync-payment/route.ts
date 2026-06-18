@@ -126,15 +126,16 @@ export async function POST(req: NextRequest) {
 
       const job = jobs[0];
 
-      // Check for existing PAID payment with same amount — that's a
-      // duplicate (re-sync of an already-recorded payment).
+      // Dedup on the QB payment identity, NOT amount. QB caps payments at
+      // $100k, so an invoice legitimately receives several identical $100k
+      // payments — keying on amount blocked manual recovery of the 2nd+.
+      // (qb_payment_id, qb_invoice_id) records each distinct payment once.
       const today = new Date().toISOString().split("T")[0];
       const { data: existing } = await admin
         .from("payment_records")
         .select("id")
-        .eq("job_id", job.id)
-        .eq("amount", amount)
-        .eq("status", "paid");
+        .eq("qb_payment_id", String(payment.Id))
+        .eq("qb_invoice_id", qbInvoiceId);
 
       if (existing?.length) {
         results.push({ qbInvoiceId, jobId: job.id, jobTitle: job.title, status: "already_exists", paymentRecordId: existing[0].id });
@@ -169,13 +170,14 @@ export async function POST(req: NextRequest) {
       if (pending && pending.length > 0) {
         const { error } = await admin
           .from("payment_records")
-          .update({ status: "paid", paid_date: payment.TxnDate || today, amount, type: paymentType })
+          .update({ status: "paid", paid_date: payment.TxnDate || today, amount, type: paymentType, qb_payment_id: String(payment.Id) })
           .eq("id", pending[0].id);
         insertErr = error;
       } else {
         const { error } = await admin.from("payment_records").insert({
           job_id: job.id,
           qb_invoice_id: qbInvoiceId,
+          qb_payment_id: String(payment.Id),
           type: paymentType,
           amount,
           status: "paid",
