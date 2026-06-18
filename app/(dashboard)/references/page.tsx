@@ -66,6 +66,12 @@ const SECTIONS: Section[] = [
         href: "/hpd-partnership-overview.html",
         pdf: "/hpd-partnership-overview.pdf",
       },
+      {
+        title: "Manufacturing Services",
+        description: "DRAFT, not final. Production-only services for prospects who just need product made: sourcing, decoration, QC, and delivery. Quote-based, not the partnership model.",
+        href: "/hpd-manufacturing-overview.html",
+        pdf: "/hpd-manufacturing-overview.pdf",
+      },
     ],
   },
 ];

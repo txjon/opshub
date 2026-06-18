@@ -72,7 +72,7 @@ app/api/
   qb/connect/         — Initiate QuickBooks OAuth flow
   qb/callback/        — Receive OAuth tokens from QB
   qb/invoice/         — Push invoice to QB, return invoice # + payment link + tax
-  qb/webhook/         — Receive payment events from QB (HMAC verified)
+  qb/webhook2/        — Receive payment + job events from QB (HMAC verified, CloudEvents)
   ss/                 — S&S Activewear API proxy
   team/               — Invite members + edit roles (manager-only)
 ```
@@ -377,7 +377,7 @@ Manager-only reporting dashboard:
 
 **Payment link flow:** Invoice created → sent via QB API to customer email → QB generates payment link → OpsHub saves link → included in email and on approvals tab.
 
-**Payment webhook** (`/api/qb/webhook`): Receives QB payment events (HMAC signature verified), matches to job via QB invoice ID, records payment in OpsHub, logs activity, notifies team. Returns 200 always (QB requirement).
+**Payment webhook** (`/api/qb/webhook2`): Receives QB payment + ShipStation invoice events (HMAC signature verified, Intuit CloudEvents payload), matches to job via QB invoice ID, records payment in OpsHub, logs activity, notifies team. Returns 200 always (QB requirement). Payload parsing via `parseWebhookEvents` in `lib/quickbooks.ts` handles both CloudEvents and the legacy format as a safety net.
 
 **Garment type dropdown** on buy sheet per item — maps to QB Product/Service. 30+ types covering all QB products.
 
