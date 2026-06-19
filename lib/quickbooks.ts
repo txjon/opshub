@@ -677,18 +677,28 @@ export type QBItem = {
   type: string; // Service | NonInventory | Inventory | ...
 };
 
+// Curated allowlist of QB items that are valid "Additional charges" targets.
+// QB's Type field can't express this cleanly — "Tote" is Service-typed but is
+// a product, while "Postage" is a fee but isn't Service-typed — so we scope by
+// name instead. Still reads the live catalog (reflects active/renamed items);
+// add a new fee item here when one is created in QB.
+const ADDITIONAL_CHARGE_ITEMS = new Set([
+  "art services",
+  "fulfillment",
+  "inventory warehousing",
+  "postage",
+  "service fee",
+]);
+
 export async function listItems(): Promise<QBItem[]> {
   // QB caps query results at 1000 rows; the HPD catalog is well under that.
-  // Active = true drops archived items. We keep ONLY Service-type items
-  // (Art Services, Fulfillment, Inventory Warehousing, Postage, Service Fee,
-  // …) — these are the fees/passthrough an "Additional charges" line maps to.
-  // Garment products (Inventory/NonInventory) belong to the product lines, not
-  // here, and "Category"-type rows are just organizational headers.
+  // Active = true drops archived items; the allowlist then narrows to the
+  // fee/passthrough items an Additional charges line can map to.
   const query = encodeURIComponent("SELECT * FROM Item WHERE Active = true MAXRESULTS 1000");
   const data = await qbFetch(`/query?query=${query}`);
   const items = data?.QueryResponse?.Item || [];
   return items
-    .filter((it: any) => it?.Type === "Service")
+    .filter((it: any) => ADDITIONAL_CHARGE_ITEMS.has(String(it?.Name || "").trim().toLowerCase()))
     .map((it: any) => ({
       id: String(it.Id),
       name: it.Name || "",
