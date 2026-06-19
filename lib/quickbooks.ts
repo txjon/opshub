@@ -679,13 +679,16 @@ export type QBItem = {
 
 export async function listItems(): Promise<QBItem[]> {
   // QB caps query results at 1000 rows; the HPD catalog is well under that.
-  // Active = true drops archived items. "Category"-type items are
-  // organizational headers, not sellable on an invoice line, so we drop them.
+  // Active = true drops archived items. We keep ONLY Service-type items
+  // (Art Services, Fulfillment, Inventory Warehousing, Postage, Service Fee,
+  // …) — these are the fees/passthrough an "Additional charges" line maps to.
+  // Garment products (Inventory/NonInventory) belong to the product lines, not
+  // here, and "Category"-type rows are just organizational headers.
   const query = encodeURIComponent("SELECT * FROM Item WHERE Active = true MAXRESULTS 1000");
   const data = await qbFetch(`/query?query=${query}`);
   const items = data?.QueryResponse?.Item || [];
   return items
-    .filter((it: any) => it?.Type !== "Category")
+    .filter((it: any) => it?.Type === "Service")
     .map((it: any) => ({
       id: String(it.Id),
       name: it.Name || "",
