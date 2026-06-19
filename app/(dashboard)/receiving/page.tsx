@@ -4,7 +4,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
 import { useWarehouse, tQty, type WarehouseJob, type WarehouseItem } from "@/lib/use-warehouse";
-import { useShipments, type Shipment } from "@/lib/use-shipments";
+import { useShipments, isRealTracking, type Shipment } from "@/lib/use-shipments";
 import { uploadToReceiving, uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
 import { DriveFileLink } from "@/components/DriveFileLink";
 import { DriveThumb } from "@/components/DriveThumb";
@@ -43,11 +43,41 @@ function fmtEta(d: string | null) {
   if (!y || !m || !day) return d;
   return new Date(y, m - 1, day).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
+
+// Copy that also works on plain http (LAN IP) where navigator.clipboard is
+// unavailable — falls back to a hidden textarea + execCommand.
+async function copyText(text: string): Promise<void> {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+  } catch { /* fall through to legacy path */ }
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.position = "fixed";
+  ta.style.opacity = "0";
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  try { document.execCommand("copy"); } finally { document.body.removeChild(ta); }
+}
+
+function CopyBtn({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); copyText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1200); }).catch(() => {}); }}
+      title={copied ? "Copied" : "Copy tracking"}
+      style={{ background: "none", border: "none", cursor: "pointer", padding: 0, marginLeft: 4, color: copied ? T.green : T.faint, fontSize: 11, lineHeight: 1, flexShrink: 0 }}
+    >{copied ? "✓" : "⧉"}</button>
+  );
+}
 // Read-only summary — list rows + collapsed cards. Shows ETA + each pull,
 // with done pulls struck through. No interaction here.
-function SamplePullsBlock({ item }: { item: WarehouseItem }) {
+function SamplePullsBlock({ item, hideEta = false }: { item: WarehouseItem; hideEta?: boolean }) {
   const pulls = activePulls(item);
-  const eta = fmtEta(item.client_eta);
+  const eta = hideEta ? null : fmtEta(item.client_eta);
   if (pulls.length === 0 && !eta) return null;
   return (
     <div style={{ marginTop: 4, display: "flex", flexDirection: "column", gap: 3 }}>
@@ -170,7 +200,7 @@ export default function ReceivingPage() {
   // Batch-receive confirm modal — the items queued by "Receive Selected".
   const [batchReceiveItems, setBatchReceiveItems] = useState<WarehouseItem[] | null>(null);
   const [mockupPeek, setMockupPeek] = useState<{ driveFileId: string | null; name: string } | null>(null);
-  const [listSortKey, setListSortKey] = useState<"inv" | "client" | "item" | "decorator" | "shipped" | "units">("shipped");
+  const [listSortKey, setListSortKey] = useState<"inv" | "client" | "item" | "decorator" | "tracking" | "shipped" | "eta" | "units">("shipped");
   const [listSortDir, setListSortDir] = useState<"asc" | "desc">("asc");
   const listHeaderClick = (key: typeof listSortKey) => {
     if (key === listSortKey) setListSortDir(d => d === "asc" ? "desc" : "asc");
@@ -694,13 +724,16 @@ export default function ReceivingPage() {
         .map(it => ({ it, s, job: s.jobs.find(j => j.id === it.job_id) || s.jobs[0] }))
     );
     const shipVal = (d: string | null) => d ? new Date(d).getTime() : Infinity;
+    const etaVal = (d: string | null) => d ? new Date(d.slice(0, 10)).getTime() : Infinity;
     const cmpAsc = (a: typeof rows[number], b: typeof rows[number]) => {
       switch (listSortKey) {
         case "inv": return (a.job?.display_number || "").localeCompare(b.job?.display_number || "");
         case "client": return (a.job?.client_name || "").toLowerCase().localeCompare((b.job?.client_name || "").toLowerCase());
         case "item": return (a.it.name || "").toLowerCase().localeCompare((b.it.name || "").toLowerCase());
         case "decorator": return (a.it.decorator_short_code || a.it.decorator_name || "").localeCompare(b.it.decorator_short_code || b.it.decorator_name || "");
+        case "tracking": return (a.it.ship_tracking || "").localeCompare(b.it.ship_tracking || "");
         case "shipped": return shipVal(a.s.shipped_at) - shipVal(b.s.shipped_at);
+        case "eta": return etaVal(a.it.client_eta) - etaVal(b.it.client_eta);
         case "units": return tQty(a.it.qtys) - tQty(b.it.qtys);
         default: return 0;
       }
@@ -737,43 +770,51 @@ export default function ReceivingPage() {
         )}
         <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 14px", borderBottom: `1px solid ${T.border}`, fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em", userSelect: "none" }}>
           {isPending && <div style={{ width: 24, flexShrink: 0 }} />}
-          {hCell("inv", "Inv #", { width: 90, flexShrink: 0 })}
-          {hCell("client", "Client", { width: 150, flexShrink: 0 })}
-          {hCell("item", "Item", { flex: 1, minWidth: 0, paddingLeft: 10 })}
-          {hCell("decorator", "Deco", { width: 104, flexShrink: 0 })}
-          {hCell("shipped", "Shipped", { width: 84, flexShrink: 0, justifyContent: "flex-end" })}
-          {hCell("units", "Units", { width: 56, flexShrink: 0, justifyContent: "flex-end" })}
-          <div style={{ width: 80, flexShrink: 0 }} />
+          {hCell("inv", "Inv #", { width: 60, flexShrink: 0 })}
+          {hCell("item", "Item / Client", { flexGrow: 0, flexShrink: 1, flexBasis: 300, minWidth: 0, paddingLeft: 10 })}
+          {hCell("units", "Units", { width: 64, flexShrink: 0, justifyContent: "flex-end" })}
+          <div style={{ flex: 1 }} />
+          {hCell("decorator", "Vendor", { width: 88, flexShrink: 0 })}
+          {hCell("tracking", "Tracking", { width: 140, flexShrink: 0 })}
+          {hCell("shipped", "Shipped", { width: 64, flexShrink: 0, justifyContent: "flex-end" })}
+          {hCell("eta", "ETA", { width: 60, flexShrink: 0, justifyContent: "flex-end" })}
+          <div style={{ width: 84, flexShrink: 0 }} />
         </div>
         {rows.map(({ it, s, job }) => {
           const isReceived = it.received_at_hpd;
           const shippedStr = s.shipped_at ? new Date(s.shipped_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—";
           return (
-            <div key={it.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderBottom: `1px solid ${T.border}55`, fontSize: 12 }}
+            <div key={it.id} style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "10px 14px", borderBottom: `1px solid ${T.border}55`, fontSize: 12 }}
               onMouseEnter={e => (e.currentTarget.style.background = T.surface)}
               onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
               {isPending && (
-                <div style={{ width: 24, flexShrink: 0, display: "flex", alignItems: "center" }} onClick={e => e.stopPropagation()}>
+                <div style={{ width: 24, flexShrink: 0, display: "flex", alignItems: "center", paddingTop: 1 }} onClick={e => e.stopPropagation()}>
                   <input type="checkbox" checked={selectedItemIds.has(it.id)} onChange={() => toggleItemSelected(it.id)} style={{ width: 15, height: 15, cursor: "pointer", accentColor: T.accent }} />
                 </div>
               )}
-              <div style={{ width: 90, flexShrink: 0, color: job?.display_number ? T.text : T.faint, fontFamily: mono, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{job?.display_number || "—"}</div>
-              <div style={{ width: 150, flexShrink: 0, minWidth: 0, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{job?.client_name || "No client"}</div>
-              <div style={{ flex: 1, minWidth: 0, paddingLeft: 10 }}>
+              <div style={{ width: 60, flexShrink: 0, color: job?.display_number ? T.text : T.faint, fontFamily: mono, fontWeight: 700, whiteSpace: "nowrap" }}>{job?.display_number || "—"}</div>
+              <div style={{ flexGrow: 0, flexShrink: 1, flexBasis: 300, minWidth: 0, paddingLeft: 10 }}>
                 <div onClick={() => setMockupPeek({ driveFileId: mockupMap[it.id]?.driveFileId || null, name: it.name })} title="View mockup"
-                  style={{ fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "pointer" }}>{it.name}</div>
+                  style={{ fontWeight: 600, color: T.text, lineHeight: 1.3, cursor: "pointer", wordBreak: "break-word" }}>{it.name}</div>
+                <div style={{ fontSize: 11, color: T.muted, marginTop: 1, wordBreak: "break-word" }}>{job?.client_name || "No client"}</div>
                 {it.ship_notes && (
                   <div style={{ fontSize: 11, color: T.amber, marginTop: 2, display: "flex", gap: 5 }}>
                     <span style={{ flexShrink: 0 }}>✎</span>
                     <span style={{ minWidth: 0, wordBreak: "break-word" }}>{it.ship_notes}</span>
                   </div>
                 )}
-                <SamplePullsBlock item={it} />
+                <SamplePullsBlock item={it} hideEta />
               </div>
-              <div style={{ width: 104, flexShrink: 0, color: T.muted, fontFamily: mono, fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.decorator_short_code || it.decorator_name || "—"}</div>
-              <div style={{ width: 84, flexShrink: 0, textAlign: "right", fontFamily: mono, color: T.muted }}>{shippedStr}</div>
-              <div style={{ width: 56, flexShrink: 0, textAlign: "right", fontFamily: mono, color: T.text }}>{tQty(it.qtys)}</div>
-              <div style={{ width: 80, flexShrink: 0, display: "flex", justifyContent: "flex-end" }}>
+              <div style={{ width: 64, flexShrink: 0, textAlign: "right", fontFamily: mono, color: T.text }}>{tQty(it.qtys)}</div>
+              <div style={{ flex: 1 }} />
+              <div style={{ width: 88, flexShrink: 0, color: T.muted, fontFamily: mono, fontSize: 11, lineHeight: 1.3, wordBreak: "break-word" }}>{it.decorator_short_code || it.decorator_name || "—"}</div>
+              <div style={{ width: 140, flexShrink: 0, fontFamily: mono, fontSize: 11, lineHeight: 1.3, display: "flex", alignItems: "flex-start" }} title={it.ship_tracking || ""}>
+                <span style={{ color: it.ship_tracking ? T.muted : T.faint, wordBreak: "break-all", minWidth: 0 }}>{it.ship_tracking || "—"}</span>
+                {isRealTracking(it.ship_tracking) && <CopyBtn text={it.ship_tracking!} />}
+              </div>
+              <div style={{ width: 64, flexShrink: 0, textAlign: "right", fontFamily: mono, color: T.muted }}>{shippedStr}</div>
+              <div style={{ width: 60, flexShrink: 0, textAlign: "right", fontFamily: mono, fontSize: 11, color: fmtEta(it.client_eta) ? T.accent : T.faint }}>{fmtEta(it.client_eta) || "—"}</div>
+              <div style={{ width: 84, flexShrink: 0, display: "flex", justifyContent: "flex-end" }}>
                 {isReceived ? (
                   <span style={{ fontSize: 10, fontWeight: 700, color: T.green, textTransform: "uppercase", letterSpacing: "0.04em" }}>Received</span>
                 ) : (
