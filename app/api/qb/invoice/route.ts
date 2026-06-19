@@ -210,6 +210,25 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // Append custom invoice line items ("Additional charges") from the Costing
+    // → Client Quote editor (jobs.type_meta.invoice_extra_lines). Each posts
+    // under its chosen QB item by name (qb_item); the `type` field is OpsHub
+    // reporting only and doesn't touch QB. Because the push rebuilds items +
+    // extras every time, a re-push/resync can't drop a line that was added in
+    // OpsHub — which is the whole point of moving these out of hand-edits in QB.
+    const extraLines = Array.isArray((job.type_meta as any)?.invoice_extra_lines)
+      ? (job.type_meta as any).invoice_extra_lines : [];
+    for (const xl of extraLines) {
+      const amount = Number(xl?.amount) || 0;
+      if (amount === 0) continue;
+      const description = String(xl?.description || "").trim() || "Additional charge";
+      // Legacy Phase-1 rows carry no qb_item — default to "Service Fee" so the
+      // line still posts under a real QB item, not createInvoice's "1" fallback.
+      const itemName = String(xl?.qb_item || "").trim() || "Service Fee";
+      // Discounts are negative-amount lines (qty 1), passed through as-is.
+      lineItems.push({ description, qty: 1, unitPrice: amount, itemName });
+    }
+
     if (lineItems.length === 0) {
       return NextResponse.json({ error: "No items with quantities" }, { status: 400 });
     }

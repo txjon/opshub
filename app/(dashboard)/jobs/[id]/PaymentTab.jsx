@@ -76,7 +76,13 @@ function PaymentTabQB({ job, items = [], contacts, payments, onReload, onRecalcP
   // there's no QB invoice on our side to compare against, and "click to
   // update" would create a DUPLICATE in QB.
   const variancePushedAt = job.type_meta?.qb_variance_pushed_at || null;
-  const currentSubtotal = (job.costing_summary?.grossRev || 0);
+  // Extra invoice lines are pushed to QB too (qb/invoice route), so the
+  // staleness comparison must add them to the product-only grossRev —
+  // otherwise any invoice with additional charges would read as permanently
+  // "stale" against the QB total that already includes them.
+  const extrasSubtotal = (Array.isArray(job?.type_meta?.invoice_extra_lines) ? job.type_meta.invoice_extra_lines : [])
+    .reduce((a, l) => a + (Number(l?.amount) || 0), 0);
+  const currentSubtotal = (job.costing_summary?.grossRev || 0) + extrasSubtotal;
   const qbSubtotal = (job.type_meta?.qb_total_with_tax || 0) - (job.type_meta?.qb_tax_amount || 0);
   const qbInvoiceId = job.type_meta?.qb_invoice_id;
   const isManualInvoice = !!qbInvoiceNumber && !qbInvoiceId;
@@ -89,7 +95,7 @@ function PaymentTabQB({ job, items = [], contacts, payments, onReload, onRecalcP
   // above the table and to override individual row pills so a "paid"
   // row doesn't visually contradict a "Partial Paid" project.
   const aggInvoiceTotal = Number(job?.type_meta?.qb_total_with_tax)
-    || Number(job?.costing_summary?.grossRev)
+    || (Number(job?.costing_summary?.grossRev || 0) + extrasSubtotal)
     || 0;
   const aggPaidSum = (payments || [])
     .filter(p => p.status === "paid" || p.status === "partial")
