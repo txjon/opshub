@@ -115,6 +115,20 @@ export function calcCostProduct(p,margin,inclShip,inclCC,allProds=[]){
 const fmtD=(n)=>"$"+Number(n||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
 const fmtP=(n)=>((Number(n||0)*100).toFixed(1)+"%");
 
+// Split the Additional charges into HPD revenue vs $0-margin passthrough.
+// feeRevenue = fee/charge/discount (discount is a negative amount, nets down);
+// passthruTotal = passthru, which is EXCLUDED from revenue + margin (collected
+// and paid straight back out). Persisted to costing_summary so the reporting
+// helper (lib/revenue) keeps collab-deal margins honest.
+const computeExtraSummary=(lines)=>{
+  let feeRevenue=0,passthruTotal=0;
+  for(const l of (lines||[])){
+    const amt=Number(l?.amount)||0;
+    if(l?.type==="passthru") passthruTotal+=amt; else feeRevenue+=amt;
+  }
+  return {feeRevenue:Math.round(feeRevenue*100)/100,passthruTotal:Math.round(passthruTotal*100)/100};
+};
+
 
 // --- COSTING COMPONENTS ---
 const EMPTY_COST_PRODUCT=()=>({id:Date.now()+Math.random(),name:"",style:"",color:"",sizes:[],qtys:{},blankCosts:{},totalQty:0,unitPrice:0,sellOverride:null,isFleece:false,printVendor:"",printCount:4,printLocations:{},tagPrint:false,tagRepeat:false,tagShared:false,tagShareGroup:"",tagPrintPrinter:"",specialtyQtys:{},finishingQtys:{},customCosts:[],finishingType:"",finishingPrinter:"",finishingCostOverride:0,specialties:[],setupFees:{printer:"",screens:0,tagSizes:0,seps:0,inkChanges:0,manualCost:0}});
@@ -2122,11 +2136,16 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
         const cleaned = invoiceExtraLines
           .filter(l => (l.description || "").trim() !== "" || (Number(l.amount) || 0) !== 0)
           .map(l => ({ id: l.id, description: (l.description || "").trim(), amount: Number(l.amount) || 0, qb_item: l.qb_item || "", type: l.type || "fee" }));
-        const { data: fresh } = await supabase.from("jobs").select("type_meta").eq("id", project.id).single();
+        const { data: fresh } = await supabase.from("jobs").select("type_meta, costing_summary").eq("id", project.id).single();
         const tm = { ...(fresh?.type_meta || {}), invoice_extra_lines: cleaned };
-        await supabase.from("jobs").update({ type_meta: tm }).eq("id", project.id);
+        // Keep the reporting split in sync when only the extra lines change.
+        // Merge into the existing costing_summary so product fields (grossRev,
+        // totalCost, margin, …) written by the costing save are preserved.
+        const { feeRevenue, passthruTotal } = computeExtraSummary(cleaned);
+        const cs = { ...(fresh?.costing_summary || {}), feeRevenue, passthruTotal };
+        await supabase.from("jobs").update({ type_meta: tm, costing_summary: cs }).eq("id", project.id);
         setSavedExtraLines(JSON.parse(JSON.stringify(invoiceExtraLines)));
-        if (onUpdateProject) onUpdateProject({ type_meta: tm });
+        if (onUpdateProject) onUpdateProject({ type_meta: tm, costing_summary: cs });
       } catch (e) { console.error("Failed to save invoice extra lines", e); }
     }, 800);
     return () => clearTimeout(t);
@@ -2162,11 +2181,16 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
         const totalQty = results.reduce((a,r) => a + r.qty, 0);
         const margin = grossRev > 0 ? netProfit / grossRev * 100 : 0;
         const avgPerUnit = totalQty > 0 ? grossRev / totalQty : 0;
+        // Additional-charges split. grossRev stays product-only (margin math
+        // unpolluted); feeRevenue/passthruTotal ride alongside so the reporting
+        // helper can add fee revenue and exclude passthru.
+        const { feeRevenue, passthruTotal } = computeExtraSummary(invoiceExtraLines);
+        const costingSummary = { grossRev, totalCost, netProfit, margin, avgPerUnit, totalQty, feeRevenue, passthruTotal };
         await supabase.from("jobs").update({
           costing_data: { costProds, costMargin, inclShip, inclCC, orderInfo },
-          costing_summary: { grossRev, totalCost, netProfit, margin, avgPerUnit, totalQty }
+          costing_summary: costingSummary
         }).eq("id", project.id);
-        if (onSaved) onSaved({ costing_data: { costProds, costMargin, inclShip, inclCC, orderInfo }, costing_summary: { grossRev, totalCost, netProfit, margin, avgPerUnit, totalQty } });
+        if (onSaved) onSaved({ costing_data: { costProds, costMargin, inclShip, inclCC, orderInfo }, costing_summary: costingSummary });
         // Write refined blank costs + decorator assignments back to items
         // Use the already-calculated results array (same data, no second calcCostProduct call)
         for (let cpIdx = 0; cpIdx < costProds.length; cpIdx++) {
