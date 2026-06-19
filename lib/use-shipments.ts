@@ -86,8 +86,8 @@ const NON_TRACKING_TOKENS = new Set([
   "local", "pickup", "local pickup", "hand delivery", "handdelivery", "delivered",
 ]);
 
-function isRealTracking(trk: string | null): boolean {
-  return !!trk && !NON_TRACKING_TOKENS.has(trk.toLowerCase());
+export function isRealTracking(trk: string | null | undefined): boolean {
+  return !!trk && !NON_TRACKING_TOKENS.has(trk.trim().toLowerCase());
 }
 
 function groupKeyFor(item: WarehouseItem): string {
