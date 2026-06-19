@@ -115,6 +115,20 @@ export function calcCostProduct(p,margin,inclShip,inclCC,allProds=[]){
 const fmtD=(n)=>"$"+Number(n||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
 const fmtP=(n)=>((Number(n||0)*100).toFixed(1)+"%");
 
+// Split the Additional charges into HPD revenue vs $0-margin passthrough.
+// feeRevenue = fee/charge/discount (discount is a negative amount, nets down);
+// passthruTotal = passthru, which is EXCLUDED from revenue + margin (collected
+// and paid straight back out). Persisted to costing_summary so the reporting
+// helper (lib/revenue) keeps collab-deal margins honest.
+const computeExtraSummary=(lines)=>{
+  let feeRevenue=0,passthruTotal=0;
+  for(const l of (lines||[])){
+    const amt=Number(l?.amount)||0;
+    if(l?.type==="passthru") passthruTotal+=amt; else feeRevenue+=amt;
+  }
+  return {feeRevenue:Math.round(feeRevenue*100)/100,passthruTotal:Math.round(passthruTotal*100)/100};
+};
+
 
 // --- COSTING COMPONENTS ---
 const EMPTY_COST_PRODUCT=()=>({id:Date.now()+Math.random(),name:"",style:"",color:"",sizes:[],qtys:{},blankCosts:{},totalQty:0,unitPrice:0,sellOverride:null,isFleece:false,printVendor:"",printCount:4,printLocations:{},tagPrint:false,tagRepeat:false,tagShared:false,tagShareGroup:"",tagPrintPrinter:"",specialtyQtys:{},finishingQtys:{},customCosts:[],finishingType:"",finishingPrinter:"",finishingCostOverride:0,specialties:[],setupFees:{printer:"",screens:0,tagSizes:0,seps:0,inkChanges:0,manualCost:0}});
@@ -242,7 +256,7 @@ function AddDecoratorModal({ open, onClose, onSaved }) {
   );
 }
 
-const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,setCostProds,costMargin,setCostMargin,inclShip,setInclShip,inclCC,setInclCC,orderInfo,setOrderInfo,decoratorRecords=[],onRefreshDecorators,costingDirty,onSave,saveStatus,initialTab,hideSubTabs,selectedItemId,onSelectItem,onUpdateProject,onPullFromPsds,pullingPsds,pullResult,hideToolbar=false,openRfqRef})=>{
+const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,setCostProds,costMargin,setCostMargin,inclShip,setInclShip,inclCC,setInclCC,orderInfo,setOrderInfo,invoiceExtraLines=[],setInvoiceExtraLines,decoratorRecords=[],onRefreshDecorators,costingDirty,onSave,saveStatus,initialTab,hideSubTabs,selectedItemId,onSelectItem,onUpdateProject,onPullFromPsds,pullingPsds,pullResult,hideToolbar=false,openRfqRef})=>{
   const branding=useClientBranding();
   const isMobile=useIsMobile();
   // Effective lock = manual "Lock In Pricing" OR archived phase.
@@ -453,6 +467,25 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
   }, [costProds?.length]);
 
   // Note: buyItems sync is handled by CostingTabWrapper (updates both costProds + savedCostProds)
+
+  // QB Product/Service catalog for the Additional charges editor's per-line
+  // dropdown (server-cached; one fetch on mount). Empty if QB isn't connected.
+  const [qbItems, setQbItems] = useState([]);
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/qb/items");
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) setQbItems(Array.isArray(data.items) ? data.items : []);
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, []);
+  const updateExtraLine = (id, patch) => setInvoiceExtraLines && setInvoiceExtraLines(ls => ls.map(l => l.id === id ? { ...l, ...patch } : l));
+  const addExtraLine = () => setInvoiceExtraLines && setInvoiceExtraLines(ls => [...ls, { id: `xl_${Date.now()}_${Math.round(Math.random() * 1e6)}`, description: "", amount: "", qb_item: "", type: "fee" }]);
+  const removeExtraLine = (id) => setInvoiceExtraLines && setInvoiceExtraLines(ls => ls.filter(l => l.id !== id));
 
   const rawResults=costProds.map(p=>calcCostProduct(p,costMargin,inclShip,inclCC,costProds)).filter(Boolean);
   // Round sellPerUnit to cent (same as what gets saved to items.sell_per_unit) so display matches PDFs
@@ -1326,6 +1359,49 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                 Send Quote →
               </button>
             </div>
+            {/* Additional charges — custom invoice line items (fees,
+                passthrough, freight, discounts). Auto-saved to
+                type_meta.invoice_extra_lines; flows to the QB invoice push
+                and the invoice/quote PDFs. grossRev stays product-only —
+                the all-in total below is display only. */}
+            {(() => {
+              const extrasTotal = (invoiceExtraLines || []).reduce((a, l) => a + (Number(l.amount) || 0), 0);
+              const TYPE_OPTS = ["fee", "passthru", "charge", "discount"];
+              return (
+                <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "14px 16px", marginBottom: 14 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, fontFamily: font, textTransform: "uppercase", letterSpacing: "0.08em" }}>Additional charges</div>
+                    <button onClick={addExtraLine}
+                      style={{ background: "transparent", border: `1px solid ${T.border}`, color: T.text, fontSize: 11, fontWeight: 700, padding: "4px 10px", borderRadius: 6, cursor: "pointer", fontFamily: font }}>+ Add line</button>
+                  </div>
+                  {(invoiceExtraLines || []).length === 0 && (
+                    <div style={{ fontSize: 12, color: T.faint, fontFamily: font, padding: "2px 0 4px" }}>No extra charges. Add fees, passthrough, freight, or a discount.</div>
+                  )}
+                  {(invoiceExtraLines || []).map((l) => (
+                    <div key={l.id} style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 120px 1fr 130px 28px", gap: 8, alignItems: "end", marginBottom: 8 }}>
+                      <CInput label="Description" value={l.description} onChange={v => updateExtraLine(l.id, { description: v })} placeholder="e.g. Rush fee" />
+                      <CInput label="Amount" type="number" prefix="$" value={l.amount} onChange={v => updateExtraLine(l.id, { amount: v })} placeholder="0.00" />
+                      <CInput label="QB item" value={l.qb_item} onChange={v => updateExtraLine(l.id, { qb_item: v })} options={qbItems.map(it => it.name)} />
+                      <CInput label="Type" value={l.type} onChange={v => updateExtraLine(l.id, { type: v })} options={TYPE_OPTS} />
+                      <button onClick={() => removeExtraLine(l.id)} title="Remove line"
+                        style={{ background: "transparent", border: "none", color: T.faint, fontSize: 18, cursor: "pointer", height: 36, lineHeight: 1 }}>×</button>
+                    </div>
+                  ))}
+                  {(invoiceExtraLines || []).length > 0 && (
+                    <div style={{ borderTop: `1px solid ${T.border}`, marginTop: 6, paddingTop: 10 }}>
+                      {[["Products", quoteTotal, false], ["Additional charges", extrasTotal, false], ["All-in total", quoteTotal + extrasTotal, true]].map(([lab, val, bold]) => (
+                        <div key={lab} style={{ display: "flex", justifyContent: "space-between", fontSize: bold ? 13 : 12, fontWeight: bold ? 700 : 400, color: bold ? T.text : T.muted, fontFamily: font, padding: "3px 0" }}>
+                          <span>{lab}</span><span style={{ fontFamily: mono }}>{fmtD(val)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {qbItems.length === 0 && (invoiceExtraLines || []).length > 0 && (
+                    <div style={{ fontSize: 10, color: T.faint, marginTop: 8 }}>QB item list unavailable — connect QuickBooks or set the item on the invoice before pushing.</div>
+                  )}
+                </div>
+              );
+            })()}
             {showSendEmail && (
               <div style={{position:"fixed",inset:0,background:"#fff",zIndex:100,display:"flex",flexDirection:"column",fontFamily:font}}>
                 {/* Header — title left, close right, matches ProofModal */}
@@ -1768,6 +1844,24 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
     vendorId: "",
     productionNotes: "", finishingNotes: "",
   });
+  // ── Custom invoice line items (Phase 2 editor) ──
+  // Held in jobs.type_meta.invoice_extra_lines. Saved independently of the
+  // costing run (own debounce + a fresh read-modify-write merge) so it never
+  // clobbers sibling type_meta keys (qb_invoice_number, etc.) and stays out of
+  // the heavy costing save. amount is kept as a string for smooth typing and
+  // coerced to a number on persist; legacy Phase-1 rows ({description, amount})
+  // are normalized up to the full shape on load.
+  const normExtraLine = (l) => ({
+    id: l?.id || `xl_${Date.now()}_${Math.round(Math.random() * 1e6)}`,
+    description: String(l?.description || ""),
+    amount: l?.amount != null && l?.amount !== "" ? String(l.amount) : "",
+    qb_item: String(l?.qb_item || ""),
+    type: ["fee", "passthru", "charge", "discount"].includes(l?.type) ? l.type : "fee",
+  });
+  const initExtraLines = (Array.isArray(project?.type_meta?.invoice_extra_lines) ? project.type_meta.invoice_extra_lines : []).map(normExtraLine);
+  const [invoiceExtraLines, setInvoiceExtraLines] = useState(initExtraLines);
+  const [savedExtraLines, setSavedExtraLines] = useState(initExtraLines);
+
   const [saveStatus, setSaveStatus] = useState("saved");
   const onSaveRef = React.useRef(null);
   const costingDirty = JSON.stringify(costProds) !== JSON.stringify(savedCostProds) ||
@@ -2029,6 +2123,34 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
     return () => clearTimeout(t);
   }, [costProds, costMargin, inclShip, inclCC, orderInfo]);
 
+  // Persist custom invoice line items independently. Fresh read-modify-write
+  // of type_meta so concurrent writers (invoice-number route, QB sync) aren't
+  // clobbered. Empty rows (no description AND zero amount) are dropped on save.
+  const extraLinesDirty = JSON.stringify(invoiceExtraLines) !== JSON.stringify(savedExtraLines);
+  useEffect(() => {
+    if (!extraLinesDirty || isArchivedJob || !project?.id) return;
+    const t = setTimeout(async () => {
+      try {
+        const { createClient } = await import("@/lib/supabase/client");
+        const supabase = createClient();
+        const cleaned = invoiceExtraLines
+          .filter(l => (l.description || "").trim() !== "" || (Number(l.amount) || 0) !== 0)
+          .map(l => ({ id: l.id, description: (l.description || "").trim(), amount: Number(l.amount) || 0, qb_item: l.qb_item || "", type: l.type || "fee" }));
+        const { data: fresh } = await supabase.from("jobs").select("type_meta, costing_summary").eq("id", project.id).single();
+        const tm = { ...(fresh?.type_meta || {}), invoice_extra_lines: cleaned };
+        // Keep the reporting split in sync when only the extra lines change.
+        // Merge into the existing costing_summary so product fields (grossRev,
+        // totalCost, margin, …) written by the costing save are preserved.
+        const { feeRevenue, passthruTotal } = computeExtraSummary(cleaned);
+        const cs = { ...(fresh?.costing_summary || {}), feeRevenue, passthruTotal };
+        await supabase.from("jobs").update({ type_meta: tm, costing_summary: cs }).eq("id", project.id);
+        setSavedExtraLines(JSON.parse(JSON.stringify(invoiceExtraLines)));
+        if (onUpdateProject) onUpdateProject({ type_meta: tm, costing_summary: cs });
+      } catch (e) { console.error("Failed to save invoice extra lines", e); }
+    }, 800);
+    return () => clearTimeout(t);
+  }, [invoiceExtraLines]);
+
   // Register save with parent for tab-switch saves
   useEffect(() => {
     if (typeof onRegisterSave === "function") {
@@ -2059,11 +2181,16 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
         const totalQty = results.reduce((a,r) => a + r.qty, 0);
         const margin = grossRev > 0 ? netProfit / grossRev * 100 : 0;
         const avgPerUnit = totalQty > 0 ? grossRev / totalQty : 0;
+        // Additional-charges split. grossRev stays product-only (margin math
+        // unpolluted); feeRevenue/passthruTotal ride alongside so the reporting
+        // helper can add fee revenue and exclude passthru.
+        const { feeRevenue, passthruTotal } = computeExtraSummary(invoiceExtraLines);
+        const costingSummary = { grossRev, totalCost, netProfit, margin, avgPerUnit, totalQty, feeRevenue, passthruTotal };
         await supabase.from("jobs").update({
           costing_data: { costProds, costMargin, inclShip, inclCC, orderInfo },
-          costing_summary: { grossRev, totalCost, netProfit, margin, avgPerUnit, totalQty }
+          costing_summary: costingSummary
         }).eq("id", project.id);
-        if (onSaved) onSaved({ costing_data: { costProds, costMargin, inclShip, inclCC, orderInfo }, costing_summary: { grossRev, totalCost, netProfit, margin, avgPerUnit, totalQty } });
+        if (onSaved) onSaved({ costing_data: { costProds, costMargin, inclShip, inclCC, orderInfo }, costing_summary: costingSummary });
         // Write refined blank costs + decorator assignments back to items
         // Use the already-calculated results array (same data, no second calcCostProduct call)
         for (let cpIdx = 0; cpIdx < costProds.length; cpIdx++) {
@@ -2156,6 +2283,7 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
       inclShip={inclShip} setInclShip={setInclShip}
       inclCC={inclCC} setInclCC={setInclCC}
       orderInfo={orderInfo} setOrderInfo={setOrderInfo}
+      invoiceExtraLines={invoiceExtraLines} setInvoiceExtraLines={setInvoiceExtraLines}
       decoratorRecords={decoratorRecords}
       onRefreshDecorators={refreshDecorators}
       costingDirty={costingDirty} onSave={onSave} saveStatus={saveStatus} initialTab={initialTab} hideSubTabs={hideSubTabs} selectedItemId={selectedItemId} onSelectItem={onSelectItem} onUpdateProject={onUpdateProject}

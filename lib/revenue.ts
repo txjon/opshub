@@ -33,12 +33,24 @@ export function effectiveRevenue(job: JobForRevenue | null | undefined): number 
   if (!job) return 0;
   const cs = job.costing_summary;
   const csGross = Number(cs?.grossRev) || 0;
-  if (csGross > 0) return csGross;
+  // HPD-side additional charges (fee/charge/discount) count as revenue.
+  // Passthrough is deliberately NOT added here — it's collected and paid
+  // straight back out, so it's $0-margin and must stay out of revenue (and
+  // therefore out of profit + margin). costing_summary.grossRev itself stays
+  // product-only; we add the fee revenue on top.
+  const feeRevenue = Number(cs?.feeRevenue) || 0;
+  if (csGross > 0) return csGross + feeRevenue;
 
   const meta = job.type_meta || {};
   const qbTotal = Number(meta.qb_total_with_tax) || 0;
   const qbTax = Number(meta.qb_tax_amount) || 0;
-  if (qbTotal > 0) return Math.max(0, qbTotal - qbTax);
+  // QB total includes passthrough (the client is billed for it), so net it
+  // back out to keep the revenue figure passthru-free on the QB fallback path.
+  const passthruTotal = Number(cs?.passthruTotal) || 0;
+  if (qbTotal > 0) return Math.max(0, qbTotal - qbTax - passthruTotal);
+
+  // No costing run and no QB push yet, but standalone fee lines may exist.
+  if (feeRevenue !== 0) return Math.max(0, feeRevenue);
 
   return 0;
 }

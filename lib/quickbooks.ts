@@ -664,6 +664,50 @@ export async function updateInvoice(
   };
 }
 
+// ── Item (Product/Service) catalog ──
+// Backs the custom-invoice-line-item editor: each extra line picks which QB
+// Product/Service it posts under (the `qb_item` field). Reading the live
+// catalog keeps that dropdown from drifting as items are added or renamed in
+// QB — the same names this returns are what createInvoice/updateInvoice look
+// up by Name when building line items.
+export type QBItem = {
+  id: string;
+  name: string;
+  fullyQualifiedName: string;
+  type: string; // Service | NonInventory | Inventory | ...
+};
+
+// Curated allowlist of QB items that are valid "Additional charges" targets.
+// QB's Type field can't express this cleanly — "Tote" is Service-typed but is
+// a product, while "Postage" is a fee but isn't Service-typed — so we scope by
+// name instead. Still reads the live catalog (reflects active/renamed items);
+// add a new fee item here when one is created in QB.
+const ADDITIONAL_CHARGE_ITEMS = new Set([
+  "art services",
+  "fulfillment",
+  "inventory warehousing",
+  "postage",
+  "service fee",
+]);
+
+export async function listItems(): Promise<QBItem[]> {
+  // QB caps query results at 1000 rows; the HPD catalog is well under that.
+  // Active = true drops archived items; the allowlist then narrows to the
+  // fee/passthrough items an Additional charges line can map to.
+  const query = encodeURIComponent("SELECT * FROM Item WHERE Active = true MAXRESULTS 1000");
+  const data = await qbFetch(`/query?query=${query}`);
+  const items = data?.QueryResponse?.Item || [];
+  return items
+    .filter((it: any) => ADDITIONAL_CHARGE_ITEMS.has(String(it?.Name || "").trim().toLowerCase()))
+    .map((it: any) => ({
+      id: String(it.Id),
+      name: it.Name || "",
+      fullyQualifiedName: it.FullyQualifiedName || it.Name || "",
+      type: it.Type || "",
+    }))
+    .sort((a: QBItem, b: QBItem) => a.name.localeCompare(b.name));
+}
+
 // ── Check connection status ──
 export async function isConnected(): Promise<boolean> {
   try {

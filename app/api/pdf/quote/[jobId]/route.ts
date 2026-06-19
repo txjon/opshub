@@ -18,6 +18,7 @@ function renderQuoteHTML(data: {
   invoiceNum: string; today: string; validUntil: string; shipDate: string;
   clientName: string; notes: string;
   prods: { name: string; style: string; color: string; sizes: string[]; qtys: Record<string,number>; totalQty: number; sellPerUnit: number; grossRev: number; thumbnail?: string; }[];
+  extraLines: { description: string; amount: number }[];
   quoteTotal: number;
   branding: PdfBranding;
 }): string {
@@ -68,6 +69,17 @@ function renderQuoteHTML(data: {
       ${qtyCell}${unitCell}${subCell}
     </tr>`;
   }).join("");
+
+  // Non-item lines (service fees, passthru charges, discounts) from
+  // jobs.type_meta.invoice_extra_lines — same rows the invoice PDF renders, so
+  // the quote the client approves matches the invoice they're billed. Span the
+  // Item → Unit columns; amount sits in the Subtotal column.
+  const extraRows = (data.extraLines || []).map(l => `<tr style="border-bottom:0.5px solid #eeeeee">
+      <td colspan="4" style="padding:12px 12px 12px 0;vertical-align:top">
+        <div style="font-size:13px;font-weight:700;color:#1a1a1a">${l.description || "Additional charge"}</div>
+      </td>
+      <td style="padding:12px 0 12px 8px;text-align:right;font-family:monospace;font-size:12px;vertical-align:top;font-weight:700;color:#1a1a1a">${fmtD(l.amount)}</td>
+    </tr>`).join("");
 
   return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/>
 <style>
@@ -126,7 +138,7 @@ function renderQuoteHTML(data: {
           <th style="font-size:9px;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:0.1em;text-align:right;padding:6px 0 10px;width:90px">Subtotal</th>
         </tr>
       </thead>
-      <tbody>${itemRows}</tbody>
+      <tbody>${itemRows}${extraRows}</tbody>
     </table>
 
     <!-- Total -->
@@ -303,8 +315,14 @@ export async function GET(_req: NextRequest, { params }: { params: { jobId: stri
       }).filter((p: any) => p.totalQty > 0);
     }
 
+    // Custom invoice lines (Additional charges) — same source as the invoice
+    // PDF (jobs.type_meta.invoice_extra_lines), folded into the quote total so
+    // the quote the client approves matches the invoice they're billed.
+    const extraLines = (Array.isArray(job.type_meta?.invoice_extra_lines) ? job.type_meta.invoice_extra_lines : [])
+      .map((l: any) => ({ description: String(l?.description || "Additional charge"), amount: Number(l?.amount) || 0 }));
+    const extraTotal = extraLines.reduce((a: number, l: any) => a + l.amount, 0);
     // Round each line item's grossRev to 2 decimals before summing — total matches what client sees
-    const quoteTotal = prods.reduce((a, p) => a + p.grossRev, 0);
+    const quoteTotal = prods.reduce((a, p) => a + p.grossRev, 0) + extraTotal;
 
     // Est ship date = latest per-item client_eta (same rule as the
     // invoice PDF). jobs.target_ship_date is now Drake's internal
@@ -328,6 +346,7 @@ export async function GET(_req: NextRequest, { params }: { params: { jobId: stri
       clientName,
       notes: orderInfo.notes || job.notes || "",
       prods,
+      extraLines,
       quoteTotal,
       branding,
     });

@@ -76,7 +76,13 @@ function PaymentTabQB({ job, items = [], contacts, payments, onReload, onRecalcP
   // there's no QB invoice on our side to compare against, and "click to
   // update" would create a DUPLICATE in QB.
   const variancePushedAt = job.type_meta?.qb_variance_pushed_at || null;
-  const currentSubtotal = (job.costing_summary?.grossRev || 0);
+  // Extra invoice lines are pushed to QB too (qb/invoice route), so the
+  // staleness comparison must add them to the product-only grossRev —
+  // otherwise any invoice with additional charges would read as permanently
+  // "stale" against the QB total that already includes them.
+  const extrasSubtotal = (Array.isArray(job?.type_meta?.invoice_extra_lines) ? job.type_meta.invoice_extra_lines : [])
+    .reduce((a, l) => a + (Number(l?.amount) || 0), 0);
+  const currentSubtotal = (job.costing_summary?.grossRev || 0) + extrasSubtotal;
   const qbSubtotal = (job.type_meta?.qb_total_with_tax || 0) - (job.type_meta?.qb_tax_amount || 0);
   const qbInvoiceId = job.type_meta?.qb_invoice_id;
   const isManualInvoice = !!qbInvoiceNumber && !qbInvoiceId;
@@ -89,7 +95,7 @@ function PaymentTabQB({ job, items = [], contacts, payments, onReload, onRecalcP
   // above the table and to override individual row pills so a "paid"
   // row doesn't visually contradict a "Partial Paid" project.
   const aggInvoiceTotal = Number(job?.type_meta?.qb_total_with_tax)
-    || Number(job?.costing_summary?.grossRev)
+    || (Number(job?.costing_summary?.grossRev || 0) + extrasSubtotal)
     || 0;
   const aggPaidSum = (payments || [])
     .filter(p => p.status === "paid" || p.status === "partial")
@@ -259,6 +265,27 @@ function PaymentTabQB({ job, items = [], contacts, payments, onReload, onRecalcP
             {qbInvoiceNumber && <div style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>QB #{qbInvoiceNumber}</div>}
           </div>
         </div>
+
+        {/* Read-only echo of custom invoice line items so the full invoice
+            composition is visible right at push time. Edited on the
+            Costing → Client Quote tab; pushed to QB by the invoice route. */}
+        {(() => {
+          const extras = Array.isArray(job?.type_meta?.invoice_extra_lines) ? job.type_meta.invoice_extra_lines : [];
+          if (!extras.length) return null;
+          const fmtMoney = (n) => "$" + Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          return (
+            <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}` }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, fontFamily: font, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Additional charges</div>
+              {extras.map((l, i) => (
+                <div key={l.id || i} style={{ display: "flex", justifyContent: "space-between", gap: 12, fontSize: 12, color: T.text, padding: "3px 0" }}>
+                  <span>{l.description || "Additional charge"}{l.qb_item ? <span style={{ color: T.faint, marginLeft: 6 }}>· {l.qb_item}</span> : null}</span>
+                  <span style={{ fontFamily: mono }}>{fmtMoney(l.amount)}</span>
+                </div>
+              ))}
+              <div style={{ fontSize: 10, color: T.faint, marginTop: 6 }}>Edit on Costing → Client Quote.</div>
+            </div>
+          );
+        })()}
 
         {/* Action buttons — slimmer 3-step row, no big arrow icons */}
         <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 6 }}>
