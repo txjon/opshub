@@ -72,10 +72,28 @@ function normalizeTracking(raw: string | null | undefined): string | null {
   return trimmed.toUpperCase();
 }
 
+// Words vendors type into the tracking field when there's no real tracking
+// number — freight/LTL (carried under a BOL, not a parcel tracking ID), local
+// pickup, hand-delivered. These are shipping *methods*, not tracking IDs. If we
+// treat them as tracking, every "<same decorator> + <same word>" item across
+// ALL jobs collapses into one shipment — so receiving one job's freight box
+// drags in other jobs' items, including already-received ones. Route these to
+// the job-scoped no-tracking fallback instead (keeps jobs separate; still
+// groups one job's freight items into a single box).
+const NON_TRACKING_TOKENS = new Set([
+  "freight", "ltl", "pallet", "truck", "truck freight",
+  "n/a", "na", "none", "tbd", "no tracking", "notracking",
+  "local", "pickup", "local pickup", "hand delivery", "handdelivery", "delivered",
+]);
+
+function isRealTracking(trk: string | null): boolean {
+  return !!trk && !NON_TRACKING_TOKENS.has(trk.toLowerCase());
+}
+
 function groupKeyFor(item: WarehouseItem): string {
   const decKey = item.decorator_id || item.decorator_name || "unassigned";
   const trk = normalizeTracking(item.ship_tracking);
-  if (trk) return `${decKey}::${trk}`;
+  if (isRealTracking(trk)) return `${decKey}::${trk}`;
   // Fallback: bucket by (decorator, ship_date_day, job_id). Including
   // job_id here means a vendor that ships items for two different jobs
   // on the same day with no tracking gets two separate rows — which
