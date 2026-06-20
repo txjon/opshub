@@ -221,8 +221,9 @@ export default function ReceivingPage() {
 
   // Outside
   const [outsideShipments, setOutsideShipments] = useState<OutsideShipment[]>([]);
+  const [outsideReceived, setOutsideReceived] = useState<OutsideShipment[]>([]);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ carrier: "", tracking: "", sender: "", description: "", condition: "good", notes: "" });
+  const [form, setForm] = useState({ carrier: "", tracking: "", sender: "", description: "", condition: "", notes: "", destination: "receiving", jobId: "" });
   const [saving, setSaving] = useState(false);
   const [uploadStatus, setUploadStatus] = useState("");
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
@@ -303,10 +304,19 @@ export default function ReceivingPage() {
   // setState chains.
 
   async function loadOutside() {
-    const { data } = await supabase
+    // Pending = logged but not yet received (receiving-destination / legacy
+    // un-routed). Routed-out ones (shipping/fulfillment) are resolved=true with
+    // a route set and live on those pages — they don't come back here.
+    const { data: pending } = await supabase
       .from("outside_shipments").select("*").eq("resolved", false)
       .order("received_at", { ascending: false });
-    setOutsideShipments(data || []);
+    setOutsideShipments(pending || []);
+    // Received receiving-destination packages (resolved, no ship/stage route).
+    const { data: received } = await supabase
+      .from("outside_shipments").select("*").eq("resolved", true)
+      .or("route.is.null,route.eq.receiving")
+      .order("received_at", { ascending: false }).limit(100);
+    setOutsideReceived(received || []);
   }
 
   async function loadLinkableJobs() {
@@ -342,14 +352,23 @@ export default function ReceivingPage() {
       }
       setUploadStatus("");
     }
+    // Destination decides where it flows: receiving = lands in the Pending
+    // receiving queue (route "receiving", unresolved); shipping/fulfillment =
+    // routed straight out and marked resolved so the shipping/fulfillment
+    // surfaces pick it up.
+    const route = form.destination === "shipping" ? "ship_through"
+      : form.destination === "fulfillment" ? "stage"
+      : "receiving";
+    const resolved = form.destination !== "receiving";
     await supabase.from("outside_shipments").insert({
       carrier: form.carrier || null, tracking: form.tracking || null,
       sender: form.sender || null, description: form.description,
-      condition: form.condition, notes: form.notes || null,
+      condition: form.condition || null, notes: form.notes || null,
       files: uploadedFiles.length > 0 ? uploadedFiles : [],
       drive_folder_link: driveFolderLink,
+      route, resolved, job_id: form.jobId || null,
     });
-    setForm({ carrier: "", tracking: "", sender: "", description: "", condition: "good", notes: "" });
+    setForm({ carrier: "", tracking: "", sender: "", description: "", condition: "", notes: "", destination: "receiving", jobId: "" });
     setPendingFiles([]); setShowForm(false); setSaving(false);
     loadOutside();
   }
@@ -362,6 +381,14 @@ export default function ReceivingPage() {
   async function routeShipment(id: string, route: "ship_through" | "stage") {
     await supabase.from("outside_shipments").update({ route, resolved: true }).eq("id", id);
     setOutsideShipments(prev => prev.filter(s => s.id !== id));
+  }
+
+  // Receive an outside package at HPD. received_at is set to the actual receive
+  // time so the Received list shows when it landed; resolved flips it out of the
+  // pending queue and into the received list.
+  async function receiveOutside(id: string) {
+    await supabase.from("outside_shipments").update({ resolved: true, received_at: new Date().toISOString() }).eq("id", id);
+    loadOutside();
   }
 
   async function handlePhotoUpload(file: File, jobMeta: { client_name: string; title: string }, item: WarehouseItem) {
@@ -583,6 +610,10 @@ export default function ReceivingPage() {
       : 0;
     const isStale = shipment.pending_count > 0 && ageDays >= 5;
     const routeForBadge = primaryJob?.shipping_route || "ship_through";
+    const etas = shipment.items.map(it => it.client_eta).filter(Boolean).sort() as string[];
+    const eta = fmtEta(etas[0] || null);
+    const notes = Array.from(new Set(shipment.items.map(it => (it.ship_notes || "").trim()).filter(Boolean)));
+    const pullCount = shipment.items.reduce((n, it) => n + activePulls(it).length, 0);
     return (
       <div key={shipment.key}
         onClick={() => setModalShipmentKey(shipment.key)}
@@ -590,127 +621,174 @@ export default function ReceivingPage() {
           background: T.card,
           border: `1px solid ${opts?.liveInShopify ? T.green + "55" : opts?.actionReason ? T.amber + "55" : T.border}`,
           borderLeft: opts?.liveInShopify ? `3px solid ${T.green}` : opts?.actionReason ? `3px solid ${T.amber}` : `1px solid ${T.border}`,
-          borderRadius: 12,
-          padding: "14px 18px", display: "flex", gap: 16, alignItems: "flex-start", cursor: "pointer",
-          transition: "border-color 0.12s",
+          borderRadius: 10,
+          padding: "10px 14px", display: "flex", gap: 12, alignItems: "flex-start", cursor: "pointer",
+          transition: "background 0.12s", fontSize: 12,
         }}
-        onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; }}
-        onMouseLeave={e => { e.currentTarget.style.borderColor = opts?.liveInShopify ? T.green + "55" : opts?.actionReason ? T.amber + "55" : T.border; }}>
-        {/* Left: vendor + tracking + dates */}
-        <div style={{ width: 260, flexShrink: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 14, fontWeight: 800, color: T.text }}>
-              {shipment.short_code || shipment.decorator_name}
-            </span>
-            <span style={{ fontSize: 10, fontWeight: 700, color: routeForBadge === "stage" ? T.purple : T.accent, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-              → {routeForBadge === "stage" ? "Fulfillment" : "Shipping"}
-            </span>
+        onMouseEnter={e => { e.currentTarget.style.background = T.surface; }}
+        onMouseLeave={e => { e.currentTarget.style.background = T.card; }}>
+
+        {/* Vendor + route */}
+        <div style={{ width: 110, flexShrink: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: T.text, wordBreak: "break-word" }}>
+            {shipment.short_code || shipment.decorator_name}
           </div>
-          <div style={{ fontSize: 11, color: T.muted, marginTop: 4, fontFamily: mono, wordBreak: "break-all" }}>
-            {shipment.tracking || <span style={{ color: T.amber }}>no tracking</span>}
-          </div>
-          {shippedLabel && (
-            <div style={{ fontSize: 11, color: isStale ? T.amber : T.faint, marginTop: 2 }}>
-              shipped {shippedLabel}{ageDays >= 1 && ` · ${ageDays}d ago`}
-            </div>
-          )}
-          {receivedLabel && (
-            <div style={{ fontSize: 11, color: T.green, marginTop: 2, fontWeight: 600 }}>
-              received {receivedLabel}
-            </div>
-          )}
+          <span style={{
+            display: "inline-block", marginTop: 3, fontSize: 9, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase",
+            color: routeForBadge === "stage" ? T.purple : T.accent,
+            background: (routeForBadge === "stage" ? T.purple : T.accent) + "14",
+            padding: "1px 6px", borderRadius: 4,
+          }}>
+            {routeForBadge === "stage" ? "Fulfillment" : "Shipping"}
+          </span>
         </div>
 
-        {/* Middle: project chips */}
-        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 4 }}>
+        {/* Client / project + flags */}
+        <div style={{ flex: 1, minWidth: 0 }}>
           {shipment.jobs.map(j => (
-            <div key={j.id} style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
-              <Link href={`/jobs/${j.id}`} onClick={e => e.stopPropagation()}
-                style={{ fontSize: 14, fontWeight: 700, color: T.text, textDecoration: "none" }}>
-                {j.client_name || "No client"}
-              </Link>
-              <span style={{ fontSize: 11, color: T.faint, fontFamily: mono }}>
-                {j.display_number !== j.job_number ? j.display_number : j.job_number}
-              </span>
-              {j.title && (
-                <span style={{ fontSize: 11, color: T.faint, wordBreak: "break-word" }}>· {j.title}</span>
-              )}
+            <div key={j.id} style={{ marginBottom: 2 }}>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 6, flexWrap: "wrap" }}>
+                <Link href={`/jobs/${j.id}`} onClick={e => e.stopPropagation()}
+                  style={{ fontSize: 13, fontWeight: 700, color: T.text, textDecoration: "none" }}>
+                  {j.client_name || "No client"}
+                </Link>
+                <span style={{ fontSize: 11, color: T.faint, fontFamily: mono }}>
+                  {j.display_number !== j.job_number ? j.display_number : j.job_number}
+                </span>
+              </div>
+              {j.title && <div style={{ fontSize: 11, color: T.faint, wordBreak: "break-word" }}>{j.title}</div>}
             </div>
           ))}
-          {multiJob && (
-            <div style={{ fontSize: 10, color: T.amber, fontWeight: 600, marginTop: 2 }}>
-              Multi-project shipment ({shipment.jobs.length})
+          {multiJob && <div style={{ fontSize: 10, color: T.amber, fontWeight: 600 }}>Multi-project ({shipment.jobs.length})</div>}
+          {(pullCount > 0 || notes.length > 0) && (
+            <div style={{ marginTop: 2, display: "flex", flexDirection: "column", gap: 2 }}>
+              {pullCount > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: T.amber }}>⚑ {pullCount} sample pull{pullCount === 1 ? "" : "s"}</span>}
+              {notes.map((n, i) => (
+                <div key={i} style={{ fontSize: 11, color: T.amber, display: "flex", gap: 5 }}>
+                  <span style={{ flexShrink: 0 }}>✎</span>
+                  <span style={{ minWidth: 0, wordBreak: "break-word" }}>{n}</span>
+                </div>
+              ))}
             </div>
           )}
-          {/* Ship notes entered on the Production ship modal — surfaced
-              here so the receiver sees them without opening the shipment.
-              Notes are per-item; dedupe across the shipment's items. */}
-          {(() => {
-            const notes = Array.from(new Set(
-              shipment.items.map(it => (it.ship_notes || "").trim()).filter(Boolean)
-            ));
-            if (notes.length === 0) return null;
-            return (
-              <div style={{ marginTop: 4, display: "flex", flexDirection: "column", gap: 2 }}>
-                {notes.map((n, i) => (
-                  <div key={i} style={{ fontSize: 11, color: T.amber, display: "flex", gap: 5 }}>
-                    <span style={{ flexShrink: 0 }}>✎</span>
-                    <span style={{ minWidth: 0, wordBreak: "break-word" }}>{n}</span>
-                  </div>
-                ))}
-              </div>
-            );
-          })()}
-          {/* Sample-pull flag — full per-item detail lives in the receive
-              modal / list view; here just signal that pulls are waiting and
-              the soonest ETA so the receiver knows to open it. */}
-          {(() => {
-            const pullCount = shipment.items.reduce((n, it) => n + activePulls(it).length, 0);
-            const etas = shipment.items.map(it => it.client_eta).filter(Boolean).sort() as string[];
-            const eta = fmtEta(etas[0] || null);
-            if (pullCount === 0 && !eta) return null;
-            return (
-              <div style={{ marginTop: 4, display: "flex", gap: 10, flexWrap: "wrap" }}>
-                {eta && <span style={{ fontSize: 11, fontWeight: 600, color: T.accent }}>ETA {eta}</span>}
-                {pullCount > 0 && (
-                  <span style={{ fontSize: 11, fontWeight: 700, color: T.amber }}>
-                    ⚑ {pullCount} sample pull{pullCount === 1 ? "" : "s"}
-                  </span>
-                )}
-              </div>
-            );
-          })()}
         </div>
 
-        {/* Right: counts + action reason chip */}
-        <div style={{ flexShrink: 0, textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, minWidth: 120 }}>
-          {opts?.liveInShopify && (
-            <span style={{ fontSize: 10, fontWeight: 800, color: T.green, letterSpacing: "0.08em", textTransform: "uppercase" }}>
-              ✓ Live in Shopify
-            </span>
-          )}
-          {opts?.actionReason && (
-            <span style={{ fontSize: 10, fontWeight: 800, color: T.amber, letterSpacing: "0.08em", textTransform: "uppercase" }}>
-              {opts.actionReason}
-            </span>
-          )}
-          <div style={{ fontSize: 13, fontWeight: 700, color: shipment.pending_count > 0 ? T.amber : T.green, fontFamily: mono, whiteSpace: "nowrap" }}>
-            {shipment.pending_count > 0
-              ? `${shipment.pending_count} of ${shipment.total_items}`
-              : "Received"}
+        {/* Tracking */}
+        <div style={{ width: 150, flexShrink: 0, fontFamily: mono, fontSize: 11, lineHeight: 1.3, display: "flex", alignItems: "flex-start" }} title={shipment.tracking || ""}>
+          <span style={{ color: shipment.tracking ? T.muted : T.amber, wordBreak: "break-all", minWidth: 0 }}>{shipment.tracking || "no tracking"}</span>
+          {isRealTracking(shipment.tracking) && <CopyBtn text={shipment.tracking!} />}
+        </div>
+
+        {/* Shipped */}
+        <div style={{ width: 90, flexShrink: 0, fontFamily: mono, fontSize: 11 }}>
+          {shippedLabel ? (
+            <>
+              <div style={{ color: isStale ? T.amber : T.muted }}>{shippedLabel}</div>
+              {!receivedLabel && ageDays >= 1 && <div style={{ color: T.faint, fontSize: 10 }}>{ageDays}d ago</div>}
+            </>
+          ) : <span style={{ color: T.faint }}>—</span>}
+        </div>
+
+        {/* ETA (pending) / Date received (received tab) */}
+        {tab === "received" ? (
+          <div style={{ width: 64, flexShrink: 0, textAlign: "right", fontFamily: mono, fontSize: 11, color: receivedLabel ? T.green : T.faint, fontWeight: receivedLabel ? 600 : 400 }}>
+            {receivedLabel || "—"}
           </div>
-          <span style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
-            {shipment.total_units.toLocaleString()} units
-          </span>
+        ) : (
+          <div style={{ width: 64, flexShrink: 0, textAlign: "right", fontFamily: mono, fontSize: 11, color: eta ? T.accent : T.faint, fontWeight: eta ? 600 : 400 }}>
+            {eta || "—"}
+          </div>
+        )}
+
+        {/* Units */}
+        <div style={{ width: 80, flexShrink: 0, textAlign: "right", fontFamily: mono }}>
+          <div style={{ fontSize: 12, color: T.text }}>{shipment.total_units.toLocaleString()}</div>
+          <div style={{ fontSize: 9, color: T.muted, fontFamily: font, textTransform: "uppercase", letterSpacing: "0.04em" }}>units</div>
+        </div>
+
+        {/* Status */}
+        <div style={{ width: 96, flexShrink: 0, textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2 }}>
+          {opts?.liveInShopify && <span style={{ fontSize: 9, fontWeight: 800, color: T.green, letterSpacing: "0.05em", textTransform: "uppercase" }}>✓ Shopify</span>}
+          {opts?.actionReason && <span style={{ fontSize: 9, fontWeight: 800, color: T.amber, letterSpacing: "0.05em", textTransform: "uppercase" }}>{opts.actionReason}</span>}
+          {shipment.pending_count > 0 ? (
+            <>
+              <div style={{ fontSize: 13, fontWeight: 700, color: T.amber, fontFamily: mono, whiteSpace: "nowrap" }}>{shipment.pending_count} of {shipment.total_items}</div>
+              <div style={{ fontSize: 9, fontWeight: 600, color: T.faint, letterSpacing: "0.04em", textTransform: "uppercase" }}>to receive</div>
+            </>
+          ) : (
+            <div style={{ fontSize: 11, fontWeight: 700, color: T.green, textTransform: "uppercase", letterSpacing: "0.04em" }}>✓ Received</div>
+          )}
           {shipment.variance_units !== 0 && (
-            <span style={{ fontSize: 10, color: shipment.variance_units < 0 ? T.red : T.green, fontFamily: mono, marginTop: 2 }}>
-              {shipment.variance_units > 0 ? "+" : ""}{shipment.variance_units} variance
-            </span>
+            <span style={{ fontSize: 10, color: shipment.variance_units < 0 ? T.red : T.green, fontFamily: mono }}>{shipment.variance_units > 0 ? "+" : ""}{shipment.variance_units} var</span>
           )}
         </div>
       </div>
     );
   }
+
+  // Column header for the shipments-view rows. Widths mirror renderShipmentRow
+  // exactly (incl. the 14px row padding + ~1px border → 15px) so labels line up
+  // over their columns.
+  const shipmentColHeader = (
+    <div style={{ display: "flex", gap: 12, alignItems: "center", padding: "0 15px", fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em", userSelect: "none" }}>
+      <div style={{ width: 110, flexShrink: 0 }}>Vendor</div>
+      <div style={{ flex: 1, minWidth: 0 }}>Client / Project</div>
+      <div style={{ width: 150, flexShrink: 0 }}>Tracking</div>
+      <div style={{ width: 90, flexShrink: 0 }}>Shipped</div>
+      <div style={{ width: 64, flexShrink: 0, textAlign: "right" }}>{tab === "received" ? "Date" : "ETA"}</div>
+      <div style={{ width: 80, flexShrink: 0, textAlign: "right" }}>Units</div>
+      <div style={{ width: 96, flexShrink: 0, textAlign: "right" }}>Status</div>
+    </div>
+  );
+
+  // Outside packages (logged via "Log incoming shipment") that chose the
+  // Receiving destination. Shown atop the Pending tab (with a Receive action)
+  // and the Received tab (read-only). Not job items, so they render as their
+  // own simple section rather than in the shipment/item columns.
+  const renderOutsidePackages = (list: OutsideShipment[], received: boolean) => {
+    if (!list.length) return null;
+    return (
+      <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
+        <div style={{ padding: "8px 14px", borderBottom: `1px solid ${T.border}`, fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em", display: "flex", alignItems: "center", gap: 8 }}>
+          <span>Outside packages</span>
+          <span style={{ color: T.faint }}>{list.length}</span>
+        </div>
+        {list.map(s => {
+          const job = linkableJobs.find(j => j.id === s.job_id);
+          return (
+            <div key={s.id} style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "10px 14px", borderBottom: `1px solid ${T.border}55`, fontSize: 12 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 600, color: T.text, wordBreak: "break-word" }}>{s.description}</div>
+                <div style={{ fontSize: 11, color: T.muted, marginTop: 1, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  {s.sender && <span>From {s.sender}</span>}
+                  {s.carrier && <span>{s.carrier}</span>}
+                  {s.tracking && <span style={{ fontFamily: mono }}>{s.tracking}</span>}
+                  {s.job_id && <span style={{ color: T.accent }}>{job ? `${job.display_number} · ${job.client_name}` : "Linked order"}</span>}
+                  {s.condition && s.condition !== "good" && <span style={{ color: T.amber, textTransform: "uppercase", fontWeight: 700 }}>{s.condition}</span>}
+                </div>
+                {s.notes && <div style={{ fontSize: 11, color: T.faint, marginTop: 2 }}>{s.notes}</div>}
+                {s.files?.length > 0 && (
+                  <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 4 }}>
+                    {s.files.map((f, i) => (
+                      <DriveFileLink key={i} driveFileId={f.driveFileId} fileName={f.name} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, background: T.accentDim, color: T.accent }}>{f.name}</DriveFileLink>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+                <div style={{ fontSize: 11, color: T.faint, fontFamily: mono }}>{new Date(s.received_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</div>
+                {received ? (
+                  <span style={{ fontSize: 10, fontWeight: 700, color: T.green, textTransform: "uppercase", letterSpacing: "0.04em" }}>Received</span>
+                ) : (
+                  <button onClick={() => receiveOutside(s.id)} style={{ background: T.green, color: "#fff", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: font }}>Receive</button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
 
   // Flat per-item list (production-style). Reuses filteredShipments (search +
   // decorator already applied), flattens to items for the active tab, sortable
@@ -725,6 +803,9 @@ export default function ReceivingPage() {
     );
     const shipVal = (d: string | null) => d ? new Date(d).getTime() : Infinity;
     const etaVal = (d: string | null) => d ? new Date(d.slice(0, 10)).getTime() : Infinity;
+    const recvVal = (d: string | null) => d ? new Date(d).getTime() : Infinity;
+    const fmtRecv = (d: string | null) => d ? new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : null;
+    const isReceivedTab = tab === "received";
     const cmpAsc = (a: typeof rows[number], b: typeof rows[number]) => {
       switch (listSortKey) {
         case "inv": return (a.job?.display_number || "").localeCompare(b.job?.display_number || "");
@@ -733,7 +814,9 @@ export default function ReceivingPage() {
         case "decorator": return (a.it.decorator_short_code || a.it.decorator_name || "").localeCompare(b.it.decorator_short_code || b.it.decorator_name || "");
         case "tracking": return (a.it.ship_tracking || "").localeCompare(b.it.ship_tracking || "");
         case "shipped": return shipVal(a.s.shipped_at) - shipVal(b.s.shipped_at);
-        case "eta": return etaVal(a.it.client_eta) - etaVal(b.it.client_eta);
+        case "eta": return isReceivedTab
+          ? recvVal(a.it.received_at_hpd_at || null) - recvVal(b.it.received_at_hpd_at || null)
+          : etaVal(a.it.client_eta) - etaVal(b.it.client_eta);
         case "units": return tQty(a.it.qtys) - tQty(b.it.qtys);
         default: return 0;
       }
@@ -754,6 +837,62 @@ export default function ReceivingPage() {
     if (rows.length === 0) {
       return <div style={{ textAlign: "center", color: T.muted, fontSize: 13, padding: "2rem" }}>{isPending ? "Nothing pending — every box is received." : "Nothing received yet."}</div>;
     }
+
+    // Received tab: collapse items received >15 days ago behind a toggle so the
+    // working list stays short, but the full history is one click away.
+    const cutoff15 = Date.now() - 15 * 86400000;
+    const isOldReceived = (r: typeof rows[number]) => isReceivedTab && !!r.it.received_at_hpd_at && new Date(r.it.received_at_hpd_at as string).getTime() < cutoff15;
+    const recentRows = rows.filter(r => !isOldReceived(r));
+    const olderRows = rows.filter(r => isOldReceived(r));
+
+    const renderItemRow = ({ it, s, job }: typeof rows[number]) => {
+      const isReceived = it.received_at_hpd;
+      const shippedStr = s.shipped_at ? new Date(s.shipped_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—";
+      return (
+        <div key={it.id} style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "10px 14px", borderBottom: `1px solid ${T.border}55`, fontSize: 12 }}
+          onMouseEnter={e => (e.currentTarget.style.background = T.surface)}
+          onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
+          {isPending && (
+            <div style={{ width: 24, flexShrink: 0, display: "flex", alignItems: "center", paddingTop: 1 }} onClick={e => e.stopPropagation()}>
+              <input type="checkbox" checked={selectedItemIds.has(it.id)} onChange={() => toggleItemSelected(it.id)} style={{ width: 15, height: 15, cursor: "pointer", accentColor: T.accent }} />
+            </div>
+          )}
+          <div style={{ width: 60, flexShrink: 0, color: job?.display_number ? T.text : T.faint, fontFamily: mono, fontWeight: 700, whiteSpace: "nowrap" }}>{job?.display_number || "—"}</div>
+          <div style={{ flexGrow: 0, flexShrink: 1, flexBasis: 300, minWidth: 0, paddingLeft: 10 }}>
+            <div onClick={() => setMockupPeek({ driveFileId: mockupMap[it.id]?.driveFileId || null, name: it.name })} title="View mockup"
+              style={{ fontWeight: 600, color: T.text, lineHeight: 1.3, cursor: "pointer", wordBreak: "break-word" }}>{it.name}</div>
+            <div style={{ fontSize: 11, color: T.muted, marginTop: 1, wordBreak: "break-word" }}>{job?.client_name || "No client"}</div>
+            {it.ship_notes && (
+              <div style={{ fontSize: 11, color: T.amber, marginTop: 2, display: "flex", gap: 5 }}>
+                <span style={{ flexShrink: 0 }}>✎</span>
+                <span style={{ minWidth: 0, wordBreak: "break-word" }}>{it.ship_notes}</span>
+              </div>
+            )}
+            <SamplePullsBlock item={it} hideEta />
+          </div>
+          <div style={{ width: 64, flexShrink: 0, textAlign: "right", fontFamily: mono, color: T.text }}>{tQty(it.qtys)}</div>
+          <div style={{ flex: 1 }} />
+          <div style={{ width: 88, flexShrink: 0, color: T.muted, fontFamily: mono, fontSize: 11, lineHeight: 1.3, wordBreak: "break-word" }}>{it.decorator_short_code || it.decorator_name || "—"}</div>
+          <div style={{ width: 140, flexShrink: 0, fontFamily: mono, fontSize: 11, lineHeight: 1.3, display: "flex", alignItems: "flex-start" }} title={it.ship_tracking || ""}>
+            <span style={{ color: it.ship_tracking ? T.muted : T.faint, wordBreak: "break-all", minWidth: 0 }}>{it.ship_tracking || "—"}</span>
+            {isRealTracking(it.ship_tracking) && <CopyBtn text={it.ship_tracking!} />}
+          </div>
+          <div style={{ width: 64, flexShrink: 0, textAlign: "right", fontFamily: mono, color: T.muted }}>{shippedStr}</div>
+          {isReceivedTab ? (
+            <div style={{ width: 60, flexShrink: 0, textAlign: "right", fontFamily: mono, fontSize: 11, color: fmtRecv(it.received_at_hpd_at || null) ? T.green : T.faint }}>{fmtRecv(it.received_at_hpd_at || null) || "—"}</div>
+          ) : (
+            <div style={{ width: 60, flexShrink: 0, textAlign: "right", fontFamily: mono, fontSize: 11, color: fmtEta(it.client_eta) ? T.accent : T.faint }}>{fmtEta(it.client_eta) || "—"}</div>
+          )}
+          <div style={{ width: 84, flexShrink: 0, display: "flex", justifyContent: "flex-end" }}>
+            {isReceived ? (
+              <span style={{ fontSize: 10, fontWeight: 700, color: T.green, textTransform: "uppercase", letterSpacing: "0.04em" }}>Received</span>
+            ) : (
+              <button onClick={() => setModalShipmentKey(s.key)} style={{ background: T.green, color: "#fff", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: font }}>Receive</button>
+            )}
+          </div>
+        </div>
+      );
+    };
 
     return (
       <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
@@ -777,53 +916,17 @@ export default function ReceivingPage() {
           {hCell("decorator", "Vendor", { width: 88, flexShrink: 0 })}
           {hCell("tracking", "Tracking", { width: 140, flexShrink: 0 })}
           {hCell("shipped", "Shipped", { width: 64, flexShrink: 0, justifyContent: "flex-end" })}
-          {hCell("eta", "ETA", { width: 60, flexShrink: 0, justifyContent: "flex-end" })}
+          {hCell("eta", isReceivedTab ? "Date" : "ETA", { width: 60, flexShrink: 0, justifyContent: "flex-end" })}
           <div style={{ width: 84, flexShrink: 0 }} />
         </div>
-        {rows.map(({ it, s, job }) => {
-          const isReceived = it.received_at_hpd;
-          const shippedStr = s.shipped_at ? new Date(s.shipped_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—";
-          return (
-            <div key={it.id} style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "10px 14px", borderBottom: `1px solid ${T.border}55`, fontSize: 12 }}
-              onMouseEnter={e => (e.currentTarget.style.background = T.surface)}
-              onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
-              {isPending && (
-                <div style={{ width: 24, flexShrink: 0, display: "flex", alignItems: "center", paddingTop: 1 }} onClick={e => e.stopPropagation()}>
-                  <input type="checkbox" checked={selectedItemIds.has(it.id)} onChange={() => toggleItemSelected(it.id)} style={{ width: 15, height: 15, cursor: "pointer", accentColor: T.accent }} />
-                </div>
-              )}
-              <div style={{ width: 60, flexShrink: 0, color: job?.display_number ? T.text : T.faint, fontFamily: mono, fontWeight: 700, whiteSpace: "nowrap" }}>{job?.display_number || "—"}</div>
-              <div style={{ flexGrow: 0, flexShrink: 1, flexBasis: 300, minWidth: 0, paddingLeft: 10 }}>
-                <div onClick={() => setMockupPeek({ driveFileId: mockupMap[it.id]?.driveFileId || null, name: it.name })} title="View mockup"
-                  style={{ fontWeight: 600, color: T.text, lineHeight: 1.3, cursor: "pointer", wordBreak: "break-word" }}>{it.name}</div>
-                <div style={{ fontSize: 11, color: T.muted, marginTop: 1, wordBreak: "break-word" }}>{job?.client_name || "No client"}</div>
-                {it.ship_notes && (
-                  <div style={{ fontSize: 11, color: T.amber, marginTop: 2, display: "flex", gap: 5 }}>
-                    <span style={{ flexShrink: 0 }}>✎</span>
-                    <span style={{ minWidth: 0, wordBreak: "break-word" }}>{it.ship_notes}</span>
-                  </div>
-                )}
-                <SamplePullsBlock item={it} hideEta />
-              </div>
-              <div style={{ width: 64, flexShrink: 0, textAlign: "right", fontFamily: mono, color: T.text }}>{tQty(it.qtys)}</div>
-              <div style={{ flex: 1 }} />
-              <div style={{ width: 88, flexShrink: 0, color: T.muted, fontFamily: mono, fontSize: 11, lineHeight: 1.3, wordBreak: "break-word" }}>{it.decorator_short_code || it.decorator_name || "—"}</div>
-              <div style={{ width: 140, flexShrink: 0, fontFamily: mono, fontSize: 11, lineHeight: 1.3, display: "flex", alignItems: "flex-start" }} title={it.ship_tracking || ""}>
-                <span style={{ color: it.ship_tracking ? T.muted : T.faint, wordBreak: "break-all", minWidth: 0 }}>{it.ship_tracking || "—"}</span>
-                {isRealTracking(it.ship_tracking) && <CopyBtn text={it.ship_tracking!} />}
-              </div>
-              <div style={{ width: 64, flexShrink: 0, textAlign: "right", fontFamily: mono, color: T.muted }}>{shippedStr}</div>
-              <div style={{ width: 60, flexShrink: 0, textAlign: "right", fontFamily: mono, fontSize: 11, color: fmtEta(it.client_eta) ? T.accent : T.faint }}>{fmtEta(it.client_eta) || "—"}</div>
-              <div style={{ width: 84, flexShrink: 0, display: "flex", justifyContent: "flex-end" }}>
-                {isReceived ? (
-                  <span style={{ fontSize: 10, fontWeight: 700, color: T.green, textTransform: "uppercase", letterSpacing: "0.04em" }}>Received</span>
-                ) : (
-                  <button onClick={() => setModalShipmentKey(s.key)} style={{ background: T.green, color: "#fff", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: font }}>Receive</button>
-                )}
-              </div>
-            </div>
-          );
-        })}
+        {recentRows.map(renderItemRow)}
+        {isReceivedTab && olderRows.length > 0 && (
+          <div onClick={() => setShowAllReceived(v => !v)}
+            style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 14px", borderTop: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.05em", userSelect: "none" }}>
+            {showAllReceived ? "▾" : "▸"} {showAllReceived ? "Hide" : `Show ${olderRows.length}`} received earlier than 15 days ago
+          </div>
+        )}
+        {isReceivedTab && showAllReceived && olderRows.map(renderItemRow)}
       </div>
     );
   }
@@ -850,6 +953,10 @@ export default function ReceivingPage() {
             style={{ width: 14, height: 14, accentColor: T.amber, cursor: "pointer" }} />
           Silent mode
         </label>
+        <button onClick={() => setShowForm(true)}
+          style={{ padding: "7px 14px", borderRadius: 8, border: "none", background: T.accent, color: "#fff", fontSize: 12, fontWeight: 700, fontFamily: font, cursor: "pointer", whiteSpace: "nowrap" }}>
+          + Log outside shipment
+        </button>
       </div>
 
       {/* Silent mode banner — loud + persistent so Jon can't forget
@@ -890,7 +997,6 @@ export default function ReceivingPage() {
         {([
           ["pending", "Pending", tabCounts.pending, T.text],
           ["received", "Received", tabCounts.received, T.green],
-          ["outside", "Outside", tabCounts.outside, T.amber],
         ] as const).map(([k, l, count, tone]) => {
           const active = tab === k;
           return (
@@ -905,7 +1011,7 @@ export default function ReceivingPage() {
               }}>
               {l}
               {count > 0 && (
-                <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 700, color: active || k === "outside" ? tone : T.faint }}>{count}</span>
+                <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 700, color: active ? tone : T.faint }}>{count}</span>
               )}
             </button>
           );
@@ -925,6 +1031,11 @@ export default function ReceivingPage() {
         )}
       </div>
 
+      {/* Outside packages (logged → Receiving destination): pending atop the
+          Pending tab (with Receive), received atop the Received tab. */}
+      {tab === "pending" && renderOutsidePackages(outsideShipments, false)}
+      {tab === "received" && renderOutsidePackages(outsideReceived, true)}
+
       {/* ── List view (pending / received) — one row per item ── */}
       {tab !== "outside" && viewMode === "list" && renderListView()}
 
@@ -936,6 +1047,7 @@ export default function ReceivingPage() {
               Nothing pending — every box is received.
             </div>
           )}
+          {visibleShipments.length > 0 && shipmentColHeader}
           {visibleShipments.map(shipment => renderShipmentRow(shipment))}
         </>
       )}
@@ -952,6 +1064,8 @@ export default function ReceivingPage() {
               Nothing received recently.
             </div>
           )}
+
+          {visibleShipments.length > 0 && shipmentColHeader}
 
           {/* Live in Shopify — pinned to top. Fresh inventory keyed in
               by front office in the last 48h. Cue for warehouse to
@@ -1458,17 +1572,16 @@ export default function ReceivingPage() {
         );
       })()}
 
-      {/* ── Outside tab ── */}
-      {tab === "outside" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <button onClick={() => setShowForm(!showForm)}
-            style={{ alignSelf: "flex-start", padding: "8px 20px", borderRadius: 8, border: "none", cursor: "pointer", background: T.accent, color: "#fff", fontSize: 12, fontWeight: 600, fontFamily: font }}>
-            + Log incoming shipment
-          </button>
-
-          {showForm && (
-            <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: 16 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 12 }}>New outside shipment</div>
+      {/* ── Log incoming shipment modal (opened from the header button) ── */}
+      {showForm && (
+        <div onClick={() => setShowForm(false)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 200, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "5vh 16px", overflowY: "auto" }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: 18, width: "100%", maxWidth: 720, boxShadow: "0 8px 40px rgba(0,0,0,0.18)" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+                <div style={{ fontSize: 15, fontWeight: 700 }}>Log outside shipment</div>
+                <button onClick={() => setShowForm(false)} aria-label="Close" style={{ background: "none", border: "none", color: T.muted, fontSize: 20, cursor: "pointer", lineHeight: 1 }}>×</button>
+              </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
                 <div>
                   <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 3 }}>Carrier</label>
@@ -1483,8 +1596,9 @@ export default function ReceivingPage() {
                   <input style={{ ...ic, fontFamily: font, fontSize: 12 }} value={form.sender} onChange={e => setForm(f => ({ ...f, sender: e.target.value }))} placeholder="Who sent it?" />
                 </div>
                 <div>
-                  <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 3 }}>Condition</label>
+                  <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 3 }}>Condition <span style={{ color: T.faint }}>(optional)</span></label>
                   <select style={{ ...ic, fontFamily: font, fontSize: 12 }} value={form.condition} onChange={e => setForm(f => ({ ...f, condition: e.target.value }))}>
+                    <option value="">— Not assessed</option>
                     <option value="good">Good</option>
                     <option value="damaged">Damaged</option>
                     <option value="partial">Partial</option>
@@ -1531,6 +1645,36 @@ export default function ReceivingPage() {
                 {uploadStatus && <div style={{ fontSize: 11, color: T.accent, marginTop: 4 }}>{uploadStatus}</div>}
               </div>
 
+              {/* Destination — where this package flows after logging. */}
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 4 }}>Destination</label>
+                <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+                  {[
+                    { id: "receiving", label: "Receiving", hint: "Lands in the Pending queue to receive" },
+                    { id: "shipping", label: "Shipping", hint: "Route straight to the Shipping page" },
+                    { id: "fulfillment", label: "Fulfillment", hint: "Route straight to Fulfillment" },
+                  ].map(d => {
+                    const active = form.destination === d.id;
+                    return (
+                      <button key={d.id} type="button" title={d.hint} onClick={() => setForm(f => ({ ...f, destination: d.id }))}
+                        style={{ flex: 1, padding: "8px 10px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: font,
+                          border: `1px solid ${active ? T.accent : T.border}`,
+                          background: active ? T.accent : T.surface,
+                          color: active ? "#fff" : T.muted }}>
+                        {d.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <select value={form.jobId} onChange={e => setForm(f => ({ ...f, jobId: e.target.value }))}
+                  style={{ ...ic, fontFamily: font, fontSize: 12, cursor: "pointer" }}>
+                  <option value="">Link to order (optional)…</option>
+                  {linkableJobs.map(j => (
+                    <option key={j.id} value={j.id}>{j.display_number} · {j.client_name} — {j.title}</option>
+                  ))}
+                </select>
+              </div>
+
               <div style={{ display: "flex", gap: 8 }}>
                 <button onClick={submitOutside} disabled={saving || !form.description.trim()}
                   style={{ padding: "8px 20px", borderRadius: 6, border: "none", cursor: "pointer", background: T.green, color: "#fff", fontSize: 12, fontWeight: 700, opacity: saving || !form.description.trim() ? 0.5 : 1 }}>
@@ -1542,71 +1686,7 @@ export default function ReceivingPage() {
                 </button>
               </div>
             </div>
-          )}
-
-          {outsideShipments.length === 0 && !showForm ? (
-            <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: "3rem", textAlign: "center", fontSize: 13, color: T.faint }}>
-              No outside shipments logged. Use the button above to log incoming packages not tied to a project.
-            </div>
-          ) : (
-            outsideShipments.map(s => (
-              <div key={s.id} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: "14px 18px" }}>
-                <div style={{ display: "flex", alignItems: "flex-start", gap: 14 }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>{s.description}</div>
-                    <div style={{ display: "flex", gap: 12, fontSize: 11, color: T.muted, flexWrap: "wrap" }}>
-                      {s.sender && <span>From: {s.sender}</span>}
-                      {s.carrier && <span>{s.carrier}</span>}
-                      {s.tracking && <span style={{ fontFamily: mono }}>{s.tracking}</span>}
-                      <span>{new Date(s.received_at).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
-                    </div>
-                    {s.notes && <div style={{ fontSize: 11, color: T.faint, marginTop: 4 }}>{s.notes}</div>}
-                    {s.files?.length > 0 && (
-                      <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 8 }}>
-                        {s.files.map((f, i) => (
-                          <DriveFileLink key={i} driveFileId={f.driveFileId} fileName={f.name}
-                            style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, background: T.accentDim, color: T.accent }}>
-                            {f.name}
-                          </DriveFileLink>
-                        ))}
-                      </div>
-                    )}
-                    <div style={{ display: "flex", gap: 6, marginTop: 8, alignItems: "center", flexWrap: "wrap" }}>
-                      <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase",
-                        color: s.condition === "good" ? T.green : s.condition === "damaged" ? T.red : T.amber,
-                      }}>
-                        {s.condition === "good" ? "Good" : s.condition === "damaged" ? "Damaged" : s.condition === "partial" ? "Partial" : "Wrong item"}
-                      </span>
-                      {s.job_id ? (
-                        <span style={{ fontSize: 10, color: T.accent }}>Linked to project</span>
-                      ) : (
-                        <select
-                          onChange={e => { if (e.target.value) linkToJob(s.id, e.target.value); }}
-                          value=""
-                          style={{ fontSize: 10, padding: "3px 8px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.surface, color: T.muted, cursor: "pointer" }}>
-                          <option value="">Link to project...</option>
-                          {linkableJobs.map(j => (
-                            <option key={j.id} value={j.id}>{j.client_name} — {j.title}</option>
-                          ))}
-                        </select>
-                      )}
-                    </div>
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6, flexShrink: 0 }}>
-                    <button onClick={() => routeShipment(s.id, "ship_through")}
-                      style={{ fontSize: 11, fontWeight: 700, padding: "6px 14px", borderRadius: 6, border: "none", background: T.accent, color: "#fff", cursor: "pointer", whiteSpace: "nowrap" }}>
-                      → Ship-through
-                    </button>
-                    <button onClick={() => routeShipment(s.id, "stage")}
-                      style={{ fontSize: 11, fontWeight: 700, padding: "6px 14px", borderRadius: 6, border: "none", background: T.purple, color: "#fff", cursor: "pointer", whiteSpace: "nowrap" }}>
-                      → Stage
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
+          </div>
       )}
 
       {/* Packing slip viewer modal */}
