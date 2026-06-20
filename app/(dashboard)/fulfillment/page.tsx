@@ -65,6 +65,7 @@ export default function FulfillmentPage() {
   const supabase = createClient();
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<IntakeRow[]>([]);
+  const [outsideStage, setOutsideStage] = useState<any[]>([]);
   const [search, setSearch] = useState("");
   // Click-in detail modal — read-only item breakdown for the selected
   // intake. No actions, no nav-out.
@@ -86,6 +87,12 @@ export default function FulfillmentPage() {
   async function load() {
     setLoading(true);
     const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString();
+    // Outside packages logged straight to Fulfillment (Receiving page → "Log
+    // incoming shipment" with Fulfillment destination): route="stage", resolved.
+    const { data: outsideStageData } = await supabase
+      .from("outside_shipments").select("*").eq("route", "stage").eq("resolved", true)
+      .order("received_at", { ascending: false }).limit(50);
+    setOutsideStage(outsideStageData || []);
     // Pull stage-route jobs touched in the last 30 days. Phase filter
     // is loose here (any phase except cancelled) because we want to
     // surface completed intakes too — that's the whole point of the
@@ -265,6 +272,27 @@ export default function FulfillmentPage() {
         <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search client, vendor, tracking…"
           style={{ width: 280, padding: "7px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: font, outline: "none" }} />
       </div>
+
+      {outsideStage.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <h2 style={{ fontSize: 12, fontWeight: 800, color: T.text, letterSpacing: "0.08em", textTransform: "uppercase", margin: "8px 0 0" }}>Outside packages</h2>
+          {outsideStage.map(s => (
+            <div key={s.id} style={{ ...card, padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 600 }}>{s.description}</div>
+                <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
+                  {[s.sender, s.carrier, s.tracking].filter(Boolean).join(" · ")}
+                  {s.job_id && <span style={{ marginLeft: 8, color: T.accent }}>Linked to order</span>}
+                </div>
+              </div>
+              <button onClick={async () => { await supabase.from("outside_shipments").update({ route: "fulfilled" }).eq("id", s.id); setOutsideStage(prev => prev.filter(x => x.id !== s.id)); }}
+                style={{ fontSize: 10, fontWeight: 700, padding: "6px 14px", borderRadius: 6, border: "none", background: T.green, color: "#fff", cursor: "pointer", whiteSpace: "nowrap" }}>
+                Mark fulfilled
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
 
       {filtered.length === 0 ? (
         <div style={{ ...card, padding: "3rem", textAlign: "center", fontSize: 13, color: T.faint, lineHeight: 1.6 }}>
