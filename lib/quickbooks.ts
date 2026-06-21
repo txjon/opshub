@@ -708,6 +708,32 @@ export async function listItems(): Promise<QBItem[]> {
     .sort((a: QBItem, b: QBItem) => a.name.localeCompare(b.name));
 }
 
+// ── Void an invoice ──
+// Voiding (not deleting) a cancelled-before-payment invoice keeps the doc
+// number in QB's audit trail at $0 — standard accounting practice. We read the
+// live invoice first and REFUSE if any payment is applied (balance < total),
+// so a QB-side payment that OpsHub hasn't synced can't be silently wiped.
+export async function voidInvoice(invoiceId: string): Promise<{ voided: boolean; alreadyVoid: boolean; totalAmt: number; balance: number }> {
+  const existing = await qbFetch(`/invoice/${invoiceId}`);
+  const inv = existing?.Invoice;
+  if (!inv) throw new Error("Invoice not found in QuickBooks");
+  const totalAmt = Number(inv.TotalAmt) || 0;
+  const balance = Number(inv.Balance) || 0;
+
+  // A voided invoice in QB is zeroed (TotalAmt 0). Treat as already handled.
+  if (totalAmt <= 0.005) {
+    return { voided: false, alreadyVoid: true, totalAmt, balance };
+  }
+  // Balance below total ⇒ a payment was applied. Refuse to void.
+  if (balance < totalAmt - 0.005) {
+    throw new Error(`Invoice has a payment applied in QuickBooks (balance $${balance.toFixed(2)} of $${totalAmt.toFixed(2)}) — cannot void`);
+  }
+
+  const data = await qbFetch(`/invoice?operation=void`, { method: "POST", body: { Id: inv.Id, SyncToken: inv.SyncToken } });
+  const v = data?.Invoice || {};
+  return { voided: true, alreadyVoid: false, totalAmt: Number(v.TotalAmt) || 0, balance: Number(v.Balance) || 0 };
+}
+
 // ── Check connection status ──
 export async function isConnected(): Promise<boolean> {
   try {

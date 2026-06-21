@@ -139,6 +139,8 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const [pdfPreview, setPdfPreview] = useState<{src:string;title:string;downloadHref:string}|null>(null);
   const [showArtFiles, setShowArtFiles] = useState(false);
   const [confirmDeleteProject, setConfirmDeleteProject] = useState(false);
+  const [confirmCancelVoid, setConfirmCancelVoid] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string>("");
   const [teamProfiles, setTeamProfiles] = useState<Record<string,string>>({});
   const [proofStatus, setProofStatus] = useState<Record<string,{allApproved:boolean}>>({});
@@ -1496,6 +1498,15 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.color=T.muted;}}>
               Duplicate
             </button>
+            {job.phase!=="cancelled"&&(job as any).type_meta?.qb_invoice_number&&(
+              <button
+                onClick={() => setConfirmCancelVoid(true)}
+                style={{padding:"6px 14px",background:"transparent",border:`1px solid ${T.border}`,borderRadius:6,color:T.muted,fontSize:11,fontFamily:font,fontWeight:600,cursor:"pointer"}}
+                onMouseEnter={e=>{e.currentTarget.style.borderColor=T.amber;e.currentTarget.style.color=T.amber;}}
+                onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.color=T.muted;}}>
+                Cancel &amp; void invoice
+              </button>
+            )}
             <button
               onClick={() => setConfirmDeleteProject(true)}
               style={{padding:"6px 14px",background:"transparent",border:`1px solid ${T.border}`,borderRadius:6,color:T.muted,fontSize:11,fontFamily:font,fontWeight:600,cursor:"pointer"}}
@@ -1773,6 +1784,32 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           loadData();
         }}
         onCancel={() => setConfirmDeletePayment(null)}
+      />
+
+      <ConfirmDialog
+        open={confirmCancelVoid}
+        title="Cancel & void invoice"
+        message={`Cancel "${job?.title}" and void QB invoice ${(job as any)?.type_meta?.qb_invoice_number ? "#" + (job as any).type_meta.qb_invoice_number : ""} in QuickBooks? The invoice is kept at $0 in QB's records. Blocked if any payment is recorded.`}
+        confirmLabel={cancelling ? "Voiding…" : "Cancel & void"}
+        onConfirm={async () => {
+          if (cancelling) return;
+          setCancelling(true);
+          try {
+            const res = await fetch("/api/qb/void-invoice", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ jobId: params.id }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data?.error || "Failed to cancel & void");
+            setJob(j => j ? ({ ...j, phase: "cancelled" } as any) : j);
+            setConfirmCancelVoid(false);
+          } catch (e: any) {
+            alert(e?.message || "Failed to cancel & void");
+          } finally {
+            setCancelling(false);
+          }
+        }}
+        onCancel={() => { if (!cancelling) setConfirmCancelVoid(false); }}
       />
 
       <ConfirmDialog
