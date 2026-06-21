@@ -34,15 +34,20 @@ export async function POST(req: NextRequest) {
 
     // Proof overwrite: supersede active proofs for this item + delete their
     // Drive files (DB row kept for history + counter accuracy).
+    // Did this upload replace a proof the client had requested changes on?
+    // If so, flag the new proof "revision_pending_send" so the Approvals tab +
+    // command center nudge staff to send the revised proof back to the client.
+    let replacedRevision = false;
     if (stage === "proof") {
       const { data: existing } = await supabase
         .from("item_files")
-        .select("id, drive_file_id")
+        .select("id, drive_file_id, approval")
         .eq("item_id", itemId)
         .eq("stage", "proof")
         .is("superseded_at", null);
       const now = new Date().toISOString();
       for (const old of (existing || [])) {
+        if (old.approval === "revision_requested") replacedRevision = true;
         if (old.drive_file_id) { try { await deleteFile(old.drive_file_id); } catch {} }
         await supabase.from("item_files").update({ superseded_at: now }).eq("id", old.id);
       }
@@ -58,6 +63,7 @@ export async function POST(req: NextRequest) {
       mime_type: file.type,
       file_size: file.size,
       approval: stage === "proof" ? "pending" : "none",
+      revision_pending_send: replacedRevision,
       notes: notes || null,
       uploaded_by: user.id,
     }).select("*").single();

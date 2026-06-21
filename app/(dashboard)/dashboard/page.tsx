@@ -42,7 +42,7 @@ export default async function DashboardPage() {
 
   const allItemIds = (jobs || []).flatMap(j => (j.items || []).map((it: any) => it.id));
   const { data: proofFiles } = allItemIds.length > 0
-    ? await supabase.from("item_files").select("item_id, stage, approval, notes, created_at").in("item_id", allItemIds).in("stage", ["proof", "mockup"]).is("superseded_at", null)
+    ? await supabase.from("item_files").select("item_id, stage, approval, notes, created_at, revision_pending_send").in("item_id", allItemIds).in("stage", ["proof", "mockup"]).is("superseded_at", null)
     : { data: [] };
 
   // Load contacts for email modals
@@ -52,13 +52,14 @@ export default async function DashboardPage() {
     : { data: [] };
 
   // ── Proof status map ──
-  const proofMap: Record<string, { allApproved: boolean; hasRevision: boolean; pendingCount: number; revisionNotes: string | null; revisionAt: string | null }> = {};
+  const proofMap: Record<string, { allApproved: boolean; hasRevision: boolean; revisionPendingSend: boolean; pendingCount: number; revisionNotes: string | null; revisionAt: string | null }> = {};
   for (const id of allItemIds) {
     const proofs = (proofFiles || []).filter(f => f.item_id === id && f.stage === "proof");
     const rev = proofs.find(f => f.approval === "revision_requested");
     proofMap[id] = {
       allApproved: proofs.length > 0 && proofs.every(f => f.approval === "approved"),
       hasRevision: proofs.some(f => f.approval === "revision_requested"),
+      revisionPendingSend: proofs.some(f => (f as any).revision_pending_send),
       pendingCount: proofs.filter(f => f.approval === "pending").length,
       revisionNotes: rev?.notes || null,
       revisionAt: rev?.created_at || null,
@@ -175,6 +176,18 @@ export default async function DashboardPage() {
           // mockup thumbnail + client message.
           itemId: it.id, itemName: it.name,
           event_at: proofMap[it.id]?.revisionAt || (j as any).updated_at,
+        });
+      }
+    }
+
+    // 3b. Revised proof re-uploaded but NOT yet re-sent to the client.
+    for (const it of items) {
+      if (proofMap[it.id]?.revisionPendingSend) {
+        alerts.push({ ...base, priority: 0, type: "revision_send", color: T.amber,
+          action: `Revised proof ready to send — ${it.name}`,
+          href: `/jobs/${j.id}?tab=proofs`, column: "sales",
+          itemId: it.id, itemName: it.name,
+          event_at: (j as any).updated_at,
         });
       }
     }

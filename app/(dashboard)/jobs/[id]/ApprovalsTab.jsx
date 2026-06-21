@@ -15,6 +15,41 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
   const [itemFiles, setItemFiles] = useState({});
   const [sendingProofEmail, setSendingProofEmail] = useState(false);
   const [proofEmailSent, setProofEmailSent] = useState(false);
+  const [sendingRevised, setSendingRevised] = useState(false);
+  const [revisedModalOpen, setRevisedModalOpen] = useState(false);
+  const [revisedNote, setRevisedNote] = useState("");
+  const [revisedSelected, setRevisedSelected] = useState({});
+
+  // Open the "Send revised proofs" modal — default-select every contact with an email.
+  function openRevisedModal() {
+    const sel = {};
+    (contacts || []).forEach((c, i) => { if (c.email) sel[i] = true; });
+    setRevisedSelected(sel);
+    setRevisedNote("");
+    setRevisedModalOpen(true);
+  }
+
+  // Send the revised proof(s) to the selected contacts with an optional custom
+  // note. Distinct "revision ready" email; server clears the
+  // revision_pending_send flags; reloadFiles drops the nudge.
+  async function submitRevisedProofs() {
+    const recipients = (contacts || []).filter((_, i) => revisedSelected[i]).map(c => c.email).filter(Boolean);
+    if (recipients.length === 0) return;
+    setSendingRevised(true);
+    try {
+      await fetch("/api/email/notify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobId: job.id, type: "proof_revised", recipients, note: revisedNote.trim() || undefined }),
+      });
+      logJobActivity(job.id, `Revised proof(s) sent to client (${recipients.length} recipient${recipients.length === 1 ? "" : "s"})`);
+      setRevisedModalOpen(false);
+      reloadFiles();
+    } catch (e) {
+      console.error("Revised proof send failed", e);
+    }
+    setSendingRevised(false);
+  }
 
   async function sendProofForReview() {
     if (!window.confirm("Send a proof-review email to the client? They'll get a link to the portal to approve or request changes.")) return;
@@ -123,6 +158,9 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
   const internalOnlyCount = items.filter(it => !fileApprovedByItem[it.id] && it.artwork_status === "approved").length;
   const approvedCount = fileApprovedCount + internalOnlyCount;
   const allApproved = items.length > 0 && approvedCount === items.length;
+  // Items whose latest proof was re-uploaded after a client revision request
+  // and hasn't been re-sent yet.
+  const revisedPendingItems = items.filter(it => (itemFiles[it.id] || []).some(f => f.stage === "proof" && f.revision_pending_send));
 
   return (
     <div style={{ fontFamily: font, color: T.text, display: "flex", flexDirection: "column", gap: 12 }}>
@@ -135,6 +173,22 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
             {approvedCount}/{items.length} approved{internalOnlyCount > 0 ? ` · ${internalOnlyCount} internal` : ""}
           </span>
         </div>
+
+        {/* Revised-proof nudge — appears after a revised proof is re-uploaded
+            for an item the client requested changes on. Staged manual send. */}
+        {revisedPendingItems.length > 0 && (
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", padding: "10px 12px", marginBottom: 10, borderRadius: 8, background: T.amber + "14", border: `1px solid ${T.amber}55` }}>
+            <span style={{ fontSize: 10, fontWeight: 800, color: T.amber, letterSpacing: "0.06em", textTransform: "uppercase", flexShrink: 0 }}>Revised · ready to send</span>
+            <span style={{ fontSize: 12, color: T.text, minWidth: 0, flex: 1 }}>
+              {revisedPendingItems.length} revised proof{revisedPendingItems.length === 1 ? "" : "s"} not yet sent — {revisedPendingItems.map(it => it.name).join(", ")}
+            </span>
+            <button onClick={openRevisedModal}
+              style={{ flexShrink: 0, padding: "7px 16px", borderRadius: 7, border: "none", cursor: "pointer", background: T.amber, color: "#fff", fontSize: 12, fontWeight: 700, fontFamily: font }}>
+              Send revised proofs
+            </button>
+          </div>
+        )}
+
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {items.map((item, i) => {
             const files = itemFiles[item.id] || [];
@@ -145,13 +199,15 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
             const isApproved = fileApproved || manualApproved;
             const mockupFile = files.find(f => f.stage === "mockup") || files.find(f => f.file_name?.toLowerCase().includes("mockup"));
             const revisionRequested = proofFiles.some(f => f.approval === "revision_requested");
-            const pendingClient = hasProof && !fileApproved && !revisionRequested;
+            const revisedPendingSend = proofFiles.some(f => f.revision_pending_send);
+            const pendingClient = hasProof && !fileApproved && !revisionRequested && !revisedPendingSend;
             const internalOnly = !fileApproved && manualApproved;
 
             // Clean status pill — short labels, softer colors
             let pillText = "No proof";
             let pillColor = T.faint;
             if (fileApproved)          { pillText = "Client approved"; pillColor = T.green; }
+            else if (revisedPendingSend){ pillText = "Revised · send"; pillColor = T.amber; }
             else if (revisionRequested){ pillText = "Revision";        pillColor = T.amber; }
             else if (internalOnly)     { pillText = "Internal";        pillColor = T.green; }
             else if (pendingClient)    { pillText = "Pending client";  pillColor = T.accent; }
@@ -395,6 +451,57 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
           </div>
         </div>
         );})()}
+
+      {/* ── Send revised proofs modal — contacts + stock message + note ── */}
+      {revisedModalOpen && (
+        <div onClick={() => !sendingRevised && setRevisedModalOpen(false)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 200, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "6vh 16px", overflowY: "auto" }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: 18, width: "100%", maxWidth: 560, boxShadow: "0 8px 40px rgba(0,0,0,0.18)", fontFamily: font }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>Send revised proofs</div>
+              <button onClick={() => setRevisedModalOpen(false)} aria-label="Close" style={{ background: "none", border: "none", color: T.muted, fontSize: 20, cursor: "pointer", lineHeight: 1 }}>×</button>
+            </div>
+
+            {/* Recipients */}
+            <label style={{ fontSize: 11, color: T.muted, marginBottom: 4, display: "block" }}>To</label>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 12 }}>
+              {(contacts || []).length === 0 && <div style={{ fontSize: 12, color: T.faint }}>No contacts on this job.</div>}
+              {(contacts || []).map((c, i) => (
+                <label key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 8px", background: revisedSelected[i] ? T.accentDim : T.surface, borderRadius: 6, cursor: c.email ? "pointer" : "default", opacity: c.email ? 1 : 0.5 }}>
+                  <input type="checkbox" checked={!!revisedSelected[i]} disabled={!c.email}
+                    onChange={e => setRevisedSelected(p => ({ ...p, [i]: e.target.checked }))} style={{ accentColor: T.accent }} />
+                  <span style={{ flex: 1, fontSize: 12, fontWeight: 600, color: T.text }}>{c.name || "Unnamed"}{c.role_on_job ? <span style={{ fontSize: 10, color: T.muted, marginLeft: 6 }}>{c.role_on_job}</span> : null}</span>
+                  <span style={{ fontSize: 11, color: T.muted }}>{c.email || "no email"}</span>
+                </label>
+              ))}
+            </div>
+
+            {/* Stock message preview */}
+            <label style={{ fontSize: 11, color: T.muted, marginBottom: 4, display: "block" }}>Message</label>
+            <div style={{ fontSize: 12, color: T.muted, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "8px 10px", marginBottom: 10, lineHeight: 1.5 }}>
+              "We've made the changes you requested — an updated proof is ready for another look in the portal. Approve when it's good, or request further changes." <span style={{ color: T.faint }}>+ portal link</span>
+            </div>
+
+            {/* Custom note */}
+            <label style={{ fontSize: 11, color: T.muted, marginBottom: 4, display: "block" }}>Add a note <span style={{ color: T.faint }}>(optional)</span></label>
+            <textarea value={revisedNote} onChange={e => setRevisedNote(e.target.value)} rows={3}
+              placeholder="e.g. Moved the logo up and switched the back print to white per your notes."
+              style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: font, resize: "vertical", boxSizing: "border-box", marginBottom: 14 }} />
+
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center" }}>
+              <span style={{ fontSize: 10, color: T.muted, flex: 1 }}>
+                {Object.values(revisedSelected).filter(Boolean).length} recipient{Object.values(revisedSelected).filter(Boolean).length === 1 ? "" : "s"}
+              </span>
+              <button onClick={() => setRevisedModalOpen(false)} style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 6, color: T.muted, padding: "7px 14px", fontSize: 12, fontFamily: font, cursor: "pointer" }}>Cancel</button>
+              <button onClick={submitRevisedProofs} disabled={sendingRevised || Object.values(revisedSelected).filter(Boolean).length === 0}
+                style={{ background: T.accent, color: "#fff", border: "none", borderRadius: 6, padding: "7px 18px", fontSize: 12, fontWeight: 700, fontFamily: font, cursor: sendingRevised ? "default" : "pointer", opacity: sendingRevised || Object.values(revisedSelected).filter(Boolean).length === 0 ? 0.6 : 1 }}>
+                {sendingRevised ? "Sending…" : "Send"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
