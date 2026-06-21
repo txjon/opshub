@@ -17,7 +17,9 @@ const C = {
   green: "#1a8c5c",
   greenBg: "#edf7f2",
   greenBorder: "#b4dfc9",
-  amber: "#b45309",
+  blue: "#73b6c9", // platform blue/cyan — used for approval status + approve actions
+  blueDark: "#3f8ca0", // darker shade for small text where #73b6c9 is too light on white
+  amber: "#f4b22b", // platform gold (matches lib/theme.ts amber)
   amberBg: "#fef9ee",
   amberBorder: "#f5dfa8",
   red: "#c43030",
@@ -102,7 +104,9 @@ export default function PortalPage({ params }: { params: { token: string } }) {
     const refresh = () => {
       lastRefresh = Date.now();
       setProjectCache(prev => { const n = { ...prev }; delete n[activeToken]; return n; });
-      loadPortal(activeToken, true);
+      // silent = true: swap data in place without flashing the full-screen
+      // Loading state on every background poll.
+      loadPortal(activeToken, true, true);
     };
     const handleVisibility = () => {
       if (document.visibilityState === "visible" && Date.now() - lastRefresh > 30000) refresh();
@@ -117,23 +121,23 @@ export default function PortalPage({ params }: { params: { token: string } }) {
     };
   }, [activeToken]);
 
-  async function loadPortal(token?: string, skipCache = false) {
+  async function loadPortal(token?: string, skipCache = false, silent = false) {
     const t = token || activeToken;
     if (!skipCache && projectCache[t]) { setData(projectCache[t]); return; }
-    setLoading(true);
+    if (!silent) setLoading(true);
     try {
       const res = await fetch(`/api/portal/${t}`);
       if (!res.ok) {
-        setError("This link is no longer valid.");
+        if (!silent) setError("This link is no longer valid.");
         return;
       }
       const d = await res.json();
       setData(d);
       setProjectCache(prev => ({ ...prev, [t]: d }));
     } catch {
-      setError("Unable to load. Please try again.");
+      if (!silent) setError("Unable to load. Please try again.");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }
 
@@ -257,8 +261,10 @@ export default function PortalPage({ params }: { params: { token: string } }) {
           </div>
         )}
 
-        {/* Right content — selected project */}
-        <div style={{ flex: 1, overflowY: "auto", padding: isMobile ? "20px 16px 60px" : "32px 28px 60px", maxWidth: 800 }}>
+        {/* Right content — full-width scroller (scrollbar at window edge) with
+            a centered, width-capped reading column. */}
+        <div style={{ flex: 1, overflowY: "auto" }}>
+        <div style={{ maxWidth: 800, margin: "0 auto", padding: isMobile ? "20px 16px 60px" : "32px 28px 60px" }}>
 
         {/* ── Project Header ── */}
         <div style={{ marginBottom: 24 }}>
@@ -474,7 +480,7 @@ export default function PortalPage({ params }: { params: { token: string } }) {
               {project.quoteApproved ? (
                 <span style={{
                   fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase",
-                  color: C.green,
+                  color: C.blueDark,
                 }}>Approved {project.quoteApprovedAt ? fmtDate(project.quoteApprovedAt) : ""}</span>
               ) : (
                 <span style={{
@@ -558,7 +564,7 @@ export default function PortalPage({ params }: { params: { token: string } }) {
                   disabled={actionLoading === "approve-quote"}
                   style={{
                     width: "100%", padding: "14px 0", borderRadius: 10,
-                    background: C.green, color: "#fff", border: "none",
+                    background: C.blue, color: "#fff", border: "none",
                     fontSize: 15, fontWeight: 700, cursor: "pointer",
                     opacity: actionLoading === "approve-quote" ? 0.6 : 1,
                   }}
@@ -644,13 +650,13 @@ export default function PortalPage({ params }: { params: { token: string } }) {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
               <h2 style={{ margin: 0, fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: C.muted }}>{allProofsApproved ? "Proofs" : "Proofs for Review"}</h2>
               {allProofsApproved && (
-                <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: C.green }}>All Approved</span>
+                <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: C.blueDark }}>All Approved</span>
               )}
               {!allProofsApproved && pendingProofCount > 0 && (
                 <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
                   <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: C.amber }}>{pendingProofCount} pending</span>
                   <button onClick={() => doAction("approve-all-proofs")} disabled={!!actionLoading}
-                    style={{ padding: "6px 14px", borderRadius: 6, border: "none", cursor: "pointer", background: C.green, color: "#fff", fontSize: 11, fontWeight: 700, opacity: actionLoading ? 0.6 : 1 }}>
+                    style={{ padding: "6px 14px", borderRadius: 6, border: "none", cursor: "pointer", background: C.blue, color: "#fff", fontSize: 11, fontWeight: 700, opacity: actionLoading ? 0.6 : 1 }}>
                     Approve All
                   </button>
                 </div>
@@ -664,7 +670,7 @@ export default function PortalPage({ params }: { params: { token: string } }) {
                 const firstProof = proofs[0];
                 const allApproved = proofs.length > 0 && proofs.every((p: any) => p.approval === "approved");
                 const statusLabel = allApproved ? "Approved" : firstProof?.approval === "revision_requested" ? "Revision Requested" : firstProof?.approval === "pending" ? "Pending" : null;
-                const statusColor = allApproved ? C.green : C.amber;
+                const statusColor = allApproved ? C.blueDark : C.amber;
                 return (
                 <div key={item.id} style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: "12px 14px", background: C.bg }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -719,6 +725,7 @@ export default function PortalPage({ params }: { params: { token: string } }) {
         )}
 
         {/* ── Footer ── */}
+        </div>{/* end centered column */}
         </div>{/* end right content */}
       </div>{/* end flex layout */}
 
@@ -798,7 +805,7 @@ export default function PortalPage({ params }: { params: { token: string } }) {
                       }
                     }}
                       disabled={actionLoading === `approve-proof${viewingProof.id}`}
-                      style={{ padding: "12px 32px", borderRadius: 10, background: C.green, color: "#fff", border: "none", fontSize: 14, fontWeight: 700, cursor: "pointer", opacity: actionLoading ? 0.6 : 1 }}>
+                      style={{ padding: "12px 32px", borderRadius: 10, background: C.blue, color: "#fff", border: "none", fontSize: 14, fontWeight: 700, cursor: "pointer", opacity: actionLoading ? 0.6 : 1 }}>
                       {(() => { const remaining = actualProofs.filter(p => p.approval === "pending" && p.id !== viewingProof.id).length; return remaining > 0 ? `Approve · ${remaining} more` : "Approve"; })()}
                     </button>
                     <button onClick={() => setShowRevisionInput(viewingProof.id)}
@@ -814,7 +821,7 @@ export default function PortalPage({ params }: { params: { token: string } }) {
             {viewingProof.approval === "approved" && (
               <div style={{
                 padding: "16px 20px", borderTop: `1px solid ${C.border}`,
-                textAlign: "center", fontSize: 14, fontWeight: 600, color: C.green,
+                textAlign: "center", fontSize: 14, fontWeight: 600, color: C.blueDark,
               }}>
                 Approved {viewingProof.approvedAt ? fmtDate(viewingProof.approvedAt) : ""}
               </div>
