@@ -536,6 +536,15 @@ export default function PortalPage({ params }: { params: { token: string } }) {
                   </div>
                 );
               })}
+              {/* Additional charges — fees/passthru/discounts, amount in the
+                  Subtotal column to mirror the quote/invoice PDF. */}
+              {(quote.extraLines || []).map((l: any, i: number) => (
+                <div key={`x${i}`} style={{ display: "flex", alignItems: "flex-start", padding: "14px 0", borderBottom: `1px solid ${C.border}` }}>
+                  <div style={{ width: 28 }} />
+                  <div style={{ flex: 1, fontSize: 14, fontWeight: 600, color: C.text }}>{l.description}</div>
+                  <div style={{ width: 90, textAlign: "right", fontSize: 14, fontWeight: 700, fontFamily: C.mono, paddingTop: 2 }}>{fmtD(l.amount)}</div>
+                </div>
+              ))}
             </div>
 
             {/* Totals — right-aligned, matching PDF */}
