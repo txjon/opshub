@@ -535,7 +535,10 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       vendor_state: (decoratorRecord as any)?.state || firstDecorator?.state || "",
       vendor_zip: (decoratorRecord as any)?.zip || firstDecorator?.zip || "",
       payment_terms: (job.payment_terms || "").replace(/_/g, " "),
-      ship_method: (job.type_meta as any)?.po_ship_methods?.[vendorName] || orderInfo.shipMethod || "",
+      ship_method: (job.type_meta as any)?.po_ship_methods?.[vendorName]
+        || (((decoratorRecord as any)?.default_shipping_route && (decoratorRecord as any)?.default_shipping_route !== "drop_ship")
+          ? "Vendor's Choice"
+          : (orderInfo.shipMethod || "")),
       shipping_account: (() => {
         // Per-job override wins (rare — set on type_meta.shipping_account).
         // Otherwise look up the carrier's account on the active tenant's
@@ -550,7 +553,18 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
         return "";
       })(),
       ship_to_address: (job.type_meta as any)?.po_ship_to?.[vendorName]
-        || ((job as any).shipping_route === "drop_ship"
+        || ((() => {
+            // Per-vendor effective route: a vendor whose items resolve to
+            // ship_through/stage (per-item override → vendor default → job
+            // route) ships to HPD, even on a drop-ship job. Only all-drop_ship
+            // vendor POs go to the client address.
+            const jobRoute = (job as any).shipping_route || "ship_through";
+            const vendorDefaultRoute = (decoratorRecord as any)?.default_shipping_route || null;
+            const allDropShip = vendorItems.length > 0 && vendorItems.every(
+              (it: any) => (it.shipping_route || vendorDefaultRoute || jobRoute) === "drop_ship"
+            );
+            return allDropShip;
+          })()
           ? (job.type_meta as any)?.venue_address || ""
           // ship_through / stage: prefer the fulfillment address (set
           // on tenants that ship to a partner — IHM ships through HPD's

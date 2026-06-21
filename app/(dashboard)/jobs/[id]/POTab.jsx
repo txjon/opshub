@@ -246,6 +246,19 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
   const vendors = [...new Set(costProds.map((p)=>p.printVendor).filter(Boolean))];
   const active = selectedVendor||vendors[0]||"";
   const vItems = sorted.filter(it=>getCostProd(it.id)?.printVendor===active);
+  // Per-vendor ship-to: a vendor whose items resolve to ship_through/stage
+  // (manual override → vendor default → job route) ships to OUR warehouse, even
+  // on a drop-ship job. Only when all the vendor's items are drop_ship does the
+  // PO go to the client address.
+  const activeVendorRoute = getDec(active)?.default_shipping_route || "";
+  const routeOfItem = (it) => ((itemRoutes[it.id] ?? it.shipping_route) || activeVendorRoute || shippingRoute);
+  const activeShipsToClient = vItems.length > 0 && vItems.every(it => routeOfItem(it) === "drop_ship");
+  const activeDefaultShipTo = activeShipsToClient ? clientAddress : HPD_WAREHOUSE;
+  // Bulk-to-HPD vendors (a vendor default route that ships to us) default their
+  // PO ship method to "Vendor's Choice" — they pick the carrier. Explicit pick
+  // still wins.
+  const activeVendorShipsToHpd = !!activeVendorRoute && activeVendorRoute !== "drop_ship";
+  const effectiveShipMethod = shipMethods[active] || (activeVendorShipsToHpd ? "Vendor's Choice" : "");
   const today = new Date().toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"});
   const shipDate = project?.target_ship_date
     ? new Date(project.target_ship_date+"T12:00:00").toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})
@@ -465,8 +478,8 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
             </div>
             <div style={{display:"flex",flexDirection:"column",gap:4}}>
               <div style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Ship method</div>
-              <select value={shipMethods[active]||""} onChange={e=>setShipMethodForVendor(e.target.value)}
-              style={{background:T.surface,border:"1px solid "+T.border,borderRadius:6,color:shipMethods[active]?T.text:T.muted,fontFamily:font,fontSize:12,padding:"6px 10px",outline:"none",cursor:"pointer",width:isMobile?"100%":200,boxSizing:"border-box"}}>
+              <select value={effectiveShipMethod} onChange={e=>setShipMethodForVendor(e.target.value)}
+              style={{background:T.surface,border:"1px solid "+T.border,borderRadius:6,color:effectiveShipMethod?T.text:T.muted,fontFamily:font,fontSize:12,padding:"6px 10px",outline:"none",cursor:"pointer",width:isMobile?"100%":200,boxSizing:"border-box"}}>
               <option value="">— select —</option>
               {SHIP_METHODS.map(m=><option key={m} value={m}>{m}</option>)}
             </select>
@@ -480,8 +493,8 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
           <div style={{display:"flex",flexDirection:"column",gap:4,flex:1,width:isMobile?"100%":undefined,alignSelf:isMobile?"stretch":undefined}}>
             <div style={{display:"flex",alignItems:"center",gap:6}}>
               <span style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Ship to</span>
-              <span style={{fontSize:10,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:(poShipTo[active]||"").trim()?T.amber:(shippingRoute==="drop_ship"?T.green:T.accent)}}>
-                {(poShipTo[active]||"").trim()?"Custom":(shippingRoute==="drop_ship"?"Client address":"HPD warehouse")}
+              <span style={{fontSize:10,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:(poShipTo[active]||"").trim()?T.amber:(activeShipsToClient?T.green:T.accent)}}>
+                {(poShipTo[active]||"").trim()?"Custom":(activeShipsToClient?"Client address":"HPD warehouse")}
               </span>
               {(poShipTo[active]||"").trim()&&(
                 <button onClick={()=>{
@@ -505,7 +518,7 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
                 </button>
               )}
             </div>
-            <textarea value={poShipTo[active]||""} placeholder={defaultShipTo + "\n\n(default — type to override)"}
+            <textarea value={poShipTo[active]||""} placeholder={activeDefaultShipTo + "\n\n(default — type to override)"}
               onChange={e=>setShipToForVendor(e.target.value)}
               onBlur={commitShipToRevision}
               style={{background:T.surface,border:"1px solid "+((poShipTo[active]||"").trim()?T.amber+"66":T.border),borderRadius:6,color:T.text,fontFamily:font,fontSize:11,padding:"8px 10px",outline:"none",resize:"vertical",minHeight:110,lineHeight:1.4}}/>
@@ -719,51 +732,58 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
             );
             const itemRoute = itemRoutes[item.id] ?? (item.shipping_route || "");
             const routeLabel = (r) => r === "drop_ship" ? "Drop ship" : r === "ship_through" ? "Ship through HPD" : r === "stage" ? "Stage at HPD" : "";
+            // Vendor default route — applied to this item on PO send when it has
+            // no manual override. Shown here so the effective route is visible
+            // BEFORE sending.
+            const vendorDefault = getDec(getCostProd(item.id)?.printVendor)?.default_shipping_route || "";
             return (
               <div key={item.id} style={{borderBottom:i<vItems.length-1?"1px solid "+T.border:"none",padding:"12px 14px"}}>
-                {/* Header row — letter + name (left) and route + vendor
-                    (right). On mobile the secondary chips wrap below the
-                    name so the route select doesn't get crushed against
-                    the item title. */}
-                <div style={{display:"flex",alignItems:isMobile?"flex-start":"center",gap:10,marginBottom:10,flexWrap:"wrap"}}>
-                  <span style={{width:22,height:22,borderRadius:5,background:T.accentDim,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:T.accent,fontFamily:mono,flexShrink:0}}>
-                    {String.fromCharCode(65+idx)}
-                  </span>
-                  <div style={{flex:1,minWidth:isMobile?"60%":"auto"}}>
-                    <div style={{fontSize:13,fontWeight:600,color:T.text,wordBreak:"break-word"}}>{item.name}</div>
-                    <div style={{fontSize:10,color:T.muted,marginTop:1}}>{[item.blank_vendor,item.style,item.color].filter(Boolean).join(" · ")} · {totalQty(item.buy_sheet_lines||[])} units</div>
+                {/* Two-column card: left = item meta + route/vendor, right =
+                    the field grid. Side-by-side keeps each item compact. Stacks
+                    on mobile. */}
+                <div style={{display:"flex",flexDirection:isMobile?"column":"row",gap:isMobile?10:16,alignItems:"flex-start"}}>
+                  {/* Left meta column */}
+                  <div style={{width:isMobile?"100%":340,flexShrink:0,display:"flex",flexDirection:"column",gap:8}}>
+                    <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
+                      <span style={{width:22,height:22,borderRadius:5,background:T.accentDim,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:T.accent,fontFamily:mono,flexShrink:0}}>
+                        {String.fromCharCode(65+idx)}
+                      </span>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:13,fontWeight:600,color:T.text,wordBreak:"break-word"}}>{item.name}</div>
+                        <div style={{fontSize:10,color:T.muted,marginTop:1}}>{[item.blank_vendor,item.style,item.color].filter(Boolean).join(" · ")} · {totalQty(item.buy_sheet_lines||[])} units</div>
+                      </div>
+                    </div>
+                    {/* Per-item route override + vendor. Default = job route;
+                        set when one item takes a different path. Drives the
+                        status resolver (drop_ship auto-completes on shipped;
+                        ship_through/stage expects HPD receive). */}
+                    <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                      <select value={itemRoute}
+                        onChange={async e=>{
+                          const v = e.target.value || null;
+                          setItemRoutes(prev => ({ ...prev, [item.id]: v || "" }));
+                          const { error } = await supabase.from("items").update({ shipping_route: v }).eq("id", item.id);
+                          if (error) console.error("Save shipping_route error:", error);
+                          if (onRecalcPhase) onRecalcPhase();
+                        }}
+                        title={itemRoute ? `Override: ${routeLabel(itemRoute)}` : vendorDefault ? `Vendor default: ${routeLabel(vendorDefault)} — applied on PO send` : `Default: ${routeLabel(shippingRoute) || "—"}`}
+                        style={{background:itemRoute?T.amber+"22":vendorDefault?T.blue+"22":T.surface,border:`1px solid ${itemRoute?T.amber+"66":vendorDefault?T.blue+"66":T.border}`,borderRadius:5,color:itemRoute?T.amber:vendorDefault?T.text:T.muted,fontFamily:font,fontSize:10,padding:"3px 6px",outline:"none",cursor:"pointer",minWidth:0}}>
+                        <option value="">{vendorDefault ? `${routeLabel(vendorDefault)} · via vendor` : "Route: job default"}</option>
+                        {allowedRoutes.includes("drop_ship") && <option value="drop_ship">Drop ship</option>}
+                        {allowedRoutes.includes("ship_through") && <option value="ship_through">Ship through HPD</option>}
+                        {allowedRoutes.includes("stage") && <option value="stage">Stage at HPD</option>}
+                      </select>
+                      <div style={{fontSize:11,color:T.muted,fontFamily:mono}}>{getCostProd(item.id)?.printVendor||"—"}</div>
+                      {isSaving&&<div style={{fontSize:9,color:T.amber}}>saving…</div>}
+                    </div>
                   </div>
-                  {/* Per-item route override — rare. Default = use the
-                      job's shipping route. Set this when one item takes
-                      a different path than the rest of the job (e.g.
-                      decorator A → decorator B handoff). Drives the
-                      canonical status resolver: drop_ship auto-completes
-                      on shipped; ship_through/stage expects HPD receive. */}
-                  <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",flexShrink:0,width:isMobile?"100%":undefined}}>
-                    <select value={itemRoute}
-                      onChange={async e=>{
-                        const v = e.target.value || null;
-                        setItemRoutes(prev => ({ ...prev, [item.id]: v || "" }));
-                        const { error } = await supabase.from("items").update({ shipping_route: v }).eq("id", item.id);
-                        if (error) console.error("Save shipping_route error:", error);
-                        if (onRecalcPhase) onRecalcPhase();
-                      }}
-                      title={itemRoute ? `Override: ${routeLabel(itemRoute)}` : `Default: ${routeLabel(shippingRoute) || "—"}`}
-                      style={{background:itemRoute?T.amber+"22":T.surface,border:`1px solid ${itemRoute?T.amber+"66":T.border}`,borderRadius:5,color:itemRoute?T.amber:T.muted,fontFamily:font,fontSize:10,padding:"3px 6px",outline:"none",cursor:"pointer",flex:isMobile?1:"none",minWidth:0}}>
-                      <option value="">Route: job default</option>
-                      {allowedRoutes.includes("drop_ship") && <option value="drop_ship">Drop ship</option>}
-                      {allowedRoutes.includes("ship_through") && <option value="ship_through">Ship through HPD</option>}
-                      {allowedRoutes.includes("stage") && <option value="stage">Stage at HPD</option>}
-                    </select>
-                    <div style={{fontSize:11,color:T.muted,fontFamily:mono}}>{getCostProd(item.id)?.printVendor||"—"}</div>
-                    {isSaving&&<div style={{fontSize:9,color:T.amber}}>saving…</div>}
+                  {/* Right fields column */}
+                  <div style={{flex:1,minWidth:0,width:isMobile?"100%":undefined,display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:8}}>
+                    {fieldInput("drive_link","https://drive.google.com/...",{label:"Production files link",mono:true})}
+                    {fieldInput("incoming_goods","e.g. Blanks from S&S — PO #12345",{label:"Incoming goods"})}
+                    {fieldInput("production_notes_po","Special instructions for decorator",{label:"Production notes",multiline:true})}
+                    {fieldInput("packing_notes","e.g. Fewest boxes, label all contents",{label:"Packing / shipping notes",multiline:true})}
                   </div>
-                </div>
-                <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:8}}>
-                  {fieldInput("drive_link","https://drive.google.com/...",{label:"Production files link",mono:true})}
-                  {fieldInput("incoming_goods","e.g. Blanks from S&S — PO #12345",{label:"Incoming goods"})}
-                  {fieldInput("production_notes_po","Special instructions for decorator",{label:"Production notes",multiline:true})}
-                  {fieldInput("packing_notes","e.g. Fewest boxes, label all contents",{label:"Packing / shipping notes",multiline:true})}
                 </div>
               </div>
             );
