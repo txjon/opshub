@@ -2,7 +2,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
-import { T, font, mono } from "@/lib/theme";
+import { T, font, mono, SIZE_ORDER } from "@/lib/theme";
 import { useWarehouse, tQty, type WarehouseJob, type WarehouseItem } from "@/lib/use-warehouse";
 import { useShipments, isRealTracking, type Shipment } from "@/lib/use-shipments";
 import { uploadToReceiving, uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
@@ -42,6 +42,15 @@ function fmtEta(d: string | null) {
   const [y, m, day] = d.slice(0, 10).split("-").map(Number);
   if (!y || !m || !day) return d;
   return new Date(y, m - 1, day).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+// Sort {size: qty} into canonical size order (S, M, L, XL, 2XL…); unknown sizes
+// fall to the end in their existing order.
+function sortSizeEntries(obj: Record<string, any>): [string, any][] {
+  return Object.entries(obj || {}).sort((a, b) => {
+    const ia = SIZE_ORDER.indexOf(a[0]), ib = SIZE_ORDER.indexOf(b[0]);
+    return (ia < 0 ? 999 : ia) - (ib < 0 ? 999 : ib);
+  });
 }
 
 // Copy that also works on plain http (LAN IP) where navigator.clipboard is
@@ -142,6 +151,7 @@ type OutsideShipment = {
   received_at: string;
   files: { name: string; driveLink: string; driveFileId: string }[];
   drive_folder_link: string | null;
+  line_items?: { name: string; sizes: Record<string, number> }[];
 };
 
 type ReceivingProject = WarehouseJob & {
@@ -222,8 +232,19 @@ export default function ReceivingPage() {
   // Outside
   const [outsideShipments, setOutsideShipments] = useState<OutsideShipment[]>([]);
   const [outsideReceived, setOutsideReceived] = useState<OutsideShipment[]>([]);
+  // Receive-an-outside-package modal: the package being received + draft state.
+  const [receivingOutside, setReceivingOutside] = useState<OutsideShipment | null>(null);
+  const [recvCondition, setRecvCondition] = useState("good");
+  const [recvQtys, setRecvQtys] = useState<Record<string, string>>({}); // key `${itemIdx}:${size}`
+  const [recvPendingFiles, setRecvPendingFiles] = useState<File[]>([]);
+  const [recvBusy, setRecvBusy] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ carrier: "", tracking: "", sender: "", description: "", condition: "", notes: "", destination: "receiving", jobId: "" });
+  // Structured line items for an outside shipment (name + size/qty rows).
+  // Editor shape uses arrays for stable editing; collapsed to {name, sizes:{}}
+  // on save.
+  const [formLineItems, setFormLineItems] = useState<{ id: string; name: string; rows: { size: string; qty: string }[] }[]>([]);
+  const [orderSearch, setOrderSearch] = useState("");
   const [saving, setSaving] = useState(false);
   const [uploadStatus, setUploadStatus] = useState("");
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
@@ -324,7 +345,7 @@ export default function ReceivingPage() {
       .from("jobs")
       .select("id, title, job_number, type_meta, clients(name)")
       .not("phase", "in", '("complete","cancelled")')
-      .order("created_at", { ascending: false }).limit(50);
+      .order("created_at", { ascending: false }).limit(200);
     setLinkableJobs((data || []).map((j: any) => ({
       id: j.id, title: j.title, client_name: j.clients?.name || "",
       job_number: j.job_number, display_number: j.type_meta?.qb_invoice_number || j.job_number,
@@ -360,6 +381,14 @@ export default function ReceivingPage() {
       : form.destination === "fulfillment" ? "stage"
       : "receiving";
     const resolved = form.destination !== "receiving";
+    // Collapse the editor rows to the stored shape; drop empty items/rows.
+    const lineItems = formLineItems
+      .map(i => ({ name: i.name.trim(), sizes: Object.fromEntries(
+        i.rows.filter(r => r.size.trim())
+          .sort((a, b) => { const ia = SIZE_ORDER.indexOf(a.size.trim()), ib = SIZE_ORDER.indexOf(b.size.trim()); return (ia < 0 ? 999 : ia) - (ib < 0 ? 999 : ib); })
+          .map(r => [r.size.trim(), Number(r.qty) || 0])
+      ) }))
+      .filter(i => i.name || Object.keys(i.sizes).length > 0);
     await supabase.from("outside_shipments").insert({
       carrier: form.carrier || null, tracking: form.tracking || null,
       sender: form.sender || null, description: form.description,
@@ -367,8 +396,10 @@ export default function ReceivingPage() {
       files: uploadedFiles.length > 0 ? uploadedFiles : [],
       drive_folder_link: driveFolderLink,
       route, resolved, job_id: form.jobId || null,
+      line_items: lineItems,
     });
     setForm({ carrier: "", tracking: "", sender: "", description: "", condition: "", notes: "", destination: "receiving", jobId: "" });
+    setFormLineItems([]); setOrderSearch("");
     setPendingFiles([]); setShowForm(false); setSaving(false);
     loadOutside();
   }
@@ -386,8 +417,61 @@ export default function ReceivingPage() {
   // Receive an outside package at HPD. received_at is set to the actual receive
   // time so the Received list shows when it landed; resolved flips it out of the
   // pending queue and into the received list.
+  // ── Outside-shipment line-item editor handlers ──
+  const liAddItem = () => setFormLineItems(p => [...p, { id: `li_${Date.now()}_${Math.round(Math.random() * 1e6)}`, name: "", rows: [{ size: "", qty: "" }] }]);
+  const liRemoveItem = (id: string) => setFormLineItems(p => p.filter(i => i.id !== id));
+  const liSetName = (id: string, name: string) => setFormLineItems(p => p.map(i => i.id === id ? { ...i, name } : i));
+  const liAddRow = (id: string) => setFormLineItems(p => p.map(i => i.id === id ? { ...i, rows: [...i.rows, { size: "", qty: "" }] } : i));
+  const liSetRow = (id: string, idx: number, field: "size" | "qty", val: string) => setFormLineItems(p => p.map(i => i.id === id ? { ...i, rows: i.rows.map((r, j) => j === idx ? { ...r, [field]: val } : r) } : i));
+  const liRemoveRow = (id: string, idx: number) => setFormLineItems(p => p.map(i => i.id === id ? { ...i, rows: i.rows.filter((_, j) => j !== idx) } : i));
+  const PRESET_SIZES = ["XS", "S", "M", "L", "XL", "2XL", "3XL", "4XL", "5XL"];
+  const liToggleSize = (id: string, size: string) => setFormLineItems(p => p.map(i => {
+    if (i.id !== id) return i;
+    const has = i.rows.some(r => r.size === size);
+    return { ...i, rows: has ? i.rows.filter(r => r.size !== size) : [...i.rows, { size, qty: "" }] };
+  }));
+
   async function receiveOutside(id: string) {
     await supabase.from("outside_shipments").update({ resolved: true, received_at: new Date().toISOString() }).eq("id", id);
+    loadOutside();
+  }
+
+  // Open the receive modal for an outside package — pre-fill received qtys to
+  // the logged (expected) qtys so the receiver only edits discrepancies.
+  const openReceiveOutside = (s: OutsideShipment) => {
+    setReceivingOutside(s);
+    setRecvCondition(s.condition || "good");
+    const q: Record<string, string> = {};
+    (s.line_items || []).forEach((it, i) => {
+      Object.entries(it.sizes || {}).forEach(([sz, n]) => { q[`${i}:${sz}`] = String(n); });
+    });
+    setRecvQtys(q);
+    setRecvPendingFiles([]);
+  };
+
+  async function confirmReceiveOutside() {
+    const s = receivingOutside;
+    if (!s) return;
+    setRecvBusy(true);
+    // Upload any receive-time reference photos and append to the package files.
+    const newFiles: { name: string; driveLink: string; driveFileId: string }[] = [];
+    for (const file of recvPendingFiles) {
+      try {
+        const r = await uploadToReceiving({ blob: file, fileName: file.name, mimeType: file.type || "application/octet-stream", shipmentLabel: `Received — ${s.description}`.slice(0, 100) });
+        newFiles.push({ name: file.name, driveLink: r.webViewLink, driveFileId: r.fileId });
+      } catch (e) { console.error("Receive photo upload failed:", e); }
+    }
+    // Stamp received qtys per size back onto each line item, plus condition.
+    const updatedItems = (s.line_items || []).map((it, i) => ({
+      ...it,
+      received: Object.fromEntries(Object.keys(it.sizes || {}).map(sz => [sz, Number(recvQtys[`${i}:${sz}`]) || 0])),
+    }));
+    await supabase.from("outside_shipments").update({
+      resolved: true, received_at: new Date().toISOString(),
+      condition: recvCondition, line_items: updatedItems,
+      files: [...(s.files || []), ...newFiles],
+    }).eq("id", s.id);
+    setReceivingOutside(null); setRecvQtys({}); setRecvPendingFiles([]); setRecvBusy(false);
     loadOutside();
   }
 
@@ -745,47 +829,96 @@ export default function ReceivingPage() {
   // Receiving destination. Shown atop the Pending tab (with a Receive action)
   // and the Received tab (read-only). Not job items, so they render as their
   // own simple section rather than in the shipment/item columns.
-  const renderOutsidePackages = (list: OutsideShipment[], received: boolean) => {
-    if (!list.length) return null;
+  // Outside-package helpers — these file INTO the main pending/received lists
+  // (both views) as highlighted rows marked "OUTSIDE", rather than a separate
+  // section. They're not job items, so a few columns read "—".
+  const outsideUnits = (s: OutsideShipment, received: boolean) => (s.line_items || []).reduce((tot, li) => {
+    const disp = (received && (li as any).received) ? (li as any).received : (li.sizes || {});
+    return tot + Object.values(disp).reduce((a: number, n) => a + (Number(n) || 0), 0);
+  }, 0);
+  const outsideItemsSummary = (s: OutsideShipment) => (s.line_items || []).map(li => li.name || "Item").filter(Boolean).join(", ");
+  const outsideMatchesSearch = (s: OutsideShipment) => {
+    const q = search.trim().toLowerCase();
+    if (!q) return true;
+    const job = linkableJobs.find(j => j.id === s.job_id);
+    return [s.description, s.sender, s.carrier, s.tracking, job?.client_name, job?.title].filter(Boolean).join(" ").toLowerCase().includes(q);
+  };
+  const outsideForTab = (received: boolean) => (received ? outsideReceived : outsideShipments).filter(outsideMatchesSearch);
+  const OUTSIDE_BADGE = (
+    <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: T.amber, background: T.card, border: `1px solid ${T.amber}`, padding: "1px 5px", borderRadius: 4, whiteSpace: "nowrap" }}>Outside</span>
+  );
+
+  // List-view row (matches renderListView columns).
+  const renderOutsideListRow = (s: OutsideShipment, received: boolean) => {
+    const job = linkableJobs.find(j => j.id === s.job_id);
+    const units = outsideUnits(s, received);
+    const summary = outsideItemsSummary(s);
     return (
-      <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
-        <div style={{ padding: "8px 14px", borderBottom: `1px solid ${T.border}`, fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em", display: "flex", alignItems: "center", gap: 8 }}>
-          <span>Outside packages</span>
-          <span style={{ color: T.faint }}>{list.length}</span>
+      <div key={s.id} style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "10px 14px", borderBottom: `1px solid ${T.border}55`, fontSize: 12, background: T.amberDim, borderLeft: `3px solid ${T.amber}` }}>
+        {!received && <div style={{ width: 24, flexShrink: 0 }} />}
+        <div style={{ width: 60, flexShrink: 0, display: "flex", alignItems: "flex-start" }}>{OUTSIDE_BADGE}</div>
+        <div style={{ flexGrow: 0, flexShrink: 1, flexBasis: 300, minWidth: 0, paddingLeft: 10 }}>
+          <div style={{ fontWeight: 600, color: T.text, wordBreak: "break-word" }}>{s.description}</div>
+          <div style={{ fontSize: 11, color: T.muted, marginTop: 1, wordBreak: "break-word" }}>
+            {job ? job.client_name : (s.sender ? `From ${s.sender}` : "No client")}
+            {summary && <span style={{ color: T.faint }}> · {summary}</span>}
+          </div>
         </div>
-        {list.map(s => {
-          const job = linkableJobs.find(j => j.id === s.job_id);
-          return (
-            <div key={s.id} style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "10px 14px", borderBottom: `1px solid ${T.border}55`, fontSize: 12 }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 600, color: T.text, wordBreak: "break-word" }}>{s.description}</div>
-                <div style={{ fontSize: 11, color: T.muted, marginTop: 1, display: "flex", gap: 10, flexWrap: "wrap" }}>
-                  {s.sender && <span>From {s.sender}</span>}
-                  {s.carrier && <span>{s.carrier}</span>}
-                  {s.tracking && <span style={{ fontFamily: mono }}>{s.tracking}</span>}
-                  {s.job_id && <span style={{ color: T.accent }}>{job ? `${job.display_number} · ${job.client_name}` : "Linked order"}</span>}
-                  {s.condition && s.condition !== "good" && <span style={{ color: T.amber, textTransform: "uppercase", fontWeight: 700 }}>{s.condition}</span>}
-                </div>
-                {s.notes && <div style={{ fontSize: 11, color: T.faint, marginTop: 2 }}>{s.notes}</div>}
-                {s.files?.length > 0 && (
-                  <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 4 }}>
-                    {s.files.map((f, i) => (
-                      <DriveFileLink key={i} driveFileId={f.driveFileId} fileName={f.name} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, background: T.accentDim, color: T.accent }}>{f.name}</DriveFileLink>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <div style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
-                <div style={{ fontSize: 11, color: T.faint, fontFamily: mono }}>{new Date(s.received_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</div>
-                {received ? (
-                  <span style={{ fontSize: 10, fontWeight: 700, color: T.green, textTransform: "uppercase", letterSpacing: "0.04em" }}>Received</span>
-                ) : (
-                  <button onClick={() => receiveOutside(s.id)} style={{ background: T.green, color: "#fff", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: font }}>Receive</button>
-                )}
-              </div>
-            </div>
-          );
-        })}
+        <div style={{ width: 64, flexShrink: 0, textAlign: "right", fontFamily: mono, color: T.text }}>{units || "—"}</div>
+        <div style={{ flex: 1 }} />
+        <div style={{ width: 88, flexShrink: 0, color: T.muted, fontFamily: mono, fontSize: 11, lineHeight: 1.3, wordBreak: "break-word" }}>{s.sender || "—"}</div>
+        <div style={{ width: 140, flexShrink: 0, fontFamily: mono, fontSize: 11, lineHeight: 1.3, display: "flex", alignItems: "flex-start" }} title={s.tracking || ""}>
+          <span style={{ color: s.tracking ? T.muted : T.faint, wordBreak: "break-all", minWidth: 0 }}>{s.tracking || "—"}</span>
+          {isRealTracking(s.tracking) && <CopyBtn text={s.tracking} />}
+        </div>
+        <div style={{ width: 64, flexShrink: 0, textAlign: "right", fontFamily: mono, color: T.muted }}>{s.received_at ? new Date(s.received_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}</div>
+        <div style={{ width: 60, flexShrink: 0, textAlign: "right", fontFamily: mono, fontSize: 11, color: received ? T.green : T.faint }}>{received ? new Date(s.received_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}</div>
+        <div style={{ width: 84, flexShrink: 0, display: "flex", justifyContent: "flex-end" }}>
+          {received ? (
+            <span style={{ fontSize: 10, fontWeight: 700, color: T.green, textTransform: "uppercase", letterSpacing: "0.04em" }}>Received</span>
+          ) : (
+            <button onClick={() => openReceiveOutside(s)} style={{ background: T.green, color: "#fff", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: font }}>Receive</button>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  // Shipments-view card (matches renderShipmentRow columns).
+  const renderOutsideShipmentRow = (s: OutsideShipment, received: boolean) => {
+    const job = linkableJobs.find(j => j.id === s.job_id);
+    const units = outsideUnits(s, received);
+    const summary = outsideItemsSummary(s);
+    return (
+      <div key={s.id} style={{ background: T.amberDim, border: `1px solid ${T.amber}55`, borderLeft: `3px solid ${T.amber}`, borderRadius: 10, padding: "10px 14px", display: "flex", gap: 12, alignItems: "flex-start", fontSize: 12 }}>
+        <div style={{ width: 110, flexShrink: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: T.text, wordBreak: "break-word" }}>{s.sender || "Outside"}</div>
+          <div style={{ marginTop: 3 }}>{OUTSIDE_BADGE}</div>
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: T.text, wordBreak: "break-word" }}>{s.description}</div>
+          <div style={{ fontSize: 11, color: T.muted, marginTop: 1, wordBreak: "break-word" }}>
+            {job ? `${job.display_number} · ${job.client_name}` : (s.carrier || "")}
+            {summary && <span style={{ color: T.faint }}> · {summary}</span>}
+          </div>
+        </div>
+        <div style={{ width: 150, flexShrink: 0, fontFamily: mono, fontSize: 11, lineHeight: 1.3, display: "flex", alignItems: "flex-start" }} title={s.tracking || ""}>
+          <span style={{ color: s.tracking ? T.muted : T.faint, wordBreak: "break-all", minWidth: 0 }}>{s.tracking || "—"}</span>
+          {isRealTracking(s.tracking) && <CopyBtn text={s.tracking} />}
+        </div>
+        <div style={{ width: 90, flexShrink: 0, fontFamily: mono, fontSize: 11, color: T.muted }}>{s.received_at ? new Date(s.received_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}</div>
+        <div style={{ width: 64, flexShrink: 0, textAlign: "right", fontFamily: mono, fontSize: 11, color: received ? T.green : T.faint }}>{received ? new Date(s.received_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}</div>
+        <div style={{ width: 80, flexShrink: 0, textAlign: "right", fontFamily: mono }}>
+          <div style={{ fontSize: 12, color: T.text }}>{units.toLocaleString()}</div>
+          <div style={{ fontSize: 9, color: T.muted, fontFamily: font, textTransform: "uppercase", letterSpacing: "0.04em" }}>units</div>
+        </div>
+        <div style={{ width: 96, flexShrink: 0, textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2 }}>
+          {received ? (
+            <span style={{ fontSize: 11, fontWeight: 700, color: T.green, textTransform: "uppercase", letterSpacing: "0.04em" }}>✓ Received</span>
+          ) : (
+            <button onClick={() => openReceiveOutside(s)} style={{ background: T.green, color: "#fff", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: font }}>Receive</button>
+          )}
+        </div>
       </div>
     );
   };
@@ -806,23 +939,7 @@ export default function ReceivingPage() {
     const recvVal = (d: string | null) => d ? new Date(d).getTime() : Infinity;
     const fmtRecv = (d: string | null) => d ? new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : null;
     const isReceivedTab = tab === "received";
-    const cmpAsc = (a: typeof rows[number], b: typeof rows[number]) => {
-      switch (listSortKey) {
-        case "inv": return (a.job?.display_number || "").localeCompare(b.job?.display_number || "");
-        case "client": return (a.job?.client_name || "").toLowerCase().localeCompare((b.job?.client_name || "").toLowerCase());
-        case "item": return (a.it.name || "").toLowerCase().localeCompare((b.it.name || "").toLowerCase());
-        case "decorator": return (a.it.decorator_short_code || a.it.decorator_name || "").localeCompare(b.it.decorator_short_code || b.it.decorator_name || "");
-        case "tracking": return (a.it.ship_tracking || "").localeCompare(b.it.ship_tracking || "");
-        case "shipped": return shipVal(a.s.shipped_at) - shipVal(b.s.shipped_at);
-        case "eta": return isReceivedTab
-          ? recvVal(a.it.received_at_hpd_at || null) - recvVal(b.it.received_at_hpd_at || null)
-          : etaVal(a.it.client_eta) - etaVal(b.it.client_eta);
-        case "units": return tQty(a.it.qtys) - tQty(b.it.qtys);
-        default: return 0;
-      }
-    };
     const dir = listSortDir === "asc" ? 1 : -1;
-    rows.sort((a, b) => cmpAsc(a, b) * dir);
 
     const selected = rows.filter(r => selectedItemIds.has(r.it.id));
     const eligible = selected.filter(r => !r.it.received_at_hpd);
@@ -834,16 +951,62 @@ export default function ReceivingPage() {
       <div onClick={() => listHeaderClick(k)} style={{ ...style, cursor: "pointer", display: "flex", alignItems: "center", gap: 3, color: listSortKey === k ? T.text : T.muted }}>{label}{sortGlyph(k)}</div>
     );
 
-    if (rows.length === 0) {
+    if (rows.length === 0 && outsideForTab(isReceivedTab).length === 0) {
       return <div style={{ textAlign: "center", color: T.muted, fontSize: 13, padding: "2rem" }}>{isPending ? "Nothing pending — every box is received." : "Nothing received yet."}</div>;
     }
 
-    // Received tab: collapse items received >15 days ago behind a toggle so the
-    // working list stays short, but the full history is one click away.
+    // Unified entries — outside packages file in alongside job items and sort by
+    // the active column (their logged date = ship date). Not pinned to top.
+    type Entry = { kind: "item"; r: typeof rows[number] } | { kind: "outside"; s: OutsideShipment };
+    const entries: Entry[] = [
+      ...rows.map(r => ({ kind: "item", r } as Entry)),
+      ...outsideForTab(isReceivedTab).map(s => ({ kind: "outside", s } as Entry)),
+    ];
+    const jobOf = (s: OutsideShipment) => linkableJobs.find(j => j.id === s.job_id);
+    const sortVal = (e: Entry): string | number => {
+      if (e.kind === "item") {
+        const { it, s, job } = e.r;
+        switch (listSortKey) {
+          case "inv": return (job?.display_number || "").toLowerCase();
+          case "client": return (job?.client_name || "").toLowerCase();
+          case "item": return (it.name || "").toLowerCase();
+          case "decorator": return (it.decorator_short_code || it.decorator_name || "").toLowerCase();
+          case "tracking": return (it.ship_tracking || "").toLowerCase();
+          case "shipped": return shipVal(s.shipped_at);
+          case "eta": return isReceivedTab ? recvVal(it.received_at_hpd_at || null) : etaVal(it.client_eta);
+          case "units": return tQty(it.qtys);
+        }
+      } else {
+        const s = e.s; const job = jobOf(s);
+        const ts = s.received_at ? new Date(s.received_at).getTime() : Infinity;
+        switch (listSortKey) {
+          case "inv": return (job?.display_number || "").toLowerCase();
+          case "client": return (job?.client_name || s.sender || "").toLowerCase();
+          case "item": return (s.description || "").toLowerCase();
+          case "decorator": return (s.sender || "").toLowerCase();
+          case "tracking": return (s.tracking || "").toLowerCase();
+          case "shipped": return ts;       // logged date stands in for ship date
+          case "eta": return isReceivedTab ? ts : Infinity;
+          case "units": return outsideUnits(s, isReceivedTab);
+        }
+      }
+      return 0;
+    };
+    entries.sort((a, b) => {
+      const va = sortVal(a), vb = sortVal(b);
+      const c = (typeof va === "number" && typeof vb === "number") ? va - vb : String(va).localeCompare(String(vb));
+      return c * dir;
+    });
+
+    // Received tab: collapse entries received >15 days ago behind a toggle.
     const cutoff15 = Date.now() - 15 * 86400000;
-    const isOldReceived = (r: typeof rows[number]) => isReceivedTab && !!r.it.received_at_hpd_at && new Date(r.it.received_at_hpd_at as string).getTime() < cutoff15;
-    const recentRows = rows.filter(r => !isOldReceived(r));
-    const olderRows = rows.filter(r => isOldReceived(r));
+    const recvTs = (e: Entry) => e.kind === "item"
+      ? (e.r.it.received_at_hpd_at ? new Date(e.r.it.received_at_hpd_at as string).getTime() : 0)
+      : (e.s.received_at ? new Date(e.s.received_at).getTime() : 0);
+    const isOldEntry = (e: Entry) => isReceivedTab && recvTs(e) > 0 && recvTs(e) < cutoff15;
+    const recentRows = entries.filter(e => !isOldEntry(e));
+    const olderRows = entries.filter(e => isOldEntry(e));
+    const renderEntry = (e: Entry) => e.kind === "item" ? renderItemRow(e.r) : renderOutsideListRow(e.s, isReceivedTab);
 
     const renderItemRow = ({ it, s, job }: typeof rows[number]) => {
       const isReceived = it.received_at_hpd;
@@ -919,14 +1082,14 @@ export default function ReceivingPage() {
           {hCell("eta", isReceivedTab ? "Date" : "ETA", { width: 60, flexShrink: 0, justifyContent: "flex-end" })}
           <div style={{ width: 84, flexShrink: 0 }} />
         </div>
-        {recentRows.map(renderItemRow)}
+        {recentRows.map(renderEntry)}
         {isReceivedTab && olderRows.length > 0 && (
           <div onClick={() => setShowAllReceived(v => !v)}
             style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 14px", borderTop: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.05em", userSelect: "none" }}>
             {showAllReceived ? "▾" : "▸"} {showAllReceived ? "Hide" : `Show ${olderRows.length}`} received earlier than 15 days ago
           </div>
         )}
-        {isReceivedTab && showAllReceived && olderRows.map(renderItemRow)}
+        {isReceivedTab && showAllReceived && olderRows.map(renderEntry)}
       </div>
     );
   }
@@ -1031,26 +1194,29 @@ export default function ReceivingPage() {
         )}
       </div>
 
-      {/* Outside packages (logged → Receiving destination): pending atop the
-          Pending tab (with Receive), received atop the Received tab. */}
-      {tab === "pending" && renderOutsidePackages(outsideShipments, false)}
-      {tab === "received" && renderOutsidePackages(outsideReceived, true)}
-
       {/* ── List view (pending / received) — one row per item ── */}
       {tab !== "outside" && viewMode === "list" && renderListView()}
 
-      {/* ── Pending tab — shipment rows, flat list ── */}
-      {tab === "pending" && viewMode === "shipments" && (
-        <>
-          {visibleShipments.length === 0 && (
-            <div style={{ textAlign: "center", color: T.muted, fontSize: 13, padding: "2rem" }}>
-              Nothing pending — every box is received.
-            </div>
-          )}
-          {visibleShipments.length > 0 && shipmentColHeader}
-          {visibleShipments.map(shipment => renderShipmentRow(shipment))}
-        </>
-      )}
+      {/* ── Pending tab — shipment rows, flat list (outside packages filed in,
+          highlighted + marked OUTSIDE) ── */}
+      {tab === "pending" && viewMode === "shipments" && (() => {
+        const outsideRows = outsideForTab(false);
+        if (visibleShipments.length === 0 && outsideRows.length === 0) {
+          return <div style={{ textAlign: "center", color: T.muted, fontSize: 13, padding: "2rem" }}>Nothing pending — every box is received.</div>;
+        }
+        // Interleave outside packages by their logged date (= ship date) so they
+        // file in like any other shipment rather than pinning to the top.
+        const merged = [
+          ...visibleShipments.map(s => ({ ts: s.shipped_at ? new Date(s.shipped_at).getTime() : Infinity, node: renderShipmentRow(s) })),
+          ...outsideRows.map(s => ({ ts: s.received_at ? new Date(s.received_at).getTime() : Infinity, node: renderOutsideShipmentRow(s, false) })),
+        ].sort((a, b) => a.ts - b.ts);
+        return (
+          <>
+            {shipmentColHeader}
+            {merged.map(m => m.node)}
+          </>
+        );
+      })()}
 
       {/* ── Received tab — sectioned: Needs attention · Today · This
           week · Last 30 days · Older. Action-required pinned on top
@@ -1059,13 +1225,14 @@ export default function ReceivingPage() {
           a wall of "done" stuff. */}
       {tab === "received" && receivedBuckets && viewMode === "shipments" && (
         <>
-          {visibleShipments.length === 0 && (
+          {visibleShipments.length === 0 && outsideForTab(true).length === 0 && (
             <div style={{ textAlign: "center", color: T.muted, fontSize: 13, padding: "2rem" }}>
               Nothing received recently.
             </div>
           )}
 
-          {visibleShipments.length > 0 && shipmentColHeader}
+          {(visibleShipments.length > 0 || outsideForTab(true).length > 0) && shipmentColHeader}
+          {outsideForTab(true).map(s => renderOutsideShipmentRow(s, true))}
 
           {/* Live in Shopify — pinned to top. Fresh inventory keyed in
               by front office in the last 48h. Cue for warehouse to
@@ -1615,6 +1782,63 @@ export default function ReceivingPage() {
                 <input style={{ ...ic, fontFamily: font, fontSize: 12 }} value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} placeholder="Any additional details" />
               </div>
 
+              {/* Items — name + size/qty rows (optional). Same shape that
+                  carries over from production; Part B will auto-fill this from
+                  a packing slip. */}
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                  <label style={{ fontSize: 10, color: T.faint }}>Items <span style={{ color: T.faint }}>(optional)</span></label>
+                  <button type="button" onClick={liAddItem} style={{ background: "transparent", border: `1px solid ${T.border}`, color: T.text, fontSize: 11, fontWeight: 700, padding: "4px 10px", borderRadius: 6, cursor: "pointer", fontFamily: font }}>+ Add item</button>
+                </div>
+                {formLineItems.map(it => {
+                  const total = it.rows.reduce((a, r) => a + (Number(r.qty) || 0), 0);
+                  return (
+                    <div key={it.id} style={{ border: `1px solid ${T.border}`, borderRadius: 8, padding: 10, marginBottom: 8 }}>
+                      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
+                        <input value={it.name} onChange={e => liSetName(it.id, e.target.value)} placeholder="Item name"
+                          style={{ ...ic, fontFamily: font, fontSize: 12, flex: 1 }} />
+                        <span style={{ fontSize: 11, color: T.muted, fontFamily: mono, whiteSpace: "nowrap" }}>{total} total</span>
+                        <button type="button" onClick={() => liRemoveItem(it.id)} title="Remove item" style={{ background: "none", border: "none", color: T.faint, fontSize: 18, cursor: "pointer", lineHeight: 1 }}>×</button>
+                      </div>
+                      {/* Size chips — click to add/remove a size (product-builder style) */}
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 8 }}>
+                        {PRESET_SIZES.map(sz => {
+                          const on = it.rows.some(r => r.size === sz);
+                          return (
+                            <button key={sz} type="button" onClick={() => liToggleSize(it.id, sz)}
+                              style={{ minWidth: 38, padding: "4px 8px", fontSize: 11, fontFamily: mono, fontWeight: 700,
+                                background: on ? T.accent : T.surface, color: on ? "#fff" : T.muted,
+                                border: `1px solid ${on ? T.accent : T.border}`, borderRadius: 6, cursor: "pointer" }}>
+                              {sz}
+                            </button>
+                          );
+                        })}
+                        <button type="button" onClick={() => liAddRow(it.id)}
+                          style={{ padding: "4px 8px", fontSize: 11, fontWeight: 700, background: "transparent", border: `1px dashed ${T.border}`, color: T.muted, borderRadius: 6, cursor: "pointer", fontFamily: font }}>+ custom</button>
+                      </div>
+                      {/* Qty cells — size label above the box */}
+                      {it.rows.length > 0 && (
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                          {it.rows.map((r, idx) => (
+                            <div key={idx} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                              {PRESET_SIZES.includes(r.size) ? (
+                                <span style={{ fontSize: 10, fontWeight: 700, fontFamily: mono, color: T.muted }}>{r.size}</span>
+                              ) : (
+                                <input value={r.size} onChange={e => liSetRow(it.id, idx, "size", e.target.value)} placeholder="Size"
+                                  style={{ ...ic, fontFamily: mono, fontSize: 10, width: 50, padding: "2px 4px", textAlign: "center" }} />
+                              )}
+                              <input value={r.qty} onChange={e => liSetRow(it.id, idx, "qty", e.target.value)} placeholder="0" inputMode="numeric"
+                                style={{ ...ic, fontFamily: mono, fontSize: 13, fontWeight: 600, width: 50, padding: "5px 4px", textAlign: "center" }} />
+                              <button type="button" onClick={() => liRemoveRow(it.id, idx)} title="Remove" style={{ background: "none", border: "none", color: T.faint, fontSize: 12, cursor: "pointer", lineHeight: 1 }}>×</button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
               <div style={{ marginBottom: 12 }}>
                 <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 3 }}>Photos / documents</label>
                 <div
@@ -1666,13 +1890,42 @@ export default function ReceivingPage() {
                     );
                   })}
                 </div>
-                <select value={form.jobId} onChange={e => setForm(f => ({ ...f, jobId: e.target.value }))}
-                  style={{ ...ic, fontFamily: font, fontSize: 12, cursor: "pointer" }}>
-                  <option value="">Link to order (optional)…</option>
-                  {linkableJobs.map(j => (
-                    <option key={j.id} value={j.id}>{j.display_number} · {j.client_name} — {j.title}</option>
-                  ))}
-                </select>
+                {(() => {
+                  const selected = linkableJobs.find(j => j.id === form.jobId);
+                  if (selected) {
+                    return (
+                      <div style={{ ...ic, fontFamily: font, fontSize: 12, display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          <span style={{ fontFamily: mono, color: T.muted }}>{selected.display_number}</span> · {selected.client_name} <span style={{ color: T.faint }}>— {selected.title}</span>
+                        </span>
+                        <button type="button" onClick={() => { setForm(f => ({ ...f, jobId: "" })); setOrderSearch(""); }}
+                          style={{ background: "none", border: "none", color: T.faint, fontSize: 16, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>
+                      </div>
+                    );
+                  }
+                  const q = orderSearch.trim().toLowerCase();
+                  const matches = q ? linkableJobs.filter(j => `${j.display_number} ${j.client_name} ${j.title}`.toLowerCase().includes(q)).slice(0, 8) : [];
+                  return (
+                    <div style={{ position: "relative" }}>
+                      <input value={orderSearch} onChange={e => setOrderSearch(e.target.value)} placeholder="Link to order (optional) — search client, #, or title…"
+                        style={{ ...ic, fontFamily: font, fontSize: 12 }} />
+                      {q && (
+                        <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 10, background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, marginTop: 4, maxHeight: 240, overflowY: "auto", boxShadow: "0 6px 24px rgba(0,0,0,0.14)" }}>
+                          {matches.length === 0 ? (
+                            <div style={{ padding: "8px 12px", fontSize: 11, color: T.faint }}>No match in recent orders</div>
+                          ) : matches.map(j => (
+                            <div key={j.id} onClick={() => { setForm(f => ({ ...f, jobId: j.id })); setOrderSearch(""); }}
+                              style={{ padding: "8px 12px", fontSize: 12, cursor: "pointer", borderBottom: `1px solid ${T.border}55` }}
+                              onMouseEnter={e => e.currentTarget.style.background = T.surface}
+                              onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                              <span style={{ fontFamily: mono, color: T.muted }}>{j.display_number}</span> · <span style={{ fontWeight: 600 }}>{j.client_name}</span> <span style={{ color: T.faint }}>— {j.title}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
 
               <div style={{ display: "flex", gap: 8 }}>
@@ -1687,6 +1940,95 @@ export default function ReceivingPage() {
               </div>
             </div>
           </div>
+      )}
+
+      {/* ── Receive outside package modal — enter received qtys per size ── */}
+      {receivingOutside && (
+        <div onClick={() => setReceivingOutside(null)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 200, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "5vh 16px", overflowY: "auto" }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: 18, width: "100%", maxWidth: 640, boxShadow: "0 8px 40px rgba(0,0,0,0.18)" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+              <div style={{ fontSize: 15, fontWeight: 700 }}>Receive package</div>
+              <button onClick={() => setReceivingOutside(null)} aria-label="Close" style={{ background: "none", border: "none", color: T.muted, fontSize: 20, cursor: "pointer", lineHeight: 1 }}>×</button>
+            </div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{receivingOutside.description}</div>
+            <div style={{ fontSize: 11, color: T.muted, marginTop: 1, marginBottom: 14, display: "flex", gap: 10, flexWrap: "wrap" }}>
+              {receivingOutside.sender && <span>From {receivingOutside.sender}</span>}
+              {receivingOutside.carrier && <span>{receivingOutside.carrier}</span>}
+              {receivingOutside.tracking && <span style={{ fontFamily: mono }}>{receivingOutside.tracking}</span>}
+            </div>
+
+            {(receivingOutside.line_items || []).length === 0 ? (
+              <div style={{ fontSize: 12, color: T.faint, marginBottom: 14 }}>No itemized contents — confirm to mark received.</div>
+            ) : (
+              (receivingOutside.line_items || []).map((it, i) => (
+                <div key={i} style={{ border: `1px solid ${T.border}`, borderRadius: 8, padding: 10, marginBottom: 8 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>{it.name || `Item ${i + 1}`}</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                    {sortSizeEntries(it.sizes || {}).map(([sz, exp]) => {
+                      const recv = Number(recvQtys[`${i}:${sz}`]) || 0;
+                      const variance = recv - (Number(exp) || 0);
+                      const vColor = variance < 0 ? T.red : T.green;
+                      return (
+                        <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                          <span style={{ fontSize: 10, fontWeight: 700, fontFamily: mono, color: T.muted }}>{sz}</span>
+                          <input value={recvQtys[`${i}:${sz}`] ?? ""} inputMode="numeric"
+                            onChange={e => setRecvQtys(p => ({ ...p, [`${i}:${sz}`]: e.target.value }))}
+                            onFocus={e => e.target.select()}
+                            style={{ ...ic, fontFamily: mono, fontSize: 13, fontWeight: 600, width: 52, padding: "5px 4px", textAlign: "center", borderColor: variance !== 0 ? vColor : T.border }} />
+                          <span style={{ fontSize: 9, fontFamily: mono, height: 12, lineHeight: "12px", color: variance !== 0 ? vColor : "transparent" }}>
+                            {variance > 0 ? `+${variance}` : variance} vs {exp}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))
+            )}
+
+            <div style={{ marginTop: 6, marginBottom: 14 }}>
+              <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 3 }}>Condition</label>
+              <select value={recvCondition} onChange={e => setRecvCondition(e.target.value)} style={{ ...ic, fontFamily: font, fontSize: 12, cursor: "pointer" }}>
+                <option value="good">Good</option>
+                <option value="damaged">Damaged</option>
+                <option value="partial">Partial damage</option>
+                <option value="wrong_item">Wrong item</option>
+              </select>
+            </div>
+
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 4 }}>Photos <span style={{ color: T.faint }}>(visual reference)</span></label>
+              <label style={{ display: "inline-block", padding: "7px 14px", borderRadius: 8, border: `1px dashed ${T.border}`, color: T.muted, fontSize: 12, cursor: "pointer", fontFamily: font }}>
+                + Add photo
+                <input type="file" multiple accept="image/*" capture="environment" style={{ display: "none" }}
+                  onChange={e => { setRecvPendingFiles(prev => [...prev, ...Array.from(e.target.files || [])]); e.target.value = ""; }} />
+              </label>
+              {recvPendingFiles.length > 0 && (
+                <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 6 }}>
+                  {recvPendingFiles.map((f, idx) => (
+                    <span key={idx} style={{ fontSize: 11, padding: "3px 8px", borderRadius: 4, background: T.surface, color: T.muted, display: "flex", alignItems: "center", gap: 4 }}>
+                      {f.name}
+                      <button type="button" onClick={() => setRecvPendingFiles(prev => prev.filter((_, j) => j !== idx))} style={{ background: "none", border: "none", color: T.faint, cursor: "pointer", fontSize: 11, padding: 0 }}>×</button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={confirmReceiveOutside} disabled={recvBusy}
+                style={{ padding: "8px 20px", borderRadius: 6, border: "none", cursor: recvBusy ? "default" : "pointer", background: T.green, color: "#fff", fontSize: 12, fontWeight: 700, opacity: recvBusy ? 0.6 : 1 }}>
+                {recvBusy ? "Saving…" : "Confirm received"}
+              </button>
+              <button onClick={() => setReceivingOutside(null)}
+                style={{ padding: "8px 16px", borderRadius: 6, border: `1px solid ${T.border}`, cursor: "pointer", background: "transparent", color: T.muted, fontSize: 12 }}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Packing slip viewer modal */}
