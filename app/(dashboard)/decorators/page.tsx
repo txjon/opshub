@@ -31,6 +31,7 @@ type Decorator = {
   capabilities: string[];
   lead_time_days: number | null;
   notes: string | null;
+  default_shipping_route: string | null;
   pricing_data: PricingData | null;
 };
 
@@ -530,6 +531,19 @@ export default function DecoratorsPage() {
                         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
                           <Field label="Short code" value={d.short_code||""} onChange={v=>upd({short_code:v.toUpperCase()})} placeholder="ICON" isMono />
                           <Field label="Lead time (days)" value={String(d.lead_time_days||"")} onChange={v=>upd({lead_time_days:parseInt(v)||null} as any)} placeholder="7" isMono />
+                        </div>
+                        {/* Default shipping route — applied to this vendor's items
+                            on PO send (only when the item has no manual route).
+                            For vendors that ship our orders in bulk to HPD. */}
+                        <div style={{ display:"flex", flexDirection:"column", gap:3 }}>
+                          <div style={{ fontSize:10, color:T.muted, fontFamily:font, textTransform:"uppercase" as const, letterSpacing:"0.07em" }}>Default shipping route</div>
+                          <select value={d.default_shipping_route||""} onChange={e=>upd({default_shipping_route: e.target.value || null} as any)}
+                            style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:6, color:T.text, fontFamily:font, fontSize:12, padding:"7px 10px", outline:"none", width:"100%", boxSizing:"border-box" as const, cursor:"pointer" }}>
+                            <option value="">— None (use job's route)</option>
+                            <option value="ship_through">Ship through HPD (bulk to us, we forward)</option>
+                            <option value="stage">Stage at HPD</option>
+                            <option value="drop_ship">Drop ship (vendor → client)</option>
+                          </select>
                         </div>
                       </div>
                       <DecoratorContacts contacts={(d as any).contacts_list||[]} onChange={list=>upd({contacts_list:list} as any)} />

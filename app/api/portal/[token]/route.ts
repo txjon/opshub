@@ -311,6 +311,14 @@ export async function GET(
     // the client portal hides the quote section and the approved badge.
     const isQuoteSent = !!typeMeta.quote_sent_at;
     const portalQuoteItems = isQuoteSent ? quoteItems : [];
+    // Additional charges (fees/passthru/discounts) — shown as their own lines on
+    // the quote, folded into the subtotal so it matches the amount due.
+    const portalExtraLines = isQuoteSent
+      ? (Array.isArray(typeMeta.invoice_extra_lines) ? typeMeta.invoice_extra_lines : [])
+          .map((l: any) => ({ description: String(l?.description || "Additional charge"), amount: Number(l?.amount) || 0 }))
+      : [];
+    const productsSubtotal = portalQuoteItems.reduce((a: number, qi: any) => a + (qi.total || 0), 0);
+    const extrasSubtotalOut = portalExtraLines.reduce((a: number, l: any) => a + l.amount, 0);
 
     return NextResponse.json({
       project: {
@@ -328,7 +336,8 @@ export async function GET(
       company: tenant,
       quote: {
         items: portalQuoteItems,
-        subtotal: portalQuoteItems.reduce((a: number, qi: any) => a + (qi.total || 0), 0),
+        extraLines: portalExtraLines,
+        subtotal: productsSubtotal + extrasSubtotalOut,
         tax: isQuoteSent ? (typeMeta.qb_tax_amount || 0) : 0,
         total: isQuoteSent ? (typeMeta.qb_total_with_tax || (typeMeta.stripe_total_cents ? typeMeta.stripe_total_cents / 100 : 0) || portalQuoteItems.reduce((a: number, qi: any) => a + (qi.total || 0), 0)) : 0,
       },
