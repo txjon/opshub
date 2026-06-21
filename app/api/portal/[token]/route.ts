@@ -339,7 +339,12 @@ export async function GET(
         // qb_invoice_id null) don't count — there's no OpsHub-side QB
         // record to compare against, so the staleness test is noise.
         if (!typeMeta.qb_invoice_id) return false;
-        const quoteSubtotal = quoteItems.reduce((a: number, qi: any) => a + (qi.total || 0), 0);
+        // QB total includes the additional charges (invoice_extra_lines), so the
+        // comparison subtotal must too — otherwise any invoice with extra
+        // charges reads as permanently "stale" and never shows a Pay button.
+        const extrasTotal = (Array.isArray(typeMeta.invoice_extra_lines) ? typeMeta.invoice_extra_lines : [])
+          .reduce((a: number, l: any) => a + (Number(l?.amount) || 0), 0);
+        const quoteSubtotal = quoteItems.reduce((a: number, qi: any) => a + (qi.total || 0), 0) + extrasTotal;
         const qbSubtotal = (typeMeta.qb_total_with_tax || 0) - (typeMeta.qb_tax_amount || 0);
         return Math.abs(quoteSubtotal - qbSubtotal) > 0.01;
       })(),
