@@ -17,7 +17,7 @@ const fmtD = (n: number) => "$" + Number(n || 0).toLocaleString("en-US", { minim
 function renderQuoteHTML(data: {
   invoiceNum: string; today: string; validUntil: string; shipDate: string;
   clientName: string; notes: string;
-  prods: { name: string; style: string; color: string; sizes: string[]; qtys: Record<string,number>; totalQty: number; sellPerUnit: number; grossRev: number; thumbnail?: string; }[];
+  prods: { name: string; style: string; color: string; sizes: string[]; qtys: Record<string,number>; totalQty: number; sellPerUnit: number; grossRev: number; free?: boolean; thumbnail?: string; }[];
   extraLines: { description: string; amount: number }[];
   quoteTotal: number;
   branding: PdfBranding;
@@ -39,8 +39,8 @@ function renderQuoteHTML(data: {
         </div>
       </td>`;
     const qtyCell = `<td style="padding:12px 8px;text-align:right;font-family:monospace;font-size:12px;vertical-align:top;font-weight:600;color:#1a1a1a">${(p.totalQty || 0).toLocaleString()}</td>`;
-    const unitCell = `<td style="padding:12px 8px;text-align:right;font-family:monospace;font-size:12px;vertical-align:top;color:#666">${p.sellPerUnit > 0 ? fmtD(p.sellPerUnit) : "—"}</td>`;
-    const subCell = `<td style="padding:12px 0 12px 8px;text-align:right;font-family:monospace;font-size:12px;vertical-align:top;font-weight:700;color:#1a1a1a">${p.grossRev > 0 ? fmtD(p.grossRev) : "—"}</td>`;
+    const unitCell = `<td style="padding:12px 8px;text-align:right;font-family:monospace;font-size:12px;vertical-align:top;color:#666">${p.sellPerUnit > 0 ? fmtD(p.sellPerUnit) : (p.free ? "$0.00" : "—")}</td>`;
+    const subCell = `<td style="padding:12px 0 12px 8px;text-align:right;font-family:monospace;font-size:12px;vertical-align:top;font-weight:700;color:#1a1a1a">${p.grossRev > 0 ? fmtD(p.grossRev) : (p.free ? "$0.00" : "—")}</td>`;
 
     // Dimensional pants → compact "fits · N sizes" in the Sizes column, then a
     // full-width cut-ticket grid block below the line (client picked full grid).
@@ -275,7 +275,12 @@ export async function GET(_req: NextRequest, { params }: { params: { jobId: stri
           const dbItem = (items || []).find((it: any) => it.id === p.id);
           const sellPerUnit = parseFloat(dbItem?.sell_per_unit) || 0;
           const grossRev = Math.round(sellPerUnit * totalQty * 100) / 100;
-          if (grossRev === 0) return null;
+          // A $0 line shows ONLY when the price was deliberately set to $0
+          // (sellOverride === 0) — a real "no charge" deliverable that belongs
+          // on the record. A $0 from an un-costed item (no override) stays
+          // hidden so unpriced lines don't leak onto the quote.
+          const deliberateFree = p.sellOverride != null && p.sellOverride !== "" && Number(p.sellOverride) === 0;
+          if (grossRev === 0 && !deliberateFree) return null;
 
           return {
             name: p.name || dbItem?.name || "Item",
@@ -286,6 +291,7 @@ export async function GET(_req: NextRequest, { params }: { params: { jobId: stri
             totalQty,
             sellPerUnit,
             grossRev,
+            free: deliberateFree,
           };
         })
         .filter(Boolean);
