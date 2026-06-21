@@ -83,7 +83,7 @@ export async function POST(req: NextRequest) {
     }
 
     const requestBody = await req.json();
-    const { jobId, type, trackingNumber, carrier, decoratorId, vendorName, resend: forceResend } = requestBody;
+    const { jobId, type, trackingNumber, carrier, decoratorId, vendorName, resend: forceResend, recipients, note } = requestBody;
     if (!jobId || !type) return NextResponse.json({ error: "Missing fields" }, { status: 400 });
 
     const { createClient: createAdmin } = await import("@supabase/supabase-js");
@@ -592,8 +592,24 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true, record: newRecord });
     }
 
-    // Fallback: delegate to auto-email.ts (proof_ready, payment_received)
-    await sendClientNotification({ jobId, type, trackingNumber, carrier });
+    // Fallback: delegate to auto-email.ts (proof_ready, proof_revised, payment_received)
+    await sendClientNotification({ jobId, type, trackingNumber, carrier, recipients, note });
+
+    // After a revised-proof send, clear the "needs send" flags so the nudge
+    // drops off the Approvals tab + command center. Scoped to this job's
+    // current (non-superseded) proofs.
+    if (type === "proof_revised") {
+      const { data: jobItems } = await sb.from("items").select("id").eq("job_id", jobId);
+      const itemIds = (jobItems || []).map((i: any) => i.id);
+      if (itemIds.length) {
+        await sb.from("item_files")
+          .update({ revision_pending_send: false })
+          .in("item_id", itemIds)
+          .eq("stage", "proof")
+          .is("superseded_at", null)
+          .eq("revision_pending_send", true);
+      }
+    }
     return NextResponse.json({ success: true });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });

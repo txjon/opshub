@@ -18,11 +18,15 @@ type NotifyParams = {
   jobId: string;
   type:
     | "proof_ready"
+    | "proof_revised"
     | "payment_received";
   itemName?: string;
   trackingNumber?: string;
   carrier?: string;
   amount?: number;
+  // Optional overrides (used by the "Send revised proofs" modal):
+  recipients?: string[]; // explicit To/CC list — first = To, rest = CC. Falls back to job contacts.
+  note?: string;         // custom note appended to the stock body.
 };
 
 /**
@@ -122,6 +126,22 @@ export async function sendClientNotification(params: NotifyParams) {
         });
         break;
 
+      case "proof_revised": {
+        const noteBlock = params.note && params.note.trim()
+          ? `<div style="margin:16px 0;padding:14px 16px;background:#f7f7f7;border-left:3px solid #222;border-radius:4px;font-size:14px;color:#333;line-height:1.55;white-space:pre-wrap;">${params.note.trim().replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c] || c))}</div>`
+          : "";
+        subject = `Revised proof ready — ${clientName}${invoiceSuffix} · ${job.title}`;
+        html = renderBrandedEmail({
+          eyebrow: tenantName,
+          heading: "Revised proof ready for review",
+          greeting: `Hi ${clientName},`,
+          bodyHtml: `We've made the changes you requested — an updated proof for ${bodyRef} is ready for another look in the portal. Approve when it's good, or request further changes.${noteBlock}`,
+          cta: portalUrl ? { label: "Review revised proof", url: portalUrl, style: "outline" } : undefined,
+          closing: tenantClosing(tenantSlug, tenantName),
+        });
+        break;
+      }
+
       case "payment_received":
         subject = `Payment received — ${clientName} · Invoice ${invoiceNum} · ${job.title}`;
         html = renderBrandedEmail({
@@ -135,11 +155,17 @@ export async function sendClientNotification(params: NotifyParams) {
         break;
     }
 
+    // Recipients — explicit override (from the send modal) wins; else the
+    // job's primary contact (To) + remaining contacts (CC).
+    const override = (params.recipients || []).filter(Boolean);
+    const toEmail = override.length > 0 ? override[0] : primary.email;
+    const ccList = override.length > 0 ? override.slice(1) : ccEmails;
+
     // Send
     await resend.emails.send({
       from,
-      to: primary.email,
-      ...(ccEmails.length > 0 ? { cc: ccEmails } : {}),
+      to: toEmail,
+      ...(ccList.length > 0 ? { cc: ccList } : {}),
       subject,
       html,
     });
@@ -147,6 +173,7 @@ export async function sendClientNotification(params: NotifyParams) {
     // Log activity
     const activityMessages: Record<string, string> = {
       proof_ready: `Auto-email: proof review notification sent to ${primary.email}`,
+      proof_revised: `Auto-email: revised proof notification sent to ${toEmail}`,
       payment_received: `Auto-email: payment confirmation sent to ${primary.email}`,
     };
 

@@ -18,15 +18,17 @@ export async function POST(req: NextRequest) {
     // - proof: mark superseded_at (preserve DB row for history + counters) and
     //   delete the old Drive file. Project folder is the physical archive.
     // - mockup: delete DB row + Drive file (no history needed).
+    let replacedRevision = false;
     if (stage === "proof") {
       const { data: existing } = await supabase
         .from("item_files")
-        .select("id, drive_file_id")
+        .select("id, drive_file_id, approval")
         .eq("item_id", itemId)
         .eq("stage", "proof")
         .is("superseded_at", null);
       const now = new Date().toISOString();
       for (const old of (existing || [])) {
+        if (old.approval === "revision_requested") replacedRevision = true;
         if (old.drive_file_id) { try { await deleteFile(old.drive_file_id); } catch {} }
         await supabase.from("item_files").update({ superseded_at: now }).eq("id", old.id);
       }
@@ -47,6 +49,7 @@ export async function POST(req: NextRequest) {
       mime_type: mimeType,
       file_size: fileSize,
       approval: stage === "proof" ? "pending" : "none",
+      revision_pending_send: replacedRevision,
       notes: notes || null,
       uploaded_by: user.id,
     }).select("*").single();
