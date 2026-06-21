@@ -435,7 +435,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
 
     const { data: items, error: itemsError } = await supabase
       .from("items")
-      .select("*, buy_sheet_lines(size, qty_ordered), decorator_assignments(decoration_type, sent_to_decorator_date, decorators(name))")
+      .select("*, buy_sheet_lines(size, qty_ordered), decorator_assignments(decoration_type, sent_to_decorator_date, decorators(name, short_code, default_shipping_route))")
       .eq("job_id", jobId)
       .order("sort_order");
 
@@ -512,9 +512,15 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     const vendorName = vendorFilter || firstDecorator?.name || "Decorator";
     const orderInfo = costingData.orderInfo || {};
 
+    // vendorName may be a short code (e.g. "1 STOP") rather than the full name,
+    // so match either. maybeSingle avoids throwing on no/multiple rows.
     const { data: decoratorRecord } = await supabase
-      .from("decorators").select("*").ilike("name", vendorName).single()
+      .from("decorators").select("*").or(`name.ilike.${vendorName},short_code.ilike.${vendorName}`).limit(1).maybeSingle()
       .then((r: any) => r).catch(() => ({ data: null, error: null }));
+    // The vendor's default route — from the looked-up record, falling back to
+    // the decorator joined on the items (which always matched this vendor).
+    const vendorDefaultRoute = (decoratorRecord as any)?.default_shipping_route
+      || (firstDecorator as any)?.default_shipping_route || null;
 
     const itemLetters = vendorItems.map((it: any) => it.letter).join("");
 
@@ -536,7 +542,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       vendor_zip: (decoratorRecord as any)?.zip || firstDecorator?.zip || "",
       payment_terms: (job.payment_terms || "").replace(/_/g, " "),
       ship_method: (job.type_meta as any)?.po_ship_methods?.[vendorName]
-        || (((decoratorRecord as any)?.default_shipping_route && (decoratorRecord as any)?.default_shipping_route !== "drop_ship")
+        || ((vendorDefaultRoute && vendorDefaultRoute !== "drop_ship")
           ? "Vendor's Choice"
           : (orderInfo.shipMethod || "")),
       shipping_account: (() => {
@@ -559,7 +565,6 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
             // route) ships to HPD, even on a drop-ship job. Only all-drop_ship
             // vendor POs go to the client address.
             const jobRoute = (job as any).shipping_route || "ship_through";
-            const vendorDefaultRoute = (decoratorRecord as any)?.default_shipping_route || null;
             const allDropShip = vendorItems.length > 0 && vendorItems.every(
               (it: any) => (it.shipping_route || vendorDefaultRoute || jobRoute) === "drop_ship"
             );
