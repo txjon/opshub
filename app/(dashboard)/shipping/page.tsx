@@ -94,17 +94,24 @@ export default function ShippingPage() {
   async function loadShippedHistory() {
     setShippedLoading(true);
     const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    // Shipped = fulfillment_status "shipped". Don't gate on phase=complete or
+    // job route = ship_through — a MIXED drop-ship job can have a ship_through
+    // item that was forwarded while the job stays phase=production (drop_ship
+    // items still in production). Filter to ship_through scope client-side
+    // (job route OR any item override) so pure stage jobs don't leak in.
     const { data } = await db
       .from("jobs")
-      .select("id, job_number, title, type_meta, fulfillment_tracking, fulfillment_status, updated_at, clients(name), items(id, received_qtys, ship_qtys, sample_qtys, buy_sheet_lines(size, qty_ordered))")
-      .eq("phase", "complete")
-      .eq("shipping_route", "ship_through")
+      .select("id, job_number, title, shipping_route, type_meta, fulfillment_tracking, fulfillment_status, updated_at, clients(name), items(id, shipping_route, received_qtys, ship_qtys, sample_qtys, buy_sheet_lines(size, qty_ordered))")
       .eq("fulfillment_status", "shipped")
       .gte("updated_at", since)
       .order("updated_at", { ascending: false })
-      .limit(50);
-    const mapped: ShippedHistoryEntry[] = ((data as any[]) || []).map(j => {
-      const items = j.items || [];
+      .limit(80);
+    const shipThroughData = ((data as any[]) || []).filter(j =>
+      j.shipping_route === "ship_through" || (j.items || []).some((it: any) => it.shipping_route === "ship_through"));
+    const mapped: ShippedHistoryEntry[] = shipThroughData.map(j => {
+      // Count only the ship_through items (a mixed job's drop_ship items aren't
+      // part of this forward).
+      const items = (j.items || []).filter((it: any) => (it.shipping_route || j.shipping_route) === "ship_through");
       const totalUnits = items.reduce((sum: number, it: any) => {
         const lines = it.buy_sheet_lines || [];
         const r = it.received_qtys || {};
