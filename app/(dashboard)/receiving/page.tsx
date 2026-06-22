@@ -555,6 +555,7 @@ export default function ReceivingPage() {
           || j.display_number.toLowerCase().includes(q))
       );
     }
+    if (filterDecorator === "__outside__") return [];   // outside-only view — no job shipments
     if (filterDecorator) arr = arr.filter(s => s.decorator_name === filterDecorator);
     return arr;
   }, [shipments, search, filterDecorator]);
@@ -843,7 +844,15 @@ export default function ReceivingPage() {
     const job = linkableJobs.find(j => j.id === s.job_id);
     return [s.description, s.sender, s.carrier, s.tracking, job?.client_name, job?.title].filter(Boolean).join(" ").toLowerCase().includes(q);
   };
-  const outsideForTab = (received: boolean) => (received ? outsideReceived : outsideShipments).filter(outsideMatchesSearch);
+  // Outside packages have a free-text sender, not a decorator assignment. Under
+  // an active decorator filter, only show ones whose sender matches that vendor
+  // (case-insensitive) — otherwise they'd leak into every vendor's view.
+  const outsideMatchesDecorator = (s: OutsideShipment) =>
+    !filterDecorator
+    || filterDecorator === "__outside__"   // outside-only view — show all outside packages
+    || (s.sender || "").trim().toLowerCase() === filterDecorator.toLowerCase();
+  const outsideForTab = (received: boolean) =>
+    (received ? outsideReceived : outsideShipments).filter(s => outsideMatchesSearch(s) && outsideMatchesDecorator(s));
   const OUTSIDE_BADGE = (
     <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: T.amber, background: T.card, border: `1px solid ${T.amber}`, padding: "1px 5px", borderRadius: 4, whiteSpace: "nowrap" }}>Outside</span>
   );
@@ -1106,6 +1115,7 @@ export default function ReceivingPage() {
         <select value={filterDecorator} onChange={e => setFilterDecorator(e.target.value)}
           style={{ padding: "7px 10px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: filterDecorator ? T.text : T.muted, fontSize: 12, fontFamily: font, outline: "none" }}>
           <option value="">All decorators</option>
+          {(outsideShipments.length > 0 || outsideReceived.length > 0) && <option value="__outside__">Outside shipments</option>}
           {decoratorOptions.map(d => <option key={d} value={d}>{d}</option>)}
         </select>
         {/* Silent mode toggle — suppresses client emails on receive.
