@@ -148,6 +148,8 @@ type OutsideShipment = {
   notes: string;
   job_id: string | null;
   resolved: boolean;
+  status: string;                 // 'pending' | 'received' | 'done'
+  route?: string | null;          // post-receive intent: 'ship_through' | 'stage'
   received_at: string;
   files: { name: string; driveLink: string; driveFileId: string }[];
   drive_folder_link: string | null;
@@ -235,11 +237,12 @@ export default function ReceivingPage() {
   // Receive-an-outside-package modal: the package being received + draft state.
   const [receivingOutside, setReceivingOutside] = useState<OutsideShipment | null>(null);
   const [recvCondition, setRecvCondition] = useState("good");
+  const [recvRoute, setRecvRoute] = useState<"ship_through" | "stage">("ship_through");
   const [recvQtys, setRecvQtys] = useState<Record<string, string>>({}); // key `${itemIdx}:${size}`
   const [recvPendingFiles, setRecvPendingFiles] = useState<File[]>([]);
   const [recvBusy, setRecvBusy] = useState(false);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ carrier: "", tracking: "", sender: "", description: "", condition: "", notes: "", destination: "receiving", jobId: "" });
+  const [form, setForm] = useState({ carrier: "", tracking: "", sender: "", description: "", condition: "", notes: "", destination: "ship_through", jobId: "" });
   // Structured line items for an outside shipment (name + size/qty rows).
   // Editor shape uses arrays for stable editing; collapsed to {name, sizes:{}}
   // on save.
@@ -325,17 +328,16 @@ export default function ReceivingPage() {
   // setState chains.
 
   async function loadOutside() {
-    // Pending = logged but not yet received (receiving-destination / legacy
-    // un-routed). Routed-out ones (shipping/fulfillment) are resolved=true with
-    // a route set and live on those pages — they don't come back here.
+    // Every logged package goes through receiving first. Pending = status
+    // 'pending' (awaiting receive), newest logged first.
     const { data: pending } = await supabase
-      .from("outside_shipments").select("*").eq("resolved", false)
-      .order("received_at", { ascending: false });
+      .from("outside_shipments").select("*").eq("status", "pending")
+      .order("created_at", { ascending: false });
     setOutsideShipments(pending || []);
-    // Received receiving-destination packages (resolved, no ship/stage route).
+    // Received = an audit trail of packages already received (they also live on
+    // the Shipping/Fulfillment pages per their route until marked done).
     const { data: received } = await supabase
-      .from("outside_shipments").select("*").eq("resolved", true)
-      .or("route.is.null,route.eq.receiving")
+      .from("outside_shipments").select("*").in("status", ["received", "done"])
       .order("received_at", { ascending: false }).limit(100);
     setOutsideReceived(received || []);
   }
@@ -373,14 +375,11 @@ export default function ReceivingPage() {
       }
       setUploadStatus("");
     }
-    // Destination decides where it flows: receiving = lands in the Pending
-    // receiving queue (route "receiving", unresolved); shipping/fulfillment =
-    // routed straight out and marked resolved so the shipping/fulfillment
-    // surfaces pick it up.
-    const route = form.destination === "shipping" ? "ship_through"
-      : form.destination === "fulfillment" ? "stage"
-      : "receiving";
-    const resolved = form.destination !== "receiving";
+    // Destination is the POST-RECEIVE intent — every package goes through
+    // receiving first (status 'pending'), then splits to Shipping (forward) or
+    // Fulfillment (stage) once received. The route can still be changed at
+    // receive time.
+    const route = form.destination === "stage" ? "stage" : "ship_through";
     // Collapse the editor rows to the stored shape; drop empty items/rows.
     const lineItems = formLineItems
       .map(i => ({ name: i.name.trim(), sizes: Object.fromEntries(
@@ -395,10 +394,10 @@ export default function ReceivingPage() {
       condition: form.condition || null, notes: form.notes || null,
       files: uploadedFiles.length > 0 ? uploadedFiles : [],
       drive_folder_link: driveFolderLink,
-      route, resolved, job_id: form.jobId || null,
+      route, status: "pending", resolved: false, job_id: form.jobId || null,
       line_items: lineItems,
     });
-    setForm({ carrier: "", tracking: "", sender: "", description: "", condition: "", notes: "", destination: "receiving", jobId: "" });
+    setForm({ carrier: "", tracking: "", sender: "", description: "", condition: "", notes: "", destination: "ship_through", jobId: "" });
     setFormLineItems([]); setOrderSearch("");
     setPendingFiles([]); setShowForm(false); setSaving(false);
     loadOutside();
@@ -409,10 +408,6 @@ export default function ReceivingPage() {
     loadOutside();
   }
 
-  async function routeShipment(id: string, route: "ship_through" | "stage") {
-    await supabase.from("outside_shipments").update({ route, resolved: true }).eq("id", id);
-    setOutsideShipments(prev => prev.filter(s => s.id !== id));
-  }
 
   // Receive an outside package at HPD. received_at is set to the actual receive
   // time so the Received list shows when it landed; resolved flips it out of the
@@ -432,7 +427,7 @@ export default function ReceivingPage() {
   }));
 
   async function receiveOutside(id: string) {
-    await supabase.from("outside_shipments").update({ resolved: true, received_at: new Date().toISOString() }).eq("id", id);
+    await supabase.from("outside_shipments").update({ status: "received", resolved: true, received_at: new Date().toISOString() }).eq("id", id);
     loadOutside();
   }
 
@@ -441,6 +436,7 @@ export default function ReceivingPage() {
   const openReceiveOutside = (s: OutsideShipment) => {
     setReceivingOutside(s);
     setRecvCondition(s.condition || "good");
+    setRecvRoute(s.route === "stage" ? "stage" : "ship_through");
     const q: Record<string, string> = {};
     (s.line_items || []).forEach((it, i) => {
       Object.entries(it.sizes || {}).forEach(([sz, n]) => { q[`${i}:${sz}`] = String(n); });
@@ -467,7 +463,8 @@ export default function ReceivingPage() {
       received: Object.fromEntries(Object.keys(it.sizes || {}).map(sz => [sz, Number(recvQtys[`${i}:${sz}`]) || 0])),
     }));
     await supabase.from("outside_shipments").update({
-      resolved: true, received_at: new Date().toISOString(),
+      status: "received", resolved: true, received_at: new Date().toISOString(),
+      route: recvRoute,   // route can be changed at receive time
       condition: recvCondition, line_items: updatedItems,
       files: [...(s.files || []), ...newFiles],
     }).eq("id", s.id);
@@ -1879,14 +1876,14 @@ export default function ReceivingPage() {
                 {uploadStatus && <div style={{ fontSize: 11, color: T.accent, marginTop: 4 }}>{uploadStatus}</div>}
               </div>
 
-              {/* Destination — where this package flows after logging. */}
+              {/* Post-receive route — every package goes through Receiving
+                  first, then splits here once received. Changeable at receive. */}
               <div style={{ marginBottom: 12 }}>
-                <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 4 }}>Destination</label>
+                <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 4 }}>After receiving →</label>
                 <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
                   {[
-                    { id: "receiving", label: "Receiving", hint: "Lands in the Pending queue to receive" },
-                    { id: "shipping", label: "Shipping", hint: "Route straight to the Shipping page" },
-                    { id: "fulfillment", label: "Fulfillment", hint: "Route straight to Fulfillment" },
+                    { id: "ship_through", label: "Forward to client", hint: "Once received, goes to Shipping to forward out" },
+                    { id: "stage", label: "Stage at warehouse", hint: "Once received, goes to Fulfillment to hold/pack" },
                   ].map(d => {
                     const active = form.destination === d.id;
                     return (
@@ -2006,6 +2003,27 @@ export default function ReceivingPage() {
                 <option value="partial">Partial damage</option>
                 <option value="wrong_item">Wrong item</option>
               </select>
+            </div>
+
+            {/* Post-receive route — where it goes next. Defaults to the logged
+                intent; change it here if the box turns out different. */}
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 10, color: T.faint, display: "block", marginBottom: 4 }}>After receiving →</label>
+              <div style={{ display: "flex", gap: 6 }}>
+                {[
+                  { id: "ship_through" as const, label: "Forward to client", hint: "Goes to the Shipping page to forward out" },
+                  { id: "stage" as const, label: "Stage at warehouse", hint: "Goes to Fulfillment to hold/pack" },
+                ].map(r => {
+                  const active = recvRoute === r.id;
+                  return (
+                    <button key={r.id} type="button" title={r.hint} onClick={() => setRecvRoute(r.id)}
+                      style={{ flex: 1, padding: "8px 10px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: font,
+                        border: `1px solid ${active ? T.accent : T.border}`, background: active ? T.accent : T.surface, color: active ? "#fff" : T.muted }}>
+                      {r.label}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
             <div style={{ marginBottom: 14 }}>

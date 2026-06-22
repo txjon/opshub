@@ -87,10 +87,10 @@ export default function FulfillmentPage() {
   async function load() {
     setLoading(true);
     const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString();
-    // Outside packages logged straight to Fulfillment (Receiving page → "Log
-    // incoming shipment" with Fulfillment destination): route="stage", resolved.
+    // Outside packages received and routed to staging (Receiving → received,
+    // route="stage"). They reach here only after going through Receiving.
     const { data: outsideStageData } = await supabase
-      .from("outside_shipments").select("*").eq("route", "stage").eq("resolved", true)
+      .from("outside_shipments").select("*").eq("route", "stage").eq("status", "received")
       .order("received_at", { ascending: false }).limit(50);
     setOutsideStage(outsideStageData || []);
     // Pull stage-route jobs touched in the last 30 days. Phase filter
@@ -285,7 +285,7 @@ export default function FulfillmentPage() {
                   {s.job_id && <span style={{ marginLeft: 8, color: T.accent }}>Linked to order</span>}
                 </div>
               </div>
-              <button onClick={async () => { await supabase.from("outside_shipments").update({ route: "fulfilled" }).eq("id", s.id); setOutsideStage(prev => prev.filter(x => x.id !== s.id)); }}
+              <button onClick={async () => { await supabase.from("outside_shipments").update({ status: "done" }).eq("id", s.id); setOutsideStage(prev => prev.filter(x => x.id !== s.id)); }}
                 style={{ fontSize: 10, fontWeight: 700, padding: "6px 14px", borderRadius: 6, border: "none", background: T.green, color: "#fff", cursor: "pointer", whiteSpace: "nowrap" }}>
                 Mark fulfilled
               </button>

@@ -85,10 +85,19 @@ export default function ShippingPage() {
     contacts: Array<{ name: string; email: string; role: string }>;
   } | null>(null);
   const [contactsByJob, setContactsByJob] = useState<Record<string, Array<{ name: string; email: string; role: string }>>>({});
+  // Outbound tracking the dispatcher enters per outside package before forwarding.
+  const [outboundTracking, setOutboundTracking] = useState<Record<string, string>>({});
 
-  useEffect(() => {
-    db.from("outside_shipments").select("*").eq("route", "ship_through").eq("resolved", true).order("received_at", { ascending: false }).then(({ data }) => setOutsideShipments(data || []));
-  }, []);
+  function loadOutsideReady() {
+    // Received forward (ship_through) packages, with the linked job's client +
+    // shipping address joined so the dispatcher knows where to forward.
+    db.from("outside_shipments")
+      .select("*, jobs:job_id(title, type_meta, clients(name, shipping_address))")
+      .eq("route", "ship_through").eq("status", "received")
+      .order("received_at", { ascending: false })
+      .then(({ data }) => setOutsideShipments(data || []));
+  }
+  useEffect(() => { loadOutsideReady(); }, []);
 
   // Load completed ship-through jobs for the Shipped history tab.
   async function loadShippedHistory() {
@@ -231,6 +240,29 @@ export default function ShippingPage() {
       qbInvoiceNumber: (job as any).invoiceNumber || (job as any).display_number || "",
       clientName: job.client_name || "",
       jobTitle: job.title || "",
+      contacts,
+    });
+  }
+
+  // Forward an outside ship-through package to the client. Requires an outbound
+  // tracking number; advances to done; if linked to a client (and not silent),
+  // opens the same Notify Recipient dialog used for job ship-outs.
+  async function markOutsideShipped(s: any) {
+    const tracking = (outboundTracking[s.id] || "").trim();
+    if (!tracking) return;
+    await db.from("outside_shipments").update({ status: "done", ship_tracking: tracking }).eq("id", s.id);
+    setOutsideShipments(prev => prev.filter(x => x.id !== s.id));
+    const job = s.jobs;
+    if (silentMode || !s.job_id || !job) return;   // nothing/no-one to notify
+    const contacts = await loadJobContacts(s.job_id);
+    setNotifyState({
+      jobId: s.job_id,
+      decoratorId: null,
+      decoratorName: "",
+      tracking,
+      qbInvoiceNumber: job.type_meta?.qb_invoice_number || "",
+      clientName: job.clients?.name || "",
+      jobTitle: job.title || s.description || "",
       contacts,
     });
   }
@@ -379,26 +411,43 @@ export default function ShippingPage() {
       {outsideShipments.length > 0 && (
         <>
           <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginTop: 8 }}>Outside Shipments</div>
-          {outsideShipments.map(s => (
+          {outsideShipments.map(s => {
+            const addr = s.jobs?.type_meta?.venue_address || s.jobs?.clients?.shipping_address || "";
+            const clientName = s.jobs?.clients?.name || "";
+            return (
             <div key={s.id} style={{ ...card, padding: "12px 14px" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <div>
+              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 14 }}>
+                <div style={{ minWidth: 0, flex: 1 }}>
                   <div style={{ fontSize: 13, fontWeight: 600 }}>{s.description}</div>
                   <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
                     {[s.sender, s.carrier, s.tracking].filter(Boolean).join(" · ")}
-                    {s.job_id && <span style={{ marginLeft: 8, color: T.blue }}> Linked to project</span>}
+                    {s.job_id && <span style={{ marginLeft: 8, color: T.blue }}>Linked{clientName ? ` · ${clientName}` : ""}</span>}
                   </div>
+                  {/* Forward-to address pulled from the linked client. */}
+                  {addr ? (
+                    <div style={{ marginTop: 8 }}>
+                      <div style={{ fontSize: 9, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 2 }}>Forward to</div>
+                      <div style={{ fontSize: 12, color: T.text, whiteSpace: "pre-line", lineHeight: 1.4 }}>{addr}</div>
+                    </div>
+                  ) : s.job_id ? (
+                    <div style={{ marginTop: 8, fontSize: 11, color: T.amber }}>Linked client has no shipping address on file — enter it manually.</div>
+                  ) : (
+                    <div style={{ marginTop: 8, fontSize: 11, color: T.faint }}>Not linked to a client — no address / no email on forward.</div>
+                  )}
                 </div>
-                <button onClick={async () => {
-                  await db.from("outside_shipments").update({ route: "shipped" }).eq("id", s.id);
-                  setOutsideShipments(prev => prev.filter(x => x.id !== s.id));
-                }}
-                  style={{ fontSize: 10, fontWeight: 600, padding: "5px 14px", borderRadius: 6, border: "none", background: T.green, color: "#fff", cursor: "pointer" }}>
-                  Mark Shipped
-                </button>
+                <div style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, width: 200 }}>
+                  <input value={outboundTracking[s.id] || ""} onChange={e => setOutboundTracking(p => ({ ...p, [s.id]: e.target.value }))}
+                    placeholder="Outbound tracking #"
+                    style={{ ...ic, fontFamily: mono, fontSize: 12 }} />
+                  <button onClick={() => markOutsideShipped(s)} disabled={!(outboundTracking[s.id] || "").trim()}
+                    style={{ fontSize: 11, fontWeight: 700, padding: "7px 16px", borderRadius: 6, border: "none", background: T.green, color: "#fff",
+                      cursor: (outboundTracking[s.id] || "").trim() ? "pointer" : "default", opacity: (outboundTracking[s.id] || "").trim() ? 1 : 0.5 }}>
+                    Mark Shipped
+                  </button>
+                </div>
               </div>
             </div>
-          ))}
+          ); })}
         </>
       )}
       </>)}
