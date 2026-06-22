@@ -554,10 +554,15 @@ export function useWarehouse() {
     }, 800);
   }
 
-  // Split into sections
+  // Split into sections. Route is resolved PER ITEM (per-item override → job
+  // route) — a drop-ship job can carry a ship_through/stage item (vendor
+  // default route), and that item must surface here even though the job route
+  // differs. drop_ship items are already filtered out of j.items upstream, so
+  // "every received" gates on the items that actually come to HPD.
+  const effRoute = (j: any, it: any) => it.shipping_route || j.shipping_route;
   const incoming = jobs.filter(j => j.items.some(it => !it.received_at_hpd));
-  const shipThrough = jobs.filter(j => j.shipping_route === "ship_through" && j.items.every(it => it.received_at_hpd));
-  const fulfillment = jobs.filter(j => j.shipping_route === "stage" && j.items.every(it => it.received_at_hpd));
+  const shipThrough = jobs.filter(j => j.items.length > 0 && j.items.every(it => it.received_at_hpd) && j.items.some(it => effRoute(j, it) === "ship_through"));
+  const fulfillment = jobs.filter(j => j.items.length > 0 && j.items.every(it => it.received_at_hpd) && j.items.some(it => effRoute(j, it) === "stage"));
 
   return {
     loading, jobs, setJobs, incoming, shipThrough, fulfillment,
