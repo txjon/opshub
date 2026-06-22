@@ -12,6 +12,7 @@ const DEPT_NAV: Record<Department, { href: string; label: string }[]> = {
   owner: [
     // Insights merged into God Mode ("Overview") — /insights now redirects there.
     { href: "/reports", label: "Reports" },
+    { href: "/hours", label: "Hours" },
     { href: "/integrations", label: "Integrations" },
   ],
   labs: [
