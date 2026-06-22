@@ -101,6 +101,7 @@ export default function ProductionPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [filterDecorator, setFilterDecorator] = useState("");
+  const [filterClient, setFilterClient] = useState("");
   const [filterStalled, setFilterStalled] = useState(false);
   const [modalProject, setModalProject] = useState<ProjectGroup | null>(null);
   // Which decorator the modal is focused on. Vendor chip click sets
@@ -782,8 +783,25 @@ export default function ProductionPage() {
   }
 
   // ── Stats ──
-  const allItems = projects.flatMap(p => p.decoratorGroups.flatMap(dg => dg.items));
-  const decorators = useMemo(() => [...new Set(allItems.map(it => it.decorator_name).filter(Boolean))].sort(), [projects]);
+  // Filter option lists — only vendors/clients that currently have items IN
+  // PRODUCTION (a non-shipped item on a live job), so the dropdowns stay
+  // relevant to the board, not every decorator/client ever.
+  const { decorators, clients } = useMemo(() => {
+    const decSet = new Set<string>();
+    const cliSet = new Set<string>();
+    for (const p of projects) {
+      if (p.phase === "complete" || p.phase === "cancelled") continue;
+      let clientHasInProd = false;
+      for (const dg of p.decoratorGroups) {
+        if (dg.items.some((it: any) => it.pipeline_stage !== "shipped")) {
+          if (dg.decoratorName) decSet.add(dg.decoratorName);
+          clientHasInProd = true;
+        }
+      }
+      if (clientHasInProd && p.clientName) cliSet.add(p.clientName);
+    }
+    return { decorators: [...decSet].sort(), clients: [...cliSet].sort() };
+  }, [projects]);
 
   // Vanity KPIs for items still at the decorator. Once an item ships
   // from the decorator (pipeline_stage = "shipped"), production is done
@@ -904,9 +922,10 @@ export default function ProductionPage() {
       if (q && !(p.clientName.toLowerCase().includes(q) || p.jobTitle.toLowerCase().includes(q) || p.jobNumber.toLowerCase().includes(q) || (p.invoiceNumber || "").toLowerCase().includes(q) ||
         p.decoratorGroups.some(dg => dg.decoratorName.toLowerCase().includes(q) || dg.items.some(it => it.name.toLowerCase().includes(q))))) return false;
       if (filterDecorator && !p.decoratorGroups.some(dg => dg.decoratorName === filterDecorator)) return false;
+      if (filterClient && p.clientName !== filterClient) return false;
       return true;
     });
-  }, [enriched, search, filterDecorator]);
+  }, [enriched, search, filterDecorator, filterClient]);
 
   // Per-tab counts (always reflect the base-filtered set so they update
   // as the user types or picks a decorator).
@@ -992,6 +1011,7 @@ export default function ProductionPage() {
           const matchesTab = tab === "active" ? inProd : tab === "overdue" ? overdue : tab === "stalled" ? stalled : shipped;
           if (!matchesTab) continue;
           if (filterDecorator && it.decorator_name !== filterDecorator) continue;
+          if (filterClient && p.clientName !== filterClient) continue;
           if (q && !(
             p.clientName.toLowerCase().includes(q) || p.jobTitle.toLowerCase().includes(q) ||
             p.jobNumber.toLowerCase().includes(q) || (p.invoiceNumber || "").toLowerCase().includes(q) ||
@@ -1019,7 +1039,7 @@ export default function ProductionPage() {
     const dir = listSortDir === "asc" ? 1 : -1;
     return [...rows].sort((a, b) => cmpAsc(a, b) * dir);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enriched, tab, listSortKey, listSortDir, search, filterDecorator]);
+  }, [enriched, tab, listSortKey, listSortDir, search, filterDecorator, filterClient]);
 
   const ic: React.CSSProperties = { padding: "5px 8px", border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface, color: T.text, fontSize: 11, fontFamily: mono, outline: "none", width: "100%" };
 
@@ -1086,6 +1106,11 @@ export default function ProductionPage() {
         <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, letterSpacing: "-0.02em" }}>Production</h1>
         <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search projects, clients, decorators..."
           style={{ flex: 1, maxWidth: 360, padding: "7px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: font, outline: "none" }} />
+        <select value={filterClient} onChange={e => setFilterClient(e.target.value)}
+          style={{ padding: "7px 10px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: filterClient ? T.text : T.muted, fontSize: 12, fontFamily: font, outline: "none" }}>
+          <option value="">All clients</option>
+          {clients.map(c => <option key={c} value={c!}>{c}</option>)}
+        </select>
         <select value={filterDecorator} onChange={e => setFilterDecorator(e.target.value)}
           style={{ padding: "7px 10px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: filterDecorator ? T.text : T.muted, fontSize: 12, fontFamily: font, outline: "none" }}>
           <option value="">All decorators</option>
