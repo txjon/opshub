@@ -147,6 +147,7 @@ type OutsideShipment = {
   condition: string;
   notes: string;
   job_id: string | null;
+  client_id: string | null;
   resolved: boolean;
   status: string;                 // 'pending' | 'received' | 'done'
   route?: string | null;          // post-receive intent: 'ship_through' | 'stage'
@@ -242,7 +243,7 @@ export default function ReceivingPage() {
   const [recvPendingFiles, setRecvPendingFiles] = useState<File[]>([]);
   const [recvBusy, setRecvBusy] = useState(false);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ carrier: "", tracking: "", sender: "", description: "", condition: "", notes: "", destination: "ship_through", jobId: "" });
+  const [form, setForm] = useState({ carrier: "", tracking: "", sender: "", description: "", condition: "", notes: "", destination: "ship_through", clientId: "" });
   // Structured line items for an outside shipment (name + size/qty rows).
   // Editor shape uses arrays for stable editing; collapsed to {name, sizes:{}}
   // on save.
@@ -253,8 +254,9 @@ export default function ReceivingPage() {
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [linkableJobs, setLinkableJobs] = useState<{ id: string; title: string; client_name: string; job_number: string; display_number: string }[]>([]);
+  const [linkableClients, setLinkableClients] = useState<{ id: string; name: string }[]>([]);
 
-  useEffect(() => { loadOutside(); loadLinkableJobs(); }, []);
+  useEffect(() => { loadOutside(); loadLinkableJobs(); loadLinkableClients(); }, []);
 
   // Escape closes modal
   useEffect(() => {
@@ -394,17 +396,26 @@ export default function ReceivingPage() {
       condition: form.condition || null, notes: form.notes || null,
       files: uploadedFiles.length > 0 ? uploadedFiles : [],
       drive_folder_link: driveFolderLink,
-      route, status: "pending", resolved: false, job_id: form.jobId || null,
+      route, status: "pending", resolved: false, client_id: form.clientId || null,
       line_items: lineItems,
     });
-    setForm({ carrier: "", tracking: "", sender: "", description: "", condition: "", notes: "", destination: "ship_through", jobId: "" });
+    setForm({ carrier: "", tracking: "", sender: "", description: "", condition: "", notes: "", destination: "ship_through", clientId: "" });
     setFormLineItems([]); setOrderSearch("");
     setPendingFiles([]); setShowForm(false); setSaving(false);
     loadOutside();
   }
 
-  async function linkToJob(shipmentId: string, jobId: string) {
-    await supabase.from("outside_shipments").update({ job_id: jobId }).eq("id", shipmentId);
+  async function loadLinkableClients() {
+    const { data } = await supabase.from("clients").select("id, name").order("name").limit(1000);
+    setLinkableClients((data || []).map((c: any) => ({ id: c.id, name: c.name })));
+  }
+  const clientNameOf = (s: OutsideShipment) =>
+    (s.client_id && linkableClients.find(c => c.id === s.client_id)?.name)
+    || linkableJobs.find(j => j.id === s.job_id)?.client_name
+    || "";
+
+  async function linkToClient(shipmentId: string, clientId: string) {
+    await supabase.from("outside_shipments").update({ client_id: clientId }).eq("id", shipmentId);
     loadOutside();
   }
 
@@ -838,8 +849,7 @@ export default function ReceivingPage() {
   const outsideMatchesSearch = (s: OutsideShipment) => {
     const q = search.trim().toLowerCase();
     if (!q) return true;
-    const job = linkableJobs.find(j => j.id === s.job_id);
-    return [s.description, s.sender, s.carrier, s.tracking, job?.client_name, job?.title].filter(Boolean).join(" ").toLowerCase().includes(q);
+    return [s.description, s.sender, s.carrier, s.tracking, clientNameOf(s)].filter(Boolean).join(" ").toLowerCase().includes(q);
   };
   // Outside packages have a free-text sender, not a decorator assignment. Under
   // an active decorator filter, only show ones whose sender matches that vendor
@@ -856,7 +866,7 @@ export default function ReceivingPage() {
 
   // List-view row (matches renderListView columns).
   const renderOutsideListRow = (s: OutsideShipment, received: boolean) => {
-    const job = linkableJobs.find(j => j.id === s.job_id);
+    const linkedClient = clientNameOf(s);
     const units = outsideUnits(s, received);
     const summary = outsideItemsSummary(s);
     return (
@@ -866,7 +876,7 @@ export default function ReceivingPage() {
         <div style={{ flexGrow: 0, flexShrink: 1, flexBasis: 300, minWidth: 0, paddingLeft: 10 }}>
           <div style={{ fontWeight: 600, color: T.text, wordBreak: "break-word" }}>{s.description}</div>
           <div style={{ fontSize: 11, color: T.muted, marginTop: 1, wordBreak: "break-word" }}>
-            {job ? job.client_name : (s.sender ? `From ${s.sender}` : "No client")}
+            {linkedClient || (s.sender ? `From ${s.sender}` : "No client")}
             {summary && <span style={{ color: T.faint }}> · {summary}</span>}
           </div>
         </div>
@@ -892,7 +902,7 @@ export default function ReceivingPage() {
 
   // Shipments-view card (matches renderShipmentRow columns).
   const renderOutsideShipmentRow = (s: OutsideShipment, received: boolean) => {
-    const job = linkableJobs.find(j => j.id === s.job_id);
+    const linkedClient = clientNameOf(s);
     const units = outsideUnits(s, received);
     const summary = outsideItemsSummary(s);
     return (
@@ -904,7 +914,7 @@ export default function ReceivingPage() {
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: T.text, wordBreak: "break-word" }}>{s.description}</div>
           <div style={{ fontSize: 11, color: T.muted, marginTop: 1, wordBreak: "break-word" }}>
-            {job ? `${job.display_number} · ${job.client_name}` : (s.carrier || "")}
+            {linkedClient || s.carrier || ""}
             {summary && <span style={{ color: T.faint }}> · {summary}</span>}
           </div>
         </div>
@@ -968,7 +978,6 @@ export default function ReceivingPage() {
       ...rows.map(r => ({ kind: "item", r } as Entry)),
       ...outsideForTab(isReceivedTab).map(s => ({ kind: "outside", s } as Entry)),
     ];
-    const jobOf = (s: OutsideShipment) => linkableJobs.find(j => j.id === s.job_id);
     const sortVal = (e: Entry): string | number => {
       if (e.kind === "item") {
         const { it, s, job } = e.r;
@@ -983,11 +992,11 @@ export default function ReceivingPage() {
           case "units": return tQty(it.qtys);
         }
       } else {
-        const s = e.s; const job = jobOf(s);
+        const s = e.s;
         const ts = s.received_at ? new Date(s.received_at).getTime() : Infinity;
         switch (listSortKey) {
-          case "inv": return (job?.display_number || "").toLowerCase();
-          case "client": return (job?.client_name || s.sender || "").toLowerCase();
+          case "inv": return "";
+          case "client": return (clientNameOf(s) || s.sender || "").toLowerCase();
           case "item": return (s.description || "").toLowerCase();
           case "decorator": return (s.sender || "").toLowerCase();
           case "tracking": return (s.tracking || "").toLowerCase();
@@ -1898,34 +1907,32 @@ export default function ReceivingPage() {
                   })}
                 </div>
                 {(() => {
-                  const selected = linkableJobs.find(j => j.id === form.jobId);
+                  const selected = linkableClients.find(c => c.id === form.clientId);
                   if (selected) {
                     return (
                       <div style={{ ...ic, fontFamily: font, fontSize: 12, display: "flex", alignItems: "center", gap: 8 }}>
-                        <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          <span style={{ fontFamily: mono, color: T.muted }}>{selected.display_number}</span> · {selected.client_name} <span style={{ color: T.faint }}>— {selected.title}</span>
-                        </span>
-                        <button type="button" onClick={() => { setForm(f => ({ ...f, jobId: "" })); setOrderSearch(""); }}
+                        <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 600 }}>{selected.name}</span>
+                        <button type="button" onClick={() => { setForm(f => ({ ...f, clientId: "" })); setOrderSearch(""); }}
                           style={{ background: "none", border: "none", color: T.faint, fontSize: 16, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>
                       </div>
                     );
                   }
                   const q = orderSearch.trim().toLowerCase();
-                  const matches = q ? linkableJobs.filter(j => `${j.display_number} ${j.client_name} ${j.title}`.toLowerCase().includes(q)).slice(0, 8) : [];
+                  const matches = q ? linkableClients.filter(c => c.name.toLowerCase().includes(q)).slice(0, 8) : [];
                   return (
                     <div style={{ position: "relative" }}>
-                      <input value={orderSearch} onChange={e => setOrderSearch(e.target.value)} placeholder="Link to order (optional) — search client, #, or title…"
+                      <input value={orderSearch} onChange={e => setOrderSearch(e.target.value)} placeholder="Link to client (optional) — needed to forward/notify…"
                         style={{ ...ic, fontFamily: font, fontSize: 12 }} />
                       {q && (
                         <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 10, background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, marginTop: 4, maxHeight: 240, overflowY: "auto", boxShadow: "0 6px 24px rgba(0,0,0,0.14)" }}>
                           {matches.length === 0 ? (
-                            <div style={{ padding: "8px 12px", fontSize: 11, color: T.faint }}>No match in recent orders</div>
-                          ) : matches.map(j => (
-                            <div key={j.id} onClick={() => { setForm(f => ({ ...f, jobId: j.id })); setOrderSearch(""); }}
-                              style={{ padding: "8px 12px", fontSize: 12, cursor: "pointer", borderBottom: `1px solid ${T.border}55` }}
+                            <div style={{ padding: "8px 12px", fontSize: 11, color: T.faint }}>No matching client</div>
+                          ) : matches.map(c => (
+                            <div key={c.id} onClick={() => { setForm(f => ({ ...f, clientId: c.id })); setOrderSearch(""); }}
+                              style={{ padding: "8px 12px", fontSize: 12, cursor: "pointer", borderBottom: `1px solid ${T.border}55`, fontWeight: 600 }}
                               onMouseEnter={e => e.currentTarget.style.background = T.surface}
                               onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                              <span style={{ fontFamily: mono, color: T.muted }}>{j.display_number}</span> · <span style={{ fontWeight: 600 }}>{j.client_name}</span> <span style={{ color: T.faint }}>— {j.title}</span>
+                              {c.name}
                             </div>
                           ))}
                         </div>

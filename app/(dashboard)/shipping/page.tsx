@@ -90,10 +90,11 @@ export default function ShippingPage() {
   const [outboundTracking, setOutboundTracking] = useState<Record<string, string>>({});
 
   function loadOutsideReady() {
-    // Received forward (ship_through) packages, with the linked job's client +
-    // shipping address joined so the dispatcher knows where to forward.
+    // Received forward (ship_through) packages, with the linked CLIENT's
+    // shipping address + contacts joined so the dispatcher knows where to
+    // forward and who to notify.
     db.from("outside_shipments")
-      .select("*, jobs:job_id(title, type_meta, clients(name, shipping_address))")
+      .select("*, clients:client_id(name, shipping_address, contacts(name, email))")
       .eq("route", "ship_through").eq("status", "received")
       .order("received_at", { ascending: false })
       .then(({ data }) => setOutsideShipments(data || []));
@@ -153,7 +154,7 @@ export default function ShippingPage() {
     // shipped history too. Linked client name via job_id for now.
     const { data: outsideDone } = await db
       .from("outside_shipments")
-      .select("*, jobs:job_id(title, clients(name))")
+      .select("*, clients:client_id(name)")
       .eq("route", "ship_through").eq("status", "done")
       .gte("received_at", since)
       .order("received_at", { ascending: false }).limit(50);
@@ -166,7 +167,7 @@ export default function ShippingPage() {
         jobNumber: "Outside",
         invoiceNumber: null,
         title: s.description || "Outside package",
-        clientName: s.jobs?.clients?.name || s.sender || "",
+        clientName: s.clients?.name || s.sender || "",
         fulfillmentTracking: s.ship_tracking || "",
         shippedAt: s.received_at,
         itemCount: li.length,
@@ -271,27 +272,40 @@ export default function ShippingPage() {
     });
   }
 
+  // Lightweight client-notify dialog for forwarded outside packages (no job/
+  // invoice). Recipients come from the linked client's contacts.
+  const [outsideNotify, setOutsideNotify] = useState<{
+    clientName: string; description: string; tracking: string;
+    contacts: Array<{ name: string; email: string }>; sel: Record<number, boolean>; sending: boolean;
+  } | null>(null);
+
   // Forward an outside ship-through package to the client. Requires an outbound
   // tracking number; advances to done; if linked to a client (and not silent),
-  // opens the same Notify Recipient dialog used for job ship-outs.
+  // opens the client-notify dialog to email the client their tracking.
   async function markOutsideShipped(s: any) {
     const tracking = (outboundTracking[s.id] || "").trim();
     if (!tracking) return;
     await db.from("outside_shipments").update({ status: "done", ship_tracking: tracking }).eq("id", s.id);
     setOutsideShipments(prev => prev.filter(x => x.id !== s.id));
-    const job = s.jobs;
-    if (silentMode || !s.job_id || !job) return;   // nothing/no-one to notify
-    const contacts = await loadJobContacts(s.job_id);
-    setNotifyState({
-      jobId: s.job_id,
-      decoratorId: null,
-      decoratorName: "",
-      tracking,
-      qbInvoiceNumber: job.type_meta?.qb_invoice_number || "",
-      clientName: job.clients?.name || "",
-      jobTitle: job.title || s.description || "",
-      contacts,
-    });
+    const contacts = ((s.clients?.contacts || []) as any[]).filter(c => c?.email).map(c => ({ name: c.name || "", email: c.email }));
+    if (silentMode || !s.client_id || contacts.length === 0) return;   // no-one to notify
+    const sel: Record<number, boolean> = {};
+    contacts.forEach((_, i) => { sel[i] = true; });
+    setOutsideNotify({ clientName: s.clients?.name || "", description: s.description || "", tracking, contacts, sel, sending: false });
+  }
+
+  async function sendOutsideNotify() {
+    if (!outsideNotify) return;
+    const recipients = outsideNotify.contacts.filter((_, i) => outsideNotify.sel[i]).map(c => c.email);
+    if (recipients.length === 0) { setOutsideNotify(null); return; }
+    setOutsideNotify(p => p ? { ...p, sending: true } : p);
+    try {
+      await fetch("/api/outside-shipments/notify", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ recipients, tracking: outsideNotify.tracking, description: outsideNotify.description, clientName: outsideNotify.clientName }),
+      });
+    } catch { /* best-effort */ }
+    setOutsideNotify(null);
   }
 
   const card: React.CSSProperties = { background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" };
@@ -439,8 +453,8 @@ export default function ShippingPage() {
         <>
           <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginTop: 8 }}>Outside Shipments</div>
           {outsideShipments.map(s => {
-            const addr = s.jobs?.type_meta?.venue_address || s.jobs?.clients?.shipping_address || "";
-            const clientName = s.jobs?.clients?.name || "";
+            const addr = s.clients?.shipping_address || "";
+            const clientName = s.clients?.name || "";
             return (
             <div key={s.id} style={{ ...card, padding: "12px 14px" }}>
               <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 14 }}>
@@ -448,7 +462,7 @@ export default function ShippingPage() {
                   <div style={{ fontSize: 13, fontWeight: 600 }}>{s.description}</div>
                   <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
                     {[s.sender, s.carrier, s.tracking].filter(Boolean).join(" · ")}
-                    {s.job_id && <span style={{ marginLeft: 8, color: T.blue }}>Linked{clientName ? ` · ${clientName}` : ""}</span>}
+                    {clientName && <span style={{ marginLeft: 8, color: T.blue }}>{clientName}</span>}
                   </div>
                   {/* Forward-to address pulled from the linked client. */}
                   {addr ? (
@@ -456,7 +470,7 @@ export default function ShippingPage() {
                       <div style={{ fontSize: 9, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 2 }}>Forward to</div>
                       <div style={{ fontSize: 12, color: T.text, whiteSpace: "pre-line", lineHeight: 1.4 }}>{addr}</div>
                     </div>
-                  ) : s.job_id ? (
+                  ) : s.client_id ? (
                     <div style={{ marginTop: 8, fontSize: 11, color: T.amber }}>Linked client has no shipping address on file — enter it manually.</div>
                   ) : (
                     <div style={{ marginTop: 8, fontSize: 11, color: T.faint }}>Not linked to a client — no address / no email on forward.</div>
@@ -861,6 +875,33 @@ export default function ShippingPage() {
         jobTitle={notifyState?.jobTitle || ""}
         contacts={notifyState?.contacts || []}
       />
+
+      {/* Client-notify dialog for forwarded outside packages (no job/invoice) */}
+      {outsideNotify && (
+        <div onClick={() => setOutsideNotify(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 200, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "8vh 16px", overflowY: "auto" }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: 18, width: "100%", maxWidth: 440, boxShadow: "0 8px 40px rgba(0,0,0,0.18)" }}>
+            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 2 }}>Notify {outsideNotify.clientName || "client"}</div>
+            <div style={{ fontSize: 12, color: T.muted, marginBottom: 12 }}>{outsideNotify.description} · <span style={{ fontFamily: mono }}>{outsideNotify.tracking}</span></div>
+            <div style={{ fontSize: 10, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Recipients</div>
+            {outsideNotify.contacts.map((c, i) => (
+              <label key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", fontSize: 13, cursor: "pointer" }}>
+                <input type="checkbox" checked={!!outsideNotify.sel[i]} onChange={() => setOutsideNotify(p => p ? { ...p, sel: { ...p.sel, [i]: !p.sel[i] } } : p)} style={{ width: 15, height: 15, accentColor: T.green, cursor: "pointer" }} />
+                <span style={{ color: T.text }}>{c.name || c.email}</span>
+                {c.name && <span style={{ color: T.faint, fontSize: 11 }}>{c.email}</span>}
+              </label>
+            ))}
+            <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+              <button onClick={sendOutsideNotify} disabled={outsideNotify.sending || !outsideNotify.contacts.some((_, i) => outsideNotify.sel[i])}
+                style={{ padding: "8px 18px", borderRadius: 6, border: "none", background: T.green, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", opacity: outsideNotify.sending ? 0.6 : 1 }}>
+                {outsideNotify.sending ? "Sending…" : "Send tracking"}
+              </button>
+              <button onClick={() => setOutsideNotify(null)} style={{ padding: "8px 16px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.muted, fontSize: 12, cursor: "pointer" }}>
+                Skip
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
