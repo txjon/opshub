@@ -250,7 +250,10 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
   // (manual override → vendor default → job route) ships to OUR warehouse, even
   // on a drop-ship job. Only when all the vendor's items are drop_ship does the
   // PO go to the client address.
-  const activeVendorRoute = getDec(active)?.default_shipping_route || "";
+  // Vendor default route only overrides DROP-SHIP jobs (stage/ship_through
+  // already route to HPD). Inert on non-drop-ship jobs.
+  const isDropShipJob = shippingRoute === "drop_ship";
+  const activeVendorRoute = isDropShipJob ? (getDec(active)?.default_shipping_route || "") : "";
   const routeOfItem = (it) => ((itemRoutes[it.id] ?? it.shipping_route) || activeVendorRoute || shippingRoute);
   const activeShipsToClient = vItems.length > 0 && vItems.every(it => routeOfItem(it) === "drop_ship");
   const activeDefaultShipTo = activeShipsToClient ? clientAddress : HPD_WAREHOUSE;
@@ -735,7 +738,7 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
             // Vendor default route — applied to this item on PO send when it has
             // no manual override. Shown here so the effective route is visible
             // BEFORE sending.
-            const vendorDefault = getDec(getCostProd(item.id)?.printVendor)?.default_shipping_route || "";
+            const vendorDefault = isDropShipJob ? (getDec(getCostProd(item.id)?.printVendor)?.default_shipping_route || "") : "";
             return (
               <div key={item.id} style={{borderBottom:i<vItems.length-1?"1px solid "+T.border:"none",padding:"12px 14px"}}>
                 {/* Two-column card: left = item meta + route/vendor, right =

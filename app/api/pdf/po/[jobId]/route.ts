@@ -517,10 +517,12 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     const { data: decoratorRecord } = await supabase
       .from("decorators").select("*").or(`name.ilike.${vendorName},short_code.ilike.${vendorName}`).limit(1).maybeSingle()
       .then((r: any) => r).catch(() => ({ data: null, error: null }));
-    // The vendor's default route — from the looked-up record, falling back to
-    // the decorator joined on the items (which always matched this vendor).
-    const vendorDefaultRoute = (decoratorRecord as any)?.default_shipping_route
-      || (firstDecorator as any)?.default_shipping_route || null;
+    // The vendor's default route — only an override on DROP-SHIP jobs (stage/
+    // ship_through already route to HPD). From the looked-up record, falling
+    // back to the decorator joined on the items (which always matched).
+    const vendorDefaultRoute = ((job as any).shipping_route === "drop_ship")
+      ? ((decoratorRecord as any)?.default_shipping_route || (firstDecorator as any)?.default_shipping_route || null)
+      : null;
 
     const itemLetters = vendorItems.map((it: any) => it.letter).join("");
 

@@ -37,6 +37,10 @@ export async function applyPoSentToVendorItems(supabase: any, jobId: string, ven
   const vendorItems = await fetchVendorItems(supabase, jobId, vendor);
   const today = new Date().toISOString().slice(0, 10);
   const nowIso = new Date().toISOString();
+  // Vendor default route is an override for DROP-SHIP jobs only — stage and
+  // ship_through already route to HPD, so there's nothing to override there.
+  const { data: jobRow } = await supabase.from("jobs").select("shipping_route").eq("id", jobId).single();
+  const isDropShipJob = (jobRow?.shipping_route || "ship_through") === "drop_ship";
   for (const it of vendorItems) {
     const da = (it.decorator_assignments || [])[0];
     if (da && !da.sent_to_decorator_date) {
@@ -51,12 +55,12 @@ export async function applyPoSentToVendorItems(supabase: any, jobId: string, ven
       }
       if (da) await supabase.from("decorator_assignments").update({ pipeline_stage: "in_production" }).eq("id", da.id);
     }
-    // Apply the vendor's default shipping route — but ONLY when the item has no
-    // route of its own yet (null). A manual per-item override is non-null, so
-    // this never clobbers it. Lets bulk-to-HPD vendors (One Stop, Sticker Mule)
-    // make their items behave like ship-through on a drop-ship job.
+    // On a drop-ship job, apply the vendor's default route — but ONLY when the
+    // item has no route of its own (null), so a manual override always wins.
+    // Lets bulk-to-HPD vendors (One Stop, Sticker Mule) make their items behave
+    // like ship-through instead of dropping to the client.
     const vendorDefault = da?.decorators?.default_shipping_route || null;
-    if (vendorDefault && (it.shipping_route == null || it.shipping_route === "")) {
+    if (isDropShipJob && vendorDefault && (it.shipping_route == null || it.shipping_route === "")) {
       await supabase.from("items").update({ shipping_route: vendorDefault }).eq("id", it.id);
     }
   }
