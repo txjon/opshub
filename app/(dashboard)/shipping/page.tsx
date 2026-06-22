@@ -18,6 +18,7 @@ type ShippedHistoryEntry = {
   shippedAt: string;
   itemCount: number;
   totalUnits: number;
+  isOutside?: boolean;
 };
 
 export default function ShippingPage() {
@@ -148,7 +149,33 @@ export default function ShippingPage() {
         totalUnits,
       };
     });
-    setShippedHistory(mapped);
+    // Forwarded outside packages (status=done, route=ship_through) belong in
+    // shipped history too. Linked client name via job_id for now.
+    const { data: outsideDone } = await db
+      .from("outside_shipments")
+      .select("*, jobs:job_id(title, clients(name))")
+      .eq("route", "ship_through").eq("status", "done")
+      .gte("received_at", since)
+      .order("received_at", { ascending: false }).limit(50);
+    const outsideMapped: ShippedHistoryEntry[] = ((outsideDone as any[]) || []).map(s => {
+      const li = s.line_items || [];
+      const totalUnits = li.reduce((sum: number, it: any) =>
+        sum + Object.values(it.received || it.sizes || {}).reduce((a: number, v: any) => a + (Number(v) || 0), 0), 0);
+      return {
+        id: s.id,
+        jobNumber: "Outside",
+        invoiceNumber: null,
+        title: s.description || "Outside package",
+        clientName: s.jobs?.clients?.name || s.sender || "",
+        fulfillmentTracking: s.ship_tracking || "",
+        shippedAt: s.received_at,
+        itemCount: li.length,
+        totalUnits,
+        isOutside: true,
+      };
+    });
+    const merged = [...mapped, ...outsideMapped].sort((a, b) => (b.shippedAt || "").localeCompare(a.shippedAt || ""));
+    setShippedHistory(merged);
     setShippedLoading(false);
   }
 
