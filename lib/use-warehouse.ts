@@ -559,10 +559,14 @@ export function useWarehouse() {
   // default route), and that item must surface here even though the job route
   // differs. drop_ship items are already filtered out of j.items upstream, so
   // "every received" gates on the items that actually come to HPD.
+  // fulfillment_status === "shipped" means the ship-out is already done — drop
+  // it from both lists. (Needed for mixed jobs where the job phase stays
+  // non-complete because of still-in-production drop_ship items, so the job
+  // never falls out of the warehouse query on its own.)
   const effRoute = (j: any, it: any) => it.shipping_route || j.shipping_route;
   const incoming = jobs.filter(j => j.items.some(it => !it.received_at_hpd));
-  const shipThrough = jobs.filter(j => j.items.length > 0 && j.items.every(it => it.received_at_hpd) && j.items.some(it => effRoute(j, it) === "ship_through"));
-  const fulfillment = jobs.filter(j => j.items.length > 0 && j.items.every(it => it.received_at_hpd) && j.items.some(it => effRoute(j, it) === "stage"));
+  const shipThrough = jobs.filter(j => j.fulfillment_status !== "shipped" && j.items.length > 0 && j.items.every(it => it.received_at_hpd) && j.items.some(it => effRoute(j, it) === "ship_through"));
+  const fulfillment = jobs.filter(j => j.fulfillment_status !== "shipped" && j.items.length > 0 && j.items.every(it => it.received_at_hpd) && j.items.some(it => effRoute(j, it) === "stage"));
 
   return {
     loading, jobs, setJobs, incoming, shipThrough, fulfillment,
