@@ -115,6 +115,18 @@ export default function JobsPage() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("active");
   const [search, setSearch] = useState("");
+  const [filterClient, setFilterClient] = useState("");
+  // Client filter options — only clients with an ACTIVE job (in-flight work;
+  // excludes complete / cancelled / on_hold). Keeps the list to who you'd
+  // actually filter to.
+  const clientOptions = useMemo(
+    () => [...new Set(
+      jobs
+        .filter(j => !["complete", "cancelled", "on_hold"].includes(j.phase))
+        .map(j => j.clients?.name).filter(Boolean) as string[]
+    )].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase())),
+    [jobs],
+  );
   const [sortKey, setSortKey] = useState("target_ship_date");
   const [sortDir, setSortDir] = useState<"asc"|"desc">("asc");
   // Items-list hover popover: hoveredJobId is set on the row that
@@ -252,6 +264,8 @@ export default function JobsPage() {
       } else if (filter !== "all" && j.phase !== filter) {
         return false;
       }
+      // Client filter
+      if (filterClient && (j.clients?.name || "") !== filterClient) return false;
       // Text search
       if (q && !(
         (j.clients?.name || "").toLowerCase().includes(q) ||
@@ -261,7 +275,7 @@ export default function JobsPage() {
       )) return false;
       return true;
     });
-  }, [jobs, filter, search]);
+  }, [jobs, filter, search, filterClient]);
 
   const sorted = useMemo(() => [...visible].sort((a,b) => {
     let av: any, bv: any;
@@ -320,6 +334,11 @@ export default function JobsPage() {
           placeholder="Search clients, titles, job numbers..."
           style={{ flex:1, maxWidth:isMobile?"100%":360, padding:"7px 12px", borderRadius:8, border:`1px solid ${T.border}`, background:T.surface, color:T.text, fontSize:13, fontFamily:font, outline:"none" }}
         />
+        <select value={filterClient} onChange={e => setFilterClient(e.target.value)}
+          style={{ padding:"7px 10px", borderRadius:8, border:`1px solid ${T.border}`, background:T.surface, color:filterClient?T.text:T.muted, fontSize:12, fontFamily:font, outline:"none", maxWidth:isMobile?"100%":220 }}>
+          <option value="">All clients</option>
+          {clientOptions.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
         {!isMobile && (
           <a href="/jobs/new" style={{ background:T.accent, color:"#fff", border:"none", borderRadius:8, padding:"8px 18px", fontSize:13, fontFamily:font, fontWeight:600, cursor:"pointer", textDecoration:"none", whiteSpace:"nowrap" }}>
             + New Project
