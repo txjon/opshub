@@ -1949,15 +1949,16 @@ export default function ProductionPage() {
                   );
                   const itemRoute = resolveRoute(item.shipping_route, project.shippingRoute);
                   const baseLabel = itemRoute === "drop_ship" ? "Notify customer" : "Notify warehouse";
-                  const label = notified ? "Notified ✓" : baseLabel;
+                  // Lock once notified so a stray click can't re-fire the email.
+                  const label = notified ? (itemRoute === "drop_ship" ? "Customer notified ✓" : "Warehouse notified ✓") : baseLabel;
                   const bg = notified ? T.greenDim : (canNotify ? T.accent : T.surface);
                   const color = notified ? T.green : (canNotify ? "#fff" : T.faint);
                   const border = notified ? `1px solid ${T.green}66` : "none";
                   return (
                     <button
-                      disabled={!canNotify}
+                      disabled={!canNotify || notified}
                       onClick={() => {
-                        if (!canNotify) return;
+                        if (!canNotify || notified) return;
                         openNotifyDialog({
                           project,
                           decoratorId: item.decorator_id,
@@ -1966,8 +1967,8 @@ export default function ProductionPage() {
                           route: itemRoute,
                         });
                       }}
-                      title={!project.invoiceNumber ? "Generate invoice first" : (!item.ship_tracking ? "Tracking required" : (notified ? "Already sent — click to resend" : ""))}
-                      style={{ padding: "8px 18px", borderRadius: 6, border, background: bg, color, fontSize: 12, fontWeight: 700, cursor: canNotify ? "pointer" : "not-allowed", fontFamily: font, opacity: canNotify ? 1 : 0.6 }}>
+                      title={notified ? "Already notified — duplicate send blocked" : !project.invoiceNumber ? "Generate invoice first" : (!item.ship_tracking ? "Tracking required" : "")}
+                      style={{ padding: "8px 18px", borderRadius: 6, border, background: bg, color, fontSize: 12, fontWeight: 700, cursor: notified ? "default" : (canNotify ? "pointer" : "not-allowed"), fontFamily: font, opacity: (notified || canNotify) ? 1 : 0.6 }}>
                       {label}
                     </button>
                   );
@@ -2010,7 +2011,10 @@ export default function ProductionPage() {
           if (live) liveItems.push(live);
         }
         if (liveItems.length === 0) return null;
-        const project = batchShipState.project;
+        // Read the project LIVE from state (not the open-time snapshot) so the
+        // notify button reflects shipping_notifications added while the modal is
+        // still open — otherwise "Notify customer" never flips after sending.
+        const project = projects.find(p => p.jobId === batchShipState.project.jobId) || batchShipState.project;
         const dg = batchShipState.dg;
         const slipKey = project.jobId + "_" + (dg.decoratorId || "");
         // Aggregate (deduped by file_name) packing slips already attached
@@ -2183,15 +2187,18 @@ export default function ProductionPage() {
                       const mixedRoute = batchRoutes.length > 1;
                       const notifyOk = canNotify && !mixedRoute;
                       const baseLabel = mixedRoute ? "Mixed routes" : batchRoutes[0] === "drop_ship" ? "Notify customer" : "Notify warehouse";
-                      const label = notified ? "Notified ✓" : baseLabel;
+                      // Once notified, lock the button — flips to a confirmed
+                      // green state and stops responding so a stray click can't
+                      // re-fire the customer email (accidental discharge).
+                      const label = notified ? (batchRoutes[0] === "drop_ship" ? "Customer notified ✓" : "Warehouse notified ✓") : baseLabel;
                       const bg = notified ? T.greenDim : (notifyOk ? T.accent : T.surface);
                       const color = notified ? T.green : (notifyOk ? "#fff" : T.faint);
                       const border = notified ? `1px solid ${T.green}66` : "none";
                       return (
                         <button
-                          disabled={!notifyOk}
+                          disabled={!notifyOk || notified}
                           onClick={() => {
-                            if (!notifyOk) return;
+                            if (!notifyOk || notified) return;
                             openNotifyDialog({
                               project,
                               decoratorId: dg.decoratorId,
@@ -2200,8 +2207,8 @@ export default function ProductionPage() {
                               route: batchRoutes[0],
                             });
                           }}
-                          title={mixedRoute ? "These items have different shipping routes — notify each from its own job/row" : !project.invoiceNumber ? "Generate invoice first" : (!batchTracking ? "Tracking required" : (notified ? "Already sent — click to resend" : ""))}
-                          style={{ padding: "8px 18px", borderRadius: 6, border, background: bg, color, fontSize: 12, fontWeight: 700, cursor: canNotify ? "pointer" : "not-allowed", fontFamily: font, opacity: canNotify ? 1 : 0.6 }}>
+                          title={notified ? "Already notified — duplicate send blocked" : mixedRoute ? "These items have different shipping routes — notify each from its own job/row" : !project.invoiceNumber ? "Generate invoice first" : (!batchTracking ? "Tracking required" : "")}
+                          style={{ padding: "8px 18px", borderRadius: 6, border, background: bg, color, fontSize: 12, fontWeight: 700, cursor: notified ? "default" : (canNotify ? "pointer" : "not-allowed"), fontFamily: font, opacity: (notified || canNotify) ? 1 : 0.6 }}>
                           {label}
                         </button>
                       );
