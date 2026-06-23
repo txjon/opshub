@@ -110,12 +110,21 @@ export async function shipItemFromDecorator(supabase: any, item: any): Promise<v
   if (item.decorator_assignment_id) {
     await supabase.from("decorator_assignments").update({ pipeline_stage: "shipped" }).eq("id", item.decorator_assignment_id);
   }
-  logJobActivity(item.job_id, `${item.name} shipped from decorator${item.ship_tracking ? ` — tracking: ${item.ship_tracking}` : ""}`);
-  notifyTeam(`Item shipped from decorator — ${item.name} incoming to warehouse`, "production", item.job_id, "job");
-
-  // drop_ship: once the whole job has shipped, log invoice-ready (matches board).
   const { data: jobRow } = await supabase.from("jobs").select("shipping_route").eq("id", item.job_id).single();
   const route = item.shipping_route || (jobRow as any)?.shipping_route || "ship_through";
+  const trk = item.ship_tracking ? ` — tracking: ${item.ship_tracking}` : "";
+  // Route-aware activity wording: drop_ship goes direct to the client, so it's
+  // a client-safe "shipped" event (surfaces in the portal). ship_through/stage
+  // is the inbound vendor→HPD leg — keep it internal ("from decorator", which
+  // the portal filter hides) + the warehouse-incoming team ping.
+  if (route === "drop_ship") {
+    logJobActivity(item.job_id, `${item.name} shipped${trk}`);
+  } else {
+    logJobActivity(item.job_id, `${item.name} shipped from decorator${trk}`);
+    notifyTeam(`Item shipped from decorator — ${item.name} incoming to warehouse`, "production", item.job_id, "job");
+  }
+
+  // drop_ship: once the whole job has shipped, log invoice-ready (matches board).
   if (route === "drop_ship") {
     const { data: jobItems } = await supabase.from("items").select("id, pipeline_stage").eq("job_id", item.job_id);
     const allShipped = (jobItems || []).every((x: any) => x.id === item.id ? true : x.pipeline_stage === "shipped");

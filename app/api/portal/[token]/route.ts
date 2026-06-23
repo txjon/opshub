@@ -187,6 +187,11 @@ export async function GET(
       // Internal "All items shipped — invoice ready to update…" → strip the
       // ops invoicing tail; the client just needs the shipped milestone.
       else if (/all items shipped/i.test(msg)) clientMsg = "All Items Shipped";
+      // Outbound forward — reword the internal "Forwarded N to client" log.
+      else if (/forwarded \d+ items? to client/i.test(msg)) {
+        const m = msg.match(/forwarded (\d+) items?.*?tracking[: ]+(\S+)/i);
+        clientMsg = m ? `${m[1]} item${m[1] === "1" ? "" : "s"} shipped — tracking ${m[2]}` : "Your order shipped";
+      }
       else if (/shipped|tracking/i.test(msg) && !/decorator|warehouse|production/i.test(msg)) clientMsg = msg;
 
       if (!clientMsg) continue;
