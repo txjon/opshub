@@ -156,6 +156,18 @@ export async function GET(
       .order("created_at", { ascending: false })
       .limit(50);
 
+    // Pre-count drop-ship per-item "shipped — tracking X" entries by tracking,
+    // so they collapse into one "N items shipped — tracking X" line. Same
+    // tracking = same physical shipment, even if items were marked 10 min apart
+    // (vendor lag); the grouped line shows at the most recent confirmation.
+    const shipByTrack: Record<string, number> = {};
+    const trackOf = (m: string) => (m.match(/ shipped — tracking:?\s*(.+?)\s*$/i) || [])[1] || "";
+    const isDropShipShip = (m: string) => / shipped — tracking/i.test(m) && !/decorator|warehouse|production|forwarded/i.test(m);
+    for (const a of (rawActivity || [])) {
+      if (isDropShipShip(a.message || "")) { const t = trackOf(a.message); if (t) shipByTrack[t] = (shipByTrack[t] || 0) + 1; }
+    }
+    const emittedTracks = new Set<string>();
+
     // Only show events the client cares about — whitelist approach
     const activity: any[] = [];
     const seen = new Set<string>();
@@ -189,8 +201,16 @@ export async function GET(
       else if (/all items shipped/i.test(msg)) clientMsg = "All Items Shipped";
       // Outbound forward — reword the internal "Forwarded N to client" log.
       else if (/forwarded \d+ items? to client/i.test(msg)) {
-        const m = msg.match(/forwarded (\d+) items?.*?tracking[: ]+(\S+)/i);
+        const m = msg.match(/forwarded (\d+) items?.*?tracking[: ]+(.+?)\s*$/i);
         clientMsg = m ? `${m[1]} item${m[1] === "1" ? "" : "s"} shipped — tracking ${m[2]}` : "Your order shipped";
+      }
+      // Drop-ship per-item ship → one grouped line per tracking.
+      else if (isDropShipShip(msg)) {
+        const trk = trackOf(msg);
+        if (emittedTracks.has(trk)) continue;
+        emittedTracks.add(trk);
+        const n = shipByTrack[trk] || 1;
+        clientMsg = `${n} item${n === 1 ? "" : "s"} shipped — tracking ${trk}`;
       }
       else if (/shipped|tracking/i.test(msg) && !/decorator|warehouse|production/i.test(msg)) clientMsg = msg;
 
