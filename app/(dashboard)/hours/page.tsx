@@ -2,6 +2,9 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
+import { useIsMobile } from "@/lib/useIsMobile";
+
+type EntryModal = { id: string | null; contractorId: string; contractorName: string; date: string; timeIn: string; timeOut: string; breakMin: string };
 
 type Contractor = { id: string; name: string; active: boolean; sort_order: number };
 type Entry = { id: string; contractor_id: string; work_date: string; time_in: string | null; time_out: string | null; break_minutes: number; notes: string | null };
@@ -37,6 +40,7 @@ function fmtTime(t: string | null) {
 
 export default function HoursPage() {
   const supabase = createClient();
+  const isMobile = useIsMobile();
   const [contractors, setContractors] = useState<Contractor[]>([]);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [weekStart, setWeekStart] = useState<Date>(() => mondayOf(new Date()));
@@ -46,15 +50,14 @@ export default function HoursPage() {
 
   const weekEnd = useMemo(() => addDays(weekStart, 6), [weekStart]);
 
-  // Add-entry form
-  const [form, setForm] = useState({ contractorId: "", date: ymd(new Date()), timeIn: "", timeOut: "", breakMin: "" });
+  // Add / edit entry modal (shared by Manual + the per-punch edit icon).
+  const [entryModal, setEntryModal] = useState<EntryModal | null>(null);
 
   // Live clock — open shifts (clocked in, not yet out) + today's entries, loaded
   // independently of the week selector so the kiosk always reflects right now.
   const [openShifts, setOpenShifts] = useState<Entry[]>([]);
   const [todayEntries, setTodayEntries] = useState<Entry[]>([]);
   const [, setNowTick] = useState(0); // forces re-render so elapsed times tick
-  const [manualFor, setManualFor] = useState<string | null>(null); // contractor whose manual-entry row is open
 
   const load = useCallback(async () => {
     const { data: cs } = await supabase.from("contractors").select("*").order("sort_order").order("name");
@@ -95,30 +98,23 @@ export default function HoursPage() {
     loadToday(); load();
   }
 
-  async function addEntry(cid: string) {
-    if (!cid || !form.date) return;
-    await supabase.from("contractor_time_entries").insert({
-      contractor_id: cid, work_date: form.date,
-      time_in: form.timeIn || null, time_out: form.timeOut || null,
-      break_minutes: parseInt(form.breakMin) || 0,
-    });
-    setManualFor(null);
-    load(); loadToday();
-  }
-  const openManual = (cid: string) => {
+  // Entry modal — new (Manual) or edit (per-punch pencil).
+  const openNewEntry = (c: Contractor) => {
     const todayStr = ymd(new Date());
     const inWeek = todayStr >= ymd(weekStart) && todayStr <= ymd(weekEnd);
-    setForm({ contractorId: "", date: inWeek ? todayStr : ymd(weekStart), timeIn: "", timeOut: "", breakMin: "" });
-    setManualFor(cid);
+    setEntryModal({ id: null, contractorId: c.id, contractorName: c.name, date: inWeek ? todayStr : ymd(weekStart), timeIn: "", timeOut: "", breakMin: "" });
   };
-  async function delEntry(id: string) { await supabase.from("contractor_time_entries").delete().eq("id", id); load(); loadToday(); }
-  // Inline edit of a logged punch — optimistic local update, then persist.
-  const patchLocal = (id: string, patch: Partial<Entry>) => setEntries(prev => prev.map(e => e.id === id ? { ...e, ...patch } : e));
-  async function saveEntry(id: string, patch: Partial<Entry>) {
-    patchLocal(id, patch);
-    await supabase.from("contractor_time_entries").update(patch).eq("id", id);
-    loadToday();
+  const openEditEntry = (c: Contractor, e: Entry) => {
+    setEntryModal({ id: e.id, contractorId: c.id, contractorName: c.name, date: e.work_date, timeIn: e.time_in || "", timeOut: e.time_out || "", breakMin: e.break_minutes ? String(e.break_minutes) : "" });
+  };
+  async function saveEntryModal() {
+    const m = entryModal; if (!m || !m.date) return;
+    const patch = { work_date: m.date, time_in: m.timeIn || null, time_out: m.timeOut || null, break_minutes: parseInt(m.breakMin) || 0 };
+    if (m.id) await supabase.from("contractor_time_entries").update(patch).eq("id", m.id);
+    else await supabase.from("contractor_time_entries").insert({ contractor_id: m.contractorId, ...patch });
+    setEntryModal(null); load(); loadToday();
   }
+  async function delEntry(id: string) { await supabase.from("contractor_time_entries").delete().eq("id", id); setEntryModal(null); load(); loadToday(); }
   async function addContractor() {
     const name = newName.trim(); if (!name) return;
     const sort = Math.max(0, ...contractors.map(c => c.sort_order)) + 1;
@@ -140,7 +136,6 @@ export default function HoursPage() {
   async function renameContractor(id: string, name: string) { await supabase.from("contractors").update({ name }).eq("id", id); setContractors(p => p.map(c => c.id === id ? { ...c, name } : c)); }
   async function toggleActive(id: string, active: boolean) { await supabase.from("contractors").update({ active }).eq("id", id); load(); }
 
-  const previewHours = entryHours({ time_in: form.timeIn || null, time_out: form.timeOut || null, break_minutes: parseInt(form.breakMin) || 0 } as Entry);
   const entriesByContractor = (cid: string) => entries.filter(e => e.contractor_id === cid).sort((a, b) => a.work_date.localeCompare(b.work_date));
   const contractorTotal = (cid: string) => entriesByContractor(cid).reduce((a, e) => a + entryHours(e), 0);
   const grandTotal = entries.reduce((a, e) => a + entryHours(e), 0);
@@ -184,89 +179,72 @@ export default function HoursPage() {
         const total = contractorTotal(c.id);
         const open = openShiftOf(c.id);
         const td = todayHours(c.id);
-        const isManual = manualFor === c.id;
+        const status = open
+          ? <>On the clock · since {fmtTime(open.time_in)} · <strong style={{ fontFamily: mono }}>{elapsedLabel(open.time_in)}</strong></>
+          : (td > 0 ? <>Clocked out · {fmtHours(td)} hrs today</> : "Not clocked in");
+        const manualBtn = (flex: boolean) => (
+          <button onClick={() => openNewEntry(c)} title="Add a time entry"
+            style={{ flex: flex ? 1 : undefined, background: "transparent", color: T.muted, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 14px", fontSize: 13, fontWeight: 700, fontFamily: font, cursor: "pointer" }}>
+            Manual
+          </button>
+        );
+        const clockBtn = (flex: boolean) => open ? (
+          <button onClick={() => clockOut(open.id)}
+            style={{ flex: flex ? 1 : undefined, background: T.red, color: "#fff", border: "none", borderRadius: 8, padding: "10px 18px", fontSize: 13, fontWeight: 700, fontFamily: font, cursor: "pointer", whiteSpace: "nowrap" }}>
+            Clock Out
+          </button>
+        ) : (
+          <button onClick={() => clockIn(c.id)}
+            style={{ flex: flex ? 1 : undefined, background: T.green, color: "#fff", border: "none", borderRadius: 8, padding: "10px 18px", fontSize: 13, fontWeight: 700, fontFamily: font, cursor: "pointer", whiteSpace: "nowrap" }}>
+            Clock In
+          </button>
+        );
         return (
           <div key={c.id} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
-            {/* Header: name + today's clock status · weekly total · Manual · Clock In/Out */}
-            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderBottom: (es.length || isManual) ? `1px solid ${T.border}` : "none" }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 15, fontWeight: 700 }}>{c.name}</div>
-                <div style={{ fontSize: 11, color: open ? T.green : T.faint, marginTop: 1 }}>
-                  {open
-                    ? <>On the clock · since {fmtTime(open.time_in)} · <strong style={{ fontFamily: mono }}>{elapsedLabel(open.time_in)}</strong></>
-                    : (td > 0 ? <>Clocked out · {fmtHours(td)} hrs today</> : "Not clocked in")}
+            {/* Header */}
+            {isMobile ? (
+              <div style={{ padding: "12px 14px", borderBottom: es.length ? `1px solid ${T.border}` : "none" }}>
+                <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}>
+                  <div style={{ fontSize: 16, fontWeight: 700 }}>{c.name}</div>
+                  <div style={{ fontSize: 15, fontWeight: 800, fontFamily: mono, color: total > 0 ? T.text : T.faint }}>{fmtHours(total)} <span style={{ fontSize: 11, fontWeight: 600, color: T.muted, fontFamily: font }}>hrs</span></div>
+                </div>
+                <div style={{ fontSize: 12, color: open ? T.green : T.faint, marginTop: 2 }}>{status}</div>
+                <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                  {manualBtn(true)}
+                  {clockBtn(true)}
                 </div>
               </div>
-              <div style={{ fontSize: 15, fontWeight: 800, fontFamily: mono, color: total > 0 ? T.text : T.faint }}>{fmtHours(total)} <span style={{ fontSize: 11, fontWeight: 600, color: T.muted, fontFamily: font }}>hrs</span></div>
-              <button onClick={() => isManual ? setManualFor(null) : openManual(c.id)}
-                title="Add or correct a time entry"
-                style={{ background: isManual ? T.accent : "transparent", color: isManual ? "#fff" : T.muted, border: `1px solid ${isManual ? T.accent : T.border}`, borderRadius: 8, padding: "9px 14px", fontSize: 13, fontWeight: 700, fontFamily: font, cursor: "pointer" }}>
-                Manual
-              </button>
-              {open ? (
-                <button onClick={() => clockOut(open.id)}
-                  style={{ background: T.red, color: "#fff", border: "none", borderRadius: 8, padding: "9px 18px", fontSize: 13, fontWeight: 700, fontFamily: font, cursor: "pointer", whiteSpace: "nowrap" }}>
-                  Clock Out
-                </button>
-              ) : (
-                <button onClick={() => clockIn(c.id)}
-                  style={{ background: T.green, color: "#fff", border: "none", borderRadius: 8, padding: "9px 20px", fontSize: 13, fontWeight: 700, fontFamily: font, cursor: "pointer", whiteSpace: "nowrap" }}>
-                  Clock In
-                </button>
-              )}
-            </div>
-
-            {/* Inline manual entry / correction for this contractor */}
-            {isManual && (
-              <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap", padding: "10px 14px", borderBottom: es.length ? `1px solid ${T.border}` : "none", background: T.surface + "66" }}>
-                <div style={{ width: 140 }}>
-                  <label style={lbl}>Date</label>
-                  <input type="date" min={ymd(weekStart)} max={ymd(weekEnd)} value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} style={{ ...inp, width: "100%", fontFamily: mono }} />
+            ) : (
+              <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderBottom: es.length ? `1px solid ${T.border}` : "none" }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 15, fontWeight: 700 }}>{c.name}</div>
+                  <div style={{ fontSize: 11, color: open ? T.green : T.faint, marginTop: 1 }}>{status}</div>
                 </div>
-                <div style={{ width: 104 }}>
-                  <label style={lbl}>Time in</label>
-                  <input type="time" value={form.timeIn} onChange={e => setForm(f => ({ ...f, timeIn: e.target.value }))} style={{ ...inp, width: "100%", fontFamily: mono }} />
-                </div>
-                <div style={{ width: 104 }}>
-                  <label style={lbl}>Time out</label>
-                  <input type="time" value={form.timeOut} onChange={e => setForm(f => ({ ...f, timeOut: e.target.value }))} style={{ ...inp, width: "100%", fontFamily: mono }} />
-                </div>
-                <div style={{ width: 78 }}>
-                  <label style={lbl}>Break</label>
-                  <input type="number" inputMode="numeric" value={form.breakMin} onChange={e => setForm(f => ({ ...f, breakMin: e.target.value }))} placeholder="0" style={{ ...inp, width: "100%", fontFamily: mono }} />
-                </div>
-                <div style={{ width: 50, textAlign: "right" }}>
-                  <label style={lbl}>Hrs</label>
-                  <div style={{ fontSize: 15, fontWeight: 700, fontFamily: mono, color: previewHours > 0 ? T.text : T.faint, padding: "6px 0" }}>{previewHours > 0 ? fmtHours(previewHours) : "—"}</div>
-                </div>
-                <div style={{ flex: 1 }} />
-                <button onClick={() => addEntry(c.id)}
-                  style={{ background: T.green, color: "#fff", border: "none", borderRadius: 7, padding: "9px 18px", fontSize: 13, fontWeight: 700, fontFamily: font, cursor: "pointer" }}>
-                  Add
-                </button>
-                <button onClick={() => setManualFor(null)} style={{ background: "none", border: "none", color: T.faint, fontSize: 18, cursor: "pointer", lineHeight: 1, padding: "0 4px" }}>×</button>
+                <div style={{ fontSize: 15, fontWeight: 800, fontFamily: mono, color: total > 0 ? T.text : T.faint }}>{fmtHours(total)} <span style={{ fontSize: 11, fontWeight: 600, color: T.muted, fontFamily: font }}>hrs</span></div>
+                {manualBtn(false)}
+                {clockBtn(false)}
               </div>
             )}
 
+            {/* Punch rows — text + edit/delete (edit opens the modal) */}
             {es.map(e => {
-              const eInp = { ...inp, padding: "4px 6px", fontFamily: mono, fontSize: 12 } as const;
               const openRow = !!e.time_in && !e.time_out;
               return (
-              <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 14px", borderBottom: `1px solid ${T.border}55`, fontSize: 12 }}>
-                <div style={{ width: 120, flexShrink: 0, color: T.muted }}>{fmtDateLong(e.work_date)}</div>
-                <input type="time" value={e.time_in || ""} onChange={ev => saveEntry(e.id, { time_in: ev.target.value || null })} style={{ ...eInp, width: 92 }} />
-                <span style={{ color: T.faint }}>–</span>
-                <input type="time" value={e.time_out || ""} onChange={ev => saveEntry(e.id, { time_out: ev.target.value || null })} title={openRow ? "On the clock — set a time to close the shift" : ""} style={{ ...eInp, width: 92, borderColor: openRow ? T.green : T.border }} />
-                <input type="number" inputMode="numeric" value={e.break_minutes || ""} placeholder="0"
-                  onChange={ev => patchLocal(e.id, { break_minutes: parseInt(ev.target.value) || 0 })}
-                  onBlur={ev => saveEntry(e.id, { break_minutes: parseInt(ev.target.value) || 0 })}
-                  title="Break minutes" style={{ ...eInp, width: 50, textAlign: "center" }} />
-                <span style={{ color: T.faint, fontSize: 11 }}>min</span>
-                <div style={{ flex: 1 }} />
-                <div style={{ width: 56, textAlign: "right", fontFamily: mono, fontWeight: 700, color: openRow ? T.green : T.text }}>{openRow ? "on clock" : fmtHours(entryHours(e))}</div>
-                <button onClick={() => delEntry(e.id)} title="Delete" style={{ background: "none", border: "none", color: T.faint, fontSize: 15, cursor: "pointer", lineHeight: 1 }}>×</button>
-              </div>
-            ); })}
+                <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 14px", borderBottom: `1px solid ${T.border}55`, fontSize: 13 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontFamily: mono, color: T.text }}>
+                      {fmtTime(e.time_in)} – {e.time_out ? fmtTime(e.time_out) : <span style={{ color: T.green }}>on the clock</span>}
+                    </div>
+                    <div style={{ fontSize: 11, color: T.faint, marginTop: 1 }}>{fmtDateLong(e.work_date)}{e.break_minutes ? ` · ${e.break_minutes}m break` : ""}</div>
+                  </div>
+                  <div style={{ fontFamily: mono, fontWeight: 700, color: openRow ? T.green : T.text }}>{openRow ? "—" : fmtHours(entryHours(e))} <span style={{ fontSize: 10, fontWeight: 600, color: T.muted, fontFamily: font }}>hrs</span></div>
+                  <button onClick={() => openEditEntry(c, e)} title="Edit" style={{ background: "none", border: "none", color: T.muted, cursor: "pointer", padding: 6, lineHeight: 0 }}>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
+                  </button>
+                  <button onClick={() => delEntry(e.id)} title="Delete" style={{ background: "none", border: "none", color: T.faint, fontSize: 16, cursor: "pointer", lineHeight: 1, padding: "0 2px" }}>×</button>
+                </div>
+              );
+            })}
           </div>
         );
       })}
@@ -293,6 +271,49 @@ export default function HoursPage() {
           </div>
         )}
       </div>
+
+      {/* Add / edit entry modal — larger fields, manual Save */}
+      {entryModal && (() => {
+        const m = entryModal;
+        const hrs = entryHours({ time_in: m.timeIn || null, time_out: m.timeOut || null, break_minutes: parseInt(m.breakMin) || 0 } as Entry);
+        const set = (patch: Partial<EntryModal>) => setEntryModal(p => p ? { ...p, ...patch } : p);
+        const bigInp = { ...inp, width: "100%", fontFamily: mono, fontSize: 16, padding: "11px 12px" };
+        const fld = { display: "block", marginBottom: 12 } as const;
+        return (
+          <div onClick={() => setEntryModal(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 200, display: "flex", alignItems: isMobile ? "flex-end" : "flex-start", justifyContent: "center", padding: isMobile ? 0 : "8vh 16px", overflowY: "auto" }}>
+            <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: isMobile ? "16px 16px 0 0" : 14, padding: 18, width: "100%", maxWidth: isMobile ? "100%" : 420, boxShadow: "0 8px 40px rgba(0,0,0,0.2)" }}>
+              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 14 }}>
+                <div style={{ fontSize: 16, fontWeight: 700 }}>{m.id ? "Edit entry" : "New entry"} · {m.contractorName}</div>
+                <button onClick={() => setEntryModal(null)} style={{ background: "none", border: "none", color: T.muted, fontSize: 22, cursor: "pointer", lineHeight: 1 }}>×</button>
+              </div>
+              <label style={fld}><span style={lbl}>Date</span>
+                <input type="date" value={m.date} onChange={e => set({ date: e.target.value })} style={bigInp} /></label>
+              <div style={{ display: "flex", gap: 10 }}>
+                <label style={{ ...fld, flex: 1 }}><span style={lbl}>Time in</span>
+                  <input type="time" value={m.timeIn} onChange={e => set({ timeIn: e.target.value })} style={bigInp} /></label>
+                <label style={{ ...fld, flex: 1 }}><span style={lbl}>Time out</span>
+                  <input type="time" value={m.timeOut} onChange={e => set({ timeOut: e.target.value })} style={bigInp} /></label>
+              </div>
+              <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
+                <label style={{ ...fld, width: 120 }}><span style={lbl}>Break (min)</span>
+                  <input type="number" inputMode="numeric" value={m.breakMin} placeholder="0" onChange={e => set({ breakMin: e.target.value })} style={bigInp} /></label>
+                <div style={{ flex: 1 }} />
+                <div style={{ textAlign: "right", marginBottom: 12 }}>
+                  <span style={lbl}>Hours</span>
+                  <div style={{ fontSize: 22, fontWeight: 800, fontFamily: mono, color: hrs > 0 ? T.text : T.faint }}>{hrs > 0 ? fmtHours(hrs) : "—"}</div>
+                </div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
+                {m.id && <button onClick={() => delEntry(m.id!)} style={{ background: "none", border: "none", color: T.red, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: font }}>Delete</button>}
+                <div style={{ flex: 1 }} />
+                <button onClick={() => setEntryModal(null)} style={{ background: "transparent", border: `1px solid ${T.border}`, color: T.muted, borderRadius: 8, padding: "10px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: font }}>Cancel</button>
+                <button onClick={saveEntryModal} disabled={!m.date || !m.timeIn}
+                  style={{ background: T.green, color: "#fff", border: "none", borderRadius: 8, padding: "10px 22px", fontSize: 14, fontWeight: 700, fontFamily: font, cursor: (m.date && m.timeIn) ? "pointer" : "default", opacity: (m.date && m.timeIn) ? 1 : 0.5 }}>Save</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
