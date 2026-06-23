@@ -469,6 +469,12 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         const { data: freshPay } = await supabase.from("payment_records").select("*").eq("job_id", job!.id).order("created_at");
         if (freshPay) setPayments(freshPay);
       }
+      // The Overview production strip groups by items' decorator_assignments join.
+      // A costing vendor change rewrites that join in the DB, but onUpdateBuyItems
+      // only refreshes item fields — not the join. Re-query items here (post-flush,
+      // so there are no in-flight edits to clobber) so the strip reflects the
+      // current vendor without needing a hard refresh.
+      if (t === "overview") await reloadItems();
     }
     setTab(t);
     window.history.replaceState(null, "", `?tab=${t}`);
