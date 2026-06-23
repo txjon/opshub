@@ -428,7 +428,7 @@ export async function POST(req: NextRequest) {
       // already flipped to shipped) — one outbound shipment per job.
       const { data: allItems } = await sb
         .from("items")
-        .select("id, name, sort_order, ship_qtys, received_qtys, sample_qtys, ship_tracking, forward_tracking, received_at_hpd, pipeline_stage, total_units, buy_sheet_lines(size, qty_ordered), decorator_assignments(decorator_id)")
+        .select("id, name, sort_order, ship_qtys, received_qtys, sample_qtys, ship_tracking, forward_tracking, received_at_hpd, pipeline_stage, buy_sheet_lines(size, qty_ordered), decorator_assignments(decorator_id)")
         .eq("job_id", jobId)
         .order("sort_order");
       // Outbound forwards are WAVE-based (migration 097): scope to the items
