@@ -209,7 +209,7 @@ export default function ReceivingPage() {
   const [modalShipmentKey, setModalShipmentKey] = useState<string | null>(null);
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
   // List view (production-style per-item view) — toggle on pending/received.
-  const [viewMode, setViewMode] = useState<"shipments" | "list">("list");
+  const [viewMode, setViewMode] = useState<"shipments" | "list">("shipments");
   // Batch-receive confirm modal — the items queued by "Receive Selected".
   const [batchReceiveItems, setBatchReceiveItems] = useState<WarehouseItem[] | null>(null);
   const [mockupPeek, setMockupPeek] = useState<{ driveFileId: string | null; name: string } | null>(null);
