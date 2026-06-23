@@ -1,10 +1,11 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { T, font, mono } from "@/lib/theme";
+import { T, font, mono, sortSizes } from "@/lib/theme";
 import { resolveItemStatus, STATE_LABELS } from "@/lib/item-status";
 import { etaCountdown } from "@/lib/eta";
 import { shipItemFromDecorator } from "@/lib/po-actions";
+import { uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
 
 // Map the eta countdown semantic band onto the internal T palette.
 // Mirrors the portal's color mapping (which uses C) so the urgency
@@ -43,8 +44,14 @@ export function JobItemsList({ items, job, isMobile, onChange, vendorFilter, onC
   const [localEta, setLocalEta] = useState({});
   const saveTimers = useRef({});
   const pendingSaves = useRef({});
-  const [localTrack, setLocalTrack] = useState({});
-  const [shipping, setShipping] = useState({});
+  // Per-item ship modal — per-size shipped qtys + tracking + notes + packing slip.
+  const [shipModal, setShipModal] = useState(null);   // the item being shipped
+  const [shipQtys, setShipQtys] = useState({});
+  const [shipTracking, setShipTracking] = useState("");
+  const [shipNotes, setShipNotes] = useState("");
+  const [shipSlips, setShipSlips] = useState([]);
+  const [slipBusy, setSlipBusy] = useState("");
+  const [shipBusy, setShipBusy] = useState(false);
 
   // Seed local ETA state for any new item. Existing entries are
   // preserved so an in-flight edit doesn't get clobbered by a parent
@@ -107,30 +114,64 @@ export function JobItemsList({ items, job, isMobile, onChange, vendorFilter, onC
     if (typeof fn === "function") return fn();
   }
 
-  // Mark an item shipped from the decorator, in-context. Routes through the
-  // SAME canonical effect the /production board uses (lib/po-actions) so the
-  // two can't drift. Optional tracking comes from the per-item input.
-  async function shipItem(item) {
-    if (shipping[item.id]) return;
-    setShipping(p => ({ ...p, [item.id]: true }));
-    const tracking = (localTrack[item.id] ?? item.ship_tracking ?? "").trim() || null;
+  // ── Per-item ship modal (qtys + tracking + notes + packing slip) ──
+  async function loadSlips(itemId) {
+    const { data } = await supabase.from("item_files").select("id, file_name, drive_link").eq("item_id", itemId).eq("stage", "packing_slip");
+    setShipSlips(data || []);
+  }
+  function openShip(item) {
+    const lines = item.buy_sheet_lines || [];
+    const existing = item.ship_qtys || {};
+    const q = {};
+    sortSizes(lines.map(l => l.size)).forEach(sz => {
+      const line = lines.find(l => l.size === sz);
+      q[sz] = String(existing[sz] ?? line?.qty_ordered ?? 0);
+    });
+    setShipQtys(q);
+    setShipTracking(item.ship_tracking || "");
+    setShipNotes(item.ship_notes || "");
+    setShipSlips([]);
+    loadSlips(item.id);
+    setShipModal(item);
+  }
+  async function uploadSlips(files, item) {
+    const arr = Array.from(files || []);
+    if (arr.length === 0) return;
+    for (let i = 0; i < arr.length; i++) {
+      const file = arr[i];
+      setSlipBusy(`Uploading ${arr.length > 1 ? `${i + 1}/${arr.length} ` : ""}${file.name}…`);
+      try {
+        const r = await uploadToDrive({ blob: file, fileName: file.name, mimeType: file.type || "application/octet-stream", clientName: job?.clients?.name || job?.client_name || "", projectTitle: job?.title || "", itemName: "Packing Slips" });
+        await registerFileInDb({ fileId: r.fileId, webViewLink: r.webViewLink, folderLink: r.folderLink, fileName: file.name, mimeType: file.type, fileSize: file.size, itemId: item.id, stage: "packing_slip" });
+      } catch (e) { console.error("[job-items-list] slip upload failed:", e); }
+    }
+    setSlipBusy("");
+    loadSlips(item.id);
+  }
+  async function removeSlip(fileId, itemId) {
+    await supabase.from("item_files").delete().eq("id", fileId);
+    loadSlips(itemId);
+  }
+  async function confirmShip() {
+    const item = shipModal; if (!item) return;
+    setShipBusy(true);
+    const qtys = Object.fromEntries(Object.entries(shipQtys).map(([s, v]) => [s, parseInt(v) || 0]).filter(([, v]) => v > 0));
     try {
       await shipItemFromDecorator(supabase, {
-        id: item.id,
-        name: item.name,
-        job_id: job?.id,
+        id: item.id, name: item.name, job_id: job?.id,
         pipeline_timestamps: item.pipeline_timestamps,
-        ship_qtys: item.ship_qtys,
-        ship_notes: item.ship_notes,
-        ship_tracking: tracking,
+        ship_qtys: Object.keys(qtys).length ? qtys : null,
+        ship_notes: shipNotes.trim() || null,
+        ship_tracking: shipTracking.trim() || null,
         decorator_assignment_id: item.decorator_assignment_id,
         shipping_route: item.shipping_route,
       });
+      setShipModal(null);
       if (onChange) onChange();
     } catch (e) {
       console.error(`[job-items-list] ship failed for ${item.id}:`, e);
-      setShipping(p => ({ ...p, [item.id]: false }));
     }
+    setShipBusy(false);
   }
 
   // Resolve the same po_sent signal the worksheet uses, so an item
@@ -300,12 +341,8 @@ export function JobItemsList({ items, job, isMobile, onChange, vendorFilter, onC
                     {state === "shipped" ? (
                       <span style={{ fontSize: 12, fontWeight: 700, color: T.green }}>✓ Shipped{item.ship_tracking ? ` · ${item.ship_tracking}` : ""}</span>
                     ) : (
-                      <div style={{ display: "flex", gap: 6, flex: "1 1 0", justifyContent: "flex-end" }}>
-                        <input value={localTrack[item.id] ?? (item.ship_tracking || "")} onChange={e => setLocalTrack(p => ({ ...p, [item.id]: e.target.value }))} placeholder="Tracking #"
-                          style={{ padding: "8px 10px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.card, color: T.text, fontSize: 12, fontFamily: mono, outline: "none", flex: "1 1 0", minWidth: 0 }} />
-                        <button onClick={() => shipItem(item)} disabled={!!shipping[item.id]}
-                          style={{ padding: "8px 12px", border: "none", borderRadius: 6, background: T.green, color: "#fff", fontSize: 12, fontWeight: 700, fontFamily: font, cursor: "pointer", whiteSpace: "nowrap" }}>{shipping[item.id] ? "…" : "Ship"}</button>
-                      </div>
+                      <button onClick={() => openShip(item)}
+                        style={{ padding: "8px 16px", border: "none", borderRadius: 6, background: T.green, color: "#fff", fontSize: 12, fontWeight: 700, fontFamily: font, cursor: "pointer", whiteSpace: "nowrap" }}>Ship…</button>
                     )}
                   </div>
                 )}
@@ -357,17 +394,10 @@ export function JobItemsList({ items, job, isMobile, onChange, vendorFilter, onC
                     {item.ship_tracking && <span style={{ fontSize: 9, color: T.faint, fontFamily: mono, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.ship_tracking}</span>}
                   </div>
                 ) : state === "in_production" ? (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                    <input
-                      value={localTrack[item.id] ?? (item.ship_tracking || "")}
-                      onChange={e => setLocalTrack(p => ({ ...p, [item.id]: e.target.value }))}
-                      placeholder="Tracking # (opt)"
-                      style={{ padding: "3px 6px", border: `1px solid ${T.border}`, borderRadius: 4, background: T.card, color: T.text, fontSize: 10, fontFamily: mono, outline: "none", width: "100%", boxSizing: "border-box" }} />
-                    <button onClick={() => shipItem(item)} disabled={!!shipping[item.id]}
-                      style={{ padding: "3px 8px", border: "none", borderRadius: 4, background: T.green, color: "#fff", fontSize: 10, fontWeight: 700, fontFamily: font, cursor: shipping[item.id] ? "default" : "pointer", opacity: shipping[item.id] ? 0.6 : 1 }}>
-                      {shipping[item.id] ? "Shipping…" : "Mark shipped"}
-                    </button>
-                  </div>
+                  <button onClick={() => openShip(item)}
+                    style={{ padding: "6px 12px", border: "none", borderRadius: 4, background: T.green, color: "#fff", fontSize: 11, fontWeight: 700, fontFamily: font, cursor: "pointer", width: "100%" }}>
+                    Ship…
+                  </button>
                 ) : (
                   <span style={{ fontSize: 11, color: T.faint }}>—</span>
                 )}
@@ -378,6 +408,75 @@ export function JobItemsList({ items, job, isMobile, onChange, vendorFilter, onC
           </div>
         </div>
       ))}
+
+      {/* Per-item ship modal — qtys + tracking + notes + packing slip */}
+      {shipModal && (() => {
+        const total = Object.values(shipQtys).reduce((a, v) => a + (parseInt(v) || 0), 0);
+        const sizes = Object.keys(shipQtys);
+        const fieldInp = { padding: "9px 11px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.card, color: T.text, fontSize: 14, fontFamily: mono, outline: "none", width: "100%", boxSizing: "border-box" };
+        return (
+          <div onClick={() => !shipBusy && setShipModal(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 300, display: "flex", alignItems: isMobile ? "flex-end" : "flex-start", justifyContent: "center", padding: isMobile ? 0 : "6vh 16px", overflowY: "auto" }}>
+            <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: isMobile ? "16px 16px 0 0" : 14, padding: 18, width: "100%", maxWidth: isMobile ? "100%" : 480, boxShadow: "0 8px 40px rgba(0,0,0,0.2)" }}>
+              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 2 }}>
+                <div style={{ fontSize: 16, fontWeight: 700 }}>Ship item</div>
+                <button onClick={() => setShipModal(null)} style={{ background: "none", border: "none", color: T.muted, fontSize: 22, cursor: "pointer", lineHeight: 1 }}>×</button>
+              </div>
+              <div style={{ fontSize: 13, color: T.muted, marginBottom: 14 }}>{shipModal.name}</div>
+
+              {/* Shipped quantities per size */}
+              <div style={{ fontSize: 10, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, display: "flex", justifyContent: "space-between" }}>
+                <span>Shipped quantities</span><span style={{ fontFamily: mono, color: T.text }}>{total} total</span>
+              </div>
+              {sizes.length === 0 ? (
+                <div style={{ fontSize: 12, color: T.faint, marginBottom: 14 }}>No size breakdown on this item.</div>
+              ) : (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
+                  {sizes.map(sz => (
+                    <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, fontFamily: mono, color: T.muted }}>{sz}</span>
+                      <input value={shipQtys[sz]} inputMode="numeric" onFocus={e => e.target.select()}
+                        onChange={e => setShipQtys(p => ({ ...p, [sz]: e.target.value }))}
+                        style={{ ...fieldInp, width: 54, textAlign: "center", padding: "8px 4px", fontWeight: 600 }} />
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <label style={{ display: "block", marginBottom: 12 }}>
+                <span style={{ fontSize: 10, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 4 }}>Tracking #</span>
+                <input value={shipTracking} onChange={e => setShipTracking(e.target.value)} placeholder="Optional" style={fieldInp} />
+              </label>
+              <label style={{ display: "block", marginBottom: 12 }}>
+                <span style={{ fontSize: 10, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 4 }}>Notes</span>
+                <input value={shipNotes} onChange={e => setShipNotes(e.target.value)} placeholder="Optional" style={{ ...fieldInp, fontFamily: font }} />
+              </label>
+
+              {/* Packing slip */}
+              <div style={{ fontSize: 10, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Packing slip</div>
+              {shipSlips.map(f => (
+                <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", fontSize: 12 }}>
+                  <a href={f.drive_link} target="_blank" rel="noreferrer" style={{ flex: 1, color: T.text, textDecoration: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.file_name}</a>
+                  <button onClick={() => removeSlip(f.id, shipModal.id)} style={{ background: "none", border: "none", color: T.faint, fontSize: 14, cursor: "pointer" }}>×</button>
+                </div>
+              ))}
+              <label style={{ display: "inline-block", padding: "8px 14px", borderRadius: 8, border: `1px dashed ${T.border}`, color: T.muted, fontSize: 12, cursor: "pointer", fontFamily: font, marginTop: 4 }}>
+                + Add packing slip
+                <input type="file" multiple accept="image/*,application/pdf" style={{ display: "none" }}
+                  onChange={e => { uploadSlips(e.target.files, shipModal); e.target.value = ""; }} />
+              </label>
+              {slipBusy && <div style={{ fontSize: 11, color: T.muted, marginTop: 6 }}>{slipBusy}</div>}
+
+              <div style={{ display: "flex", gap: 8, marginTop: 18, justifyContent: "flex-end" }}>
+                <button onClick={() => setShipModal(null)} style={{ background: "transparent", border: `1px solid ${T.border}`, color: T.muted, borderRadius: 8, padding: "10px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: font }}>Cancel</button>
+                <button onClick={confirmShip} disabled={shipBusy || !!slipBusy}
+                  style={{ background: T.green, color: "#fff", border: "none", borderRadius: 8, padding: "10px 22px", fontSize: 14, fontWeight: 700, fontFamily: font, cursor: (shipBusy || slipBusy) ? "default" : "pointer", opacity: (shipBusy || slipBusy) ? 0.6 : 1 }}>
+                  {shipBusy ? "Shipping…" : "Mark shipped"}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
