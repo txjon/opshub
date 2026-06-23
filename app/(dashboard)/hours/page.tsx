@@ -54,6 +54,7 @@ export default function HoursPage() {
   const [openShifts, setOpenShifts] = useState<Entry[]>([]);
   const [todayEntries, setTodayEntries] = useState<Entry[]>([]);
   const [, setNowTick] = useState(0); // forces re-render so elapsed times tick
+  const [manualFor, setManualFor] = useState<string | null>(null); // contractor whose manual-entry row is open
 
   const load = useCallback(async () => {
     const { data: cs } = await supabase.from("contractors").select("*").order("sort_order").order("name");
@@ -94,16 +95,22 @@ export default function HoursPage() {
     loadToday(); load();
   }
 
-  async function addEntry() {
-    if (!form.contractorId || !form.date) return;
+  async function addEntry(cid: string) {
+    if (!cid || !form.date) return;
     await supabase.from("contractor_time_entries").insert({
-      contractor_id: form.contractorId, work_date: form.date,
+      contractor_id: cid, work_date: form.date,
       time_in: form.timeIn || null, time_out: form.timeOut || null,
       break_minutes: parseInt(form.breakMin) || 0,
     });
-    setForm(f => ({ ...f, timeIn: "", timeOut: "", breakMin: "" }));
-    load();
+    setManualFor(null);
+    load(); loadToday();
   }
+  const openManual = (cid: string) => {
+    const todayStr = ymd(new Date());
+    const inWeek = todayStr >= ymd(weekStart) && todayStr <= ymd(weekEnd);
+    setForm({ contractorId: "", date: inWeek ? todayStr : ymd(weekStart), timeIn: "", timeOut: "", breakMin: "" });
+    setManualFor(cid);
+  };
   async function delEntry(id: string) { await supabase.from("contractor_time_entries").delete().eq("id", id); load(); }
   async function addContractor() {
     const name = newName.trim(); if (!name) return;
@@ -152,78 +159,8 @@ export default function HoursPage() {
         </div>
       </div>
 
-      {/* Time clock — tap to clock in on arrival, clock out when leaving.
-          Works as a shared shop kiosk; always reflects today, live. */}
-      {activeContractors.length > 0 && (
-        <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 6 }}>
-          {activeContractors.map((c, i) => {
-            const open = openShiftOf(c.id);
-            const td = todayHours(c.id);
-            return (
-              <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", borderTop: i ? `1px solid ${T.border}55` : "none" }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 15, fontWeight: 700 }}>{c.name}</div>
-                  <div style={{ fontSize: 11, color: open ? T.green : T.faint, marginTop: 1 }}>
-                    {open
-                      ? <>On the clock · since {fmtTime(open.time_in)} · <strong style={{ fontFamily: mono }}>{elapsedLabel(open.time_in)}</strong></>
-                      : (td > 0 ? <>Clocked out · {fmtHours(td)} hrs today</> : "Not clocked in")}
-                  </div>
-                </div>
-                {open ? (
-                  <button onClick={() => clockOut(open.id)}
-                    style={{ background: T.red, color: "#fff", border: "none", borderRadius: 8, padding: "10px 20px", fontSize: 14, fontWeight: 700, fontFamily: font, cursor: "pointer" }}>
-                    Clock Out
-                  </button>
-                ) : (
-                  <button onClick={() => clockIn(c.id)}
-                    style={{ background: T.green, color: "#fff", border: "none", borderRadius: 8, padding: "10px 22px", fontSize: 14, fontWeight: 700, fontFamily: font, cursor: "pointer" }}>
-                    Clock In
-                  </button>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Manual entry / correction */}
-      <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 14 }}>
-        <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
-          <div style={{ flex: "1 1 160px", minWidth: 0 }}>
-            <label style={lbl}>Contractor</label>
-            <select value={form.contractorId} onChange={e => setForm(f => ({ ...f, contractorId: e.target.value }))} style={{ ...inp, width: "100%", cursor: "pointer" }}>
-              <option value="">— select —</option>
-              {activeContractors.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </div>
-          <div style={{ width: 140 }}>
-            <label style={lbl}>Date</label>
-            <input type="date" min={ymd(weekStart)} max={ymd(weekEnd)} value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} style={{ ...inp, width: "100%", fontFamily: mono }} />
-          </div>
-          <div style={{ width: 110 }}>
-            <label style={lbl}>Time in</label>
-            <input type="time" value={form.timeIn} onChange={e => setForm(f => ({ ...f, timeIn: e.target.value }))} style={{ ...inp, width: "100%", fontFamily: mono }} />
-          </div>
-          <div style={{ width: 110 }}>
-            <label style={lbl}>Time out</label>
-            <input type="time" value={form.timeOut} onChange={e => setForm(f => ({ ...f, timeOut: e.target.value }))} style={{ ...inp, width: "100%", fontFamily: mono }} />
-          </div>
-          <div style={{ width: 90 }}>
-            <label style={lbl}>Break (min)</label>
-            <input type="number" inputMode="numeric" value={form.breakMin} onChange={e => setForm(f => ({ ...f, breakMin: e.target.value }))} placeholder="0" style={{ ...inp, width: "100%", fontFamily: mono }} />
-          </div>
-          <div style={{ width: 64, textAlign: "right" }}>
-            <label style={lbl}>Hours</label>
-            <div style={{ fontSize: 16, fontWeight: 700, fontFamily: mono, color: previewHours > 0 ? T.text : T.faint, padding: "6px 0" }}>{previewHours > 0 ? fmtHours(previewHours) : "—"}</div>
-          </div>
-          <button onClick={addEntry} disabled={!form.contractorId}
-            style={{ background: T.green, color: "#fff", border: "none", borderRadius: 7, padding: "9px 18px", fontSize: 13, fontWeight: 700, fontFamily: font, cursor: form.contractorId ? "pointer" : "default", opacity: form.contractorId ? 1 : 0.5 }}>
-            Add
-          </button>
-        </div>
-      </div>
-
-      {/* Weekly rollup */}
+      {/* Unified per-contractor list: clock in/out + manual entry + week's
+          punches, all in one card per contractor. */}
       <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
         <h2 style={{ fontSize: 11, fontWeight: 800, color: T.muted, letterSpacing: "0.08em", textTransform: "uppercase", margin: 0 }}>This week</h2>
         <span style={{ fontSize: 12, color: T.muted }}>Total <strong style={{ color: T.text, fontFamily: mono }}>{fmtHours(grandTotal)}</strong> hrs</span>
@@ -238,12 +175,72 @@ export default function HoursPage() {
       {activeContractors.map(c => {
         const es = entriesByContractor(c.id);
         const total = contractorTotal(c.id);
+        const open = openShiftOf(c.id);
+        const td = todayHours(c.id);
+        const isManual = manualFor === c.id;
         return (
           <div key={c.id} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", borderBottom: es.length ? `1px solid ${T.border}` : "none" }}>
-              <div style={{ fontSize: 14, fontWeight: 700 }}>{c.name}</div>
+            {/* Header: name + today's clock status · weekly total · Manual · Clock In/Out */}
+            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderBottom: (es.length || isManual) ? `1px solid ${T.border}` : "none" }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 15, fontWeight: 700 }}>{c.name}</div>
+                <div style={{ fontSize: 11, color: open ? T.green : T.faint, marginTop: 1 }}>
+                  {open
+                    ? <>On the clock · since {fmtTime(open.time_in)} · <strong style={{ fontFamily: mono }}>{elapsedLabel(open.time_in)}</strong></>
+                    : (td > 0 ? <>Clocked out · {fmtHours(td)} hrs today</> : "Not clocked in")}
+                </div>
+              </div>
               <div style={{ fontSize: 15, fontWeight: 800, fontFamily: mono, color: total > 0 ? T.text : T.faint }}>{fmtHours(total)} <span style={{ fontSize: 11, fontWeight: 600, color: T.muted, fontFamily: font }}>hrs</span></div>
+              <button onClick={() => isManual ? setManualFor(null) : openManual(c.id)}
+                title="Add or correct a time entry"
+                style={{ background: isManual ? T.accent : "transparent", color: isManual ? "#fff" : T.muted, border: `1px solid ${isManual ? T.accent : T.border}`, borderRadius: 8, padding: "9px 14px", fontSize: 13, fontWeight: 700, fontFamily: font, cursor: "pointer" }}>
+                Manual
+              </button>
+              {open ? (
+                <button onClick={() => clockOut(open.id)}
+                  style={{ background: T.red, color: "#fff", border: "none", borderRadius: 8, padding: "9px 18px", fontSize: 13, fontWeight: 700, fontFamily: font, cursor: "pointer", whiteSpace: "nowrap" }}>
+                  Clock Out
+                </button>
+              ) : (
+                <button onClick={() => clockIn(c.id)}
+                  style={{ background: T.green, color: "#fff", border: "none", borderRadius: 8, padding: "9px 20px", fontSize: 13, fontWeight: 700, fontFamily: font, cursor: "pointer", whiteSpace: "nowrap" }}>
+                  Clock In
+                </button>
+              )}
             </div>
+
+            {/* Inline manual entry / correction for this contractor */}
+            {isManual && (
+              <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap", padding: "10px 14px", borderBottom: es.length ? `1px solid ${T.border}` : "none", background: T.surface + "66" }}>
+                <div style={{ width: 140 }}>
+                  <label style={lbl}>Date</label>
+                  <input type="date" min={ymd(weekStart)} max={ymd(weekEnd)} value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} style={{ ...inp, width: "100%", fontFamily: mono }} />
+                </div>
+                <div style={{ width: 104 }}>
+                  <label style={lbl}>Time in</label>
+                  <input type="time" value={form.timeIn} onChange={e => setForm(f => ({ ...f, timeIn: e.target.value }))} style={{ ...inp, width: "100%", fontFamily: mono }} />
+                </div>
+                <div style={{ width: 104 }}>
+                  <label style={lbl}>Time out</label>
+                  <input type="time" value={form.timeOut} onChange={e => setForm(f => ({ ...f, timeOut: e.target.value }))} style={{ ...inp, width: "100%", fontFamily: mono }} />
+                </div>
+                <div style={{ width: 78 }}>
+                  <label style={lbl}>Break</label>
+                  <input type="number" inputMode="numeric" value={form.breakMin} onChange={e => setForm(f => ({ ...f, breakMin: e.target.value }))} placeholder="0" style={{ ...inp, width: "100%", fontFamily: mono }} />
+                </div>
+                <div style={{ width: 50, textAlign: "right" }}>
+                  <label style={lbl}>Hrs</label>
+                  <div style={{ fontSize: 15, fontWeight: 700, fontFamily: mono, color: previewHours > 0 ? T.text : T.faint, padding: "6px 0" }}>{previewHours > 0 ? fmtHours(previewHours) : "—"}</div>
+                </div>
+                <div style={{ flex: 1 }} />
+                <button onClick={() => addEntry(c.id)}
+                  style={{ background: T.green, color: "#fff", border: "none", borderRadius: 7, padding: "9px 18px", fontSize: 13, fontWeight: 700, fontFamily: font, cursor: "pointer" }}>
+                  Add
+                </button>
+                <button onClick={() => setManualFor(null)} style={{ background: "none", border: "none", color: T.faint, fontSize: 18, cursor: "pointer", lineHeight: 1, padding: "0 4px" }}>×</button>
+              </div>
+            )}
+
             {es.map(e => (
               <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 14px", borderBottom: `1px solid ${T.border}55`, fontSize: 12 }}>
                 <div style={{ width: 130, flexShrink: 0, color: T.muted }}>{fmtDateLong(e.work_date)}</div>
