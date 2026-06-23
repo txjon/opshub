@@ -255,6 +255,8 @@ export default function ReceivingPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [linkableJobs, setLinkableJobs] = useState<{ id: string; title: string; client_name: string; job_number: string; display_number: string }[]>([]);
   const [linkableClients, setLinkableClients] = useState<{ id: string; name: string }[]>([]);
+  const [linkingId, setLinkingId] = useState<string | null>(null); // outside pkg whose client picker is open
+  const [linkQuery, setLinkQuery] = useState("");
 
   useEffect(() => { loadOutside(); loadLinkableJobs(); loadLinkableClients(); }, []);
 
@@ -415,9 +417,42 @@ export default function ReceivingPage() {
     || "";
 
   async function linkToClient(shipmentId: string, clientId: string) {
+    setLinkingId(null); setLinkQuery("");
     await supabase.from("outside_shipments").update({ client_id: clientId }).eq("id", shipmentId);
     loadOutside();
   }
+
+  // Inline client link/re-link control for an outside package row (so a client
+  // can be attached AFTER logging — needed for forwarding/notify on Shipping).
+  const renderClientLink = (s: OutsideShipment) => {
+    const linkedClient = clientNameOf(s);
+    const lnk = { background: "none", border: "none", color: T.accent, fontSize: 11, fontWeight: 600, cursor: "pointer", padding: 0, fontFamily: font } as const;
+    if (linkingId === s.id) {
+      const q = linkQuery.trim().toLowerCase();
+      const matches = q ? linkableClients.filter(c => c.name.toLowerCase().includes(q)).slice(0, 6) : [];
+      return (
+        <span onClick={e => e.stopPropagation()} style={{ position: "relative", display: "inline-flex", alignItems: "center", gap: 4 }}>
+          <input autoFocus value={linkQuery} onChange={e => setLinkQuery(e.target.value)} placeholder="Search client…"
+            style={{ padding: "2px 6px", border: `1px solid ${T.border}`, borderRadius: 4, background: T.card, color: T.text, fontSize: 11, fontFamily: font, outline: "none", width: 130 }} />
+          <button onClick={() => { setLinkingId(null); setLinkQuery(""); }} style={{ ...lnk, color: T.faint, fontSize: 13 }}>×</button>
+          {q && (
+            <div style={{ position: "absolute", top: "100%", left: 0, zIndex: 20, background: T.card, border: `1px solid ${T.border}`, borderRadius: 6, marginTop: 3, minWidth: 160, maxHeight: 200, overflowY: "auto", boxShadow: "0 6px 20px rgba(0,0,0,0.14)" }}>
+              {matches.length === 0 ? (
+                <div style={{ padding: "6px 10px", fontSize: 11, color: T.faint }}>No matching client</div>
+              ) : matches.map(c => (
+                <div key={c.id} onClick={() => linkToClient(s.id, c.id)}
+                  style={{ padding: "6px 10px", fontSize: 12, cursor: "pointer", fontWeight: 600, borderBottom: `1px solid ${T.border}55` }}
+                  onMouseEnter={e => e.currentTarget.style.background = T.surface} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>{c.name}</div>
+              ))}
+            </div>
+          )}
+        </span>
+      );
+    }
+    return linkedClient
+      ? <span>{linkedClient} <button onClick={e => { e.stopPropagation(); setLinkingId(s.id); setLinkQuery(""); }} style={lnk}>change</button></span>
+      : <button onClick={e => { e.stopPropagation(); setLinkingId(s.id); setLinkQuery(""); }} style={lnk}>+ Link client</button>;
+  };
 
 
   // Receive an outside package at HPD. received_at is set to the actual receive
@@ -866,7 +901,6 @@ export default function ReceivingPage() {
 
   // List-view row (matches renderListView columns).
   const renderOutsideListRow = (s: OutsideShipment, received: boolean) => {
-    const linkedClient = clientNameOf(s);
     const units = outsideUnits(s, received);
     const summary = outsideItemsSummary(s);
     return (
@@ -875,9 +909,9 @@ export default function ReceivingPage() {
         <div style={{ width: 60, flexShrink: 0, display: "flex", alignItems: "flex-start" }}>{OUTSIDE_BADGE}</div>
         <div style={{ flexGrow: 0, flexShrink: 1, flexBasis: 300, minWidth: 0, paddingLeft: 10 }}>
           <div style={{ fontWeight: 600, color: T.text, wordBreak: "break-word" }}>{s.description}</div>
-          <div style={{ fontSize: 11, color: T.muted, marginTop: 1, wordBreak: "break-word" }}>
-            {linkedClient || (s.sender ? `From ${s.sender}` : "No client")}
-            {summary && <span style={{ color: T.faint }}> · {summary}</span>}
+          <div style={{ fontSize: 11, color: T.muted, marginTop: 1, wordBreak: "break-word", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            {renderClientLink(s)}
+            {summary && <span style={{ color: T.faint }}>· {summary}</span>}
           </div>
         </div>
         <div style={{ width: 64, flexShrink: 0, textAlign: "right", fontFamily: mono, color: T.text }}>{units || "—"}</div>
@@ -902,7 +936,6 @@ export default function ReceivingPage() {
 
   // Shipments-view card (matches renderShipmentRow columns).
   const renderOutsideShipmentRow = (s: OutsideShipment, received: boolean) => {
-    const linkedClient = clientNameOf(s);
     const units = outsideUnits(s, received);
     const summary = outsideItemsSummary(s);
     return (
@@ -913,9 +946,9 @@ export default function ReceivingPage() {
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: T.text, wordBreak: "break-word" }}>{s.description}</div>
-          <div style={{ fontSize: 11, color: T.muted, marginTop: 1, wordBreak: "break-word" }}>
-            {linkedClient || s.carrier || ""}
-            {summary && <span style={{ color: T.faint }}> · {summary}</span>}
+          <div style={{ fontSize: 11, color: T.muted, marginTop: 1, wordBreak: "break-word", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            {renderClientLink(s)}
+            {summary && <span style={{ color: T.faint }}>· {summary}</span>}
           </div>
         </div>
         <div style={{ width: 150, flexShrink: 0, fontFamily: mono, fontSize: 11, lineHeight: 1.3, display: "flex", alignItems: "flex-start" }} title={s.tracking || ""}>
