@@ -44,9 +44,11 @@ export function JobItemsList({ items, job, isMobile, onChange, vendorFilter, onC
   const [localEta, setLocalEta] = useState({});
   const saveTimers = useRef({});
   const pendingSaves = useRef({});
-  // Per-item ship modal — per-size shipped qtys + tracking + notes + packing slip.
-  const [shipModal, setShipModal] = useState(null);   // the item being shipped
-  const [shipQtys, setShipQtys] = useState({});
+  // Ship modal — an array of items (1 = single w/ per-size grid, >1 = batch:
+  // shared tracking + notes + packing slip applied to all, like /production).
+  const [shipTargets, setShipTargets] = useState(null);
+  const [selected, setSelected] = useState(new Set());   // item ids checked for batch
+  const [shipQtys, setShipQtys] = useState({});          // per-size, single only
   const [shipTracking, setShipTracking] = useState("");
   const [shipNotes, setShipNotes] = useState("");
   const [shipSlips, setShipSlips] = useState([]);
@@ -114,63 +116,71 @@ export function JobItemsList({ items, job, isMobile, onChange, vendorFilter, onC
     if (typeof fn === "function") return fn();
   }
 
-  // ── Per-item ship modal (qtys + tracking + notes + packing slip) ──
+  // ── Ship modal (single or batch) ──
+  const toggleSelect = (id) => setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const defaultQtys = (item) => {
+    const lines = item.buy_sheet_lines || []; const existing = item.ship_qtys || {}; const q = {};
+    lines.forEach(l => { q[l.size] = existing[l.size] ?? l.qty_ordered ?? 0; });
+    return q;
+  };
   async function loadSlips(itemId) {
     const { data } = await supabase.from("item_files").select("id, file_name, drive_link").eq("item_id", itemId).eq("stage", "packing_slip");
     setShipSlips(data || []);
   }
   function openShip(item) {
-    const lines = item.buy_sheet_lines || [];
-    const existing = item.ship_qtys || {};
-    const q = {};
+    const lines = item.buy_sheet_lines || []; const existing = item.ship_qtys || {}; const q = {};
     sortSizes(lines.map(l => l.size)).forEach(sz => {
       const line = lines.find(l => l.size === sz);
       q[sz] = String(existing[sz] ?? line?.qty_ordered ?? 0);
     });
-    setShipQtys(q);
-    setShipTracking(item.ship_tracking || "");
-    setShipNotes(item.ship_notes || "");
-    setShipSlips([]);
-    loadSlips(item.id);
-    setShipModal(item);
+    setShipQtys(q); setShipTracking(item.ship_tracking || ""); setShipNotes(item.ship_notes || "");
+    setShipSlips([]); loadSlips(item.id); setShipTargets([item]);
   }
-  async function uploadSlips(files, item) {
-    const arr = Array.from(files || []);
-    if (arr.length === 0) return;
+  function openBatch(itemsToShip) {
+    setShipQtys({}); setShipTracking(""); setShipNotes("");
+    setShipSlips([]); if (itemsToShip[0]) loadSlips(itemsToShip[0].id); setShipTargets(itemsToShip);
+  }
+  async function uploadSlips(files) {
+    const arr = Array.from(files || []); if (!arr.length || !shipTargets) return;
     for (let i = 0; i < arr.length; i++) {
       const file = arr[i];
       setSlipBusy(`Uploading ${arr.length > 1 ? `${i + 1}/${arr.length} ` : ""}${file.name}…`);
       try {
         const r = await uploadToDrive({ blob: file, fileName: file.name, mimeType: file.type || "application/octet-stream", clientName: job?.clients?.name || job?.client_name || "", projectTitle: job?.title || "", itemName: "Packing Slips" });
-        await registerFileInDb({ fileId: r.fileId, webViewLink: r.webViewLink, folderLink: r.folderLink, fileName: file.name, mimeType: file.type, fileSize: file.size, itemId: item.id, stage: "packing_slip" });
+        for (const it of shipTargets) {
+          await registerFileInDb({ fileId: r.fileId, webViewLink: r.webViewLink, folderLink: r.folderLink, fileName: file.name, mimeType: file.type, fileSize: file.size, itemId: it.id, stage: "packing_slip" });
+        }
       } catch (e) { console.error("[job-items-list] slip upload failed:", e); }
     }
-    setSlipBusy("");
-    loadSlips(item.id);
+    setSlipBusy(""); if (shipTargets[0]) loadSlips(shipTargets[0].id);
   }
-  async function removeSlip(fileId, itemId) {
-    await supabase.from("item_files").delete().eq("id", fileId);
-    loadSlips(itemId);
+  async function removeSlip(file) {
+    if (!shipTargets) return;
+    await supabase.from("item_files").delete().eq("stage", "packing_slip").eq("file_name", file.file_name).in("item_id", shipTargets.map(i => i.id));
+    if (shipTargets[0]) loadSlips(shipTargets[0].id);
   }
   async function confirmShip() {
-    const item = shipModal; if (!item) return;
+    if (!shipTargets) return;
     setShipBusy(true);
-    const qtys = Object.fromEntries(Object.entries(shipQtys).map(([s, v]) => [s, parseInt(v) || 0]).filter(([, v]) => v > 0));
+    const single = shipTargets.length === 1;
     try {
-      await shipItemFromDecorator(supabase, {
-        id: item.id, name: item.name, job_id: job?.id,
-        pipeline_timestamps: item.pipeline_timestamps,
-        ship_qtys: Object.keys(qtys).length ? qtys : null,
-        ship_notes: shipNotes.trim() || null,
-        ship_tracking: shipTracking.trim() || null,
-        decorator_assignment_id: item.decorator_assignment_id,
-        shipping_route: item.shipping_route,
-      });
-      setShipModal(null);
+      for (const item of shipTargets) {
+        const qtys = single
+          ? Object.fromEntries(Object.entries(shipQtys).map(([s, v]) => [s, parseInt(v) || 0]).filter(([, v]) => v > 0))
+          : defaultQtys(item);
+        await shipItemFromDecorator(supabase, {
+          id: item.id, name: item.name, job_id: job?.id,
+          pipeline_timestamps: item.pipeline_timestamps,
+          ship_qtys: Object.keys(qtys).length ? qtys : null,
+          ship_notes: shipNotes.trim() || null,
+          ship_tracking: shipTracking.trim() || null,
+          decorator_assignment_id: item.decorator_assignment_id,
+          shipping_route: item.shipping_route,
+        });
+      }
+      setShipTargets(null); setSelected(new Set());
       if (onChange) onChange();
-    } catch (e) {
-      console.error(`[job-items-list] ship failed for ${item.id}:`, e);
-    }
+    } catch (e) { console.error("[job-items-list] ship failed:", e); }
     setShipBusy(false);
   }
 
@@ -181,6 +191,20 @@ export function JobItemsList({ items, job, isMobile, onChange, vendorFilter, onC
   const sentRaw = Array.isArray(typeMeta.po_sent_vendors) ? typeMeta.po_sent_vendors : [];
   const sentLower = new Set(sentRaw.map(s => (s || "").toLowerCase().trim()).filter(Boolean));
   const jobCompletedAt = (job?.phase_timestamps || {}).complete || null;
+
+  // Resolve an item's lifecycle state (used by the row + the group's batch-ship
+  // selection, so both agree on what's shippable).
+  const stateOf = (item) => {
+    const decoratorName = item.decorator || null;
+    const decoratorShort = item.decorator_assignments?.[0]?.decorators?.short_code || null;
+    const poSent = !!((decoratorName && sentLower.has(decoratorName.toLowerCase())) || (decoratorShort && sentLower.has(decoratorShort.toLowerCase())));
+    return resolveItemStatus({
+      archived_at: item.archived_at, completed_at: item.completed_at, pipeline_stage: item.pipeline_stage,
+      received_at_hpd: item.received_at_hpd, sell_per_unit: item.sell_per_unit, blanks_order_cost: item.blanks_order_cost,
+      po_sent: poSent, job_phase: job?.phase, job_shipping_route: job?.shipping_route,
+      item_shipping_route: item.shipping_route, job_completed_at: jobCompletedAt,
+    });
+  };
 
   if (!items || items.length === 0) {
     return (
@@ -245,34 +269,26 @@ export function JobItemsList({ items, job, isMobile, onChange, vendorFilter, onC
       {vendorGroups.length === 0 && (
         <div style={{ fontSize: 12, color: T.muted, padding: "8px 10px" }}>No items{vendorFilter ? ` for ${vendorFilter}` : ""}.</div>
       )}
-      {vendorGroups.map(([vendorName, vItems]) => (
+      {vendorGroups.map(([vendorName, vItems]) => {
+        const groupSelected = vItems.filter(it => selected.has(it.id) && stateOf(it) === "in_production");
+        return (
         <div key={vendorName} style={{ marginBottom: 12 }}>
-          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", padding: "2px 10px 5px" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "2px 10px 5px" }}>
             <span style={{ fontSize: 11, fontWeight: 800, color: T.text }}>{vendorName}</span>
-            <span style={{ fontSize: 9.5, color: T.faint, fontFamily: mono }}>{vItems.length} item{vItems.length !== 1 ? "s" : ""} · {vItems.reduce((a, it) => a + tQty(it.qtys || {}), 0).toLocaleString()} units</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              {groupSelected.length > 0 && (
+                <button onClick={() => openBatch(groupSelected)}
+                  style={{ padding: "4px 12px", border: "none", borderRadius: 6, background: T.green, color: "#fff", fontSize: 11, fontWeight: 700, fontFamily: font, cursor: "pointer", whiteSpace: "nowrap" }}>
+                  Ship {groupSelected.length} selected…
+                </button>
+              )}
+              <span style={{ fontSize: 9.5, color: T.faint, fontFamily: mono }}>{vItems.length} item{vItems.length !== 1 ? "s" : ""} · {vItems.reduce((a, it) => a + tQty(it.qtys || {}), 0).toLocaleString()} units</span>
+            </div>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             {vItems.map(item => {
           const qty = tQty(item.qtys || {});
-          const decoratorName = item.decorator || null;
-          const decoratorShort = item.decorator_assignments?.[0]?.decorators?.short_code || null;
-          const poSent = !!(
-            (decoratorName && sentLower.has(decoratorName.toLowerCase())) ||
-            (decoratorShort && sentLower.has(decoratorShort.toLowerCase()))
-          );
-          const state = resolveItemStatus({
-            archived_at: item.archived_at,
-            completed_at: item.completed_at,
-            pipeline_stage: item.pipeline_stage,
-            received_at_hpd: item.received_at_hpd,
-            sell_per_unit: item.sell_per_unit,
-            blanks_order_cost: item.blanks_order_cost,
-            po_sent: poSent,
-            job_phase: job?.phase,
-            job_shipping_route: job?.shipping_route,
-            item_shipping_route: item.shipping_route,
-            job_completed_at: jobCompletedAt,
-          });
+          const state = stateOf(item);
           const stateLabel = STATE_LABELS[state] || "—";
           const stateColor = ITEM_STATE_COLORS[state] || T.muted;
           const etaValue = localEta[item.id] !== undefined ? localEta[item.id] : (item.client_eta || "");
@@ -341,8 +357,14 @@ export function JobItemsList({ items, job, isMobile, onChange, vendorFilter, onC
                     {state === "shipped" ? (
                       <span style={{ fontSize: 12, fontWeight: 700, color: T.green }}>✓ Shipped{item.ship_tracking ? ` · ${item.ship_tracking}` : ""}</span>
                     ) : (
-                      <button onClick={() => openShip(item)}
-                        style={{ padding: "8px 16px", border: "none", borderRadius: 6, background: T.green, color: "#fff", fontSize: 12, fontWeight: 700, fontFamily: font, cursor: "pointer", whiteSpace: "nowrap" }}>Ship…</button>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: T.muted, cursor: "pointer" }}>
+                          <input type="checkbox" checked={selected.has(item.id)} onChange={() => toggleSelect(item.id)} style={{ width: 15, height: 15, accentColor: T.green, cursor: "pointer" }} />
+                          Select
+                        </label>
+                        <button onClick={() => openShip(item)}
+                          style={{ padding: "8px 16px", border: "none", borderRadius: 6, background: T.green, color: "#fff", fontSize: 12, fontWeight: 700, fontFamily: font, cursor: "pointer", whiteSpace: "nowrap" }}>Ship…</button>
+                      </div>
                     )}
                   </div>
                 )}
@@ -394,10 +416,13 @@ export function JobItemsList({ items, job, isMobile, onChange, vendorFilter, onC
                     {item.ship_tracking && <span style={{ fontSize: 9, color: T.faint, fontFamily: mono, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.ship_tracking}</span>}
                   </div>
                 ) : state === "in_production" ? (
-                  <button onClick={() => openShip(item)}
-                    style={{ padding: "6px 12px", border: "none", borderRadius: 4, background: T.green, color: "#fff", fontSize: 11, fontWeight: 700, fontFamily: font, cursor: "pointer", width: "100%" }}>
-                    Ship…
-                  </button>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <input type="checkbox" checked={selected.has(item.id)} onChange={() => toggleSelect(item.id)} title="Select for batch ship" style={{ width: 14, height: 14, accentColor: T.green, cursor: "pointer", flexShrink: 0 }} />
+                    <button onClick={() => openShip(item)}
+                      style={{ flex: 1, padding: "6px 10px", border: "none", borderRadius: 4, background: T.green, color: "#fff", fontSize: 11, fontWeight: 700, fontFamily: font, cursor: "pointer" }}>
+                      Ship…
+                    </button>
+                  </div>
                 ) : (
                   <span style={{ fontSize: 11, color: T.faint }}>—</span>
                 )}
@@ -407,36 +432,51 @@ export function JobItemsList({ items, job, isMobile, onChange, vendorFilter, onC
             })}
           </div>
         </div>
-      ))}
+        );
+      })}
 
       {/* Per-item ship modal — qtys + tracking + notes + packing slip */}
-      {shipModal && (() => {
-        const total = Object.values(shipQtys).reduce((a, v) => a + (parseInt(v) || 0), 0);
+      {shipTargets && (() => {
+        const single = shipTargets.length === 1;
         const sizes = Object.keys(shipQtys);
+        const qtyTotal = Object.values(shipQtys).reduce((a, v) => a + (parseInt(v) || 0), 0);
+        const batchUnits = shipTargets.reduce((a, it) => a + tQty(it.qtys || {}), 0);
         const fieldInp = { padding: "9px 11px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.card, color: T.text, fontSize: 14, fontFamily: mono, outline: "none", width: "100%", boxSizing: "border-box" };
         return (
-          <div onClick={() => !shipBusy && setShipModal(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 300, display: "flex", alignItems: isMobile ? "flex-end" : "flex-start", justifyContent: "center", padding: isMobile ? 0 : "6vh 16px", overflowY: "auto" }}>
+          <div onClick={() => !shipBusy && setShipTargets(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 300, display: "flex", alignItems: isMobile ? "flex-end" : "flex-start", justifyContent: "center", padding: isMobile ? 0 : "6vh 16px", overflowY: "auto" }}>
             <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: isMobile ? "16px 16px 0 0" : 14, padding: 18, width: "100%", maxWidth: isMobile ? "100%" : 480, boxShadow: "0 8px 40px rgba(0,0,0,0.2)" }}>
               <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 2 }}>
-                <div style={{ fontSize: 16, fontWeight: 700 }}>Ship item</div>
-                <button onClick={() => setShipModal(null)} style={{ background: "none", border: "none", color: T.muted, fontSize: 22, cursor: "pointer", lineHeight: 1 }}>×</button>
+                <div style={{ fontSize: 16, fontWeight: 700 }}>{single ? "Ship item" : `Ship ${shipTargets.length} items`}</div>
+                <button onClick={() => setShipTargets(null)} style={{ background: "none", border: "none", color: T.muted, fontSize: 22, cursor: "pointer", lineHeight: 1 }}>×</button>
               </div>
-              <div style={{ fontSize: 13, color: T.muted, marginBottom: 14 }}>{shipModal.name}</div>
+              <div style={{ fontSize: 13, color: T.muted, marginBottom: 14 }}>{single ? shipTargets[0].name : `${batchUnits.toLocaleString()} units · one shipment`}</div>
 
-              {/* Shipped quantities per size */}
-              <div style={{ fontSize: 10, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, display: "flex", justifyContent: "space-between" }}>
-                <span>Shipped quantities</span><span style={{ fontFamily: mono, color: T.text }}>{total} total</span>
-              </div>
-              {sizes.length === 0 ? (
-                <div style={{ fontSize: 12, color: T.faint, marginBottom: 14 }}>No size breakdown on this item.</div>
+              {single ? (
+                <>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, display: "flex", justifyContent: "space-between" }}>
+                    <span>Shipped quantities</span><span style={{ fontFamily: mono, color: T.text }}>{qtyTotal} total</span>
+                  </div>
+                  {sizes.length === 0 ? (
+                    <div style={{ fontSize: 12, color: T.faint, marginBottom: 14 }}>No size breakdown on this item.</div>
+                  ) : (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
+                      {sizes.map(sz => (
+                        <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                          <span style={{ fontSize: 10, fontWeight: 700, fontFamily: mono, color: T.muted }}>{sz}</span>
+                          <input value={shipQtys[sz]} inputMode="numeric" onFocus={e => e.target.select()}
+                            onChange={e => setShipQtys(p => ({ ...p, [sz]: e.target.value }))}
+                            style={{ ...fieldInp, width: 54, textAlign: "center", padding: "8px 4px", fontWeight: 600 }} />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
               ) : (
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
-                  {sizes.map(sz => (
-                    <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
-                      <span style={{ fontSize: 10, fontWeight: 700, fontFamily: mono, color: T.muted }}>{sz}</span>
-                      <input value={shipQtys[sz]} inputMode="numeric" onFocus={e => e.target.select()}
-                        onChange={e => setShipQtys(p => ({ ...p, [sz]: e.target.value }))}
-                        style={{ ...fieldInp, width: 54, textAlign: "center", padding: "8px 4px", fontWeight: 600 }} />
+                <div style={{ border: `1px solid ${T.border}`, borderRadius: 8, marginBottom: 14, overflow: "hidden" }}>
+                  {shipTargets.map(it => (
+                    <div key={it.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderBottom: `1px solid ${T.border}55`, fontSize: 13 }}>
+                      <span style={{ flex: 1, color: T.text }}>{it.name}</span>
+                      <span style={{ fontFamily: mono, color: T.muted, fontSize: 12 }}>{tQty(it.qtys || {}).toLocaleString()} units</span>
                     </div>
                   ))}
                 </div>
@@ -456,21 +496,21 @@ export function JobItemsList({ items, job, isMobile, onChange, vendorFilter, onC
               {shipSlips.map(f => (
                 <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", fontSize: 12 }}>
                   <a href={f.drive_link} target="_blank" rel="noreferrer" style={{ flex: 1, color: T.text, textDecoration: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.file_name}</a>
-                  <button onClick={() => removeSlip(f.id, shipModal.id)} style={{ background: "none", border: "none", color: T.faint, fontSize: 14, cursor: "pointer" }}>×</button>
+                  <button onClick={() => removeSlip(f)} style={{ background: "none", border: "none", color: T.faint, fontSize: 14, cursor: "pointer" }}>×</button>
                 </div>
               ))}
               <label style={{ display: "inline-block", padding: "8px 14px", borderRadius: 8, border: `1px dashed ${T.border}`, color: T.muted, fontSize: 12, cursor: "pointer", fontFamily: font, marginTop: 4 }}>
                 + Add packing slip
                 <input type="file" multiple accept="image/*,application/pdf" style={{ display: "none" }}
-                  onChange={e => { uploadSlips(e.target.files, shipModal); e.target.value = ""; }} />
+                  onChange={e => { uploadSlips(e.target.files); e.target.value = ""; }} />
               </label>
               {slipBusy && <div style={{ fontSize: 11, color: T.muted, marginTop: 6 }}>{slipBusy}</div>}
 
               <div style={{ display: "flex", gap: 8, marginTop: 18, justifyContent: "flex-end" }}>
-                <button onClick={() => setShipModal(null)} style={{ background: "transparent", border: `1px solid ${T.border}`, color: T.muted, borderRadius: 8, padding: "10px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: font }}>Cancel</button>
+                <button onClick={() => setShipTargets(null)} style={{ background: "transparent", border: `1px solid ${T.border}`, color: T.muted, borderRadius: 8, padding: "10px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: font }}>Cancel</button>
                 <button onClick={confirmShip} disabled={shipBusy || !!slipBusy}
                   style={{ background: T.green, color: "#fff", border: "none", borderRadius: 8, padding: "10px 22px", fontSize: 14, fontWeight: 700, fontFamily: font, cursor: (shipBusy || slipBusy) ? "default" : "pointer", opacity: (shipBusy || slipBusy) ? 0.6 : 1 }}>
-                  {shipBusy ? "Shipping…" : "Mark shipped"}
+                  {shipBusy ? "Shipping…" : single ? "Mark shipped" : `Ship ${shipTargets.length} items`}
                 </button>
               </div>
             </div>
