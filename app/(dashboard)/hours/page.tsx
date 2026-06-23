@@ -182,10 +182,11 @@ export default function HoursPage() {
         const status = open
           ? <>On the clock · since {fmtTime(open.time_in)} · <strong style={{ fontFamily: mono }}>{elapsedLabel(open.time_in)}</strong></>
           : (td > 0 ? <>Clocked out · {fmtHours(td)} hrs today</> : "Not clocked in");
-        const manualBtn = (flex: boolean) => (
-          <button onClick={() => openNewEntry(c)} title="Add a time entry"
-            style={{ flex: flex ? 1 : undefined, background: "transparent", color: T.muted, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 14px", fontSize: 13, fontWeight: 700, fontFamily: font, cursor: "pointer" }}>
-            Manual
+        // Small, de-emphasized — Clock In stays the primary action.
+        const manualBtn = () => (
+          <button onClick={() => openNewEntry(c)} title="Add a time entry manually"
+            style={{ background: "none", border: "none", color: T.muted, padding: "4px 6px", fontSize: 12, fontWeight: 600, fontFamily: font, cursor: "pointer", whiteSpace: "nowrap" }}>
+            Manual entry
           </button>
         );
         const clockBtn = (flex: boolean) => open ? (
@@ -209,9 +210,9 @@ export default function HoursPage() {
                   <div style={{ fontSize: 15, fontWeight: 800, fontFamily: mono, color: total > 0 ? T.text : T.faint }}>{fmtHours(total)} <span style={{ fontSize: 11, fontWeight: 600, color: T.muted, fontFamily: font }}>hrs</span></div>
                 </div>
                 <div style={{ fontSize: 12, color: open ? T.green : T.faint, marginTop: 2 }}>{status}</div>
-                <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-                  {manualBtn(true)}
+                <div style={{ display: "flex", gap: 8, marginTop: 10, alignItems: "center" }}>
                   {clockBtn(true)}
+                  {manualBtn()}
                 </div>
               </div>
             ) : (
@@ -221,7 +222,7 @@ export default function HoursPage() {
                   <div style={{ fontSize: 11, color: open ? T.green : T.faint, marginTop: 1 }}>{status}</div>
                 </div>
                 <div style={{ fontSize: 15, fontWeight: 800, fontFamily: mono, color: total > 0 ? T.text : T.faint }}>{fmtHours(total)} <span style={{ fontSize: 11, fontWeight: 600, color: T.muted, fontFamily: font }}>hrs</span></div>
-                {manualBtn(false)}
+                {manualBtn()}
                 {clockBtn(false)}
               </div>
             )}
