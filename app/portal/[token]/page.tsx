@@ -433,7 +433,7 @@ export default function PortalPage({ params }: { params: { token: string } }) {
               Shipments
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {(data as any).shipments.map((s: { decoratorId: string | null; tracking: string; itemCount: number }, i: number) => (
+              {(data as any).shipments.map((s: { decoratorId: string | null; tracking: string; itemCount: number; forwardTracking?: string }, i: number) => (
                 <div key={`${s.decoratorId || ""}__${s.tracking}__${i}`}
                   style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, flexWrap: "wrap" }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -449,8 +449,12 @@ export default function PortalPage({ params }: { params: { token: string } }) {
                   <button
                     onClick={() => {
                       const params = new URLSearchParams({ portal: activeToken });
-                      if (s.decoratorId) params.set("decoratorId", s.decoratorId);
-                      if (s.tracking) params.set("tracking", s.tracking);
+                      if (s.forwardTracking) {
+                        params.set("forwardTracking", s.forwardTracking);
+                      } else {
+                        if (s.decoratorId) params.set("decoratorId", s.decoratorId);
+                        if (s.tracking) params.set("tracking", s.tracking);
+                      }
                       setPdfPreview({
                         src: `/api/pdf/packing-slip/${(project as any).id || ""}?${params.toString()}`,
                         title: `Packing slip · ${s.tracking}`,

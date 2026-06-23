@@ -50,11 +50,18 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     // Optional filters — limit the slip to one decorator and/or one tracking number
     const decoratorFilter = req.nextUrl.searchParams.get("decoratorId");
     const trackingFilter = req.nextUrl.searchParams.get("tracking");
+    // Outbound wave forward (migration 097) — scope to items forwarded under
+    // this outbound tracking (HPD → client). Distinct from `tracking`, which
+    // matches the inbound decorator ship_tracking.
+    const forwardTrackingFilter = req.nextUrl.searchParams.get("forwardTracking");
     let vendorScopedItems = decoratorFilter
       ? (items || []).filter((it: any) => (it.decorator_assignments || []).some((da: any) => da.decorator_id === decoratorFilter))
       : (items || []);
     if (trackingFilter) {
       vendorScopedItems = vendorScopedItems.filter((it: any) => (it.ship_tracking || "") === trackingFilter);
+    }
+    if (forwardTrackingFilter) {
+      vendorScopedItems = vendorScopedItems.filter((it: any) => (it.forward_tracking || "") === forwardTrackingFilter);
     }
     const vendorName = decoratorFilter
       ? (vendorScopedItems[0]?.decorator_assignments?.[0]?.decorators?.name || "")
@@ -101,9 +108,11 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       //    filter) \u2192 use job.fulfillment_tracking.
       const tracking = itemIsDropShip(item)
         ? (item.ship_tracking || "\u2014")
-        : (trackingFilter
-            ? (item.ship_tracking || trackingFilter || "\u2014")
-            : (job.fulfillment_tracking || "\u2014"));
+        : (forwardTrackingFilter
+            ? (item.forward_tracking || forwardTrackingFilter || "\u2014")
+            : (trackingFilter
+                ? (item.ship_tracking || trackingFilter || "\u2014")
+                : (job.fulfillment_tracking || "\u2014")));
 
       // Sort sizes via the canonical theme order (XS, S, M, L, XL, 2XL, …)
       // so the slip reads left-to-right in natural order.

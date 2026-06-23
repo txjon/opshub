@@ -86,7 +86,7 @@ export async function GET(
     const { data: items } = await sb
       .from("items")
       .select(
-        "id, name, sell_per_unit, pipeline_stage, sort_order, artwork_status, ship_qtys, received_qtys, blank_vendor, blank_sku, ship_tracking, archived_at, completed_at, received_at_hpd, blanks_order_cost, shipping_route, client_eta, client_eta_note, decorator_assignments(decorators(name, short_code)), buy_sheet_lines(qty_ordered)"
+        "id, name, sell_per_unit, pipeline_stage, sort_order, artwork_status, ship_qtys, received_qtys, blank_vendor, blank_sku, ship_tracking, forward_tracking, archived_at, completed_at, received_at_hpd, blanks_order_cost, shipping_route, forwarded_at, client_eta, client_eta_note, decorator_assignments(decorators(name, short_code)), buy_sheet_lines(qty_ordered)"
       )
       .eq("job_id", job.id)
       .order("sort_order");
@@ -120,17 +120,20 @@ export async function GET(
         job_shipping_route: (job as any).shipping_route || null,
         item_shipping_route: it?.shipping_route || null,
         job_completed_at: phaseTimestamps?.complete || null,
+        forwarded_at: it?.forwarded_at || null,
       });
     }
 
     const itemIds = (items || []).map((i: any) => i.id);
 
-    // Per-shipment list — one row per (decoratorId + tracking) pair
-    // among shipped items. Drives the "Download packing slip" buttons
-    // on the order detail page. Vendor name is intentionally NOT
-    // returned to the client (drop_ship anonymity rule); we only
-    // surface decoratorId so the PDF route can scope the slip.
-    let shipments: Array<{ decoratorId: string | null; tracking: string; itemCount: number }> = [];
+    // Per-shipment list — only CLIENT-FACING shipments:
+    //  - drop_ship items: the vendor→client direct shipment (ship_tracking).
+    //  - ship_through items: the aggregated HPD→client forward (forward_tracking).
+    // The inbound vendor→HPD leg of a ship-through item (its ship_tracking) is
+    // internal logistics and is NOT surfaced. Vendor name is never returned
+    // (drop_ship anonymity); decoratorId only lets the PDF scope the slip.
+    const jobRoute = (job as any).shipping_route || "ship_through";
+    let shipments: Array<{ decoratorId: string | null; tracking: string; itemCount: number; forwardTracking?: string }> = [];
     if (itemIds.length > 0) {
       const { data: assignments } = await sb
         .from("decorator_assignments")
@@ -140,16 +143,22 @@ export async function GET(
       for (const a of (assignments || [])) {
         decByItem[(a as any).item_id] = (a as any).decorator_id || null;
       }
-      const grouped: Record<string, { decoratorId: string | null; tracking: string; itemCount: number }> = {};
+      const grouped: Record<string, { decoratorId: string | null; tracking: string; itemCount: number; forwardTracking?: string }> = {};
       for (const it of (items || [])) {
-        if (it.pipeline_stage !== "shipped") continue;
-        if (!it.ship_tracking) continue;
-        const decId = decByItem[it.id] || null;
-        const key = `${decId || ""}__${it.ship_tracking}`;
-        if (!grouped[key]) {
-          grouped[key] = { decoratorId: decId, tracking: it.ship_tracking, itemCount: 0 };
+        const route = (it as any).shipping_route || jobRoute;
+        if (route === "drop_ship") {
+          if (it.pipeline_stage !== "shipped" || !it.ship_tracking) continue;
+          const decId = decByItem[it.id] || null;
+          const key = `ds__${decId || ""}__${it.ship_tracking}`;
+          if (!grouped[key]) grouped[key] = { decoratorId: decId, tracking: it.ship_tracking, itemCount: 0 };
+          grouped[key].itemCount++;
+        } else if (route === "ship_through") {
+          if (!(it as any).forward_tracking) continue;
+          const key = `fw__${(it as any).forward_tracking}`;
+          if (!grouped[key]) grouped[key] = { decoratorId: null, tracking: (it as any).forward_tracking, forwardTracking: (it as any).forward_tracking, itemCount: 0 };
+          grouped[key].itemCount++;
         }
-        grouped[key].itemCount++;
+        // stage → client ship handled by ShipStation/Shopify, not listed here
       }
       shipments = Object.values(grouped);
     }
@@ -182,6 +191,15 @@ export async function GET(
       .order("created_at", { ascending: false })
       .limit(50);
 
+    // Group drop-ship per-item "shipped — tracking X" by tracking → one line.
+    // Same tracking = same shipment, even if items were marked 10 min apart.
+    const shipByTrack: Record<string, number> = {};
+    const trackOf = (m: string) => (m.match(/ shipped — tracking:?\s*(.+?)\s*$/i) || [])[1] || "";
+    const isDropShipShip = (m: string) => / shipped — tracking/i.test(m) && !/decorator|warehouse|production|forwarded/i.test(m);
+    for (const a of (rawActivity || [])) {
+      if (isDropShipShip(a.message || "")) { const t = trackOf(a.message); if (t) shipByTrack[t] = (shipByTrack[t] || 0) + 1; }
+    }
+    const emittedTracks = new Set<string>();
     const activity: any[] = [];
     const seen = new Set<string>();
     for (const a of (rawActivity || [])) {
@@ -208,6 +226,19 @@ export async function GET(
       // Internal "All items shipped — invoice ready to update…" → strip the
       // ops invoicing tail; the client just needs the shipped milestone.
       else if (/all items shipped/i.test(msg)) clientMsg = "All Items Shipped";
+      // Outbound forward — reword the internal "Forwarded N to client" log.
+      else if (/forwarded \d+ items? to client/i.test(msg)) {
+        const m = msg.match(/forwarded (\d+) items?.*?tracking[: ]+(.+?)\s*$/i);
+        clientMsg = m ? `${m[1]} item${m[1] === "1" ? "" : "s"} shipped — tracking ${m[2]}` : "Your order shipped";
+      }
+      // Drop-ship per-item ship → one grouped line per tracking.
+      else if (isDropShipShip(msg)) {
+        const trk = trackOf(msg);
+        if (emittedTracks.has(trk)) continue;
+        emittedTracks.add(trk);
+        const n = shipByTrack[trk] || 1;
+        clientMsg = `${n} item${n === 1 ? "" : "s"} shipped — tracking ${trk}`;
+      }
       else if (/shipped|tracking/i.test(msg) && !/decorator|warehouse|production/i.test(msg)) {
         // Scrub vendor / decorator names from shipped messages — the
         // client never needs to know which printer touched the order.

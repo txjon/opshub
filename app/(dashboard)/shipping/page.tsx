@@ -22,7 +22,7 @@ type ShippedHistoryEntry = {
 };
 
 export default function ShippingPage() {
-  const { loading, shipThrough, undoReceived, updateFulfillment, debounceFulfillmentTracking, supabase, setJobs } = useWarehouse();
+  const { loading, shipThrough, undoReceived, updateFulfillment, debounceFulfillmentTracking, forwardItems, addSamplePull, logJobActivity, supabase, setJobs } = useWarehouse();
   const [outsideShipments, setOutsideShipments] = useState<any[]>([]);
   const [tab, setTab] = useState<"ready" | "shipped">("ready");
   // Silent mode — suppresses the Notify Recipient dialog on Mark Shipped.
@@ -59,9 +59,20 @@ export default function ShippingPage() {
   // ship UI (per-item outbound tracking is a follow-up; for now this
   // is the affordance + the future hook).
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
+  // Per-wave forward state.
+  const [forwardTracking, setForwardTracking] = useState("");
+  const [pullFor, setPullFor] = useState<string | null>(null);   // item id with the pull form open
+  const [pullQtys, setPullQtys] = useState<Record<string, string>>({});
+  const [pullReason, setPullReason] = useState("");
+  // Ship-through items only (a mixed job's stage items go to Fulfillment).
+  const stItemsOf = (job: WarehouseJob) => job.items.filter(it => (it.shipping_route || job.shipping_route) === "ship_through");
+  const bucketOf = (it: WarehouseItem) => it.forwarded_at ? "forwarded" : (it.received_at_hpd ? "ready" : "awaiting");
   useEffect(() => {
-    if (modalJob) setSelectedItemIds(new Set(modalJob.items.map(it => it.id)));
+    // Default-select the READY (received, unforwarded) ship-through items — the
+    // common "forward what's landed" flow needs no clicks.
+    if (modalJob) setSelectedItemIds(new Set(stItemsOf(modalJob).filter(it => bucketOf(it) === "ready").map(it => it.id)));
     else setSelectedItemIds(new Set());
+    setForwardTracking(""); setPullFor(null); setPullQtys({}); setPullReason("");
   }, [modalJobId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -239,37 +250,37 @@ export default function ShippingPage() {
     return list;
   }
 
-  // Mark Shipped flow:
-  // 1. Flip state (fulfillment_status = shipped, phase = complete)
-  // 2. Open notify dialog so the dispatcher reviews contacts + subject
-  //    before firing the customer email.
-  // 3. Close modal + remove job from local list.
-  async function markShipped(job: WarehouseJob & { invoiceNumber?: string }) {
-    if (!(job as any).fulfillment_tracking) return;
-    await updateFulfillment(job.id, "shipped", (job as any).fulfillment_tracking);
-    logJobActivity(job.id,
-      silentMode
-        ? `Ship-through complete (silent — no client email) — forwarded to client (${(job as any).fulfillment_tracking})`
-        : `Ship-through complete — forwarded to client (${(job as any).fulfillment_tracking})`);
-    await supabase.from("jobs").update({ phase: "complete" }).eq("id", job.id);
+  // Forward a WAVE — the selected Ready (received, unforwarded) ship-through
+  // items — to the client under one outbound tracking. Stamps forwarded_at +
+  // forward_tracking (and completes the job if it empties the last wave), then
+  // opens the per-wave client-notify dialog (the email scopes to forward_tracking).
+  async function forwardLanded(job: WarehouseJob & { invoiceNumber?: string }) {
+    const ready = new Set(stItemsOf(job).filter(it => bucketOf(it) === "ready").map(it => it.id));
+    const ids = Array.from(selectedItemIds).filter(id => ready.has(id));
+    const tracking = forwardTracking.trim();
+    if (ids.length === 0 || !tracking) return;
+    await forwardItems(job.id, ids, tracking);
+    logJobActivity(job.id, silentMode
+      ? `Forwarded ${ids.length} item${ids.length === 1 ? "" : "s"} to client (silent — no email) — tracking ${tracking}`
+      : `Forwarded ${ids.length} item${ids.length === 1 ? "" : "s"} to client — tracking ${tracking}`);
     setModalJobId(null);
-    if (silentMode) {
-      // Silent: drop the job from local state directly. No notify dialog,
-      // no client email. DB state already advanced above.
-      setJobs(prev => prev.filter(j => j.id !== job.id));
-      return;
-    }
+    if (silentMode) return;
     const contacts = await loadJobContacts(job.id);
     setNotifyState({
-      jobId: job.id,
-      decoratorId: null,
-      decoratorName: "",
-      tracking: (job as any).fulfillment_tracking,
-      qbInvoiceNumber: (job as any).invoiceNumber || (job as any).display_number || "",
-      clientName: job.client_name || "",
-      jobTitle: job.title || "",
-      contacts,
+      jobId: job.id, decoratorId: null, decoratorName: "",
+      tracking,
+      qbInvoiceNumber: (job as any).invoiceNumber || (job as any).qb_invoice_number || (job as any).display_number || "",
+      clientName: job.client_name || "", jobTitle: job.title || "", contacts,
     });
+  }
+
+  // Record a post-receiving product pull (sample held back — photos/catalog).
+  async function savePull(item: WarehouseItem) {
+    const qtys: Record<string, number> = {};
+    for (const [s, v] of Object.entries(pullQtys)) { const n = parseInt(v) || 0; if (n > 0) qtys[s] = n; }
+    if (Object.keys(qtys).length === 0) { setPullFor(null); return; }
+    await addSamplePull(item, qtys, pullReason.trim() || "Internal", "");
+    setPullFor(null); setPullQtys({}); setPullReason("");
   }
 
   // Lightweight client-notify dialog for forwarded outside packages (no job/
@@ -395,8 +406,10 @@ export default function ShippingPage() {
         shipThrough.map(job => {
           const { totalUnits } = computeJobMeta(job);
           const invoiceMissing = !(job as any).invoiceNumber && !(job as any).qb_invoice_number;
-          const trackingMissing = !(job as any).fulfillment_tracking;
           const displayInv = (job as any).qb_invoice_number || (job as any).display_number || job.job_number;
+          const cardSt = stItemsOf(job);
+          const cardReady = cardSt.filter(it => bucketOf(it) === "ready").length;
+          const cardAwaiting = cardSt.filter(it => bucketOf(it) === "awaiting").length;
           return (
             <div key={job.id}
               onClick={() => setModalJobId(job.id)}
@@ -427,20 +440,20 @@ export default function ShippingPage() {
                       Invoice missing
                     </span>
                   )}
-                  {trackingMissing && !invoiceMissing && (
+                  {cardAwaiting > 0 && (
                     <span style={{ fontSize: 10, fontWeight: 700, color: T.amber, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-                      Needs tracking
+                      Awaiting {cardAwaiting}
                     </span>
                   )}
                 </div>
               </div>
               {/* Right: counts */}
-              <div style={{ flexShrink: 0, textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, minWidth: 110 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: T.green, fontFamily: mono }}>
-                  {job.items.length} item{job.items.length === 1 ? "" : "s"}
+              <div style={{ flexShrink: 0, textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, minWidth: 120 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: cardReady > 0 ? T.green : T.muted, fontFamily: mono }}>
+                  {cardReady} ready
                 </div>
                 <span style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
-                  {totalUnits.toLocaleString()} units
+                  {totalUnits.toLocaleString()} units{cardAwaiting > 0 ? ` · ${cardAwaiting} awaiting` : ""}
                 </span>
               </div>
             </div>
@@ -588,10 +601,15 @@ export default function ShippingPage() {
         const job = modalJob;
         const { continuingByItem, totalUnits } = computeJobMeta(job);
         const invoiceMissing = !(job as any).invoiceNumber && !(job as any).qb_invoice_number;
-        const trackingMissing = !(job as any).fulfillment_tracking;
-        const canShip = !invoiceMissing && !trackingMissing && selectedItemIds.size > 0;
         const displayInv = (job as any).qb_invoice_number || (job as any).display_number || job.job_number;
-        const allSelected = job.items.length > 0 && job.items.every(it => selectedItemIds.has(it.id));
+        // Wave buckets (ship-through items only).
+        const st = stItemsOf(job);
+        const awaiting = st.filter(it => bucketOf(it) === "awaiting");
+        const ready = st.filter(it => bucketOf(it) === "ready");
+        const forwarded = st.filter(it => bucketOf(it) === "forwarded");
+        const selReady = ready.filter(it => selectedItemIds.has(it.id));
+        const allReadySelected = ready.length > 0 && ready.every(it => selectedItemIds.has(it.id));
+        const canForward = !invoiceMissing && selReady.length > 0 && forwardTracking.trim().length > 0;
         return (
           <div style={{ position: "fixed", inset: 0, background: T.bg, zIndex: 1000, display: "flex", flexDirection: "column", fontFamily: font, color: T.text }}>
             <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -666,113 +684,120 @@ export default function ShippingPage() {
                   </div>
                 )}
 
-                {/* Items header + select all */}
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-                  <div style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em" }}>Items</div>
-                  <button onClick={() => {
-                    setSelectedItemIds(prev => {
-                      const next = new Set(prev);
-                      if (allSelected) for (const it of job.items) next.delete(it.id);
-                      else for (const it of job.items) next.add(it.id);
-                      return next;
-                    });
-                  }}
-                    style={{
-                      fontSize: 11, fontWeight: 600, padding: "4px 12px", borderRadius: 6,
-                      background: allSelected ? T.text : "transparent",
-                      border: `1px solid ${allSelected ? T.text : T.border}`,
-                      color: allSelected ? "#fff" : T.text,
-                      cursor: "pointer", fontFamily: font,
-                    }}>
-                    {allSelected ? "Unselect all" : "Select all"}
-                  </button>
-                </div>
+                {/* Still-awaiting alert */}
+                {awaiting.length > 0 && (
+                  <div style={{ padding: "10px 14px", borderRadius: 8, background: T.amberDim, border: `1px solid ${T.amber}`, fontSize: 12 }}>
+                    <span style={{ fontWeight: 800, color: T.amber }}>Still awaiting {awaiting.length} item{awaiting.length === 1 ? "" : "s"}</span>
+                    <span style={{ color: T.muted }}> — {awaiting.map(it => `${it.name}${it.decorator_short_code ? ` (${it.decorator_short_code})` : ""}`).join(", ")}</span>
+                    <div style={{ color: T.faint, marginTop: 3 }}>Ship what's landed now, or wait — they'll appear here as they arrive.</div>
+                  </div>
+                )}
 
-                {/* Item rows with checkboxes */}
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  {job.items.map(item => {
-                    const continuing = continuingByItem[item.id] || {};
-                    const itemTotal = Object.values(continuing).reduce((a, q) => a + (q || 0), 0);
-                    const orderedTotal = tQty(item.qtys);
-                    const sampleTotal = tQty(item.sample_qtys);
-                    const variance = itemTotal - orderedTotal;
-                    const isSelected = selectedItemIds.has(item.id);
-                    return (
-                      <div key={item.id} style={{
-                        padding: "10px 12px", borderRadius: 6,
-                        background: isSelected ? T.card : T.surface,
-                        border: `1px solid ${isSelected ? T.accent + "44" : T.border}`,
-                        display: "flex", alignItems: "center", gap: 12,
-                      }}>
-                        <input type="checkbox" checked={isSelected}
-                          onChange={() => {
-                            setSelectedItemIds(prev => {
-                              const next = new Set(prev);
-                              if (next.has(item.id)) next.delete(item.id);
-                              else next.add(item.id);
-                              return next;
-                            });
-                          }}
-                          style={{ width: 16, height: 16, cursor: "pointer", accentColor: T.accent, flexShrink: 0 }} />
-                        <span style={{ fontSize: 11, fontWeight: 800, color: T.muted, fontFamily: mono, flexShrink: 0 }}>{item.letter}</span>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{item.name}</div>
-                          <div style={{ fontSize: 11, color: T.muted, marginTop: 2, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "baseline" }}>
-                            {item.blank_vendor && <span>{item.blank_vendor}</span>}
-                            {variance !== 0 && (
-                              <span style={{ color: variance < 0 ? T.amber : T.green, fontWeight: 600 }}>
-                                {variance > 0 ? "+" : ""}{variance} vs ordered
-                              </span>
-                            )}
-                            {sampleTotal > 0 && (
-                              <span style={{ color: T.amber }}>{sampleTotal} sample{sampleTotal === 1 ? "" : "s"} pulled</span>
+                {/* READY TO FORWARD */}
+                {ready.length > 0 && (
+                  <>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                      <div style={{ fontSize: 9, fontWeight: 700, color: T.green, textTransform: "uppercase", letterSpacing: "0.07em" }}>Ready to forward · {ready.length}</div>
+                      <button onClick={() => setSelectedItemIds(prev => {
+                        const next = new Set(prev);
+                        if (allReadySelected) ready.forEach(it => next.delete(it.id)); else ready.forEach(it => next.add(it.id));
+                        return next;
+                      })}
+                        style={{ fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 6, background: "transparent", border: `1px solid ${T.border}`, color: T.text, cursor: "pointer", fontFamily: font }}>
+                        {allReadySelected ? "Unselect all" : "Select all"}
+                      </button>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {ready.map(item => {
+                        const continuing = continuingByItem[item.id] || {};
+                        const itemTotal = Object.values(continuing).reduce((a, q) => a + (q || 0), 0);
+                        const sampleTotal = tQty(item.sample_qtys);
+                        const isSelected = selectedItemIds.has(item.id);
+                        return (
+                          <div key={item.id}>
+                            <div style={{ padding: "10px 12px", borderRadius: 6, background: isSelected ? T.card : T.surface, border: `1px solid ${isSelected ? T.green + "55" : T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
+                              <input type="checkbox" checked={isSelected}
+                                onChange={() => setSelectedItemIds(prev => { const n = new Set(prev); n.has(item.id) ? n.delete(item.id) : n.add(item.id); return n; })}
+                                style={{ width: 16, height: 16, cursor: "pointer", accentColor: T.green, flexShrink: 0 }} />
+                              <span style={{ fontSize: 11, fontWeight: 800, color: T.muted, fontFamily: mono, flexShrink: 0 }}>{item.letter}</span>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{item.name}</div>
+                                <div style={{ fontSize: 11, color: T.muted, marginTop: 2, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                  {sampleTotal > 0 && <span style={{ color: T.amber }}>{sampleTotal} pulled</span>}
+                                  <button onClick={() => { setPullFor(pullFor === item.id ? null : item.id); setPullQtys({}); setPullReason(""); }}
+                                    style={{ background: "none", border: "none", color: T.accent, fontSize: 11, fontWeight: 600, cursor: "pointer", padding: 0, fontFamily: font }}>
+                                    {pullFor === item.id ? "Cancel pull" : "+ Pull sample"}
+                                  </button>
+                                </div>
+                              </div>
+                              <div style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                                {item.sizes.map(sz => <span key={sz} style={{ fontSize: 10, fontFamily: mono, color: T.muted, padding: "2px 6px", background: T.surface, borderRadius: 3 }}>{sz}:{continuing[sz] ?? 0}</span>)}
+                                <span style={{ fontSize: 12, fontWeight: 700, fontFamily: mono, color: T.text, marginLeft: 6 }}>{itemTotal}</span>
+                              </div>
+                            </div>
+                            {/* Inline pull form — hold back units for internal use (photos/catalog) */}
+                            {pullFor === item.id && (
+                              <div style={{ padding: "10px 12px", background: T.amberDim, borderRadius: 6, marginTop: 4, display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
+                                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                                  {item.sizes.map(sz => (
+                                    <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                                      <span style={{ fontSize: 9, fontWeight: 700, fontFamily: mono, color: T.muted }}>{sz}</span>
+                                      <input value={pullQtys[sz] || ""} inputMode="numeric" placeholder="0" onChange={e => setPullQtys(p => ({ ...p, [sz]: e.target.value }))}
+                                        style={{ ...ic, width: 44, textAlign: "center", padding: "5px 4px", fontFamily: mono }} />
+                                    </div>
+                                  ))}
+                                </div>
+                                <input value={pullReason} onChange={e => setPullReason(e.target.value)} placeholder="For (photos / catalog…)" style={{ ...ic, flex: 1, minWidth: 120 }} />
+                                <button onClick={() => savePull(item)} style={{ background: T.amber, color: "#fff", border: "none", borderRadius: 6, padding: "8px 14px", fontSize: 12, fontWeight: 700, fontFamily: font, cursor: "pointer" }}>Record pull</button>
+                              </div>
                             )}
                           </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+
+                {/* FORWARDED (done) */}
+                {forwarded.length > 0 && (
+                  <>
+                    <div style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", marginTop: 4 }}>Forwarded</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      {forwarded.map(item => (
+                        <div key={item.id} style={{ padding: "8px 12px", borderRadius: 6, background: T.greenDim, border: `1px solid ${T.green}44`, display: "flex", alignItems: "center", gap: 10, fontSize: 12 }}>
+                          <span style={{ fontWeight: 700, color: T.green }}>✓</span>
+                          <span style={{ flex: 1, color: T.text }}>{item.name}</span>
+                          {item.forward_tracking && <span style={{ fontFamily: mono, color: T.muted, fontSize: 11 }}>{item.forward_tracking}</span>}
                         </div>
-                        <div style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
-                          {item.sizes.map(sz => {
-                            const cont = continuing[sz] ?? 0;
-                            const ord = item.qtys?.[sz] ?? 0;
-                            const off = cont !== ord;
-                            return (
-                              <span key={sz} title={off ? `Ordered ${ord}, continuing ${cont}` : undefined}
-                                style={{ fontSize: 10, fontFamily: mono, color: off ? (cont < ord ? T.amber : T.green) : T.muted, padding: "2px 6px", background: T.surface, borderRadius: 3 }}>
-                                {sz}:{cont}
-                              </span>
-                            );
-                          })}
-                          <span style={{ fontSize: 12, fontWeight: 700, fontFamily: mono, color: T.text, marginLeft: 6 }}>{itemTotal}</span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+
+                {ready.length === 0 && awaiting.length === 0 && forwarded.length > 0 && (
+                  <div style={{ fontSize: 12, color: T.faint }}>All items forwarded.</div>
+                )}
               </div>
 
-              {/* Footer — tracking input + Mark Shipped */}
+              {/* Footer — per-wave forward */}
               <div style={{ padding: "12px 22px", borderTop: `1px solid ${T.border}`, background: T.card, flexShrink: 0, display: "flex", flexDirection: "column", gap: 8 }}>
                 <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
                   <div style={{ flex: 1 }}>
-                    <label style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4, display: "block" }}>Outbound tracking #</label>
-                    <input style={{ ...ic, fontFamily: mono }} value={(job as any).fulfillment_tracking || ""} placeholder="Enter tracking number"
-                      onChange={e => debounceFulfillmentTracking(job.id, e.target.value)} />
+                    <label style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4, display: "block" }}>Outbound tracking # (this shipment)</label>
+                    <input style={{ ...ic, fontFamily: mono }} value={forwardTracking} placeholder="Enter tracking number" onChange={e => setForwardTracking(e.target.value)} />
                   </div>
-                  <button onClick={() => markShipped(job as any)}
-                    disabled={!canShip}
-                    title={invoiceMissing ? "Generate invoice first" : (trackingMissing ? "Tracking required" : (selectedItemIds.size === 0 ? "Select at least one item" : ""))}
-                    style={{ background: canShip ? T.green : T.surface, border: "none", borderRadius: 6, color: canShip ? "#fff" : T.faint, fontSize: 13, fontWeight: 700, padding: "10px 22px", cursor: canShip ? "pointer" : "not-allowed", opacity: canShip ? 1 : 0.5, fontFamily: font }}>
-                    Mark Shipped · {selectedItemIds.size} of {job.items.length}
+                  <button onClick={() => forwardLanded(job as any)}
+                    disabled={!canForward}
+                    title={invoiceMissing ? "Generate invoice first" : (selReady.length === 0 ? "Select a landed item" : (!forwardTracking.trim() ? "Tracking required" : ""))}
+                    style={{ background: canForward ? T.green : T.surface, border: "none", borderRadius: 6, color: canForward ? "#fff" : T.faint, fontSize: 13, fontWeight: 700, padding: "10px 22px", cursor: canForward ? "pointer" : "not-allowed", opacity: canForward ? 1 : 0.5, fontFamily: font, whiteSpace: "nowrap" }}>
+                    Ship {selReady.length} landed
                   </button>
                 </div>
                 {invoiceMissing && (
-                  <div style={{ fontSize: 11, color: T.amber, fontWeight: 600 }}>
-                    Invoice not yet generated — required before notifying customer.
-                  </div>
+                  <div style={{ fontSize: 11, color: T.amber, fontWeight: 600 }}>Invoice not yet generated — required before notifying customer.</div>
                 )}
-                {selectedItemIds.size < job.items.length && selectedItemIds.size > 0 && (
-                  <div style={{ fontSize: 11, color: T.muted }}>
-                    Partial shipment — {job.items.length - selectedItemIds.size} item{(job.items.length - selectedItemIds.size) === 1 ? "" : "s"} will stay in Ready for a later shipment.
-                  </div>
+                {awaiting.length > 0 && selReady.length > 0 && (
+                  <div style={{ fontSize: 11, color: T.muted }}>{awaiting.length} item{awaiting.length === 1 ? "" : "s"} still awaiting — they'll come back here when received.</div>
                 )}
               </div>
             </div>
@@ -857,14 +882,10 @@ export default function ShippingPage() {
       {/* Notify Recipient dialog */}
       <NotifyShipmentDialog
         open={!!notifyState}
-        onClose={() => {
-          if (notifyState) {
-            const id = notifyState.jobId;
-            setJobs(prev => prev.filter(j => j.id !== id));
-          }
-          setNotifyState(null);
-        }}
-        onSent={() => { /* removal handled in onClose for both sent + cancelled */ }}
+        onClose={() => setNotifyState(null) /* don't drop the job — forwardItems
+          already updated local state; the shipThrough filter keeps it only if
+          ship-through items remain unforwarded (more waves coming). */}
+        onSent={() => { /* state already advanced by forwardItems */ }}
         route="drop_ship"
         jobId={notifyState?.jobId || ""}
         decoratorId={notifyState?.decoratorId || null}

@@ -36,6 +36,9 @@ export type LifecycleInput = {
     // received but not yet keyed into Shopify; set = handed off to
     // Shopify/ShipStation and OpsHub considers it done.
     webstore_entered_at?: string | null;
+    // Outbound HPD → client forward (migration 097). Set = this ship_through
+    // item has been forwarded to the client (its completion event).
+    forwarded_at?: string | null;
   }[];
   payments: {
     amount: number;
@@ -105,25 +108,19 @@ export function calculatePhase(input: LifecycleInput): LifecycleResult {
     || toHpdItems.length === 0
     || toHpdItems.every(it => !!it.webstore_entered_at);
 
-  // ── COMPLETE
-  // Both buckets must satisfy their own completion criteria:
-  //  - drop-ship items: all shipped from decorator
-  //  - to-HPD items: route-appropriate fulfillment done
+  // ── COMPLETE — every item satisfies ITS OWN route's completion event:
+  //  - drop_ship: shipped from decorator.
+  //  - ship_through: forwarded to client (forwarded_at — migration 097).
+  //  - stage: received at HPD AND keyed into Shopify.
+  // Resolved per item, so a mixed-route job completes only when each bucket is
+  // truly done (a received-but-not-forwarded ship_through item no longer
+  // false-completes the job).
+  const stItems = toHpdItems.filter(it => effectiveRoute(it) === "ship_through");
+  const stageItems = toHpdItems.filter(it => effectiveRoute(it) === "stage");
   const dropShipDone = dropShipItems.length === 0 || dropShipShipped === dropShipItems.length;
-  const toHpdDone = toHpdItems.length === 0
-    || (route === "drop_ship"
-        // Mixed-route exception: job-level drop_ship with some
-        // ship_through/stage items. Those items still need to reach HPD,
-        // then go out — but the job has no fulfillment_status to gate on
-        // (drop_ship jobs don't carry one). Use "all received at HPD" as
-        // the proxy. /shipping won't pick these up because shipping_route
-        // is drop_ship; they'd need to be forwarded manually if applicable.
-        ? toHpdItems.every(it => it.received_at_hpd)
-        : route === "stage"
-          // Stage completion: items received AND keyed into Shopify.
-          ? (toHpdItems.every(it => it.received_at_hpd) && allStageWebstoreEntered)
-          // ship_through: outbound shipped from HPD.
-          : job.fulfillment_status === "shipped");
+  const stDone = stItems.length === 0 || stItems.every(it => !!it.forwarded_at);
+  const stageDone = stageItems.length === 0 || stageItems.every(it => it.received_at_hpd && !!it.webstore_entered_at);
+  const toHpdDone = toHpdItems.length === 0 || (stDone && stageDone);
   if (dropShipDone && toHpdDone && (dropShipItems.length + toHpdItems.length) > 0) {
     return { phase: "complete", itemProgress: `${total}/${total} complete` };
   }
@@ -146,13 +143,17 @@ export function calculatePhase(input: LifecycleInput): LifecycleResult {
     return { phase: "fulfillment", itemProgress: status };
   }
 
-  // ── SHIPPING (ship_through route, all to-HPD items received, needs forwarding)
-  if (route === "ship_through"
-      && toHpdItems.length > 0
-      && receivedAtHpd === toHpdItems.length
-      && receivedAtHpd > 0
-      && job.fulfillment_status !== "shipped") {
-    return { phase: "shipping", itemProgress: "Ready to forward to client" };
+  // ── SHIPPING (wave-based) — any ship_through item has landed (received) and
+  // not all are forwarded yet. Resolved per item, so a mixed drop_ship job with
+  // a ship_through item lands here too. The awaiting count surfaces items still
+  // in transit; "ship what's landed" while the rest catch up.
+  if (stItems.length > 0) {
+    const stReceived = stItems.filter(it => it.received_at_hpd).length;
+    const stForwarded = stItems.filter(it => !!it.forwarded_at).length;
+    if (stReceived > 0 && stForwarded < stItems.length) {
+      const awaiting = stItems.length - stReceived;
+      return { phase: "shipping", itemProgress: awaiting > 0 ? `${stForwarded}/${stItems.length} forwarded · ${awaiting} awaiting` : `${stForwarded}/${stItems.length} forwarded` };
+    }
   }
 
   // ── RECEIVING (any to-HPD item shipped from decorator, coming to HPD)
