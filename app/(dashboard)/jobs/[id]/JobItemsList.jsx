@@ -118,9 +118,21 @@ export function JobItemsList({ items, job, isMobile, onChange, vendorFilter, onC
 
   // ── Ship modal (single or batch) ──
   const toggleSelect = (id) => setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  const defaultQtys = (item) => {
-    const lines = item.buy_sheet_lines || []; const existing = item.ship_qtys || {}; const q = {};
-    lines.forEach(l => { q[l.size] = existing[l.size] ?? l.qty_ordered ?? 0; });
+  // shipQtys is keyed `${itemId}:${size}` so single + batch share one editable
+  // grid per item (matches the /production modal).
+  const itemSizes = (item) => sortSizes((item.buy_sheet_lines || []).map(l => l.size));
+  const seedQtys = (itemsToShip) => {
+    const q = {};
+    itemsToShip.forEach(item => {
+      const existing = item.ship_qtys || {};
+      const lines = item.buy_sheet_lines || [];
+      itemSizes(item).forEach(sz => { q[`${item.id}:${sz}`] = String(existing[sz] ?? lines.find(l => l.size === sz)?.qty_ordered ?? 0); });
+    });
+    return q;
+  };
+  const qtysForItem = (item) => {
+    const q = {};
+    itemSizes(item).forEach(sz => { const v = parseInt(shipQtys[`${item.id}:${sz}`]) || 0; if (v > 0) q[sz] = v; });
     return q;
   };
   async function loadSlips(itemId) {
@@ -128,16 +140,11 @@ export function JobItemsList({ items, job, isMobile, onChange, vendorFilter, onC
     setShipSlips(data || []);
   }
   function openShip(item) {
-    const lines = item.buy_sheet_lines || []; const existing = item.ship_qtys || {}; const q = {};
-    sortSizes(lines.map(l => l.size)).forEach(sz => {
-      const line = lines.find(l => l.size === sz);
-      q[sz] = String(existing[sz] ?? line?.qty_ordered ?? 0);
-    });
-    setShipQtys(q); setShipTracking(item.ship_tracking || ""); setShipNotes(item.ship_notes || "");
+    setShipQtys(seedQtys([item])); setShipTracking(item.ship_tracking || ""); setShipNotes(item.ship_notes || "");
     setShipSlips([]); loadSlips(item.id); setShipTargets([item]);
   }
   function openBatch(itemsToShip) {
-    setShipQtys({}); setShipTracking(""); setShipNotes("");
+    setShipQtys(seedQtys(itemsToShip)); setShipTracking(""); setShipNotes("");
     setShipSlips([]); if (itemsToShip[0]) loadSlips(itemsToShip[0].id); setShipTargets(itemsToShip);
   }
   async function uploadSlips(files) {
@@ -162,12 +169,9 @@ export function JobItemsList({ items, job, isMobile, onChange, vendorFilter, onC
   async function confirmShip() {
     if (!shipTargets) return;
     setShipBusy(true);
-    const single = shipTargets.length === 1;
     try {
       for (const item of shipTargets) {
-        const qtys = single
-          ? Object.fromEntries(Object.entries(shipQtys).map(([s, v]) => [s, parseInt(v) || 0]).filter(([, v]) => v > 0))
-          : defaultQtys(item);
+        const qtys = qtysForItem(item);
         await shipItemFromDecorator(supabase, {
           id: item.id, name: item.name, job_id: job?.id,
           pipeline_timestamps: item.pipeline_timestamps,
@@ -438,9 +442,7 @@ export function JobItemsList({ items, job, isMobile, onChange, vendorFilter, onC
       {/* Per-item ship modal — qtys + tracking + notes + packing slip */}
       {shipTargets && (() => {
         const single = shipTargets.length === 1;
-        const sizes = Object.keys(shipQtys);
-        const qtyTotal = Object.values(shipQtys).reduce((a, v) => a + (parseInt(v) || 0), 0);
-        const batchUnits = shipTargets.reduce((a, it) => a + tQty(it.qtys || {}), 0);
+        const grandTotal = shipTargets.reduce((a, it) => a + itemSizes(it).reduce((s, sz) => s + (parseInt(shipQtys[`${it.id}:${sz}`]) || 0), 0), 0);
         const fieldInp = { padding: "9px 11px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.card, color: T.text, fontSize: 14, fontFamily: mono, outline: "none", width: "100%", boxSizing: "border-box" };
         return (
           <div onClick={() => !shipBusy && setShipTargets(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 300, display: "flex", alignItems: isMobile ? "flex-end" : "flex-start", justifyContent: "center", padding: isMobile ? 0 : "6vh 16px", overflowY: "auto" }}>
@@ -449,38 +451,37 @@ export function JobItemsList({ items, job, isMobile, onChange, vendorFilter, onC
                 <div style={{ fontSize: 16, fontWeight: 700 }}>{single ? "Ship item" : `Ship ${shipTargets.length} items`}</div>
                 <button onClick={() => setShipTargets(null)} style={{ background: "none", border: "none", color: T.muted, fontSize: 22, cursor: "pointer", lineHeight: 1 }}>×</button>
               </div>
-              <div style={{ fontSize: 13, color: T.muted, marginBottom: 14 }}>{single ? shipTargets[0].name : `${batchUnits.toLocaleString()} units · one shipment`}</div>
+              <div style={{ fontSize: 13, color: T.muted, marginBottom: 14 }}>{grandTotal.toLocaleString()} total units{single ? ` · ${shipTargets[0].name}` : ""}</div>
 
-              {single ? (
-                <>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, display: "flex", justifyContent: "space-between" }}>
-                    <span>Shipped quantities</span><span style={{ fontFamily: mono, color: T.text }}>{qtyTotal} total</span>
-                  </div>
-                  {sizes.length === 0 ? (
-                    <div style={{ fontSize: 12, color: T.faint, marginBottom: 14 }}>No size breakdown on this item.</div>
-                  ) : (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
-                      {sizes.map(sz => (
-                        <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
-                          <span style={{ fontSize: 10, fontWeight: 700, fontFamily: mono, color: T.muted }}>{sz}</span>
-                          <input value={shipQtys[sz]} inputMode="numeric" onFocus={e => e.target.select()}
-                            onChange={e => setShipQtys(p => ({ ...p, [sz]: e.target.value }))}
-                            style={{ ...fieldInp, width: 54, textAlign: "center", padding: "8px 4px", fontWeight: 600 }} />
+              {/* Per-item, per-size editable shipped qtys */}
+              <div style={{ border: `1px solid ${T.border}`, borderRadius: 8, marginBottom: 14, overflow: "hidden" }}>
+                {shipTargets.map((it, idx) => {
+                  const szs = itemSizes(it);
+                  const itTotal = szs.reduce((a, sz) => a + (parseInt(shipQtys[`${it.id}:${sz}`]) || 0), 0);
+                  return (
+                    <div key={it.id} style={{ padding: "10px 12px", borderTop: idx ? `1px solid ${T.border}55` : "none" }}>
+                      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 6 }}>
+                        <span style={{ fontSize: 13, fontWeight: 600 }}>{it.name}</span>
+                        <span style={{ fontFamily: mono, color: T.muted, fontSize: 12 }}>{itTotal.toLocaleString()} units</span>
+                      </div>
+                      {szs.length === 0 ? (
+                        <div style={{ fontSize: 11, color: T.faint }}>No size breakdown.</div>
+                      ) : (
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                          {szs.map(sz => (
+                            <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                              <span style={{ fontSize: 10, fontWeight: 700, fontFamily: mono, color: T.muted }}>{sz}</span>
+                              <input value={shipQtys[`${it.id}:${sz}`] ?? ""} inputMode="numeric" onFocus={e => e.target.select()}
+                                onChange={e => setShipQtys(p => ({ ...p, [`${it.id}:${sz}`]: e.target.value }))}
+                                style={{ ...fieldInp, width: 52, textAlign: "center", padding: "8px 4px", fontWeight: 600 }} />
+                            </div>
+                          ))}
                         </div>
-                      ))}
+                      )}
                     </div>
-                  )}
-                </>
-              ) : (
-                <div style={{ border: `1px solid ${T.border}`, borderRadius: 8, marginBottom: 14, overflow: "hidden" }}>
-                  {shipTargets.map(it => (
-                    <div key={it.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderBottom: `1px solid ${T.border}55`, fontSize: 13 }}>
-                      <span style={{ flex: 1, color: T.text }}>{it.name}</span>
-                      <span style={{ fontFamily: mono, color: T.muted, fontSize: 12 }}>{tQty(it.qtys || {}).toLocaleString()} units</span>
-                    </div>
-                  ))}
-                </div>
-              )}
+                  );
+                })}
+              </div>
 
               <label style={{ display: "block", marginBottom: 12 }}>
                 <span style={{ fontSize: 10, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 4 }}>Tracking #</span>
