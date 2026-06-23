@@ -111,7 +111,14 @@ export default function HoursPage() {
     setForm({ contractorId: "", date: inWeek ? todayStr : ymd(weekStart), timeIn: "", timeOut: "", breakMin: "" });
     setManualFor(cid);
   };
-  async function delEntry(id: string) { await supabase.from("contractor_time_entries").delete().eq("id", id); load(); }
+  async function delEntry(id: string) { await supabase.from("contractor_time_entries").delete().eq("id", id); load(); loadToday(); }
+  // Inline edit of a logged punch — optimistic local update, then persist.
+  const patchLocal = (id: string, patch: Partial<Entry>) => setEntries(prev => prev.map(e => e.id === id ? { ...e, ...patch } : e));
+  async function saveEntry(id: string, patch: Partial<Entry>) {
+    patchLocal(id, patch);
+    await supabase.from("contractor_time_entries").update(patch).eq("id", id);
+    loadToday();
+  }
   async function addContractor() {
     const name = newName.trim(); if (!name) return;
     const sort = Math.max(0, ...contractors.map(c => c.sort_order)) + 1;
@@ -241,16 +248,25 @@ export default function HoursPage() {
               </div>
             )}
 
-            {es.map(e => (
-              <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 14px", borderBottom: `1px solid ${T.border}55`, fontSize: 12 }}>
-                <div style={{ width: 130, flexShrink: 0, color: T.muted }}>{fmtDateLong(e.work_date)}</div>
-                <div style={{ width: 150, flexShrink: 0, fontFamily: mono, color: T.muted }}>{fmtTime(e.time_in)} – {e.time_out ? fmtTime(e.time_out) : <span style={{ color: T.green }}>on the clock</span>}</div>
-                <div style={{ width: 90, flexShrink: 0, color: T.faint, fontSize: 11 }}>{e.break_minutes ? `${e.break_minutes}m break` : ""}</div>
+            {es.map(e => {
+              const eInp = { ...inp, padding: "4px 6px", fontFamily: mono, fontSize: 12 } as const;
+              const openRow = !!e.time_in && !e.time_out;
+              return (
+              <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 14px", borderBottom: `1px solid ${T.border}55`, fontSize: 12 }}>
+                <div style={{ width: 120, flexShrink: 0, color: T.muted }}>{fmtDateLong(e.work_date)}</div>
+                <input type="time" value={e.time_in || ""} onChange={ev => saveEntry(e.id, { time_in: ev.target.value || null })} style={{ ...eInp, width: 92 }} />
+                <span style={{ color: T.faint }}>–</span>
+                <input type="time" value={e.time_out || ""} onChange={ev => saveEntry(e.id, { time_out: ev.target.value || null })} title={openRow ? "On the clock — set a time to close the shift" : ""} style={{ ...eInp, width: 92, borderColor: openRow ? T.green : T.border }} />
+                <input type="number" inputMode="numeric" value={e.break_minutes || ""} placeholder="0"
+                  onChange={ev => patchLocal(e.id, { break_minutes: parseInt(ev.target.value) || 0 })}
+                  onBlur={ev => saveEntry(e.id, { break_minutes: parseInt(ev.target.value) || 0 })}
+                  title="Break minutes" style={{ ...eInp, width: 50, textAlign: "center" }} />
+                <span style={{ color: T.faint, fontSize: 11 }}>min</span>
                 <div style={{ flex: 1 }} />
-                <div style={{ width: 56, textAlign: "right", fontFamily: mono, fontWeight: 700, color: (e.time_in && !e.time_out) ? T.faint : T.text }}>{(e.time_in && !e.time_out) ? "—" : fmtHours(entryHours(e))}</div>
+                <div style={{ width: 56, textAlign: "right", fontFamily: mono, fontWeight: 700, color: openRow ? T.green : T.text }}>{openRow ? "on clock" : fmtHours(entryHours(e))}</div>
                 <button onClick={() => delEntry(e.id)} title="Delete" style={{ background: "none", border: "none", color: T.faint, fontSize: 15, cursor: "pointer", lineHeight: 1 }}>×</button>
               </div>
-            ))}
+            ); })}
           </div>
         );
       })}
