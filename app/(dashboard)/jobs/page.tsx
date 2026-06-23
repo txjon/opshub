@@ -58,6 +58,7 @@ function getStatusBuckets(job: any, T: any): StatusBucket[] {
     needs_po: 0, production: 0, receiving: 0, at_hpd: 0,
   };
   for (const it of items) {
+    if ((it as any).forwarded_at) continue;  // forwarded to client → done, not active work
     if (it.received_at_hpd === true) { counts.at_hpd++; continue; }
     if (it.pipeline_stage === "shipped") { counts.receiving++; continue; }
     if (it.pipeline_stage === "in_production") { counts.production++; continue; }
@@ -146,7 +147,7 @@ export default function JobsPage() {
     setLoading(true);
     const { data } = await supabase
       .from("jobs")
-      .select("*, clients(name), costing_summary, costing_data, type_meta, payment_records(amount, status), items(id, name, sell_per_unit, cost_per_unit, pipeline_stage, blanks_order_number, blanks_order_cost, ship_tracking, garment_type, received_at_hpd, sort_order, buy_sheet_lines(qty_ordered), decorator_assignments(pipeline_stage))")
+      .select("*, clients(name), costing_summary, costing_data, type_meta, payment_records(amount, status), items(id, name, sell_per_unit, cost_per_unit, pipeline_stage, blanks_order_number, blanks_order_cost, ship_tracking, garment_type, received_at_hpd, forwarded_at, sort_order, buy_sheet_lines(qty_ordered), decorator_assignments(pipeline_stage))")
       .order("created_at", { ascending: false });
     if (data) setJobs(data as Job[]);
     setLoading(false);
@@ -688,12 +689,14 @@ export default function JobsPage() {
                         const vendor = cpById[it.id]?.printVendor;
                         const poDone = !!vendor && poSent.has(vendor);
                         const stageLabel =
+                          it.forwarded_at ? "Shipped" :          // ship_through forwarded to client
                           it.received_at_hpd ? "At HPD" :
                           it.pipeline_stage === "shipped" ? "Shipped" :
                           (it.pipeline_stage === "in_production" || poDone) ? "In Production" :
                           it.pipeline_stage === "blanks_ordered" ? "Blanks Ordered" :
                           "—";
                         const stageColor =
+                          it.forwarded_at ? T.blue :
                           it.received_at_hpd ? T.purple :
                           it.pipeline_stage === "shipped" ? T.blue :
                           (it.pipeline_stage === "in_production" || poDone) ? T.accent :
