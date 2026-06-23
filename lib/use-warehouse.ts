@@ -30,6 +30,10 @@ export type WarehouseItem = {
   shipping_route: string | null;
   received_at_hpd: boolean;
   received_at_hpd_at: string | null;
+  // Outbound HPD → client forward (ship_through). Null = received but not yet
+  // forwarded ("ready"); set = forwarded ("done"). forward_tracking groups a wave.
+  forwarded_at: string | null;
+  forward_tracking: string | null;
   // Stage-route Shopify handoff. Null = received-at-HPD but not yet
   // keyed into Shopify (still OpsHub's problem). Set = handed off to
   // Shopify/ShipStation (OpsHub considers it done for stage jobs).
@@ -204,6 +208,7 @@ export function useWarehouse() {
             ship_date: ts.shipped || null,
             shipping_route: it.shipping_route || null,
             received_at_hpd: it.received_at_hpd || false, received_at_hpd_at: it.received_at_hpd_at,
+            forwarded_at: it.forwarded_at || null, forward_tracking: it.forward_tracking || null,
             webstore_entered_at: it.webstore_entered_at || null,
             sizes: sortSizes(lines.map((l: any) => l.size)),
             qtys: Object.fromEntries(lines.map((l: any) => [l.size, l.qty_ordered])),
@@ -226,7 +231,7 @@ export function useWarehouse() {
   async function recalcJobPhase(jobId: string) {
     const { data: jobData } = await supabase.from("jobs").select("*, clients(name)").eq("id", jobId).single();
     if (!jobData || jobData.phase === "on_hold" || jobData.phase === "cancelled") return;
-    const { data: jobItems } = await supabase.from("items").select("id, pipeline_stage, blanks_order_number, blanks_order_cost, ship_tracking, received_at_hpd, artwork_status, garment_type, shipping_route, webstore_entered_at").eq("job_id", jobId);
+    const { data: jobItems } = await supabase.from("items").select("id, pipeline_stage, blanks_order_number, blanks_order_cost, ship_tracking, received_at_hpd, artwork_status, garment_type, shipping_route, webstore_entered_at, forwarded_at").eq("job_id", jobId);
     const { data: payments } = await supabase.from("payment_records").select("amount, status").eq("job_id", jobId);
     const { data: proofFiles } = await supabase.from("item_files").select("item_id, approval").eq("stage", "proof").is("superseded_at", null).in("item_id", (jobItems || []).map(it => it.id));
     const proofStatus: Record<string, { allApproved: boolean }> = {};
@@ -237,7 +242,7 @@ export function useWarehouse() {
     }
     const result = calculatePhase({
       job: { job_type: jobData.job_type, shipping_route: jobData.shipping_route || "ship_through", payment_terms: jobData.payment_terms, quote_approved: jobData.quote_approved || false, phase: jobData.phase, fulfillment_status: jobData.fulfillment_status || null },
-      items: (jobItems || []).map(it => ({ id: it.id, pipeline_stage: it.pipeline_stage, po_sent: poSentToItem({ printVendor: (jobData.costing_data?.costProds || []).find((cp: any) => cp.id === it.id)?.printVendor, poSentVendors: jobData.type_meta?.po_sent_vendors }), blanks_order_number: it.blanks_order_number, blanks_order_cost: (it as any).blanks_order_cost ?? null, ship_tracking: it.ship_tracking, received_at_hpd: it.received_at_hpd || false, artwork_status: it.artwork_status, garment_type: it.garment_type, shipping_route: (it as any).shipping_route || null, webstore_entered_at: (it as any).webstore_entered_at || null })),
+      items: (jobItems || []).map(it => ({ id: it.id, pipeline_stage: it.pipeline_stage, po_sent: poSentToItem({ printVendor: (jobData.costing_data?.costProds || []).find((cp: any) => cp.id === it.id)?.printVendor, poSentVendors: jobData.type_meta?.po_sent_vendors }), blanks_order_number: it.blanks_order_number, blanks_order_cost: (it as any).blanks_order_cost ?? null, ship_tracking: it.ship_tracking, received_at_hpd: it.received_at_hpd || false, artwork_status: it.artwork_status, garment_type: it.garment_type, shipping_route: (it as any).shipping_route || null, webstore_entered_at: (it as any).webstore_entered_at || null, forwarded_at: (it as any).forwarded_at || null })),
       payments: (payments || []).map(p => ({ amount: p.amount, status: p.status })),
       proofStatus,
       poSentVendors: jobData.type_meta?.po_sent_vendors || [],
@@ -300,6 +305,45 @@ export function useWarehouse() {
     const sk = `sx_${item.id}`;
     if (saveTimers.current[sk]) { clearTimeout(saveTimers.current[sk]); delete saveTimers.current[sk]; }
     await supabase.from("items").update({ sample_pulls: nextPulls, sample_qtys: nextSamples }).eq("id", item.id);
+  }
+
+  // Ad-hoc product pull, post-receiving (held back for internal use — photos,
+  // catalog). Records a new sample_pull AND rolls the qty into sample_qtys so it
+  // deducts from the continuing/forward qty (deductSamples). Writes immediately.
+  async function addSamplePull(item: WarehouseItem, qtys: Record<string, number>, forWhom: string, to: string) {
+    const clean = Object.fromEntries(Object.entries(qtys).map(([s, n]) => [s, Number(n) || 0]).filter(([s, n]) => (n as number) > 0 && item.sizes.includes(s as string)));
+    if (Object.keys(clean).length === 0) return;
+    const nextPulls = [...(item.sample_pulls || []), { qtys: clean, for: forWhom || "Internal", to: to || "", pulled: true }];
+    const nextSamples = { ...(item.sample_qtys || {}) };
+    for (const [sz, n] of Object.entries(clean)) nextSamples[sz] = Math.max(0, (nextSamples[sz] || 0) + (n as number));
+    setJobs(prev => prev.map(j => ({
+      ...j, items: j.items.map(it => it.id === item.id ? { ...it, sample_pulls: nextPulls, sample_qtys: nextSamples } : it),
+    })));
+    const sk = `sx_${item.id}`;
+    if (saveTimers.current[sk]) { clearTimeout(saveTimers.current[sk]); delete saveTimers.current[sk]; }
+    await supabase.from("items").update({ sample_pulls: nextPulls, sample_qtys: nextSamples }).eq("id", item.id);
+  }
+
+  // Forward a wave of received ship-through items to the client. Stamps
+  // forwarded_at + forward_tracking on each. When this empties the job's
+  // unforwarded ship-through items, also set fulfillment_status=shipped +
+  // phase=complete so lifecycle/old readers settle. Returns whether the job is
+  // now fully forwarded (so the caller can decide on the client email / cleanup).
+  async function forwardItems(jobId: string, itemIds: string[], tracking: string | null) {
+    const now = new Date().toISOString();
+    await supabase.from("items").update({ forwarded_at: now, forward_tracking: (tracking || "").trim() || null }).in("id", itemIds);
+    setJobs(prev => prev.map(j => j.id === jobId
+      ? { ...j, items: j.items.map(it => itemIds.includes(it.id) ? { ...it, forwarded_at: now, forward_tracking: (tracking || "").trim() || null } : it) }
+      : j));
+    // Is every to-HPD ship-through item on the job now forwarded?
+    const job = jobs.find(j => j.id === jobId);
+    const jobRoute = job?.shipping_route || "ship_through";
+    const stItems = (job?.items || []).filter(it => (it.shipping_route || jobRoute) === "ship_through");
+    const allForwarded = stItems.length > 0 && stItems.every(it => itemIds.includes(it.id) || !!it.forwarded_at);
+    if (allForwarded) {
+      await supabase.from("jobs").update({ fulfillment_status: "shipped", fulfillment_tracking: (tracking || "").trim() || null, phase: "complete" }).eq("id", jobId);
+    }
+    return allForwarded;
   }
 
   async function markReceived(item: WarehouseItem, opts?: { condition?: string; notes?: string; skipSideEffects?: boolean; skipClientEmail?: boolean }) {
@@ -565,12 +609,21 @@ export function useWarehouse() {
   // never falls out of the warehouse query on its own.)
   const effRoute = (j: any, it: any) => it.shipping_route || j.shipping_route;
   const incoming = jobs.filter(j => j.items.some(it => !it.received_at_hpd));
-  const shipThrough = jobs.filter(j => j.fulfillment_status !== "shipped" && j.items.length > 0 && j.items.every(it => it.received_at_hpd) && j.items.some(it => effRoute(j, it) === "ship_through"));
+  // Ship-through is WAVE-based: a job surfaces once its first ship-through item
+  // lands (received) and stays until EVERY ship-through item is forwarded — so
+  // you can forward what's landed and the rest show as "awaiting". (Old jobs
+  // completed under the job-level model carry fulfillment_status="shipped" and
+  // no forwarded_at; the guard keeps them from re-surfacing.)
+  const shipThrough = jobs.filter(j => {
+    if (j.fulfillment_status === "shipped") return false;
+    const st = j.items.filter(it => effRoute(j, it) === "ship_through");
+    return st.length > 0 && st.some(it => it.received_at_hpd) && !st.every(it => !!it.forwarded_at);
+  });
   const fulfillment = jobs.filter(j => j.fulfillment_status !== "shipped" && j.items.length > 0 && j.items.every(it => it.received_at_hpd) && j.items.some(it => effRoute(j, it) === "stage"));
 
   return {
     loading, jobs, setJobs, incoming, shipThrough, fulfillment,
-    updateReceivedQty, updateSampleQty, toggleSamplePull, markReceived, bulkMarkReceived, undoReceived, returnToProduction,
+    updateReceivedQty, updateSampleQty, toggleSamplePull, addSamplePull, forwardItems, markReceived, bulkMarkReceived, undoReceived, returnToProduction,
     bulkMarkWebstoreEntered, undoWebstoreEntered,
     updateFulfillment, debounceFulfillmentTracking,
     supabase, logJobActivity,

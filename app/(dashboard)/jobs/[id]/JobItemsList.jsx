@@ -207,6 +207,7 @@ export function JobItemsList({ items, job, isMobile, onChange, vendorFilter, onC
       received_at_hpd: item.received_at_hpd, sell_per_unit: item.sell_per_unit, blanks_order_cost: item.blanks_order_cost,
       po_sent: poSent, job_phase: job?.phase, job_shipping_route: job?.shipping_route,
       item_shipping_route: item.shipping_route, job_completed_at: jobCompletedAt,
+      forwarded_at: item.forwarded_at || null,
     });
   };
 

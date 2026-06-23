@@ -425,12 +425,18 @@ export async function POST(req: NextRequest) {
       // already flipped to shipped) — one outbound shipment per job.
       const { data: allItems } = await sb
         .from("items")
-        .select("id, name, sort_order, ship_qtys, received_qtys, sample_qtys, ship_tracking, received_at_hpd, pipeline_stage, total_units, buy_sheet_lines(size, qty_ordered), decorator_assignments(decorator_id)")
+        .select("id, name, sort_order, ship_qtys, received_qtys, sample_qtys, ship_tracking, forward_tracking, received_at_hpd, pipeline_stage, total_units, buy_sheet_lines(size, qty_ordered), decorator_assignments(decorator_id)")
         .eq("job_id", jobId)
         .order("sort_order");
+      // Outbound forwards are WAVE-based (migration 097): scope the email to the
+      // items forwarded under THIS tracking. Fall back to "all received" only
+      // when nothing carries this forward_tracking (legacy job-level send).
+      const waveMatched = isJobOutbound ? (allItems || []).filter((it: any) => (it.forward_tracking || "") === (trackingNumber || "")) : [];
       const scopedItems = (allItems || []).filter((it: any) => {
         if (isJobOutbound) {
-          return it.received_at_hpd === true || it.pipeline_stage === "shipped";
+          return waveMatched.length > 0
+            ? (it.forward_tracking || "") === (trackingNumber || "")
+            : (it.received_at_hpd === true || it.pipeline_stage === "shipped");
         }
         const itDecId = (it.decorator_assignments?.[0] as any)?.decorator_id || null;
         const matchDec = !decoratorId || itDecId === decoratorId;

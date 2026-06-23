@@ -68,7 +68,7 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
     // shipping_route override, decorator assignment for po_sent lookup).
     const { data: items } = await db
       .from("items")
-      .select("id, job_id, name, garment_type, mockup_color, sell_per_unit, ship_qtys, received_qtys, drive_link, sort_order, pipeline_stage, received_at_hpd, blanks_order_cost, archived_at, completed_at, shipping_route, decorator_assignments(decorators(name, short_code))")
+      .select("id, job_id, name, garment_type, mockup_color, sell_per_unit, ship_qtys, received_qtys, drive_link, sort_order, pipeline_stage, received_at_hpd, blanks_order_cost, archived_at, completed_at, shipping_route, forwarded_at, decorator_assignments(decorators(name, short_code))")
       .in("job_id", jobIds)
       .order("sort_order", { nullsFirst: false });
 
@@ -319,6 +319,7 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
             job_shipping_route: (j as any).shipping_route || null,
             item_shipping_route: it.shipping_route || null,
             job_completed_at: ((j as any).phase_timestamps || {}).complete || null,
+            forwarded_at: it.forwarded_at || null,
           });
           return {
             id: it.id,

@@ -64,6 +64,10 @@ export interface ItemStatusInput {
   // we infer from pipeline_stage (in_production / shipped both imply
   // a PO was sent).
   po_sent?: boolean | null;
+  // Outbound HPD → client forward (migration 097). Set = this ship_through
+  // item has been forwarded to the client → complete for that item, even if
+  // the rest of the job is still shipping later waves.
+  forwarded_at?: string | null;
 }
 
 export function computeItemStatus(input: ItemStatusInput): ItemState {
@@ -87,6 +91,10 @@ export function computeItemStatus(input: ItemStatusInput): ItemState {
   // whole job's phase. Used until the fulfillment-product workflow
   // is built out.
   if (input.completed_at) return "complete";
+
+  // Forwarded to the client (ship_through outbound, migration 097) — that item
+  // is done, even if other items on the job are still in earlier waves.
+  if (input.forwarded_at) return "complete";
 
   // Job phase complete — item is at minimum Complete. Check for auto-archive.
   if (phase === "complete") {

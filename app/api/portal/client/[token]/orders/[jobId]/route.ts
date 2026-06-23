@@ -86,7 +86,7 @@ export async function GET(
     const { data: items } = await sb
       .from("items")
       .select(
-        "id, name, sell_per_unit, pipeline_stage, sort_order, artwork_status, ship_qtys, received_qtys, blank_vendor, blank_sku, ship_tracking, archived_at, completed_at, received_at_hpd, blanks_order_cost, shipping_route, client_eta, client_eta_note, decorator_assignments(decorators(name, short_code)), buy_sheet_lines(qty_ordered)"
+        "id, name, sell_per_unit, pipeline_stage, sort_order, artwork_status, ship_qtys, received_qtys, blank_vendor, blank_sku, ship_tracking, archived_at, completed_at, received_at_hpd, blanks_order_cost, shipping_route, forwarded_at, client_eta, client_eta_note, decorator_assignments(decorators(name, short_code)), buy_sheet_lines(qty_ordered)"
       )
       .eq("job_id", job.id)
       .order("sort_order");
@@ -120,6 +120,7 @@ export async function GET(
         job_shipping_route: (job as any).shipping_route || null,
         item_shipping_route: it?.shipping_route || null,
         job_completed_at: phaseTimestamps?.complete || null,
+        forwarded_at: it?.forwarded_at || null,
       });
     }
 

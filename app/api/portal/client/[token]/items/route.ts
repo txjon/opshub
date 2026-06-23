@@ -52,7 +52,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     //    this item's decorator? Used by the canonical status compute).
     const { data: items } = await db
       .from("items")
-      .select("id, job_id, name, garment_type, mockup_color, blank_vendor, blank_sku, pipeline_stage, received_at_hpd, blanks_order_cost, sell_per_unit, client_retail_per_unit, notes, design_id, created_at, sort_order, client_eta, client_eta_note, archived_at, completed_at, shipping_route, decorator_assignments(decorators(name, short_code)), buy_sheet_lines(size, qty_ordered)")
+      .select("id, job_id, name, garment_type, mockup_color, blank_vendor, blank_sku, pipeline_stage, received_at_hpd, blanks_order_cost, sell_per_unit, client_retail_per_unit, notes, design_id, created_at, sort_order, client_eta, client_eta_note, archived_at, completed_at, shipping_route, forwarded_at, decorator_assignments(decorators(name, short_code)), buy_sheet_lines(size, qty_ordered)")
       .in("job_id", jobIds)
       .order("created_at", { ascending: false });
     const itemIds = (items || []).map((i: any) => i.id);
@@ -192,6 +192,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
             job_shipping_route: job.shipping_route || null,
             item_shipping_route: it.shipping_route || null,
             job_completed_at: (job.phase_timestamps as any)?.complete || null,
+            forwarded_at: it.forwarded_at || null,
           });
         })(),
         thumb_id: thumbByItem[it.id] || null,
