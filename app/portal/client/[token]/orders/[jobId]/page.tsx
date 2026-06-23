@@ -80,7 +80,7 @@ type PortalData = {
   paymentLink: string | null;
   invoiceNumber: string | null;
   activity: { message: string; date: string }[];
-  shipments?: { decoratorId: string | null; tracking: string; itemCount: number }[];
+  shipments?: { decoratorId: string | null; tracking: string; itemCount: number; forwardTracking?: string }[];
 };
 
 const PHASE_STEPS = [
@@ -502,8 +502,12 @@ export function OrderDetailView({ token, jobId, onClose, suppressOwnChrome }: { 
                 <button
                   onClick={() => {
                     const params = new URLSearchParams({ portal: jobPortalToken });
-                    if (s.decoratorId) params.set("decoratorId", s.decoratorId);
-                    if (s.tracking) params.set("tracking", s.tracking);
+                    if (s.forwardTracking) {
+                      params.set("forwardTracking", s.forwardTracking);
+                    } else {
+                      if (s.decoratorId) params.set("decoratorId", s.decoratorId);
+                      if (s.tracking) params.set("tracking", s.tracking);
+                    }
                     const base = `/api/pdf/packing-slip/${project.id}?${params.toString()}`;
                     setPdfPreview({
                       src: base,
