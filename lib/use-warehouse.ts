@@ -335,15 +335,25 @@ export function useWarehouse() {
     setJobs(prev => prev.map(j => j.id === jobId
       ? { ...j, items: j.items.map(it => itemIds.includes(it.id) ? { ...it, forwarded_at: now, forward_tracking: (tracking || "").trim() || null } : it) }
       : j));
-    // Is every to-HPD ship-through item on the job now forwarded?
-    const job = jobs.find(j => j.id === jobId);
-    const jobRoute = job?.shipping_route || "ship_through";
-    const stItems = (job?.items || []).filter(it => (it.shipping_route || jobRoute) === "ship_through");
-    const allForwarded = stItems.length > 0 && stItems.every(it => itemIds.includes(it.id) || !!it.forwarded_at);
-    if (allForwarded) {
+    // Complete the job only when EVERY item has reached its client-delivery
+    // state — query the full set (drop_ship items are excluded from the
+    // warehouse view, so we can't judge them from job.items). A mixed job
+    // isn't done just because its ship_through items are forwarded.
+    const { data: jr } = await supabase.from("jobs").select("shipping_route").eq("id", jobId).single();
+    const jobRoute = (jr as any)?.shipping_route || "ship_through";
+    const { data: allItems } = await supabase.from("items").select("id, pipeline_stage, shipping_route, forwarded_at, webstore_entered_at").eq("job_id", jobId);
+    const delivered = (x: any) => {
+      const r = x.shipping_route || jobRoute;
+      if (r === "ship_through") return !!x.forwarded_at;
+      if (r === "stage") return !!x.webstore_entered_at;
+      return x.pipeline_stage === "shipped"; // drop_ship
+    };
+    const allDelivered = (allItems || []).length > 0 && (allItems || []).every(delivered);
+    if (allDelivered) {
       await supabase.from("jobs").update({ fulfillment_status: "shipped", fulfillment_tracking: (tracking || "").trim() || null, phase: "complete" }).eq("id", jobId);
+      logJobActivity(jobId, "All items shipped — invoice ready to update with shipped qtys");
     }
-    return allForwarded;
+    return allDelivered;
   }
 
   async function markReceived(item: WarehouseItem, opts?: { condition?: string; notes?: string; skipSideEffects?: boolean; skipClientEmail?: boolean }) {

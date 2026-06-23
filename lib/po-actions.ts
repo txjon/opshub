@@ -124,10 +124,22 @@ export async function shipItemFromDecorator(supabase: any, item: any): Promise<v
     notifyTeam(`Item shipped from decorator — ${item.name} incoming to warehouse`, "production", item.job_id, "job");
   }
 
-  // drop_ship: once the whole job has shipped, log invoice-ready (matches board).
+  // "All items shipped" fires only when every item has reached its CLIENT
+  // delivery state — NOT just pipeline_stage="shipped" (which for a ship_through
+  // item is the inbound vendor→HPD leg, not delivery). Only a drop_ship ship
+  // can be a final delivery, so this check lives in the drop_ship branch;
+  // ship_through completion is checked in forwardItems.
   if (route === "drop_ship") {
-    const { data: jobItems } = await supabase.from("items").select("id, pipeline_stage").eq("job_id", item.job_id);
-    const allShipped = (jobItems || []).every((x: any) => x.id === item.id ? true : x.pipeline_stage === "shipped");
-    if (allShipped) logJobActivity(item.job_id, "All items shipped — invoice ready to update with shipped qtys");
+    const jr = (jobRow as any)?.shipping_route || "ship_through";
+    const { data: jobItems } = await supabase.from("items").select("id, pipeline_stage, shipping_route, forwarded_at, webstore_entered_at").eq("job_id", item.job_id);
+    const delivered = (x: any) => {
+      const r = x.shipping_route || jr;
+      if (r === "ship_through") return !!x.forwarded_at;
+      if (r === "stage") return !!x.webstore_entered_at;
+      return x.pipeline_stage === "shipped"; // drop_ship
+    };
+    if ((jobItems || []).length > 0 && (jobItems || []).every(delivered)) {
+      logJobActivity(item.job_id, "All items shipped — invoice ready to update with shipped qtys");
+    }
   }
 }
