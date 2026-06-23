@@ -408,7 +408,10 @@ export async function POST(req: NextRequest) {
       // the JOB's actual route — outbound from HPD is one shipment per
       // job and must NOT filter by item.ship_tracking (which is the
       // inbound decorator→HPD tracking, not the outbound HPD→client one).
-      const isJobOutbound = (job as any).shipping_route !== "drop_ship";
+      // isJobOutbound is finalized AFTER items load (a WAVE forward is detected
+      // by forward_tracking, which works even on a mixed drop_ship job whose
+      // job-level route is drop_ship). Provisional value for the dedup key below.
+      let isJobOutbound = (job as any).shipping_route !== "drop_ship";
 
       // Dedup record key: same (decoratorId + tracking) shape as legacy
       // shipping notifications, but new record types so the new flow doesn't
@@ -428,15 +431,16 @@ export async function POST(req: NextRequest) {
         .select("id, name, sort_order, ship_qtys, received_qtys, sample_qtys, ship_tracking, forward_tracking, received_at_hpd, pipeline_stage, total_units, buy_sheet_lines(size, qty_ordered), decorator_assignments(decorator_id)")
         .eq("job_id", jobId)
         .order("sort_order");
-      // Outbound forwards are WAVE-based (migration 097): scope the email to the
-      // items forwarded under THIS tracking. Fall back to "all received" only
-      // when nothing carries this forward_tracking (legacy job-level send).
-      const waveMatched = isJobOutbound ? (allItems || []).filter((it: any) => (it.forward_tracking || "") === (trackingNumber || "")) : [];
+      // Outbound forwards are WAVE-based (migration 097): scope to the items
+      // forwarded under THIS tracking. Detected by forward_tracking so it works
+      // on a mixed drop_ship job too (job-level route is drop_ship there).
+      const waveMatched = (allItems || []).filter((it: any) => (it.forward_tracking || "") === (trackingNumber || ""));
+      const isWaveForward = waveMatched.length > 0;
+      isJobOutbound = isJobOutbound || isWaveForward;
       const scopedItems = (allItems || []).filter((it: any) => {
+        if (isWaveForward) return (it.forward_tracking || "") === (trackingNumber || "");
         if (isJobOutbound) {
-          return waveMatched.length > 0
-            ? (it.forward_tracking || "") === (trackingNumber || "")
-            : (it.received_at_hpd === true || it.pipeline_stage === "shipped");
+          return (it.received_at_hpd === true || it.pipeline_stage === "shipped");
         }
         const itDecId = (it.decorator_assignments?.[0] as any)?.decorator_id || null;
         const matchDec = !decoratorId || itDecId === decoratorId;
@@ -523,7 +527,10 @@ export async function POST(req: NextRequest) {
       let pdfBuffer: Buffer;
       try {
         const params = new URLSearchParams();
-        if (!isJobOutbound) {
+        if (isWaveForward) {
+          // Scope the slip to this wave's forwarded items.
+          params.set("forwardTracking", trackingNumber || "");
+        } else if (!isJobOutbound) {
           if (decoratorId) params.set("decoratorId", decoratorId);
           if (trackingNumber) params.set("tracking", trackingNumber);
         }
