@@ -49,6 +49,12 @@ export default function HoursPage() {
   // Add-entry form
   const [form, setForm] = useState({ contractorId: "", date: ymd(new Date()), timeIn: "", timeOut: "", breakMin: "" });
 
+  // Live clock — open shifts (clocked in, not yet out) + today's entries, loaded
+  // independently of the week selector so the kiosk always reflects right now.
+  const [openShifts, setOpenShifts] = useState<Entry[]>([]);
+  const [todayEntries, setTodayEntries] = useState<Entry[]>([]);
+  const [, setNowTick] = useState(0); // forces re-render so elapsed times tick
+
   const load = useCallback(async () => {
     const { data: cs } = await supabase.from("contractors").select("*").order("sort_order").order("name");
     setContractors(cs || []);
@@ -58,7 +64,35 @@ export default function HoursPage() {
   }, [supabase, weekStart, weekEnd]);
   useEffect(() => { load(); }, [load]);
 
+  const loadToday = useCallback(async () => {
+    const { data: open } = await supabase.from("contractor_time_entries").select("*").is("time_out", null).not("time_in", "is", null);
+    setOpenShifts(open || []);
+    const { data: td } = await supabase.from("contractor_time_entries").select("*").eq("work_date", ymd(new Date()));
+    setTodayEntries(td || []);
+  }, [supabase]);
+  useEffect(() => { loadToday(); }, [loadToday]);
+  useEffect(() => { const t = setInterval(() => setNowTick(n => n + 1), 30000); return () => clearInterval(t); }, []);
+
   const activeContractors = contractors.filter(c => c.active);
+
+  // ── Clock in/out (kiosk) ──
+  const nowHHMM = () => { const d = new Date(); return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
+  const openShiftOf = (cid: string) => openShifts.find(e => e.contractor_id === cid);
+  const todayHours = (cid: string) => todayEntries.filter(e => e.contractor_id === cid).reduce((a, e) => a + entryHours(e), 0);
+  function elapsedLabel(timeIn: string | null) {
+    const start = toMin(timeIn); if (start == null) return "";
+    const d = new Date(); let mins = (d.getHours() * 60 + d.getMinutes()) - start; if (mins < 0) mins += 1440;
+    const h = Math.floor(mins / 60), m = mins % 60;
+    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+  }
+  async function clockIn(cid: string) {
+    await supabase.from("contractor_time_entries").insert({ contractor_id: cid, work_date: ymd(new Date()), time_in: nowHHMM(), time_out: null, break_minutes: 0 });
+    loadToday(); load();
+  }
+  async function clockOut(id: string) {
+    await supabase.from("contractor_time_entries").update({ time_out: nowHHMM() }).eq("id", id);
+    loadToday(); load();
+  }
 
   async function addEntry() {
     if (!form.contractorId || !form.date) return;
@@ -118,7 +152,41 @@ export default function HoursPage() {
         </div>
       </div>
 
-      {/* Add entry */}
+      {/* Time clock — tap to clock in on arrival, clock out when leaving.
+          Works as a shared shop kiosk; always reflects today, live. */}
+      {activeContractors.length > 0 && (
+        <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 6 }}>
+          {activeContractors.map((c, i) => {
+            const open = openShiftOf(c.id);
+            const td = todayHours(c.id);
+            return (
+              <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", borderTop: i ? `1px solid ${T.border}55` : "none" }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 15, fontWeight: 700 }}>{c.name}</div>
+                  <div style={{ fontSize: 11, color: open ? T.green : T.faint, marginTop: 1 }}>
+                    {open
+                      ? <>On the clock · since {fmtTime(open.time_in)} · <strong style={{ fontFamily: mono }}>{elapsedLabel(open.time_in)}</strong></>
+                      : (td > 0 ? <>Clocked out · {fmtHours(td)} hrs today</> : "Not clocked in")}
+                  </div>
+                </div>
+                {open ? (
+                  <button onClick={() => clockOut(open.id)}
+                    style={{ background: T.red, color: "#fff", border: "none", borderRadius: 8, padding: "10px 20px", fontSize: 14, fontWeight: 700, fontFamily: font, cursor: "pointer" }}>
+                    Clock Out
+                  </button>
+                ) : (
+                  <button onClick={() => clockIn(c.id)}
+                    style={{ background: T.green, color: "#fff", border: "none", borderRadius: 8, padding: "10px 22px", fontSize: 14, fontWeight: 700, fontFamily: font, cursor: "pointer" }}>
+                    Clock In
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Manual entry / correction */}
       <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 14 }}>
         <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
           <div style={{ flex: "1 1 160px", minWidth: 0 }}>
@@ -179,10 +247,10 @@ export default function HoursPage() {
             {es.map(e => (
               <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 14px", borderBottom: `1px solid ${T.border}55`, fontSize: 12 }}>
                 <div style={{ width: 130, flexShrink: 0, color: T.muted }}>{fmtDateLong(e.work_date)}</div>
-                <div style={{ width: 150, flexShrink: 0, fontFamily: mono, color: T.muted }}>{fmtTime(e.time_in)} – {fmtTime(e.time_out)}</div>
+                <div style={{ width: 150, flexShrink: 0, fontFamily: mono, color: T.muted }}>{fmtTime(e.time_in)} – {e.time_out ? fmtTime(e.time_out) : <span style={{ color: T.green }}>on the clock</span>}</div>
                 <div style={{ width: 90, flexShrink: 0, color: T.faint, fontSize: 11 }}>{e.break_minutes ? `${e.break_minutes}m break` : ""}</div>
                 <div style={{ flex: 1 }} />
-                <div style={{ width: 56, textAlign: "right", fontFamily: mono, fontWeight: 700 }}>{fmtHours(entryHours(e))}</div>
+                <div style={{ width: 56, textAlign: "right", fontFamily: mono, fontWeight: 700, color: (e.time_in && !e.time_out) ? T.faint : T.text }}>{(e.time_in && !e.time_out) ? "—" : fmtHours(entryHours(e))}</div>
                 <button onClick={() => delEntry(e.id)} title="Delete" style={{ background: "none", border: "none", color: T.faint, fontSize: 15, cursor: "pointer", lineHeight: 1 }}>×</button>
               </div>
             ))}
