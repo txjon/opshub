@@ -241,6 +241,16 @@ export default function ReconciliationPage() {
 
   return (
     <div style={{ padding: "22px 26px", fontFamily: font, maxWidth: 1180, margin: "0 auto" }}>
+      <style>{`
+        .bq-mono { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+        .bq-ghost { background: transparent; border: 1px solid ${T.border}; color: ${T.muted}; border-radius: 6px; padding: 4px 11px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: ${font}; transition: background .12s, color .12s, border-color .12s; white-space: nowrap; }
+        .bq-ghost:hover { background: ${T.accent}; color: #fff; border-color: ${T.accent}; }
+        .bq-ghost.on { background: ${T.green}; color: #fff; border-color: ${T.green}; }
+        .bq-act { opacity: 0; transition: opacity .12s; }
+        .bq-row:hover .bq-act { opacity: 1; }
+        .bq-x { background: transparent; border: none; color: ${T.faint}; cursor: pointer; font-size: 14px; line-height: 1; padding: 3px 7px; border-radius: 5px; transition: background .12s, color .12s; }
+        .bq-x:hover { background: ${T.redDim}; color: ${T.red}; }
+      `}</style>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 14 }}>
         <h1 style={{ fontSize: 20, fontWeight: 800, color: T.text, margin: 0 }}>Billing Queue</h1>
         <button onClick={() => setShowForm(s => !s)} style={{ background: showForm ? T.surface : T.accent, color: showForm ? T.text : "#fff", border: `1px solid ${T.border}`, borderRadius: 6, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>{showForm ? "Close" : "+ Add bill"}</button>
@@ -433,39 +443,40 @@ export default function ReconciliationPage() {
                           <span style={{ fontSize: 10.5, fontWeight: 700, color: meta.color, background: meta.color + "1f", padding: "2px 9px", borderRadius: 20 }}>{meta.label}</span>
                           <span style={{ width: 150, textAlign: "right", fontFamily: mono, color: T.text }}>{money(v.billed)} <span style={{ color: T.faint }}>of {money(v.expected)}</span></span>
                           <span style={{ width: 90, textAlign: "right", fontFamily: mono, fontWeight: 700, color: v.outstanding > 0 ? T.amber : T.green }}>{v.outstanding > 0 ? money(v.outstanding) : "—"}</span>
-                          <button onClick={ev => { ev.stopPropagation(); openInlineBill(vKey, v.outstanding); }} title="Log a bill for this job + vendor" style={{ ...miniBtn(billFor === vKey ? T.green : (v.outstanding > 0 ? T.accent : T.faint)), width: 54 }}>+ bill</button>
+                          <button onClick={ev => { ev.stopPropagation(); openInlineBill(vKey, v.outstanding); }} title="Log a bill for this job + vendor" className={`bq-ghost${billFor === vKey ? " on" : ""}`}>+ bill</button>
                         </div>
                         {billFor === vKey && inlineBillRow(j.id, v.apVendorId, j.qb_invoice_number || j.job_number, v.name)}
                         {vOpen && (
                           <div style={{ background: T.bg }}>
-                            {v.items.length > 0 && (
-                              <div style={{ padding: "6px 16px 4px 62px", fontSize: 8.5, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: T.faint }}>POs</div>
-                            )}
                             {v.items.map(it => {
                               const poKey = `${vKey}::${it.poRef}`;
                               const poLines = lines.filter(e => (e.po_ref || "") === it.poRef);
                               const billedPo = Math.round(poLines.reduce((s, e) => s + Number(e.amount || 0), 0) * 100) / 100;
                               const isBilled = poLines.length > 0;
-                              const diff = Math.abs(billedPo - it.expected) > Math.max(5, it.expected * 0.01);
+                              const partial = isBilled && billedPo < it.expected - Math.max(5, it.expected * 0.01);
+                              const dot = !isBilled ? T.border : partial ? T.amber : T.green;
                               return (
                                 <div key={it.poRef}>
-                                  <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "6px 16px 6px 62px", fontSize: 11.5, borderBottom: `1px solid ${T.border}22`, background: isBilled ? T.greenDim : "transparent", borderLeft: `3px solid ${isBilled ? T.green : "transparent"}` }}>
-                                    <span style={{ width: 14, color: T.green, fontWeight: 700 }}>{isBilled ? "✓" : ""}</span>
-                                    <span style={{ width: 110, fontFamily: mono, color: T.text, fontWeight: 600 }}>{it.poRef}</span>
-                                    <span style={{ flex: 1, color: T.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{it.name}</span>
-                                    <span style={{ width: 130, textAlign: "right", fontFamily: mono }}>
+                                  <div className="bq-row" style={{ display: "flex", alignItems: "center", gap: 12, height: 38, padding: "0 16px 0 22px", borderTop: `1px solid ${T.border}22`, borderLeft: `2px solid ${isBilled ? dot : "transparent"}` }}>
+                                    <span style={{ width: 7, height: 7, borderRadius: "50%", flexShrink: 0, background: isBilled ? dot : "transparent", border: isBilled ? "none" : `1.5px solid ${T.border}` }} />
+                                    <span className="bq-mono" style={{ width: 92, fontFamily: mono, fontSize: 12, color: T.text, fontWeight: 600 }}>{it.poRef}</span>
+                                    <span style={{ flex: 1, fontSize: 12.5, color: T.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{it.name}</span>
+                                    <span className="bq-mono" style={{ width: 150, textAlign: "right", fontFamily: mono, fontSize: 12.5 }}>
                                       {isBilled
-                                        ? <span style={{ color: T.green, fontWeight: 700 }}>{money(billedPo)}{diff && <span style={{ color: T.faint, fontWeight: 400 }}> of {money(it.expected)}</span>}</span>
+                                        ? <span style={{ color: partial ? T.amber : T.green, fontWeight: 600 }}>{money(billedPo)}{partial && <span style={{ color: T.faint, fontWeight: 400 }}> / {money(it.expected)}</span>}</span>
                                         : <span style={{ color: T.muted }}>{money(it.expected)}</span>}
                                     </span>
-                                    <button onClick={ev => { ev.stopPropagation(); openInlineBill(poKey, Math.max(0, it.expected - billedPo) || it.expected); }} title={`Log a bill for ${it.poRef}`} style={{ ...miniBtn(billFor === poKey ? T.green : (isBilled ? T.faint : T.accent)), width: 44, fontSize: 10 }}>+ bill</button>
+                                    <span style={{ width: 50, display: "flex", justifyContent: "flex-end" }}>
+                                      <button onClick={ev => { ev.stopPropagation(); openInlineBill(poKey, Math.max(0, it.expected - billedPo) || it.expected); }} className={`bq-ghost${billFor === poKey ? " on" : ""}`}>+ bill</button>
+                                    </span>
                                   </div>
                                   {poLines.map(e => (
-                                    <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "4px 16px 4px 92px", fontSize: 11, borderBottom: `1px solid ${T.border}18`, background: isBilled ? T.greenDim : "transparent" }}>
-                                      <span style={{ width: 100, fontFamily: mono, color: T.muted }}>inv {e.vendor_invoice_number || "—"}</span>
-                                      <span style={{ flex: 1, color: T.faint, textTransform: "capitalize" }}>{e.charge_type.replace(/_/g, " ")}</span>
-                                      <span style={{ width: 90, textAlign: "right", fontFamily: mono, color: T.text }}>{money(e.amount)}</span>
-                                      <button onClick={ev => { ev.stopPropagation(); removeEntry(e.id); }} style={{ ...miniBtn(T.faint), width: 26 }}>✕</button>
+                                    <div key={e.id} className="bq-row" style={{ display: "flex", alignItems: "center", gap: 12, height: 28, padding: "0 16px 0 44px", borderTop: `1px solid ${T.border}14` }}>
+                                      <span style={{ flex: 1, fontSize: 11.5, color: T.faint, fontFamily: mono }}>inv {e.vendor_invoice_number || "—"}</span>
+                                      <span className="bq-mono" style={{ width: 150, textAlign: "right", fontFamily: mono, fontSize: 11.5, color: T.muted }}>{money(e.amount)}</span>
+                                      <span className="bq-act" style={{ width: 50, display: "flex", justifyContent: "flex-end" }}>
+                                        <button onClick={ev => { ev.stopPropagation(); removeEntry(e.id); }} className="bq-x">×</button>
+                                      </span>
                                     </div>
                                   ))}
                                   {billFor === poKey && inlineBillRow(j.id, v.apVendorId, it.poRef, it.name)}
@@ -473,15 +484,17 @@ export default function ReconciliationPage() {
                               );
                             })}
                             {otherLines.length > 0 && (
-                              <div style={{ padding: "8px 16px 4px 62px", fontSize: 8.5, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: T.green }}>Other bills (vendor-level)</div>
+                              <div style={{ padding: "7px 16px 2px 22px", fontSize: 8.5, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: T.faint }}>Other bills</div>
                             )}
                             {otherLines.map(e => (
-                              <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "5px 16px 5px 62px", fontSize: 11.5, borderBottom: `1px solid ${T.border}22` }}>
-                                <span style={{ width: 100, fontFamily: mono, color: T.muted }}>inv {e.vendor_invoice_number || "—"}</span>
-                                <span style={{ width: 110, fontFamily: mono, color: T.text }}>{e.po_ref || "—"}</span>
-                                <span style={{ flex: 1, color: T.faint, textTransform: "capitalize" }}>{e.charge_type.replace(/_/g, " ")}</span>
-                                <span style={{ width: 90, textAlign: "right", fontFamily: mono, color: T.text }}>{money(e.amount)}</span>
-                                <button onClick={ev => { ev.stopPropagation(); removeEntry(e.id); }} style={{ ...miniBtn(T.faint), width: 26 }}>✕</button>
+                              <div key={e.id} className="bq-row" style={{ display: "flex", alignItems: "center", gap: 12, height: 30, padding: "0 16px 0 22px", borderTop: `1px solid ${T.border}14` }}>
+                                <span style={{ width: 7, flexShrink: 0 }} />
+                                <span className="bq-mono" style={{ width: 92, fontFamily: mono, fontSize: 12, color: T.text }}>{e.po_ref || "—"}</span>
+                                <span style={{ flex: 1, fontSize: 11.5, color: T.faint, fontFamily: mono }}>inv {e.vendor_invoice_number || "—"}</span>
+                                <span className="bq-mono" style={{ width: 150, textAlign: "right", fontFamily: mono, fontSize: 12, color: T.text }}>{money(e.amount)}</span>
+                                <span className="bq-act" style={{ width: 50, display: "flex", justifyContent: "flex-end" }}>
+                                  <button onClick={ev => { ev.stopPropagation(); removeEntry(e.id); }} className="bq-x">×</button>
+                                </span>
                               </div>
                             ))}
                           </div>
