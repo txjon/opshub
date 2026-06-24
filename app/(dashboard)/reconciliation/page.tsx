@@ -30,6 +30,8 @@ type Entry = {
 };
 
 const money = (n: number) => "$" + Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+// Tolerate "$7,627.20" / "7,627.20" pasted straight from an invoice.
+const parseAmount = (s: string) => parseFloat(String(s).replace(/[^0-9.]/g, "")) || 0;
 
 export default function ReconciliationPage() {
   const [vendors, setVendors] = useState<Vendor[]>([]);
@@ -112,7 +114,7 @@ export default function ReconciliationPage() {
   const formExpected = useMemo(() => resolved ? expectedVendorCost(resolved.id, vendorId) : null, [resolved, vendorId, jobsRaw, printers, vendorKeys]); // eslint-disable-line
 
   async function addEntry() {
-    const amt = parseFloat(amount);
+    const amt = parseAmount(amount);
     if (!vendorId || !amt) return;
     setSaving(true);
     const job = resolved;
@@ -197,13 +199,13 @@ export default function ReconciliationPage() {
           <div style={{ fontSize: 12 }}>
             {poRef.trim() === "" ? <span style={{ color: T.faint }}>Enter a PO ref to resolve the job.</span>
               : resolved ? <span style={{ color: T.text }}>→ <strong>{resolved.job_number}</strong> · {resolved.client_name || "—"}
-                  {formExpected != null && <span style={{ color: T.muted }}>  ·  expected {money(formExpected)}{amount && <VarianceChip actual={parseFloat(amount) || 0} expected={formExpected} />}</span>}
+                  {formExpected != null && <span style={{ color: T.muted }}>  ·  expected {money(formExpected)}{parseAmount(amount) > 0 && <VarianceChip actual={parseAmount(amount)} expected={formExpected} />}</span>}
                   {formExpected == null && <span style={{ color: T.faint }}>  ·  no costing baseline</span>}
                 </span>
               : <span style={{ color: T.amber }}>⚠ No job matched — will go to the unmatched queue.</span>}
           </div>
-          <button onClick={addEntry} disabled={saving || !vendorId || !amount}
-            style={{ background: (!vendorId || !amount) ? T.surface : T.accent, color: (!vendorId || !amount) ? T.faint : "#fff", border: "none", borderRadius: 6, padding: "8px 18px", fontSize: 13, fontWeight: 700, cursor: (!vendorId || !amount) ? "default" : "pointer", fontFamily: font }}>
+          <button onClick={addEntry} disabled={saving || !vendorId || !parseAmount(amount)}
+            style={{ background: (!vendorId || !parseAmount(amount)) ? T.surface : T.accent, color: (!vendorId || !parseAmount(amount)) ? T.faint : "#fff", border: "none", borderRadius: 6, padding: "8px 18px", fontSize: 13, fontWeight: 700, cursor: (!vendorId || !parseAmount(amount)) ? "default" : "pointer", fontFamily: font }}>
             {saving ? "Saving…" : "Add entry"}
           </button>
         </div>
