@@ -362,8 +362,8 @@ export default function ReconciliationPage() {
               <div onClick={() => toggle(j.id)} style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 16px", cursor: "pointer", background: T.card }}>
                 <span style={{ color: T.faint, fontSize: 10, width: 10 }}>{isOpen ? "▾" : "▸"}</span>
                 <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{j.job_number} <span style={{ color: T.muted, fontWeight: 400 }}>· {j.client_name || "—"}</span></div>
-                  <div style={{ fontSize: 11, color: T.faint, textTransform: "capitalize" }}>{j.vendors.length} vendor{j.vendors.length !== 1 ? "s" : ""} · {(j.phase || "—").replace(/_/g, " ")}</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{j.qb_invoice_number ? <span style={{ fontFamily: mono }}>{j.qb_invoice_number}</span> : j.job_number} <span style={{ color: T.muted, fontWeight: 400 }}>· {j.client_name || "—"}</span></div>
+                  <div style={{ fontSize: 11, color: T.faint, textTransform: "capitalize" }}>{j.vendors.length} vendor{j.vendors.length !== 1 ? "s" : ""} · {(j.phase || "—").replace(/_/g, " ")}{j.qb_invoice_number ? <span style={{ textTransform: "none" }}> · {j.job_number}</span> : ""}</div>
                 </div>
                 <div style={{ width: 80, height: 6, background: T.surface, borderRadius: 3, overflow: "hidden" }} title={`${j.billedPct}% billed`}>
                   <div style={{ width: `${j.billedPct}%`, height: "100%", background: j.costComplete ? T.green : T.amber }} />

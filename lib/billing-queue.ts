@@ -19,6 +19,7 @@ export interface QueueVendor {
 export interface QueueJob {
   id: string;
   job_number: string;
+  qb_invoice_number: string | null; // the PO/invoice # vendors reference (e.g. 4304) — primary id
   client_name: string | null;
   phase: string | null;
   vendors: QueueVendor[];
@@ -115,7 +116,8 @@ export function computeBillingQueue(opts: {
     const costComplete = vendors.every(v => v.state === "billed" || v.state === "over");
     const billedPct = jExp > 0 ? Math.min(100, Math.round((100 * jBilled) / jExp)) : (jBilled > 0 ? 100 : 0);
     outJobs.push({
-      id: job.id, job_number: job.job_number, client_name: job.clients?.name || null,
+      id: job.id, job_number: job.job_number, qb_invoice_number: job.type_meta?.qb_invoice_number || null,
+      client_name: job.clients?.name || null,
       phase: job.phase || null, vendors, expected: jExp, billed: jBilled, outstanding: jOut,
       costComplete, billedPct,
     });
