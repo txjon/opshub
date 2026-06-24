@@ -99,6 +99,14 @@ export default function ReconciliationPage() {
   const [billSaving, setBillSaving] = useState(false);
   const [alloc, setAlloc] = useState<Record<string, { on: boolean; amt: string }>>({}); // vendor multi-PO allocation
   const [billMethod, setBillMethod] = useState("invoice");
+  // New Bill modal (QB-style entry, job-aware)
+  const [showBill, setShowBill] = useState(false);
+  const [nbVendor, setNbVendor] = useState("");
+  const [nbInvoice, setNbInvoice] = useState("");
+  const [nbPo, setNbPo] = useState("");
+  const [nbAmt, setNbAmt] = useState("");
+  const [nbLines, setNbLines] = useState<{ poRef: string; job_id: string; job_number: string; client_name: string | null; itemName: string; projected: number; amount: number; apVendorId: string | null }[]>([]);
+  const [nbSaving, setNbSaving] = useState(false);
 
   async function loadAll() {
     const [v, j, e, d, m] = await Promise.all([
@@ -281,6 +289,15 @@ export default function ReconciliationPage() {
   const filteredQueue = queue.jobs
     .filter(j => qFilter === "all" ? true : qFilter === "complete" ? j.costComplete : !j.costComplete)
     .filter(j => !sq || (j.qb_invoice_number || "").toLowerCase().includes(sq) || (j.job_number || "").toLowerCase().includes(sq) || (j.client_name || "").toLowerCase().includes(sq) || j.vendors.some(v => v.name.toLowerCase().includes(sq)));
+  // PO ref → line detail, for the New Bill lookup (type a PO #, get job/client/projected)
+  const poIndex = useMemo(() => {
+    const m: Record<string, { poRef: string; job_id: string; job_number: string; qb: string | null; client_name: string | null; vendorName: string; apVendorId: string | null; itemName: string; projected: number }> = {};
+    for (const j of queue.jobs) for (const v of j.vendors) for (const it of v.items) {
+      m[it.poRef.toUpperCase().replace(/[^A-Z0-9]/g, "")] = { poRef: it.poRef, job_id: j.id, job_number: j.job_number, qb: j.qb_invoice_number, client_name: j.client_name, vendorName: v.name, apVendorId: v.apVendorId, itemName: it.name, projected: it.expected };
+    }
+    return m;
+  }, [queue]);
+  const nbHit = poIndex[nbPo.toUpperCase().replace(/[^A-Z0-9]/g, "")] || null;
   // open PO broken down by vendor — "who do we owe"
   const openByVendor = (() => {
     const m: Record<string, { name: string; outstanding: number; jobs: number }> = {};
@@ -312,6 +329,30 @@ export default function ReconciliationPage() {
     loadAll();
   }
 
+  function openNewBill() { setShowBill(true); setNbVendor(""); setNbInvoice(""); setNbPo(""); setNbAmt(""); setNbLines([]); }
+  function addNbLine() {
+    if (!nbHit) return;
+    const amount = parseAmount(nbAmt) || nbHit.projected;
+    setNbLines(prev => [...prev, { poRef: nbHit.poRef, job_id: nbHit.job_id, job_number: nbHit.job_number, client_name: nbHit.client_name, itemName: nbHit.itemName, projected: nbHit.projected, amount, apVendorId: nbHit.apVendorId }]);
+    setNbPo(""); setNbAmt("");
+    if (!nbVendor && nbHit.apVendorId) setNbVendor(nbHit.apVendorId); // infer vendor from first line
+  }
+  async function saveBill() {
+    if (!nbLines.length) return;
+    const vId = nbVendor || nbLines[0].apVendorId;
+    if (!vId) return;
+    setNbSaving(true);
+    const vendorName = vendors.find(v => v.id === vId)?.name || null;
+    const rows = nbLines.map(l => ({
+      source: "decorator_invoice", vendor_id: vId, vendor_name: vendorName,
+      vendor_invoice_number: nbInvoice.trim() || null, po_ref: l.poRef, job_id: l.job_id,
+      amount: l.amount, expected_amount: l.projected, charge_type: "production", status: "matched", bill_method: vendorMethod(vId),
+    }));
+    const { error } = await supabase.from("cost_entries").insert(rows as any);
+    setNbSaving(false);
+    if (!error) { setShowBill(false); loadAll(); }
+  }
+
   const lbl = { fontSize: 9, fontWeight: 700 as const, letterSpacing: "0.08em", textTransform: "uppercase" as const, color: T.faint };
   const inp = { padding: "7px 9px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.card, color: T.text, fontSize: 13, fontFamily: font, outline: "none" };
 
@@ -329,9 +370,73 @@ export default function ReconciliationPage() {
         .bq-x { background: transparent; border: none; color: ${T.faint}; cursor: pointer; font-size: 14px; line-height: 1; padding: 3px 7px; border-radius: 5px; transition: background .12s, color .12s; }
         .bq-x:hover { background: ${T.redDim}; color: ${T.red}; }
       `}</style>
+
+      {showBill && (
+        <div onClick={() => setShowBill(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 100, display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: "8vh" }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 12, width: 660, maxWidth: "92vw", maxHeight: "82vh", overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.3)", fontFamily: font }}>
+            <div style={{ padding: "15px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ fontSize: 16, fontWeight: 800, color: T.text }}>New Bill</div>
+              <button onClick={() => setShowBill(false)} className="bq-x" style={{ fontSize: 18 }}>×</button>
+            </div>
+            <div style={{ padding: "16px 20px", display: "flex", gap: 12 }}>
+              <div style={{ flex: 1 }}>
+                <div style={lbl}>Vendor</div>
+                <select value={nbVendor} onChange={e => setNbVendor(e.target.value)} style={{ ...inp, width: "100%", marginTop: 4 } as any}>
+                  <option value="">Auto (from first PO)</option>
+                  {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                </select>
+              </div>
+              <div style={{ width: 200 }}>
+                <div style={lbl}>Vendor invoice # <span style={{ color: T.faint, fontWeight: 400 }}>(optional)</span></div>
+                <input value={nbInvoice} onChange={e => setNbInvoice(e.target.value)} style={{ ...inp, width: "100%", marginTop: 4 } as any} />
+              </div>
+            </div>
+            <div style={{ padding: "0 20px 10px" }}>
+              <div style={lbl}>Add line — type a PO #</div>
+              <div style={{ display: "flex", gap: 8, marginTop: 6, alignItems: "center" }}>
+                <input autoFocus value={nbPo} onChange={e => { const val = e.target.value; setNbPo(val); const h = poIndex[val.toUpperCase().replace(/[^A-Z0-9]/g, "")]; if (h && !parseAmount(nbAmt)) setNbAmt(String(h.projected)); }} onKeyDown={e => e.key === "Enter" && nbHit && addNbLine()} placeholder="3682-F" style={{ ...inp, width: 120, fontFamily: mono } as any} />
+                <input value={nbAmt} onChange={e => setNbAmt(e.target.value)} onKeyDown={e => e.key === "Enter" && addNbLine()} placeholder="amount" inputMode="decimal" style={{ ...inp, width: 120, fontFamily: mono } as any} />
+                <button onClick={addNbLine} disabled={!nbHit} style={{ background: nbHit ? T.accent : T.surface, color: nbHit ? "#fff" : T.faint, border: "none", borderRadius: 6, padding: "8px 16px", fontSize: 13, fontWeight: 700, cursor: nbHit ? "pointer" : "default", fontFamily: font }}>Add line</button>
+              </div>
+              <div style={{ marginTop: 7, minHeight: 20, fontSize: 12 }}>
+                {nbPo.trim() === "" ? <span style={{ color: T.faint }}>Job, client, and projected cost fill in as you type — variance shows before you add the line.</span>
+                  : nbHit ? (() => {
+                    const a = parseAmount(nbAmt); const d = a > 0 ? Math.round((a - nbHit.projected) * 100) / 100 : null;
+                    return <span style={{ color: T.text }}>→ <strong className="bq-mono" style={{ fontFamily: mono }}>{nbHit.qb || nbHit.job_number}</strong> · {nbHit.client_name || "—"} · {nbHit.itemName} · <span style={{ color: T.muted }}>proj {money(nbHit.projected)}</span>
+                      {d != null && d !== 0 && <span style={{ color: d > 0 ? T.red : T.amber, fontWeight: 700 }}> · {d < 0 ? "−" : "+"}{money(Math.abs(d))}</span>}
+                      {nbVendor && nbHit.apVendorId !== nbVendor && <span style={{ color: T.red }}> · ⚠ {nbHit.vendorName}, not the selected vendor</span>}
+                    </span>;
+                  })()
+                  : <span style={{ color: T.amber }}>⚠ No PO matches "{nbPo}"</span>}
+              </div>
+            </div>
+            {nbLines.length > 0 && (
+              <div style={{ borderTop: `1px solid ${T.border}`, padding: "8px 20px" }}>
+                {nbLines.map((l, i) => {
+                  const d = Math.round((l.amount - l.projected) * 100) / 100;
+                  return (
+                    <div key={i} className="bq-row" style={{ display: "flex", alignItems: "center", gap: 10, padding: "5px 0", fontSize: 12, borderBottom: `1px solid ${T.border}22` }}>
+                      <span className="bq-mono" style={{ width: 84, fontFamily: mono, fontWeight: 600 }}>{l.poRef}</span>
+                      <span style={{ width: 150, color: T.faint, fontSize: 11 }}>{l.job_number}</span>
+                      <span style={{ flex: 1, color: T.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{l.itemName}</span>
+                      <span className="bq-mono" style={{ fontFamily: mono, color: d > 0 ? T.red : d < 0 ? T.amber : T.text }}>{money(l.amount)}{d !== 0 && <span style={{ fontSize: 10, color: T.faint }}> ({d > 0 ? "+" : ""}{money(d)})</span>}</span>
+                      <span className="bq-act"><button onClick={() => setNbLines(prev => prev.filter((_, x) => x !== i))} className="bq-x">×</button></span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 14 }}>
+              <button onClick={saveBill} disabled={nbSaving || !nbLines.length} style={{ background: nbLines.length ? T.green : T.surface, color: nbLines.length ? "#fff" : T.faint, border: "none", borderRadius: 6, padding: "9px 20px", fontSize: 13, fontWeight: 700, cursor: nbLines.length ? "pointer" : "default", fontFamily: font }}>{nbSaving ? "Saving…" : `Save bill · ${nbLines.length} line${nbLines.length !== 1 ? "s" : ""}`}</button>
+              <span style={{ fontSize: 13, color: T.muted }}>Total <strong className="bq-mono" style={{ fontFamily: mono, color: T.text }}>{money(nbLines.reduce((s, l) => s + l.amount, 0))}</strong></span>
+              <button onClick={() => setShowBill(false)} className="bq-ghost" style={{ marginLeft: "auto" }}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 14 }}>
         <h1 style={{ fontSize: 20, fontWeight: 800, color: T.text, margin: 0 }}>Billing Queue</h1>
-        <button onClick={() => setShowForm(s => !s)} style={{ background: showForm ? T.surface : T.accent, color: showForm ? T.text : "#fff", border: `1px solid ${T.border}`, borderRadius: 6, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>{showForm ? "Close" : "+ Add bill"}</button>
+        <button onClick={openNewBill} style={{ background: T.accent, color: "#fff", border: "none", borderRadius: 6, padding: "8px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: font }}>+ New bill</button>
       </div>
 
       {/* Open PO hero + stats */}
