@@ -52,6 +52,8 @@ export default function ReconciliationPage() {
   // unmatched manual-assign search
   const [assignFor, setAssignFor] = useState<string | null>(null);
   const [assignQuery, setAssignQuery] = useState("");
+  const [expanded, setExpanded] = useState<Set<string>>(new Set()); // expanded job×vendor groups
+  const toggle = (k: string) => setExpanded(prev => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n; });
 
   async function loadAll() {
     const [v, j, e, d] = await Promise.all([
@@ -112,6 +114,10 @@ export default function ReconciliationPage() {
 
   const resolved = useMemo(() => resolvePoRef(poRef, idx), [poRef, idx]);
   const formExpected = useMemo(() => resolved ? expectedVendorCost(resolved.id, vendorId) : null, [resolved, vendorId, jobsRaw, printers, vendorKeys]); // eslint-disable-line
+  // already-entered total for this job × vendor, so the readout is cumulative
+  const priorForForm = (resolved && vendorId)
+    ? entries.filter(e => e.job_id === resolved.id && e.vendor_id === vendorId && !e.not_job_specific).reduce((s, e) => s + Number(e.amount || 0), 0)
+    : 0;
 
   async function addEntry() {
     const amt = parseAmount(amount);
@@ -150,7 +156,31 @@ export default function ReconciliationPage() {
   }
 
   const unmatched = entries.filter(e => e.status === "unmatched" && !e.not_job_specific);
-  const matched = entries.filter(e => e.status !== "unmatched" || e.not_job_specific);
+  const notJobSpecific = entries.filter(e => e.not_job_specific);
+
+  // Roll up matched entries by job × vendor — the meaningful unit. A vendor that
+  // invoices in pieces (Icon per item, Teeland per service) only ties out at this
+  // level: sum of its invoices for the job vs the expected vendor cost.
+  const groups = (() => {
+    const g: Record<string, { key: string; job_id: string; vendor_id: string | null; vendor_name: string | null; lines: Entry[] }> = {};
+    for (const e of entries) {
+      if (e.status === "unmatched" || e.not_job_specific || !e.job_id) continue;
+      const key = `${e.job_id}::${e.vendor_id}`;
+      (g[key] = g[key] || { key, job_id: e.job_id, vendor_id: e.vendor_id, vendor_name: e.vendor_name, lines: [] }).lines.push(e);
+    }
+    const arr = Object.values(g).map(gr => {
+      const entered = gr.lines.reduce((s, e) => s + Number(e.amount || 0), 0);
+      const expected = expectedVendorCost(gr.job_id, gr.vendor_id);
+      const delta = expected != null ? Math.round((entered - expected) * 100) / 100 : null;
+      const tol = expected != null ? Math.max(5, expected * 0.01) : 0;
+      const status = expected == null ? "nobaseline" : Math.abs(delta!) <= tol ? "reconciled" : delta! > 0 ? "over" : "open";
+      return { ...gr, entered, expected, delta, status };
+    });
+    const rank: Record<string, number> = { over: 0, open: 1, nobaseline: 2, reconciled: 3 };
+    arr.sort((a, b) => (rank[a.status] - rank[b.status]) || (jobById[a.job_id]?.job_number || "").localeCompare(jobById[b.job_id]?.job_number || ""));
+    return arr;
+  })();
+  const openCount = groups.filter(g => g.status === "open" || g.status === "over").length;
 
   const lbl = { fontSize: 9, fontWeight: 700 as const, letterSpacing: "0.08em", textTransform: "uppercase" as const, color: T.faint };
   const inp = { padding: "7px 9px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.card, color: T.text, fontSize: 13, fontFamily: font, outline: "none" };
@@ -199,7 +229,15 @@ export default function ReconciliationPage() {
           <div style={{ fontSize: 12 }}>
             {poRef.trim() === "" ? <span style={{ color: T.faint }}>Enter a PO ref to resolve the job.</span>
               : resolved ? <span style={{ color: T.text }}>→ <strong>{resolved.job_number}</strong> · {resolved.client_name || "—"}
-                  {formExpected != null && <span style={{ color: T.muted }}>  ·  expected {money(formExpected)}{parseAmount(amount) > 0 && <VarianceChip actual={parseAmount(amount)} expected={formExpected} />}</span>}
+                  {formExpected != null && (() => {
+                    const running = priorForForm + parseAmount(amount);
+                    const delta = running - formExpected;
+                    const tol = Math.max(5, formExpected * 0.01);
+                    const col = Math.abs(delta) <= tol ? T.green : delta > 0 ? T.red : T.amber;
+                    return <span style={{ color: T.muted }}>  ·  {vendors.find(v => v.id === vendorId)?.name} expected {money(formExpected)}
+                      {parseAmount(amount) > 0 && <> · <span style={{ color: col, fontWeight: 700 }}>{money(running)} of {money(formExpected)}{Math.abs(delta) <= tol ? " ✓" : delta > 0 ? ` (+${money(delta)} over)` : ` (${money(-delta)} to go)`}</span>{priorForForm > 0 && <span style={{ color: T.faint }}> · {money(priorForForm)} already entered</span>}</>}
+                    </span>;
+                  })()}
                   {formExpected == null && <span style={{ color: T.faint }}>  ·  no costing baseline</span>}
                 </span>
               : <span style={{ color: T.amber }}>⚠ No job matched — will go to the unmatched queue.</span>}
@@ -246,40 +284,70 @@ export default function ReconciliationPage() {
         </div>
       )}
 
-      {/* Matched entries */}
-      <div style={{ ...lbl, marginBottom: 8 }}>Entries · {matched.length}</div>
-      <div style={{ border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
-        <div style={{ display: "flex", gap: 12, padding: "8px 14px", background: T.surface, fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: T.faint }}>
-          <span style={{ width: 130 }}>Vendor</span><span style={{ width: 90 }}>Invoice</span><span style={{ width: 90 }}>PO Ref</span><span style={{ width: 150 }}>Job</span><span style={{ flex: 1 }}>Client</span><span style={{ width: 90, textAlign: "right" }}>Amount</span><span style={{ width: 90, textAlign: "right" }}>Expected</span><span style={{ width: 90, textAlign: "right" }}>Variance</span><span style={{ width: 30 }} />
-        </div>
-        {matched.length === 0 ? <div style={{ padding: "16px 14px", color: T.faint, fontSize: 12 }}>No matched entries yet.</div> : matched.map(e => {
-          const j = e.job_id ? jobById[e.job_id] : null;
-          const variance = e.expected_amount != null ? e.amount - e.expected_amount : null;
+      {/* Reconciliation — rolled up by job × vendor */}
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 8 }}>
+        <div style={lbl}>Reconciliation · {groups.length} job{groups.length !== 1 ? "s" : ""}</div>
+        {openCount > 0 && <div style={{ fontSize: 11, color: T.amber, fontWeight: 600 }}>{openCount} need{openCount === 1 ? "s" : ""} attention</div>}
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {groups.length === 0 ? <div style={{ border: `1px solid ${T.border}`, borderRadius: 10, padding: "16px 14px", color: T.faint, fontSize: 12 }}>No matched entries yet.</div> : groups.map(g => {
+          const job = jobById[g.job_id];
+          const isOpen = expanded.has(g.key);
+          const meta = g.status === "reconciled" ? { label: "Reconciled", color: T.green }
+            : g.status === "over" ? { label: `Over ${money(g.delta!)}`, color: T.red }
+            : g.status === "open" ? { label: `${money(-(g.delta!))} to go`, color: T.amber }
+            : { label: "No baseline", color: T.faint };
           return (
-            <div key={e.id} style={{ display: "flex", gap: 12, padding: "10px 14px", borderTop: `1px solid ${T.border}55`, fontSize: 12, alignItems: "center" }}>
-              <span style={{ width: 130, color: T.text, fontWeight: 600 }}>{e.vendor_name || "—"}</span>
-              <span style={{ width: 90, fontFamily: mono, color: T.muted }}>{e.vendor_invoice_number || "—"}</span>
-              <span style={{ width: 90, fontFamily: mono, color: T.text }}>{e.po_ref || "—"}</span>
-              <span style={{ width: 150, fontFamily: mono, color: T.text }}>{e.not_job_specific ? <em style={{ color: T.faint, fontFamily: font }}>not job-specific</em> : (j?.job_number || "—")}</span>
-              <span style={{ flex: 1, color: T.muted }}>{j?.client_name || ""}</span>
-              <span style={{ width: 90, textAlign: "right", fontFamily: mono, color: T.text }}>{money(e.amount)}</span>
-              <span style={{ width: 90, textAlign: "right", fontFamily: mono, color: T.faint }}>{e.expected_amount != null ? money(e.expected_amount) : "—"}</span>
-              <span style={{ width: 90, textAlign: "right", fontFamily: mono, fontWeight: 700, color: variance == null ? T.faint : Math.abs(variance) < 0.01 ? T.green : variance > 0 ? T.amber : T.green }}>
-                {variance == null ? "—" : (variance > 0 ? "+" : "") + money(variance)}
-              </span>
-              <button onClick={() => removeEntry(e.id)} style={{ ...miniBtn(T.faint), width: 30 }}>✕</button>
+            <div key={g.key} style={{ border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
+              <div onClick={() => toggle(g.key)} style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 16px", cursor: "pointer", background: T.card }}>
+                <span style={{ color: T.faint, fontSize: 10, width: 10 }}>{isOpen ? "▾" : "▸"}</span>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{job?.job_number || "—"} · {g.vendor_name}</div>
+                  <div style={{ fontSize: 11, color: T.muted }}>{job?.client_name || ""} · {g.lines.length} invoice{g.lines.length !== 1 ? "s" : ""}</div>
+                </div>
+                <div style={{ textAlign: "right", fontFamily: mono, fontSize: 12.5, color: T.text }}>
+                  {money(g.entered)} <span style={{ color: T.faint }}>of {g.expected != null ? money(g.expected) : "—"}</span>
+                </div>
+                <div style={{ width: 130, display: "flex", justifyContent: "flex-end" }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: meta.color, background: meta.color + "1f", padding: "3px 11px", borderRadius: 20, whiteSpace: "nowrap" }}>{meta.label}</span>
+                </div>
+              </div>
+              {isOpen && (
+                <div style={{ borderTop: `1px solid ${T.border}55`, background: T.surface }}>
+                  {g.lines.map(e => (
+                    <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 16px 8px 40px", fontSize: 12, borderBottom: `1px solid ${T.border}33` }}>
+                      <span style={{ width: 90, fontFamily: mono, color: T.muted }}>{e.vendor_invoice_number || "—"}</span>
+                      <span style={{ width: 110, fontFamily: mono, color: T.text }}>{e.po_ref || "—"}</span>
+                      <span style={{ flex: 1, color: T.faint, textTransform: "capitalize" }}>{e.charge_type.replace(/_/g, " ")}</span>
+                      <span style={{ width: 90, textAlign: "right", fontFamily: mono, color: T.text }}>{money(e.amount)}</span>
+                      <button onClick={ev => { ev.stopPropagation(); removeEntry(e.id); }} style={{ ...miniBtn(T.faint), width: 28 }}>✕</button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           );
         })}
       </div>
+
+      {notJobSpecific.length > 0 && (
+        <div style={{ marginTop: 18 }}>
+          <div style={{ ...lbl, marginBottom: 8 }}>Not job-specific · {notJobSpecific.length}</div>
+          <div style={{ border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
+            {notJobSpecific.map(e => (
+              <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "9px 16px", fontSize: 12, borderBottom: `1px solid ${T.border}33` }}>
+                <span style={{ width: 130, color: T.text, fontWeight: 600 }}>{e.vendor_name || "—"}</span>
+                <span style={{ width: 90, fontFamily: mono, color: T.muted }}>{e.vendor_invoice_number || "—"}</span>
+                <span style={{ flex: 1, color: T.faint, textTransform: "capitalize" }}>{e.charge_type.replace(/_/g, " ")}</span>
+                <span style={{ width: 90, textAlign: "right", fontFamily: mono, color: T.text }}>{money(e.amount)}</span>
+                <button onClick={() => removeEntry(e.id)} style={{ ...miniBtn(T.faint), width: 28 }}>✕</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
-}
-
-function VarianceChip({ actual, expected }: { actual: number; expected: number }) {
-  const v = actual - expected;
-  const col = Math.abs(v) < 0.01 ? T.green : v > 0 ? T.amber : T.green;
-  return <span style={{ color: col, fontWeight: 700 }}>  ·  {v > 0 ? "+" : ""}{"$" + Math.abs(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {v > 0 ? "over" : v < 0 ? "under" : "match"}</span>;
 }
 
 function miniBtn(color: string) {
