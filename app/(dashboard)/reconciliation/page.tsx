@@ -444,7 +444,7 @@ export default function ReconciliationPage() {
             <div style={{ padding: "0 20px 10px" }}>
               <div style={lbl}>Add line — type a PO #</div>
               <div style={{ display: "flex", gap: 8, marginTop: 6, alignItems: "center" }}>
-                <input autoFocus value={nbPo} onChange={e => { const val = e.target.value; setNbPo(val); const h = poIndex[val.toUpperCase().replace(/[^A-Z0-9]/g, "")]; if (h && !parseAmount(nbAmt)) setNbAmt(String(h.projected)); }} onKeyDown={e => e.key === "Enter" && nbHit && addNbLine()} placeholder="3682-F" style={{ ...inp, width: 120, fontFamily: mono } as any} />
+                <input autoFocus value={nbPo} onChange={e => { const val = e.target.value; setNbPo(val); const h = resolveNbPo(val); if (h && !parseAmount(nbAmt)) setNbAmt(String(h.projected)); if (h && h.apVendorId && !nbVendor) setNbVendor(h.apVendorId); }} onKeyDown={e => e.key === "Enter" && nbHit && addNbLine()} placeholder="3682-F" style={{ ...inp, width: 120, fontFamily: mono } as any} />
                 <input value={nbAmt} onChange={e => setNbAmt(e.target.value)} onKeyDown={e => e.key === "Enter" && addNbLine()} placeholder="amount" inputMode="decimal" style={{ ...inp, width: 120, fontFamily: mono } as any} />
                 <button onClick={addNbLine} disabled={!nbHit} style={{ background: nbHit ? T.accent : T.surface, color: nbHit ? "#fff" : T.faint, border: "none", borderRadius: 6, padding: "8px 16px", fontSize: 13, fontWeight: 700, cursor: nbHit ? "pointer" : "default", fontFamily: font }}>Add line</button>
               </div>
