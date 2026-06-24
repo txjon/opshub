@@ -241,7 +241,7 @@ export default function ReconciliationPage() {
     const submit = () => logBill(jobId, apVendorId, poRef);
     return (
       <div onClick={ev => ev.stopPropagation()} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 16px 8px 62px", background: T.amberDim, borderBottom: `1px solid ${T.border}33` }}>
-        <input autoFocus value={billInv} onChange={e => setBillInv(e.target.value)} onKeyDown={e => e.key === "Enter" && submit()} placeholder="Vendor invoice #" style={{ padding: "5px 9px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.card, color: T.text, fontSize: 12, fontFamily: font, outline: "none", width: 150 }} />
+        <input autoFocus value={billInv} onChange={e => setBillInv(e.target.value)} onKeyDown={e => e.key === "Enter" && submit()} placeholder="Invoice # / ref (optional)" style={{ padding: "5px 9px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.card, color: T.text, fontSize: 12, fontFamily: font, outline: "none", width: 150 }} />
         <input value={billAmt} onChange={e => setBillAmt(e.target.value)} onKeyDown={e => e.key === "Enter" && submit()} inputMode="decimal" placeholder="Total" style={{ padding: "5px 9px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.card, color: T.text, fontSize: 12, fontFamily: mono, outline: "none", width: 110 }} />
         <button onClick={submit} disabled={billSaving || !parseAmount(billAmt)} style={{ background: parseAmount(billAmt) ? T.green : T.surface, color: parseAmount(billAmt) ? "#fff" : T.faint, border: "none", borderRadius: 6, padding: "6px 16px", fontSize: 12, fontWeight: 700, cursor: parseAmount(billAmt) ? "pointer" : "default", fontFamily: font }}>{billSaving ? "…" : "Log"}</button>
         <button onClick={() => setBillFor(null)} style={{ ...miniBtn(T.faint), width: 26 }}>×</button>
@@ -508,7 +508,7 @@ export default function ReconciliationPage() {
                         {billFor === vKey && (
                           <div onClick={ev => ev.stopPropagation()} style={{ background: T.amberDim, borderBottom: `1px solid ${T.border}33`, padding: "10px 16px 12px 22px" }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-                              <input autoFocus value={billInv} onChange={e => setBillInv(e.target.value)} placeholder="Vendor invoice #" style={{ ...inp, width: 170, padding: "6px 9px" } as any} />
+                              <input autoFocus value={billInv} onChange={e => setBillInv(e.target.value)} placeholder="Invoice # / ref (optional)" style={{ ...inp, width: 170, padding: "6px 9px" } as any} />
                               <span style={{ fontSize: 11, color: T.muted }}>check the POs this invoice covers, confirm amounts:</span>
                             </div>
                             {v.items.map(it => {
