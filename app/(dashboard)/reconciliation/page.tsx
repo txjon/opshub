@@ -59,6 +59,7 @@ export default function ReconciliationPage() {
   const toggle = (k: string) => setExpanded(prev => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n; });
   const [qFilter, setQFilter] = useState<"open" | "complete" | "all">("open");
   const [showForm, setShowForm] = useState(false);
+  const [showByVendor, setShowByVendor] = useState(false);
 
   async function loadAll() {
     const [v, j, e, d] = await Promise.all([
@@ -182,6 +183,16 @@ export default function ReconciliationPage() {
     jobs: Object.values(jobsRaw), printers, apVendors: vendors as any, entries: entries as any,
   }), [jobsRaw, printers, vendors, entries]);
   const filteredQueue = queue.jobs.filter(j => qFilter === "all" ? true : qFilter === "complete" ? j.costComplete : !j.costComplete);
+  // open PO broken down by vendor — "who do we owe"
+  const openByVendor = (() => {
+    const m: Record<string, { name: string; outstanding: number; jobs: number }> = {};
+    for (const j of queue.jobs) for (const v of j.vendors) {
+      if (v.outstanding <= 0) continue;
+      (m[v.name] = m[v.name] || { name: v.name, outstanding: 0, jobs: 0 });
+      m[v.name].outstanding += v.outstanding; m[v.name].jobs++;
+    }
+    return Object.values(m).sort((a, b) => b.outstanding - a.outstanding);
+  })();
   // entries for a job × vendor, for the drill-down under a vendor row
   const entriesFor = (jobId: string, vId: string | null) => entries.filter(e => e.job_id === jobId && e.vendor_id === vId && !e.not_job_specific);
   const STATE_META: Record<string, { label: string; color: string }> = {
@@ -223,6 +234,30 @@ export default function ReconciliationPage() {
           </div>
         ))}
       </div>
+
+      {/* Open PO by vendor */}
+      {openByVendor.length > 0 && (
+        <div style={{ marginBottom: 20 }}>
+          <button onClick={() => setShowByVendor(s => !s)} style={{ background: "none", border: "none", color: T.muted, fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", fontFamily: font, padding: 0 }}>{showByVendor ? "▾" : "▸"} Open PO by vendor ({openByVendor.length})</button>
+          {showByVendor && (
+            <div style={{ border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 14px", marginTop: 8, display: "flex", flexDirection: "column", gap: 7 }}>
+              {openByVendor.map(v => {
+                const pct = Math.round((100 * v.outstanding) / (openByVendor[0].outstanding || 1));
+                return (
+                  <div key={v.name} style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 12 }}>
+                    <span style={{ width: 170, color: T.text, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{v.name}</span>
+                    <div style={{ flex: 1, height: 8, background: T.surface, borderRadius: 4, overflow: "hidden" }}>
+                      <div style={{ width: `${pct}%`, height: "100%", background: T.amber }} />
+                    </div>
+                    <span style={{ width: 50, textAlign: "right", color: T.faint, fontSize: 11 }}>{v.jobs} job{v.jobs !== 1 ? "s" : ""}</span>
+                    <span style={{ width: 90, textAlign: "right", fontFamily: mono, fontWeight: 700, color: T.text }}>{money0(v.outstanding)}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Add form (collapsible) */}
       {showForm && <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 14, marginBottom: 22 }}>
