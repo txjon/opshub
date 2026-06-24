@@ -11,8 +11,11 @@ import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
 import { buildPoRefIndex, resolvePoRef, type JobLite } from "@/lib/po-ref-match";
 import { buildPrintersMap, calcCostProduct } from "@/lib/pricing";
+import { computeBillingQueue } from "@/lib/billing-queue";
 
 const supabase = createClient();
+
+const money0 = (n: number) => "$" + Number(n || 0).toLocaleString("en-US", { maximumFractionDigits: 0 });
 
 const CHARGE_TYPES = [
   { v: "production", label: "Production" },
@@ -52,13 +55,15 @@ export default function ReconciliationPage() {
   // unmatched manual-assign search
   const [assignFor, setAssignFor] = useState<string | null>(null);
   const [assignQuery, setAssignQuery] = useState("");
-  const [expanded, setExpanded] = useState<Set<string>>(new Set()); // expanded job×vendor groups
+  const [expanded, setExpanded] = useState<Set<string>>(new Set()); // expanded job / job×vendor rows
   const toggle = (k: string) => setExpanded(prev => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n; });
+  const [qFilter, setQFilter] = useState<"open" | "complete" | "all">("open");
+  const [showForm, setShowForm] = useState(false);
 
   async function loadAll() {
     const [v, j, e, d] = await Promise.all([
       supabase.from("ap_vendors").select("id, name, kind, decorator_id, match_keys").eq("active", true).order("name"),
-      supabase.from("jobs").select("id, job_number, type_meta, client_id, clients(name), costing_data, costing_summary").order("created_at", { ascending: false }),
+      supabase.from("jobs").select("id, job_number, phase, type_meta, client_id, clients(name), costing_data, costing_summary").order("created_at", { ascending: false }),
       supabase.from("cost_entries").select("*").order("created_at", { ascending: false }),
       supabase.from("decorators").select("id, name, short_code, pricing_data, capabilities"),
     ]);
@@ -158,29 +163,22 @@ export default function ReconciliationPage() {
   const unmatched = entries.filter(e => e.status === "unmatched" && !e.not_job_specific);
   const notJobSpecific = entries.filter(e => e.not_job_specific);
 
-  // Roll up matched entries by job × vendor — the meaningful unit. A vendor that
-  // invoices in pieces (Icon per item, Teeland per service) only ties out at this
-  // level: sum of its invoices for the job vs the expected vendor cost.
-  const groups = (() => {
-    const g: Record<string, { key: string; job_id: string; vendor_id: string | null; vendor_name: string | null; lines: Entry[] }> = {};
-    for (const e of entries) {
-      if (e.status === "unmatched" || e.not_job_specific || !e.job_id) continue;
-      const key = `${e.job_id}::${e.vendor_id}`;
-      (g[key] = g[key] || { key, job_id: e.job_id, vendor_id: e.vendor_id, vendor_name: e.vendor_name, lines: [] }).lines.push(e);
-    }
-    const arr = Object.values(g).map(gr => {
-      const entered = gr.lines.reduce((s, e) => s + Number(e.amount || 0), 0);
-      const expected = expectedVendorCost(gr.job_id, gr.vendor_id);
-      const delta = expected != null ? Math.round((entered - expected) * 100) / 100 : null;
-      const tol = expected != null ? Math.max(5, expected * 0.01) : 0;
-      const status = expected == null ? "nobaseline" : Math.abs(delta!) <= tol ? "reconciled" : delta! > 0 ? "over" : "open";
-      return { ...gr, entered, expected, delta, status };
-    });
-    const rank: Record<string, number> = { over: 0, open: 1, nobaseline: 2, reconciled: 3 };
-    arr.sort((a, b) => (rank[a.status] - rank[b.status]) || (jobById[a.job_id]?.job_number || "").localeCompare(jobById[b.job_id]?.job_number || ""));
-    return arr;
-  })();
-  const openCount = groups.filter(g => g.status === "open" || g.status === "over").length;
+  // BILLING QUEUE — the spine. Driven by costing + PO-sent (not by logged
+  // invoices): every job × PO-sent vendor → expected (costing) vs billed (entries),
+  // gap = outstanding; summed = OPEN PO COMMITMENT. See lib/billing-queue.ts.
+  const queue = useMemo(() => computeBillingQueue({
+    jobs: Object.values(jobsRaw), printers, apVendors: vendors as any, entries: entries as any,
+  }), [jobsRaw, printers, vendors, entries]);
+  const filteredQueue = queue.jobs.filter(j => qFilter === "all" ? true : qFilter === "complete" ? j.costComplete : !j.costComplete);
+  // entries for a job × vendor, for the drill-down under a vendor row
+  const entriesFor = (jobId: string, vId: string | null) => entries.filter(e => e.job_id === jobId && e.vendor_id === vId && !e.not_job_specific);
+  const STATE_META: Record<string, { label: string; color: string }> = {
+    awaiting: { label: "Awaiting invoice", color: T.faint },
+    partial: { label: "Partial", color: T.amber },
+    billed: { label: "Billed", color: T.green },
+    over: { label: "Over", color: T.red },
+    nobaseline: { label: "No baseline", color: T.faint },
+  };
 
   const lbl = { fontSize: 9, fontWeight: 700 as const, letterSpacing: "0.08em", textTransform: "uppercase" as const, color: T.faint };
   const inp = { padding: "7px 9px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.card, color: T.text, fontSize: 13, fontFamily: font, outline: "none" };
@@ -189,14 +187,33 @@ export default function ReconciliationPage() {
 
   return (
     <div style={{ padding: "22px 26px", fontFamily: font, maxWidth: 1180, margin: "0 auto" }}>
-      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 4 }}>
-        <h1 style={{ fontSize: 20, fontWeight: 800, color: T.text, margin: 0 }}>Cost Reconciliation</h1>
-        <div style={{ fontSize: 11, color: T.faint }}>Phase 1 · vendor invoice entry + matching</div>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 14 }}>
+        <h1 style={{ fontSize: 20, fontWeight: 800, color: T.text, margin: 0 }}>Billing Queue</h1>
+        <button onClick={() => setShowForm(s => !s)} style={{ background: showForm ? T.surface : T.accent, color: showForm ? T.text : "#fff", border: `1px solid ${T.border}`, borderRadius: 6, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>{showForm ? "Close" : "+ Add bill"}</button>
       </div>
-      <div style={{ fontSize: 12, color: T.muted, marginBottom: 18 }}>Enter a vendor invoice line — the PO ref resolves the job + client and compares to the expected decorator cost.</div>
 
-      {/* Add form */}
-      <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 14, marginBottom: 22 }}>
+      {/* Open PO hero + stats */}
+      <div style={{ display: "flex", gap: 14, marginBottom: 20, flexWrap: "wrap" }}>
+        <div style={{ background: T.accent, color: "#fff", borderRadius: 12, padding: "16px 22px", minWidth: 240 }}>
+          <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", opacity: 0.7 }}>Open PO Commitment</div>
+          <div style={{ fontSize: 30, fontWeight: 800, fontFamily: mono, margin: "5px 0 3px" }}>{money0(queue.openPO)}</div>
+          <div style={{ fontSize: 10.5, opacity: 0.75 }}>committed, not yet billed/paid · {queue.stats.openJobs} open job{queue.stats.openJobs !== 1 ? "s" : ""}</div>
+        </div>
+        {([
+          ["Expected", money0(queue.stats.expected), T.text],
+          ["Billed", money0(queue.stats.billed), T.green],
+          ["Cost-complete", `${queue.stats.costComplete} / ${queue.stats.jobs}`, T.text],
+          ["Awaiting invoices", String(queue.stats.awaitingVendors), T.faint],
+        ] as const).map(([k, v, c]) => (
+          <div key={k} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: "16px 18px", minWidth: 130 }}>
+            <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: T.faint }}>{k}</div>
+            <div style={{ fontSize: 22, fontWeight: 700, fontFamily: mono, color: c, marginTop: 5 }}>{v}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Add form (collapsible) */}
+      {showForm && <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 14, marginBottom: 22 }}>
         <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 1fr 0.8fr 1fr", gap: 10, alignItems: "end" }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             <span style={lbl}>Vendor</span>
@@ -247,7 +264,7 @@ export default function ReconciliationPage() {
             {saving ? "Saving…" : "Add entry"}
           </button>
         </div>
-      </div>
+      </div>}
 
       {/* Unmatched queue */}
       {unmatched.length > 0 && (
@@ -284,45 +301,63 @@ export default function ReconciliationPage() {
         </div>
       )}
 
-      {/* Reconciliation — rolled up by job × vendor */}
-      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 8 }}>
-        <div style={lbl}>Reconciliation · {groups.length} job{groups.length !== 1 ? "s" : ""}</div>
-        {openCount > 0 && <div style={{ fontSize: 11, color: T.amber, fontWeight: 600 }}>{openCount} need{openCount === 1 ? "s" : ""} attention</div>}
+      {/* Billing queue — job × PO-sent vendor */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+        {([["open", "Open", queue.stats.openJobs], ["complete", "Cost-complete", queue.stats.costComplete], ["all", "All", queue.stats.jobs]] as const).map(([k, label, n]) => (
+          <button key={k} onClick={() => setQFilter(k)} style={{ background: qFilter === k ? T.accent : T.card, color: qFilter === k ? "#fff" : T.muted, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: font }}>{label} · {n}</button>
+        ))}
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {groups.length === 0 ? <div style={{ border: `1px solid ${T.border}`, borderRadius: 10, padding: "16px 14px", color: T.faint, fontSize: 12 }}>No matched entries yet.</div> : groups.map(g => {
-          const job = jobById[g.job_id];
-          const isOpen = expanded.has(g.key);
-          const meta = g.status === "reconciled" ? { label: "Reconciled", color: T.green }
-            : g.status === "over" ? { label: `Over ${money(g.delta!)}`, color: T.red }
-            : g.status === "open" ? { label: `${money(-(g.delta!))} to go`, color: T.amber }
-            : { label: "No baseline", color: T.faint };
+        {filteredQueue.length === 0 ? <div style={{ border: `1px solid ${T.border}`, borderRadius: 10, padding: "16px 14px", color: T.faint, fontSize: 12 }}>No jobs in this view.</div> : filteredQueue.map(j => {
+          const isOpen = expanded.has(j.id);
           return (
-            <div key={g.key} style={{ border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
-              <div onClick={() => toggle(g.key)} style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 16px", cursor: "pointer", background: T.card }}>
+            <div key={j.id} style={{ border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
+              <div onClick={() => toggle(j.id)} style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 16px", cursor: "pointer", background: T.card }}>
                 <span style={{ color: T.faint, fontSize: 10, width: 10 }}>{isOpen ? "▾" : "▸"}</span>
                 <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{job?.job_number || "—"} · {g.vendor_name}</div>
-                  <div style={{ fontSize: 11, color: T.muted }}>{job?.client_name || ""} · {g.lines.length} invoice{g.lines.length !== 1 ? "s" : ""}</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{j.job_number} <span style={{ color: T.muted, fontWeight: 400 }}>· {j.client_name || "—"}</span></div>
+                  <div style={{ fontSize: 11, color: T.faint, textTransform: "capitalize" }}>{j.vendors.length} vendor{j.vendors.length !== 1 ? "s" : ""} · {(j.phase || "—").replace(/_/g, " ")}</div>
                 </div>
-                <div style={{ textAlign: "right", fontFamily: mono, fontSize: 12.5, color: T.text }}>
-                  {money(g.entered)} <span style={{ color: T.faint }}>of {g.expected != null ? money(g.expected) : "—"}</span>
+                <div style={{ width: 80, height: 6, background: T.surface, borderRadius: 3, overflow: "hidden" }} title={`${j.billedPct}% billed`}>
+                  <div style={{ width: `${j.billedPct}%`, height: "100%", background: j.costComplete ? T.green : T.amber }} />
                 </div>
-                <div style={{ width: 130, display: "flex", justifyContent: "flex-end" }}>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: meta.color, background: meta.color + "1f", padding: "3px 11px", borderRadius: 20, whiteSpace: "nowrap" }}>{meta.label}</span>
+                <div style={{ textAlign: "right", fontFamily: mono, fontSize: 12.5, color: T.text, width: 150 }}>
+                  {money0(j.billed)} <span style={{ color: T.faint }}>of {money0(j.expected)}</span>
+                </div>
+                <div style={{ width: 120, display: "flex", justifyContent: "flex-end" }}>
+                  {j.costComplete
+                    ? <span style={{ fontSize: 11, fontWeight: 700, color: T.green, background: T.green + "1f", padding: "3px 11px", borderRadius: 20, whiteSpace: "nowrap" }}>Cost-complete</span>
+                    : <span style={{ fontSize: 11, fontWeight: 700, color: T.amber, background: T.amber + "1f", padding: "3px 11px", borderRadius: 20, whiteSpace: "nowrap" }}>{money0(j.outstanding)} open</span>}
                 </div>
               </div>
               {isOpen && (
                 <div style={{ borderTop: `1px solid ${T.border}55`, background: T.surface }}>
-                  {g.lines.map(e => (
-                    <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 16px 8px 40px", fontSize: 12, borderBottom: `1px solid ${T.border}33` }}>
-                      <span style={{ width: 90, fontFamily: mono, color: T.muted }}>{e.vendor_invoice_number || "—"}</span>
-                      <span style={{ width: 110, fontFamily: mono, color: T.text }}>{e.po_ref || "—"}</span>
-                      <span style={{ flex: 1, color: T.faint, textTransform: "capitalize" }}>{e.charge_type.replace(/_/g, " ")}</span>
-                      <span style={{ width: 90, textAlign: "right", fontFamily: mono, color: T.text }}>{money(e.amount)}</span>
-                      <button onClick={ev => { ev.stopPropagation(); removeEntry(e.id); }} style={{ ...miniBtn(T.faint), width: 28 }}>✕</button>
-                    </div>
-                  ))}
+                  {j.vendors.map(v => {
+                    const vKey = `${j.id}::${v.apVendorId}`;
+                    const vOpen = expanded.has(vKey);
+                    const meta = STATE_META[v.state];
+                    const lines = entriesFor(j.id, v.apVendorId);
+                    return (
+                      <div key={vKey}>
+                        <div onClick={() => lines.length && toggle(vKey)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 16px 9px 40px", fontSize: 12, borderBottom: `1px solid ${T.border}33`, cursor: lines.length ? "pointer" : "default" }}>
+                          <span style={{ color: T.faint, fontSize: 9, width: 8 }}>{lines.length ? (vOpen ? "▾" : "▸") : ""}</span>
+                          <span style={{ flex: 1, color: T.text, fontWeight: 600 }}>{v.name}</span>
+                          <span style={{ fontSize: 10.5, fontWeight: 700, color: meta.color, background: meta.color + "1f", padding: "2px 9px", borderRadius: 20 }}>{meta.label}</span>
+                          <span style={{ width: 150, textAlign: "right", fontFamily: mono, color: T.text }}>{money(v.billed)} <span style={{ color: T.faint }}>of {money(v.expected)}</span></span>
+                          <span style={{ width: 90, textAlign: "right", fontFamily: mono, fontWeight: 700, color: v.outstanding > 0 ? T.amber : T.green }}>{v.outstanding > 0 ? money(v.outstanding) : "—"}</span>
+                        </div>
+                        {vOpen && lines.map(e => (
+                          <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "7px 16px 7px 62px", fontSize: 11.5, borderBottom: `1px solid ${T.border}22`, background: T.bg }}>
+                            <span style={{ width: 100, fontFamily: mono, color: T.muted }}>{e.vendor_invoice_number || "—"}</span>
+                            <span style={{ width: 110, fontFamily: mono, color: T.text }}>{e.po_ref || "—"}</span>
+                            <span style={{ flex: 1, color: T.faint, textTransform: "capitalize" }}>{e.charge_type.replace(/_/g, " ")}</span>
+                            <span style={{ width: 90, textAlign: "right", fontFamily: mono, color: T.text }}>{money(e.amount)}</span>
+                            <button onClick={ev => { ev.stopPropagation(); removeEntry(e.id); }} style={{ ...miniBtn(T.faint), width: 26 }}>✕</button>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
