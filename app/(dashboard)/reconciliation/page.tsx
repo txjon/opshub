@@ -85,6 +85,7 @@ export default function ReconciliationPage() {
   const [billInv, setBillInv] = useState("");
   const [billAmt, setBillAmt] = useState("");
   const [billSaving, setBillSaving] = useState(false);
+  const [alloc, setAlloc] = useState<Record<string, { on: boolean; amt: string }>>({}); // vendor multi-PO allocation
 
   async function loadAll() {
     const [v, j, e, d, m] = await Promise.all([
@@ -208,6 +209,33 @@ export default function ReconciliationPage() {
     } as any);
     setBillSaving(false);
     if (!error) { setBillFor(null); setBillInv(""); setBillAmt(""); loadAll(); }
+  }
+  // Vendor-level multi-PO entry: one invoice #, check the POs it covers, allocate.
+  function openVendorBill(vKey: string, items: { poRef: string; expected: number }[], lns: Entry[]) {
+    if (billFor === vKey) { setBillFor(null); return; }
+    setBillFor(vKey); setBillInv("");
+    const a: Record<string, { on: boolean; amt: string }> = {};
+    for (const it of items) {
+      const billed = lns.filter(e => (e.po_ref || "") === it.poRef).reduce((s, e) => s + Number(e.amount || 0), 0);
+      const rem = Math.max(0, Math.round((it.expected - billed) * 100) / 100);
+      a[it.poRef] = { on: false, amt: rem > 0 ? String(rem) : "" };
+    }
+    setAlloc(a);
+  }
+  async function logVendorBill(jobId: string, apVendorId: string | null, items: { poRef: string; expected: number }[]) {
+    const picks = items.filter(it => alloc[it.poRef]?.on && parseAmount(alloc[it.poRef].amt) > 0);
+    if (!apVendorId || !picks.length) return;
+    setBillSaving(true);
+    const vendorName = vendors.find(v => v.id === apVendorId)?.name || null;
+    const inv = billInv.trim() || null;
+    const rows = picks.map(it => ({
+      source: "decorator_invoice", vendor_id: apVendorId, vendor_name: vendorName,
+      vendor_invoice_number: inv, po_ref: it.poRef, job_id: jobId,
+      amount: parseAmount(alloc[it.poRef].amt), expected_amount: it.expected, charge_type: "production", status: "matched",
+    }));
+    const { error } = await supabase.from("cost_entries").insert(rows as any);
+    setBillSaving(false);
+    if (!error) { setBillFor(null); setBillInv(""); setAlloc({}); loadAll(); }
   }
   function inlineBillRow(jobId: string, apVendorId: string | null, poRef: string, label: string) {
     const submit = () => logBill(jobId, apVendorId, poRef);
@@ -475,9 +503,35 @@ export default function ReconciliationPage() {
                           <span style={{ fontSize: 10.5, fontWeight: 700, color: meta.color, background: meta.color + "1f", padding: "2px 9px", borderRadius: 20 }}>{meta.label}</span>
                           <span style={{ width: 150, textAlign: "right", fontFamily: mono, color: T.text }}>{money(v.billed)} <span style={{ color: T.faint }}>of {money(v.expected)}</span></span>
                           <span style={{ width: 90, textAlign: "right", fontFamily: mono, fontWeight: 700, color: v.outstanding > 0 ? T.amber : T.green }}>{v.outstanding > 0 ? money(v.outstanding) : "—"}</span>
-                          <button onClick={ev => { ev.stopPropagation(); openInlineBill(vKey, v.outstanding); }} title="Log a bill for this job + vendor" className={`bq-ghost${billFor === vKey ? " on" : ""}`}>+ bill</button>
+                          <button onClick={ev => { ev.stopPropagation(); openVendorBill(vKey, v.items, lines); }} title="Log one invoice across this vendor's POs" className={`bq-ghost${billFor === vKey ? " on" : ""}`}>+ bill</button>
                         </div>
-                        {billFor === vKey && inlineBillRow(j.id, v.apVendorId, j.qb_invoice_number || j.job_number, v.name)}
+                        {billFor === vKey && (
+                          <div onClick={ev => ev.stopPropagation()} style={{ background: T.amberDim, borderBottom: `1px solid ${T.border}33`, padding: "10px 16px 12px 22px" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                              <input autoFocus value={billInv} onChange={e => setBillInv(e.target.value)} placeholder="Vendor invoice #" style={{ ...inp, width: 170, padding: "6px 9px" } as any} />
+                              <span style={{ fontSize: 11, color: T.muted }}>check the POs this invoice covers, confirm amounts:</span>
+                            </div>
+                            {v.items.map(it => {
+                              const a = alloc[it.poRef] || { on: false, amt: "" };
+                              const billedPo = lines.filter(e => (e.po_ref || "") === it.poRef).reduce((s, e) => s + Number(e.amount || 0), 0);
+                              const rem = Math.max(0, Math.round((it.expected - billedPo) * 100) / 100);
+                              return (
+                                <label key={it.poRef} style={{ display: "flex", alignItems: "center", gap: 10, padding: "3px 0", cursor: "pointer" }}>
+                                  <input type="checkbox" checked={a.on} onChange={e => setAlloc(p => ({ ...p, [it.poRef]: { ...(p[it.poRef] || { amt: rem > 0 ? String(rem) : "" }), on: e.target.checked } }))} style={{ cursor: "pointer" }} />
+                                  <span className="bq-mono" style={{ width: 84, fontFamily: mono, fontSize: 12, color: T.text, fontWeight: 600 }}>{it.poRef}</span>
+                                  <span style={{ flex: 1, fontSize: 12, color: T.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{it.name}</span>
+                                  <span style={{ width: 74, textAlign: "right", fontSize: 10.5, color: T.faint }}>{rem > 0.01 && rem < it.expected - 0.01 ? `${money(rem)} left` : ""}</span>
+                                  <input value={a.amt} onChange={e => setAlloc(p => ({ ...p, [it.poRef]: { ...(p[it.poRef] || { on: true }), amt: e.target.value, on: true } }))} disabled={!a.on} inputMode="decimal" placeholder="0.00" style={{ ...inp, width: 110, padding: "5px 8px", fontFamily: mono, opacity: a.on ? 1 : 0.45 } as any} />
+                                </label>
+                              );
+                            })}
+                            <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 9, paddingTop: 9, borderTop: `1px solid ${T.border}33` }}>
+                              <button onClick={() => logVendorBill(j.id, v.apVendorId, v.items)} disabled={billSaving || !v.items.some(it => alloc[it.poRef]?.on && parseAmount(alloc[it.poRef].amt) > 0)} style={{ background: v.items.some(it => alloc[it.poRef]?.on && parseAmount(alloc[it.poRef].amt) > 0) ? T.green : T.surface, color: v.items.some(it => alloc[it.poRef]?.on && parseAmount(alloc[it.poRef].amt) > 0) ? "#fff" : T.faint, border: "none", borderRadius: 6, padding: "7px 16px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>{billSaving ? "…" : "Log invoice"}</button>
+                              <span style={{ fontSize: 11.5, color: T.muted }}>Total <strong className="bq-mono" style={{ fontFamily: mono, color: T.text }}>{money(v.items.reduce((s, it) => s + (alloc[it.poRef]?.on ? parseAmount(alloc[it.poRef].amt) : 0), 0))}</strong></span>
+                              <button onClick={() => { setBillFor(null); setAlloc({}); }} className="bq-ghost">Cancel</button>
+                            </div>
+                          </div>
+                        )}
                         {vOpen && (
                           <div style={{ background: T.bg }}>
                             {v.items.map(it => {
