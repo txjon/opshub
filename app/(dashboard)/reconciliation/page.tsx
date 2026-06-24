@@ -395,25 +395,44 @@ export default function ReconciliationPage() {
                     const vOpen = expanded.has(vKey);
                     const meta = STATE_META[v.state];
                     const lines = entriesFor(j.id, v.apVendorId);
+                    const expandable = v.items.length > 0 || lines.length > 0;
                     return (
                       <div key={vKey}>
-                        <div onClick={() => lines.length && toggle(vKey)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 16px 9px 40px", fontSize: 12, borderBottom: `1px solid ${T.border}33`, cursor: lines.length ? "pointer" : "default" }}>
-                          <span style={{ color: T.faint, fontSize: 9, width: 8 }}>{lines.length ? (vOpen ? "▾" : "▸") : ""}</span>
-                          <span style={{ flex: 1, color: T.text, fontWeight: 600 }}>{v.name}</span>
+                        <div onClick={() => expandable && toggle(vKey)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 16px 9px 40px", fontSize: 12, borderBottom: `1px solid ${T.border}33`, cursor: expandable ? "pointer" : "default" }}>
+                          <span style={{ color: T.faint, fontSize: 9, width: 8 }}>{expandable ? (vOpen ? "▾" : "▸") : ""}</span>
+                          <span style={{ flex: 1, color: T.text, fontWeight: 600 }}>{v.name}{v.items.length > 1 ? <span style={{ color: T.faint, fontWeight: 400 }}> · {v.items.length} POs</span> : ""}</span>
                           <span style={{ fontSize: 10.5, fontWeight: 700, color: meta.color, background: meta.color + "1f", padding: "2px 9px", borderRadius: 20 }}>{meta.label}</span>
                           <span style={{ width: 150, textAlign: "right", fontFamily: mono, color: T.text }}>{money(v.billed)} <span style={{ color: T.faint }}>of {money(v.expected)}</span></span>
                           <span style={{ width: 90, textAlign: "right", fontFamily: mono, fontWeight: 700, color: v.outstanding > 0 ? T.amber : T.green }}>{v.outstanding > 0 ? money(v.outstanding) : "—"}</span>
                           <button onClick={ev => { ev.stopPropagation(); startBill(j.id, v.apVendorId); }} title="Enter a bill for this job + vendor" style={{ ...miniBtn(v.outstanding > 0 ? T.accent : T.faint), width: 54 }}>+ bill</button>
                         </div>
-                        {vOpen && lines.map(e => (
-                          <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "7px 16px 7px 62px", fontSize: 11.5, borderBottom: `1px solid ${T.border}22`, background: T.bg }}>
-                            <span style={{ width: 100, fontFamily: mono, color: T.muted }}>{e.vendor_invoice_number || "—"}</span>
-                            <span style={{ width: 110, fontFamily: mono, color: T.text }}>{e.po_ref || "—"}</span>
-                            <span style={{ flex: 1, color: T.faint, textTransform: "capitalize" }}>{e.charge_type.replace(/_/g, " ")}</span>
-                            <span style={{ width: 90, textAlign: "right", fontFamily: mono, color: T.text }}>{money(e.amount)}</span>
-                            <button onClick={ev => { ev.stopPropagation(); removeEntry(e.id); }} style={{ ...miniBtn(T.faint), width: 26 }}>✕</button>
+                        {vOpen && (
+                          <div style={{ background: T.bg }}>
+                            {/* expected PO breakdown — what to match against in QB */}
+                            {v.items.length > 0 && (
+                              <div style={{ padding: "6px 16px 4px 62px", fontSize: 8.5, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: T.faint }}>Expected POs</div>
+                            )}
+                            {v.items.map(it => (
+                              <div key={it.poRef} style={{ display: "flex", alignItems: "center", gap: 12, padding: "5px 16px 5px 62px", fontSize: 11.5, borderBottom: `1px solid ${T.border}22` }}>
+                                <span style={{ width: 110, fontFamily: mono, color: T.text, fontWeight: 600 }}>{it.poRef}</span>
+                                <span style={{ flex: 1, color: T.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{it.name}</span>
+                                <span style={{ width: 90, textAlign: "right", fontFamily: mono, color: T.muted }}>{money(it.expected)}</span>
+                              </div>
+                            ))}
+                            {lines.length > 0 && (
+                              <div style={{ padding: "8px 16px 4px 62px", fontSize: 8.5, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: T.green }}>Billed · {money(v.billed)}</div>
+                            )}
+                            {lines.map(e => (
+                              <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "5px 16px 5px 62px", fontSize: 11.5, borderBottom: `1px solid ${T.border}22` }}>
+                                <span style={{ width: 100, fontFamily: mono, color: T.muted }}>{e.vendor_invoice_number || "—"}</span>
+                                <span style={{ width: 110, fontFamily: mono, color: T.text }}>{e.po_ref || "—"}</span>
+                                <span style={{ flex: 1, color: T.faint, textTransform: "capitalize" }}>{e.charge_type.replace(/_/g, " ")}</span>
+                                <span style={{ width: 90, textAlign: "right", fontFamily: mono, color: T.text }}>{money(e.amount)}</span>
+                                <button onClick={ev => { ev.stopPropagation(); removeEntry(e.id); }} style={{ ...miniBtn(T.faint), width: 26 }}>✕</button>
+                              </div>
+                            ))}
                           </div>
-                        ))}
+                        )}
                       </div>
                     );
                   })}

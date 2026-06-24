@@ -15,6 +15,10 @@ export interface QueueVendor {
   billed: number;
   outstanding: number; // max(0, expected - billed) — the open commitment
   state: "awaiting" | "partial" | "billed" | "over" | "nobaseline";
+  // per-PO breakdown of the expected total (so the assistant knows exactly what
+  // POs make up the vendor's bill). letter = item position in the job (A,B,C…);
+  // poRef = `{QB invoice #}-{letter}` (e.g. 3682-C), matching the PO PDF.
+  items: { letter: string; poRef: string; name: string; expected: number }[];
 }
 export interface QueueJob {
   id: string;
@@ -76,6 +80,14 @@ export function computeBillingQueue(opts: {
 
     const cps = job.costing_data?.costProds || [];
     const margin = String(job.costing_data?.margin ?? 0);
+    const qbRef = job.type_meta?.qb_invoice_number || job.job_number;
+    // letter = item position (A,B,C…) over the full sorted costProds list, matching
+    // the PO PDF (String.fromCharCode(65 + sortedIdx)). costProds array order ==
+    // item sort_order (verified). 0-qty items still consume a letter but drop out.
+    const lines = cps.map((c: any, i: number) => {
+      const calc = calcCostProduct(c, margin, false, false, cps, printers);
+      return { letter: String.fromCharCode(65 + i), pv: (c.printVendor || "").toUpperCase(), name: c.name || "", expected: calc ? r2(calc.poTotal || 0) : 0, ok: !!calc };
+    });
 
     // ap_vendors that have a PO sent on this job
     const apIds = new Set<string>();
@@ -85,13 +97,10 @@ export function computeBillingQueue(opts: {
     for (const apId of apIds) {
       const ap = apVendors.find(v => v.id === apId)!;
       const keys = apKeys[apId];
-      let expected = 0, hit = false;
-      for (const c of cps) {
-        if (!keys.has((c.printVendor || "").toUpperCase())) continue;
-        const calc = calcCostProduct(c, margin, false, false, cps, printers);
-        if (calc) { expected += calc.poTotal || 0; hit = true; }
-      }
-      expected = hit ? r2(expected) : 0;
+      const vLines = lines.filter(l => l.ok && keys.has(l.pv));
+      const expected = r2(vLines.reduce((s, l) => s + l.expected, 0));
+      const hit = vLines.length > 0;
+      const items = vLines.map(l => ({ letter: l.letter, poRef: `${qbRef}-${l.letter}`, name: l.name, expected: l.expected }));
       const b = r2(billed[`${job.id}::${apId}`] || 0);
       const tol = Math.max(5, expected * 0.01);
       const state: QueueVendor["state"] =
@@ -105,7 +114,7 @@ export function computeBillingQueue(opts: {
       if (state === "awaiting") awaitingV++;
       else if (state === "partial") partialV++;
       else if (state === "over") overV++;
-      vendors.push({ apVendorId: apId, name: ap.name, expected, billed: b, outstanding, state });
+      vendors.push({ apVendorId: apId, name: ap.name, expected, billed: b, outstanding, state, items });
     }
     if (!vendors.length) continue;
     vendors.sort((a, b) => b.outstanding - a.outstanding || b.expected - a.expected);
