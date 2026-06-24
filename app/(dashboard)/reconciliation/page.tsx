@@ -62,6 +62,14 @@ const autoReason = (billed: number, expected: number) => {
   return billed > expected ? "over_accept" : "under";
 };
 
+// Parse a PO ref into its job digits + item letters. "4313-F" → {4313,[F]};
+// "4313ABCDEFGHIJKLMNOPQR" → {4313,[A..R]} (a vendor billing many items in one line).
+const parsePoRef = (ref: string | null | undefined): { digits: string | null; letters: string[] } => {
+  const m = (ref || "").toUpperCase().replace(/[^A-Z0-9]/g, "").match(/^(\d{3,4})([A-Z]*)$/);
+  if (!m) return { digits: null, letters: [] };
+  return { digits: m[1], letters: m[2] ? m[2].split("") : [] };
+};
+
 const money = (n: number) => "$" + Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 // Tolerate "$7,627.20" / "7,627.20" pasted straight from an invoice.
 const parseAmount = (s: string) => parseFloat(String(s).replace(/[^0-9.]/g, "")) || 0;
@@ -298,7 +306,26 @@ export default function ReconciliationPage() {
     }
     return m;
   }, [queue]);
-  const nbHit = poIndex[nbPo.toUpperCase().replace(/[^A-Z0-9]/g, "")] || null;
+  // Resolve a typed PO ref to a New Bill line — a single item, OR a multi-item ref
+  // (one line covering several POs, summed projection), matching how vendors invoice.
+  const resolveNbPo = (input: string) => {
+    const norm = input.toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (poIndex[norm]) { const h = poIndex[norm]; return { ...h, multi: false, multiVendor: false }; }
+    const { digits, letters } = parsePoRef(input);
+    if (!digits || letters.length < 2) return null;
+    const items = letters.map(L => poIndex[digits + L]).filter(Boolean);
+    if (!items.length) return null;
+    const first = items[0];
+    const vendorIds = [...new Set(items.map(i => i.apVendorId))];
+    return {
+      poRef: norm, job_id: first.job_id, job_number: first.job_number, qb: first.qb, client_name: first.client_name,
+      vendorName: first.vendorName, apVendorId: vendorIds.length === 1 ? vendorIds[0] : null,
+      itemName: `${items.length} items · ${letters.join("")}`,
+      projected: Math.round(items.reduce((s, i) => s + i.projected, 0) * 100) / 100,
+      multi: true, multiVendor: vendorIds.length > 1,
+    };
+  };
+  const nbHit = resolveNbPo(nbPo);
   // Bill history — group entries into bills (vendor + invoice #, or a save batch
   // for no-invoice/CC), newest first, filtered by the same search box.
   const bills = useMemo(() => {
@@ -646,8 +673,20 @@ export default function ReconciliationPage() {
                     const vOpen = expanded.has(vKey);
                     const meta = STATE_META[v.state];
                     const lines = entriesFor(j.id, v.apVendorId);
-                    const poRefSet = new Set(v.items.map(it => it.poRef));
-                    const otherLines = lines.filter(e => !poRefSet.has(e.po_ref || "")); // vendor-level / not matched to a PO
+                    // Classify entries against this vendor's PO letters: a single-letter
+                    // entry reconciles one PO line; a multi-letter entry (e.g.
+                    // 4313ABCDEFGHIJKLMNOPQR) is ONE bill covering many POs; the rest are
+                    // vendor-level fees/other.
+                    const vLetters = new Set(v.items.map(it => parsePoRef(it.poRef).letters[0]).filter(Boolean));
+                    const exactByLetter: Record<string, Entry[]> = {};
+                    const coveringEntries: Entry[] = [];
+                    const trueOther: Entry[] = [];
+                    for (const e of lines) {
+                      const p = parsePoRef(e.po_ref);
+                      if (p.digits && p.letters.length === 1 && vLetters.has(p.letters[0])) (exactByLetter[p.letters[0]] = exactByLetter[p.letters[0]] || []).push(e);
+                      else if (p.digits && p.letters.length > 1 && p.letters.some(L => vLetters.has(L))) coveringEntries.push(e);
+                      else trueOther.push(e);
+                    }
                     const expandable = v.items.length > 0 || lines.length > 0;
                     return (
                       <div key={vKey}>
@@ -693,28 +732,35 @@ export default function ReconciliationPage() {
                           <div style={{ background: T.bg }}>
                             {v.items.map(it => {
                               const poKey = `${vKey}::${it.poRef}`;
-                              const poLines = lines.filter(e => (e.po_ref || "") === it.poRef);
+                              const myLetter = parsePoRef(it.poRef).letters[0];
+                              const poLines = exactByLetter[myLetter] || [];
                               const billedPo = Math.round(poLines.reduce((s, e) => s + Number(e.amount || 0), 0) * 100) / 100;
                               const isBilled = poLines.length > 0;
+                              const covering = !isBilled ? coveringEntries.find(e => parsePoRef(e.po_ref).letters.includes(myLetter)) : null;
+                              const isCovered = !!covering;
                               const exp = it.expected;
                               const diff = isBilled ? Math.round((billedPo - exp) * 100) / 100 : 0; // billed − projected
                               const tol = Math.max(5, exp * 0.01);
-                              const state = !isBilled ? "await" : Math.abs(diff) <= tol ? "ok" : diff < 0 ? "under" : "over";
-                              const dot = state === "await" ? T.border : state === "over" ? T.red : state === "under" ? T.amber : T.green;
-                              const amtColor = state === "over" ? T.red : state === "under" ? T.amber : T.green;
+                              const lstate = isBilled ? (Math.abs(diff) <= tol ? "ok" : diff < 0 ? "under" : "over") : isCovered ? "covered" : "await";
+                              const dot = lstate === "await" ? T.border : lstate === "over" ? T.red : lstate === "under" ? T.amber : T.green;
+                              const amtColor = lstate === "over" ? T.red : lstate === "under" ? T.amber : T.green;
+                              const filled = isBilled || isCovered;
                               return (
                                 <div key={it.poRef}>
-                                  <div className="bq-row" style={{ display: "flex", alignItems: "center", gap: 12, minHeight: 38, padding: "5px 16px 5px 22px", borderTop: `1px solid ${T.border}22`, borderLeft: `2px solid ${isBilled ? dot : "transparent"}` }}>
-                                    <span style={{ width: 7, height: 7, borderRadius: "50%", flexShrink: 0, background: isBilled ? dot : "transparent", border: isBilled ? "none" : `1.5px solid ${T.border}` }} />
+                                  <div className="bq-row" style={{ display: "flex", alignItems: "center", gap: 12, minHeight: 38, padding: "5px 16px 5px 22px", borderTop: `1px solid ${T.border}22`, borderLeft: `2px solid ${filled ? dot : "transparent"}` }}>
+                                    <span style={{ width: 7, height: 7, borderRadius: "50%", flexShrink: 0, background: filled ? dot : "transparent", border: filled ? "none" : `1.5px solid ${T.border}` }} />
                                     <span className="bq-mono" style={{ width: 92, fontFamily: mono, fontSize: 12, color: T.text, fontWeight: 600 }}>{it.poRef}</span>
                                     <span style={{ flex: 1, fontSize: 12.5, color: T.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{it.name}</span>
                                     <div style={{ width: 170, textAlign: "right" }}>
-                                      {!isBilled
-                                        ? <span className="bq-mono" style={{ fontFamily: mono, fontSize: 12.5, color: T.muted }}>{money(exp)}</span>
-                                        : <>
+                                      {isBilled ? <>
                                             <div className="bq-mono" style={{ fontFamily: mono, fontSize: 12.5, color: amtColor, fontWeight: 600, lineHeight: 1.25 }}>{money(billedPo)}</div>
                                             {diff !== 0 && <div className="bq-mono" style={{ fontFamily: mono, fontSize: 9.5, color: T.faint, lineHeight: 1.25 }}>proj {money(exp)} · <span style={{ color: diff > 0 ? T.red : T.muted, fontWeight: 600 }}>{diff < 0 ? "−" : "+"}{money(Math.abs(diff))}</span></div>}
-                                          </>}
+                                          </>
+                                        : isCovered ? <>
+                                            <div className="bq-mono" style={{ fontFamily: mono, fontSize: 12.5, color: T.muted }}>{money(exp)}</div>
+                                            <div style={{ fontSize: 9.5, color: T.green, lineHeight: 1.25, fontWeight: 600 }}>covered · {refLabel(covering!)}</div>
+                                          </>
+                                        : <span className="bq-mono" style={{ fontFamily: mono, fontSize: 12.5, color: T.muted }}>{money(exp)}</span>}
                                     </div>
                                     <span style={{ width: 50, display: "flex", justifyContent: "flex-end" }}>
                                       <button onClick={ev => { ev.stopPropagation(); openInlineBill(poKey, Math.max(0, it.expected - billedPo) || it.expected, v.apVendorId); }} className={`bq-ghost${billFor === poKey ? " on" : ""}`}>+ bill</button>
@@ -733,10 +779,24 @@ export default function ReconciliationPage() {
                                 </div>
                               );
                             })}
-                            {otherLines.length > 0 && (
-                              <div style={{ padding: "7px 16px 2px 22px", fontSize: 8.5, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: T.faint }}>Other bills</div>
+                            {coveringEntries.length > 0 && (
+                              <div style={{ padding: "8px 16px 2px 22px", fontSize: 8.5, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: T.green }}>Bills covering these POs</div>
                             )}
-                            {otherLines.map(e => (
+                            {coveringEntries.map(e => (
+                              <div key={e.id} className="bq-row" style={{ display: "flex", alignItems: "center", gap: 12, height: 30, padding: "0 16px 0 22px", borderTop: `1px solid ${T.border}14`, borderLeft: `2px solid ${T.green}` }}>
+                                <span style={{ width: 7, height: 7, borderRadius: "50%", flexShrink: 0, background: T.green }} />
+                                <span className="bq-mono" style={{ width: 200, fontFamily: mono, fontSize: 11.5, color: T.text, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.po_ref || "—"}</span>
+                                <span style={{ flex: 1, fontSize: 11.5, color: T.faint, fontFamily: mono }}>{refLabel(e)}</span>
+                                <span className="bq-mono" style={{ width: 150, textAlign: "right", fontFamily: mono, fontSize: 12, color: T.text, fontWeight: 600 }}>{money(e.amount)}</span>
+                                <span className="bq-act" style={{ width: 50, display: "flex", justifyContent: "flex-end" }}>
+                                  <button onClick={ev => { ev.stopPropagation(); removeEntry(e.id); }} className="bq-x">×</button>
+                                </span>
+                              </div>
+                            ))}
+                            {trueOther.length > 0 && (
+                              <div style={{ padding: "8px 16px 2px 22px", fontSize: 8.5, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: T.faint }}>Other bills</div>
+                            )}
+                            {trueOther.map(e => (
                               <div key={e.id} className="bq-row" style={{ display: "flex", alignItems: "center", gap: 12, height: 30, padding: "0 16px 0 22px", borderTop: `1px solid ${T.border}14` }}>
                                 <span style={{ width: 7, flexShrink: 0 }} />
                                 <span className="bq-mono" style={{ width: 92, fontFamily: mono, fontSize: 12, color: T.text }}>{e.po_ref || "—"}</span>
