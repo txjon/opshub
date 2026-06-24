@@ -109,17 +109,24 @@ export function computeBillingQueue(opts: {
       const b = r2(billed[`${job.id}::${apId}`] || 0);
       const markKey = `${job.id}::${apId}`;
       const isMarked = markKey in markBy;
-      const tol = Math.max(5, expected * 0.01);
+      // Asymmetric tolerance: billing UNDER projection is low-risk (savings or a damage/
+      // short credit) so we accept up to 10%; billing OVER is an overcharge to catch, so
+      // it's flagged past 3%. $50 floor so small jobs don't flag on cents. Beyond the band:
+      // over (overcharged) or partial (materially under → still chase the remainder).
+      const tolOver = Math.max(50, expected * 0.03);
+      const tolUnder = Math.max(50, expected * 0.10);
+      const diff = r2(b - expected); // billed − projected
       let state: QueueVendor["state"];
       if (isMarked) state = "complete";
       else if (!hit && b === 0) state = "nobaseline";
-      else if (Math.abs(b - expected) <= tol) state = "billed";
-      else if (b > expected) state = "over";
       else if (b <= 0.01) state = "awaiting";
-      else state = "partial";
-      // A marked-complete vendor has NO open commitment — the residual (under)variance
-      // is realized, not awaited. This is what makes Open PO precise.
-      const outstanding = isMarked ? 0 : Math.max(0, r2(expected - b));
+      else if (diff > tolOver) state = "over";
+      else if (-diff > tolUnder) state = "partial";
+      else state = "billed";
+      // Open commitment = genuinely unbilled work only. Billed-within-tolerance, over, and
+      // marked-complete vendors have no residual to chase → outstanding 0. Only awaiting
+      // (nothing billed) and partial (materially under) carry an open commitment.
+      const outstanding = (state === "awaiting" || state === "partial") ? Math.max(0, r2(expected - b)) : 0;
       openPO += outstanding;
       if (!isMarked) {
         if (state === "awaiting") awaitingV++;
