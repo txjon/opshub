@@ -1,0 +1,1860 @@
+▗ ▗   ▖ ▖  Claude Code v2.1.181
+           Opus 4.8 · Claude Max
+  ▘▘ ▝▝    ~/opshub
+
+
+✻ Conversation compacted (ctrl+o for history)
+
+
+⏺ Those are duplicate entries — that's what the reds and the +$408 / +$133
+  overages are. Look: inv 73240 appears twice at $408, inv 73241 twice at
+  $146.30, inv 73242 twice at $1,674.65. Each bill got logged twice, doubling
+  the billed total. Let me confirm the source:
+
+⏺ Bash(cd /Users/jonburrow/opshub
+      cat > _dup.js <<'EOF'…)
+  ⎿  (No output)
+
+⏺ Bash(cd /Users/jonburrow/opshub
+      cat > _dup.js <<'EOF'…)
+  ⎿  [dotenv@17.3.1] injecting env (25) from .env.local -- tip: 🔐 prevent
+     building .env in docker: https://dotenvx.com/prebuild
+     job HPD-2605-026
+     … +19 lines (ctrl+o to expand)
+
+⏺ Found it — all three dupes came from qb-import(icon), same timestamp. The QB
+  "Transaction Detail by Account" export had duplicate COGS lines for those
+  bills (a known quirk of that report — I'd seen it earlier on Teeland too), and
+  my importer inserted them without deduping. So invoices 73240/73241/73242
+  each posted twice, doubling the billed amount → the red "over" flags. The
+  200174 / 4065-I line is a different vendor (Battle), not a dupe.
+
+  Let me clean up every exact duplicate across the whole import, keeping one of
+  each:
+
+⏺ Bash(cd /Users/jonburrow/opshub
+      cat > _dedup.js <<'EOF'…)
+  ⎿  [dotenv@17.3.1] injecting env (25) from .env.local -- tip: 🔐 prevent
+     committing .env to code: https://dotenvx.com/precommit
+     duplicate groups: 4 · extra rows to remove: 4 · $ removed: $3,362.95
+     … +2 lines (ctrl+o to expand)
+
+⏺ Cleaned — removed 4 duplicate entries totaling $3,362.95 of phantom billing
+  (the 3 Icon ones you saw + 1 more elsewhere from the same import quirk).
+  Refresh /reconciliation and job 4065's Icon should read correctly now: 4065-G 
+  back to $408 = $408 (matched), 4065-H $146.30 of $159.60 (a real $13 under), 
+  DE single in Other bills — the red overages are gone.
+
+  What happened, plainly: the QB "Transaction Detail by Account" export listed a
+  handful of bill lines twice (a quirk of that report — I'd actually seen it on
+  Teeland earlier and should've caught it). My CSV importer inserted them as-is
+  without deduping, so those bills posted twice and doubled the billed amount →
+  the false "+$408 over" reds.
+
+  Prevention:
+  - Imports: I'll dedup identical lines (same invoice # · PO · amount) in every
+  QB import from here on — it's a known quirk of that QB report, so it's now
+  part of the import.
+  - UI entry: unlikely to dupe since the PO shows green/billed once it's logged,
+  so you'd see it. If you want a hard guard anyway, I can make the log paths
+  skip an exact-duplicate line — say the word.
+
+  Good catch — that's the kind of thing that quietly corrupts a margin number,
+  and the red flags are exactly what surfaced it. The tool caught its own bad
+  data.
+
+✻ Crunched for 2m 46s
+
+※ recap: Building the OpsHub billing queue (AP cost reconciliation) on dev. Just fixed duplicate imported entries and verified the board reads correctly. Next: you test the multi-PO bill entry and mark-fully-billed flow on a fresh vendor, then we keep backfilling.
+
+❯ [Image #90] testing on this one, they don't issue a proper invoice, they just 
+  charge a credit card on file. What's the best way to log this instead of an   
+  invoice number?                                                               
+  ⎿  [Image #90]
+
+⏺ Short answer: that field is already optional — leave it blank, enter the
+  amount, and Log works. So you're not blocked. Let me make that obvious and
+  give you the right pattern:
+
+⏺ Bash(cd /Users/jonburrow/opshub
+      grep -c 'placeholder="Vendor invoice #"'
+      "app/(dashboard)/reconciliation/page.tsx")
+  ⎿  2
+
+⏺ Update(app/(dashboard)/reconciliation/page.tsx)
+  ⎿  Added 2 lines, removed 2 lines
+      241      const submit = () => logBill(jobId, apVendorId, poRef);
+      242      return (
+      243        <div onClick={ev => ev.stopPropagation()} style={{ displ
+           ay: "flex", alignItems: "center", gap: 8, padding: "8px 16px 8
+           px 62px", background: T.amberDim, borderBottom: `1px solid ${T
+           .border}33` }}>
+      244 -        <input autoFocus value={billInv} onChange={e => setBil
+          -lInv(e.target.value)} onKeyDown={e => e.key === "Enter" && sub
+          -mit()} placeholder="Vendor invoice #" style={{ padding: "5px 9
+          -px", border: `1px solid ${T.border}`, borderRadius: 6, backgro
+          -und: T.card, color: T.text, fontSize: 12, fontFamily: font, ou
+          -tline: "none", width: 150 }} />                               
+      244 +        <input autoFocus value={billInv} onChange={e => setBil
+          +lInv(e.target.value)} onKeyDown={e => e.key === "Enter" && sub
+          +mit()} placeholder="Invoice # / ref (optional)" style={{ paddi
+          +ng: "5px 9px", border: `1px solid ${T.border}`, borderRadius: 
+          +6, background: T.card, color: T.text, fontSize: 12, fontFamily
+          +: font, outline: "none", width: 150 }} />                     
+      245          <input value={billAmt} onChange={e => setBillAmt(e.tar
+           get.value)} onKeyDown={e => e.key === "Enter" && submit()} inp
+           utMode="decimal" placeholder="Total" style={{ padding: "5px 9p
+           x", border: `1px solid ${T.border}`, borderRadius: 6, backgrou
+           nd: T.card, color: T.text, fontSize: 12, fontFamily: mono, out
+           line: "none", width: 110 }} />
+      246          <button onClick={submit} disabled={billSaving || !pars
+           eAmount(billAmt)} style={{ background: parseAmount(billAmt) ? 
+           T.green : T.surface, color: parseAmount(billAmt) ? "#fff" : T.
+           faint, border: "none", borderRadius: 6, padding: "6px 16px", f
+           ontSize: 12, fontWeight: 700, cursor: parseAmount(billAmt) ? "
+           pointer" : "default", fontFamily: font }}>{billSaving ? "…" : 
+           "Log"}</button>
+      247          <button onClick={() => setBillFor(null)} style={{ ...m
+           iniBtn(T.faint), width: 26 }}>×</button>
+     ...
+      508                          {billFor === vKey && (
+      509                            <div onClick={ev => ev.stopPropagati
+           on()} style={{ background: T.amberDim, borderBottom: `1px soli
+           d ${T.border}33`, padding: "10px 16px 12px 22px" }}>
+      510                              <div style={{ display: "flex", ali
+           gnItems: "center", gap: 10, marginBottom: 8 }}>
+      511 -                              <input autoFocus value={billInv}
+          - onChange={e => setBillInv(e.target.value)} placeholder="Vendo
+          -r invoice #" style={{ ...inp, width: 170, padding: "6px 9px" }
+          - as any} />                                                   
+      511 +                              <input autoFocus value={billInv}
+          + onChange={e => setBillInv(e.target.value)} placeholder="Invoi
+          +ce # / ref (optional)" style={{ ...inp, width: 170, padding: "
+          +6px 9px" } as any} />                                         
+      512                                <span style={{ fontSize: 11, col
+           or: T.muted }}>check the POs this invoice covers, confirm amou
+           nts:</span>
+      513                              </div>
+      514                              {v.items.map(it => {
+
+⏺ Bash(cd /Users/jonburrow/opshub
+      out=$(npx esbuild "app/(dashboard)/reconciliation/page.tsx"
+      --loader:.tsx=tsx --bundle '--external:react' '--external:react-dom'
+      '--e…)
+  ⎿  ✓ parses clean
+     ✓ dev: 59f787e3
+
+⏺ Pushed (59f787e3) — the field now reads "Invoice # / ref (optional)" so it's
+  clear you can skip it.
+
+  The best reference for a CC-on-file vendor: the charge date. It's the one
+  thing that's always there and lets you tie the line back to the card
+  statement. So for Downeast, log 4277-A · 10,217.87 · ref "6/24" (or the charge
+  date). Works today.
+
+  But here's the "right way" worth doing [Likely], because it's more than a
+  cosmetic label — it changes two things downstream:
+
+  A CC charge isn't an invoice-to-pay; it's an already-paid expense. That
+  matters in two places we're building toward:
+  1. Open PO / cash flow — an invoice you've logged but not paid is still money 
+  going out. A CC charge is already out. When we add paid-status (P4), CC
+  charges should auto-count as paid, so they don't sit in the "billed-unpaid"
+  bucket of your committed-cash number.
+  2. QB push (P3) — you can't push a CC charge as a bill in QB (there's no bill
+  to pay — it's a credit-card expense). So the method tells the push "record
+  this as a CC expense, not an AP bill."
+
+  So I'd add a small method to each line — Invoice / Credit card / Other —
+  defaulting to Invoice. CC lines would show "CC · 6/24" instead of "inv —", and
+  carry the paid/QB logic. And for a vendor like Downeast that always charges
+  the card, I'd set Credit card as their default so your assistant never has to
+  think about it — it's just pre-selected.
+
+  That's a small schema add + a method picker on the log forms. Want me to build
+  it now while you're on this vendor, or is the optional-ref enough for the
+  testing pass and we batch it with P3/P4?
+
+✻ Churned for 2m 21s
+
+❯ build now plz                                                                 
+
+⏺ On it. Migration first — method on the entry + a per-vendor default:
+
+⏺ Write(supabase/migrations/101_bill_method.sql)
+  ⎿  Wrote 15 lines to supabase/migrations/101_bill_method.sql
+         it_card (charged onwas paid — invoice (AP bill, pay later), cred
+         e is NOT an open paid), or other. Matters downstream: a CC charg
+       3 -- commitment or an AP bill to push to QB — it's a settled expen
+       4 -- default so vendors that always CC-charge (e.g. Downeast) pre-
+         select it.
+       6   add column if not exists bill_method text not null default 'in
+       7     check (bill_method in ('invoice', 'credit_card', 'other'));
+       8 
+      10   add column if not exists default_bill_method text not null def
+         ault 'invoice'
+     … +12 lines (ctrl+o to expand)
+
+⏺ Bash(cd /Users/jonburrow/opshub
+      cat > _a101.js <<'EOF'…)
+  ⎿  [dotenv@17.3.1] injecting env (25) from .env.local -- tip: 🛡️ auth for
+      agents: https://vestauth.com
+     ✓ migration 101 applied · non-invoice vendors: [{"name":"Downeast (Nal
+     genes)","default_bill_method":"credit_card"}]
+
+⏺ Applied — Downeast now defaults to credit_card. Now the page. Types + state
+  first:
+
+⏺ Update(app/(dashboard)/reconciliation/page.tsx)
+  ⎿  Added 14 lines, removed 2 lines
+      25    { v: "other", label: "Other" },
+      26  ];
+      27  
+      28 -type Vendor = { id: string; name: string; kind: string; decorat
+         -or_id: string | null; match_keys?: string[] | null };          
+      28 +type Vendor = { id: string; name: string; kind: string; decorat
+         +or_id: string | null; match_keys?: string[] | null; default_bil
+         +l_method?: string };                                           
+      29  type Entry = {
+      30    id: string; vendor_id: string | null; vendor_name: string | n
+          ull; vendor_invoice_number: string | null;
+      31    po_ref: string | null; job_id: string | null; amount: number;
+           expected_amount: number | null;
+      32 -  charge_type: string; status: string; not_job_specific: boolea
+         -n; notes: string | null; created_at: string;                   
+      32 +  charge_type: string; status: string; not_job_specific: boolea
+         +n; notes: string | null; created_at: string; bill_method?: stri
+         +ng;                                                            
+      33  };
+      34 +const BILL_METHODS = [                                         
+      35 +  { v: "invoice", label: "Invoice" },                          
+      36 +  { v: "credit_card", label: "Credit card" },                  
+      37 +  { v: "other", label: "Other" },                              
+      38 +];                                                             
+      39 +// how a logged line's reference reads, by method              
+      40 +const refLabel = (e: { bill_method?: string; vendor_invoice_num
+         +ber: string | null }) => {                                     
+      41 +  const r = e.vendor_invoice_number;                           
+      42 +  if (e.bill_method === "credit_card") return r ? `CC · ${r}` :
+         + "CC charge";                                                  
+      43 +  if (e.bill_method === "other") return r ? `ref ${r}` : "—";  
+      44 +  return `inv ${r || "—"}`;                                    
+      45 +};                                                             
+      46  
+      47  // Disposition when marking a vendor fully billed — separates "
+          $X to chase" from
+      48  // "$X that's fine" on the board.
+⏺ Update(app/(dashboard)/reconciliation/page.tsx)
+  ⎿  Added 1 line
+       98    const [billAmt, setBillAmt] = useState("");
+       99    const [billSaving, setBillSaving] = useState(false);
+      100    const [alloc, setAlloc] = useState<Record<string, { on: bool
+           ean; amt: string }>>({}); // vendor multi-PO allocation
+      101 +  const [billMethod, setBillMethod] = useState("invoice");    
+      102  
+      103    async function loadAll() {
+      104      const [v, j, e, d, m] = await Promise.all([
+
+⏺ Update(app/(dashboard)/reconciliation/page.tsx)
+  ⎿  Added 1 line, removed 1 line
+      102  
+      103    async function loadAll() {
+      104      const [v, j, e, d, m] = await Promise.all([
+      105 -      supabase.from("ap_vendors").select("id, name, kind, deco
+          -rator_id, match_keys").eq("active", true).order("name"),      
+      105 +      supabase.from("ap_vendors").select("id, name, kind, deco
+          +rator_id, match_keys, default_bill_method").eq("active", true)
+          +.order("name"),                                               
+      106        supabase.from("jobs").select("id, job_number, phase, typ
+           e_meta, client_id, clients(name), costing_data, costing_summar
+           y").order("created_at", { ascending: false }),
+      107        supabase.from("cost_entries").select("*").order("created
+           _at", { ascending: false }),
+      108        supabase.from("decorators").select("id, name, short_code
+           , pricing_data, capabilities"),
+
+⏺ Now set the method on open + insert it. Updating the openers and log handlers:
+
+⏺ Update(app/(dashboard)/reconciliation/page.tsx)
+  ⎿  Added 3 lines, removed 2 lines
+      205    // Inline bill entry: "+ bill" reveals invoice # + total + L
+           og — on a vendor row
+      206    // (key = job::vendor, posts vs QB invoice #) OR a PO row (k
+           ey = job::vendor::poRef,
+      207    // posts vs that PO ref).
+      208 -  function openInlineBill(key: string, prefillAmt: number) {  
+      208 +  const vendorMethod = (apVendorId: string | null) => vendors.
+          +find(v => v.id === apVendorId)?.default_bill_method || "invoic
+          +e";                                                           
+      209 +  function openInlineBill(key: string, prefillAmt: number, apV
+          +endorId: string | null) {                                     
+      210      if (billFor === key) { setBillFor(null); return; }
+      210 -    setBillFor(key); setBillInv(""); setBillAmt(prefillAmt > 0
+          - ? String(prefillAmt) : "");                                  
+      211 +    setBillFor(key); setBillInv(""); setBillAmt(prefillAmt > 0
+          + ? String(prefillAmt) : ""); setBillMethod(vendorMethod(apVend
+          +orId));                                                       
+      212    }
+      213    async function logBill(jobId: string, apVendorId: string | n
+           ull, poRefDefault: string) {
+      214      const amt = parseAmount(billAmt);
+
+⏺ Update(app/(dashboard)/reconciliation/page.tsx)
+  ⎿  Added 2 lines, removed 2 lines
+      225      if (!error) { setBillFor(null); setBillInv(""); setBillAmt
+           (""); loadAll(); }
+      226    }
+      227    // Vendor-level multi-PO entry: one invoice #, check the POs
+            it covers, allocate.
+      228 -  function openVendorBill(vKey: string, items: { poRef: string
+          -; expected: number }[], lns: Entry[]) {                       
+      228 +  function openVendorBill(vKey: string, items: { poRef: string
+          +; expected: number }[], lns: Entry[], apVendorId: string | nul
+          +l) {                                                          
+      229      if (billFor === vKey) { setBillFor(null); return; }
+      230 -    setBillFor(vKey); setBillInv("");                         
+      230 +    setBillFor(vKey); setBillInv(""); setBillMethod(vendorMeth
+          +od(apVendorId));                                              
+      231      const a: Record<string, { on: boolean; amt: string }> = {}
+           ;
+      232      for (const it of items) {
+      233        const billed = lns.filter(e => (e.po_ref || "") === it.p
+           oRef).reduce((s, e) => s + Number(e.amount || 0), 0);
+
+⏺ Update(app/(dashboard)/reconciliation/page.tsx)
+  ⎿  Added 1 line, removed 1 line
+      219      const { error } = await supabase.from("cost_entries").inse
+           rt({
+      220        source: "decorator_invoice", vendor_id: apVendorId, vend
+           or_name: vendorName,
+      221        vendor_invoice_number: billInv.trim() || null, po_ref: p
+           oRefDefault,
+      222 -      job_id: jobId, amount: amt, expected_amount: expected, c
+          -harge_type: "production", status: "matched",                  
+      222 +      job_id: jobId, amount: amt, expected_amount: expected, c
+          +harge_type: "production", status: "matched", bill_method: bill
+          +Method,                                                       
+      223      } as any);
+      224      setBillSaving(false);
+      225      if (!error) { setBillFor(null); setBillInv(""); setBillAmt
+           (""); loadAll(); }
+
+⏺ Update(app/(dashboard)/reconciliation/page.tsx)
+  ⎿  Added 1 line, removed 1 line
+      245      const rows = picks.map(it => ({
+      246        source: "decorator_invoice", vendor_id: apVendorId, vend
+           or_name: vendorName,
+      247        vendor_invoice_number: inv, po_ref: it.poRef, job_id: jo
+           bId,
+      248 -      amount: parseAmount(alloc[it.poRef].amt), expected_amoun
+          -t: it.expected, charge_type: "production", status: "matched", 
+      248 +      amount: parseAmount(alloc[it.poRef].amt), expected_amoun
+          +t: it.expected, charge_type: "production", status: "matched", 
+          +bill_method: billMethod,                                      
+      249      }));
+      250      const { error } = await supabase.from("cost_entries").inse
+           rt(rows as any);
+      251      setBillSaving(false);
+
+⏺ Update(app/(dashboard)/reconciliation/page.tsx)
+  ⎿  Added 1 line
+      182        amount: amt, expected_amount: expected,
+      183        charge_type: chargeType,
+      184        status: job ? "matched" : "unmatched",
+      185 +      bill_method: vendorMethod(vendorId),                    
+      186      } as any);
+      187      setSaving(false);
+      188      if (!error) { setInvoiceNum(""); setPoRef(""); setAmount("
+           "); loadAll(); }
+
+⏺ Update the callers to pass the vendor + add the method picker. Caller updates:
+
+⏺ Update(app/(dashboard)/reconciliation/page.tsx)
+  ⎿  Added 1 line, removed 1 line
+      575                                            </>}
+      576                                      </div>
+      577                                      <span style={{ width: 50, 
+           display: "flex", justifyContent: "flex-end" }}>
+      578 -                                      <button onClick={ev => {
+          - ev.stopPropagation(); openInlineBill(poKey, Math.max(0, it.ex
+          -pected - billedPo) || it.expected); }} className={`bq-ghost${b
+          -illFor === poKey ? " on" : ""}`}>+ bill</button>              
+      578 +                                      <button onClick={ev => {
+          + ev.stopPropagation(); openInlineBill(poKey, Math.max(0, it.ex
+          +pected - billedPo) || it.expected, v.apVendorId); }} className
+          +={`bq-ghost${billFor === poKey ? " on" : ""}`}>+ bill</button>
+      579                                      </span>
+      580                                    </div>
+      581                                    {poLines.map(e => (
+
+⏺ Update(app/(dashboard)/reconciliation/page.tsx)
+  ⎿  Added 1 line, removed 1 line
+      518                            <span style={{ fontSize: 10.5, fontW
+           eight: 700, color: meta.color, background: meta.color + "1f", 
+           padding: "2px 9px", borderRadius: 20 }}>{meta.label}</span>
+      519                            <span style={{ width: 150, textAlign
+           : "right", fontFamily: mono, color: T.text }}>{money(v.billed)
+           } <span style={{ color: T.faint }}>of {money(v.expected)}</spa
+           n></span>
+      520                            <span style={{ width: 90, textAlign:
+            "right", fontFamily: mono, fontWeight: 700, color: v.outstand
+           ing > 0 ? T.amber : T.green }}>{v.outstanding > 0 ? money(v.ou
+           tstanding) : "—"}</span>
+      521 -                          <button onClick={ev => { ev.stopProp
+          -agation(); openVendorBill(vKey, v.items, lines); }} title="Log
+          - one invoice across this vendor's POs" className={`bq-ghost${b
+          -illFor === vKey ? " on" : ""}`}>+ bill</button>               
+      521 +                          <button onClick={ev => { ev.stopProp
+          +agation(); openVendorBill(vKey, v.items, lines, v.apVendorId);
+          + }} title="Log one invoice across this vendor's POs" className
+          +={`bq-ghost${billFor === vKey ? " on" : ""}`}>+ bill</button> 
+      522                          </div>
+      523                          {billFor === vKey && (
+      524                            <div onClick={ev => ev.stopPropagati
+           on()} style={{ background: T.amberDim, borderBottom: `1px soli
+           d ${T.border}33`, padding: "10px 16px 12px 22px" }}>
+
+⏺ Now the method picker in the inline form + dynamic placeholder:
+
+⏺ Update(app/(dashboard)/reconciliation/page.tsx)
+  ⎿  Added 4 lines, removed 1 line
+      256      const submit = () => logBill(jobId, apVendorId, poRef);
+      257      return (
+      258        <div onClick={ev => ev.stopPropagation()} style={{ displ
+           ay: "flex", alignItems: "center", gap: 8, padding: "8px 16px 8
+           px 62px", background: T.amberDim, borderBottom: `1px solid ${T
+           .border}33` }}>
+      259 -        <input autoFocus value={billInv} onChange={e => setBil
+          -lInv(e.target.value)} onKeyDown={e => e.key === "Enter" && sub
+          -mit()} placeholder="Invoice # / ref (optional)" style={{ paddi
+          -ng: "5px 9px", border: `1px solid ${T.border}`, borderRadius: 
+          -6, background: T.card, color: T.text, fontSize: 12, fontFamily
+          -: font, outline: "none", width: 150 }} />                     
+      259 +        <select value={billMethod} onChange={e => setBillMetho
+          +d(e.target.value)} style={{ padding: "5px 6px", border: `1px s
+          +olid ${T.border}`, borderRadius: 6, background: T.card, color:
+          + T.text, fontSize: 11.5, fontFamily: font, outline: "none" }}>
+      260 +          {BILL_METHODS.map(m => <option key={m.v} value={m.v}
+          +>{m.label}</option>)}                                         
+      261 +        </select>                                             
+      262 +        <input autoFocus value={billInv} onChange={e => setBil
+          +lInv(e.target.value)} onKeyDown={e => e.key === "Enter" && sub
+          +mit()} placeholder={billMethod === "credit_card" ? "Charge dat
+          +e / ref" : "Invoice # / ref (optional)"} style={{ padding: "5p
+          +x 9px", border: `1px solid ${T.border}`, borderRadius: 6, back
+          +ground: T.card, color: T.text, fontSize: 12, fontFamily: font,
+          + outline: "none", width: 150 }} />                            
+      263          <input value={billAmt} onChange={e => setBillAmt(e.tar
+           get.value)} onKeyDown={e => e.key === "Enter" && submit()} inp
+           utMode="decimal" placeholder="Total" style={{ padding: "5px 9p
+           x", border: `1px solid ${T.border}`, borderRadius: 6, backgrou
+           nd: T.card, color: T.text, fontSize: 12, fontFamily: mono, out
+           line: "none", width: 110 }} />
+      264          <button onClick={submit} disabled={billSaving || !pars
+           eAmount(billAmt)} style={{ background: parseAmount(billAmt) ? 
+           T.green : T.surface, color: parseAmount(billAmt) ? "#fff" : T.
+           faint, border: "none", borderRadius: 6, padding: "6px 16px", f
+           ontSize: 12, fontWeight: 700, cursor: parseAmount(billAmt) ? "
+           pointer" : "default", fontFamily: font }}>{billSaving ? "…" : 
+           "Log"}</button>
+      265          <button onClick={() => setBillFor(null)} style={{ ...m
+           iniBtn(T.faint), width: 26 }}>×</button>
+
+⏺ Now the method picker in the vendor allocation panel:
+
+⏺ Update(app/(dashboard)/reconciliation/page.tsx)
+  ⎿  Added 5 lines, removed 2 lines
+      526                          {billFor === vKey && (
+      527                            <div onClick={ev => ev.stopPropagati
+           on()} style={{ background: T.amberDim, borderBottom: `1px soli
+           d ${T.border}33`, padding: "10px 16px 12px 22px" }}>
+      528                              <div style={{ display: "flex", ali
+           gnItems: "center", gap: 10, marginBottom: 8 }}>
+      529 -                              <input autoFocus value={billInv}
+          - onChange={e => setBillInv(e.target.value)} placeholder="Invoi
+          -ce # / ref (optional)" style={{ ...inp, width: 170, padding: "
+          -6px 9px" } as any} />                                         
+      530 -                              <span style={{ fontSize: 11, col
+          -or: T.muted }}>check the POs this invoice covers, confirm amou
+          -nts:</span>                                                   
+      529 +                              <select value={billMethod} onCha
+          +nge={e => setBillMethod(e.target.value)} style={{ ...inp, padd
+          +ing: "6px 8px" } as any}>                                     
+      530 +                                {BILL_METHODS.map(mm => <optio
+          +n key={mm.v} value={mm.v}>{mm.label}</option>)}               
+      531 +                              </select>                       
+      532 +                              <input autoFocus value={billInv}
+          + onChange={e => setBillInv(e.target.value)} placeholder={billM
+          +ethod === "credit_card" ? "Charge date / ref" : "Invoice # / r
+          +ef (optional)"} style={{ ...inp, width: 170, padding: "6px 9px
+          +" } as any} />                                                
+      533 +                              <span style={{ fontSize: 11, col
+          +or: T.muted }}>check the POs this {billMethod === "credit_card
+          +" ? "charge" : "invoice"} covers, confirm amounts:</span>     
+      534                              </div>
+      535                              {v.items.map(it => {
+      536                                const a = alloc[it.poRef] || { o
+           n: false, amt: "" };
+
+⏺ Now display the method-aware reference on logged lines:
+
+⏺ Update(app/(dashboard)/reconciliation/page.tsx)
+  ⎿  Added 2 lines, removed 2 lines
+      586                                    </div>
+      587                                    {poLines.map(e => (
+      588                                      <div key={e.id} className=
+           "bq-row" style={{ display: "flex", alignItems: "center", gap: 
+           12, height: 28, padding: "0 16px 0 44px", borderTop: `1px soli
+           d ${T.border}14` }}>
+      589 -                                      <span style={{ flex: 1, 
+          -fontSize: 11.5, color: T.faint, fontFamily: mono }}>inv {e.ven
+          -dor_invoice_number || "—"}</span>                             
+      589 +                                      <span style={{ flex: 1, 
+          +fontSize: 11.5, color: T.faint, fontFamily: mono }}>{refLabel(
+          +e)}</span>                                                    
+      590                                        <span className="bq-mono
+           " style={{ width: 150, textAlign: "right", fontFamily: mono, f
+           ontSize: 11.5, color: T.muted }}>{money(e.amount)}</span>
+      591                                        <span className="bq-act"
+            style={{ width: 50, display: "flex", justifyContent: "flex-en
+           d" }}>
+      592                                          <button onClick={ev =>
+            { ev.stopPropagation(); removeEntry(e.id); }} className="bq-x
+           ">×</button>
+     ...
+      604                                <div key={e.id} className="bq-ro
+           w" style={{ display: "flex", alignItems: "center", gap: 12, he
+           ight: 30, padding: "0 16px 0 22px", borderTop: `1px solid ${T.
+           border}14` }}>
+      605                                  <span style={{ width: 7, flexS
+           hrink: 0 }} />
+      606                                  <span className="bq-mono" styl
+           e={{ width: 92, fontFamily: mono, fontSize: 12, color: T.text 
+           }}>{e.po_ref || "—"}</span>
+      607 -                                <span style={{ flex: 1, fontSi
+          -ze: 11.5, color: T.faint, fontFamily: mono }}>inv {e.vendor_in
+          -voice_number || "—"}</span>                                   
+      607 +                                <span style={{ flex: 1, fontSi
+          +ze: 11.5, color: T.faint, fontFamily: mono }}>{refLabel(e)}</s
+          +pan>                                                          
+      608                                  <span className="bq-mono" styl
+           e={{ width: 150, textAlign: "right", fontFamily: mono, fontSiz
+           e: 12, color: T.text }}>{money(e.amount)}</span>
+      609                                  <span className="bq-act" style
+           ={{ width: 50, display: "flex", justifyContent: "flex-end" }}>
+      610                                    <button onClick={ev => { ev.
+           stopPropagation(); removeEntry(e.id); }} className="bq-x">×</b
+           utton>
+
+⏺ Bash(cd /Users/jonburrow/opshub
+      out=$(npx esbuild "app/(dashboard)/reconciliation/page.tsx"
+      --loader:.tsx=tsx --bundle '--external:react' '--external:react-dom'
+      '--e…)
+  ⎿  ✓ page parses clean
+     ✓ lib
+
+⏺ Let me build to confirm it compiles, then commit:
+
+⏺ Bash(cd /Users/jonburrow/opshub
+      npx next build 2>&1 | grep -iE "Compiled successfully|Failed to
+      compile|Type error" | head -3)
+  ⎿   ✓ Compiled successfully
+⏺ Bash(cd /Users/jonburrow/opshub
+      git add supabase/migrations/101_bill_method.sql lib/billing-queue.ts
+      "app/(dashboard)/reconciliation/page.tsx"…)
+  ⎿  ✓ dev: 088a85ed
+
+⏺ Built and on dev (088a85ed), full build clean. Test it on Downeast:
+
+  What you'll see: open Downeast's "+ bill" and the method picker is already set
+  to "Credit card" (because I set it as that vendor's default) — so your
+  assistant never has to think about it. The reference field relabels to "Charge
+  date / ref," and once logged the line reads "CC · 6/24" instead of "inv —".
+
+  How it works:
+  - Each line now carries a method — Invoice / Credit card / Other — selectable
+  on the log form (both the per-PO and the multi-PO panel).
+  - It defaults to the vendor's default (Downeast = Credit card; everyone else =
+  Invoice), with a per-entry override.
+  - For any other CC-on-file vendor, tell me and I'll flip their default — or
+  that's the first thing a vendor-admin screen will let you set yourself.
+
+  Why it's more than a label (the part that pays off later):
+  - P4 (paid status): a CC charge is already paid, so it won't sit in the
+  "billed-unpaid" side of your committed-cash number.
+  - P3 (QB push): the push will know to record a CC charge as a credit-card
+  expense, not as an AP bill to pay.
+
+  So Downeast's $19,803 logs as two CC charges with charge-date refs, reconciles
+  against the projection exactly like an invoiced vendor, and stays correctly
+  categorized for the cash + QB logic down the line. Run it through and let me
+  know.
+
+✻ Churned for 4m 20s
+
+※ recap: Building the AP billing queue in OpsHub so you can track expected vs billed costs and open-PO commitment. Just shipped bill-method support (invoice/credit card) on dev. Next: test logging Downeast's credit-card charges and confirm they reconcile correctly.
+
+❯ [Image #91] Here's what this process looks like. Seems cumbersome since all   
+  this really does as mark this as billed/paid. We're not using opshub for bank 
+  reconciliation, only a production reconciliation. This still feels clunky     
+  UI, knowing everything you know about the various ways we are billed / pay    
+  bills, what would you change about this model? This is the not so beauty of   
+  being a middle man that deals with multiple outside vendors that all have     
+  unique billing practices                                                      
+  ⎿  [Image #91]
+
+⏺ The most useful thing I can tell you: the model is framed as "log a bill" when
+  it should be framed as "confirm a cost." That one reframe kills most of the
+  clunk.
+
+  You nailed it yourself — all this really does is mark a PO as billed at an 
+  amount. You're doing production reconciliation (did the vendor charge what we
+  projected?), not bank reconciliation (matching payments to statements — that's
+  QB's job, forever). The current UI makes you act like a bookkeeper: pick a
+  method, type a date, type an amount, hit Log. But the only question that
+  matters for production rec is: did 4277-A come in at the $10,217.87 we 
+  projected?
+
+  Here's what I'd change about the model:
+
+  1. The atomic action is "confirm the cost," and it defaults to yes. Each PO
+  already shows a projection. The button shouldn't be "+ bill" → a form — it
+  should be "Confirm $10,217.87" → one click, done, green. You only touch a
+  field when it came in different (then you edit the number). That alone removes
+  ~80% of the keystrokes. Every vendor's billing style collapses to the same
+  one-click confirm.
+
+  2. Reference becomes optional and freeform — kill the structured method/date.
+  You don't need to model how they billed you (invoice vs CC vs milestone) with
+  dropdowns and date fields. That's bank-rec rigor you explicitly don't want.
+  One optional "ref" box — invoice #, "CC 6/15", a note, or blank — is plenty
+  for your own lookup. The vendor's quirks stop mattering because you stop 
+  modeling them. You just record the number and an optional breadcrumb.
+
+  3. Keep exactly two things — they're the whole point: the variance (came in
+  over/under projection) and mark cost-complete (all confirmed → margin is
+  trustworthy). Everything else is ceremony.
+
+  So Downeast goes from [Credit card][6/15/2026][$4,792.73][Log] → just "Confirm
+  $4,792.73" (pre-filled), with an optional ref if you want one. The CC-method
+  stuff I just built? It was solving a bank-rec problem you don't have.
+
+  One scope question that decides how far I strip it — and it's the
+  uncomfortable one, because it contradicts something we agreed earlier:
+
+  Do you still want OpsHub to push these to QB as bills, or is OpsHub now
+  production-reconciliation only — you confirm actual costs here for margin 
+  truth, and QB stays its own separate world for the actual bills/payments?
+
+  - If production-rec only → I rip out method/paid/QB-push entirely, and the
+  model gets much lighter (just confirm-cost + variance + complete).
+  - If still pushing to QB → I keep a thin method tag, but only at the QB-export
+  step, never in the per-PO confirm.
+
+  My lean, hearing you today: production-rec only. It's the honest scope —
+  you're a middleman reconciling vendor costs against projections for margin,
+  not running AP. That makes this dramatically simpler and the entry flow nearly
+  frictionless. Tell me which, and I'll rebuild the entry around "Confirm
+  cost."
+
+✻ Churned for 2m 1s
+
+❯ I guess I'm trying to figure out how to knock out 2 birds with 1 stone. Maybe 
+  the log bill/invoice lives a different place than this. When my assistant     
+  enters invoices into QB, she does it by vendor. Create new bill, select       
+  vendor, enter in Vendor Invoice, our PO #, invoice total, and assigns the     
+  client. What I'd like OpsHub to do is eliminate having to do double work to   
+  mark items/jobs as billed after QB invoice entry. Do you get what I'm saying? 
+  It makes sense in my head                                                     
+
+⏺ Yes — I get it completely, and it's the right instinct. She's already entering
+  every bill in QB (vendor, invoice #, PO #, total, client). OpsHub should read
+  that, not make her type it again. The "log bill in OpsHub" flow I built is
+  the double work. Kill it.
+
+  Here's the model that knocks out both birds:
+
+  OpsHub consumes QB bills — it doesn't duplicate them.
+  1. Your assistant enters bills in QB exactly as she does today. Nothing 
+  changes for her.
+  2. OpsHub pulls those bills from QB via the API (you already have the QB
+  connection — same OAuth that pushes invoices).
+  3. Each bill line carries the PO # (she enters it), and we've proven PO # →
+  job → vendor. So OpsHub auto-matches every bill to its PO and marks it billed,
+  computes the variance vs projection, no typing.
+  4. The only thing she does in OpsHub is review — glance at variances,
+  disposition the odd ones, confirm cost-complete. Read-only reflection of
+  what's already in QB.
+
+  So her QB bill entry is the OpsHub entry. Zero re-keying. That's your one
+  stone.
+
+  Build path:
+  - The real version: a QB Bill sync — OpsHub queries QB for bills (SELECT * 
+  FROM Bill), parses each line's description for the PO #, matches, updates the
+  reconciliation. Runs on a schedule or on-demand (a "Sync from QB" button),
+  eventually webhook-driven for near-real-time. [Likely] straightforward — it's
+  the read-side mirror of the invoice push you already have; I'd verify exactly
+  where the PO # lands in the QB bill (Description vs Memo vs a field) first.
+  - The interim, today: the CSV import we already built and proved. She
+  periodically exports "Transaction Detail by Account," drops it, OpsHub
+  reconciles. Same outcome, just a manual export step until the API sync is
+  built.
+
+  What changes in the UI: the per-PO/vendor "+ bill" entry forms become a manual
+  fallback (for a vendor not in QB yet, or a one-off), not the main event. The
+  board becomes a review surface — projected vs actual (from QB), variance,
+  cost-complete — that fills itself in.
+
+  One caveat, same as before: auto-match needs the PO # on the QB bill. Your
+  assistant already enters it, so everything going forward matches
+  automatically. The only manual touches are the historical milestone vendors
+  (Battle/13th/FCX) whose old bills had no PO #, and any vendor not in QB.
+
+  Does that match what's in your head? If so, my recommendation is: build the QB
+  Bill sync (the API pull + auto-match), demote the manual entry to a fallback,
+  and make the board a review-and-disposition surface. That's the version where
+  she does the work once, in the tool she's already in, and OpsHub just keeps
+  the margin truth in lockstep. Want me to scope that build?
+
+✻ Sautéed for 1m 12s
+
+❯ So it should work the same as her current QB workflow, but I was trying to    
+  automate the client link, show a variance between projected vs billed, and    
+  reconcile the job itself in opshub with projected vs billed costs for real    
+  margins - we should also be able to have a history of bills per vendor like   
+  we do in QB currently                                                         
+
+⏺ Now it clicks — and it changes the model in a good way. The key is "automate 
+  the client link." In QB she manually assigns the client to every bill line.
+  That assignment is derivable from the PO # (PO → job → client), and QB can't 
+  do that — only OpsHub can. So the entry has to live in OpsHub, where it
+  auto-fills, and then OpsHub pushes the finished bill to QB with the client 
+  already assigned.
+
+  That's the one stone: she enters the bill once, in OpsHub, and it (a)
+  reconciles against the projection for margin, and (b) lands in QB fully formed
+  — including the client she used to assign by hand. No double entry, and one
+  less manual step than she does today.
+
+  So the model is three clean surfaces, not the scattered per-PO logging I
+  built:
+
+  1. "New bill" — mirrors her QB muscle memory, but smarter.
+  - Select vendor → enter vendor invoice # → add lines (PO # + amount).
+  - The moment she types a PO #, OpsHub auto-fills the client and shows the 
+  projected cost next to her amount — instant variance per line.
+  - One bill, multiple lines (handles the Scorpion "1171 covers F + G" case
+  natively — it's just a bill with two lines, exactly like QB).
+  - Save → records it + (the loop-closer) pushes to QB with vendor, lines, PO
+  #s, totals, and clients pre-assigned.
+
+  2. The reconciliation board (what we built) becomes the review surface —
+  projected vs billed, variance, cost-complete, real margin per job. She
+  glances, dispositions the odd variance, done.
+
+  3. Vendor bill history — a per-vendor list of every bill (like QB's vendor
+  view), since OpsHub now holds the records.
+
+  This is the originate-in-OpsHub → push-to-QB direction we'd discussed — but
+  now with the right entry UX (a familiar "create bill" form) instead of the
+  clunky per-PO inline logging. The entry feels like QB; the payoff is the
+  auto-client + variance + margin that QB can't give you.
+
+  The build, in order:
+  1. Reframe entry → a "New bill" form (vendor · invoice # · lines[PO # +
+  amount], auto-client + live variance). This alone makes it feel like her QB
+  flow and kills the clunk. (near-term, no QB dependency)
+  2. Vendor bill history view. (near-term)
+  3. Push the bill to QB — the heavier piece: map vendors to QB + expense
+  accounts, then create the QB Bill via the API you're already connected to.
+  This is what makes it truly one-entry. (the P3 build)
+
+  I'd do 1 and 2 first — you'd immediately feel the difference, and it's all
+  reconciliation value with zero QB risk — then wire the QB push to close the
+  loop.
+
+  Did I finally land on what's in your head? If so I'll start with the "New
+  bill" form.
+
+✻ Baked for 1m 28s
+
+❯ I don't like the idea of her entering bills in QB, as she has no reference to 
+  the job. She currently uses opshub to manually look up the PO shes entering   
+  a bill for to cross reference - trying to automate that as well to take out   
+  the extra step. If she enters bills into opshub with the same practice as QB, 
+  opshub can show her variances before a line is added to a bill.               
+
+⏺ That's the whole point, and now I've got it fully: she enters in OpsHub 
+  because OpsHub knows the job — it kills the QB→OpsHub lookup flip she does
+  today, auto-links the client, and shows the variance live as she builds each 
+  line, before she commits it. One place, full context, no cross-referencing.
+  Let me build the "New Bill" form that works exactly like her QB bill entry but
+  with the job intelligence baked in.
+
+  Adding the PO lookup index + entry state:
+
+⏺ Update(app/(dashboard)/reconciliation/page.tsx)
+  ⎿  Added 8 lines
+       99    const [billSaving, setBillSaving] = useState(false);
+      100    const [alloc, setAlloc] = useState<Record<string, { on: bool
+           ean; amt: string }>>({}); // vendor multi-PO allocation
+      101    const [billMethod, setBillMethod] = useState("invoice");
+      102 +  // New Bill modal (QB-style entry, job-aware)               
+      103 +  const [showBill, setShowBill] = useState(false);            
+      104 +  const [nbVendor, setNbVendor] = useState("");               
+      105 +  const [nbInvoice, setNbInvoice] = useState("");             
+      106 +  const [nbPo, setNbPo] = useState("");                       
+      107 +  const [nbAmt, setNbAmt] = useState("");                     
+      108 +  const [nbLines, setNbLines] = useState<{ poRef: string; job_
+          +id: string; job_number: string; client_name: string | null; it
+          +emName: string; projected: number; amount: number; apVendorId:
+          + string | null }[]>([]);                                      
+      109 +  const [nbSaving, setNbSaving] = useState(false);            
+      110  
+      111    async function loadAll() {
+      112      const [v, j, e, d, m] = await Promise.all([
+
+⏺ Now the PO lookup index + handlers:
+
+⏺ Update(app/(dashboard)/reconciliation/page.tsx)
+  ⎿  Error editing file
+
+⏺ Bash(cd /Users/jonburrow/opshub
+      grep -n "const filteredQueue\|const openByVendor\|const sq ="
+      "app/(dashboard)/reconciliation/page.tsx" | head)
+  ⎿  288:  const sq = search.trim().toLowerCase();
+     289:  const filteredQueue = queue.jobs
+     293:  const openByVendor = (() => {
+
+  Read 1 file (ctrl+o to expand)
+
+⏺ Update(app/(dashboard)/reconciliation/page.tsx)
+  ⎿  Added 9 lines
+      289    const filteredQueue = queue.jobs
+      290      .filter(j => qFilter === "all" ? true : qFilter === "compl
+           ete" ? j.costComplete : !j.costComplete)
+      291      .filter(j => !sq || (j.qb_invoice_number || "").toLowerCas
+           e().includes(sq) || (j.job_number || "").toLowerCase().include
+           s(sq) || (j.client_name || "").toLowerCase().includes(sq) || j
+           .vendors.some(v => v.name.toLowerCase().includes(sq)));
+      292 +  // PO ref → line detail, for the New Bill lookup (type a PO 
+          +#, get job/client/projected)                                  
+      293 +  const poIndex = useMemo(() => {                             
+      294 +    const m: Record<string, { poRef: string; job_id: string; j
+          +ob_number: string; qb: string | null; client_name: string | nu
+          +ll; vendorName: string; apVendorId: string | null; itemName: s
+          +tring; projected: number }> = {};                             
+      295 +    for (const j of queue.jobs) for (const v of j.vendors) for
+          + (const it of v.items) {                                      
+      296 +      m[it.poRef.toUpperCase().replace(/[^A-Z0-9]/g, "")] = { 
+          +poRef: it.poRef, job_id: j.id, job_number: j.job_number, qb: j
+          +.qb_invoice_number, client_name: j.client_name, vendorName: v.
+          +name, apVendorId: v.apVendorId, itemName: it.name, projected: 
+          +it.expected };                                                
+      297 +    }                                                         
+      298 +    return m;                                                 
+      299 +  }, [queue]);                                                
+      300 +  const nbHit = poIndex[nbPo.toUpperCase().replace(/[^A-Z0-9]/
+          +g, "")] || null;                                              
+      301    // open PO broken down by vendor — "who do we owe"
+      302    const openByVendor = (() => {
+      303      const m: Record<string, { name: string; outstanding: numbe
+           r; jobs: number }> = {};
+
+⏺ Now the New Bill handlers — let me add them near the other handlers:
+
+⏺ Update(app/(dashboard)/reconciliation/page.tsx)
+  ⎿  Added 24 lines
+      329      loadAll();
+      330    }
+      331  
+      332 +  function openNewBill() { setShowBill(true); setNbVendor("");
+          + setNbInvoice(""); setNbPo(""); setNbAmt(""); setNbLines([]); 
+          +}                                                             
+      333 +  function addNbLine() {                                      
+      334 +    if (!nbHit) return;                                       
+      335 +    const amount = parseAmount(nbAmt) || nbHit.projected;     
+      336 +    setNbLines(prev => [...prev, { poRef: nbHit.poRef, job_id:
+          + nbHit.job_id, job_number: nbHit.job_number, client_name: nbHi
+          +t.client_name, itemName: nbHit.itemName, projected: nbHit.proj
+          +ected, amount, apVendorId: nbHit.apVendorId }]);              
+      337 +    setNbPo(""); setNbAmt("");                                
+      338 +    if (!nbVendor && nbHit.apVendorId) setNbVendor(nbHit.apVen
+          +dorId); // infer vendor from first line                       
+      339 +  }                                                           
+      340 +  async function saveBill() {                                 
+      341 +    if (!nbLines.length) return;                              
+      342 +    const vId = nbVendor || nbLines[0].apVendorId;            
+      343 +    if (!vId) return;                                         
+      344 +    setNbSaving(true);                                        
+      345 +    const vendorName = vendors.find(v => v.id === vId)?.name |
+          +| null;                                                       
+      346 +    const rows = nbLines.map(l => ({                          
+      347 +      source: "decorator_invoice", vendor_id: vId, vendor_name
+          +: vendorName,                                                 
+      348 +      vendor_invoice_number: nbInvoice.trim() || null, po_ref:
+          + l.poRef, job_id: l.job_id,                                   
+      349 +      amount: l.amount, expected_amount: l.projected, charge_t
+          +ype: "production", status: "matched", bill_method: vendorMetho
+          +d(vId),                                                       
+      350 +    }));                                                      
+      351 +    const { error } = await supabase.from("cost_entries").inse
+          +rt(rows as any);                                              
+      352 +    setNbSaving(false);                                       
+      353 +    if (!error) { setShowBill(false); loadAll(); }            
+      354 +  }                                                           
+      355 +                                                              
+      356    const lbl = { fontSize: 9, fontWeight: 700 as const, letterS
+           pacing: "0.08em", textTransform: "uppercase" as const, color: 
+           T.faint };
+      357    const inp = { padding: "7px 9px", border: `1px solid ${T.bor
+           der}`, borderRadius: 6, background: T.card, color: T.text, fon
+           tSize: 13, fontFamily: font, outline: "none" };
+      358  
+
+⏺ Now the header button + the modal. Header first:
+
+⏺ Update(app/(dashboard)/reconciliation/page.tsx)  ⎿  Added 1 line, removed 1 line
+      372        `}</style>
+      373        <div style={{ display: "flex", alignItems: "baseline", j
+           ustifyContent: "space-between", marginBottom: 14 }}>
+      374          <h1 style={{ fontSize: 20, fontWeight: 800, color: T.t
+           ext, margin: 0 }}>Billing Queue</h1>
+      375 -        <button onClick={() => setShowForm(s => !s)} style={{ 
+          -background: showForm ? T.surface : T.accent, color: showForm ?
+          - T.text : "#fff", border: `1px solid ${T.border}`, borderRadiu
+          -s: 6, padding: "7px 14px", fontSize: 12, fontWeight: 700, curs
+          -or: "pointer", fontFamily: font }}>{showForm ? "Close" : "+ Ad
+          -d bill"}</button>                                             
+      375 +        <button onClick={openNewBill} style={{ background: T.a
+          +ccent, color: "#fff", border: "none", borderRadius: 6, padding
+          +: "8px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer"
+          +, fontFamily: font }}>+ New bill</button>                     
+      376        </div>
+      377  
+      378        {/* Open PO hero + stats */}
+
+⏺ Now the New Bill modal — inserting after the style block:
+
+⏺ Update(app/(dashboard)/reconciliation/page.tsx)
+  ⎿  Added 64 lines
+      370          .bq-x { background: transparent; border: none; color: 
+           ${T.faint}; cursor: pointer; font-size: 14px; line-height: 1; 
+           padding: 3px 7px; border-radius: 5px; transition: background .
+           12s, color .12s; }
+      371          .bq-x:hover { background: ${T.redDim}; color: ${T.red}
+           ; }
+      372        `}</style>
+      373 +                                                              
+      374 +      {showBill && (                                          
+      375 +        <div onClick={() => setShowBill(false)} style={{ posit
+          +ion: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex:
+          + 100, display: "flex", alignItems: "flex-start", justifyConten
+          +t: "center", paddingTop: "8vh" }}>                            
+      376 +          <div onClick={e => e.stopPropagation()} style={{ bac
+          +kground: T.card, borderRadius: 12, width: 660, maxWidth: "92vw
+          +", maxHeight: "82vh", overflow: "auto", boxShadow: "0 20px 60p
+          +x rgba(0,0,0,0.3)", fontFamily: font }}>                      
+      377 +            <div style={{ padding: "15px 20px", borderBottom: 
+          +`1px solid ${T.border}`, display: "flex", alignItems: "center"
+          +, justifyContent: "space-between" }}>                         
+      378 +              <div style={{ fontSize: 16, fontWeight: 800, col
+          +or: T.text }}>New Bill</div>                                  
+      379 +              <button onClick={() => setShowBill(false)} class
+          +Name="bq-x" style={{ fontSize: 18 }}>×</button>               
+      380 +            </div>                                            
+      381 +            <div style={{ padding: "16px 20px", display: "flex
+          +", gap: 12 }}>                                                
+      382 +              <div style={{ flex: 1 }}>                       
+      383 +                <div style={lbl}>Vendor</div>                 
+      384 +                <select value={nbVendor} onChange={e => setNbV
+          +endor(e.target.value)} style={{ ...inp, width: "100%", marginT
+          +op: 4 } as any}>                                              
+      385 +                  <option value="">Auto (from first PO)</optio
+          +n>                                                            
+      386 +                  {vendors.map(v => <option key={v.id} value={
+          +v.id}>{v.name}</option>)}                                     
+      387 +                </select>                                     
+      388 +              </div>                                          
+      389 +              <div style={{ width: 200 }}>                    
+      390 +                <div style={lbl}>Vendor invoice # <span style=
+          +{{ color: T.faint, fontWeight: 400 }}>(optional)</span></div> 
+      391 +                <input value={nbInvoice} onChange={e => setNbI
+          +nvoice(e.target.value)} style={{ ...inp, width: "100%", margin
+          +Top: 4 } as any} />                                           
+      392 +              </div>                                          
+      393 +            </div>                                            
+      394 +            <div style={{ padding: "0 20px 10px" }}>          
+      395 +              <div style={lbl}>Add line — type a PO #</div>   
+      396 +              <div style={{ display: "flex", gap: 8, marginTop
+          +: 6, alignItems: "center" }}>                                 
+      397 +                <input autoFocus value={nbPo} onChange={e => {
+          + const val = e.target.value; setNbPo(val); const h = poIndex[v
+          +al.toUpperCase().replace(/[^A-Z0-9]/g, "")]; if (h && !parseAm
+          +ount(nbAmt)) setNbAmt(String(h.projected)); }} onKeyDown={e =>
+          + e.key === "Enter" && nbHit && addNbLine()} placeholder="3682-
+          +F" style={{ ...inp, width: 120, fontFamily: mono } as any} /> 
+      398 +                <input value={nbAmt} onChange={e => setNbAmt(e
+          +.target.value)} onKeyDown={e => e.key === "Enter" && addNbLine
+          +()} placeholder="amount" inputMode="decimal" style={{ ...inp, 
+          +width: 120, fontFamily: mono } as any} />                     
+      399 +                <button onClick={addNbLine} disabled={!nbHit} 
+          +style={{ background: nbHit ? T.accent : T.surface, color: nbHi
+          +t ? "#fff" : T.faint, border: "none", borderRadius: 6, padding
+          +: "8px 16px", fontSize: 13, fontWeight: 700, cursor: nbHit ? "
+          +pointer" : "default", fontFamily: font }}>Add line</button>   
+      400 +              </div>                                          
+      401 +              <div style={{ marginTop: 7, minHeight: 20, fontS
+          +ize: 12 }}>                                                   
+      402 +                {nbPo.trim() === "" ? <span style={{ color: T.
+          +faint }}>Job, client, and projected cost fill in as you type —
+          + variance shows before you add the line.</span>               
+      403 +                  : nbHit ? (() => {                          
+      404 +                    const a = parseAmount(nbAmt); const d = a 
+          +> 0 ? Math.round((a - nbHit.projected) * 100) / 100 : null;   
+      405 +                    return <span style={{ color: T.text }}>→ <
+          +strong className="bq-mono" style={{ fontFamily: mono }}>{nbHit
+          +.qb || nbHit.job_number}</strong> · {nbHit.client_name || "—"}
+          + · {nbHit.itemName} · <span style={{ color: T.muted }}>proj {m
+          +oney(nbHit.projected)}</span>                                 
+      406 +                      {d != null && d !== 0 && <span style={{ 
+          +color: d > 0 ? T.red : T.amber, fontWeight: 700 }}> · {d < 0 ?
+          + "−" : "+"}{money(Math.abs(d))}</span>}                       
+      407 +                      {nbVendor && nbHit.apVendorId !== nbVend
+          +or && <span style={{ color: T.red }}> · ⚠ {nbHit.vendorName}, 
+          +not the selected vendor</span>}                               
+      408 +                    </span>;                                  
+      409 +                  })()                                        
+      410 +                  : <span style={{ color: T.amber }}>⚠ No PO m
+          +atches "{nbPo}"</span>}                                       
+      411 +              </div>                                          
+      412 +            </div>                                            
+      413 +            {nbLines.length > 0 && (                          
+      414 +              <div style={{ borderTop: `1px solid ${T.border}`
+          +, padding: "8px 20px" }}>                                     
+      415 +                {nbLines.map((l, i) => {                      
+      416 +                  const d = Math.round((l.amount - l.projected
+          +) * 100) / 100;                                               
+      417 +                  return (                                    
+      418 +                    <div key={i} className="bq-row" style={{ d
+          +isplay: "flex", alignItems: "center", gap: 10, padding: "5px 0
+          +", fontSize: 12, borderBottom: `1px solid ${T.border}22` }}>  
+      419 +                      <span className="bq-mono" style={{ width
+          +: 84, fontFamily: mono, fontWeight: 600 }}>{l.poRef}</span>   
+      420 +                      <span style={{ width: 150, color: T.fain
+          +t, fontSize: 11 }}>{l.job_number}</span>                      
+      421 +                      <span style={{ flex: 1, color: T.muted, 
+          +whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellip
+          +sis" }}>{l.itemName}</span>                                   
+      422 +                      <span className="bq-mono" style={{ fontF
+          +amily: mono, color: d > 0 ? T.red : d < 0 ? T.amber : T.text }
+          +}>{money(l.amount)}{d !== 0 && <span style={{ fontSize: 10, co
+          +lor: T.faint }}> ({d > 0 ? "+" : ""}{money(d)})</span>}</span>
+      423 +                      <span className="bq-act"><button onClick
+          +={() => setNbLines(prev => prev.filter((_, x) => x !== i))} cl
+          +assName="bq-x">×</button></span>                              
+      424 +                    </div>                                    
+      425 +                  );                                          
+      426 +                })}                                           
+      427 +              </div>                                          
+      428 +            )}                                                
+      429 +            <div style={{ padding: "14px 20px", borderTop: `1p
+          +x solid ${T.border}`, display: "flex", alignItems: "center", g
+          +ap: 14 }}>                                                    
+      430 +              <button onClick={saveBill} disabled={nbSaving ||
+          + !nbLines.length} style={{ background: nbLines.length ? T.gree
+          +n : T.surface, color: nbLines.length ? "#fff" : T.faint, borde
+          +r: "none", borderRadius: 6, padding: "9px 20px", fontSize: 13,
+          + fontWeight: 700, cursor: nbLines.length ? "pointer" : "defaul
+          +t", fontFamily: font }}>{nbSaving ? "Saving…" : `Save bill · $
+          +{nbLines.length} line${nbLines.length !== 1 ? "s" : ""}`}</but
+          +ton>                                                          
+      431 +              <span style={{ fontSize: 13, color: T.muted }}>T
+          +otal <strong className="bq-mono" style={{ fontFamily: mono, co
+          +lor: T.text }}>{money(nbLines.reduce((s, l) => s + l.amount, 0
+          +))}</strong></span>                                           
+      432 +              <button onClick={() => setShowBill(false)} class
+          +Name="bq-ghost" style={{ marginLeft: "auto" }}>Cancel</button>
+      433 +            </div>                                            
+      434 +          </div>                                              
+      435 +        </div>                                                
+      436 +      )}                                                      
+      437        <div style={{ display: "flex", alignItems: "baseline", j
+           ustifyContent: "space-between", marginBottom: 14 }}>
+      438          <h1 style={{ fontSize: 20, fontWeight: 800, color: T.t
+           ext, margin: 0 }}>Billing Queue</h1>
+      439          <button onClick={openNewBill} style={{ background: T.a
+           ccent, color: "#fff", border: "none", borderRadius: 6, padding
+           : "8px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer"
+           , fontFamily: font }}>+ New bill</button>
+
+⏺ Parse + build check:
+
+⏺ Bash(cd /Users/jonburrow/opshub
+      out=$(npx esbuild "app/(dashboard)/reconciliation/page.tsx"
+      --loader:.tsx=tsx --bundle '--external:react' '--external:react-dom'
+      '--e…)
+  ⎿  ✓ parses clean
+
+⏺ Bash(cd /Users/jonburrow/opshub
+      npx next build 2>&1 | grep -iE "Compiled successfully|Failed to
+      compile|Type error" | head -3…)
+  ⎿   ✓ Compiled successfully
+     ✓ dev: 8573d8bd
+
+⏺ Built, compiles clean, on dev (8573d8bd). This is the model you described —
+  her QB bill entry, but OpsHub already knows the job.
+
+  Hit "+ New bill" (top right) and you get a modal that mirrors her QB flow:
+  - Vendor + invoice # up top (vendor can even auto-infer from the first PO).
+  - Add lines by PO # — the second she types 3682-F, it live-resolves → 
+  HPD-2606-009 · Cutthroat · Black Belt · proj $16,050, the amount pre-fills to
+  projected, and as she adjusts it the variance shows right there — before she 
+  clicks "Add line." No flipping to look up the job; the context comes to her.
+  - One bill, many lines — exactly like QB. Scorpion's 1171 = add 3682-F, add
+  3682-G, done. Running Total at the bottom.
+  - Save bill → one entry per line under that invoice #, and it all flows into
+  the reconciliation board.
+
+  So the three things you asked for, in one place:
+  - Client auto-linked (no manual assignment) ✓
+  - Variance before the line commits ✓
+  - Job reconciliation → real margin (the board it feeds) ✓
+
+  Two pieces still to come to fully close it:
+  1. Vendor bill history — the per-vendor bill list like QB's. Quick build next.
+  2. Push to QB — so this one entry lands in QB too (with the client
+  pre-assigned), killing the double entry for good. The heavier piece.
+
+  Run a real bill through "+ New bill" and tell me how the entry feels — that's
+  the flow she'll live in, so I want it right before I build the history view
+  and the QB push.
+
+✻ Churned for 4m 34s
+
+❯ Build the vendor bill history next                                            
+
+⏺ On it. View state + the bills grouping:
+
+⏺ Update(app/(dashboard)/reconciliation/page.tsx)
+  ⎿  Added 1 line
+      92    const [showForm, setShowForm] = useState(false);
+      93    const [showByVendor, setShowByVendor] = useState(false);
+      94    const [search, setSearch] = useState("");
+      95 +  const [view, setView] = useState<"queue" | "history">("queue"
+         +);                                                             
+      96    // inline bill entry on a vendor row
+      97    const [billFor, setBillFor] = useState<string | null>(null);
+      98    const [billInv, setBillInv] = useState("");
+
+⏺ Update(app/(dashboard)/reconciliation/page.tsx)
+  ⎿  Added 22 lines
+      299      return m;
+      300    }, [queue]);
+      301    const nbHit = poIndex[nbPo.toUpperCase().replace(/[^A-Z0-9]/
+           g, "")] || null;
+      302 +  // Bill history — group entries into bills (vendor + invoice
+          + #, or a save batch                                           
+      303 +  // for no-invoice/CC), newest first, filtered by the same se
+          +arch box.                                                     
+      304 +  const bills = useMemo(() => {                               
+      305 +    const g: Record<string, { key: string; vendor_id: string |
+          + null; vendor_name: string | null; invoice: string | null; met
+          +hod?: string; lines: Entry[] }> = {};                         
+      306 +    for (const e of entries) {                                
+      307 +      const batch = e.vendor_invoice_number || `b:${(e.created
+          +_at || "").slice(0, 16)}`;                                    
+      308 +      const key = `${e.vendor_id}|${batch}`;                  
+      309 +      (g[key] = g[key] || { key, vendor_id: e.vendor_id, vendo
+          +r_name: e.vendor_name, invoice: e.vendor_invoice_number, metho
+          +d: e.bill_method, lines: [] }).lines.push(e);                 
+      310 +    }                                                         
+      311 +    const arr = Object.values(g).map(b => ({                  
+      312 +      ...b,                                                   
+      313 +      total: Math.round(b.lines.reduce((s, e) => s + Number(e.
+          +amount || 0), 0) * 100) / 100,                                
+      314 +      date: b.lines.reduce((d, e) => ((e.created_at || "") > d
+          + ? (e.created_at || "") : d), ""),                            
+      315 +    }));                                                      
+      316 +    arr.sort((a, b) => (b.date || "").localeCompare(a.date || 
+          +""));                                                         
+      317 +    return arr;                                               
+      318 +  }, [entries]);                                              
+      319 +  const filteredBills = bills.filter(b => {                   
+      320 +    if (!sq) return true;                                     
+      321 +    if ((b.vendor_name || "").toLowerCase().includes(sq) || (b
+          +.invoice || "").toLowerCase().includes(sq)) return true;      
+      322 +    return b.lines.some(e => (e.po_ref || "").toLowerCase().in
+          +cludes(sq) || (e.job_id ? (jobById[e.job_id]?.client_name || "
+          +").toLowerCase().includes(sq) : false));                      
+      323 +  });                                                         
+      324    // open PO broken down by vendor — "who do we owe"
+      325    const openByVendor = (() => {
+      326      const m: Record<string, { name: string; outstanding: numbe
+           r; jobs: number }> = {};
+
+⏺ Now the header tabs + the History view. Header:
+
+⏺ Update(app/(dashboard)/reconciliation/page.tsx)
+  ⎿  Added 9 lines, removed 2 lines
+      457            </div>
+      458          </div>
+      459        )}
+      460 -      <div style={{ display: "flex", alignItems: "baseline", j
+          -ustifyContent: "space-between", marginBottom: 14 }}>          
+      461 -        <h1 style={{ fontSize: 20, fontWeight: 800, color: T.t
+          -ext, margin: 0 }}>Billing Queue</h1>                          
+      460 +      <div style={{ display: "flex", alignItems: "center", jus
+          +tifyContent: "space-between", marginBottom: 16 }}>            
+      461 +        <div style={{ display: "flex", alignItems: "center", g
+          +ap: 16 }}>                                                    
+      462 +          <h1 style={{ fontSize: 20, fontWeight: 800, color: T
+          +.text, margin: 0 }}>Cost Reconciliation</h1>                  
+      463 +          <div style={{ display: "flex", gap: 3, background: T
+          +.surface, borderRadius: 8, padding: 3 }}>                     
+      464 +            {([["queue", "Billing Queue"], ["history", "Bill H
+          +istory"]] as const).map(([k, label]) => (                     
+      465 +              <button key={k} onClick={() => setView(k)} style
+          +={{ background: view === k ? T.card : "transparent", color: vi
+          +ew === k ? T.text : T.muted, border: "none", borderRadius: 6, 
+          +padding: "5px 13px", fontSize: 12.5, fontWeight: 600, cursor: 
+          +"pointer", fontFamily: font, boxShadow: view === k ? "0 1px 2p
+          +x rgba(0,0,0,0.08)" : "none" }}>{label}</button>              
+      466 +            ))}                                               
+      467 +          </div>                                              
+      468 +        </div>                                                
+      469          <button onClick={openNewBill} style={{ background: T.a
+           ccent, color: "#fff", border: "none", borderRadius: 6, padding
+           : "8px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer"
+           , fontFamily: font }}>+ New bill</button>
+      470        </div>
+      471  
+
+⏺ Now wrap the queue content + add the history list. The hero start:
+
+⏺ Update(app/(dashboard)/reconciliation/page.tsx)
+  ⎿  Added 1 line
+      469          <button onClick={openNewBill} style={{ background: T.a
+           ccent, color: "#fff", border: "none", borderRadius: 6, padding
+           : "8px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer"
+           , fontFamily: font }}>+ New bill</button>
+      470        </div>
+      471  
+      472 +      {view === "queue" && (<>                                
+      473        {/* Open PO hero + stats */}
+      474        <div style={{ display: "flex", gap: 14, marginBottom: 20
+           , flexWrap: "wrap" }}>
+      475          <div style={{ background: T.accent, color: "#fff", bor
+           derRadius: 12, padding: "16px 22px", minWidth: 240 }}>
+
+⏺ Bash(cd /Users/jonburrow/opshub
+      grep -n "notJobSpecific.length > 0\|^    </div>\|^  );\|^}"
+      "app/(dashboard)/reconciliation/page.tsx" | tail -12)
+  ⎿  33:};
+     45:};
+     63:};
+     … +5 lines (ctrl+o to expand)
+
+  Read 1 file (ctrl+o to expand)
+
+⏺ Update(app/(dashboard)/reconciliation/page.tsx)
+  ⎿  Added 47 lines
+      792            </div>
+      793          </div>
+      794        )}
+      795 +      </>)}                                                   
+      796 +                                                              
+      797 +      {view === "history" && (                                
+      798 +        <div>                                                 
+      799 +          <div style={{ position: "relative", maxWidth: 360, m
+          +arginBottom: 12 }}>                                           
+      800 +            <input value={search} onChange={e => setSearch(e.t
+          +arget.value)} placeholder="Search vendor · invoice # · PO · cl
+          +ient…"                                                        
+      801 +              style={{ width: "100%", padding: "7px 30px 7px 1
+          +1px", border: `1px solid ${T.border}`, borderRadius: 6, backgr
+          +ound: T.card, color: T.text, fontSize: 13, fontFamily: font, o
+          +utline: "none" }} />                                          
+      802 +            {search && <button onClick={() => setSearch("")} s
+          +tyle={{ position: "absolute", right: 8, top: "50%", transform:
+          + "translateY(-50%)", background: "none", border: "none", color
+          +: T.faint, fontSize: 14, cursor: "pointer", padding: 0 }}>×</b
+          +utton>}                                                       
+      803 +          </div>                                              
+      804 +          <div style={{ ...lbl, marginBottom: 8 }}>{filteredBi
+          +lls.length} bill{filteredBills.length !== 1 ? "s" : ""}</div> 
+      805 +          <div style={{ display: "flex", flexDirection: "colum
+          +n", gap: 7 }}>                                                
+      806 +            {filteredBills.length === 0 ? <div style={{ border
+          +: `1px solid ${T.border}`, borderRadius: 10, padding: "16px 14
+          +px", color: T.faint, fontSize: 12 }}>No bills.</div> : filtere
+          +dBills.map(b => {                                             
+      807 +              const bKey = "bill:" + b.key;                   
+      808 +              const isOpen = expanded.has(bKey);              
+      809 +              const ref = b.invoice ? (b.method === "credit_ca
+          +rd" ? `CC · ${b.invoice}` : b.invoice) : (b.method === "credit
+          +_card" ? "CC charge" : "—");                                  
+      810 +              return (                                        
+      811 +                <div key={b.key} style={{ border: `1px solid $
+          +{T.border}`, borderRadius: 10, overflow: "hidden" }}>         
+      812 +                  <div className="bq-row" onClick={() => toggl
+          +e(bKey)} style={{ display: "flex", alignItems: "center", gap: 
+          +14, padding: "11px 16px", cursor: "pointer", background: T.car
+          +d }}>                                                         
+      813 +                    <span style={{ color: T.faint, fontSize: 1
+          +0, width: 10 }}>{isOpen ? "▾" : "▸"}</span>                   
+      814 +                    <span style={{ width: 170, fontWeight: 700
+          +, color: T.text, whiteSpace: "nowrap", overflow: "hidden", tex
+          +tOverflow: "ellipsis" }}>{b.vendor_name || "—"}</span>        
+      815 +                    <span className="bq-mono" style={{ flex: 1
+          +, fontFamily: mono, fontSize: 12, color: T.muted }}>{ref}</spa
+          +n>                                                            
+      816 +                    <span style={{ fontSize: 11, color: T.fain
+          +t }}>{b.lines.length} line{b.lines.length !== 1 ? "s" : ""}</s
+          +pan>                                                          
+      817 +                    <span style={{ fontSize: 11, color: T.fain
+          +t, width: 80, textAlign: "right" }}>{(b.date || "").slice(0, 1
+          +0)}</span>                                                    
+      818 +                    <span className="bq-mono" style={{ width: 
+          +110, textAlign: "right", fontFamily: mono, fontSize: 13, fontW
+          +eight: 700, color: T.text }}>{money(b.total)}</span>          
+      819 +                  </div>                                      
+      820 +                  {isOpen && (                                
+      821 +                    <div style={{ borderTop: `1px solid ${T.bo
+          +rder}55`, background: T.surface }}>                           
+      822 +                      {b.lines.map(e => {                     
+      823 +                        const jb = e.job_id ? jobById[e.job_id
+          +] : null;                                                     
+      824 +                        return (                              
+      825 +                          <div key={e.id} className="bq-row" s
+          +tyle={{ display: "flex", alignItems: "center", gap: 12, paddin
+          +g: "7px 16px 7px 40px", fontSize: 11.5, borderTop: `1px solid 
+          +${T.border}22` }}>                                            
+      826 +                            <span className="bq-mono" style={{
+          + width: 96, fontFamily: mono, color: T.text, fontWeight: 600 }
+          +}>{e.po_ref || "—"}</span>                                    
+      827 +                            <span className="bq-mono" style={{
+          + width: 120, fontFamily: mono, color: T.muted }}>{jb?.qb_invoi
+          +ce_number || jb?.job_number || (e.not_job_specific ? "not job-
+          +specific" : "—")}</span>                                      
+      828 +                            <span style={{ flex: 1, color: T.f
+          +aint }}>{jb?.client_name || ""}</span>                        
+      829 +                            <span className="bq-mono" style={{
+          + width: 110, textAlign: "right", fontFamily: mono, color: T.te
+          +xt }}>{money(e.amount)}</span>                                
+      830 +                            <span className="bq-act"><button o
+          +nClick={ev => { ev.stopPropagation(); removeEntry(e.id); }} cl
+          +assName="bq-x">×</button></span>                              
+      831 +                          </div>                              
+      832 +                        );                                    
+      833 +                      })}                                     
+      834 +                    </div>                                    
+      835 +                  )}                                          
+      836 +                </div>                                        
+      837 +              );                                              
+      838 +            })}                                               
+      839 +          </div>                                              
+      840 +        </div>                                                
+      841 +      )}                                                      
+      842      </div>
+      843    );
+      844  }
+
+⏺ Bash(cd /Users/jonburrow/opshub
+      out=$(npx esbuild "app/(dashboard)/reconciliation/page.tsx"
+      --loader:.tsx=tsx --bundle '--external:react' '--external:react-dom'
+      '--e…)
+  ⎿  ✓ parses clean
+
+⏺ Bash(cd /Users/jonburrow/opshub
+      npx next build 2>&1 | grep -iE "Compiled successfully|Failed to
+      compile|Type error" | head -3…)
+  ⎿   ✓ Compiled successfully
+     ✓ dev: 79cc5995
+
+⏺ Built, compiles clean, on dev (79cc5995). There's now a tab toggle at the top
+  — Billing Queue / Bill History.
+
+  Bill History gives you the per-vendor bill list, like QB:
+  - Every bill is one row: vendor · invoice # (or "CC charge") · # lines · date 
+  · total, newest first.
+  - Expand a bill → its lines: PO # · job/QB # · client · amount.
+  - Its own search — type a vendor (Icon, Teeland) to see just their bills, or a
+  PO #, client, or invoice # to find a specific one. So "show me everything
+  we've been billed by Scorpion" is one search.
+
+  That's three of the four pieces you wanted now in place:
+  1. ✅ New Bill entry (job-aware, client auto-linked, live variance)
+  2. ✅ Reconciliation board (projected vs billed, variance, real margin)
+  3. ✅ Vendor bill history
+  4. ⏳ Push to QB — the loop-closer, still to build (vendor→QB mapping + the
+  Bill API)
+
+  Click into Bill History and search a vendor to see how the grouping reads. If
+  the bill grouping or the columns feel off, tell me — then the last big piece
+  is wiring the QB push so this entry lands in QB too and the double work is
+  gone for good.
+
+✻ Worked for 3m 24s
+※ recap: Building OpsHub's cost-reconciliation feature so your assistant enters vendor bills once in OpsHub (job-aware, auto-client, live variance) instead of double-working in QB. Just finished the vendor bill history view; next is wiring the push-to-QB so bills land in QuickBooks automatically.
+
+❯ [Image #92]/Users/jonburrow/Library/CloudStorage/GoogleDrive-jon@housepartydi 
+  stro.com/My\ Drive/Umbrella/House\ Party\ Distro\,\                           
+  LLC/Invoices/Teeland/Invoice\ 11771.pdf  - how would you enter this? This     
+  would be 1 line on a QB bill, labeled "4313ABCDEFGHIJKLMNOPQR" like in the    
+  memo on the invoice PDF                                                       
+  ⎿  [Image #92]
+
+⏺ That's the case the form chokes on — Teeland billed the whole job 4313 in one 
+  line (4313ABCDEFGHIJKLMNOPQR = items A–R, $7,627.20), but my lookup only knows
+  single POs like 4313-F. It needs to resolve a multi-item ref to the sum of 
+  those items' projection, and keep it as one line like you said. Let me fix the
+  resolver + make the board reconcile a combined bill.
+
+  First, a PO-ref parser + multi-letter resolution:
+
+⏺ Update(app/(dashboard)/reconciliation/page.tsx)
+  ⎿  Added 8 lines
+      62    return billed > expected ? "over_accept" : "under";
+      63  };
+      64  
+      65 +// Parse a PO ref into its job digits + item letters. "4313-F" 
+         +→ {4313,[F]};                                                  
+      66 +// "4313ABCDEFGHIJKLMNOPQR" → {4313,[A..R]} (a vendor billing m
+         +any items in one line).                                        
+      67 +const parsePoRef = (ref: string | null | undefined): { digits: 
+         +string | null; letters: string[] } => {                        
+      68 +  const m = (ref || "").toUpperCase().replace(/[^A-Z0-9]/g, "")
+         +.match(/^(\d{3,4})([A-Z]*)$/);                                 
+      69 +  if (!m) return { digits: null, letters: [] };                
+      70 +  return { digits: m[1], letters: m[2] ? m[2].split("") : [] };
+      71 +};                                                             
+      72 +                                                               
+      73  const money = (n: number) => "$" + Number(n || 0).toLocaleStrin
+          g("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2
+           });
+      74  // Tolerate "$7,627.20" / "7,627.20" pasted straight from an in
+          voice.
+      75  const parseAmount = (s: string) => parseFloat(String(s).replace
+          (/[^0-9.]/g, "")) || 0;
+
+⏺ Update(app/(dashboard)/reconciliation/page.tsx)
+  ⎿  Added 20 lines, removed 1 line
+      306      }
+      307      return m;
+      308    }, [queue]);
+      309 -  const nbHit = poIndex[nbPo.toUpperCase().replace(/[^A-Z0-9]/
+          -g, "")] || null;                                              
+      309 +  // Resolve a typed PO ref to a New Bill line — a single item
+          +, OR a multi-item ref                                         
+      310 +  // (one line covering several POs, summed projection), match
+          +ing how vendors invoice.                                      
+      311 +  const resolveNbPo = (input: string) => {                    
+      312 +    const norm = input.toUpperCase().replace(/[^A-Z0-9]/g, "")
+          +;                                                             
+      313 +    if (poIndex[norm]) { const h = poIndex[norm]; return { ...
+          +h, multi: false, multiVendor: false }; }                      
+      314 +    const { digits, letters } = parsePoRef(input);            
+      315 +    if (!digits || letters.length < 2) return null;           
+      316 +    const items = letters.map(L => poIndex[digits + L]).filter
+          +(Boolean);                                                    
+      317 +    if (!items.length) return null;                           
+      318 +    const first = items[0];                                   
+      319 +    const vendorIds = [...new Set(items.map(i => i.apVendorId)
+          +)];                                                           
+      320 +    return {                                                  
+      321 +      poRef: norm, job_id: first.job_id, job_number: first.job
+          +_number, qb: first.qb, client_name: first.client_name,        
+      322 +      vendorName: first.vendorName, apVendorId: vendorIds.leng
+          +th === 1 ? vendorIds[0] : null,                               
+      323 +      itemName: `${items.length} items · ${letters.join("")}`,
+      324 +      projected: Math.round(items.reduce((s, i) => s + i.proje
+          +cted, 0) * 100) / 100,                                        
+      325 +      multi: true, multiVendor: vendorIds.length > 1,         
+      326 +    };                                                        
+      327 +  };                                                          
+      328 +  const nbHit = resolveNbPo(nbPo);                            
+      329    // Bill history — group entries into bills (vendor + invoice
+            #, or a save batch
+      330    // for no-invoice/CC), newest first, filtered by the same se
+           arch box.
+      331    const bills = useMemo(() => {
+
+⏺ Now the board — recognize a combined bill covers its PO lines. Let me read the
+  current vendor-expand block to rewrite it:
+
+⏺ Bash(cd /Users/jonburrow/opshub
+      grep -n "const lines = entriesFor\|const poRefSet\|const
+      otherLines\|{vOpen && (\|Other bills\|mark fully billed / reopen"
+      "app/(dash…)
+  ⎿  675:                    const lines = entriesFor(j.id, v.apVendorId);
+     676:                    const poRefSet = new Set(v.items.map(it => it.
+     poRef));
+     … +7 lines (ctrl+o to expand)
+
+  Read 1 file (ctrl+o to expand)
+
+⏺ Rewriting the entry classification (single vs covering vs other):
+
+⏺ Update(app/(dashboard)/reconciliation/page.tsx)
+  ⎿  Added 14 lines, removed 2 lines
+      673                      const vOpen = expanded.has(vKey);
+      674                      const meta = STATE_META[v.state];
+      675                      const lines = entriesFor(j.id, v.apVendorI
+           d);
+      676 -                    const poRefSet = new Set(v.items.map(it =>
+          - it.poRef));                                                  
+      677 -                    const otherLines = lines.filter(e => !poRe
+          -fSet.has(e.po_ref || "")); // vendor-level / not matched to a 
+          -PO                                                            
+      676 +                    // Classify entries against this vendor's 
+          +PO letters: a single-letter                                   
+      677 +                    // entry reconciles one PO line; a multi-l
+          +etter entry (e.g.                                             
+      678 +                    // 4313ABCDEFGHIJKLMNOPQR) is ONE bill cov
+          +ering many POs; the rest are                                  
+      679 +                    // vendor-level fees/other.               
+      680 +                    const vLetters = new Set(v.items.map(it =>
+          + parsePoRef(it.poRef).letters[0]).filter(Boolean));           
+      681 +                    const exactByLetter: Record<string, Entry[
+          +]> = {};                                                      
+      682 +                    const coveringEntries: Entry[] = [];      
+      683 +                    const trueOther: Entry[] = [];            
+      684 +                    for (const e of lines) {                  
+      685 +                      const p = parsePoRef(e.po_ref);         
+      686 +                      if (p.digits && p.letters.length === 1 &
+          +& vLetters.has(p.letters[0])) (exactByLetter[p.letters[0]] = e
+          +xactByLetter[p.letters[0]] || []).push(e);                    
+      687 +                      else if (p.digits && p.letters.length > 
+          +1 && p.letters.some(L => vLetters.has(L))) coveringEntries.pus
+          +h(e);                                                         
+      688 +                      else trueOther.push(e);                 
+      689 +                    }                                         
+      690                      const expandable = v.items.length > 0 || l
+           ines.length > 0;
+      691                      return (
+      692                        <div key={vKey}>
+
+⏺ Now the per-PO line logic — covered detection. Vars first:
+
+⏺ Update(app/(dashboard)/reconciliation/page.tsx)
+  ⎿  Added 17 lines, removed 10 lines
+      732                            <div style={{ background: T.bg }}>
+      733                              {v.items.map(it => {
+      734                                const poKey = `${vKey}::${it.poR
+           ef}`;
+      735 -                              const poLines = lines.filter(e =
+          -> (e.po_ref || "") === it.poRef);                             
+      735 +                              const myLetter = parsePoRef(it.p
+          +oRef).letters[0];                                             
+      736 +                              const poLines = exactByLetter[my
+          +Letter] || [];                                                
+      737                                const billedPo = Math.round(poLi
+           nes.reduce((s, e) => s + Number(e.amount || 0), 0) * 100) / 10
+           0;
+      738                                const isBilled = poLines.length 
+           > 0;
+      739 +                              const covering = !isBilled ? cov
+          +eringEntries.find(e => parsePoRef(e.po_ref).letters.includes(m
+          +yLetter)) : null;                                             
+      740 +                              const isCovered = !!covering;   
+      741                                const exp = it.expected;
+      742                                const diff = isBilled ? Math.rou
+           nd((billedPo - exp) * 100) / 100 : 0; // billed − projected
+      743                                const tol = Math.max(5, exp * 0.
+           01);
+      741 -                              const state = !isBilled ? "await
+          -" : Math.abs(diff) <= tol ? "ok" : diff < 0 ? "under" : "over"
+          -;                                                             
+      742 -                              const dot = state === "await" ? 
+          -T.border : state === "over" ? T.red : state === "under" ? T.am
+          -ber : T.green;                                                
+      743 -                              const amtColor = state === "over
+          -" ? T.red : state === "under" ? T.amber : T.green;            
+      744 +                              const lstate = isBilled ? (Math.
+          +abs(diff) <= tol ? "ok" : diff < 0 ? "under" : "over") : isCov
+          +ered ? "covered" : "await";                                   
+      745 +                              const dot = lstate === "await" ?
+          + T.border : lstate === "over" ? T.red : lstate === "under" ? T
+          +.amber : T.green;                                             
+      746 +                              const amtColor = lstate === "ove
+          +r" ? T.red : lstate === "under" ? T.amber : T.green;          
+      747 +                              const filled = isBilled || isCov
+          +ered;                                                         
+      748                                return (
+      749                                  <div key={it.poRef}>
+      746 -                                  <div className="bq-row" styl
+          -e={{ display: "flex", alignItems: "center", gap: 12, minHeight
+          -: 38, padding: "5px 16px 5px 22px", borderTop: `1px solid ${T.
+          -border}22`, borderLeft: `2px solid ${isBilled ? dot : "transpa
+          -rent"}` }}>                                                   
+      747 -                                    <span style={{ width: 7, h
+          -eight: 7, borderRadius: "50%", flexShrink: 0, background: isBi
+          -lled ? dot : "transparent", border: isBilled ? "none" : `1.5px
+          - solid ${T.border}` }} />                                     
+      750 +                                  <div className="bq-row" styl
+          +e={{ display: "flex", alignItems: "center", gap: 12, minHeight
+          +: 38, padding: "5px 16px 5px 22px", borderTop: `1px solid ${T.
+          +border}22`, borderLeft: `2px solid ${filled ? dot : "transpare
+          +nt"}` }}>                                                     
+      751 +                                    <span style={{ width: 7, h
+          +eight: 7, borderRadius: "50%", flexShrink: 0, background: fill
+          +ed ? dot : "transparent", border: filled ? "none" : `1.5px sol
+          +id ${T.border}` }} />                                         
+      752                                      <span className="bq-mono" 
+           style={{ width: 92, fontFamily: mono, fontSize: 12, color: T.t
+           ext, fontWeight: 600 }}>{it.poRef}</span>
+      753                                      <span style={{ flex: 1, fo
+           ntSize: 12.5, color: T.muted, whiteSpace: "nowrap", overflow: 
+           "hidden", textOverflow: "ellipsis" }}>{it.name}</span>
+      754                                      <div style={{ width: 170, 
+           textAlign: "right" }}>
+      751 -                                      {!isBilled              
+      752 -                                        ? <span className="bq-
+          -mono" style={{ fontFamily: mono, fontSize: 12.5, color: T.mute
+          -d }}>{money(exp)}</span>                                      
+      753 -                                        : <>                  
+      755 +                                      {isBilled ? <>          
+      756                                              <div className="bq
+           -mono" style={{ fontFamily: mono, fontSize: 12.5, color: amtCo
+           lor, fontWeight: 600, lineHeight: 1.25 }}>{money(billedPo)}</d
+           iv>
+      757                                              {diff !== 0 && <di
+           v className="bq-mono" style={{ fontFamily: mono, fontSize: 9.5
+           , color: T.faint, lineHeight: 1.25 }}>proj {money(exp)} · <spa
+           n style={{ color: diff > 0 ? T.red : T.muted, fontWeight: 600 
+           }}>{diff < 0 ? "−" : "+"}{money(Math.abs(diff))}</span></div>}
+      756 -                                          </>}                
+      758 +                                          </>                 
+      759 +                                        : isCovered ? <>      
+      760 +                                            <div className="bq
+          +-mono" style={{ fontFamily: mono, fontSize: 12.5, color: T.mut
+          +ed }}>{money(exp)}</div>                                      
+      761 +                                            <div style={{ font
+          +Size: 9.5, color: T.green, lineHeight: 1.25, fontWeight: 600 }
+          +}>covered · {refLabel(covering!)}</div>                       
+      762 +                                          </>                 
+      763 +                                        : <span className="bq-
+          +mono" style={{ fontFamily: mono, fontSize: 12.5, color: T.mute
+          +d }}>{money(exp)}</span>}                                     
+      764                                      </div>
+      765                                      <span style={{ width: 50, 
+           display: "flex", justifyContent: "flex-end" }}>
+      766                                        <button onClick={ev => {
+            ev.stopPropagation(); openInlineBill(poKey, Math.max(0, it.ex
+           pected - billedPo) || it.expected, v.apVendorId); }} className
+           ={`bq-ghost${billFor === poKey ? " on" : ""}`}>+ bill</button>
+
+⏺ Now the covering-bills + other-bills sections:
+
+⏺ Update(app/(dashboard)/reconciliation/page.tsx)
+  ⎿  Added 17 lines, removed 3 lines
+      779                                  </div>
+      780                                );
+      781                              })}
+      782 -                            {otherLines.length > 0 && (       
+      783 -                              <div style={{ padding: "7px 16px
+          - 2px 22px", fontSize: 8.5, fontWeight: 700, letterSpacing: "0.
+          -08em", textTransform: "uppercase", color: T.faint }}>Other bil
+          -ls</div>                                                      
+      782 +                            {coveringEntries.length > 0 && (  
+      783 +                              <div style={{ padding: "8px 16px
+          + 2px 22px", fontSize: 8.5, fontWeight: 700, letterSpacing: "0.
+          +08em", textTransform: "uppercase", color: T.green }}>Bills cov
+          +ering these POs</div>                                         
+      784                              )}
+      785 -                            {otherLines.map(e => (            
+      785 +                            {coveringEntries.map(e => (       
+      786 +                              <div key={e.id} className="bq-ro
+          +w" style={{ display: "flex", alignItems: "center", gap: 12, he
+          +ight: 30, padding: "0 16px 0 22px", borderTop: `1px solid ${T.
+          +border}14`, borderLeft: `2px solid ${T.green}` }}>            
+      787 +                                <span style={{ width: 7, heigh
+          +t: 7, borderRadius: "50%", flexShrink: 0, background: T.green 
+          +}} />                                                         
+      788 +                                <span className="bq-mono" styl
+          +e={{ width: 200, fontFamily: mono, fontSize: 11.5, color: T.te
+          +xt, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden",
+          + textOverflow: "ellipsis" }}>{e.po_ref || "—"}</span>         
+      789 +                                <span style={{ flex: 1, fontSi
+          +ze: 11.5, color: T.faint, fontFamily: mono }}>{refLabel(e)}</s
+          +pan>                                                          
+      790 +                                <span className="bq-mono" styl
+          +e={{ width: 150, textAlign: "right", fontFamily: mono, fontSiz
+          +e: 12, color: T.text, fontWeight: 600 }}>{money(e.amount)}</sp
+          +an>                                                           
+      791 +                                <span className="bq-act" style
+          +={{ width: 50, display: "flex", justifyContent: "flex-end" }}>
+      792 +                                  <button onClick={ev => { ev.
+          +stopPropagation(); removeEntry(e.id); }} className="bq-x">×</b
+          +utton>                                                        
+      793 +                                </span>                       
+      794 +                              </div>                          
+      795 +                            ))}                               
+      796 +                            {trueOther.length > 0 && (        
+      797 +                              <div style={{ padding: "8px 16px
+          + 2px 22px", fontSize: 8.5, fontWeight: 700, letterSpacing: "0.
+          +08em", textTransform: "uppercase", color: T.faint }}>Other bil
+          +ls</div>                                                      
+      798 +                            )}                                
+      799 +                            {trueOther.map(e => (             
+      800                                <div key={e.id} className="bq-ro
+           w" style={{ display: "flex", alignItems: "center", gap: 12, he
+           ight: 30, padding: "0 16px 0 22px", borderTop: `1px solid ${T.
+           border}14` }}>
+      801                                  <span style={{ width: 7, flexS
+           hrink: 0 }} />
+      802                                  <span className="bq-mono" styl
+           e={{ width: 92, fontFamily: mono, fontSize: 12, color: T.text 
+           }}>{e.po_ref || "—"}</span>
+
+⏺ Bash(cd /Users/jonburrow/opshub
+      echo "== dangling otherLines refs? =="…)
+  ⎿  == dangling otherLines refs? ==
+     ✓ none
+     ✓ parses clean
+
+⏺ Let me verify the multi-letter resolution against the real 4313 Teeland data
+  before committing:
+
+⏺ Bash(cd /Users/jonburrow/opshub
+      npx esbuild lib/billing-queue.ts --bundle --format=cjs --platform=node
+      --outfile=/tmp/bq.cjs "--external:@/*" "--external:@supabase/*…)
+  ⎿  [dotenv@17.3.1] injecting env (25) from .env.local -- tip: ⚙️  suppres
+     s all logs with { quiet: true }
+     input "4313ABCDEFGHIJKLMNOPQR" → 18 items resolved
+     … +19 lines (ctrl+o to expand)
+
+⏺ The resolution is exact — 4313ABCDEFGHIJKLMNOPQR → all 18 Teeland items,
+  summing to $7,607.50 (the projection). So the form will resolve it to one 
+  line, projected $7,607.50, and your $7,627.20 shows +$19.70 before you add it.
+  Building + committing:
+
+⏺ Bash(cd /Users/jonburrow/opshub
+      npx next build 2>&1 | grep -iE "Compiled successfully|Failed to
+      compile|Type error" | head -3…)
+  ⎿   ✓ Compiled successfully
+     ✓ dev: 56a390bf
+
+⏺ Built, compiles clean, on dev (56a390bf). Here's how you'd enter that invoice
+  now:
+
+  In "+ New bill": type 4313ABCDEFGHIJKLMNOPQR → it resolves live to → 4313 · 
+  Boys of Summer · 18 items · A…R · proj $7,607.50, amount pre-fills, you set it
+  to $7,627.20 and see +$19.70 before adding. One line, exactly like the QB
+  bill line you described. Save → one entry labeled 4313ABCDEFGHIJKLMNOPQR.
+
+  On the board, that one line is understood as a bill covering all 18 POs:
+  - Each PO line (4313-A…R) shows a green dot + "covered · 11771" with its
+  projection visible — not a fake "awaiting."
+  - The combined bill appears once under "Bills covering these POs" at
+  $7,627.20.
+  - Teeland reconciles at the vendor level: $7,627.20 of $7,607.50 (+$19.70),
+  real margin captured.
+
+  So it handles the full spread now: per-item (Icon), per-service, multi-item
+  groups (4256ABCD), and whole-job-in-one-line (4313A…R) — all as natural bill
+  lines that mirror what she'd type in QB, with the variance shown before
+  commit.
+
+  The remaining piece is still the QB push so this single entry also lands in
+  QB. Want me to scope that next, or keep stress-testing entry against more of
+  these vendor formats first?
+
+✻ Cogitated for 7m 26s
+
+※ recap: We're building OpsHub's cost-reconciliation tool: a job-aware bill entry that auto-links clients, shows projected-vs-billed variance, and reconciles job margins. The New Bill form now handles every vendor format including whole-job-in-one-line. Next: scope the QB push so entries also land in QuickBooks.
+❯ [Image #93] why isn't this finding the vendor from the PO number?             
+  ⎿  [Image #93]
+
+⏺ API Error: Unable to connect to API (ECONNRESET)
+
+✻ Sautéed for 3m 2s
+
+❯ API Error: Unable to connect to API (ECONNRESET)                              
+
+⏺ API Error: Unable to connect to API (ECONNRESET)
+
+✻ Crunched for 3m 8s
+
+❯ are you broken/                                                               
+
+❯ /status 
+  ⎿  Settings dialog dismissed
+
+⏺ API Error: Unable to connect to API (ECONNRESET)
+
+✻ Brewed for 3m 4s
+
+❯ /model                                                                        
+  ⎿  Set model to Opus 4.8 (1M context) and saved as your default for new
+     sessions
+
+❯ are you broken?                                                               
+
+⏺ API Error: Unable to connect to API (ECONNRESET)
+
+✻ Sautéed for 3m 9s
+
+❯ are you still broken?                                                         
+
+⏺ API Error: Unable to connect to API (ECONNRESET)
+
+✻ Churned for 2m 59s
+
+※ recap: Building OpsHub's cost-reconciliation tool so bills are entered once (job-aware, with live variance and real margins). The "New Bill" entry, reconciliation board, bill history, and multi-item PO handling are done on dev. Next: scope the QB push so entries also land in QuickBooks.
+
+❯ /model                                                                        
+  ⎿  Set model to Sonnet 4.6 and saved as your default for new sessions
+
+❯ are you broken?                                                               
+  ⎿  Read supabase/migrations/101_bill_method.sql (16 lines)
+  ⎿  Read lib/billing-queue.ts (164 lines)
+  ⎿  Read supabase/migrations/100_cost_vendor_status.sql (26 lines)
+  ⎿  Read 
+     ../.claude/projects/-Users-jonburrow/memory/opshub-cost-reconciliation.md 
+     (55 lines)
+
+⏺ Not broken — that was a transient connection drop, I'm back. The bug is real
+  though: the vendor auto-sets when you click Add line, not when the PO
+  resolves. You can see the preview correctly shows Teeland's items but the
+  dropdown still reads "Auto." One line fix — set the vendor the moment the PO
+  resolves:
+
+⏺ Update(app/(dashboard)/reconciliation/page.tsx)
+  ⎿  File must be read first
+  ⎿  Loaded CLAUDE.md
+  ⎿  Loaded ../.claude/CLAUDE.md
+
+  Read 1 file (ctrl+o to expand)
+
+⏺ API Error: Unable to connect to API (ECONNRESET)
+
+✻ Sautéed for 5m 32s
+
+❯ Can we push here, need to start a new session to pick this up                 
+
+⏺ API Error: Unable to connect to API (ECONNRESET)
+✻ Cogitated for 2m 57s
+
+❯ cd /Users/jonburrow/opshub                                                    
+  git status                 # sanity-check what the session changed            
+  git add -A                                                                    
+  git commit -m "WIP checkpoint before session restart (API outage)"            
+
+⏺ Bash(git status && git log --oneline -5)
+  ⎿  On branch dev
+     Your branch is up to date with 'origin/dev'.
+     … +9 lines (ctrl+o to expand)
+
+⏺ Working tree is already clean — everything's committed and pushed. The API
+  outage hit right as I was mid-edit on the vendor-auto-fill fix (before I could
+  write it), so there's nothing stranded. You're on 56a390bf on dev, all good.
+
+  The one thing to pick up in the new session: the vendor auto-fill bug from
+  image #93 — when a PO resolves in the New Bill form, the vendor dropdown
+  should populate immediately (not wait for "Add line"). One-line fix, easy
+  first task for the next session.
+
+✻ Cogitated for 52s
