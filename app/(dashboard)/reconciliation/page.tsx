@@ -92,6 +92,7 @@ export default function ReconciliationPage() {
   const [showForm, setShowForm] = useState(false);
   const [showByVendor, setShowByVendor] = useState(false);
   const [search, setSearch] = useState("");
+  const [view, setView] = useState<"queue" | "history">("queue");
   // inline bill entry on a vendor row
   const [billFor, setBillFor] = useState<string | null>(null);
   const [billInv, setBillInv] = useState("");
@@ -298,6 +299,28 @@ export default function ReconciliationPage() {
     return m;
   }, [queue]);
   const nbHit = poIndex[nbPo.toUpperCase().replace(/[^A-Z0-9]/g, "")] || null;
+  // Bill history — group entries into bills (vendor + invoice #, or a save batch
+  // for no-invoice/CC), newest first, filtered by the same search box.
+  const bills = useMemo(() => {
+    const g: Record<string, { key: string; vendor_id: string | null; vendor_name: string | null; invoice: string | null; method?: string; lines: Entry[] }> = {};
+    for (const e of entries) {
+      const batch = e.vendor_invoice_number || `b:${(e.created_at || "").slice(0, 16)}`;
+      const key = `${e.vendor_id}|${batch}`;
+      (g[key] = g[key] || { key, vendor_id: e.vendor_id, vendor_name: e.vendor_name, invoice: e.vendor_invoice_number, method: e.bill_method, lines: [] }).lines.push(e);
+    }
+    const arr = Object.values(g).map(b => ({
+      ...b,
+      total: Math.round(b.lines.reduce((s, e) => s + Number(e.amount || 0), 0) * 100) / 100,
+      date: b.lines.reduce((d, e) => ((e.created_at || "") > d ? (e.created_at || "") : d), ""),
+    }));
+    arr.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+    return arr;
+  }, [entries]);
+  const filteredBills = bills.filter(b => {
+    if (!sq) return true;
+    if ((b.vendor_name || "").toLowerCase().includes(sq) || (b.invoice || "").toLowerCase().includes(sq)) return true;
+    return b.lines.some(e => (e.po_ref || "").toLowerCase().includes(sq) || (e.job_id ? (jobById[e.job_id]?.client_name || "").toLowerCase().includes(sq) : false));
+  });
   // open PO broken down by vendor — "who do we owe"
   const openByVendor = (() => {
     const m: Record<string, { name: string; outstanding: number; jobs: number }> = {};
@@ -434,11 +457,19 @@ export default function ReconciliationPage() {
           </div>
         </div>
       )}
-      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 14 }}>
-        <h1 style={{ fontSize: 20, fontWeight: 800, color: T.text, margin: 0 }}>Billing Queue</h1>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          <h1 style={{ fontSize: 20, fontWeight: 800, color: T.text, margin: 0 }}>Cost Reconciliation</h1>
+          <div style={{ display: "flex", gap: 3, background: T.surface, borderRadius: 8, padding: 3 }}>
+            {([["queue", "Billing Queue"], ["history", "Bill History"]] as const).map(([k, label]) => (
+              <button key={k} onClick={() => setView(k)} style={{ background: view === k ? T.card : "transparent", color: view === k ? T.text : T.muted, border: "none", borderRadius: 6, padding: "5px 13px", fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: font, boxShadow: view === k ? "0 1px 2px rgba(0,0,0,0.08)" : "none" }}>{label}</button>
+            ))}
+          </div>
+        </div>
         <button onClick={openNewBill} style={{ background: T.accent, color: "#fff", border: "none", borderRadius: 6, padding: "8px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: font }}>+ New bill</button>
       </div>
 
+      {view === "queue" && (<>
       {/* Open PO hero + stats */}
       <div style={{ display: "flex", gap: 14, marginBottom: 20, flexWrap: "wrap" }}>
         <div style={{ background: T.accent, color: "#fff", borderRadius: 12, padding: "16px 22px", minWidth: 240 }}>
@@ -758,6 +789,53 @@ export default function ReconciliationPage() {
                 <button onClick={() => removeEntry(e.id)} style={{ ...miniBtn(T.faint), width: 28 }}>✕</button>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+      </>)}
+
+      {view === "history" && (
+        <div>
+          <div style={{ position: "relative", maxWidth: 360, marginBottom: 12 }}>
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search vendor · invoice # · PO · client…"
+              style={{ width: "100%", padding: "7px 30px 7px 11px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.card, color: T.text, fontSize: 13, fontFamily: font, outline: "none" }} />
+            {search && <button onClick={() => setSearch("")} style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: T.faint, fontSize: 14, cursor: "pointer", padding: 0 }}>×</button>}
+          </div>
+          <div style={{ ...lbl, marginBottom: 8 }}>{filteredBills.length} bill{filteredBills.length !== 1 ? "s" : ""}</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+            {filteredBills.length === 0 ? <div style={{ border: `1px solid ${T.border}`, borderRadius: 10, padding: "16px 14px", color: T.faint, fontSize: 12 }}>No bills.</div> : filteredBills.map(b => {
+              const bKey = "bill:" + b.key;
+              const isOpen = expanded.has(bKey);
+              const ref = b.invoice ? (b.method === "credit_card" ? `CC · ${b.invoice}` : b.invoice) : (b.method === "credit_card" ? "CC charge" : "—");
+              return (
+                <div key={b.key} style={{ border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
+                  <div className="bq-row" onClick={() => toggle(bKey)} style={{ display: "flex", alignItems: "center", gap: 14, padding: "11px 16px", cursor: "pointer", background: T.card }}>
+                    <span style={{ color: T.faint, fontSize: 10, width: 10 }}>{isOpen ? "▾" : "▸"}</span>
+                    <span style={{ width: 170, fontWeight: 700, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{b.vendor_name || "—"}</span>
+                    <span className="bq-mono" style={{ flex: 1, fontFamily: mono, fontSize: 12, color: T.muted }}>{ref}</span>
+                    <span style={{ fontSize: 11, color: T.faint }}>{b.lines.length} line{b.lines.length !== 1 ? "s" : ""}</span>
+                    <span style={{ fontSize: 11, color: T.faint, width: 80, textAlign: "right" }}>{(b.date || "").slice(0, 10)}</span>
+                    <span className="bq-mono" style={{ width: 110, textAlign: "right", fontFamily: mono, fontSize: 13, fontWeight: 700, color: T.text }}>{money(b.total)}</span>
+                  </div>
+                  {isOpen && (
+                    <div style={{ borderTop: `1px solid ${T.border}55`, background: T.surface }}>
+                      {b.lines.map(e => {
+                        const jb = e.job_id ? jobById[e.job_id] : null;
+                        return (
+                          <div key={e.id} className="bq-row" style={{ display: "flex", alignItems: "center", gap: 12, padding: "7px 16px 7px 40px", fontSize: 11.5, borderTop: `1px solid ${T.border}22` }}>
+                            <span className="bq-mono" style={{ width: 96, fontFamily: mono, color: T.text, fontWeight: 600 }}>{e.po_ref || "—"}</span>
+                            <span className="bq-mono" style={{ width: 120, fontFamily: mono, color: T.muted }}>{jb?.qb_invoice_number || jb?.job_number || (e.not_job_specific ? "not job-specific" : "—")}</span>
+                            <span style={{ flex: 1, color: T.faint }}>{jb?.client_name || ""}</span>
+                            <span className="bq-mono" style={{ width: 110, textAlign: "right", fontFamily: mono, color: T.text }}>{money(e.amount)}</span>
+                            <span className="bq-act"><button onClick={ev => { ev.stopPropagation(); removeEntry(e.id); }} className="bq-x">×</button></span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
