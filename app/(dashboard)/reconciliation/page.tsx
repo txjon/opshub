@@ -60,6 +60,7 @@ export default function ReconciliationPage() {
   const [qFilter, setQFilter] = useState<"open" | "complete" | "all">("open");
   const [showForm, setShowForm] = useState(false);
   const [showByVendor, setShowByVendor] = useState(false);
+  const [search, setSearch] = useState("");
 
   async function loadAll() {
     const [v, j, e, d] = await Promise.all([
@@ -182,7 +183,10 @@ export default function ReconciliationPage() {
   const queue = useMemo(() => computeBillingQueue({
     jobs: Object.values(jobsRaw), printers, apVendors: vendors as any, entries: entries as any,
   }), [jobsRaw, printers, vendors, entries]);
-  const filteredQueue = queue.jobs.filter(j => qFilter === "all" ? true : qFilter === "complete" ? j.costComplete : !j.costComplete);
+  const sq = search.trim().toLowerCase();
+  const filteredQueue = queue.jobs
+    .filter(j => qFilter === "all" ? true : qFilter === "complete" ? j.costComplete : !j.costComplete)
+    .filter(j => !sq || (j.qb_invoice_number || "").toLowerCase().includes(sq) || (j.job_number || "").toLowerCase().includes(sq) || (j.client_name || "").toLowerCase().includes(sq) || j.vendors.some(v => v.name.toLowerCase().includes(sq)));
   // open PO broken down by vendor — "who do we owe"
   const openByVendor = (() => {
     const m: Record<string, { name: string; outstanding: number; jobs: number }> = {};
@@ -349,10 +353,17 @@ export default function ReconciliationPage() {
       )}
 
       {/* Billing queue — job × PO-sent vendor */}
-      <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
-        {([["open", "Open", queue.stats.openJobs], ["complete", "Cost-complete", queue.stats.costComplete], ["all", "All", queue.stats.jobs]] as const).map(([k, label, n]) => (
-          <button key={k} onClick={() => setQFilter(k)} style={{ background: qFilter === k ? T.accent : T.card, color: qFilter === k ? "#fff" : T.muted, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: font }}>{label} · {n}</button>
-        ))}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 10 }}>
+        <div style={{ position: "relative", flex: 1, maxWidth: 360 }}>
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search PO # / QB invoice · client · vendor…"
+            style={{ width: "100%", padding: "7px 30px 7px 11px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.card, color: T.text, fontSize: 13, fontFamily: font, outline: "none" }} />
+          {search && <button onClick={() => setSearch("")} style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: T.faint, fontSize: 14, cursor: "pointer", padding: 0 }}>×</button>}
+        </div>
+        <div style={{ display: "flex", gap: 6 }}>
+          {([["open", "Open", queue.stats.openJobs], ["complete", "Cost-complete", queue.stats.costComplete], ["all", "All", queue.stats.jobs]] as const).map(([k, label, n]) => (
+            <button key={k} onClick={() => setQFilter(k)} style={{ background: qFilter === k ? T.accent : T.card, color: qFilter === k ? "#fff" : T.muted, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: font }}>{label} · {n}</button>
+          ))}
+        </div>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {filteredQueue.length === 0 ? <div style={{ border: `1px solid ${T.border}`, borderRadius: 10, padding: "16px 14px", color: T.faint, fontSize: 12 }}>No jobs in this view.</div> : filteredQueue.map(j => {
