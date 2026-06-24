@@ -453,19 +453,26 @@ export default function ReconciliationPage() {
                               const poLines = lines.filter(e => (e.po_ref || "") === it.poRef);
                               const billedPo = Math.round(poLines.reduce((s, e) => s + Number(e.amount || 0), 0) * 100) / 100;
                               const isBilled = poLines.length > 0;
-                              const partial = isBilled && billedPo < it.expected - Math.max(5, it.expected * 0.01);
-                              const dot = !isBilled ? T.border : partial ? T.amber : T.green;
+                              const exp = it.expected;
+                              const diff = isBilled ? Math.round((billedPo - exp) * 100) / 100 : 0; // billed − projected
+                              const tol = Math.max(5, exp * 0.01);
+                              const state = !isBilled ? "await" : Math.abs(diff) <= tol ? "ok" : diff < 0 ? "under" : "over";
+                              const dot = state === "await" ? T.border : state === "over" ? T.red : state === "under" ? T.amber : T.green;
+                              const amtColor = state === "over" ? T.red : state === "under" ? T.amber : T.green;
                               return (
                                 <div key={it.poRef}>
-                                  <div className="bq-row" style={{ display: "flex", alignItems: "center", gap: 12, height: 38, padding: "0 16px 0 22px", borderTop: `1px solid ${T.border}22`, borderLeft: `2px solid ${isBilled ? dot : "transparent"}` }}>
+                                  <div className="bq-row" style={{ display: "flex", alignItems: "center", gap: 12, minHeight: 38, padding: "5px 16px 5px 22px", borderTop: `1px solid ${T.border}22`, borderLeft: `2px solid ${isBilled ? dot : "transparent"}` }}>
                                     <span style={{ width: 7, height: 7, borderRadius: "50%", flexShrink: 0, background: isBilled ? dot : "transparent", border: isBilled ? "none" : `1.5px solid ${T.border}` }} />
                                     <span className="bq-mono" style={{ width: 92, fontFamily: mono, fontSize: 12, color: T.text, fontWeight: 600 }}>{it.poRef}</span>
                                     <span style={{ flex: 1, fontSize: 12.5, color: T.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{it.name}</span>
-                                    <span className="bq-mono" style={{ width: 150, textAlign: "right", fontFamily: mono, fontSize: 12.5 }}>
-                                      {isBilled
-                                        ? <span style={{ color: partial ? T.amber : T.green, fontWeight: 600 }}>{money(billedPo)}{partial && <span style={{ color: T.faint, fontWeight: 400 }}> / {money(it.expected)}</span>}</span>
-                                        : <span style={{ color: T.muted }}>{money(it.expected)}</span>}
-                                    </span>
+                                    <div style={{ width: 170, textAlign: "right" }}>
+                                      {!isBilled
+                                        ? <span className="bq-mono" style={{ fontFamily: mono, fontSize: 12.5, color: T.muted }}>{money(exp)}</span>
+                                        : <>
+                                            <div className="bq-mono" style={{ fontFamily: mono, fontSize: 12.5, color: amtColor, fontWeight: 600, lineHeight: 1.25 }}>{money(billedPo)}</div>
+                                            {diff !== 0 && <div className="bq-mono" style={{ fontFamily: mono, fontSize: 9.5, color: T.faint, lineHeight: 1.25 }}>proj {money(exp)} · <span style={{ color: diff > 0 ? T.red : T.muted, fontWeight: 600 }}>{diff < 0 ? "−" : "+"}{money(Math.abs(diff))}</span></div>}
+                                          </>}
+                                    </div>
                                     <span style={{ width: 50, display: "flex", justifyContent: "flex-end" }}>
                                       <button onClick={ev => { ev.stopPropagation(); openInlineBill(poKey, Math.max(0, it.expected - billedPo) || it.expected); }} className={`bq-ghost${billFor === poKey ? " on" : ""}`}>+ bill</button>
                                     </span>
