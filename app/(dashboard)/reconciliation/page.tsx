@@ -22,7 +22,7 @@ const CHARGE_TYPES = [
   { v: "other", label: "Other" },
 ];
 
-type Vendor = { id: string; name: string; kind: string; decorator_id: string | null };
+type Vendor = { id: string; name: string; kind: string; decorator_id: string | null; match_keys?: string[] | null };
 type Entry = {
   id: string; vendor_id: string | null; vendor_name: string | null; vendor_invoice_number: string | null;
   po_ref: string | null; job_id: string | null; amount: number; expected_amount: number | null;
@@ -53,7 +53,7 @@ export default function ReconciliationPage() {
 
   async function loadAll() {
     const [v, j, e, d] = await Promise.all([
-      supabase.from("ap_vendors").select("id, name, kind, decorator_id").eq("active", true).order("name"),
+      supabase.from("ap_vendors").select("id, name, kind, decorator_id, match_keys").eq("active", true).order("name"),
       supabase.from("jobs").select("id, job_number, type_meta, client_id, clients(name), costing_data, costing_summary").order("created_at", { ascending: false }),
       supabase.from("cost_entries").select("*").order("created_at", { ascending: false }),
       supabase.from("decorators").select("id, name, short_code, pricing_data, capabilities"),
@@ -74,11 +74,18 @@ export default function ReconciliationPage() {
   const idx = useMemo(() => buildPoRefIndex(jobs), [jobs]);
   const printers = useMemo(() => buildPrintersMap(decorators), [decorators]);
   const jobById = useMemo(() => Object.fromEntries(jobs.map(j => [j.id, j])), [jobs]);
-  // vendor_id → decorator match-key (short_code||name) that equals costProd.printVendor
-  const vendorKey = useMemo(() => {
+  // vendor_id → the costProd.printVendor key(s) this AP vendor's invoices cover.
+  // One payable vendor can span several costing vendors (e.g. Teeland Screen +
+  // Embroidery), so this is a SET of keys (from ap_vendors.match_keys; falls back
+  // to the linked decorator's short_code||name for any vendor without keys set).
+  const vendorKeys = useMemo(() => {
     const dById = Object.fromEntries(decorators.map(d => [d.id, d]));
-    const m: Record<string, string> = {};
-    for (const v of vendors) { const d = v.decorator_id ? dById[v.decorator_id] : null; if (d) m[v.id] = (d.short_code || d.name || "").toUpperCase(); }
+    const m: Record<string, string[]> = {};
+    for (const v of vendors) {
+      if (v.match_keys && v.match_keys.length) { m[v.id] = v.match_keys.map(k => (k || "").toUpperCase()); continue; }
+      const d = v.decorator_id ? dById[v.decorator_id] : null;
+      if (d) m[v.id] = [(d.short_code || d.name || "").toUpperCase()];
+    }
     return m;
   }, [vendors, decorators]);
 
@@ -86,14 +93,15 @@ export default function ReconciliationPage() {
   // vendor's items. poTotal is the decorator charge (independent of margin/ship).
   function expectedVendorCost(jobId: string, vId: string | null): number | null {
     if (!jobId || !vId) return null;
-    const key = vendorKey[vId];
+    const keys = vendorKeys[vId];
     const jr = jobsRaw[jobId];
-    if (!key || !jr?.costing_data?.costProds) return null;
+    if (!keys || !keys.length || !jr?.costing_data?.costProds) return null;
+    const keySet = new Set(keys);
     const cps = jr.costing_data.costProds;
     const margin = String(jr.costing_data?.margin ?? jr.costing_summary?.margin ?? 0);
     let total = 0; let hit = false;
     for (const cp of cps) {
-      if ((cp.printVendor || "").toUpperCase() !== key) continue;
+      if (!keySet.has((cp.printVendor || "").toUpperCase())) continue;
       const r = calcCostProduct(cp, margin, false, false, cps, printers);
       if (r) { total += r.poTotal || 0; hit = true; }
     }
@@ -101,7 +109,7 @@ export default function ReconciliationPage() {
   }
 
   const resolved = useMemo(() => resolvePoRef(poRef, idx), [poRef, idx]);
-  const formExpected = useMemo(() => resolved ? expectedVendorCost(resolved.id, vendorId) : null, [resolved, vendorId, jobsRaw, printers, vendorKey]); // eslint-disable-line
+  const formExpected = useMemo(() => resolved ? expectedVendorCost(resolved.id, vendorId) : null, [resolved, vendorId, jobsRaw, printers, vendorKeys]); // eslint-disable-line
 
   async function addEntry() {
     const amt = parseFloat(amount);
