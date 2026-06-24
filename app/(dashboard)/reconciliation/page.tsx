@@ -160,6 +160,18 @@ export default function ReconciliationPage() {
     loadAll();
   }
 
+  // From a queue vendor row → open the bill form pre-seeded with this job +
+  // vendor (PO ref = the job's QB invoice #, which resolvePoRef maps back to it),
+  // so the assistant confirms the invoice instead of typing it from scratch.
+  function startBill(jobId: string, apVendorId: string | null) {
+    const jr = jobsRaw[jobId];
+    setShowForm(true);
+    setVendorId(apVendorId || "");
+    setPoRef(jr?.type_meta?.qb_invoice_number || jobById[jobId]?.job_number || "");
+    setInvoiceNum(""); setAmount(""); setChargeType("production");
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
   const unmatched = entries.filter(e => e.status === "unmatched" && !e.not_job_specific);
   const notJobSpecific = entries.filter(e => e.not_job_specific);
 
@@ -345,6 +357,7 @@ export default function ReconciliationPage() {
                           <span style={{ fontSize: 10.5, fontWeight: 700, color: meta.color, background: meta.color + "1f", padding: "2px 9px", borderRadius: 20 }}>{meta.label}</span>
                           <span style={{ width: 150, textAlign: "right", fontFamily: mono, color: T.text }}>{money(v.billed)} <span style={{ color: T.faint }}>of {money(v.expected)}</span></span>
                           <span style={{ width: 90, textAlign: "right", fontFamily: mono, fontWeight: 700, color: v.outstanding > 0 ? T.amber : T.green }}>{v.outstanding > 0 ? money(v.outstanding) : "—"}</span>
+                          <button onClick={ev => { ev.stopPropagation(); startBill(j.id, v.apVendorId); }} title="Enter a bill for this job + vendor" style={{ ...miniBtn(v.outstanding > 0 ? T.accent : T.faint), width: 54 }}>+ bill</button>
                         </div>
                         {vOpen && lines.map(e => (
                           <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "7px 16px 7px 62px", fontSize: 11.5, borderBottom: `1px solid ${T.border}22`, background: T.bg }}>
