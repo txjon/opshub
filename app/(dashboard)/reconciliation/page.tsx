@@ -61,6 +61,11 @@ export default function ReconciliationPage() {
   const [showForm, setShowForm] = useState(false);
   const [showByVendor, setShowByVendor] = useState(false);
   const [search, setSearch] = useState("");
+  // inline bill entry on a vendor row
+  const [billFor, setBillFor] = useState<string | null>(null);
+  const [billInv, setBillInv] = useState("");
+  const [billAmt, setBillAmt] = useState("");
+  const [billSaving, setBillSaving] = useState(false);
 
   async function loadAll() {
     const [v, j, e, d] = await Promise.all([
@@ -162,16 +167,24 @@ export default function ReconciliationPage() {
     loadAll();
   }
 
-  // From a queue vendor row → open the bill form pre-seeded with this job +
-  // vendor (PO ref = the job's QB invoice #, which resolvePoRef maps back to it),
-  // so the assistant confirms the invoice instead of typing it from scratch.
-  function startBill(jobId: string, apVendorId: string | null) {
-    const jr = jobsRaw[jobId];
-    setShowForm(true);
-    setVendorId(apVendorId || "");
-    setPoRef(jr?.type_meta?.qb_invoice_number || jobById[jobId]?.job_number || "");
-    setInvoiceNum(""); setAmount(""); setChargeType("production");
-    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+  // Inline bill entry on a vendor row: "+ bill" reveals invoice # + total + Log.
+  function openInlineBill(vKey: string, outstanding: number) {
+    if (billFor === vKey) { setBillFor(null); return; }
+    setBillFor(vKey); setBillInv(""); setBillAmt(outstanding > 0 ? String(outstanding) : "");
+  }
+  async function logBill(jobId: string, apVendorId: string | null, poRefDefault: string) {
+    const amt = parseAmount(billAmt);
+    if (!apVendorId || !amt) return;
+    setBillSaving(true);
+    const vendorName = vendors.find(v => v.id === apVendorId)?.name || null;
+    const expected = expectedVendorCost(jobId, apVendorId);
+    const { error } = await supabase.from("cost_entries").insert({
+      source: "decorator_invoice", vendor_id: apVendorId, vendor_name: vendorName,
+      vendor_invoice_number: billInv.trim() || null, po_ref: poRefDefault,
+      job_id: jobId, amount: amt, expected_amount: expected, charge_type: "production", status: "matched",
+    } as any);
+    setBillSaving(false);
+    if (!error) { setBillFor(null); setBillInv(""); setBillAmt(""); loadAll(); }
   }
 
   const unmatched = entries.filter(e => e.status === "unmatched" && !e.not_job_specific);
@@ -404,8 +417,21 @@ export default function ReconciliationPage() {
                           <span style={{ fontSize: 10.5, fontWeight: 700, color: meta.color, background: meta.color + "1f", padding: "2px 9px", borderRadius: 20 }}>{meta.label}</span>
                           <span style={{ width: 150, textAlign: "right", fontFamily: mono, color: T.text }}>{money(v.billed)} <span style={{ color: T.faint }}>of {money(v.expected)}</span></span>
                           <span style={{ width: 90, textAlign: "right", fontFamily: mono, fontWeight: 700, color: v.outstanding > 0 ? T.amber : T.green }}>{v.outstanding > 0 ? money(v.outstanding) : "—"}</span>
-                          <button onClick={ev => { ev.stopPropagation(); startBill(j.id, v.apVendorId); }} title="Enter a bill for this job + vendor" style={{ ...miniBtn(v.outstanding > 0 ? T.accent : T.faint), width: 54 }}>+ bill</button>
+                          <button onClick={ev => { ev.stopPropagation(); openInlineBill(vKey, v.outstanding); }} title="Log a bill for this job + vendor" style={{ ...miniBtn(billFor === vKey ? T.green : (v.outstanding > 0 ? T.accent : T.faint)), width: 54 }}>+ bill</button>
                         </div>
+                        {billFor === vKey && (() => {
+                          const poDef = j.qb_invoice_number || j.job_number;
+                          const submit = () => logBill(j.id, v.apVendorId, poDef);
+                          return (
+                            <div onClick={ev => ev.stopPropagation()} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 16px 8px 62px", background: T.amberDim, borderBottom: `1px solid ${T.border}33` }}>
+                              <input autoFocus value={billInv} onChange={e => setBillInv(e.target.value)} onKeyDown={e => e.key === "Enter" && submit()} placeholder="Vendor invoice #" style={{ padding: "5px 9px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.card, color: T.text, fontSize: 12, fontFamily: font, outline: "none", width: 150 }} />
+                              <input value={billAmt} onChange={e => setBillAmt(e.target.value)} onKeyDown={e => e.key === "Enter" && submit()} inputMode="decimal" placeholder="Total" style={{ padding: "5px 9px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.card, color: T.text, fontSize: 12, fontFamily: mono, outline: "none", width: 110 }} />
+                              <button onClick={submit} disabled={billSaving || !parseAmount(billAmt)} style={{ background: parseAmount(billAmt) ? T.green : T.surface, color: parseAmount(billAmt) ? "#fff" : T.faint, border: "none", borderRadius: 6, padding: "6px 16px", fontSize: 12, fontWeight: 700, cursor: parseAmount(billAmt) ? "pointer" : "default", fontFamily: font }}>{billSaving ? "…" : "Log"}</button>
+                              <button onClick={() => setBillFor(null)} style={{ ...miniBtn(T.faint), width: 26 }}>×</button>
+                              <span style={{ fontSize: 10.5, color: T.faint }}>→ {poDef} · {v.name}</span>
+                            </div>
+                          );
+                        })()}
                         {vOpen && (
                           <div style={{ background: T.bg }}>
                             {/* expected PO breakdown — what to match against in QB */}
