@@ -422,6 +422,8 @@ export default function ReconciliationPage() {
                     const vOpen = expanded.has(vKey);
                     const meta = STATE_META[v.state];
                     const lines = entriesFor(j.id, v.apVendorId);
+                    const poRefSet = new Set(v.items.map(it => it.poRef));
+                    const otherLines = lines.filter(e => !poRefSet.has(e.po_ref || "")); // vendor-level / not matched to a PO
                     const expandable = v.items.length > 0 || lines.length > 0;
                     return (
                       <div key={vKey}>
@@ -436,30 +438,46 @@ export default function ReconciliationPage() {
                         {billFor === vKey && inlineBillRow(j.id, v.apVendorId, j.qb_invoice_number || j.job_number, v.name)}
                         {vOpen && (
                           <div style={{ background: T.bg }}>
-                            {/* expected PO breakdown — what to match against in QB */}
                             {v.items.length > 0 && (
-                              <div style={{ padding: "6px 16px 4px 62px", fontSize: 8.5, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: T.faint }}>Expected POs</div>
+                              <div style={{ padding: "6px 16px 4px 62px", fontSize: 8.5, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: T.faint }}>POs</div>
                             )}
                             {v.items.map(it => {
                               const poKey = `${vKey}::${it.poRef}`;
+                              const poLines = lines.filter(e => (e.po_ref || "") === it.poRef);
+                              const billedPo = Math.round(poLines.reduce((s, e) => s + Number(e.amount || 0), 0) * 100) / 100;
+                              const isBilled = poLines.length > 0;
+                              const diff = Math.abs(billedPo - it.expected) > Math.max(5, it.expected * 0.01);
                               return (
                                 <div key={it.poRef}>
-                                  <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "5px 16px 5px 62px", fontSize: 11.5, borderBottom: `1px solid ${T.border}22` }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "6px 16px 6px 62px", fontSize: 11.5, borderBottom: `1px solid ${T.border}22`, background: isBilled ? T.greenDim : "transparent", borderLeft: `3px solid ${isBilled ? T.green : "transparent"}` }}>
+                                    <span style={{ width: 14, color: T.green, fontWeight: 700 }}>{isBilled ? "✓" : ""}</span>
                                     <span style={{ width: 110, fontFamily: mono, color: T.text, fontWeight: 600 }}>{it.poRef}</span>
                                     <span style={{ flex: 1, color: T.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{it.name}</span>
-                                    <span style={{ width: 90, textAlign: "right", fontFamily: mono, color: T.muted }}>{money(it.expected)}</span>
-                                    <button onClick={ev => { ev.stopPropagation(); openInlineBill(poKey, it.expected); }} title={`Log a bill for ${it.poRef}`} style={{ ...miniBtn(billFor === poKey ? T.green : T.faint), width: 44, fontSize: 10 }}>+ bill</button>
+                                    <span style={{ width: 130, textAlign: "right", fontFamily: mono }}>
+                                      {isBilled
+                                        ? <span style={{ color: T.green, fontWeight: 700 }}>{money(billedPo)}{diff && <span style={{ color: T.faint, fontWeight: 400 }}> of {money(it.expected)}</span>}</span>
+                                        : <span style={{ color: T.muted }}>{money(it.expected)}</span>}
+                                    </span>
+                                    <button onClick={ev => { ev.stopPropagation(); openInlineBill(poKey, Math.max(0, it.expected - billedPo) || it.expected); }} title={`Log a bill for ${it.poRef}`} style={{ ...miniBtn(billFor === poKey ? T.green : (isBilled ? T.faint : T.accent)), width: 44, fontSize: 10 }}>+ bill</button>
                                   </div>
+                                  {poLines.map(e => (
+                                    <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "4px 16px 4px 92px", fontSize: 11, borderBottom: `1px solid ${T.border}18`, background: isBilled ? T.greenDim : "transparent" }}>
+                                      <span style={{ width: 100, fontFamily: mono, color: T.muted }}>inv {e.vendor_invoice_number || "—"}</span>
+                                      <span style={{ flex: 1, color: T.faint, textTransform: "capitalize" }}>{e.charge_type.replace(/_/g, " ")}</span>
+                                      <span style={{ width: 90, textAlign: "right", fontFamily: mono, color: T.text }}>{money(e.amount)}</span>
+                                      <button onClick={ev => { ev.stopPropagation(); removeEntry(e.id); }} style={{ ...miniBtn(T.faint), width: 26 }}>✕</button>
+                                    </div>
+                                  ))}
                                   {billFor === poKey && inlineBillRow(j.id, v.apVendorId, it.poRef, it.name)}
                                 </div>
                               );
                             })}
-                            {lines.length > 0 && (
-                              <div style={{ padding: "8px 16px 4px 62px", fontSize: 8.5, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: T.green }}>Billed · {money(v.billed)}</div>
+                            {otherLines.length > 0 && (
+                              <div style={{ padding: "8px 16px 4px 62px", fontSize: 8.5, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: T.green }}>Other bills (vendor-level)</div>
                             )}
-                            {lines.map(e => (
+                            {otherLines.map(e => (
                               <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "5px 16px 5px 62px", fontSize: 11.5, borderBottom: `1px solid ${T.border}22` }}>
-                                <span style={{ width: 100, fontFamily: mono, color: T.muted }}>{e.vendor_invoice_number || "—"}</span>
+                                <span style={{ width: 100, fontFamily: mono, color: T.muted }}>inv {e.vendor_invoice_number || "—"}</span>
                                 <span style={{ width: 110, fontFamily: mono, color: T.text }}>{e.po_ref || "—"}</span>
                                 <span style={{ flex: 1, color: T.faint, textTransform: "capitalize" }}>{e.charge_type.replace(/_/g, " ")}</span>
                                 <span style={{ width: 90, textAlign: "right", fontFamily: mono, color: T.text }}>{money(e.amount)}</span>
