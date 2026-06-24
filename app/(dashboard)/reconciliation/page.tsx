@@ -167,10 +167,12 @@ export default function ReconciliationPage() {
     loadAll();
   }
 
-  // Inline bill entry on a vendor row: "+ bill" reveals invoice # + total + Log.
-  function openInlineBill(vKey: string, outstanding: number) {
-    if (billFor === vKey) { setBillFor(null); return; }
-    setBillFor(vKey); setBillInv(""); setBillAmt(outstanding > 0 ? String(outstanding) : "");
+  // Inline bill entry: "+ bill" reveals invoice # + total + Log — on a vendor row
+  // (key = job::vendor, posts vs QB invoice #) OR a PO row (key = job::vendor::poRef,
+  // posts vs that PO ref).
+  function openInlineBill(key: string, prefillAmt: number) {
+    if (billFor === key) { setBillFor(null); return; }
+    setBillFor(key); setBillInv(""); setBillAmt(prefillAmt > 0 ? String(prefillAmt) : "");
   }
   async function logBill(jobId: string, apVendorId: string | null, poRefDefault: string) {
     const amt = parseAmount(billAmt);
@@ -185,6 +187,18 @@ export default function ReconciliationPage() {
     } as any);
     setBillSaving(false);
     if (!error) { setBillFor(null); setBillInv(""); setBillAmt(""); loadAll(); }
+  }
+  function inlineBillRow(jobId: string, apVendorId: string | null, poRef: string, label: string) {
+    const submit = () => logBill(jobId, apVendorId, poRef);
+    return (
+      <div onClick={ev => ev.stopPropagation()} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 16px 8px 62px", background: T.amberDim, borderBottom: `1px solid ${T.border}33` }}>
+        <input autoFocus value={billInv} onChange={e => setBillInv(e.target.value)} onKeyDown={e => e.key === "Enter" && submit()} placeholder="Vendor invoice #" style={{ padding: "5px 9px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.card, color: T.text, fontSize: 12, fontFamily: font, outline: "none", width: 150 }} />
+        <input value={billAmt} onChange={e => setBillAmt(e.target.value)} onKeyDown={e => e.key === "Enter" && submit()} inputMode="decimal" placeholder="Total" style={{ padding: "5px 9px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.card, color: T.text, fontSize: 12, fontFamily: mono, outline: "none", width: 110 }} />
+        <button onClick={submit} disabled={billSaving || !parseAmount(billAmt)} style={{ background: parseAmount(billAmt) ? T.green : T.surface, color: parseAmount(billAmt) ? "#fff" : T.faint, border: "none", borderRadius: 6, padding: "6px 16px", fontSize: 12, fontWeight: 700, cursor: parseAmount(billAmt) ? "pointer" : "default", fontFamily: font }}>{billSaving ? "…" : "Log"}</button>
+        <button onClick={() => setBillFor(null)} style={{ ...miniBtn(T.faint), width: 26 }}>×</button>
+        <span style={{ fontSize: 10.5, color: T.faint }}>→ {poRef} · {label}</span>
+      </div>
+    );
   }
 
   const unmatched = entries.filter(e => e.status === "unmatched" && !e.not_job_specific);
@@ -419,32 +433,27 @@ export default function ReconciliationPage() {
                           <span style={{ width: 90, textAlign: "right", fontFamily: mono, fontWeight: 700, color: v.outstanding > 0 ? T.amber : T.green }}>{v.outstanding > 0 ? money(v.outstanding) : "—"}</span>
                           <button onClick={ev => { ev.stopPropagation(); openInlineBill(vKey, v.outstanding); }} title="Log a bill for this job + vendor" style={{ ...miniBtn(billFor === vKey ? T.green : (v.outstanding > 0 ? T.accent : T.faint)), width: 54 }}>+ bill</button>
                         </div>
-                        {billFor === vKey && (() => {
-                          const poDef = j.qb_invoice_number || j.job_number;
-                          const submit = () => logBill(j.id, v.apVendorId, poDef);
-                          return (
-                            <div onClick={ev => ev.stopPropagation()} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 16px 8px 62px", background: T.amberDim, borderBottom: `1px solid ${T.border}33` }}>
-                              <input autoFocus value={billInv} onChange={e => setBillInv(e.target.value)} onKeyDown={e => e.key === "Enter" && submit()} placeholder="Vendor invoice #" style={{ padding: "5px 9px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.card, color: T.text, fontSize: 12, fontFamily: font, outline: "none", width: 150 }} />
-                              <input value={billAmt} onChange={e => setBillAmt(e.target.value)} onKeyDown={e => e.key === "Enter" && submit()} inputMode="decimal" placeholder="Total" style={{ padding: "5px 9px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.card, color: T.text, fontSize: 12, fontFamily: mono, outline: "none", width: 110 }} />
-                              <button onClick={submit} disabled={billSaving || !parseAmount(billAmt)} style={{ background: parseAmount(billAmt) ? T.green : T.surface, color: parseAmount(billAmt) ? "#fff" : T.faint, border: "none", borderRadius: 6, padding: "6px 16px", fontSize: 12, fontWeight: 700, cursor: parseAmount(billAmt) ? "pointer" : "default", fontFamily: font }}>{billSaving ? "…" : "Log"}</button>
-                              <button onClick={() => setBillFor(null)} style={{ ...miniBtn(T.faint), width: 26 }}>×</button>
-                              <span style={{ fontSize: 10.5, color: T.faint }}>→ {poDef} · {v.name}</span>
-                            </div>
-                          );
-                        })()}
+                        {billFor === vKey && inlineBillRow(j.id, v.apVendorId, j.qb_invoice_number || j.job_number, v.name)}
                         {vOpen && (
                           <div style={{ background: T.bg }}>
                             {/* expected PO breakdown — what to match against in QB */}
                             {v.items.length > 0 && (
                               <div style={{ padding: "6px 16px 4px 62px", fontSize: 8.5, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: T.faint }}>Expected POs</div>
                             )}
-                            {v.items.map(it => (
-                              <div key={it.poRef} style={{ display: "flex", alignItems: "center", gap: 12, padding: "5px 16px 5px 62px", fontSize: 11.5, borderBottom: `1px solid ${T.border}22` }}>
-                                <span style={{ width: 110, fontFamily: mono, color: T.text, fontWeight: 600 }}>{it.poRef}</span>
-                                <span style={{ flex: 1, color: T.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{it.name}</span>
-                                <span style={{ width: 90, textAlign: "right", fontFamily: mono, color: T.muted }}>{money(it.expected)}</span>
-                              </div>
-                            ))}
+                            {v.items.map(it => {
+                              const poKey = `${vKey}::${it.poRef}`;
+                              return (
+                                <div key={it.poRef}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "5px 16px 5px 62px", fontSize: 11.5, borderBottom: `1px solid ${T.border}22` }}>
+                                    <span style={{ width: 110, fontFamily: mono, color: T.text, fontWeight: 600 }}>{it.poRef}</span>
+                                    <span style={{ flex: 1, color: T.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{it.name}</span>
+                                    <span style={{ width: 90, textAlign: "right", fontFamily: mono, color: T.muted }}>{money(it.expected)}</span>
+                                    <button onClick={ev => { ev.stopPropagation(); openInlineBill(poKey, it.expected); }} title={`Log a bill for ${it.poRef}`} style={{ ...miniBtn(billFor === poKey ? T.green : T.faint), width: 44, fontSize: 10 }}>+ bill</button>
+                                  </div>
+                                  {billFor === poKey && inlineBillRow(j.id, v.apVendorId, it.poRef, it.name)}
+                                </div>
+                              );
+                            })}
                             {lines.length > 0 && (
                               <div style={{ padding: "8px 16px 4px 62px", fontSize: 8.5, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: T.green }}>Billed · {money(v.billed)}</div>
                             )}
