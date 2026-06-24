@@ -13,8 +13,10 @@ export interface QueueVendor {
   name: string;
   expected: number;
   billed: number;
-  outstanding: number; // max(0, expected - billed) — the open commitment
-  state: "awaiting" | "partial" | "billed" | "over" | "nobaseline";
+  outstanding: number; // max(0, expected - billed) — the open commitment (0 if marked complete)
+  state: "awaiting" | "partial" | "billed" | "over" | "nobaseline" | "complete";
+  complete: boolean;   // manually marked fully billed
+  reason: string | null; // disposition when marked (matches/under/overbill/qb_addition/…)
   // per-PO breakdown of the expected total (so the assistant knows exactly what
   // POs make up the vendor's bill). letter = item position in the job (A,B,C…);
   // poRef = `{QB invoice #}-{letter}` (e.g. 3682-C), matching the PO PDF.
@@ -50,8 +52,11 @@ export function computeBillingQueue(opts: {
   printers: Record<string, any>;
   apVendors: { id: string; name: string; match_keys?: string[] | null; decorator_id?: string | null }[];
   entries: { job_id: string | null; vendor_id: string | null; amount: number }[];
+  marks?: { job_id: string; vendor_id: string; reason: string | null }[]; // manually marked cost-complete
 }): BillingQueue {
   const { jobs, printers, apVendors, entries } = opts;
+  const markBy: Record<string, string | null> = {};
+  for (const m of (opts.marks || [])) markBy[`${m.job_id}::${m.vendor_id}`] = m.reason;
   // printVendor key (upper) → ap_vendor
   const keyToAp: Record<string, any> = {};
   const apKeys: Record<string, Set<string>> = {};
@@ -102,19 +107,26 @@ export function computeBillingQueue(opts: {
       const hit = vLines.length > 0;
       const items = vLines.map(l => ({ letter: l.letter, poRef: `${qbRef}-${l.letter}`, name: l.name, expected: l.expected }));
       const b = r2(billed[`${job.id}::${apId}`] || 0);
+      const markKey = `${job.id}::${apId}`;
+      const isMarked = markKey in markBy;
       const tol = Math.max(5, expected * 0.01);
-      const state: QueueVendor["state"] =
-        !hit && b === 0 ? "nobaseline"
-        : Math.abs(b - expected) <= tol ? "billed"
-        : b > expected ? "over"
-        : b <= 0.01 ? "awaiting"
-        : "partial";
-      const outstanding = Math.max(0, r2(expected - b));
+      let state: QueueVendor["state"];
+      if (isMarked) state = "complete";
+      else if (!hit && b === 0) state = "nobaseline";
+      else if (Math.abs(b - expected) <= tol) state = "billed";
+      else if (b > expected) state = "over";
+      else if (b <= 0.01) state = "awaiting";
+      else state = "partial";
+      // A marked-complete vendor has NO open commitment — the residual (under)variance
+      // is realized, not awaited. This is what makes Open PO precise.
+      const outstanding = isMarked ? 0 : Math.max(0, r2(expected - b));
       openPO += outstanding;
-      if (state === "awaiting") awaitingV++;
-      else if (state === "partial") partialV++;
-      else if (state === "over") overV++;
-      vendors.push({ apVendorId: apId, name: ap.name, expected, billed: b, outstanding, state, items });
+      if (!isMarked) {
+        if (state === "awaiting") awaitingV++;
+        else if (state === "partial") partialV++;
+        else if (state === "over") overV++;
+      }
+      vendors.push({ apVendorId: apId, name: ap.name, expected, billed: b, outstanding, state, items, complete: isMarked, reason: isMarked ? markBy[markKey] : null });
     }
     if (!vendors.length) continue;
     vendors.sort((a, b) => b.outstanding - a.outstanding || b.expected - a.expected);
@@ -122,7 +134,7 @@ export function computeBillingQueue(opts: {
     const jExp = r2(vendors.reduce((s, v) => s + v.expected, 0));
     const jBilled = r2(vendors.reduce((s, v) => s + v.billed, 0));
     const jOut = r2(vendors.reduce((s, v) => s + v.outstanding, 0));
-    const costComplete = vendors.every(v => v.state === "billed" || v.state === "over");
+    const costComplete = vendors.every(v => v.state === "billed" || v.state === "over" || v.state === "complete");
     const billedPct = jExp > 0 ? Math.min(100, Math.round((100 * jBilled) / jExp)) : (jBilled > 0 ? 100 : 0);
     outJobs.push({
       id: job.id, job_number: job.job_number, qb_invoice_number: job.type_meta?.qb_invoice_number || null,

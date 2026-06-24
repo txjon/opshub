@@ -32,6 +32,24 @@ type Entry = {
   charge_type: string; status: string; not_job_specific: boolean; notes: string | null; created_at: string;
 };
 
+// Disposition when marking a vendor fully billed — separates "$X to chase" from
+// "$X that's fine" on the board.
+const REASONS: { v: string; label: string }[] = [
+  { v: "matches", label: "Fully billed — matches" },
+  { v: "under", label: "Came in under (saved)" },
+  { v: "over_accept", label: "Over — accepted" },
+  { v: "over_dispute", label: "Over — disputing" },
+  { v: "qb_addition", label: "Added in QB (pre-revise)" },
+  { v: "costing_miss", label: "Costing miss" },
+  { v: "other", label: "Other" },
+];
+const reasonLabel = (r: string | null) => REASONS.find(x => x.v === r)?.label || "Complete";
+const autoReason = (billed: number, expected: number) => {
+  const tol = Math.max(5, expected * 0.01);
+  if (Math.abs(billed - expected) <= tol) return "matches";
+  return billed > expected ? "over_accept" : "under";
+};
+
 const money = (n: number) => "$" + Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 // Tolerate "$7,627.20" / "7,627.20" pasted straight from an invoice.
 const parseAmount = (s: string) => parseFloat(String(s).replace(/[^0-9.]/g, "")) || 0;
@@ -42,6 +60,7 @@ export default function ReconciliationPage() {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [decorators, setDecorators] = useState<any[]>([]);
   const [jobsRaw, setJobsRaw] = useState<Record<string, any>>({});
+  const [marks, setMarks] = useState<{ job_id: string; vendor_id: string; reason: string | null }[]>([]);
   const [loading, setLoading] = useState(true);
 
   // add-form state
@@ -68,12 +87,14 @@ export default function ReconciliationPage() {
   const [billSaving, setBillSaving] = useState(false);
 
   async function loadAll() {
-    const [v, j, e, d] = await Promise.all([
+    const [v, j, e, d, m] = await Promise.all([
       supabase.from("ap_vendors").select("id, name, kind, decorator_id, match_keys").eq("active", true).order("name"),
       supabase.from("jobs").select("id, job_number, phase, type_meta, client_id, clients(name), costing_data, costing_summary").order("created_at", { ascending: false }),
       supabase.from("cost_entries").select("*").order("created_at", { ascending: false }),
       supabase.from("decorators").select("id, name, short_code, pricing_data, capabilities"),
+      supabase.from("cost_vendor_status").select("job_id, vendor_id, reason"),
     ]);
+    setMarks((m.data as any) || []);
     setVendors((v.data as any) || []);
     const jl: JobLite[] = ((j.data as any) || []).map((x: any) => ({
       id: x.id, job_number: x.job_number, qb_invoice_number: x.type_meta?.qb_invoice_number || null,
@@ -208,8 +229,8 @@ export default function ReconciliationPage() {
   // invoices): every job × PO-sent vendor → expected (costing) vs billed (entries),
   // gap = outstanding; summed = OPEN PO COMMITMENT. See lib/billing-queue.ts.
   const queue = useMemo(() => computeBillingQueue({
-    jobs: Object.values(jobsRaw), printers, apVendors: vendors as any, entries: entries as any,
-  }), [jobsRaw, printers, vendors, entries]);
+    jobs: Object.values(jobsRaw), printers, apVendors: vendors as any, entries: entries as any, marks,
+  }), [jobsRaw, printers, vendors, entries, marks]);
   const sq = search.trim().toLowerCase();
   const filteredQueue = queue.jobs
     .filter(j => qFilter === "all" ? true : qFilter === "complete" ? j.costComplete : !j.costComplete)
@@ -232,7 +253,18 @@ export default function ReconciliationPage() {
     billed: { label: "Billed", color: T.green },
     over: { label: "Over", color: T.red },
     nobaseline: { label: "No baseline", color: T.faint },
+    complete: { label: "✓ Complete", color: T.green },
   };
+  async function markComplete(jobId: string, apVendorId: string | null, reason: string) {
+    if (!apVendorId) return;
+    await supabase.from("cost_vendor_status").upsert({ job_id: jobId, vendor_id: apVendorId, status: "complete", reason }, { onConflict: "job_id,vendor_id" } as any);
+    loadAll();
+  }
+  async function reopenVendor(jobId: string, apVendorId: string | null) {
+    if (!apVendorId) return;
+    await supabase.from("cost_vendor_status").delete().eq("job_id", jobId).eq("vendor_id", apVendorId);
+    loadAll();
+  }
 
   const lbl = { fontSize: 9, fontWeight: 700 as const, letterSpacing: "0.08em", textTransform: "uppercase" as const, color: T.faint };
   const inp = { padding: "7px 9px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.card, color: T.text, fontSize: 13, fontFamily: font, outline: "none" };
@@ -504,6 +536,23 @@ export default function ReconciliationPage() {
                                 </span>
                               </div>
                             ))}
+                            {/* mark fully billed / reopen */}
+                            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 16px 10px 22px", borderTop: `1px solid ${T.border}33` }}>
+                              {v.complete ? (
+                                <>
+                                  <span style={{ fontSize: 11.5, color: T.green, fontWeight: 700 }}>✓ Fully billed</span>
+                                  <select value={v.reason || "other"} onChange={e => markComplete(j.id, v.apVendorId, e.target.value)} style={{ padding: "4px 8px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.card, color: T.text, fontSize: 11.5, fontFamily: font, outline: "none" }}>
+                                    {REASONS.map(r => <option key={r.v} value={r.v}>{r.label}</option>)}
+                                  </select>
+                                  <button onClick={() => reopenVendor(j.id, v.apVendorId)} className="bq-ghost">Reopen</button>
+                                </>
+                              ) : (
+                                <>
+                                  <button onClick={() => markComplete(j.id, v.apVendorId, autoReason(v.billed, v.expected))} style={{ background: T.green, color: "#fff", border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>Mark fully billed</button>
+                                  <span style={{ fontSize: 11, color: T.faint }}>confirm no more invoices coming{v.outstanding > 0 ? ` · clears ${money(v.outstanding)} from Open PO` : ""}</span>
+                                </>
+                              )}
+                            </div>
                           </div>
                         )}
                       </div>
