@@ -132,7 +132,12 @@ export async function POST(req: NextRequest) {
     if (!vendorEmail && ven?.decorator_id) {
       const { data: dec } = await admin.from("decorators").select("contacts_list").eq("id", ven.decorator_id).single();
       const contacts: any[] = (dec?.contacts_list as any[]) || [];
-      const billing = contacts.find(c => /bill|account|ap|finance/i.test(c.role || "") && c.email);
+      // Prefer a billing/accounting contact — matched on role OR name (short, safe to
+      // substring) OR the email's local part. \bap\b is word-bounded so it doesn't
+      // false-match domains like "teelandAPparel.com".
+      const roleName = /bill|account|finance|payable|remit|\bap\b/i;
+      const emailLocal = /^(bill|account|finance|ap|payable|remit|invoice)/i;
+      const billing = contacts.find(c => c.email && (roleName.test(c.role || "") || roleName.test(c.name || "") || emailLocal.test(String(c.email).split("@")[0])));
       vendorEmail = (billing?.email || contacts.find(c => c.email)?.email || "").trim() || null;
     }
     if (!vendorEmail) {
