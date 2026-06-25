@@ -122,9 +122,11 @@ export async function GET(req: NextRequest) {
       }
 
       // ── BLANKS NOT ORDERED (ready phase) ──
-      // Non-null order total = ordered (0 = free/client-supplied blanks).
+      // Resolved = has an order total (0 = free/client-supplied), OR order # is
+      // "NA"/"N/A" (no blank purchased — accessory / cost-on-PO).
+      const blanksResolved = (i: any) => i.blanks_order_cost != null || /^n\/?a$/i.test(String(i.blanks_order_number || "").trim());
       if (job.phase === "ready") {
-        const unordered = items.filter(i => (i as any).blanks_order_cost == null);
+        const unordered = items.filter(i => !blanksResolved(i));
         if (unordered.length > 0) {
           alerts.push({
             priority: 2,
@@ -139,7 +141,7 @@ export async function GET(req: NextRequest) {
       if (job.phase === "ready" || job.phase === "production") {
         const poSent = (job.type_meta as any)?.po_sent_vendors || [];
         const hasItems = items.length > 0;
-        const allBlanksOrdered = items.every(i => (i as any).blanks_order_cost != null);
+        const allBlanksOrdered = items.every(blanksResolved);
         if (hasItems && allBlanksOrdered && poSent.length === 0) {
           alerts.push({
             priority: 2,
