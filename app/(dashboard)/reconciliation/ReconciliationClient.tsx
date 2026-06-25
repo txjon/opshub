@@ -395,6 +395,10 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
     }
     return m;
   }, [queue]);
+  // Normalized PO refs that already have a cost entry — so New Bill can flag a
+  // line as already-billed before you save it again (dup guard).
+  const billedPoKeys = useMemo(() => new Set(entries.map(e => (e.po_ref || "").toUpperCase().replace(/[^A-Z0-9]/g, "")).filter(Boolean)), [entries]);
+  const isLineDup = (l: { resolved: NbResolved | null }) => !!l.resolved && billedPoKeys.has(l.resolved.poRef.toUpperCase().replace(/[^A-Z0-9]/g, ""));
   // Resolve a typed PO ref to a New Bill line — a single item, OR a multi-item ref
   // (one line covering several POs, summed projection), matching how vendors invoice.
   const resolveNbPo = (input: string) => {
@@ -538,6 +542,8 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
   async function saveBill() {
     const valid = nbValidLines();
     if (!valid.length || !nbVendor) return; // vendor must be chosen intentionally
+    const dups = valid.filter(isLineDup);
+    if (dups.length && !window.confirm(`${dups.length} line${dups.length !== 1 ? "s" : ""} (${dups.map(l => l.resolved!.poRef).join(", ")}) already ${dups.length !== 1 ? "have" : "has"} a cost entry — this would double-bill. Save anyway?`)) return;
     const vId = nbVendor;
     setNbSaving(true);
     const vendorName = vendors.find(v => v.id === vId)?.name || null;
@@ -645,14 +651,15 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
                   const amt = parseAmount(l.amount);
                   const d = l.resolved && amt > 0 ? Math.round((amt - l.resolved.projected) * 100) / 100 : 0;
                   const mism = nbVendor && l.resolved && l.resolved.apVendorId !== nbVendor;
+                  const dup = isLineDup(l);
                   return (
                     <div key={l.id} style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                      <input value={l.poInput} disabled={!!nbSavedIds} onChange={e => updateLine(l.id, { poInput: e.target.value })} style={{ ...inp, flex: 1.6, minWidth: 0, fontFamily: mono, padding: "6px 8px" } as any} />
+                      <input value={l.poInput} disabled={!!nbSavedIds} onChange={e => updateLine(l.id, { poInput: e.target.value })} style={{ ...inp, flex: 1.6, minWidth: 0, fontFamily: mono, padding: "6px 8px", borderColor: dup ? T.red : (T.border as any) } as any} />
                       <input value={l.invoiceNumber} disabled={!!nbSavedIds} onChange={e => updateLine(l.id, { invoiceNumber: e.target.value })} style={{ ...inp, flex: 1, minWidth: 0, fontFamily: mono, padding: "6px 8px" } as any} />
                       <input value={l.amount} disabled={!!nbSavedIds} onChange={e => updateLine(l.id, { amount: e.target.value })} inputMode="decimal" style={{ ...inp, width: 130, flexShrink: 0, fontFamily: mono, padding: "6px 8px", color: d > 0 ? T.red : d < 0 ? T.amber : T.text } as any} />
-                      <span style={{ flex: 1.4, minWidth: 0, fontSize: 11.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: mism ? T.red : T.muted }}>
+                      <span style={{ flex: 1.4, minWidth: 0, fontSize: 11.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: (mism || dup) ? T.red : T.muted }}>
                         {l.poInput.trim() === "" ? <span style={{ color: T.faint }}>—</span>
-                          : l.resolved ? <>{mism && "⚠ "}<strong className="bq-mono" style={{ fontFamily: mono, color: T.text }}>{l.resolved.job_number}</strong> · {l.resolved.client_name || "—"}</>
+                          : l.resolved ? <>{dup ? <span style={{ color: T.red, fontWeight: 700 }}>⚠ already billed · </span> : mism ? "⚠ " : ""}<strong className="bq-mono" style={{ fontFamily: mono, color: T.text }}>{l.resolved.job_number}</strong> · {l.resolved.client_name || "—"}</>
                           : <span style={{ color: T.amber }}>⚠ no match</span>}
                       </span>
                       <span className="bq-mono" style={{ width: 86, flexShrink: 0, textAlign: "right", fontSize: 11.5, fontFamily: mono, fontWeight: 700, color: amt <= 0 ? T.faint : d === 0 ? T.green : d > 0 ? T.red : T.amber }}>{l.resolved && amt > 0 ? (d === 0 ? "✓ match" : `${d < 0 ? "−" : "+"}${money(Math.abs(d))}`) : ""}</span>
