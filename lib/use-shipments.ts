@@ -33,6 +33,9 @@ export type Shipment = {
   // null = vendor didn't supply tracking. UI should show a placeholder
   // ("no tracking") and offer the receiver a paste field.
   tracking: string | null;
+  // True when this is a local-pickup block (grouped by vendor, not tracking).
+  // UI shows "PICK-UP" instead of "no tracking".
+  pickup: boolean;
   // Earliest pipeline_timestamps.shipped across the shipment's items.
   // null when none of the items have a shipped timestamp (received-only
   // historical case — e.g. legacy rows where ship_date isn't populated).
@@ -83,7 +86,8 @@ function normalizeTracking(raw: string | null | undefined): string | null {
 const NON_TRACKING_TOKENS = new Set([
   "freight", "ltl", "pallet", "truck", "truck freight",
   "n/a", "na", "none", "tbd", "no tracking", "notracking",
-  "local", "pickup", "local pickup", "hand delivery", "handdelivery", "delivered",
+  "local", "pickup", "pick up", "pick-up", "local pickup", "will call",
+  "hand delivery", "handdelivery", "delivered",
 ]);
 
 export function isRealTracking(trk: string | null | undefined): boolean {
@@ -92,6 +96,10 @@ export function isRealTracking(trk: string | null | undefined): boolean {
 
 function groupKeyFor(item: WarehouseItem): string {
   const decKey = item.decorator_id || item.decorator_name || "unassigned";
+  // Local pickup: all of a vendor's ready-for-pickup items lump into ONE block
+  // (one trip to that vendor), regardless of job/date/tracking. This is the
+  // intentional version of the old "type PICK-UP in tracking" behavior.
+  if (item.pickup_ready) return `${decKey}::pickup`;
   const trk = normalizeTracking(item.ship_tracking);
   if (isRealTracking(trk)) return `${decKey}::${trk}`;
   // Fallback: bucket by (decorator, ship_date_day, job_id). Including
@@ -196,6 +204,7 @@ export function useShipments(jobs: WarehouseJob[]): Shipment[] {
         decorator_name: acc.decorator_name,
         short_code: acc.short_code,
         tracking: acc.tracking,
+        pickup: items.some(it => it.pickup_ready),
         shipped_at,
         received_at,
         items,

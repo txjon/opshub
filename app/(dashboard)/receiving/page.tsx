@@ -802,9 +802,11 @@ export default function ReceivingPage() {
         </div>
 
         {/* Tracking */}
-        <div style={{ width: 150, flexShrink: 0, fontFamily: mono, fontSize: 11, lineHeight: 1.3, display: "flex", alignItems: "flex-start" }} title={shipment.tracking || ""}>
-          <span style={{ color: shipment.tracking ? T.muted : T.amber, wordBreak: "break-all", minWidth: 0 }}>{shipment.tracking || "no tracking"}</span>
-          {isRealTracking(shipment.tracking) && <CopyBtn text={shipment.tracking!} />}
+        <div style={{ width: 150, flexShrink: 0, fontFamily: mono, fontSize: 11, lineHeight: 1.3, display: "flex", alignItems: "flex-start" }} title={shipment.pickup ? "Local pickup" : (shipment.tracking || "")}>
+          {shipment.pickup
+            ? <span style={{ color: T.green, fontWeight: 700, letterSpacing: "0.04em" }}>↑ PICK-UP</span>
+            : <><span style={{ color: shipment.tracking ? T.muted : T.amber, wordBreak: "break-all", minWidth: 0 }}>{shipment.tracking || "no tracking"}</span>
+          {isRealTracking(shipment.tracking) && <CopyBtn text={shipment.tracking!} />}</>}
         </div>
 
         {/* Shipped */}
