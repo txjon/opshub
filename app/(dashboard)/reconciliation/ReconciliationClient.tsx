@@ -555,18 +555,18 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
                   {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
                 </select>
               </div>
-              <div style={{ width: 200 }}>
-                <div style={lbl}>Default invoice # <span style={{ color: T.faint, fontWeight: 400 }}>(optional · per-line below overrides)</span></div>
+              <div style={{ width: 240 }}>
+                <div style={lbl}>Default invoice #</div>
                 <input value={nbInvoice} onChange={e => { setNbInvoice(e.target.value); setNbInvoiceManual(true); }} style={{ ...inp, width: "100%", marginTop: 4 } as any} />
               </div>
             </div>
             <div style={{ padding: "0 20px 10px" }}>
               <div style={lbl}>Add line — type a PO #</div>
               <div style={{ display: "flex", gap: 8, marginTop: 6, alignItems: "center" }}>
-                <input autoFocus value={nbPo} onChange={e => { const val = e.target.value; setNbPo(val); const h = resolveNbPo(val); if (h && !parseAmount(nbAmt)) setNbAmt(String(h.projected)); if (h && h.apVendorId && !nbVendor) setNbVendor(h.apVendorId); }} onKeyDown={e => e.key === "Enter" && nbHit && addNbLine()} placeholder="3682-F" style={{ ...inp, width: 120, fontFamily: mono } as any} />
-                <input value={nbLineInv} onChange={e => setNbLineInv(e.target.value)} onKeyDown={e => e.key === "Enter" && nbHit && addNbLine()} placeholder={nbInvoice.trim() ? `inv ${nbInvoice.trim()}` : "vendor inv #"} title="Vendor invoice # for this line (defaults to the field above)" style={{ ...inp, width: 110, fontFamily: mono } as any} />
-                <input value={nbAmt} onChange={e => setNbAmt(e.target.value)} onKeyDown={e => e.key === "Enter" && addNbLine()} placeholder="amount" inputMode="decimal" style={{ ...inp, width: 110, fontFamily: mono } as any} />
-                <button onClick={addNbLine} disabled={!nbHit} style={{ background: nbHit ? T.accent : T.surface, color: nbHit ? "#fff" : T.faint, border: "none", borderRadius: 6, padding: "8px 16px", fontSize: 13, fontWeight: 700, cursor: nbHit ? "pointer" : "default", fontFamily: font }}>Add line</button>
+                <input autoFocus value={nbPo} onChange={e => { const val = e.target.value; setNbPo(val); const h = resolveNbPo(val); if (h && !parseAmount(nbAmt)) setNbAmt(String(h.projected)); if (h && h.apVendorId && !nbVendor) setNbVendor(h.apVendorId); }} onKeyDown={e => e.key === "Enter" && nbHit && addNbLine()} placeholder="PO # (e.g. 3682-F)" style={{ ...inp, flex: 1.6, minWidth: 0, fontFamily: mono } as any} />
+                <input value={nbLineInv} onChange={e => setNbLineInv(e.target.value)} onKeyDown={e => e.key === "Enter" && nbHit && addNbLine()} placeholder={nbInvoice.trim() ? `inv ${nbInvoice.trim()}` : "vendor inv #"} title="Vendor invoice # for this line (defaults to the field above)" style={{ ...inp, flex: 1, minWidth: 0, fontFamily: mono } as any} />
+                <input value={nbAmt} onChange={e => setNbAmt(e.target.value)} onKeyDown={e => e.key === "Enter" && addNbLine()} placeholder="amount" inputMode="decimal" style={{ ...inp, width: 130, flexShrink: 0, fontFamily: mono } as any} />
+                <button onClick={addNbLine} disabled={!nbHit} style={{ flexShrink: 0, background: nbHit ? T.accent : T.surface, color: nbHit ? "#fff" : T.faint, border: "none", borderRadius: 6, padding: "8px 18px", fontSize: 13, fontWeight: 700, cursor: nbHit ? "pointer" : "default", fontFamily: font }}>Add line</button>
               </div>
               <div style={{ marginTop: 7, minHeight: 20, fontSize: 12 }}>
                 {nbPo.trim() === "" ? <span style={{ color: T.faint }}>Job, client, and projected cost fill in as you type — variance shows before you add the line.</span>
