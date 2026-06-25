@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { getPdfBranding } from "@/lib/branding";
 import { generatePDF } from "@/lib/pdf/browser";
-import { renderBrandedEmail, tenantClosing } from "@/lib/email-template";
+import { renderBrandedEmail } from "@/lib/email-template";
 import { resendForSlug } from "@/lib/resend-client";
 
 const font = "'Helvetica Neue', Arial, sans-serif";
@@ -109,7 +109,7 @@ export async function POST(req: NextRequest) {
       if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { entryIds, testRecipient } = await req.json();
+    const { entryIds, testRecipient, recipientEmail } = await req.json();
     if (!Array.isArray(entryIds) || !entryIds.length) {
       return NextResponse.json({ error: "Missing entryIds" }, { status: 400 });
     }
@@ -126,9 +126,9 @@ export async function POST(req: NextRequest) {
       ? await admin.from("ap_vendors").select("id, name, decorator_id").eq("id", vendorId).single()
       : { data: null };
     const vendorName = ven?.name || entries[0].vendor_name || "Vendor";
-    // testRecipient: send the real remittance to a given address (internal preview)
-    // instead of the vendor — same PDF + copy, no vendor-email lookup, no CC.
-    let vendorEmail: string | null = (testRecipient || "").trim() || null;
+    // recipientEmail: a specific vendor contact chosen in the UI picker.
+    // testRecipient: internal preview (no CC). Either overrides the auto-resolve.
+    let vendorEmail: string | null = (testRecipient || recipientEmail || "").trim() || null;
     if (!vendorEmail && ven?.decorator_id) {
       const { data: dec } = await admin.from("decorators").select("contacts_list").eq("id", ven.decorator_id).single();
       const contacts: any[] = (dec?.contacts_list as any[]) || [];
@@ -164,7 +164,7 @@ export async function POST(req: NextRequest) {
       heading: "Payment Processed",
       greeting: `Hi ${vendorName},`,
       bodyHtml: `Payment of <strong>${fmtD(total)}</strong> has been processed for the ${invoices.length} invoice${invoices.length !== 1 ? "s" : ""} listed in the attached remittance advice.<br/><br/>Thank you for your partnership — please reach out if anything doesn't match your records.`,
-      closing: tenantClosing(b.slug, b.name),
+      closing: b.name, // AP remittance — sign with the company name, not the casual greeting
     });
 
     const fromEmail = b.fromEmailBilling || b.fromEmailProduction || b.fromEmailQuotes;
