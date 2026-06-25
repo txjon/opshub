@@ -63,18 +63,24 @@ export async function POST(req: NextRequest) {
       : { data: [] as any[] };
     const jobById: Record<string, any> = Object.fromEntries((jobs || []).map((j: any) => [j.id, j]));
 
+    // Line description = "{vendor invoice #} - {HPD PO#}". The client is carried
+    // as CustomerRef (the Customer column) for job-costing — not repeated in the
+    // description.
     const lines: QBBillLine[] = entries.map((e: any) => {
       const j = e.job_id ? jobById[e.job_id] : null;
       const ref = e.po_ref || j?.type_meta?.qb_invoice_number || j?.job_number || "";
-      const clientName = j?.clients?.name ? ` (${j.clients.name})` : "";
+      const inv = e.vendor_invoice_number ? `${e.vendor_invoice_number} - ` : "";
       return {
         amount: Number(e.amount || 0),
-        description: `${ref}${clientName}`.trim() || "Cost",
+        description: `${inv}${ref}`.trim() || "Cost",
         customerId: j?.clients?.qb_customer_id || undefined,
       };
     });
 
-    const docNumber = entries.find((e: any) => e.vendor_invoice_number)?.vendor_invoice_number || undefined;
+    // Bill DocNumber: a single shared invoice # → use it; a batch of several
+    // invoices → leave blank (each line carries its own invoice # in the description).
+    const invNumbers = [...new Set(entries.map((e: any) => e.vendor_invoice_number).filter(Boolean))] as string[];
+    const docNumber = invNumbers.length === 1 ? invNumbers[0] : undefined;
     const jobRefs = [...new Set((jobs || []).map((j: any) => j.type_meta?.qb_invoice_number || j.job_number).filter(Boolean))].join(", ");
 
     const result = await createBill({

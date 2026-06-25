@@ -119,7 +119,8 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
   const [nbInvoice, setNbInvoice] = useState("");
   const [nbPo, setNbPo] = useState("");
   const [nbAmt, setNbAmt] = useState("");
-  const [nbLines, setNbLines] = useState<{ poRef: string; job_id: string; job_number: string; client_name: string | null; itemName: string; projected: number; amount: number; apVendorId: string | null }[]>([]);
+  const [nbLines, setNbLines] = useState<{ poRef: string; job_id: string; job_number: string; client_name: string | null; itemName: string; projected: number; amount: number; apVendorId: string | null; invoiceNumber: string }[]>([]);
+  const [nbLineInv, setNbLineInv] = useState(""); // per-line vendor invoice # (falls back to the top default field)
   const [nbSaving, setNbSaving] = useState(false);
   const [nbSavedIds, setNbSavedIds] = useState<string[] | null>(null); // entry ids after Save → unlocks Push to QB
   const [nbPushedId, setNbPushedId] = useState<string | null>(null);
@@ -438,8 +439,9 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
   function addNbLine() {
     if (!nbHit) return;
     const amount = parseAmount(nbAmt) || nbHit.projected;
-    setNbLines(prev => [...prev, { poRef: nbHit.poRef, job_id: nbHit.job_id, job_number: nbHit.job_number, client_name: nbHit.client_name, itemName: nbHit.itemName, projected: nbHit.projected, amount, apVendorId: nbHit.apVendorId }]);
-    setNbPo(""); setNbAmt("");
+    const invoiceNumber = nbLineInv.trim() || nbInvoice.trim(); // per-line, else the top default
+    setNbLines(prev => [...prev, { poRef: nbHit.poRef, job_id: nbHit.job_id, job_number: nbHit.job_number, client_name: nbHit.client_name, itemName: nbHit.itemName, projected: nbHit.projected, amount, apVendorId: nbHit.apVendorId, invoiceNumber }]);
+    setNbPo(""); setNbAmt(""); setNbLineInv("");
     if (!nbVendor && nbHit.apVendorId) setNbVendor(nbHit.apVendorId); // infer vendor from first line
   }
   async function saveBill() {
@@ -450,7 +452,7 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
     const vendorName = vendors.find(v => v.id === vId)?.name || null;
     const rows = nbLines.map(l => ({
       source: "decorator_invoice", vendor_id: vId, vendor_name: vendorName,
-      vendor_invoice_number: nbInvoice.trim() || null, po_ref: l.poRef, job_id: l.job_id,
+      vendor_invoice_number: l.invoiceNumber.trim() || nbInvoice.trim() || null, po_ref: l.poRef, job_id: l.job_id,
       amount: l.amount, expected_amount: l.projected, charge_type: "production", status: "matched", bill_method: vendorMethod(vId),
     }));
     const { data, error } = await supabase.from("cost_entries").insert(rows as any).select("id");
@@ -492,7 +494,7 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
                 </select>
               </div>
               <div style={{ width: 200 }}>
-                <div style={lbl}>Vendor invoice # <span style={{ color: T.faint, fontWeight: 400 }}>(optional)</span></div>
+                <div style={lbl}>Default invoice # <span style={{ color: T.faint, fontWeight: 400 }}>(optional · per-line below overrides)</span></div>
                 <input value={nbInvoice} onChange={e => setNbInvoice(e.target.value)} style={{ ...inp, width: "100%", marginTop: 4 } as any} />
               </div>
             </div>
@@ -500,7 +502,8 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
               <div style={lbl}>Add line — type a PO #</div>
               <div style={{ display: "flex", gap: 8, marginTop: 6, alignItems: "center" }}>
                 <input autoFocus value={nbPo} onChange={e => { const val = e.target.value; setNbPo(val); const h = resolveNbPo(val); if (h && !parseAmount(nbAmt)) setNbAmt(String(h.projected)); if (h && h.apVendorId && !nbVendor) setNbVendor(h.apVendorId); }} onKeyDown={e => e.key === "Enter" && nbHit && addNbLine()} placeholder="3682-F" style={{ ...inp, width: 120, fontFamily: mono } as any} />
-                <input value={nbAmt} onChange={e => setNbAmt(e.target.value)} onKeyDown={e => e.key === "Enter" && addNbLine()} placeholder="amount" inputMode="decimal" style={{ ...inp, width: 120, fontFamily: mono } as any} />
+                <input value={nbLineInv} onChange={e => setNbLineInv(e.target.value)} onKeyDown={e => e.key === "Enter" && nbHit && addNbLine()} placeholder={nbInvoice.trim() ? `inv ${nbInvoice.trim()}` : "vendor inv #"} title="Vendor invoice # for this line (defaults to the field above)" style={{ ...inp, width: 110, fontFamily: mono } as any} />
+                <input value={nbAmt} onChange={e => setNbAmt(e.target.value)} onKeyDown={e => e.key === "Enter" && addNbLine()} placeholder="amount" inputMode="decimal" style={{ ...inp, width: 110, fontFamily: mono } as any} />
                 <button onClick={addNbLine} disabled={!nbHit} style={{ background: nbHit ? T.accent : T.surface, color: nbHit ? "#fff" : T.faint, border: "none", borderRadius: 6, padding: "8px 16px", fontSize: 13, fontWeight: 700, cursor: nbHit ? "pointer" : "default", fontFamily: font }}>Add line</button>
               </div>
               <div style={{ marginTop: 7, minHeight: 20, fontSize: 12 }}>
@@ -522,7 +525,8 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
                   return (
                     <div key={i} className="bq-row" style={{ display: "flex", alignItems: "center", gap: 10, padding: "5px 0", fontSize: 12, borderBottom: `1px solid ${T.border}22` }}>
                       <span className="bq-mono" title={l.poRef} style={{ width: 92, flexShrink: 0, fontFamily: mono, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{l.poRef}</span>
-                      <span style={{ width: 130, flexShrink: 0, color: T.faint, fontSize: 11, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{l.job_number}</span>
+                      <span className="bq-mono" style={{ width: 66, flexShrink: 0, color: T.faint, fontSize: 10.5, fontFamily: mono, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={l.invoiceNumber ? `vendor invoice ${l.invoiceNumber}` : ""}>{l.invoiceNumber ? `inv ${l.invoiceNumber}` : "—"}</span>
+                      <span style={{ width: 120, flexShrink: 0, color: T.faint, fontSize: 11, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{l.job_number}</span>
                       <span style={{ flex: 1, minWidth: 0, color: T.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{l.itemName}</span>
                       <span className="bq-mono" style={{ fontFamily: mono, color: d > 0 ? T.red : d < 0 ? T.amber : T.text }}>{money(l.amount)}{d !== 0 && <span style={{ fontSize: 10, color: T.faint }}> ({d > 0 ? "+" : ""}{money(d)})</span>}</span>
                       <span className="bq-act"><button onClick={() => setNbLines(prev => prev.filter((_, x) => x !== i))} className="bq-x">×</button></span>
