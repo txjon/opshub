@@ -29,7 +29,7 @@ type Vendor = { id: string; name: string; kind: string; decorator_id: string | n
 type Entry = {
   id: string; vendor_id: string | null; vendor_name: string | null; vendor_invoice_number: string | null;
   po_ref: string | null; job_id: string | null; amount: number; expected_amount: number | null;
-  charge_type: string; status: string; not_job_specific: boolean; notes: string | null; created_at: string; bill_method?: string;
+  charge_type: string; status: string; not_job_specific: boolean; notes: string | null; created_at: string; bill_method?: string; qb_bill_id?: string | null;
 };
 const BILL_METHODS = [
   { v: "invoice", label: "Invoice" },
@@ -228,6 +228,27 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
   async function removeEntry(entryId: string) {
     await supabase.from("cost_entries").delete().eq("id", entryId);
     loadAll();
+  }
+  // Push a logged bill (a group of cost_entries) to QuickBooks as an AP Bill —
+  // vendor + COGS lines + the job's client pre-assigned on each line.
+  const [pushingBill, setPushingBill] = useState<string | null>(null);
+  async function pushBillToQb(bKey: string, entryIds: string[]) {
+    setPushingBill(bKey);
+    try {
+      const res = await fetch("/api/qb/bill", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ entryIds }),
+      });
+      const data = await res.json();
+      if (!res.ok) { alert(`Push to QB failed: ${data.error || res.status}`); return; }
+      const noCust = data.lines - data.customersLinked;
+      alert(`Pushed to QuickBooks — Bill #${data.billId} · ${data.lines} line${data.lines !== 1 ? "s" : ""}, ${data.customersLinked} customer-linked${noCust > 0 ? ` (${noCust} without a QB customer)` : ""}.`);
+      loadAll();
+    } catch (e: any) {
+      alert(`Push to QB failed: ${e?.message || "network error"}`);
+    } finally {
+      setPushingBill(null);
+    }
   }
 
   // Inline bill entry: "+ bill" reveals invoice # + total + Log — on a vendor row
@@ -884,6 +905,14 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
                     <span className="bq-mono" style={{ flex: 1, fontFamily: mono, fontSize: 12, color: T.muted }}>{ref}</span>
                     <span style={{ fontSize: 11, color: T.faint }}>{b.lines.length} line{b.lines.length !== 1 ? "s" : ""}</span>
                     <span style={{ fontSize: 11, color: T.faint, width: 80, textAlign: "right" }}>{(b.date || "").slice(0, 10)}</span>
+                    {(() => {
+                      const pushed = b.lines.find(e => e.qb_bill_id)?.qb_bill_id;
+                      const ids = b.lines.map(e => e.id);
+                      const busy = pushingBill === bKey;
+                      return pushed
+                        ? <span title={`QuickBooks Bill #${pushed}`} style={{ fontSize: 10.5, fontWeight: 700, color: T.green, background: T.green + "1f", padding: "3px 9px", borderRadius: 20, whiteSpace: "nowrap" }}>✓ in QB</span>
+                        : <button onClick={ev => { ev.stopPropagation(); if (!busy) pushBillToQb(bKey, ids); }} disabled={busy} className="bq-ghost" style={{ whiteSpace: "nowrap" }}>{busy ? "Pushing…" : "Push to QB"}</button>;
+                    })()}
                     <span className="bq-mono" style={{ width: 110, textAlign: "right", fontFamily: mono, fontSize: 13, fontWeight: 700, color: T.text }}>{money(b.total)}</span>
                   </div>
                   {isOpen && (
