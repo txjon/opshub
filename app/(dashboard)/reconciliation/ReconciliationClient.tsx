@@ -121,6 +121,9 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
   const [nbAmt, setNbAmt] = useState("");
   const [nbLines, setNbLines] = useState<{ poRef: string; job_id: string; job_number: string; client_name: string | null; itemName: string; projected: number; amount: number; apVendorId: string | null }[]>([]);
   const [nbSaving, setNbSaving] = useState(false);
+  const [nbSavedIds, setNbSavedIds] = useState<string[] | null>(null); // entry ids after Save → unlocks Push to QB
+  const [nbPushedId, setNbPushedId] = useState<string | null>(null);
+  const [nbPushing, setNbPushing] = useState(false);
 
   async function loadAll() {
     const [v, j, e, d, m] = await Promise.all([
@@ -410,7 +413,28 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
     loadAll();
   }
 
-  function openNewBill() { setShowBill(true); setNbVendor(""); setNbInvoice(""); setNbPo(""); setNbAmt(""); setNbLines([]); }
+  function openNewBill() { setShowBill(true); setNbVendor(""); setNbInvoice(""); setNbPo(""); setNbAmt(""); setNbLines([]); setNbSavedIds(null); setNbPushedId(null); }
+  function closeBill() { setShowBill(false); setNbSavedIds(null); setNbPushedId(null); }
+  // Guard against losing entered lines to a stray backdrop/✕ click.
+  function tryCloseBill() {
+    const dirty = !nbSavedIds && (nbLines.length > 0 || nbInvoice.trim() !== "" || nbPo.trim() !== "");
+    if (dirty && !window.confirm("Discard this bill? Your entered lines will be lost.")) return;
+    closeBill();
+  }
+  async function pushSavedBill() {
+    if (!nbSavedIds?.length) return;
+    setNbPushing(true);
+    try {
+      const res = await fetch("/api/qb/bill", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ entryIds: nbSavedIds }) });
+      const d = await res.json();
+      if (!res.ok) { alert(`Push to QB failed: ${d.error || res.status}`); return; }
+      setNbPushedId(d.billId);
+      const noCust = d.lines - d.customersLinked;
+      if (noCust > 0) alert(`Pushed — but ${noCust} line${noCust !== 1 ? "s" : ""} had no QB customer linked. Check the client is in QuickBooks.`);
+      loadAll();
+    } catch (e: any) { alert(`Push to QB failed: ${e?.message || "network error"}`); }
+    finally { setNbPushing(false); }
+  }
   function addNbLine() {
     if (!nbHit) return;
     const amount = parseAmount(nbAmt) || nbHit.projected;
@@ -429,9 +453,9 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
       vendor_invoice_number: nbInvoice.trim() || null, po_ref: l.poRef, job_id: l.job_id,
       amount: l.amount, expected_amount: l.projected, charge_type: "production", status: "matched", bill_method: vendorMethod(vId),
     }));
-    const { error } = await supabase.from("cost_entries").insert(rows as any);
+    const { data, error } = await supabase.from("cost_entries").insert(rows as any).select("id");
     setNbSaving(false);
-    if (!error) { setShowBill(false); loadAll(); }
+    if (!error) { setNbSavedIds(((data as any) || []).map((r: any) => r.id)); loadAll(); } // keep modal open → Push to QB step
   }
 
   const lbl = { fontSize: 9, fontWeight: 700 as const, letterSpacing: "0.08em", textTransform: "uppercase" as const, color: T.faint };
@@ -453,11 +477,11 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
       `}</style>
 
       {showBill && (
-        <div onClick={() => setShowBill(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 100, display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: "8vh" }}>
+        <div onClick={tryCloseBill} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 100, display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: "8vh" }}>
           <div onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 12, width: 660, maxWidth: "92vw", maxHeight: "82vh", overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.3)", fontFamily: font }}>
             <div style={{ padding: "15px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div style={{ fontSize: 16, fontWeight: 800, color: T.text }}>New Bill</div>
-              <button onClick={() => setShowBill(false)} className="bq-x" style={{ fontSize: 18 }}>×</button>
+              <button onClick={tryCloseBill} className="bq-x" style={{ fontSize: 18 }}>×</button>
             </div>
             <div style={{ padding: "16px 20px", display: "flex", gap: 12 }}>
               <div style={{ flex: 1 }}>
@@ -508,9 +532,17 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
               </div>
             )}
             <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 14 }}>
-              <button onClick={saveBill} disabled={nbSaving || !nbLines.length} style={{ background: nbLines.length ? T.green : T.surface, color: nbLines.length ? "#fff" : T.faint, border: "none", borderRadius: 6, padding: "9px 20px", fontSize: 13, fontWeight: 700, cursor: nbLines.length ? "pointer" : "default", fontFamily: font }}>{nbSaving ? "Saving…" : `Save bill · ${nbLines.length} line${nbLines.length !== 1 ? "s" : ""}`}</button>
-              <span style={{ fontSize: 13, color: T.muted }}>Total <strong className="bq-mono" style={{ fontFamily: mono, color: T.text }}>{money(nbLines.reduce((s, l) => s + l.amount, 0))}</strong></span>
-              <button onClick={() => setShowBill(false)} className="bq-ghost" style={{ marginLeft: "auto" }}>Cancel</button>
+              {!nbSavedIds ? <>
+                <button onClick={saveBill} disabled={nbSaving || !nbLines.length} style={{ background: nbLines.length ? T.green : T.surface, color: nbLines.length ? "#fff" : T.faint, border: "none", borderRadius: 6, padding: "9px 20px", fontSize: 13, fontWeight: 700, cursor: nbLines.length ? "pointer" : "default", fontFamily: font }}>{nbSaving ? "Saving…" : `Save bill · ${nbLines.length} line${nbLines.length !== 1 ? "s" : ""}`}</button>
+                <span style={{ fontSize: 13, color: T.muted }}>Total <strong className="bq-mono" style={{ fontFamily: mono, color: T.text }}>{money(nbLines.reduce((s, l) => s + l.amount, 0))}</strong></span>
+                <button onClick={tryCloseBill} className="bq-ghost" style={{ marginLeft: "auto" }}>Cancel</button>
+              </> : <>
+                <span style={{ fontSize: 13, fontWeight: 700, color: T.green }}>✓ Saved · {nbSavedIds.length} line{nbSavedIds.length !== 1 ? "s" : ""}</span>
+                {nbPushedId
+                  ? <span style={{ fontSize: 11, fontWeight: 700, color: T.green, background: T.green + "1f", padding: "4px 11px", borderRadius: 20 }}>✓ in QuickBooks #{nbPushedId}</span>
+                  : <button onClick={pushSavedBill} disabled={nbPushing} style={{ background: T.accent, color: "#fff", border: "none", borderRadius: 6, padding: "9px 20px", fontSize: 13, fontWeight: 700, cursor: nbPushing ? "default" : "pointer", fontFamily: font, opacity: nbPushing ? 0.6 : 1 }}>{nbPushing ? "Pushing…" : "Push to QB"}</button>}
+                <button onClick={closeBill} className="bq-ghost" style={{ marginLeft: "auto" }}>Done</button>
+              </>}
             </div>
           </div>
         </div>
