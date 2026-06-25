@@ -29,7 +29,7 @@ type Vendor = { id: string; name: string; kind: string; decorator_id: string | n
 type Entry = {
   id: string; vendor_id: string | null; vendor_name: string | null; vendor_invoice_number: string | null;
   po_ref: string | null; job_id: string | null; amount: number; expected_amount: number | null;
-  charge_type: string; status: string; not_job_specific: boolean; notes: string | null; created_at: string; bill_method?: string; qb_bill_id?: string | null; bill_group_id?: string | null;
+  charge_type: string; status: string; not_job_specific: boolean; notes: string | null; created_at: string; bill_method?: string; qb_bill_id?: string | null; bill_group_id?: string | null; hpd_bill_number?: string | null;
 };
 const BILL_METHODS = [
   { v: "invoice", label: "Invoice" },
@@ -116,8 +116,7 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
   // New Bill modal (QB-style entry, job-aware)
   const [showBill, setShowBill] = useState(false);
   const [nbVendor, setNbVendor] = useState("");
-  const [nbInvoice, setNbInvoice] = useState("");
-  const [nbInvoiceManual, setNbInvoiceManual] = useState(false); // user typed → stop auto-defaulting
+  const [nbBillNumber, setNbBillNumber] = useState(""); // HPD Bill Number (auto, job-number style) → QB Bill no.
   // Editable rows — add blank rows, then fill PO / invoice # / amount down each
   // column (spreadsheet-style batch entry). resolved fills in as the PO resolves.
   type NbResolved = { poRef: string; job_id: string; job_number: string; client_name: string | null; itemName: string; projected: number; apVendorId: string | null };
@@ -265,24 +264,21 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
   // (key = job::vendor, posts vs QB invoice #) OR a PO row (key = job::vendor::poRef,
   // posts vs that PO ref).
   const vendorMethod = (apVendorId: string | null) => vendors.find(v => v.id === apVendorId)?.default_bill_method || "invoice";
-  // Vendor short code (decorator short_code, else first letters of the name) for
-  // the auto default-invoice ref.
-  const vendorShortCode = (apVendorId: string | null) => {
-    const v = vendors.find(x => x.id === apVendorId);
-    const d = v?.decorator_id ? decorators.find(dd => dd.id === v.decorator_id) : null;
-    return (d?.short_code || (v?.name || "").replace(/[^A-Za-z0-9]/g, "").slice(0, 4)).toUpperCase();
-  };
-  // Default invoice # = vendor short code + creation date (e.g. "TEE-062426").
-  // Auto-fills when a vendor is set, until the user types their own.
-  useEffect(() => {
-    if (!showBill || nbInvoiceManual || !nbVendor) return;
-    const code = vendorShortCode(nbVendor);
-    if (!code) return;
+  // Next HPD Bill Number — job-number style {PREFIX}-B-YYMM-NNN, sequential per
+  // month, derived from existing entries. Prefix follows the company's job
+  // numbers (e.g. "HPD"). Computed at modal open; stamped on save → QB Bill no.
+  function computeNextBillNumber() {
+    const prefix = (jobs.find(j => j.job_number)?.job_number || "HPD-").split("-")[0] || "HPD";
     const dt = new Date();
-    const mmddyy = `${String(dt.getMonth() + 1).padStart(2, "0")}${String(dt.getDate()).padStart(2, "0")}${String(dt.getFullYear()).slice(2)}`;
-    setNbInvoice(`${code}-${mmddyy}`);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nbVendor, showBill]);
+    const yymm = `${String(dt.getFullYear()).slice(2)}${String(dt.getMonth() + 1).padStart(2, "0")}`;
+    const base = `${prefix}-B-${yymm}-`;
+    let max = 0;
+    for (const e of entries) {
+      const n = e.hpd_bill_number;
+      if (n && n.startsWith(base)) { const num = parseInt(n.slice(base.length), 10); if (num > max) max = num; }
+    }
+    return `${base}${String(max + 1).padStart(3, "0")}`;
+  }
   function openInlineBill(key: string, prefillAmt: number, apVendorId: string | null) {
     if (billFor === key) { setBillFor(null); return; }
     setBillFor(key); setBillInv(""); setBillAmt(prefillAmt > 0 ? String(prefillAmt) : ""); setBillMethod(vendorMethod(apVendorId));
@@ -387,13 +383,13 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
   // Bill history — group entries into bills (vendor + invoice #, or a save batch
   // for no-invoice/CC), newest first, filtered by the same search box.
   const bills = useMemo(() => {
-    const g: Record<string, { key: string; groupId: string | null; vendor_id: string | null; vendor_name: string | null; invoice: string | null; method?: string; lines: Entry[] }> = {};
+    const g: Record<string, { key: string; groupId: string | null; hpdNumber: string | null; vendor_id: string | null; vendor_name: string | null; invoice: string | null; method?: string; lines: Entry[] }> = {};
     for (const e of entries) {
       // Prefer the explicit bill_group_id (a bill saved as one unit); fall back to
       // vendor + invoice # for older entries that predate grouping.
       const batch = e.vendor_invoice_number || `b:${(e.created_at || "").slice(0, 16)}`;
       const key = e.bill_group_id || `${e.vendor_id}|${batch}`;
-      (g[key] = g[key] || { key, groupId: e.bill_group_id || null, vendor_id: e.vendor_id, vendor_name: e.vendor_name, invoice: e.vendor_invoice_number, method: e.bill_method, lines: [] }).lines.push(e);
+      (g[key] = g[key] || { key, groupId: e.bill_group_id || null, hpdNumber: e.hpd_bill_number || null, vendor_id: e.vendor_id, vendor_name: e.vendor_name, invoice: e.vendor_invoice_number, method: e.bill_method, lines: [] }).lines.push(e);
     }
     const arr = Object.values(g).map(b => ({
       ...b,
@@ -439,7 +435,7 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
     loadAll();
   }
 
-  function openNewBill() { setShowBill(true); setNbVendor(""); setNbInvoice(""); setNbInvoiceManual(false); setNbLines(Array.from({ length: 3 }, () => ({ id: crypto.randomUUID(), poInput: "", invoiceNumber: "", amount: "", resolved: null as NbResolved | null }))); setNbSavedIds(null); setNbPushedId(null); setNbNotified(false); setNbBillGroupId(crypto.randomUUID()); setNbAttachments([]); }
+  function openNewBill() { setShowBill(true); setNbVendor(""); setNbBillNumber(computeNextBillNumber()); setNbLines(Array.from({ length: 3 }, () => ({ id: crypto.randomUUID(), poInput: "", invoiceNumber: "", amount: "", resolved: null as NbResolved | null }))); setNbSavedIds(null); setNbPushedId(null); setNbNotified(false); setNbBillGroupId(crypto.randomUUID()); setNbAttachments([]); }
   function closeBill() { setShowBill(false); setNbSavedIds(null); setNbPushedId(null); setNbNotified(false); setNbAttachments([]); }
   async function uploadAttachments(files: FileList | File[]) {
     if (!nbBillGroupId) return;
@@ -479,7 +475,7 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
   }
   // Guard against losing entered lines to a stray backdrop/✕ click.
   function tryCloseBill() {
-    const dirty = !nbSavedIds && (nbLines.some(l => l.poInput.trim() || l.amount.trim() || l.invoiceNumber.trim()) || nbInvoiceManual);
+    const dirty = !nbSavedIds && nbLines.some(l => l.poInput.trim() || l.amount.trim() || l.invoiceNumber.trim());
     if (dirty && !window.confirm("Discard this bill? Your entered lines will be lost.")) return;
     closeBill();
   }
@@ -526,8 +522,8 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
     const vendorName = vendors.find(v => v.id === vId)?.name || null;
     const rows = valid.map(l => ({
       source: "decorator_invoice", vendor_id: vId, vendor_name: vendorName,
-      vendor_invoice_number: l.invoiceNumber.trim() || nbInvoice.trim() || null, po_ref: l.resolved!.poRef, job_id: l.resolved!.job_id,
-      amount: parseAmount(l.amount), expected_amount: l.resolved!.projected, charge_type: "production", status: "matched", bill_method: vendorMethod(vId), bill_group_id: nbBillGroupId,
+      vendor_invoice_number: l.invoiceNumber.trim() || null, po_ref: l.resolved!.poRef, job_id: l.resolved!.job_id,
+      amount: parseAmount(l.amount), expected_amount: l.resolved!.projected, charge_type: "production", status: "matched", bill_method: vendorMethod(vId), bill_group_id: nbBillGroupId, hpd_bill_number: nbBillNumber,
     }));
     const { data, error } = await supabase.from("cost_entries").insert(rows as any).select("id");
     setNbSaving(false);
@@ -568,8 +564,8 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
                 </select>
               </div>
               <div style={{ width: 240 }}>
-                <div style={lbl}>Default invoice #</div>
-                <input value={nbInvoice} onChange={e => { setNbInvoice(e.target.value); setNbInvoiceManual(true); }} style={{ ...inp, width: "100%", marginTop: 4 } as any} />
+                <div style={lbl}>HPD Bill Number <span style={{ color: T.faint, fontWeight: 400 }}>(auto → QB bill no.)</span></div>
+                <input value={nbBillNumber} readOnly style={{ ...inp, width: "100%", marginTop: 4, fontFamily: mono, background: T.surface, color: T.muted } as any} />
               </div>
             </div>
             <div style={{ padding: "4px 20px 10px" }}>
@@ -596,7 +592,7 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
                   return (
                     <div key={l.id} style={{ display: "flex", gap: 8, alignItems: "center" }}>
                       <input value={l.poInput} disabled={!!nbSavedIds} onChange={e => updateLine(l.id, { poInput: e.target.value })} placeholder="3682-F" style={{ ...inp, flex: 1.6, minWidth: 0, fontFamily: mono, padding: "6px 8px" } as any} />
-                      <input value={l.invoiceNumber} disabled={!!nbSavedIds} onChange={e => updateLine(l.id, { invoiceNumber: e.target.value })} placeholder={nbInvoice.trim() || "inv #"} style={{ ...inp, flex: 1, minWidth: 0, fontFamily: mono, padding: "6px 8px" } as any} />
+                      <input value={l.invoiceNumber} disabled={!!nbSavedIds} onChange={e => updateLine(l.id, { invoiceNumber: e.target.value })} placeholder="vendor inv #" style={{ ...inp, flex: 1, minWidth: 0, fontFamily: mono, padding: "6px 8px" } as any} />
                       <input value={l.amount} disabled={!!nbSavedIds} onChange={e => updateLine(l.id, { amount: e.target.value })} inputMode="decimal" placeholder="amount" style={{ ...inp, width: 130, flexShrink: 0, fontFamily: mono, padding: "6px 8px", color: d > 0 ? T.red : d < 0 ? T.amber : T.text } as any} />
                       <span style={{ flex: 1.5, minWidth: 0, fontSize: 11.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: mism ? T.red : T.muted }}>
                         {l.poInput.trim() === "" ? <span style={{ color: T.faint }}>—</span>
@@ -1030,7 +1026,7 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
             {filteredBills.length === 0 ? <div style={{ border: `1px solid ${T.border}`, borderRadius: 10, padding: "16px 14px", color: T.faint, fontSize: 12 }}>No bills.</div> : filteredBills.map(b => {
               const bKey = "bill:" + b.key;
               const isOpen = expanded.has(bKey);
-              const ref = b.invoice ? (b.method === "credit_card" ? `CC · ${b.invoice}` : b.invoice) : (b.method === "credit_card" ? "CC charge" : "—");
+              const ref = b.hpdNumber || (b.invoice ? (b.method === "credit_card" ? `CC · ${b.invoice}` : b.invoice) : (b.method === "credit_card" ? "CC charge" : "—"));
               return (
                 <div key={b.key} style={{ border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
                   <div className="bq-row" onClick={() => { toggle(bKey); if (b.groupId && !billAttach[b.groupId]) loadBillAttachments(b.groupId); }} style={{ display: "flex", alignItems: "center", gap: 14, padding: "11px 16px", cursor: "pointer", background: T.card }}>

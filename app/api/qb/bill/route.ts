@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
     const admin = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
     const { data: entries } = await admin.from("cost_entries")
-      .select("id, vendor_id, vendor_name, vendor_invoice_number, po_ref, job_id, amount, qb_bill_id")
+      .select("id, vendor_id, vendor_name, vendor_invoice_number, po_ref, job_id, amount, qb_bill_id, hpd_bill_number")
       .in("id", entryIds);
     if (!entries?.length) return NextResponse.json({ error: "No cost entries found" }, { status: 404 });
 
@@ -77,10 +77,9 @@ export async function POST(req: NextRequest) {
       };
     });
 
-    // Bill DocNumber: a single shared invoice # → use it; a batch of several
-    // invoices → leave blank (each line carries its own invoice # in the description).
-    const invNumbers = [...new Set(entries.map((e: any) => e.vendor_invoice_number).filter(Boolean))] as string[];
-    const docNumber = invNumbers.length === 1 ? invNumbers[0] : undefined;
+    // Bill DocNumber = the HPD Bill Number (OpsHub's own sequential id). Each line
+    // carries its vendor invoice # in the description; the bill itself is HPD's number.
+    const docNumber = entries.find((e: any) => e.hpd_bill_number)?.hpd_bill_number || undefined;
     const jobRefs = [...new Set((jobs || []).map((j: any) => j.type_meta?.qb_invoice_number || j.job_number).filter(Boolean))].join(", ");
 
     const result = await createBill({
