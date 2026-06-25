@@ -109,7 +109,7 @@ export async function POST(req: NextRequest) {
       if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { entryIds } = await req.json();
+    const { entryIds, testRecipient } = await req.json();
     if (!Array.isArray(entryIds) || !entryIds.length) {
       return NextResponse.json({ error: "Missing entryIds" }, { status: 400 });
     }
@@ -126,8 +126,10 @@ export async function POST(req: NextRequest) {
       ? await admin.from("ap_vendors").select("id, name, decorator_id").eq("id", vendorId).single()
       : { data: null };
     const vendorName = ven?.name || entries[0].vendor_name || "Vendor";
-    let vendorEmail: string | null = null;
-    if (ven?.decorator_id) {
+    // testRecipient: send the real remittance to a given address (internal preview)
+    // instead of the vendor — same PDF + copy, no vendor-email lookup, no CC.
+    let vendorEmail: string | null = (testRecipient || "").trim() || null;
+    if (!vendorEmail && ven?.decorator_id) {
       const { data: dec } = await admin.from("decorators").select("contacts_list").eq("id", ven.decorator_id).single();
       const contacts: any[] = (dec?.contacts_list as any[]) || [];
       const billing = contacts.find(c => /bill|account|ap|finance/i.test(c.role || "") && c.email);
@@ -165,7 +167,7 @@ export async function POST(req: NextRequest) {
     const { data: sent, error } = await resend.emails.send({
       from: `${b.name} <${fromEmail}>`,
       to: vendorEmail,
-      cc: ["jon@housepartydistro.com"],
+      cc: testRecipient ? undefined : ["jon@housepartydistro.com"],
       subject: `Payment processed — ${b.name}`,
       html,
       attachments: [{ filename: `${b.name.replace(/\s+/g, "-")}-Remittance-${today.replace(/\s|,/g, "")}.pdf`, content: pdf.toString("base64") }],
