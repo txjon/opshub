@@ -734,6 +734,104 @@ export async function voidInvoice(invoiceId: string): Promise<{ voided: boolean;
   return { voided: true, alreadyVoid: false, totalAmt: Number(v.TotalAmt) || 0, balance: Number(v.Balance) || 0 };
 }
 
+// ── Vendor operations (AP — for the Bill write-path) ──
+
+export async function searchVendor(name: string): Promise<any | null> {
+  const q = (name || "").trim();
+  if (!q) return null;
+  const query = encodeURIComponent(`SELECT * FROM Vendor WHERE DisplayName LIKE '${q.replace(/'/g, "\\'")}'`);
+  const data = await qbFetch(`/query?query=${query}`);
+  const vendors = data?.QueryResponse?.Vendor;
+  return vendors?.length > 0 ? vendors[0] : null;
+}
+
+export async function findVendorCandidates(name: string, limit = 10): Promise<any[]> {
+  const core = normalizeForFuzzy(name);
+  if (!core) return [];
+  const query = encodeURIComponent(`SELECT * FROM Vendor WHERE DisplayName LIKE '%${core.replace(/'/g, "\\'")}%' MAXRESULTS ${Math.max(1, Math.min(50, limit))}`);
+  const data = await qbFetch(`/query?query=${query}`);
+  return data?.QueryResponse?.Vendor || [];
+}
+
+export async function createVendor(name: string): Promise<any> {
+  const data = await qbFetch("/vendor", { method: "POST", body: { DisplayName: name } });
+  return data.Vendor;
+}
+
+// Resolve an OpsHub AP vendor to a QB Vendor. These almost always already exist
+// in QB (they show up in the bill/transaction reports), so we match exact →
+// suffix-stripped → closest fuzzy before creating. Unlike the customer path we
+// don't pop a chooser — the Bill push is manual + reviewable, and the resolved
+// qb_vendor_id is cached on ap_vendors so this only runs once per vendor.
+export async function getOrCreateVendor(name: string): Promise<any> {
+  let vendor = await searchVendor(name);
+  if (vendor) return vendor;
+  const core = normalizeForFuzzy(name);
+  if (core && core.toLowerCase() !== (name || "").trim().toLowerCase()) {
+    vendor = await searchVendor(core);
+    if (vendor) return vendor;
+  }
+  const candidates = await findVendorCandidates(name);
+  if (candidates.length > 0) return candidates[0];
+  return createVendor(name);
+}
+
+// ── Account lookup ──
+
+// Every decorator/printer bill posts to a single COGS account (confirmed: each
+// QB transaction report shows "Cost of Goods Sold" as the distribution account).
+// Resolve its ref once; callers cache it.
+export async function getCogsAccountRef(): Promise<{ id: string; name: string }> {
+  const query = encodeURIComponent("SELECT * FROM Account WHERE AccountType = 'Cost of Goods Sold' AND Active = true MAXRESULTS 10");
+  const data = await qbFetch(`/query?query=${query}`);
+  const accounts = data?.QueryResponse?.Account || [];
+  const exact = accounts.find((a: any) => String(a.Name || "").toLowerCase() === "cost of goods sold");
+  const acct = exact || accounts[0];
+  if (!acct) throw new Error("No 'Cost of Goods Sold' account found in QuickBooks");
+  return { id: String(acct.Id), name: acct.Name };
+}
+
+// ── Bill operations (AP write-path) ──
+
+export type QBBillLine = {
+  amount: number;
+  description: string;      // PO ref / item, e.g. "4143-JK Warlord Patch"
+  customerId?: string;      // QB Customer id → job-costing link (the OpsHub edge)
+};
+
+// Create a QB Bill (accounts-payable). Every line posts to the COGS account;
+// CustomerRef ties each line to the job's client for cost-by-customer reporting
+// (NotBillable — OpsHub owns client invoicing, so these costs are tracked, not
+// re-billed through QB). Returns the new Bill id + doc number + total.
+export async function createBill(params: {
+  vendorId: string;
+  accountId: string;
+  lines: QBBillLine[];
+  docNumber?: string;       // vendor invoice #
+  txnDate?: string;         // YYYY-MM-DD
+  privateNote?: string;     // memo (e.g. OpsHub job + PO refs)
+}): Promise<{ billId: string; docNumber: string | null; total: number }> {
+  const Line = params.lines.map((l) => ({
+    DetailType: "AccountBasedExpenseLineDetail",
+    Amount: Math.round(Number(l.amount || 0) * 100) / 100,
+    Description: l.description,
+    AccountBasedExpenseLineDetail: {
+      AccountRef: { value: params.accountId },
+      ...(l.customerId
+        ? { CustomerRef: { value: l.customerId }, BillableStatus: "NotBillable" }
+        : {}),
+    },
+  }));
+  const body: any = { VendorRef: { value: params.vendorId }, Line };
+  if (params.docNumber) body.DocNumber = params.docNumber;
+  if (params.txnDate) body.TxnDate = params.txnDate;
+  if (params.privateNote) body.PrivateNote = params.privateNote;
+  const data = await qbFetch("/bill", { method: "POST", body });
+  const bill = data?.Bill;
+  if (!bill?.Id) throw new Error("QB Bill creation returned no id");
+  return { billId: String(bill.Id), docNumber: bill.DocNumber || null, total: Number(bill.TotalAmt) || 0 };
+}
+
 // ── Check connection status ──
 export async function isConnected(): Promise<boolean> {
   try {
