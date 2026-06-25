@@ -63,7 +63,7 @@ const DEPT_CROSSLINKS: Partial<Record<Department, { href: string; label: string;
 };
 
 function detectDept(pathname: string): Department {
-  if (["/insights", "/reports", "/god-mode", "/integrations"].some(p => pathname.startsWith(p))) return "owner";
+  if (["/insights", "/reports", "/reconciliation", "/hours", "/god-mode", "/integrations"].some(p => pathname.startsWith(p))) return "owner";
   if (["/ecomm"].some(p => pathname.startsWith(p))) return "ecomm";
   if (["/distro", "/receiving", "/shipping", "/fulfillment"].some(p => pathname.startsWith(p))) return "distro";
   // Designers nav lives under Contacts even though the page itself
