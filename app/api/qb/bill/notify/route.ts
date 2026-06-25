@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { getPdfBranding } from "@/lib/branding";
 import { generatePDF } from "@/lib/pdf/browser";
-import { renderBrandedEmail, tenantClosing } from "@/lib/email-template";
+import { renderBrandedEmail } from "@/lib/email-template";
 import { resendForSlug } from "@/lib/resend-client";
 
 const font = "'Helvetica Neue', Arial, sans-serif";
@@ -164,7 +164,7 @@ export async function POST(req: NextRequest) {
       heading: "Payment Processed",
       greeting: `Hi ${vendorName},`,
       bodyHtml: `Payment of <strong>${fmtD(total)}</strong> has been processed for the ${invoices.length} invoice${invoices.length !== 1 ? "s" : ""} listed in the attached remittance advice.<br/><br/>Thank you for your partnership — please reach out if anything doesn't match your records.`,
-      closing: tenantClosing(b.slug, b.name),
+      closing: b.name, // AP remittance — sign with the company name, not the casual greeting
     });
 
     const fromEmail = b.fromEmailBilling || b.fromEmailProduction || b.fromEmailQuotes;
