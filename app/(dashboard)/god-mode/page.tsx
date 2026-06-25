@@ -224,9 +224,12 @@ export default async function GodModePage() {
         const marginPct = grossRev > 0 ? (grossRev - tCost) / grossRev : 0;
         const paid = (paymentsByJob[j.id] || []).filter(p => p.status === "paid").reduce((s, p) => s + p.amount, 0);
         const qbTotal = (j.type_meta as any)?.qb_total_with_tax || grossRev;
+        // AR = invoiced & unpaid. Un-invoiced jobs (intake/pending) and cancelled
+        // jobs are NOT receivables, even if they carry projected revenue.
+        const isAR = !!(j.type_meta as any)?.qb_invoice_number && j.phase !== "cancelled";
         return {
           jobId: j.id, title: j.title, phase: j.phase, createdAt: j.created_at,
-          grossRev, totalCost: tCost, marginPct, paid, outstanding: Math.max(0, qbTotal - paid),
+          grossRev, totalCost: tCost, marginPct, paid, outstanding: isAR ? Math.max(0, qbTotal - paid) : 0,
         };
       }),
       // ShipStation/fulfillment invoices as their own rows (link to the report).
@@ -536,8 +539,10 @@ export default async function GodModePage() {
     else if (daysOld <= 60) arBuckets.d60 += owed;
     else arBuckets.d90plus += owed;
   };
-  for (const j of opsActive) {
-    const rev = effectiveRevenue(j);
+  // Only invoiced, non-cancelled jobs are receivables (any phase, incl. complete).
+  const arJobs = jobs.filter(j => j.phase !== "cancelled" && (j.type_meta as any)?.qb_invoice_number);
+  for (const j of arJobs) {
+    const rev = num((j.type_meta as any)?.qb_total_with_tax) || effectiveRevenue(j);
     if (rev <= 0) continue;
     const jobPaid = (paymentsByJob[j.id] || []).filter(p => p.status === "paid").reduce((s, p) => s + (p.amount || 0), 0);
     const owed = rev - jobPaid;
