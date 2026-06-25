@@ -521,9 +521,9 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
                   const d = Math.round((l.amount - l.projected) * 100) / 100;
                   return (
                     <div key={i} className="bq-row" style={{ display: "flex", alignItems: "center", gap: 10, padding: "5px 0", fontSize: 12, borderBottom: `1px solid ${T.border}22` }}>
-                      <span className="bq-mono" style={{ width: 84, fontFamily: mono, fontWeight: 600 }}>{l.poRef}</span>
-                      <span style={{ width: 150, color: T.faint, fontSize: 11 }}>{l.job_number}</span>
-                      <span style={{ flex: 1, color: T.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{l.itemName}</span>
+                      <span className="bq-mono" title={l.poRef} style={{ width: 92, flexShrink: 0, fontFamily: mono, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{l.poRef}</span>
+                      <span style={{ width: 130, flexShrink: 0, color: T.faint, fontSize: 11, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{l.job_number}</span>
+                      <span style={{ flex: 1, minWidth: 0, color: T.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{l.itemName}</span>
                       <span className="bq-mono" style={{ fontFamily: mono, color: d > 0 ? T.red : d < 0 ? T.amber : T.text }}>{money(l.amount)}{d !== 0 && <span style={{ fontSize: 10, color: T.faint }}> ({d > 0 ? "+" : ""}{money(d)})</span>}</span>
                       <span className="bq-act"><button onClick={() => setNbLines(prev => prev.filter((_, x) => x !== i))} className="bq-x">×</button></span>
                     </div>
