@@ -596,7 +596,8 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
                 <span style={{ ...lbl, flex: 1.6 }}>PO #</span>
                 <span style={{ ...lbl, flex: 1 }}>Vendor inv #</span>
                 <span style={{ ...lbl, width: 130, flexShrink: 0 }}>Amount</span>
-                <span style={{ ...lbl, flex: 1.5 }}>Job · client · variance</span>
+                <span style={{ ...lbl, flex: 1.4 }}>Job · client</span>
+                <span style={{ ...lbl, width: 86, flexShrink: 0, textAlign: "right" }}>Variance</span>
               </div>
               <div style={{ maxHeight: "48vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 5 }}>
                 {nbLines.length === 0 && <div style={{ padding: "10px 0", fontSize: 12, color: T.faint }}>No lines — click “+ Add line” (or +5/+10), then fill each column down.</div>}
@@ -609,11 +610,12 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
                       <input value={l.poInput} disabled={!!nbSavedIds} onChange={e => updateLine(l.id, { poInput: e.target.value })} style={{ ...inp, flex: 1.6, minWidth: 0, fontFamily: mono, padding: "6px 8px" } as any} />
                       <input value={l.invoiceNumber} disabled={!!nbSavedIds} onChange={e => updateLine(l.id, { invoiceNumber: e.target.value })} style={{ ...inp, flex: 1, minWidth: 0, fontFamily: mono, padding: "6px 8px" } as any} />
                       <input value={l.amount} disabled={!!nbSavedIds} onChange={e => updateLine(l.id, { amount: e.target.value })} inputMode="decimal" style={{ ...inp, width: 130, flexShrink: 0, fontFamily: mono, padding: "6px 8px", color: d > 0 ? T.red : d < 0 ? T.amber : T.text } as any} />
-                      <span style={{ flex: 1.5, minWidth: 0, fontSize: 11.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: mism ? T.red : T.muted }}>
+                      <span style={{ flex: 1.4, minWidth: 0, fontSize: 11.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: mism ? T.red : T.muted }}>
                         {l.poInput.trim() === "" ? <span style={{ color: T.faint }}>—</span>
-                          : l.resolved ? <>{mism && "⚠ "}<strong className="bq-mono" style={{ fontFamily: mono, color: T.text }}>{l.resolved.job_number}</strong> · {l.resolved.client_name || "—"}{d !== 0 && <span style={{ color: d > 0 ? T.red : T.amber, fontWeight: 700 }}> · {d < 0 ? "−" : "+"}{money(Math.abs(d))}</span>}</>
+                          : l.resolved ? <>{mism && "⚠ "}<strong className="bq-mono" style={{ fontFamily: mono, color: T.text }}>{l.resolved.job_number}</strong> · {l.resolved.client_name || "—"}</>
                           : <span style={{ color: T.amber }}>⚠ no match</span>}
                       </span>
+                      <span className="bq-mono" style={{ width: 86, flexShrink: 0, textAlign: "right", fontSize: 11.5, fontFamily: mono, fontWeight: 700, color: d > 0 ? T.red : d < 0 ? T.amber : T.faint }}>{l.resolved && d !== 0 ? `${d < 0 ? "−" : "+"}${money(Math.abs(d))}` : ""}</span>
                       {!nbSavedIds && <button onClick={() => removeLine(l.id)} className="bq-x" style={{ width: 18, flexShrink: 0 }}>×</button>}
                     </div>
                   );
