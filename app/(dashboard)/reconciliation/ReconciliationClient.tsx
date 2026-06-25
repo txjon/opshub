@@ -476,6 +476,150 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
     await supabase.from("cost_vendor_status").delete().eq("job_id", jobId).eq("vendor_id", apVendorId);
     loadAll();
   }
+  const [queueJobId, setQueueJobId] = useState<string | null>(null); // job whose full breakdown modal is open
+
+  // Full per-job breakdown — all vendors expanded (PO lines, bill entry, mark-complete).
+  // Rendered inside the job modal so the queue list stays a clean summary.
+  function renderJobDetail(j: any) {
+    return (
+      <div>
+        {j.vendors.map((v: any) => {
+          const vKey = `${j.id}::${v.apVendorId}`;
+          const meta = STATE_META[v.state];
+          const lines = entriesFor(j.id, v.apVendorId);
+          const vLetters = new Set(v.items.map((it: any) => parsePoRef(it.poRef).letters[0]).filter(Boolean));
+          const exactByLetter: Record<string, Entry[]> = {};
+          const coveringEntries: Entry[] = [];
+          const trueOther: Entry[] = [];
+          for (const e of lines) {
+            const p = parsePoRef(e.po_ref);
+            if (p.digits && p.letters.length === 1 && vLetters.has(p.letters[0])) (exactByLetter[p.letters[0]] = exactByLetter[p.letters[0]] || []).push(e);
+            else if (p.digits && p.letters.length > 1 && p.letters.some(L => vLetters.has(L))) coveringEntries.push(e);
+            else trueOther.push(e);
+          }
+          return (
+            <div key={vKey} style={{ border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden", marginBottom: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", fontSize: 12, background: T.surface, borderBottom: `1px solid ${T.border}55` }}>
+                <span style={{ flex: 1, color: T.text, fontWeight: 700 }}>{v.name}{v.items.length > 1 ? <span style={{ color: T.faint, fontWeight: 400 }}> · {v.items.length} POs</span> : ""}</span>
+                <span style={{ fontSize: 10.5, fontWeight: 700, color: meta.color, background: meta.color + "1f", padding: "2px 9px", borderRadius: 20 }}>{meta.label}</span>
+                <span style={{ width: 150, textAlign: "right", fontFamily: mono, color: T.text }}>{money(v.billed)} <span style={{ color: T.faint }}>of {money(v.expected)}</span></span>
+                <span style={{ width: 90, textAlign: "right", fontFamily: mono, fontWeight: 700, color: v.outstanding > 0 ? T.amber : T.green }}>{v.outstanding > 0 ? money(v.outstanding) : "—"}</span>
+                <button onClick={ev => { ev.stopPropagation(); openVendorBill(vKey, v.items, lines, v.apVendorId); }} title="Log one invoice across this vendor's POs" className={`bq-ghost${billFor === vKey ? " on" : ""}`}>+ bill</button>
+              </div>
+              {billFor === vKey && (
+                <div onClick={ev => ev.stopPropagation()} style={{ background: T.amberDim, borderBottom: `1px solid ${T.border}33`, padding: "10px 14px 12px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                    <select value={billMethod} onChange={e => setBillMethod(e.target.value)} style={{ ...inp, padding: "6px 8px" } as any}>
+                      {BILL_METHODS.map(mm => <option key={mm.v} value={mm.v}>{mm.label}</option>)}
+                    </select>
+                    <input autoFocus value={billInv} onChange={e => setBillInv(e.target.value)} placeholder={billMethod === "credit_card" ? "Charge date / ref" : "Invoice # / ref (optional)"} style={{ ...inp, width: 170, padding: "6px 9px" } as any} />
+                    <span style={{ fontSize: 11, color: T.muted }}>check the POs this {billMethod === "credit_card" ? "charge" : "invoice"} covers, confirm amounts:</span>
+                  </div>
+                  {v.items.map((it: any) => {
+                    const a = alloc[it.poRef] || { on: false, amt: "" };
+                    const billedPo = lines.filter(e => (e.po_ref || "") === it.poRef).reduce((s, e) => s + Number(e.amount || 0), 0);
+                    const rem = Math.max(0, Math.round((it.expected - billedPo) * 100) / 100);
+                    return (
+                      <label key={it.poRef} style={{ display: "flex", alignItems: "center", gap: 10, padding: "3px 0", cursor: "pointer" }}>
+                        <input type="checkbox" checked={a.on} onChange={e => setAlloc(p => ({ ...p, [it.poRef]: { ...(p[it.poRef] || { amt: rem > 0 ? String(rem) : "" }), on: e.target.checked } }))} style={{ cursor: "pointer" }} />
+                        <span className="bq-mono" style={{ width: 84, fontFamily: mono, fontSize: 12, color: T.text, fontWeight: 600 }}>{it.poRef}</span>
+                        <span style={{ flex: 1, fontSize: 12, color: T.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{it.name}</span>
+                        <span style={{ width: 74, textAlign: "right", fontSize: 10.5, color: T.faint }}>{rem > 0.01 && rem < it.expected - 0.01 ? `${money(rem)} left` : ""}</span>
+                        <input value={a.amt} onChange={e => setAlloc(p => ({ ...p, [it.poRef]: { ...(p[it.poRef] || { on: true }), amt: e.target.value, on: true } }))} disabled={!a.on} inputMode="decimal" placeholder="0.00" style={{ ...inp, width: 110, padding: "5px 8px", fontFamily: mono, opacity: a.on ? 1 : 0.45 } as any} />
+                      </label>
+                    );
+                  })}
+                  <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 9, paddingTop: 9, borderTop: `1px solid ${T.border}33` }}>
+                    <button onClick={() => logVendorBill(j.id, v.apVendorId, v.items)} disabled={billSaving || !v.items.some((it: any) => alloc[it.poRef]?.on && parseAmount(alloc[it.poRef].amt) > 0)} style={{ background: v.items.some((it: any) => alloc[it.poRef]?.on && parseAmount(alloc[it.poRef].amt) > 0) ? T.green : T.surface, color: v.items.some((it: any) => alloc[it.poRef]?.on && parseAmount(alloc[it.poRef].amt) > 0) ? "#fff" : T.faint, border: "none", borderRadius: 6, padding: "7px 16px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>{billSaving ? "…" : "Log invoice"}</button>
+                    <span style={{ fontSize: 11.5, color: T.muted }}>Total <strong className="bq-mono" style={{ fontFamily: mono, color: T.text }}>{money(v.items.reduce((s: number, it: any) => s + (alloc[it.poRef]?.on ? parseAmount(alloc[it.poRef].amt) : 0), 0))}</strong></span>
+                    <button onClick={() => { setBillFor(null); setAlloc({}); }} className="bq-ghost">Cancel</button>
+                  </div>
+                </div>
+              )}
+              <div style={{ background: T.bg }}>
+                {v.items.map((it: any) => {
+                  const poKey = `${vKey}::${it.poRef}`;
+                  const myLetter = parsePoRef(it.poRef).letters[0];
+                  const poLines = exactByLetter[myLetter] || [];
+                  const billedPo = Math.round(poLines.reduce((s, e) => s + Number(e.amount || 0), 0) * 100) / 100;
+                  const isBilled = poLines.length > 0;
+                  const covering = !isBilled ? coveringEntries.find(e => parsePoRef(e.po_ref).letters.includes(myLetter)) : null;
+                  const isCovered = !!covering;
+                  const exp = it.expected;
+                  const diff = isBilled ? Math.round((billedPo - exp) * 100) / 100 : 0;
+                  const lstate = isBilled ? (inTol(billedPo, exp) ? "ok" : diff < 0 ? "under" : "over") : isCovered ? "covered" : "await";
+                  const dot = lstate === "await" ? T.border : lstate === "over" ? T.red : lstate === "under" ? T.amber : T.green;
+                  const amtColor = lstate === "over" ? T.red : lstate === "under" ? T.amber : T.green;
+                  const filled = isBilled || isCovered;
+                  return (
+                    <div key={it.poRef}>
+                      <div className="bq-row" style={{ display: "flex", alignItems: "center", gap: 12, minHeight: 38, padding: "5px 14px", borderTop: `1px solid ${T.border}22`, borderLeft: `2px solid ${filled ? dot : "transparent"}` }}>
+                        <span style={{ width: 7, height: 7, borderRadius: "50%", flexShrink: 0, background: filled ? dot : "transparent", border: filled ? "none" : `1.5px solid ${T.border}` }} />
+                        <span className="bq-mono" style={{ width: 92, fontFamily: mono, fontSize: 12, color: T.text, fontWeight: 600 }}>{it.poRef}</span>
+                        <span style={{ flex: 1, fontSize: 12.5, color: T.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{it.name}</span>
+                        <div style={{ width: 170, textAlign: "right" }}>
+                          {isBilled ? <>
+                            <div className="bq-mono" style={{ fontFamily: mono, fontSize: 12.5, color: amtColor, fontWeight: 600, lineHeight: 1.25 }}>{money(billedPo)}</div>
+                            {diff !== 0 && <div className="bq-mono" style={{ fontFamily: mono, fontSize: 9.5, color: T.faint, lineHeight: 1.25 }}>proj {money(exp)} · <span style={{ color: diff > 0 ? T.red : T.muted, fontWeight: 600 }}>{diff < 0 ? "−" : "+"}{money(Math.abs(diff))}</span></div>}
+                          </> : isCovered ? <>
+                            <div className="bq-mono" style={{ fontFamily: mono, fontSize: 12.5, color: T.muted }}>{money(exp)}</div>
+                            <div style={{ fontSize: 9.5, color: T.green, lineHeight: 1.25, fontWeight: 600 }}>covered · {refLabel(covering!)}</div>
+                          </> : <span className="bq-mono" style={{ fontFamily: mono, fontSize: 12.5, color: T.muted }}>{money(exp)}</span>}
+                        </div>
+                        <span style={{ width: 50, display: "flex", justifyContent: "flex-end" }}>
+                          <button onClick={ev => { ev.stopPropagation(); openInlineBill(poKey, Math.max(0, it.expected - billedPo) || it.expected, v.apVendorId); }} className={`bq-ghost${billFor === poKey ? " on" : ""}`}>+ bill</button>
+                        </span>
+                      </div>
+                      {poLines.map(e => (
+                        <div key={e.id} className="bq-row" style={{ display: "flex", alignItems: "center", gap: 12, height: 28, padding: "0 14px 0 30px", borderTop: `1px solid ${T.border}14` }}>
+                          <span style={{ flex: 1, fontSize: 11.5, color: T.faint, fontFamily: mono }}>{refLabel(e)}</span>
+                          <span className="bq-mono" style={{ width: 150, textAlign: "right", fontFamily: mono, fontSize: 11.5, color: T.muted }}>{money(e.amount)}</span>
+                          <span className="bq-act" style={{ width: 50, display: "flex", justifyContent: "flex-end" }}><button onClick={ev => { ev.stopPropagation(); removeEntry(e.id); }} className="bq-x">×</button></span>
+                        </div>
+                      ))}
+                      {billFor === poKey && inlineBillRow(j.id, v.apVendorId, it.poRef, it.name)}
+                    </div>
+                  );
+                })}
+                {coveringEntries.length > 0 && <div style={{ padding: "8px 14px 2px", fontSize: 8.5, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: T.green }}>Bills covering these POs</div>}
+                {coveringEntries.map(e => (
+                  <div key={e.id} className="bq-row" style={{ display: "flex", alignItems: "center", gap: 12, height: 30, padding: "0 14px", borderTop: `1px solid ${T.border}14`, borderLeft: `2px solid ${T.green}` }}>
+                    <span style={{ width: 7, height: 7, borderRadius: "50%", flexShrink: 0, background: T.green }} />
+                    <span className="bq-mono" style={{ width: 200, fontFamily: mono, fontSize: 11.5, color: T.text, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.po_ref || "—"}</span>
+                    <span style={{ flex: 1, fontSize: 11.5, color: T.faint, fontFamily: mono }}>{refLabel(e)}</span>
+                    <span className="bq-mono" style={{ width: 150, textAlign: "right", fontFamily: mono, fontSize: 12, color: T.text, fontWeight: 600 }}>{money(e.amount)}</span>
+                    <span className="bq-act" style={{ width: 50, display: "flex", justifyContent: "flex-end" }}><button onClick={ev => { ev.stopPropagation(); removeEntry(e.id); }} className="bq-x">×</button></span>
+                  </div>
+                ))}
+                {trueOther.length > 0 && <div style={{ padding: "8px 14px 2px", fontSize: 8.5, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: T.faint }}>Other bills</div>}
+                {trueOther.map(e => (
+                  <div key={e.id} className="bq-row" style={{ display: "flex", alignItems: "center", gap: 12, height: 30, padding: "0 14px", borderTop: `1px solid ${T.border}14` }}>
+                    <span style={{ width: 7, flexShrink: 0 }} />
+                    <span className="bq-mono" style={{ width: 92, fontFamily: mono, fontSize: 12, color: T.text }}>{e.po_ref || "—"}</span>
+                    <span style={{ flex: 1, fontSize: 11.5, color: T.faint, fontFamily: mono }}>{refLabel(e)}</span>
+                    <span className="bq-mono" style={{ width: 150, textAlign: "right", fontFamily: mono, fontSize: 12, color: T.text }}>{money(e.amount)}</span>
+                    <span className="bq-act" style={{ width: 50, display: "flex", justifyContent: "flex-end" }}><button onClick={ev => { ev.stopPropagation(); removeEntry(e.id); }} className="bq-x">×</button></span>
+                  </div>
+                ))}
+                <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderTop: `1px solid ${T.border}33` }}>
+                  {v.complete ? <>
+                    <span style={{ fontSize: 11.5, color: T.green, fontWeight: 700 }}>✓ Fully billed</span>
+                    <select value={v.reason || "other"} onChange={e => markComplete(j.id, v.apVendorId, e.target.value)} style={{ padding: "4px 8px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.card, color: T.text, fontSize: 11.5, fontFamily: font, outline: "none" }}>
+                      {REASONS.map(r => <option key={r.v} value={r.v}>{r.label}</option>)}
+                    </select>
+                    <button onClick={() => reopenVendor(j.id, v.apVendorId)} className="bq-ghost">Reopen</button>
+                  </> : <>
+                    <button onClick={() => markComplete(j.id, v.apVendorId, autoReason(v.billed, v.expected))} style={{ background: T.green, color: "#fff", border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>Mark fully billed</button>
+                    <span style={{ fontSize: 11, color: T.faint }}>confirm no more invoices coming{v.outstanding > 0 ? ` · clears ${money(v.outstanding)} from Open PO` : ""}</span>
+                  </>}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
 
   function openNewBill() { setShowBill(true); setNbVendor(""); setNbVendorSearch(""); setNbVendorOpen(false); setNbBillNumber(computeNextBillNumber()); setNbLines(Array.from({ length: 3 }, () => ({ id: crypto.randomUUID(), poInput: "", invoiceNumber: "", amount: "", resolved: null as NbResolved | null }))); setNbSavedIds(null); setNbPushedId(null); setNbNotified(false); setNbBillGroupId(crypto.randomUUID()); setNbAttachments([]); }
   function closeBill() { setShowBill(false); setNbSavedIds(null); setNbPushedId(null); setNbNotified(false); setNbAttachments([]); }
@@ -874,11 +1018,10 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {filteredQueue.length === 0 ? <div style={{ border: `1px solid ${T.border}`, borderRadius: 10, padding: "16px 14px", color: T.faint, fontSize: 12 }}>No jobs in this view.</div> : filteredQueue.map(j => {
-          const isOpen = expanded.has(j.id);
           return (
             <div key={j.id} style={{ border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
-              <div onClick={() => toggle(j.id)} style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 16px", cursor: "pointer", background: T.card }}>
-                <span style={{ color: T.faint, fontSize: 10, width: 10 }}>{isOpen ? "▾" : "▸"}</span>
+              <div onClick={() => setQueueJobId(j.id)} style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 16px", cursor: "pointer", background: T.card }}>
+                <span style={{ color: T.faint, fontSize: 12, width: 10 }}>›</span>
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{j.qb_invoice_number ? <span style={{ fontFamily: mono }}>{j.qb_invoice_number}</span> : j.job_number} <span style={{ color: T.muted, fontWeight: 400 }}>· {j.client_name || "—"}</span></div>
                   <div style={{ fontSize: 11, color: T.faint, textTransform: "capitalize" }}>{j.vendors.length} vendor{j.vendors.length !== 1 ? "s" : ""} · {(j.phase || "—").replace(/_/g, " ")}{j.qb_invoice_number ? <span style={{ textTransform: "none" }}> · {j.job_number}</span> : ""}</div>
@@ -895,170 +1038,6 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
                     : <span style={{ fontSize: 11, fontWeight: 700, color: T.amber, background: T.amber + "1f", padding: "3px 11px", borderRadius: 20, whiteSpace: "nowrap" }}>{money0(j.outstanding)} open</span>}
                 </div>
               </div>
-              {isOpen && (
-                <div style={{ borderTop: `1px solid ${T.border}55`, background: T.surface }}>
-                  {j.vendors.map(v => {
-                    const vKey = `${j.id}::${v.apVendorId}`;
-                    const vOpen = expanded.has(vKey);
-                    const meta = STATE_META[v.state];
-                    const lines = entriesFor(j.id, v.apVendorId);
-                    // Classify entries against this vendor's PO letters: a single-letter
-                    // entry reconciles one PO line; a multi-letter entry (e.g.
-                    // 4313ABCDEFGHIJKLMNOPQR) is ONE bill covering many POs; the rest are
-                    // vendor-level fees/other.
-                    const vLetters = new Set(v.items.map(it => parsePoRef(it.poRef).letters[0]).filter(Boolean));
-                    const exactByLetter: Record<string, Entry[]> = {};
-                    const coveringEntries: Entry[] = [];
-                    const trueOther: Entry[] = [];
-                    for (const e of lines) {
-                      const p = parsePoRef(e.po_ref);
-                      if (p.digits && p.letters.length === 1 && vLetters.has(p.letters[0])) (exactByLetter[p.letters[0]] = exactByLetter[p.letters[0]] || []).push(e);
-                      else if (p.digits && p.letters.length > 1 && p.letters.some(L => vLetters.has(L))) coveringEntries.push(e);
-                      else trueOther.push(e);
-                    }
-                    const expandable = v.items.length > 0 || lines.length > 0;
-                    return (
-                      <div key={vKey}>
-                        <div onClick={() => expandable && toggle(vKey)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 16px 9px 40px", fontSize: 12, borderBottom: `1px solid ${T.border}33`, cursor: expandable ? "pointer" : "default" }}>
-                          <span style={{ color: T.faint, fontSize: 9, width: 8 }}>{expandable ? (vOpen ? "▾" : "▸") : ""}</span>
-                          <span style={{ flex: 1, color: T.text, fontWeight: 600 }}>{v.name}{v.items.length > 1 ? <span style={{ color: T.faint, fontWeight: 400 }}> · {v.items.length} POs</span> : ""}</span>
-                          <span style={{ fontSize: 10.5, fontWeight: 700, color: meta.color, background: meta.color + "1f", padding: "2px 9px", borderRadius: 20 }}>{meta.label}</span>
-                          <span style={{ width: 150, textAlign: "right", fontFamily: mono, color: T.text }}>{money(v.billed)} <span style={{ color: T.faint }}>of {money(v.expected)}</span></span>
-                          <span style={{ width: 90, textAlign: "right", fontFamily: mono, fontWeight: 700, color: v.outstanding > 0 ? T.amber : T.green }}>{v.outstanding > 0 ? money(v.outstanding) : "—"}</span>
-                          <button onClick={ev => { ev.stopPropagation(); openVendorBill(vKey, v.items, lines, v.apVendorId); }} title="Log one invoice across this vendor's POs" className={`bq-ghost${billFor === vKey ? " on" : ""}`}>+ bill</button>
-                        </div>
-                        {billFor === vKey && (
-                          <div onClick={ev => ev.stopPropagation()} style={{ background: T.amberDim, borderBottom: `1px solid ${T.border}33`, padding: "10px 16px 12px 22px" }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-                              <select value={billMethod} onChange={e => setBillMethod(e.target.value)} style={{ ...inp, padding: "6px 8px" } as any}>
-                                {BILL_METHODS.map(mm => <option key={mm.v} value={mm.v}>{mm.label}</option>)}
-                              </select>
-                              <input autoFocus value={billInv} onChange={e => setBillInv(e.target.value)} placeholder={billMethod === "credit_card" ? "Charge date / ref" : "Invoice # / ref (optional)"} style={{ ...inp, width: 170, padding: "6px 9px" } as any} />
-                              <span style={{ fontSize: 11, color: T.muted }}>check the POs this {billMethod === "credit_card" ? "charge" : "invoice"} covers, confirm amounts:</span>
-                            </div>
-                            {v.items.map(it => {
-                              const a = alloc[it.poRef] || { on: false, amt: "" };
-                              const billedPo = lines.filter(e => (e.po_ref || "") === it.poRef).reduce((s, e) => s + Number(e.amount || 0), 0);
-                              const rem = Math.max(0, Math.round((it.expected - billedPo) * 100) / 100);
-                              return (
-                                <label key={it.poRef} style={{ display: "flex", alignItems: "center", gap: 10, padding: "3px 0", cursor: "pointer" }}>
-                                  <input type="checkbox" checked={a.on} onChange={e => setAlloc(p => ({ ...p, [it.poRef]: { ...(p[it.poRef] || { amt: rem > 0 ? String(rem) : "" }), on: e.target.checked } }))} style={{ cursor: "pointer" }} />
-                                  <span className="bq-mono" style={{ width: 84, fontFamily: mono, fontSize: 12, color: T.text, fontWeight: 600 }}>{it.poRef}</span>
-                                  <span style={{ flex: 1, fontSize: 12, color: T.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{it.name}</span>
-                                  <span style={{ width: 74, textAlign: "right", fontSize: 10.5, color: T.faint }}>{rem > 0.01 && rem < it.expected - 0.01 ? `${money(rem)} left` : ""}</span>
-                                  <input value={a.amt} onChange={e => setAlloc(p => ({ ...p, [it.poRef]: { ...(p[it.poRef] || { on: true }), amt: e.target.value, on: true } }))} disabled={!a.on} inputMode="decimal" placeholder="0.00" style={{ ...inp, width: 110, padding: "5px 8px", fontFamily: mono, opacity: a.on ? 1 : 0.45 } as any} />
-                                </label>
-                              );
-                            })}
-                            <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 9, paddingTop: 9, borderTop: `1px solid ${T.border}33` }}>
-                              <button onClick={() => logVendorBill(j.id, v.apVendorId, v.items)} disabled={billSaving || !v.items.some(it => alloc[it.poRef]?.on && parseAmount(alloc[it.poRef].amt) > 0)} style={{ background: v.items.some(it => alloc[it.poRef]?.on && parseAmount(alloc[it.poRef].amt) > 0) ? T.green : T.surface, color: v.items.some(it => alloc[it.poRef]?.on && parseAmount(alloc[it.poRef].amt) > 0) ? "#fff" : T.faint, border: "none", borderRadius: 6, padding: "7px 16px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>{billSaving ? "…" : "Log invoice"}</button>
-                              <span style={{ fontSize: 11.5, color: T.muted }}>Total <strong className="bq-mono" style={{ fontFamily: mono, color: T.text }}>{money(v.items.reduce((s, it) => s + (alloc[it.poRef]?.on ? parseAmount(alloc[it.poRef].amt) : 0), 0))}</strong></span>
-                              <button onClick={() => { setBillFor(null); setAlloc({}); }} className="bq-ghost">Cancel</button>
-                            </div>
-                          </div>
-                        )}
-                        {vOpen && (
-                          <div style={{ background: T.bg }}>
-                            {v.items.map(it => {
-                              const poKey = `${vKey}::${it.poRef}`;
-                              const myLetter = parsePoRef(it.poRef).letters[0];
-                              const poLines = exactByLetter[myLetter] || [];
-                              const billedPo = Math.round(poLines.reduce((s, e) => s + Number(e.amount || 0), 0) * 100) / 100;
-                              const isBilled = poLines.length > 0;
-                              const covering = !isBilled ? coveringEntries.find(e => parsePoRef(e.po_ref).letters.includes(myLetter)) : null;
-                              const isCovered = !!covering;
-                              const exp = it.expected;
-                              const diff = isBilled ? Math.round((billedPo - exp) * 100) / 100 : 0; // billed − projected
-                              const lstate = isBilled ? (inTol(billedPo, exp) ? "ok" : diff < 0 ? "under" : "over") : isCovered ? "covered" : "await";
-                              const dot = lstate === "await" ? T.border : lstate === "over" ? T.red : lstate === "under" ? T.amber : T.green;
-                              const amtColor = lstate === "over" ? T.red : lstate === "under" ? T.amber : T.green;
-                              const filled = isBilled || isCovered;
-                              return (
-                                <div key={it.poRef}>
-                                  <div className="bq-row" style={{ display: "flex", alignItems: "center", gap: 12, minHeight: 38, padding: "5px 16px 5px 22px", borderTop: `1px solid ${T.border}22`, borderLeft: `2px solid ${filled ? dot : "transparent"}` }}>
-                                    <span style={{ width: 7, height: 7, borderRadius: "50%", flexShrink: 0, background: filled ? dot : "transparent", border: filled ? "none" : `1.5px solid ${T.border}` }} />
-                                    <span className="bq-mono" style={{ width: 92, fontFamily: mono, fontSize: 12, color: T.text, fontWeight: 600 }}>{it.poRef}</span>
-                                    <span style={{ flex: 1, fontSize: 12.5, color: T.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{it.name}</span>
-                                    <div style={{ width: 170, textAlign: "right" }}>
-                                      {isBilled ? <>
-                                            <div className="bq-mono" style={{ fontFamily: mono, fontSize: 12.5, color: amtColor, fontWeight: 600, lineHeight: 1.25 }}>{money(billedPo)}</div>
-                                            {diff !== 0 && <div className="bq-mono" style={{ fontFamily: mono, fontSize: 9.5, color: T.faint, lineHeight: 1.25 }}>proj {money(exp)} · <span style={{ color: diff > 0 ? T.red : T.muted, fontWeight: 600 }}>{diff < 0 ? "−" : "+"}{money(Math.abs(diff))}</span></div>}
-                                          </>
-                                        : isCovered ? <>
-                                            <div className="bq-mono" style={{ fontFamily: mono, fontSize: 12.5, color: T.muted }}>{money(exp)}</div>
-                                            <div style={{ fontSize: 9.5, color: T.green, lineHeight: 1.25, fontWeight: 600 }}>covered · {refLabel(covering!)}</div>
-                                          </>
-                                        : <span className="bq-mono" style={{ fontFamily: mono, fontSize: 12.5, color: T.muted }}>{money(exp)}</span>}
-                                    </div>
-                                    <span style={{ width: 50, display: "flex", justifyContent: "flex-end" }}>
-                                      <button onClick={ev => { ev.stopPropagation(); openInlineBill(poKey, Math.max(0, it.expected - billedPo) || it.expected, v.apVendorId); }} className={`bq-ghost${billFor === poKey ? " on" : ""}`}>+ bill</button>
-                                    </span>
-                                  </div>
-                                  {poLines.map(e => (
-                                    <div key={e.id} className="bq-row" style={{ display: "flex", alignItems: "center", gap: 12, height: 28, padding: "0 16px 0 44px", borderTop: `1px solid ${T.border}14` }}>
-                                      <span style={{ flex: 1, fontSize: 11.5, color: T.faint, fontFamily: mono }}>{refLabel(e)}</span>
-                                      <span className="bq-mono" style={{ width: 150, textAlign: "right", fontFamily: mono, fontSize: 11.5, color: T.muted }}>{money(e.amount)}</span>
-                                      <span className="bq-act" style={{ width: 50, display: "flex", justifyContent: "flex-end" }}>
-                                        <button onClick={ev => { ev.stopPropagation(); removeEntry(e.id); }} className="bq-x">×</button>
-                                      </span>
-                                    </div>
-                                  ))}
-                                  {billFor === poKey && inlineBillRow(j.id, v.apVendorId, it.poRef, it.name)}
-                                </div>
-                              );
-                            })}
-                            {coveringEntries.length > 0 && (
-                              <div style={{ padding: "8px 16px 2px 22px", fontSize: 8.5, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: T.green }}>Bills covering these POs</div>
-                            )}
-                            {coveringEntries.map(e => (
-                              <div key={e.id} className="bq-row" style={{ display: "flex", alignItems: "center", gap: 12, height: 30, padding: "0 16px 0 22px", borderTop: `1px solid ${T.border}14`, borderLeft: `2px solid ${T.green}` }}>
-                                <span style={{ width: 7, height: 7, borderRadius: "50%", flexShrink: 0, background: T.green }} />
-                                <span className="bq-mono" style={{ width: 200, fontFamily: mono, fontSize: 11.5, color: T.text, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.po_ref || "—"}</span>
-                                <span style={{ flex: 1, fontSize: 11.5, color: T.faint, fontFamily: mono }}>{refLabel(e)}</span>
-                                <span className="bq-mono" style={{ width: 150, textAlign: "right", fontFamily: mono, fontSize: 12, color: T.text, fontWeight: 600 }}>{money(e.amount)}</span>
-                                <span className="bq-act" style={{ width: 50, display: "flex", justifyContent: "flex-end" }}>
-                                  <button onClick={ev => { ev.stopPropagation(); removeEntry(e.id); }} className="bq-x">×</button>
-                                </span>
-                              </div>
-                            ))}
-                            {trueOther.length > 0 && (
-                              <div style={{ padding: "8px 16px 2px 22px", fontSize: 8.5, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: T.faint }}>Other bills</div>
-                            )}
-                            {trueOther.map(e => (
-                              <div key={e.id} className="bq-row" style={{ display: "flex", alignItems: "center", gap: 12, height: 30, padding: "0 16px 0 22px", borderTop: `1px solid ${T.border}14` }}>
-                                <span style={{ width: 7, flexShrink: 0 }} />
-                                <span className="bq-mono" style={{ width: 92, fontFamily: mono, fontSize: 12, color: T.text }}>{e.po_ref || "—"}</span>
-                                <span style={{ flex: 1, fontSize: 11.5, color: T.faint, fontFamily: mono }}>{refLabel(e)}</span>
-                                <span className="bq-mono" style={{ width: 150, textAlign: "right", fontFamily: mono, fontSize: 12, color: T.text }}>{money(e.amount)}</span>
-                                <span className="bq-act" style={{ width: 50, display: "flex", justifyContent: "flex-end" }}>
-                                  <button onClick={ev => { ev.stopPropagation(); removeEntry(e.id); }} className="bq-x">×</button>
-                                </span>
-                              </div>
-                            ))}
-                            {/* mark fully billed / reopen */}
-                            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 16px 10px 22px", borderTop: `1px solid ${T.border}33` }}>
-                              {v.complete ? (
-                                <>
-                                  <span style={{ fontSize: 11.5, color: T.green, fontWeight: 700 }}>✓ Fully billed</span>
-                                  <select value={v.reason || "other"} onChange={e => markComplete(j.id, v.apVendorId, e.target.value)} style={{ padding: "4px 8px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.card, color: T.text, fontSize: 11.5, fontFamily: font, outline: "none" }}>
-                                    {REASONS.map(r => <option key={r.v} value={r.v}>{r.label}</option>)}
-                                  </select>
-                                  <button onClick={() => reopenVendor(j.id, v.apVendorId)} className="bq-ghost">Reopen</button>
-                                </>
-                              ) : (
-                                <>
-                                  <button onClick={() => markComplete(j.id, v.apVendorId, autoReason(v.billed, v.expected))} style={{ background: T.green, color: "#fff", border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>Mark fully billed</button>
-                                  <span style={{ fontSize: 11, color: T.faint }}>confirm no more invoices coming{v.outstanding > 0 ? ` · clears ${money(v.outstanding)} from Open PO` : ""}</span>
-                                </>
-                              )}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
             </div>
           );
         })}
@@ -1081,6 +1060,30 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
         </div>
       )}
       </>)}
+
+      {/* Full per-job breakdown modal — all vendors expanded */}
+      {queueJobId && (() => {
+        const mj = queue.jobs.find(x => x.id === queueJobId);
+        if (!mj) return null;
+        return (
+          <div onClick={() => setQueueJobId(null)} style={{ position: "fixed", inset: 0, background: "rgba(16,18,32,0.55)", backdropFilter: "blur(3px)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 24px", overflowY: "auto" }}>
+            <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 16, maxWidth: 880, width: "100%", boxShadow: "0 24px 70px rgba(16,18,32,0.4)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "16px 18px", borderBottom: `1px solid ${T.border}` }}>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontSize: 15, fontWeight: 800, color: T.text }}>{mj.qb_invoice_number ? <span style={{ fontFamily: mono }}>{mj.qb_invoice_number}</span> : mj.job_number} <span style={{ color: T.muted, fontWeight: 400 }}>· {mj.client_name || "—"}</span></div>
+                  <div style={{ fontSize: 11.5, color: T.faint, textTransform: "capitalize" }}>{mj.vendors.length} vendor{mj.vendors.length !== 1 ? "s" : ""} · {(mj.phase || "—").replace(/_/g, " ")}{mj.qb_invoice_number ? <span style={{ textTransform: "none" }}> · {mj.job_number}</span> : ""}</div>
+                </div>
+                <div style={{ textAlign: "right", fontFamily: mono, fontSize: 13, color: T.text }}>{money0(mj.billed)} <span style={{ color: T.faint }}>of {money0(mj.expected)}</span></div>
+                {mj.costComplete
+                  ? <span style={{ fontSize: 11, fontWeight: 700, color: T.green, background: T.green + "1f", padding: "3px 11px", borderRadius: 20, whiteSpace: "nowrap" }}>Cost-complete</span>
+                  : <span style={{ fontSize: 11, fontWeight: 700, color: T.amber, background: T.amber + "1f", padding: "3px 11px", borderRadius: 20, whiteSpace: "nowrap" }}>{money0(mj.outstanding)} open</span>}
+                <button onClick={() => setQueueJobId(null)} style={{ background: "transparent", border: "none", color: T.faint, fontSize: 22, cursor: "pointer", lineHeight: 1, padding: "0 4px" }}>×</button>
+              </div>
+              <div style={{ padding: "16px 18px" }}>{renderJobDetail(mj)}</div>
+            </div>
+          </div>
+        );
+      })()}
 
       {view === "history" && (
         <div>
