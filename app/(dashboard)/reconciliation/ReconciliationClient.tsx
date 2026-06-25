@@ -29,7 +29,7 @@ type Vendor = { id: string; name: string; kind: string; decorator_id: string | n
 type Entry = {
   id: string; vendor_id: string | null; vendor_name: string | null; vendor_invoice_number: string | null;
   po_ref: string | null; job_id: string | null; amount: number; expected_amount: number | null;
-  charge_type: string; status: string; not_job_specific: boolean; notes: string | null; created_at: string; bill_method?: string; qb_bill_id?: string | null;
+  charge_type: string; status: string; not_job_specific: boolean; notes: string | null; created_at: string; bill_method?: string; qb_bill_id?: string | null; bill_group_id?: string | null;
 };
 const BILL_METHODS = [
   { v: "invoice", label: "Invoice" },
@@ -121,6 +121,9 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
   const [nbAmt, setNbAmt] = useState("");
   const [nbLines, setNbLines] = useState<{ poRef: string; job_id: string; job_number: string; client_name: string | null; itemName: string; projected: number; amount: number; apVendorId: string | null; invoiceNumber: string }[]>([]);
   const [nbLineInv, setNbLineInv] = useState(""); // per-line vendor invoice # (falls back to the top default field)
+  const [nbBillGroupId, setNbBillGroupId] = useState("");      // groups a bill's lines + attachments
+  const [nbAttachments, setNbAttachments] = useState<any[]>([]);
+  const [nbUploading, setNbUploading] = useState(false);
   const [nbSaving, setNbSaving] = useState(false);
   const [nbSavedIds, setNbSavedIds] = useState<string[] | null>(null); // entry ids after Save → unlocks Push to QB
   const [nbPushedId, setNbPushedId] = useState<string | null>(null);
@@ -366,11 +369,13 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
   // Bill history — group entries into bills (vendor + invoice #, or a save batch
   // for no-invoice/CC), newest first, filtered by the same search box.
   const bills = useMemo(() => {
-    const g: Record<string, { key: string; vendor_id: string | null; vendor_name: string | null; invoice: string | null; method?: string; lines: Entry[] }> = {};
+    const g: Record<string, { key: string; groupId: string | null; vendor_id: string | null; vendor_name: string | null; invoice: string | null; method?: string; lines: Entry[] }> = {};
     for (const e of entries) {
+      // Prefer the explicit bill_group_id (a bill saved as one unit); fall back to
+      // vendor + invoice # for older entries that predate grouping.
       const batch = e.vendor_invoice_number || `b:${(e.created_at || "").slice(0, 16)}`;
-      const key = `${e.vendor_id}|${batch}`;
-      (g[key] = g[key] || { key, vendor_id: e.vendor_id, vendor_name: e.vendor_name, invoice: e.vendor_invoice_number, method: e.bill_method, lines: [] }).lines.push(e);
+      const key = e.bill_group_id || `${e.vendor_id}|${batch}`;
+      (g[key] = g[key] || { key, groupId: e.bill_group_id || null, vendor_id: e.vendor_id, vendor_name: e.vendor_name, invoice: e.vendor_invoice_number, method: e.bill_method, lines: [] }).lines.push(e);
     }
     const arr = Object.values(g).map(b => ({
       ...b,
@@ -416,8 +421,31 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
     loadAll();
   }
 
-  function openNewBill() { setShowBill(true); setNbVendor(""); setNbInvoice(""); setNbPo(""); setNbAmt(""); setNbLines([]); setNbSavedIds(null); setNbPushedId(null); setNbNotified(false); }
-  function closeBill() { setShowBill(false); setNbSavedIds(null); setNbPushedId(null); setNbNotified(false); }
+  function openNewBill() { setShowBill(true); setNbVendor(""); setNbInvoice(""); setNbPo(""); setNbAmt(""); setNbLines([]); setNbSavedIds(null); setNbPushedId(null); setNbNotified(false); setNbBillGroupId(crypto.randomUUID()); setNbAttachments([]); }
+  function closeBill() { setShowBill(false); setNbSavedIds(null); setNbPushedId(null); setNbNotified(false); setNbAttachments([]); }
+  async function uploadAttachments(files: FileList | File[]) {
+    if (!nbBillGroupId) return;
+    setNbUploading(true);
+    for (const file of Array.from(files)) {
+      const fd = new FormData(); fd.append("file", file); fd.append("billGroupId", nbBillGroupId);
+      const res = await fetch("/api/bill-attachment", { method: "POST", body: fd });
+      const d = await res.json();
+      if (res.ok && d.attachment) setNbAttachments(prev => [...prev, d.attachment]);
+      else alert(`Upload failed: ${d.error || res.status}`);
+    }
+    setNbUploading(false);
+  }
+  async function removeAttachment(id: string) {
+    await fetch(`/api/bill-attachment?id=${id}`, { method: "DELETE" });
+    setNbAttachments(prev => prev.filter(a => a.id !== id));
+  }
+  // Bill History attachments, loaded per bill_group_id when a bill is expanded.
+  const [billAttach, setBillAttach] = useState<Record<string, any[]>>({});
+  async function loadBillAttachments(groupId: string) {
+    const res = await fetch(`/api/bill-attachment?billGroupId=${groupId}`);
+    const d = await res.json();
+    if (res.ok) setBillAttach(prev => ({ ...prev, [groupId]: d.attachments || [] }));
+  }
   // Email the vendor a branded "payment processed" remittance (PDF attached), CC jon@.
   async function notifyVendor() {
     if (!nbSavedIds?.length) return;
@@ -468,7 +496,7 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
     const rows = nbLines.map(l => ({
       source: "decorator_invoice", vendor_id: vId, vendor_name: vendorName,
       vendor_invoice_number: l.invoiceNumber.trim() || nbInvoice.trim() || null, po_ref: l.poRef, job_id: l.job_id,
-      amount: l.amount, expected_amount: l.projected, charge_type: "production", status: "matched", bill_method: vendorMethod(vId),
+      amount: l.amount, expected_amount: l.projected, charge_type: "production", status: "matched", bill_method: vendorMethod(vId), bill_group_id: nbBillGroupId,
     }));
     const { data, error } = await supabase.from("cost_entries").insert(rows as any).select("id");
     setNbSaving(false);
@@ -550,6 +578,25 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
                 })}
               </div>
             )}
+            <div style={{ padding: "10px 20px 4px", borderTop: `1px solid ${T.border}` }}>
+              <div style={lbl}>Vendor invoice files <span style={{ color: T.faint, fontWeight: 400 }}>(stored in OpsHub)</span></div>
+              <div onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); if (e.dataTransfer.files.length) uploadAttachments(e.dataTransfer.files); }}
+                onClick={() => document.getElementById("nb-file-input")?.click()}
+                style={{ marginTop: 6, border: `1px dashed ${T.border}`, borderRadius: 8, padding: "12px", textAlign: "center", fontSize: 12, color: T.faint, cursor: "pointer", background: T.surface }}>
+                {nbUploading ? "Uploading…" : "Drag invoice PDFs here, or click to choose"}
+                <input id="nb-file-input" type="file" multiple accept="application/pdf,image/*" style={{ display: "none" }} onChange={e => { if (e.target.files?.length) uploadAttachments(e.target.files); (e.target as HTMLInputElement).value = ""; }} />
+              </div>
+              {nbAttachments.length > 0 && (
+                <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
+                  {nbAttachments.map(a => (
+                    <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
+                      <a href={a.url} target="_blank" rel="noopener noreferrer" style={{ color: T.accent, flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textDecoration: "none" }}>📎 {a.file_name}</a>
+                      <button onClick={() => removeAttachment(a.id)} className="bq-x">×</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
             <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 14 }}>
               {!nbSavedIds ? <>
                 <button onClick={saveBill} disabled={nbSaving || !nbLines.length} style={{ background: nbLines.length ? T.green : T.surface, color: nbLines.length ? "#fff" : T.faint, border: "none", borderRadius: 6, padding: "9px 20px", fontSize: 13, fontWeight: 700, cursor: nbLines.length ? "pointer" : "default", fontFamily: font }}>{nbSaving ? "Saving…" : `Save bill · ${nbLines.length} line${nbLines.length !== 1 ? "s" : ""}`}</button>
@@ -953,10 +1000,11 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
               const ref = b.invoice ? (b.method === "credit_card" ? `CC · ${b.invoice}` : b.invoice) : (b.method === "credit_card" ? "CC charge" : "—");
               return (
                 <div key={b.key} style={{ border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
-                  <div className="bq-row" onClick={() => toggle(bKey)} style={{ display: "flex", alignItems: "center", gap: 14, padding: "11px 16px", cursor: "pointer", background: T.card }}>
+                  <div className="bq-row" onClick={() => { toggle(bKey); if (b.groupId && !billAttach[b.groupId]) loadBillAttachments(b.groupId); }} style={{ display: "flex", alignItems: "center", gap: 14, padding: "11px 16px", cursor: "pointer", background: T.card }}>
                     <span style={{ color: T.faint, fontSize: 10, width: 10 }}>{isOpen ? "▾" : "▸"}</span>
                     <span style={{ width: 170, fontWeight: 700, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{b.vendor_name || "—"}</span>
                     <span className="bq-mono" style={{ flex: 1, fontFamily: mono, fontSize: 12, color: T.muted }}>{ref}</span>
+                    {b.groupId && (billAttach[b.groupId]?.length ?? 0) > 0 && <span title={`${billAttach[b.groupId!].length} invoice file(s)`} style={{ fontSize: 11, color: T.muted }}>📎 {billAttach[b.groupId].length}</span>}
                     <span style={{ fontSize: 11, color: T.faint }}>{b.lines.length} line{b.lines.length !== 1 ? "s" : ""}</span>
                     <span style={{ fontSize: 11, color: T.faint, width: 80, textAlign: "right" }}>{(b.date || "").slice(0, 10)}</span>
                     {(() => {
@@ -971,6 +1019,13 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
                   </div>
                   {isOpen && (
                     <div style={{ borderTop: `1px solid ${T.border}55`, background: T.surface }}>
+                      {b.groupId && (billAttach[b.groupId]?.length ?? 0) > 0 && (
+                        <div style={{ padding: "8px 16px 8px 40px", borderBottom: `1px solid ${T.border}22`, display: "flex", flexWrap: "wrap", gap: 12 }}>
+                          {billAttach[b.groupId].map((a: any) => (
+                            <a key={a.id} href={a.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11.5, color: T.accent, textDecoration: "none", whiteSpace: "nowrap" }}>📎 {a.file_name}</a>
+                          ))}
+                        </div>
+                      )}
                       {b.lines.map(e => {
                         const jb = e.job_id ? jobById[e.job_id] : null;
                         return (
