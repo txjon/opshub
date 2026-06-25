@@ -579,7 +579,7 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
                 </div>
               </div>
               <div style={{ width: 190 }}>
-                <div style={lbl}>HPD Bill Number <span style={{ color: T.faint, fontWeight: 400 }}>(auto → QB bill no.)</span></div>
+                <div style={lbl}>HPD Bill Number</div>
                 <input value={nbBillNumber} readOnly style={{ ...inp, width: "100%", marginTop: 4, fontFamily: mono, background: T.surface, color: T.muted } as any} />
               </div>
             </div>
