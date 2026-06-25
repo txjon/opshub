@@ -125,6 +125,8 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
   const [nbSavedIds, setNbSavedIds] = useState<string[] | null>(null); // entry ids after Save → unlocks Push to QB
   const [nbPushedId, setNbPushedId] = useState<string | null>(null);
   const [nbPushing, setNbPushing] = useState(false);
+  const [nbNotifying, setNbNotifying] = useState(false);
+  const [nbNotified, setNbNotified] = useState(false);
 
   async function loadAll() {
     const [v, j, e, d, m] = await Promise.all([
@@ -414,8 +416,21 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
     loadAll();
   }
 
-  function openNewBill() { setShowBill(true); setNbVendor(""); setNbInvoice(""); setNbPo(""); setNbAmt(""); setNbLines([]); setNbSavedIds(null); setNbPushedId(null); }
-  function closeBill() { setShowBill(false); setNbSavedIds(null); setNbPushedId(null); }
+  function openNewBill() { setShowBill(true); setNbVendor(""); setNbInvoice(""); setNbPo(""); setNbAmt(""); setNbLines([]); setNbSavedIds(null); setNbPushedId(null); setNbNotified(false); }
+  function closeBill() { setShowBill(false); setNbSavedIds(null); setNbPushedId(null); setNbNotified(false); }
+  // Email the vendor a branded "payment processed" remittance (PDF attached), CC jon@.
+  async function notifyVendor() {
+    if (!nbSavedIds?.length) return;
+    setNbNotifying(true);
+    try {
+      const res = await fetch("/api/qb/bill/notify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ entryIds: nbSavedIds }) });
+      const d = await res.json();
+      if (!res.ok) { alert(`Notify failed: ${d.error || res.status}`); return; }
+      setNbNotified(true);
+      alert(`Remittance emailed to ${d.sentTo} — ${d.invoices} invoice${d.invoices !== 1 ? "s" : ""}, ${money(d.total)}. You're CC'd.`);
+    } catch (e: any) { alert(`Notify failed: ${e?.message || "network error"}`); }
+    finally { setNbNotifying(false); }
+  }
   // Guard against losing entered lines to a stray backdrop/✕ click.
   function tryCloseBill() {
     const dirty = !nbSavedIds && (nbLines.length > 0 || nbInvoice.trim() !== "" || nbPo.trim() !== "");
@@ -545,6 +560,9 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
                 {nbPushedId
                   ? <span style={{ fontSize: 11, fontWeight: 700, color: T.green, background: T.green + "1f", padding: "4px 11px", borderRadius: 20 }}>✓ in QuickBooks #{nbPushedId}</span>
                   : <button onClick={pushSavedBill} disabled={nbPushing} style={{ background: T.accent, color: "#fff", border: "none", borderRadius: 6, padding: "9px 20px", fontSize: 13, fontWeight: 700, cursor: nbPushing ? "default" : "pointer", fontFamily: font, opacity: nbPushing ? 0.6 : 1 }}>{nbPushing ? "Pushing…" : "Push to QB"}</button>}
+                {nbPushedId && (nbNotified
+                  ? <span style={{ fontSize: 11, fontWeight: 700, color: T.green, background: T.green + "1f", padding: "4px 11px", borderRadius: 20 }}>✓ Vendor notified</span>
+                  : <button onClick={notifyVendor} disabled={nbNotifying} style={{ background: T.surface, color: T.text, border: `1px solid ${T.border}`, borderRadius: 6, padding: "9px 16px", fontSize: 13, fontWeight: 700, cursor: nbNotifying ? "default" : "pointer", fontFamily: font, opacity: nbNotifying ? 0.6 : 1 }}>{nbNotifying ? "Sending…" : "Notify vendor"}</button>)}
                 <button onClick={closeBill} className="bq-ghost" style={{ marginLeft: "auto" }}>Done</button>
               </>}
             </div>
