@@ -12,6 +12,7 @@ import { T, font, mono } from "@/lib/theme";
 import { buildPoRefIndex, resolvePoRef, type JobLite } from "@/lib/po-ref-match";
 import { buildPrintersMap, calcCostProduct } from "@/lib/pricing";
 import { computeBillingQueue } from "@/lib/billing-queue";
+import { VarianceView } from "./VarianceView";
 
 const supabase = createClient();
 
@@ -84,6 +85,7 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
   const [jobs, setJobs] = useState<JobLite[]>([]);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [decorators, setDecorators] = useState<any[]>([]);
+  const [jobItems, setJobItems] = useState<any[]>([]); // items (blanks_order_cost) for the Variances tab
   const [jobsRaw, setJobsRaw] = useState<Record<string, any>>({});
   const [marks, setMarks] = useState<{ job_id: string; vendor_id: string; reason: string | null }[]>([]);
   const [loading, setLoading] = useState(true);
@@ -105,7 +107,7 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
   const [showForm, setShowForm] = useState(false);
   const [showByVendor, setShowByVendor] = useState(false);
   const [search, setSearch] = useState("");
-  const [view, setView] = useState<"queue" | "history">("queue");
+  const [view, setView] = useState<"queue" | "history" | "variances">("queue");
   // inline bill entry on a vendor row
   const [billFor, setBillFor] = useState<string | null>(null);
   const [billInv, setBillInv] = useState("");
@@ -133,12 +135,13 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
   const [nbNotified, setNbNotified] = useState(false);
 
   async function loadAll() {
-    const [v, j, e, d, m] = await Promise.all([
+    const [v, j, e, d, m, itm] = await Promise.all([
       supabase.from("ap_vendors").select("id, name, kind, decorator_id, match_keys, default_bill_method").eq("active", true).order("name"),
       supabase.from("jobs").select("id, job_number, phase, type_meta, client_id, clients(name), costing_data, costing_summary").eq("company_id", companyId).order("created_at", { ascending: false }),
       supabase.from("cost_entries").select("*").order("created_at", { ascending: false }),
       supabase.from("decorators").select("id, name, short_code, pricing_data, capabilities, contacts_list"),
       supabase.from("cost_vendor_status").select("job_id, vendor_id, reason"),
+      supabase.from("items").select("job_id, blanks_order_cost, blanks_order_number"),
     ]);
     setMarks((m.data as any) || []);
     setVendors((v.data as any) || []);
@@ -155,6 +158,7 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
     const jobIdSet = new Set(jrows.map((x: any) => x.id));
     setEntries((((e.data as any) || []) as any[]).filter(en => !en.job_id || jobIdSet.has(en.job_id)));
     setDecorators((d.data as any) || []);
+    setJobItems((((itm.data as any) || []) as any[]).filter(it => jobIdSet.has(it.job_id))); // for blank variance
     setLoading(false);
   }
   useEffect(() => { loadAll(); }, []);
@@ -713,7 +717,7 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <h1 style={{ fontSize: 20, fontWeight: 800, color: T.text, margin: 0 }}>Cost Reconciliation</h1>
           <div style={{ display: "flex", gap: 3, background: T.surface, borderRadius: 8, padding: 3 }}>
-            {([["queue", "Billing Queue"], ["history", "Bill History"]] as const).map(([k, label]) => (
+            {([["queue", "Billing Queue"], ["history", "Bill History"], ["variances", "Variances"]] as const).map(([k, label]) => (
               <button key={k} onClick={() => setView(k)} style={{ background: view === k ? T.card : "transparent", color: view === k ? T.text : T.muted, border: "none", borderRadius: 6, padding: "5px 13px", fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: font, boxShadow: view === k ? "0 1px 2px rgba(0,0,0,0.08)" : "none" }}>{label}</button>
             ))}
           </div>
@@ -1141,6 +1145,9 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
             })}
           </div>
         </div>
+      )}
+      {view === "variances" && (
+        <VarianceView queue={queue} jobsRaw={jobsRaw} items={jobItems} printers={printers} />
       )}
     </div>
   );
