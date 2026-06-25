@@ -3,6 +3,9 @@ import { createClient } from "@/lib/supabase/server";
 import { GodModeClient, type ClientStat, type DecoratorStat, type CashRow, type CategoryStat } from "@/components/GodModeClient";
 import { effectiveRevenue, effectiveCost } from "@/lib/revenue";
 import { poSentToItem, isItemInProduction } from "@/lib/item-status";
+import { buildPrintersMap } from "@/lib/pricing";
+import { computeBillingQueue } from "@/lib/billing-queue";
+import { computeVarianceSummary } from "@/lib/variance";
 
 // Owner-only page. Email-gated (distinct from role=owner so multi-owner
 // setups don't auto-expose Jon's financial view).
@@ -24,16 +27,19 @@ export default async function GodModePage() {
     clientsRes,
     proofFilesRes,
     ssReportsRes,
+    apVendorsRes,
+    costEntriesRes,
+    costMarksRes,
   ] = await Promise.all([
     supabase.from("jobs")
-      .select("id, title, phase, client_id, payment_terms, target_ship_date, costing_summary, costing_data, type_meta, phase_timestamps, created_at, quote_approved, quote_approved_at, is_inventory")
+      .select("id, job_number, title, phase, client_id, clients(name), company_id, payment_terms, target_ship_date, costing_summary, costing_data, type_meta, phase_timestamps, created_at, quote_approved, quote_approved_at, is_inventory")
       .order("created_at", { ascending: false }),
     supabase.from("items")
-      .select("id, job_id, name, pipeline_stage, pipeline_timestamps, sell_per_unit, cost_per_unit, cost_per_unit_all_in, garment_type, ship_qtys, buy_sheet_lines(qty_ordered), decorator_assignments(decorator_id)")
+      .select("id, job_id, name, pipeline_stage, pipeline_timestamps, sell_per_unit, cost_per_unit, cost_per_unit_all_in, garment_type, ship_qtys, blanks_order_cost, blanks_order_number, buy_sheet_lines(qty_ordered), decorator_assignments(decorator_id)")
       .order("sort_order"),
     supabase.from("payment_records")
       .select("id, job_id, type, amount, status, due_date, paid_date, created_at"),
-    supabase.from("decorators").select("id, name, short_code"),
+    supabase.from("decorators").select("id, name, short_code, pricing_data, capabilities"),
     supabase.from("clients").select("id, name, default_terms"),
     supabase.from("item_files")
       .select("item_id, stage, approval, created_at")
@@ -44,6 +50,10 @@ export default async function GodModePage() {
     // fulfillment fees show as real profit, pure pass-through nets to zero.
     supabase.from("shipstation_reports")
       .select("id, client_id, report_type, postage_mode, period_label, totals, postage_totals, qb_invoice_number, qb_total_with_tax, qb_tax_amount, paid_at, paid_amount, sent_at, created_at"),
+    // For the Cost-vs-Plan tile (decorator-bill variance via the billing queue).
+    supabase.from("ap_vendors").select("id, name, kind, decorator_id, match_keys").eq("active", true),
+    supabase.from("cost_entries").select("job_id, vendor_id, amount, po_ref, not_job_specific"),
+    supabase.from("cost_vendor_status").select("job_id, vendor_id, reason"),
   ]);
 
   const jobs = jobsRes.data || [];
@@ -52,6 +62,13 @@ export default async function GodModePage() {
   const decorators = decoratorsRes.data || [];
   const clients = clientsRes.data || [];
   const proofFiles = proofFilesRes.data || [];
+
+  // ── Cost-vs-Plan variance (decorator bills + blanks vs projection) ──
+  // Same engine as the /reconciliation Variances tab — shared lib/variance.
+  const vxPrinters = buildPrintersMap(decorators);
+  const vxQueue = computeBillingQueue({ jobs, printers: vxPrinters, apVendors: (apVendorsRes.data as any) || [], entries: (costEntriesRes.data as any) || [], marks: (costMarksRes.data as any) || [] });
+  const vxJobsRaw = Object.fromEntries(jobs.map((j: any) => [j.id, j]));
+  const costVariance = computeVarianceSummary({ queue: vxQueue, jobsRaw: vxJobsRaw, items, printers: vxPrinters }).netVar;
   // Only reports that became a real invoice (QB invoice # or emailed to the
   // client) count as revenue — unsent drafts don't.
   const ssReports: any[] = (ssReportsRes.data || []).filter((r: any) => r.qb_invoice_number || r.sent_at);
@@ -631,6 +648,7 @@ export default async function GodModePage() {
   return (
     <GodModeClient
       totalExpectedInflow={totalExpectedInflow}
+      costVariance={costVariance}
       activeClientCount={clientStats.length}
       activeProjectCount={active.length}
       clientStats={clientStats}
