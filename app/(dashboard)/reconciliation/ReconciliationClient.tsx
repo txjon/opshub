@@ -495,7 +495,7 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
 
       {showBill && (
         <div onClick={tryCloseBill} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 100, display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: "8vh" }}>
-          <div onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 12, width: 660, maxWidth: "92vw", maxHeight: "82vh", overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.3)", fontFamily: font }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 12, width: 880, maxWidth: "94vw", maxHeight: "86vh", overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.3)", fontFamily: font }}>
             <div style={{ padding: "15px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div style={{ fontSize: 16, fontWeight: 800, color: T.text }}>New Bill</div>
               <button onClick={tryCloseBill} className="bq-x" style={{ fontSize: 18 }}>×</button>
