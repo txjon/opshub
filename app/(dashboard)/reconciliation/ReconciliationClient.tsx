@@ -552,8 +552,8 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
               <div style={{ fontSize: 16, fontWeight: 800, color: T.text }}>New Bill</div>
               <button onClick={tryCloseBill} className="bq-x" style={{ fontSize: 18 }}>×</button>
             </div>
-            <div style={{ padding: "16px 20px", display: "flex", gap: 12 }}>
-              <div style={{ flex: 1 }}>
+            <div style={{ padding: "16px 20px", display: "flex", gap: 12, justifyContent: "space-between" }}>
+              <div style={{ width: 300 }}>
                 <div style={lbl}>Vendor</div>
                 <div style={{ position: "relative", marginTop: 4 }}>
                   <input
@@ -578,7 +578,7 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
                   })()}
                 </div>
               </div>
-              <div style={{ width: 240 }}>
+              <div style={{ width: 190 }}>
                 <div style={lbl}>HPD Bill Number <span style={{ color: T.faint, fontWeight: 400 }}>(auto → QB bill no.)</span></div>
                 <input value={nbBillNumber} readOnly style={{ ...inp, width: "100%", marginTop: 4, fontFamily: mono, background: T.surface, color: T.muted } as any} />
               </div>
