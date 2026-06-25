@@ -109,7 +109,7 @@ export async function POST(req: NextRequest) {
       if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { entryIds, testRecipient } = await req.json();
+    const { entryIds, testRecipient, recipientEmail } = await req.json();
     if (!Array.isArray(entryIds) || !entryIds.length) {
       return NextResponse.json({ error: "Missing entryIds" }, { status: 400 });
     }
@@ -126,9 +126,9 @@ export async function POST(req: NextRequest) {
       ? await admin.from("ap_vendors").select("id, name, decorator_id").eq("id", vendorId).single()
       : { data: null };
     const vendorName = ven?.name || entries[0].vendor_name || "Vendor";
-    // testRecipient: send the real remittance to a given address (internal preview)
-    // instead of the vendor — same PDF + copy, no vendor-email lookup, no CC.
-    let vendorEmail: string | null = (testRecipient || "").trim() || null;
+    // recipientEmail: a specific vendor contact chosen in the UI picker.
+    // testRecipient: internal preview (no CC). Either overrides the auto-resolve.
+    let vendorEmail: string | null = (testRecipient || recipientEmail || "").trim() || null;
     if (!vendorEmail && ven?.decorator_id) {
       const { data: dec } = await admin.from("decorators").select("contacts_list").eq("id", ven.decorator_id).single();
       const contacts: any[] = (dec?.contacts_list as any[]) || [];

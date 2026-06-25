@@ -130,7 +130,6 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
   const [nbSavedIds, setNbSavedIds] = useState<string[] | null>(null); // entry ids after Save → unlocks Push to QB
   const [nbPushedId, setNbPushedId] = useState<string | null>(null);
   const [nbPushing, setNbPushing] = useState(false);
-  const [nbNotifying, setNbNotifying] = useState(false);
   const [nbNotified, setNbNotified] = useState(false);
 
   async function loadAll() {
@@ -262,17 +261,37 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
     }
   }
   // Send the vendor remittance for a logged bill, from Bill History.
-  const [notifyingBill, setNotifyingBill] = useState<string | null>(null);
-  async function notifyBill(bKey: string, entryIds: string[]) {
-    if (!window.confirm("Email this vendor a 'payment processed' remittance? Only send if the bill has actually been paid.")) return;
-    setNotifyingBill(bKey);
+  // Remittance recipient picker — shared by the modal + Bill History.
+  const [notifyFor, setNotifyFor] = useState<{ entryIds: string[]; vendorName: string; contacts: any[]; chosen: string; source: "modal" | "history" } | null>(null);
+  const [notifySending, setNotifySending] = useState(false);
+  function vendorContacts(vendorId: string | null) {
+    const v = vendors.find(x => x.id === vendorId);
+    const d = v?.decorator_id ? decorators.find(dd => dd.id === v.decorator_id) : null;
+    return (((d?.contacts_list as any[]) || [])).filter(c => c?.email);
+  }
+  function autoPickEmail(contacts: any[]) {
+    const roleName = /bill|account|finance|payable|remit|\bap\b/i;
+    const emailLocal = /^(bill|account|finance|ap|payable|remit|invoice)/i;
+    const m = contacts.find(c => roleName.test(c.role || "") || roleName.test(c.name || "") || emailLocal.test(String(c.email).split("@")[0]));
+    return (m || contacts[0])?.email || "";
+  }
+  function openNotify(entryIds: string[], vendorId: string | null, vendorName: string, source: "modal" | "history") {
+    const contacts = vendorContacts(vendorId);
+    if (!contacts.length) { alert(`No email on file for ${vendorName}. Add a contact with an email on the decorator record, then notify.`); return; }
+    setNotifyFor({ entryIds, vendorName, contacts, chosen: autoPickEmail(contacts), source });
+  }
+  async function sendNotify() {
+    if (!notifyFor) return;
+    setNotifySending(true);
     try {
-      const res = await fetch("/api/qb/bill/notify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ entryIds }) });
+      const res = await fetch("/api/qb/bill/notify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ entryIds: notifyFor.entryIds, recipientEmail: notifyFor.chosen }) });
       const d = await res.json();
       if (!res.ok) { alert(`Notify failed: ${d.error || res.status}`); return; }
       alert(`Remittance emailed to ${d.sentTo} — ${d.invoices} invoice${d.invoices !== 1 ? "s" : ""}, ${money(d.total)}. You're CC'd.`);
+      if (notifyFor.source === "modal") setNbNotified(true);
+      setNotifyFor(null);
     } catch (e: any) { alert(`Notify failed: ${e?.message || "network error"}`); }
-    finally { setNotifyingBill(null); }
+    finally { setNotifySending(false); }
   }
 
   // Inline bill entry: "+ bill" reveals invoice # + total + Log — on a vendor row
@@ -475,18 +494,10 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
     const d = await res.json();
     if (res.ok) setBillAttach(prev => ({ ...prev, [groupId]: d.attachments || [] }));
   }
-  // Email the vendor a branded "payment processed" remittance (PDF attached), CC jon@.
-  async function notifyVendor() {
+  // Open the remittance recipient picker for the just-saved bill.
+  function notifyVendor() {
     if (!nbSavedIds?.length) return;
-    setNbNotifying(true);
-    try {
-      const res = await fetch("/api/qb/bill/notify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ entryIds: nbSavedIds }) });
-      const d = await res.json();
-      if (!res.ok) { alert(`Notify failed: ${d.error || res.status}`); return; }
-      setNbNotified(true);
-      alert(`Remittance emailed to ${d.sentTo} — ${d.invoices} invoice${d.invoices !== 1 ? "s" : ""}, ${money(d.total)}. You're CC'd.`);
-    } catch (e: any) { alert(`Notify failed: ${e?.message || "network error"}`); }
-    finally { setNbNotifying(false); }
+    openNotify(nbSavedIds, nbVendor, vendors.find(v => v.id === nbVendor)?.name || "Vendor", "modal");
   }
   // Guard against losing entered lines to a stray backdrop/✕ click.
   function tryCloseBill() {
@@ -558,6 +569,22 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
         .bq-x:hover { background: ${T.redDim}; color: ${T.red}; }
       `}</style>
 
+      {notifyFor && (
+        <div onClick={() => !notifySending && setNotifyFor(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 130, display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: "16vh" }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 12, width: 460, maxWidth: "92vw", padding: "18px 20px", boxShadow: "0 20px 60px rgba(0,0,0,0.3)", fontFamily: font }}>
+            <div style={{ fontSize: 15, fontWeight: 800, color: T.text }}>Send remittance — {notifyFor.vendorName}</div>
+            <div style={{ fontSize: 12, color: T.muted, margin: "4px 0 14px" }}>A branded “payment processed” email + PDF, CC’d to you. Only send if the bill has been paid.</div>
+            <div style={lbl}>Send to</div>
+            <select value={notifyFor.chosen} onChange={e => setNotifyFor({ ...notifyFor, chosen: e.target.value })} style={{ ...inp, width: "100%", marginTop: 4 } as any}>
+              {notifyFor.contacts.map((c: any) => <option key={c.email} value={c.email}>{c.name}{c.role ? ` · ${c.role}` : ""} — {c.email}</option>)}
+            </select>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 18 }}>
+              <button onClick={sendNotify} disabled={notifySending} style={{ background: T.green, color: "#fff", border: "none", borderRadius: 6, padding: "9px 18px", fontSize: 13, fontWeight: 700, cursor: notifySending ? "default" : "pointer", fontFamily: font, opacity: notifySending ? 0.6 : 1 }}>{notifySending ? "Sending…" : "Send remittance"}</button>
+              <button onClick={() => setNotifyFor(null)} disabled={notifySending} className="bq-ghost" style={{ marginLeft: "auto" }}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
       {showBill && (
         <div onClick={tryCloseBill} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 100, display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: "8vh" }}>
           <div onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 12, width: 880, maxWidth: "94vw", maxHeight: "92vh", overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.3)", fontFamily: font }}>
@@ -668,7 +695,7 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
                   : <button onClick={pushSavedBill} disabled={nbPushing} style={{ background: T.accent, color: "#fff", border: "none", borderRadius: 6, padding: "9px 20px", fontSize: 13, fontWeight: 700, cursor: nbPushing ? "default" : "pointer", fontFamily: font, opacity: nbPushing ? 0.6 : 1 }}>{nbPushing ? "Pushing…" : "Push to QB"}</button>}
                 {nbPushedId && (nbNotified
                   ? <span style={{ fontSize: 11, fontWeight: 700, color: T.green, background: T.green + "1f", padding: "4px 11px", borderRadius: 20 }}>✓ Vendor notified</span>
-                  : <button onClick={notifyVendor} disabled={nbNotifying} style={{ background: T.surface, color: T.text, border: `1px solid ${T.border}`, borderRadius: 6, padding: "9px 16px", fontSize: 13, fontWeight: 700, cursor: nbNotifying ? "default" : "pointer", fontFamily: font, opacity: nbNotifying ? 0.6 : 1 }}>{nbNotifying ? "Sending…" : "Notify vendor"}</button>)}
+                  : <button onClick={notifyVendor} style={{ background: T.surface, color: T.text, border: `1px solid ${T.border}`, borderRadius: 6, padding: "9px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: font }}>Notify vendor</button>)}
                 <button onClick={closeBill} className="bq-ghost" style={{ marginLeft: "auto" }}>Done</button>
               </>}
             </div>
@@ -1070,12 +1097,11 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
                       const pushed = b.lines.find(e => e.qb_bill_id)?.qb_bill_id;
                       const ids = b.lines.map(e => e.id);
                       const busy = pushingBill === bKey;
-                      const notifying = notifyingBill === bKey;
                       return <>
                         {pushed
                           ? <span title={`QuickBooks Bill #${pushed}`} style={{ fontSize: 10.5, fontWeight: 700, color: T.green, background: T.green + "1f", padding: "3px 9px", borderRadius: 20, whiteSpace: "nowrap" }}>✓ in QB</span>
                           : <button onClick={ev => { ev.stopPropagation(); if (!busy) pushBillToQb(bKey, ids); }} disabled={busy} className="bq-ghost" style={{ whiteSpace: "nowrap" }}>{busy ? "Pushing…" : "Push to QB"}</button>}
-                        <button onClick={ev => { ev.stopPropagation(); if (!notifying) notifyBill(bKey, ids); }} disabled={notifying} className="bq-ghost" style={{ whiteSpace: "nowrap" }}>{notifying ? "Sending…" : "Notify"}</button>
+                        <button onClick={ev => { ev.stopPropagation(); openNotify(ids, b.vendor_id, b.vendor_name || "Vendor", "history"); }} className="bq-ghost" style={{ whiteSpace: "nowrap" }}>Notify</button>
                       </>;
                     })()}
                     <span className="bq-mono" style={{ width: 110, textAlign: "right", fontFamily: mono, fontSize: 13, fontWeight: 700, color: T.text }}>{money(b.total)}</span>
