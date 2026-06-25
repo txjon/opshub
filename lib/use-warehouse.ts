@@ -28,6 +28,9 @@ export type WarehouseItem = {
   ship_date: string | null;
   // Per-item route override (migration 076). Null = use job default.
   shipping_route: string | null;
+  // Local-pickup flag (migration 106). When true the item is grouped into a
+  // single per-vendor pickup block on Receiving instead of by tracking #.
+  pickup_ready: boolean;
   received_at_hpd: boolean;
   received_at_hpd_at: string | null;
   // Outbound HPD → client forward (ship_through). Null = received but not yet
@@ -207,6 +210,7 @@ export function useWarehouse() {
             client_eta: it.client_eta || null,
             ship_date: ts.shipped || null,
             shipping_route: it.shipping_route || null,
+            pickup_ready: it.pickup_ready || false,
             received_at_hpd: it.received_at_hpd || false, received_at_hpd_at: it.received_at_hpd_at,
             forwarded_at: it.forwarded_at || null, forward_tracking: it.forward_tracking || null,
             webstore_entered_at: it.webstore_entered_at || null,

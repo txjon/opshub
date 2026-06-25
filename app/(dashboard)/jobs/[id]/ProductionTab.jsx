@@ -18,6 +18,18 @@ export function ProductionTab({ items, onUpdateItem, onRecalcPhase, project }) {
   const pendingSaves = useRef({});
   const card = { background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" };
 
+  // Auto-detect local pickup from the PO ship method (set per vendor in POTab,
+  // keyed by printVendor; item.decorator is the resolved decorator name —
+  // usually the same). Best-effort: the checkbox is always manually toggleable.
+  const poShipMethods = project?.type_meta?.po_ship_methods || {};
+  const isPickupVendor = (it) => {
+    const m = (poShipMethods[it.decorator] || "").toLowerCase();
+    return m === "pick up" || m.includes("pickup") || m.includes("pick up");
+  };
+  // pickup_ready is local-only until Mark Shipped persists it (and the column is
+  // NOT NULL, so we never route it through updateField's value||null coercion).
+  const setPickup = (itemId, val) => setLocalFields(p => ({ ...p, [itemId]: { ...p[itemId], pickup_ready: val } }));
+
   // Init only new items — don't overwrite existing local edits
   useEffect(() => {
     setLocalFields(prev => {
@@ -31,6 +43,8 @@ export function ProductionTab({ items, onUpdateItem, onRecalcPhase, project }) {
             ship_qtys: it.ship_qtys || {},
             client_eta: it.client_eta || "",
             client_eta_note: it.client_eta_note || "",
+            // Pre-check for pickup vendors (PO method "Pick Up"); user can override.
+            pickup_ready: it.pickup_ready || isPickupVendor(it),
           };
           changed = true;
         }
@@ -81,9 +95,12 @@ export function ProductionTab({ items, onUpdateItem, onRecalcPhase, project }) {
     const userInputs = f.ship_qtys || {};
     const completeShipQtys = { ...orderedQtys, ...userInputs };
     const hasAnyShipped = Object.values(completeShipQtys).some(q => (q || 0) > 0);
+    const pickup = !!f.pickup_ready;
 
     await supabase.from("items").update({
-      ship_tracking: f.ship_tracking || null,
+      // A pickup replaces tracking — they group by vendor on Receiving, not by #.
+      ship_tracking: pickup ? null : (f.ship_tracking || null),
+      pickup_ready: pickup,
       ship_notes: f.ship_notes || null,
       ship_qtys: hasAnyShipped ? completeShipQtys : null,
       pipeline_stage: "shipped",
@@ -92,7 +109,12 @@ export function ProductionTab({ items, onUpdateItem, onRecalcPhase, project }) {
       received_qtys: null,
     }).eq("id", itemId);
     if (item) {
-      logJobActivity(item.job_id, `${item.name} shipped from decorator${f.ship_tracking ? " — tracking: " + f.ship_tracking : ""}`);
+      logJobActivity(item.job_id, `${item.name} ${pickup ? `ready for pickup at ${item.decorator || "vendor"}` : "shipped from decorator" + (f.ship_tracking ? " — tracking: " + f.ship_tracking : "")}`);
+      // Notify Goose/Dante — the route only emails on a vendor's 0→1 transition
+      // (one email per pickup cycle, no spam from same-day marks).
+      if (pickup) {
+        fetch("/api/email/pickup-ready", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId }) }).catch(() => {});
+      }
       notifyTeam(`${item.name} shipped from decorator — incoming to warehouse`, "production", item.job_id, "job");
       if (item.decorator_assignment_id) {
         await supabase.from("decorator_assignments").update({ pipeline_stage: "shipped" }).eq("id", item.decorator_assignment_id);
@@ -229,9 +251,14 @@ export function ProductionTab({ items, onUpdateItem, onRecalcPhase, project }) {
               <div style={{ padding: "10px 14px" }}>
                 <div style={{ background: T.surface, borderRadius: 8, padding: "10px 12px" }}>
                   <div style={{ fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>Shipping from Decorator</div>
-                  <div style={{ marginBottom: 8 }}>
-                    <label style={{ fontSize: 10, color: T.faint, marginBottom: 3, display: "block" }}>Tracking #</label>
-                    <input style={{ ...ic, fontFamily: mono }} value={f.ship_tracking || ""} placeholder="Enter tracking number"
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, cursor: "pointer", background: f.pickup_ready ? T.greenDim : "transparent", border: `1px solid ${f.pickup_ready ? T.green : T.border}`, borderRadius: 6, padding: "7px 10px" }}>
+                    <input type="checkbox" checked={!!f.pickup_ready} onChange={e => setPickup(item.id, e.target.checked)} style={{ cursor: "pointer" }} />
+                    <span style={{ fontSize: 12, color: f.pickup_ready ? T.green : T.text, fontWeight: f.pickup_ready ? 700 : 500 }}>Ready for pickup{item.decorator ? ` at ${item.decorator}` : ""}</span>
+                    {isPickupVendor(item) && <span style={{ fontSize: 9.5, color: T.faint, marginLeft: "auto" }}>PO: Pick Up</span>}
+                  </label>
+                  <div style={{ marginBottom: 8, opacity: f.pickup_ready ? 0.4 : 1 }}>
+                    <label style={{ fontSize: 10, color: T.faint, marginBottom: 3, display: "block" }}>Tracking #{f.pickup_ready ? " (n/a — pickup)" : ""}</label>
+                    <input style={{ ...ic, fontFamily: mono }} value={f.ship_tracking || ""} placeholder="Enter tracking number" disabled={!!f.pickup_ready}
                       onChange={e => updateField(item.id, "ship_tracking", e.target.value)} />
                   </div>
                   {item.sizes?.length > 0 && (
