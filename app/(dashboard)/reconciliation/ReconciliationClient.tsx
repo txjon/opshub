@@ -261,6 +261,19 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
       setPushingBill(null);
     }
   }
+  // Send the vendor remittance for a logged bill, from Bill History.
+  const [notifyingBill, setNotifyingBill] = useState<string | null>(null);
+  async function notifyBill(bKey: string, entryIds: string[]) {
+    if (!window.confirm("Email this vendor a 'payment processed' remittance? Only send if the bill has actually been paid.")) return;
+    setNotifyingBill(bKey);
+    try {
+      const res = await fetch("/api/qb/bill/notify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ entryIds }) });
+      const d = await res.json();
+      if (!res.ok) { alert(`Notify failed: ${d.error || res.status}`); return; }
+      alert(`Remittance emailed to ${d.sentTo} — ${d.invoices} invoice${d.invoices !== 1 ? "s" : ""}, ${money(d.total)}. You're CC'd.`);
+    } catch (e: any) { alert(`Notify failed: ${e?.message || "network error"}`); }
+    finally { setNotifyingBill(null); }
+  }
 
   // Inline bill entry: "+ bill" reveals invoice # + total + Log — on a vendor row
   // (key = job::vendor, posts vs QB invoice #) OR a PO row (key = job::vendor::poRef,
@@ -1057,9 +1070,13 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
                       const pushed = b.lines.find(e => e.qb_bill_id)?.qb_bill_id;
                       const ids = b.lines.map(e => e.id);
                       const busy = pushingBill === bKey;
-                      return pushed
-                        ? <span title={`QuickBooks Bill #${pushed}`} style={{ fontSize: 10.5, fontWeight: 700, color: T.green, background: T.green + "1f", padding: "3px 9px", borderRadius: 20, whiteSpace: "nowrap" }}>✓ in QB</span>
-                        : <button onClick={ev => { ev.stopPropagation(); if (!busy) pushBillToQb(bKey, ids); }} disabled={busy} className="bq-ghost" style={{ whiteSpace: "nowrap" }}>{busy ? "Pushing…" : "Push to QB"}</button>;
+                      const notifying = notifyingBill === bKey;
+                      return <>
+                        {pushed
+                          ? <span title={`QuickBooks Bill #${pushed}`} style={{ fontSize: 10.5, fontWeight: 700, color: T.green, background: T.green + "1f", padding: "3px 9px", borderRadius: 20, whiteSpace: "nowrap" }}>✓ in QB</span>
+                          : <button onClick={ev => { ev.stopPropagation(); if (!busy) pushBillToQb(bKey, ids); }} disabled={busy} className="bq-ghost" style={{ whiteSpace: "nowrap" }}>{busy ? "Pushing…" : "Push to QB"}</button>}
+                        <button onClick={ev => { ev.stopPropagation(); if (!notifying) notifyBill(bKey, ids); }} disabled={notifying} className="bq-ghost" style={{ whiteSpace: "nowrap" }}>{notifying ? "Sending…" : "Notify"}</button>
+                      </>;
                     })()}
                     <span className="bq-mono" style={{ width: 110, textAlign: "right", fontFamily: mono, fontSize: 13, fontWeight: 700, color: T.text }}>{money(b.total)}</span>
                   </div>
