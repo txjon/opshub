@@ -117,6 +117,7 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
   const [showBill, setShowBill] = useState(false);
   const [nbVendor, setNbVendor] = useState("");
   const [nbInvoice, setNbInvoice] = useState("");
+  const [nbInvoiceManual, setNbInvoiceManual] = useState(false); // user typed → stop auto-defaulting
   const [nbPo, setNbPo] = useState("");
   const [nbAmt, setNbAmt] = useState("");
   const [nbLines, setNbLines] = useState<{ poRef: string; job_id: string; job_number: string; client_name: string | null; itemName: string; projected: number; amount: number; apVendorId: string | null; invoiceNumber: string }[]>([]);
@@ -264,6 +265,24 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
   // (key = job::vendor, posts vs QB invoice #) OR a PO row (key = job::vendor::poRef,
   // posts vs that PO ref).
   const vendorMethod = (apVendorId: string | null) => vendors.find(v => v.id === apVendorId)?.default_bill_method || "invoice";
+  // Vendor short code (decorator short_code, else first letters of the name) for
+  // the auto default-invoice ref.
+  const vendorShortCode = (apVendorId: string | null) => {
+    const v = vendors.find(x => x.id === apVendorId);
+    const d = v?.decorator_id ? decorators.find(dd => dd.id === v.decorator_id) : null;
+    return (d?.short_code || (v?.name || "").replace(/[^A-Za-z0-9]/g, "").slice(0, 4)).toUpperCase();
+  };
+  // Default invoice # = vendor short code + creation date (e.g. "TEE-062426").
+  // Auto-fills when a vendor is set, until the user types their own.
+  useEffect(() => {
+    if (!showBill || nbInvoiceManual || !nbVendor) return;
+    const code = vendorShortCode(nbVendor);
+    if (!code) return;
+    const dt = new Date();
+    const mmddyy = `${String(dt.getMonth() + 1).padStart(2, "0")}${String(dt.getDate()).padStart(2, "0")}${String(dt.getFullYear()).slice(2)}`;
+    setNbInvoice(`${code}-${mmddyy}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nbVendor, showBill]);
   function openInlineBill(key: string, prefillAmt: number, apVendorId: string | null) {
     if (billFor === key) { setBillFor(null); return; }
     setBillFor(key); setBillInv(""); setBillAmt(prefillAmt > 0 ? String(prefillAmt) : ""); setBillMethod(vendorMethod(apVendorId));
@@ -421,7 +440,7 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
     loadAll();
   }
 
-  function openNewBill() { setShowBill(true); setNbVendor(""); setNbInvoice(""); setNbPo(""); setNbAmt(""); setNbLines([]); setNbSavedIds(null); setNbPushedId(null); setNbNotified(false); setNbBillGroupId(crypto.randomUUID()); setNbAttachments([]); }
+  function openNewBill() { setShowBill(true); setNbVendor(""); setNbInvoice(""); setNbInvoiceManual(false); setNbPo(""); setNbAmt(""); setNbLines([]); setNbSavedIds(null); setNbPushedId(null); setNbNotified(false); setNbBillGroupId(crypto.randomUUID()); setNbAttachments([]); }
   function closeBill() { setShowBill(false); setNbSavedIds(null); setNbPushedId(null); setNbNotified(false); setNbAttachments([]); }
   async function uploadAttachments(files: FileList | File[]) {
     if (!nbBillGroupId) return;
@@ -538,7 +557,7 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
               </div>
               <div style={{ width: 200 }}>
                 <div style={lbl}>Default invoice # <span style={{ color: T.faint, fontWeight: 400 }}>(optional · per-line below overrides)</span></div>
-                <input value={nbInvoice} onChange={e => setNbInvoice(e.target.value)} style={{ ...inp, width: "100%", marginTop: 4 } as any} />
+                <input value={nbInvoice} onChange={e => { setNbInvoice(e.target.value); setNbInvoiceManual(true); }} style={{ ...inp, width: "100%", marginTop: 4 } as any} />
               </div>
             </div>
             <div style={{ padding: "0 20px 10px" }}>
