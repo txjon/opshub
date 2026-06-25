@@ -1066,9 +1066,9 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
         const mj = queue.jobs.find(x => x.id === queueJobId);
         if (!mj) return null;
         return (
-          <div onClick={() => setQueueJobId(null)} style={{ position: "fixed", inset: 0, background: "rgba(16,18,32,0.55)", backdropFilter: "blur(3px)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 24px", overflowY: "auto" }}>
-            <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 16, maxWidth: 880, width: "100%", boxShadow: "0 24px 70px rgba(16,18,32,0.4)" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "16px 18px", borderBottom: `1px solid ${T.border}` }}>
+          <div onClick={() => setQueueJobId(null)} style={{ position: "fixed", inset: 0, background: "rgba(16,18,32,0.55)", backdropFilter: "blur(3px)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+            <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 16, width: "min(860px, 94vw)", height: "min(840px, 90vh)", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 24px 70px rgba(16,18,32,0.4)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "16px 18px", borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div style={{ fontSize: 15, fontWeight: 800, color: T.text }}>{mj.qb_invoice_number ? <span style={{ fontFamily: mono }}>{mj.qb_invoice_number}</span> : mj.job_number} <span style={{ color: T.muted, fontWeight: 400 }}>· {mj.client_name || "—"}</span></div>
                   <div style={{ fontSize: 11.5, color: T.faint, textTransform: "capitalize" }}>{mj.vendors.length} vendor{mj.vendors.length !== 1 ? "s" : ""} · {(mj.phase || "—").replace(/_/g, " ")}{mj.qb_invoice_number ? <span style={{ textTransform: "none" }}> · {mj.job_number}</span> : ""}</div>
@@ -1079,7 +1079,7 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
                   : <span style={{ fontSize: 11, fontWeight: 700, color: T.amber, background: T.amber + "1f", padding: "3px 11px", borderRadius: 20, whiteSpace: "nowrap" }}>{money0(mj.outstanding)} open</span>}
                 <button onClick={() => setQueueJobId(null)} style={{ background: "transparent", border: "none", color: T.faint, fontSize: 22, cursor: "pointer", lineHeight: 1, padding: "0 4px" }}>×</button>
               </div>
-              <div style={{ padding: "16px 18px" }}>{renderJobDetail(mj)}</div>
+              <div style={{ padding: "16px 18px", flex: 1, overflowY: "auto" }}>{renderJobDetail(mj)}</div>
             </div>
           </div>
         );
