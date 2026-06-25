@@ -137,7 +137,7 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
       supabase.from("ap_vendors").select("id, name, kind, decorator_id, match_keys, default_bill_method").eq("active", true).order("name"),
       supabase.from("jobs").select("id, job_number, phase, type_meta, client_id, clients(name), costing_data, costing_summary").eq("company_id", companyId).order("created_at", { ascending: false }),
       supabase.from("cost_entries").select("*").order("created_at", { ascending: false }),
-      supabase.from("decorators").select("id, name, short_code, pricing_data, capabilities"),
+      supabase.from("decorators").select("id, name, short_code, pricing_data, capabilities, contacts_list"),
       supabase.from("cost_vendor_status").select("job_id, vendor_id, reason"),
     ]);
     setMarks((m.data as any) || []);
