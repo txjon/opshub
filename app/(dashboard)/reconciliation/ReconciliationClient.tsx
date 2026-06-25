@@ -116,6 +116,8 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
   // New Bill modal (QB-style entry, job-aware)
   const [showBill, setShowBill] = useState(false);
   const [nbVendor, setNbVendor] = useState("");
+  const [nbVendorSearch, setNbVendorSearch] = useState(""); // vendor typeahead
+  const [nbVendorOpen, setNbVendorOpen] = useState(false);
   const [nbBillNumber, setNbBillNumber] = useState(""); // HPD Bill Number (auto, job-number style) → QB Bill no.
   // Editable rows — add blank rows, then fill PO / invoice # / amount down each
   // column (spreadsheet-style batch entry). resolved fills in as the PO resolves.
@@ -435,7 +437,7 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
     loadAll();
   }
 
-  function openNewBill() { setShowBill(true); setNbVendor(""); setNbBillNumber(computeNextBillNumber()); setNbLines(Array.from({ length: 3 }, () => ({ id: crypto.randomUUID(), poInput: "", invoiceNumber: "", amount: "", resolved: null as NbResolved | null }))); setNbSavedIds(null); setNbPushedId(null); setNbNotified(false); setNbBillGroupId(crypto.randomUUID()); setNbAttachments([]); }
+  function openNewBill() { setShowBill(true); setNbVendor(""); setNbVendorSearch(""); setNbVendorOpen(false); setNbBillNumber(computeNextBillNumber()); setNbLines(Array.from({ length: 3 }, () => ({ id: crypto.randomUUID(), poInput: "", invoiceNumber: "", amount: "", resolved: null as NbResolved | null }))); setNbSavedIds(null); setNbPushedId(null); setNbNotified(false); setNbBillGroupId(crypto.randomUUID()); setNbAttachments([]); }
   function closeBill() { setShowBill(false); setNbSavedIds(null); setNbPushedId(null); setNbNotified(false); setNbAttachments([]); }
   async function uploadAttachments(files: FileList | File[]) {
     if (!nbBillGroupId) return;
@@ -497,27 +499,22 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
     setNbLines(prev => [...prev, ...Array.from({ length: n }, () => ({ id: crypto.randomUUID(), poInput: "", invoiceNumber: "", amount: "", resolved: null as NbResolved | null }))]);
   }
   function updateLine(id: string, patch: Partial<{ poInput: string; invoiceNumber: string; amount: string }>) {
-    let inferVendor: string | null = null;
     setNbLines(prev => prev.map(l => {
       if (l.id !== id) return l;
       const next = { ...l, ...patch };
       if ("poInput" in patch) {
         const r = resolveNbPo(next.poInput);
         next.resolved = r ? { poRef: r.poRef, job_id: r.job_id, job_number: r.job_number, client_name: r.client_name, itemName: r.itemName, projected: r.projected, apVendorId: r.apVendorId } : null;
-        if (next.resolved && !parseAmount(next.amount)) next.amount = String(next.resolved.projected); // prefill amount from projection
-        if (next.resolved?.apVendorId) inferVendor = next.resolved.apVendorId;
       }
-      return next;
+      return next; // amount is manual (entered from the invoice); variance computes only once a value is in
     }));
-    if (inferVendor && !nbVendor) setNbVendor(inferVendor); // infer vendor from first resolved line
   }
   function removeLine(id: string) { setNbLines(prev => prev.filter(l => l.id !== id)); }
   const nbValidLines = () => nbLines.filter(l => l.resolved && parseAmount(l.amount) > 0);
   async function saveBill() {
     const valid = nbValidLines();
-    if (!valid.length) return;
-    const vId = nbVendor || valid[0].resolved!.apVendorId;
-    if (!vId) return;
+    if (!valid.length || !nbVendor) return; // vendor must be chosen intentionally
+    const vId = nbVendor;
     setNbSaving(true);
     const vendorName = vendors.find(v => v.id === vId)?.name || null;
     const rows = valid.map(l => ({
@@ -558,10 +555,28 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
             <div style={{ padding: "16px 20px", display: "flex", gap: 12 }}>
               <div style={{ flex: 1 }}>
                 <div style={lbl}>Vendor</div>
-                <select value={nbVendor} onChange={e => setNbVendor(e.target.value)} style={{ ...inp, width: "100%", marginTop: 4 } as any}>
-                  <option value="">Auto (from first PO)</option>
-                  {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-                </select>
+                <div style={{ position: "relative", marginTop: 4 }}>
+                  <input
+                    value={nbVendor ? (vendors.find(v => v.id === nbVendor)?.name || "") : nbVendorSearch}
+                    onChange={e => { setNbVendor(""); setNbVendorSearch(e.target.value); setNbVendorOpen(true); }}
+                    onFocus={() => setNbVendorOpen(true)}
+                    onBlur={() => setTimeout(() => setNbVendorOpen(false), 150)}
+                    placeholder="Search vendor…"
+                    style={{ ...inp, width: "100%" } as any} />
+                  {nbVendorOpen && (() => {
+                    const q = nbVendorSearch.trim().toLowerCase();
+                    const filtered = vendors.filter(v => !q || v.name.toLowerCase().includes(q));
+                    return (
+                      <div style={{ position: "absolute", top: "calc(100% + 2px)", left: 0, right: 0, zIndex: 20, background: T.card, border: `1px solid ${T.border}`, borderRadius: 6, maxHeight: 220, overflowY: "auto", boxShadow: "0 8px 24px rgba(0,0,0,0.25)" }}>
+                        {filtered.length === 0 ? <div style={{ padding: "8px 11px", fontSize: 12, color: T.faint }}>No vendor matches</div>
+                          : filtered.map(v => (
+                            <div key={v.id} onMouseDown={e => e.preventDefault()} onClick={() => { setNbVendor(v.id); setNbVendorSearch(""); setNbVendorOpen(false); }}
+                              className="bq-row" style={{ padding: "7px 11px", fontSize: 13, cursor: "pointer", color: T.text }}>{v.name}</div>
+                          ))}
+                      </div>
+                    );
+                  })()}
+                </div>
               </div>
               <div style={{ width: 240 }}>
                 <div style={lbl}>HPD Bill Number <span style={{ color: T.faint, fontWeight: 400 }}>(auto → QB bill no.)</span></div>
@@ -591,9 +606,9 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
                   const mism = nbVendor && l.resolved && l.resolved.apVendorId !== nbVendor;
                   return (
                     <div key={l.id} style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                      <input value={l.poInput} disabled={!!nbSavedIds} onChange={e => updateLine(l.id, { poInput: e.target.value })} placeholder="3682-F" style={{ ...inp, flex: 1.6, minWidth: 0, fontFamily: mono, padding: "6px 8px" } as any} />
-                      <input value={l.invoiceNumber} disabled={!!nbSavedIds} onChange={e => updateLine(l.id, { invoiceNumber: e.target.value })} placeholder="vendor inv #" style={{ ...inp, flex: 1, minWidth: 0, fontFamily: mono, padding: "6px 8px" } as any} />
-                      <input value={l.amount} disabled={!!nbSavedIds} onChange={e => updateLine(l.id, { amount: e.target.value })} inputMode="decimal" placeholder="amount" style={{ ...inp, width: 130, flexShrink: 0, fontFamily: mono, padding: "6px 8px", color: d > 0 ? T.red : d < 0 ? T.amber : T.text } as any} />
+                      <input value={l.poInput} disabled={!!nbSavedIds} onChange={e => updateLine(l.id, { poInput: e.target.value })} style={{ ...inp, flex: 1.6, minWidth: 0, fontFamily: mono, padding: "6px 8px" } as any} />
+                      <input value={l.invoiceNumber} disabled={!!nbSavedIds} onChange={e => updateLine(l.id, { invoiceNumber: e.target.value })} style={{ ...inp, flex: 1, minWidth: 0, fontFamily: mono, padding: "6px 8px" } as any} />
+                      <input value={l.amount} disabled={!!nbSavedIds} onChange={e => updateLine(l.id, { amount: e.target.value })} inputMode="decimal" style={{ ...inp, width: 130, flexShrink: 0, fontFamily: mono, padding: "6px 8px", color: d > 0 ? T.red : d < 0 ? T.amber : T.text } as any} />
                       <span style={{ flex: 1.5, minWidth: 0, fontSize: 11.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: mism ? T.red : T.muted }}>
                         {l.poInput.trim() === "" ? <span style={{ color: T.faint }}>—</span>
                           : l.resolved ? <>{mism && "⚠ "}<strong className="bq-mono" style={{ fontFamily: mono, color: T.text }}>{l.resolved.job_number}</strong> · {l.resolved.client_name || "—"}{d !== 0 && <span style={{ color: d > 0 ? T.red : T.amber, fontWeight: 700 }}> · {d < 0 ? "−" : "+"}{money(Math.abs(d))}</span>}</>
@@ -626,8 +641,8 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
             </div>
             <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 14 }}>
               {!nbSavedIds ? <>
-                {(() => { const n = nbValidLines().length; return (
-                <button onClick={saveBill} disabled={nbSaving || n === 0} style={{ background: n ? T.green : T.surface, color: n ? "#fff" : T.faint, border: "none", borderRadius: 6, padding: "9px 20px", fontSize: 13, fontWeight: 700, cursor: n ? "pointer" : "default", fontFamily: font }}>{nbSaving ? "Saving…" : `Save bill · ${n} line${n !== 1 ? "s" : ""}`}</button>
+                {(() => { const n = nbValidLines().length; const ok = n > 0 && !!nbVendor; return (
+                <button onClick={saveBill} disabled={nbSaving || !ok} title={!nbVendor ? "Choose a vendor first" : ""} style={{ background: ok ? T.green : T.surface, color: ok ? "#fff" : T.faint, border: "none", borderRadius: 6, padding: "9px 20px", fontSize: 13, fontWeight: 700, cursor: ok ? "pointer" : "default", fontFamily: font }}>{nbSaving ? "Saving…" : `Save bill · ${n} line${n !== 1 ? "s" : ""}`}</button>
                 ); })()}
                 <span style={{ fontSize: 13, color: T.muted }}>Total <strong className="bq-mono" style={{ fontFamily: mono, color: T.text }}>{money(nbLines.reduce((s, l) => s + parseAmount(l.amount), 0))}</strong></span>
                 <button onClick={tryCloseBill} className="bq-ghost" style={{ marginLeft: "auto" }}>Cancel</button>
