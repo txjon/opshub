@@ -615,7 +615,7 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
                           : l.resolved ? <>{mism && "⚠ "}<strong className="bq-mono" style={{ fontFamily: mono, color: T.text }}>{l.resolved.job_number}</strong> · {l.resolved.client_name || "—"}</>
                           : <span style={{ color: T.amber }}>⚠ no match</span>}
                       </span>
-                      <span className="bq-mono" style={{ width: 86, flexShrink: 0, textAlign: "right", fontSize: 11.5, fontFamily: mono, fontWeight: 700, color: d > 0 ? T.red : d < 0 ? T.amber : T.faint }}>{l.resolved && d !== 0 ? `${d < 0 ? "−" : "+"}${money(Math.abs(d))}` : ""}</span>
+                      <span className="bq-mono" style={{ width: 86, flexShrink: 0, textAlign: "right", fontSize: 11.5, fontFamily: mono, fontWeight: 700, color: amt <= 0 ? T.faint : d === 0 ? T.green : d > 0 ? T.red : T.amber }}>{l.resolved && amt > 0 ? (d === 0 ? "✓ match" : `${d < 0 ? "−" : "+"}${money(Math.abs(d))}`) : ""}</span>
                       {!nbSavedIds && <button onClick={() => removeLine(l.id)} className="bq-x" style={{ width: 18, flexShrink: 0 }}>×</button>}
                     </div>
                   );
