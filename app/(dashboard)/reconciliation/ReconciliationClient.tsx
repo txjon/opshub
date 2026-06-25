@@ -664,7 +664,7 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
               </> : <>
                 <span style={{ fontSize: 13, fontWeight: 700, color: T.green }}>✓ Saved · {nbSavedIds.length} line{nbSavedIds.length !== 1 ? "s" : ""}</span>
                 {nbPushedId
-                  ? <span style={{ fontSize: 11, fontWeight: 700, color: T.green, background: T.green + "1f", padding: "4px 11px", borderRadius: 20 }}>✓ in QuickBooks #{nbPushedId}</span>
+                  ? <span title={`QuickBooks internal Bill ID ${nbPushedId}`} style={{ fontSize: 11, fontWeight: 700, color: T.green, background: T.green + "1f", padding: "4px 11px", borderRadius: 20 }}>✓ in QuickBooks · {nbBillNumber}</span>
                   : <button onClick={pushSavedBill} disabled={nbPushing} style={{ background: T.accent, color: "#fff", border: "none", borderRadius: 6, padding: "9px 20px", fontSize: 13, fontWeight: 700, cursor: nbPushing ? "default" : "pointer", fontFamily: font, opacity: nbPushing ? 0.6 : 1 }}>{nbPushing ? "Pushing…" : "Push to QB"}</button>}
                 {nbPushedId && (nbNotified
                   ? <span style={{ fontSize: 11, fontWeight: 700, color: T.green, background: T.green + "1f", padding: "4px 11px", borderRadius: 20 }}>✓ Vendor notified</span>
