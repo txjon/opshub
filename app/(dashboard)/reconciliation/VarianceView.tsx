@@ -7,14 +7,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { T, font, mono } from "@/lib/theme";
-import { calcCostProduct } from "@/lib/pricing";
 import type { BillingQueue } from "@/lib/billing-queue";
+import { computeVarianceSummary, type VarianceJobRow } from "@/lib/variance";
 
-const r2 = (n: number) => Math.round(n * 100) / 100;
 const money = (n: number) => (n < 0 ? "−" : "") + "$" + Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const moneyK = (n: number) => { const a = Math.abs(n); const s = n < 0 ? "−" : ""; return a >= 1000 ? `${s}$${(a / 1000).toFixed(a >= 10000 ? 0 : 1)}k` : `${s}$${a.toFixed(0)}`; };
-const TOL = 25; // ignore variance noise under $25
-const naRe = /^n\/?a$/i;
 
 // Count-up animation for headline numbers.
 function useCountUp(target: number, ms = 700) {
@@ -40,81 +37,14 @@ function Spark({ data }: { data: number[] }) {
   return <div className="vx-spark">{data.map((d, i) => <div key={i} className="vx-spark-bar" style={{ height: `${Math.max(8, (Math.abs(d) / max) * 100)}%`, background: d > 0 ? T.red : d < 0 ? T.green : T.border, opacity: Math.abs(d) > 0 ? 0.9 : 0.3 }} />)}</div>;
 }
 
-type JobRow = {
-  id: string; jobNumber: string; client: string; month: string;
-  decoExp: number; decoBilled: number; decoVar: number;
-  blankCalc: number; blankActual: number; blankVar: number; blankOrdered: boolean;
-  totalVar: number;
-  vendors: { name: string; expected: number; billed: number; variance: number }[];
-};
+type JobRow = VarianceJobRow;
 
 export function VarianceView({ queue, jobsRaw, items, printers }: { queue: BillingQueue; jobsRaw: Record<string, any>; items: any[]; printers: Record<string, any> }) {
   const [cut, setCut] = useState<"vendor" | "job" | "blanks" | "month">("job");
   const [drillJob, setDrillJob] = useState<JobRow | null>(null);
   const [drillVendor, setDrillVendor] = useState<string | null>(null);
 
-  const data = useMemo(() => {
-    // blank actuals by job
-    const blankActualByJob: Record<string, number> = {};
-    for (const it of items) {
-      if (naRe.test(String(it.blanks_order_number || "").trim())) continue;
-      const a = Number(it.blanks_order_cost); if (a > 0) blankActualByJob[it.job_id] = r2((blankActualByJob[it.job_id] || 0) + a);
-    }
-    const rows: JobRow[] = [];
-    for (const j of queue.jobs) {
-      // Decorator variance — only vendors that have been billed (or marked complete);
-      // cap an accepted over (over_accept pass-through) at projection so it doesn't distort.
-      let decoExp = 0, decoBilled = 0; const vrows: JobRow["vendors"] = [];
-      for (const v of j.vendors) {
-        if (v.billed <= 0.01 && !v.complete) continue; // awaiting = pending, not a variance
-        const capped = v.complete && v.reason === "over_accept" && v.billed > v.expected ? v.expected : v.billed;
-        decoExp = r2(decoExp + v.expected); decoBilled = r2(decoBilled + capped);
-        vrows.push({ name: v.name, expected: v.expected, billed: capped, variance: r2(capped - v.expected) });
-      }
-      // Blank variance — calc from costing, actual from items (only if ordered).
-      const cps = jobsRaw[j.id]?.costing_data?.costProds || [];
-      const margin = String(jobsRaw[j.id]?.costing_data?.margin ?? 0);
-      const blankCalc = r2(cps.reduce((s: number, c: any) => { const calc = calcCostProduct(c, margin, false, false, cps, printers); return s + (calc ? Number(calc.blankCost || 0) : 0); }, 0));
-      const blankActual = blankActualByJob[j.id] || 0;
-      const blankOrdered = blankActual > 0;
-      const blankVar = blankOrdered ? r2(blankActual - blankCalc) : 0;
-      const decoVar = r2(decoBilled - decoExp);
-      const totalVar = r2(decoVar + blankVar);
-      const seg = (j.job_number || "").split("-")[1] || "";
-      const mm = seg.slice(2, 4), yy = seg.slice(0, 2);
-      const monthNames = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-      const month = /^\d{4}$/.test(seg) ? `${monthNames[parseInt(mm, 10)] || mm} ’${yy}` : "—";
-      if (decoExp === 0 && !blankOrdered) continue; // nothing billed yet
-      rows.push({ id: j.id, jobNumber: j.job_number, client: j.client_name || "—", month, decoExp, decoBilled, decoVar, blankCalc, blankActual, blankVar, blankOrdered, totalVar, vendors: vrows });
-    }
-
-    const netVar = r2(rows.reduce((s, r) => s + r.totalVar, 0));
-    const totalOver = r2(rows.filter(r => r.totalVar > 0).reduce((s, r) => s + r.totalVar, 0));
-    const totalUnder = r2(rows.filter(r => r.totalVar < 0).reduce((s, r) => s + Math.abs(r.totalVar), 0));
-    const jobsOver = rows.filter(r => r.totalVar > TOL).length;
-    const jobsUnder = rows.filter(r => r.totalVar < -TOL).length;
-    const worst = [...rows].sort((a, b) => b.totalVar - a.totalVar)[0];
-
-    // Vendor scorecards
-    const vmap: Record<string, { name: string; exp: number; billed: number; lines: number; inTol: number }> = {};
-    for (const r of rows) for (const v of r.vendors) {
-      const g = vmap[v.name] = vmap[v.name] || { name: v.name, exp: 0, billed: 0, lines: 0, inTol: 0 };
-      g.exp = r2(g.exp + v.expected); g.billed = r2(g.billed + v.billed); g.lines++;
-      const tol = Math.max(50, v.expected * 0.05); if (Math.abs(v.variance) <= tol) g.inTol++;
-    }
-    const vendors = Object.values(vmap).map(g => ({ ...g, variance: r2(g.billed - g.exp), accuracy: g.lines ? Math.round((g.inTol / g.lines) * 100) : 0 }))
-      .sort((a, b) => Math.abs(b.variance) - Math.abs(a.variance));
-
-    // By month
-    const mmap: Record<string, number> = {};
-    for (const r of rows) mmap[r.month] = r2((mmap[r.month] || 0) + r.totalVar);
-    const months = Object.entries(mmap).filter(([k]) => k !== "—").map(([month, v]) => ({ month, v }));
-
-    const byJob = [...rows].sort((a, b) => b.totalVar - a.totalVar);
-    const blanks = rows.filter(r => r.blankOrdered).sort((a, b) => Math.abs(b.blankVar) - Math.abs(a.blankVar));
-
-    return { rows, netVar, totalOver, totalUnder, jobsOver, jobsUnder, worst, vendors, months, byJob, blanks };
-  }, [queue, jobsRaw, items, printers]);
+  const data = useMemo(() => computeVarianceSummary({ queue, jobsRaw, items, printers }), [queue, jobsRaw, items, printers]);
 
   const net = useCountUp(data.netVar);
   const over = useCountUp(data.totalOver);

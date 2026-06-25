@@ -67,6 +67,7 @@ export type CategoryItemDetail = {
 
 type Props = {
   totalExpectedInflow: number;
+  costVariance: number; // net actual-vs-projected cost across reconciled jobs (− = under plan)
   activeClientCount: number;
   activeProjectCount: number;
   clientStats: ClientStat[];
@@ -255,7 +256,7 @@ const Reads = ({ children }: { children: React.ReactNode }) => (
 
 // ── Main ──
 export function GodModeClient(props: Props) {
-  const { clientStats, decoratorStats, weekBuckets, weekLabels, upcomingPayments, pareto, categories, operations, details, totalExpectedInflow, activeClientCount, activeProjectCount } = props;
+  const { clientStats, decoratorStats, weekBuckets, weekLabels, upcomingPayments, pareto, categories, operations, details, totalExpectedInflow, costVariance, activeClientCount, activeProjectCount } = props;
 
   const [modalClient, setModalClient] = useState<ClientStat | null>(null);
   const [modalDecorator, setModalDecorator] = useState<DecoratorStat | null>(null);
@@ -338,7 +339,7 @@ export function GodModeClient(props: Props) {
         <KpiTile i={1} label="Net Profit" value={<CountUp value={totalProfit} format={fmtD} />} sub={`${fmtPct(blendedMargin)} blended margin`} accent={T.green} />
         <KpiTile i={2} label="90-Day Cash" value={<CountUp value={totalExpectedInflow} format={fmtD} />} sub="expected inflow" accent={T.green} />
         <KpiTile i={3} label="Open AR" value={<CountUp value={openAR} format={fmtD} />} sub="awaiting payment" accent={openAR > 0 ? T.amber : T.muted} />
-        <KpiTile i={4} label="Active Work" value={<CountUp value={activeProjectCount} format={fmtInt} />} sub={`${activeClientCount} clients`} />
+        <KpiTile i={4} label="Cost vs Plan" value={<CountUp value={Math.abs(costVariance)} format={fmtDk} />} sub={costVariance <= 0 ? "under projection" : "over projection"} accent={costVariance > 0 ? T.red : T.green} />
         <KpiTile i={5} label="At-Risk Clients" value={<CountUp value={atRisk} format={fmtInt} />} sub="cooling or churning" accent={atRisk > 0 ? T.red : T.green} />
       </div>
 
