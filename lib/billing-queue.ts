@@ -162,7 +162,11 @@ export function computeBillingQueue(opts: {
       costComplete: outJobs.filter(j => j.costComplete).length,
       openJobs: outJobs.filter(j => !j.costComplete).length,
       expected: r2(outJobs.reduce((s, j) => s + j.expected, 0)),
-      billed: r2(outJobs.reduce((s, j) => s + j.billed, 0)),
+      // Billed KPI caps an accepted overage (reason "over_accept" — a non-production
+      // pass-through we've dispositioned) at its projection, so it can't push Billed
+      // above Expected. The full amount still lives on the vendor row + cost_entries.
+      billed: r2(outJobs.reduce((s, j) => s + j.vendors.reduce((vs, v) =>
+        vs + (v.complete && v.reason === "over_accept" && v.billed > v.expected ? v.expected : v.billed), 0), 0)),
       outstanding: r2(openPO),
       awaitingVendors: awaitingV, partialVendors: partialV, overVendors: overV,
     },
