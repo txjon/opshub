@@ -89,7 +89,13 @@ export function AppShell({
   const isViewer = role === "viewer";
   const hasDept = (d: string) => departments.includes(d);
   const hasExtra = (page: string) => extraAccess.includes(page);
-  const [activeDept, setActiveDept] = useState<Department>(detectDept(pathname));
+  // A user can land (via bookmark/URL) on a page whose department they don't
+  // have — e.g. a contractor on /hours, which lives under "owner". Resolve to
+  // their own first department instead, so we never render another dept's nav
+  // (and never surface owner links like Reports/Reconciliation) to someone who
+  // lacks that dept. Page-level access is a separate guard (tracked).
+  const resolveDept = (d: Department): Department => (departments.includes(d) ? d : ((departments[0] as Department) || "labs"));
+  const [activeDept, setActiveDept] = useState<Department>(resolveDept(detectDept(pathname)));
   const [showSideQuests, setShowSideQuests] = useState(false);
   const isMobile = useIsMobile();
   // Dashboard nav badge — count of external-driven items awaiting an
@@ -101,7 +107,7 @@ export function AppShell({
   // Sync dept when pathname changes (after navigation completes, not during render)
   useEffect(() => {
     const deptFromPath = detectDept(pathname);
-    setActiveDept(deptFromPath);
+    setActiveDept(resolveDept(deptFromPath));
   }, [pathname]);
 
   useEffect(() => {
