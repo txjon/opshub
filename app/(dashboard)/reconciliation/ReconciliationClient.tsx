@@ -118,10 +118,10 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
   const [nbVendor, setNbVendor] = useState("");
   const [nbInvoice, setNbInvoice] = useState("");
   const [nbInvoiceManual, setNbInvoiceManual] = useState(false); // user typed → stop auto-defaulting
-  const [nbPo, setNbPo] = useState("");
-  const [nbAmt, setNbAmt] = useState("");
-  const [nbLines, setNbLines] = useState<{ poRef: string; job_id: string; job_number: string; client_name: string | null; itemName: string; projected: number; amount: number; apVendorId: string | null; invoiceNumber: string }[]>([]);
-  const [nbLineInv, setNbLineInv] = useState(""); // per-line vendor invoice # (falls back to the top default field)
+  // Editable rows — add blank rows, then fill PO / invoice # / amount down each
+  // column (spreadsheet-style batch entry). resolved fills in as the PO resolves.
+  type NbResolved = { poRef: string; job_id: string; job_number: string; client_name: string | null; itemName: string; projected: number; apVendorId: string | null };
+  const [nbLines, setNbLines] = useState<{ id: string; poInput: string; invoiceNumber: string; amount: string; resolved: NbResolved | null }[]>([]);
   const [nbBillGroupId, setNbBillGroupId] = useState("");      // groups a bill's lines + attachments
   const [nbAttachments, setNbAttachments] = useState<any[]>([]);
   const [nbUploading, setNbUploading] = useState(false);
@@ -384,7 +384,6 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
       multi: true, multiVendor: vendorIds.length > 1,
     };
   };
-  const nbHit = resolveNbPo(nbPo);
   // Bill history — group entries into bills (vendor + invoice #, or a save batch
   // for no-invoice/CC), newest first, filtered by the same search box.
   const bills = useMemo(() => {
@@ -440,7 +439,7 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
     loadAll();
   }
 
-  function openNewBill() { setShowBill(true); setNbVendor(""); setNbInvoice(""); setNbInvoiceManual(false); setNbPo(""); setNbAmt(""); setNbLines([]); setNbSavedIds(null); setNbPushedId(null); setNbNotified(false); setNbBillGroupId(crypto.randomUUID()); setNbAttachments([]); }
+  function openNewBill() { setShowBill(true); setNbVendor(""); setNbInvoice(""); setNbInvoiceManual(false); setNbLines(Array.from({ length: 3 }, () => ({ id: crypto.randomUUID(), poInput: "", invoiceNumber: "", amount: "", resolved: null as NbResolved | null }))); setNbSavedIds(null); setNbPushedId(null); setNbNotified(false); setNbBillGroupId(crypto.randomUUID()); setNbAttachments([]); }
   function closeBill() { setShowBill(false); setNbSavedIds(null); setNbPushedId(null); setNbNotified(false); setNbAttachments([]); }
   async function uploadAttachments(files: FileList | File[]) {
     if (!nbBillGroupId) return;
@@ -480,7 +479,7 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
   }
   // Guard against losing entered lines to a stray backdrop/✕ click.
   function tryCloseBill() {
-    const dirty = !nbSavedIds && (nbLines.length > 0 || nbInvoice.trim() !== "" || nbPo.trim() !== "");
+    const dirty = !nbSavedIds && (nbLines.some(l => l.poInput.trim() || l.amount.trim() || l.invoiceNumber.trim()) || nbInvoiceManual);
     if (dirty && !window.confirm("Discard this bill? Your entered lines will be lost.")) return;
     closeBill();
   }
@@ -498,24 +497,37 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
     } catch (e: any) { alert(`Push to QB failed: ${e?.message || "network error"}`); }
     finally { setNbPushing(false); }
   }
-  function addNbLine() {
-    if (!nbHit) return;
-    const amount = parseAmount(nbAmt) || nbHit.projected;
-    const invoiceNumber = nbLineInv.trim() || nbInvoice.trim(); // per-line, else the top default
-    setNbLines(prev => [...prev, { poRef: nbHit.poRef, job_id: nbHit.job_id, job_number: nbHit.job_number, client_name: nbHit.client_name, itemName: nbHit.itemName, projected: nbHit.projected, amount, apVendorId: nbHit.apVendorId, invoiceNumber }]);
-    setNbPo(""); setNbAmt(""); setNbLineInv("");
-    if (!nbVendor && nbHit.apVendorId) setNbVendor(nbHit.apVendorId); // infer vendor from first line
+  function addRows(n = 1) {
+    setNbLines(prev => [...prev, ...Array.from({ length: n }, () => ({ id: crypto.randomUUID(), poInput: "", invoiceNumber: "", amount: "", resolved: null as NbResolved | null }))]);
   }
+  function updateLine(id: string, patch: Partial<{ poInput: string; invoiceNumber: string; amount: string }>) {
+    let inferVendor: string | null = null;
+    setNbLines(prev => prev.map(l => {
+      if (l.id !== id) return l;
+      const next = { ...l, ...patch };
+      if ("poInput" in patch) {
+        const r = resolveNbPo(next.poInput);
+        next.resolved = r ? { poRef: r.poRef, job_id: r.job_id, job_number: r.job_number, client_name: r.client_name, itemName: r.itemName, projected: r.projected, apVendorId: r.apVendorId } : null;
+        if (next.resolved && !parseAmount(next.amount)) next.amount = String(next.resolved.projected); // prefill amount from projection
+        if (next.resolved?.apVendorId) inferVendor = next.resolved.apVendorId;
+      }
+      return next;
+    }));
+    if (inferVendor && !nbVendor) setNbVendor(inferVendor); // infer vendor from first resolved line
+  }
+  function removeLine(id: string) { setNbLines(prev => prev.filter(l => l.id !== id)); }
+  const nbValidLines = () => nbLines.filter(l => l.resolved && parseAmount(l.amount) > 0);
   async function saveBill() {
-    if (!nbLines.length) return;
-    const vId = nbVendor || nbLines[0].apVendorId;
+    const valid = nbValidLines();
+    if (!valid.length) return;
+    const vId = nbVendor || valid[0].resolved!.apVendorId;
     if (!vId) return;
     setNbSaving(true);
     const vendorName = vendors.find(v => v.id === vId)?.name || null;
-    const rows = nbLines.map(l => ({
+    const rows = valid.map(l => ({
       source: "decorator_invoice", vendor_id: vId, vendor_name: vendorName,
-      vendor_invoice_number: l.invoiceNumber.trim() || nbInvoice.trim() || null, po_ref: l.poRef, job_id: l.job_id,
-      amount: l.amount, expected_amount: l.projected, charge_type: "production", status: "matched", bill_method: vendorMethod(vId), bill_group_id: nbBillGroupId,
+      vendor_invoice_number: l.invoiceNumber.trim() || nbInvoice.trim() || null, po_ref: l.resolved!.poRef, job_id: l.resolved!.job_id,
+      amount: parseAmount(l.amount), expected_amount: l.resolved!.projected, charge_type: "production", status: "matched", bill_method: vendorMethod(vId), bill_group_id: nbBillGroupId,
     }));
     const { data, error } = await supabase.from("cost_entries").insert(rows as any).select("id");
     setNbSaving(false);
@@ -542,7 +554,7 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
 
       {showBill && (
         <div onClick={tryCloseBill} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 100, display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: "8vh" }}>
-          <div onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 12, width: 880, maxWidth: "94vw", maxHeight: "86vh", overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.3)", fontFamily: font }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 12, width: 880, maxWidth: "94vw", maxHeight: "92vh", overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.3)", fontFamily: font }}>
             <div style={{ padding: "15px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div style={{ fontSize: 16, fontWeight: 800, color: T.text }}>New Bill</div>
               <button onClick={tryCloseBill} className="bq-x" style={{ fontSize: 18 }}>×</button>
@@ -560,43 +572,43 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
                 <input value={nbInvoice} onChange={e => { setNbInvoice(e.target.value); setNbInvoiceManual(true); }} style={{ ...inp, width: "100%", marginTop: 4 } as any} />
               </div>
             </div>
-            <div style={{ padding: "0 20px 10px" }}>
-              <div style={lbl}>Add line — type a PO #</div>
-              <div style={{ display: "flex", gap: 8, marginTop: 6, alignItems: "center" }}>
-                <input autoFocus value={nbPo} onChange={e => { const val = e.target.value; setNbPo(val); const h = resolveNbPo(val); if (h && !parseAmount(nbAmt)) setNbAmt(String(h.projected)); if (h && h.apVendorId && !nbVendor) setNbVendor(h.apVendorId); }} onKeyDown={e => e.key === "Enter" && nbHit && addNbLine()} placeholder="PO # (e.g. 3682-F)" style={{ ...inp, flex: 1.6, minWidth: 0, fontFamily: mono } as any} />
-                <input value={nbLineInv} onChange={e => setNbLineInv(e.target.value)} onKeyDown={e => e.key === "Enter" && nbHit && addNbLine()} placeholder={nbInvoice.trim() ? `inv ${nbInvoice.trim()}` : "vendor inv #"} title="Vendor invoice # for this line (defaults to the field above)" style={{ ...inp, flex: 1, minWidth: 0, fontFamily: mono } as any} />
-                <input value={nbAmt} onChange={e => setNbAmt(e.target.value)} onKeyDown={e => e.key === "Enter" && addNbLine()} placeholder="amount" inputMode="decimal" style={{ ...inp, width: 130, flexShrink: 0, fontFamily: mono } as any} />
-                <button onClick={addNbLine} disabled={!nbHit} style={{ flexShrink: 0, background: nbHit ? T.accent : T.surface, color: nbHit ? "#fff" : T.faint, border: "none", borderRadius: 6, padding: "8px 18px", fontSize: 13, fontWeight: 700, cursor: nbHit ? "pointer" : "default", fontFamily: font }}>Add line</button>
+            <div style={{ padding: "4px 20px 10px" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                <div style={lbl}>Lines — add rows, then fill PO / invoice # / amount down each column</div>
+                {!nbSavedIds && <div style={{ display: "flex", gap: 6 }}>
+                  <button onClick={() => addRows(1)} className="bq-ghost">+ Add line</button>
+                  <button onClick={() => addRows(5)} className="bq-ghost">+5</button>
+                  <button onClick={() => addRows(10)} className="bq-ghost">+10</button>
+                </div>}
               </div>
-              <div style={{ marginTop: 7, minHeight: 20, fontSize: 12 }}>
-                {nbPo.trim() === "" ? <span style={{ color: T.faint }}>Job, client, and projected cost fill in as you type — variance shows before you add the line.</span>
-                  : nbHit ? (() => {
-                    const a = parseAmount(nbAmt); const d = a > 0 ? Math.round((a - nbHit.projected) * 100) / 100 : null;
-                    return <span style={{ color: T.text }}>→ <strong className="bq-mono" style={{ fontFamily: mono }}>{nbHit.qb || nbHit.job_number}</strong> · {nbHit.client_name || "—"} · {nbHit.itemName} · <span style={{ color: T.muted }}>proj {money(nbHit.projected)}</span>
-                      {d != null && d !== 0 && <span style={{ color: d > 0 ? T.red : T.amber, fontWeight: 700 }}> · {d < 0 ? "−" : "+"}{money(Math.abs(d))}</span>}
-                      {nbVendor && nbHit.apVendorId !== nbVendor && <span style={{ color: T.red }}> · ⚠ {nbHit.vendorName}, not the selected vendor</span>}
-                    </span>;
-                  })()
-                  : <span style={{ color: T.amber }}>⚠ No PO matches "{nbPo}"</span>}
+              <div style={{ display: "flex", gap: 8, padding: "0 24px 4px 0" }}>
+                <span style={{ ...lbl, flex: 1.6 }}>PO #</span>
+                <span style={{ ...lbl, flex: 1 }}>Vendor inv #</span>
+                <span style={{ ...lbl, width: 130, flexShrink: 0 }}>Amount</span>
+                <span style={{ ...lbl, flex: 1.5 }}>Job · client · variance</span>
               </div>
-            </div>
-            {nbLines.length > 0 && (
-              <div style={{ borderTop: `1px solid ${T.border}`, padding: "8px 20px" }}>
-                {nbLines.map((l, i) => {
-                  const d = Math.round((l.amount - l.projected) * 100) / 100;
+              <div style={{ maxHeight: "48vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 5 }}>
+                {nbLines.length === 0 && <div style={{ padding: "10px 0", fontSize: 12, color: T.faint }}>No lines — click “+ Add line” (or +5/+10), then fill each column down.</div>}
+                {nbLines.map(l => {
+                  const amt = parseAmount(l.amount);
+                  const d = l.resolved && amt > 0 ? Math.round((amt - l.resolved.projected) * 100) / 100 : 0;
+                  const mism = nbVendor && l.resolved && l.resolved.apVendorId !== nbVendor;
                   return (
-                    <div key={i} className="bq-row" style={{ display: "flex", alignItems: "center", gap: 10, padding: "5px 0", fontSize: 12, borderBottom: `1px solid ${T.border}22` }}>
-                      <span className="bq-mono" title={l.poRef} style={{ width: 92, flexShrink: 0, fontFamily: mono, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{l.poRef}</span>
-                      <span className="bq-mono" style={{ width: 66, flexShrink: 0, color: T.faint, fontSize: 10.5, fontFamily: mono, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={l.invoiceNumber ? `vendor invoice ${l.invoiceNumber}` : ""}>{l.invoiceNumber ? `inv ${l.invoiceNumber}` : "—"}</span>
-                      <span style={{ width: 120, flexShrink: 0, color: T.faint, fontSize: 11, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{l.job_number}</span>
-                      <span style={{ flex: 1, minWidth: 0, color: T.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{l.itemName}</span>
-                      <span className="bq-mono" style={{ fontFamily: mono, color: d > 0 ? T.red : d < 0 ? T.amber : T.text }}>{money(l.amount)}{d !== 0 && <span style={{ fontSize: 10, color: T.faint }}> ({d > 0 ? "+" : ""}{money(d)})</span>}</span>
-                      <span className="bq-act"><button onClick={() => setNbLines(prev => prev.filter((_, x) => x !== i))} className="bq-x">×</button></span>
+                    <div key={l.id} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <input value={l.poInput} disabled={!!nbSavedIds} onChange={e => updateLine(l.id, { poInput: e.target.value })} placeholder="3682-F" style={{ ...inp, flex: 1.6, minWidth: 0, fontFamily: mono, padding: "6px 8px" } as any} />
+                      <input value={l.invoiceNumber} disabled={!!nbSavedIds} onChange={e => updateLine(l.id, { invoiceNumber: e.target.value })} placeholder={nbInvoice.trim() || "inv #"} style={{ ...inp, flex: 1, minWidth: 0, fontFamily: mono, padding: "6px 8px" } as any} />
+                      <input value={l.amount} disabled={!!nbSavedIds} onChange={e => updateLine(l.id, { amount: e.target.value })} inputMode="decimal" placeholder="amount" style={{ ...inp, width: 130, flexShrink: 0, fontFamily: mono, padding: "6px 8px", color: d > 0 ? T.red : d < 0 ? T.amber : T.text } as any} />
+                      <span style={{ flex: 1.5, minWidth: 0, fontSize: 11.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: mism ? T.red : T.muted }}>
+                        {l.poInput.trim() === "" ? <span style={{ color: T.faint }}>—</span>
+                          : l.resolved ? <>{mism && "⚠ "}<strong className="bq-mono" style={{ fontFamily: mono, color: T.text }}>{l.resolved.job_number}</strong> · {l.resolved.client_name || "—"}{d !== 0 && <span style={{ color: d > 0 ? T.red : T.amber, fontWeight: 700 }}> · {d < 0 ? "−" : "+"}{money(Math.abs(d))}</span>}</>
+                          : <span style={{ color: T.amber }}>⚠ no match</span>}
+                      </span>
+                      {!nbSavedIds && <button onClick={() => removeLine(l.id)} className="bq-x" style={{ width: 18, flexShrink: 0 }}>×</button>}
                     </div>
                   );
                 })}
               </div>
-            )}
+            </div>
             <div style={{ padding: "10px 20px 4px", borderTop: `1px solid ${T.border}` }}>
               <div style={lbl}>Vendor invoice files <span style={{ color: T.faint, fontWeight: 400 }}>(stored in OpsHub)</span></div>
               <div onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); if (e.dataTransfer.files.length) uploadAttachments(e.dataTransfer.files); }}
@@ -618,8 +630,10 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
             </div>
             <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 14 }}>
               {!nbSavedIds ? <>
-                <button onClick={saveBill} disabled={nbSaving || !nbLines.length} style={{ background: nbLines.length ? T.green : T.surface, color: nbLines.length ? "#fff" : T.faint, border: "none", borderRadius: 6, padding: "9px 20px", fontSize: 13, fontWeight: 700, cursor: nbLines.length ? "pointer" : "default", fontFamily: font }}>{nbSaving ? "Saving…" : `Save bill · ${nbLines.length} line${nbLines.length !== 1 ? "s" : ""}`}</button>
-                <span style={{ fontSize: 13, color: T.muted }}>Total <strong className="bq-mono" style={{ fontFamily: mono, color: T.text }}>{money(nbLines.reduce((s, l) => s + l.amount, 0))}</strong></span>
+                {(() => { const n = nbValidLines().length; return (
+                <button onClick={saveBill} disabled={nbSaving || n === 0} style={{ background: n ? T.green : T.surface, color: n ? "#fff" : T.faint, border: "none", borderRadius: 6, padding: "9px 20px", fontSize: 13, fontWeight: 700, cursor: n ? "pointer" : "default", fontFamily: font }}>{nbSaving ? "Saving…" : `Save bill · ${n} line${n !== 1 ? "s" : ""}`}</button>
+                ); })()}
+                <span style={{ fontSize: 13, color: T.muted }}>Total <strong className="bq-mono" style={{ fontFamily: mono, color: T.text }}>{money(nbLines.reduce((s, l) => s + parseAmount(l.amount), 0))}</strong></span>
                 <button onClick={tryCloseBill} className="bq-ghost" style={{ marginLeft: "auto" }}>Cancel</button>
               </> : <>
                 <span style={{ fontSize: 13, fontWeight: 700, color: T.green }}>✓ Saved · {nbSavedIds.length} line{nbSavedIds.length !== 1 ? "s" : ""}</span>
