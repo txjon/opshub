@@ -40,6 +40,7 @@ const pullTotal = (p: SamplePull) => Object.values(p.qtys || {}).reduce((a, n) =
 type ProdItem = {
   id: string; name: string; job_id: string; letter: string;
   pipeline_stage: string | null; ship_tracking: string | null;
+  pickup_ready: boolean;
   pipeline_timestamps: Record<string, string> | null;
   blank_vendor: string | null; blank_sku: string | null;
   decorator_name: string | null; decorator_short_code: string | null;
@@ -350,10 +351,21 @@ export default function ProductionPage() {
         ciDates[ciKey(decName)] ||
         null;
 
+      // Same key resolution for the PO ship METHOD — auto-detect local pickup
+      // (PO method "Pick Up") so the checkbox pre-checks. Manual toggle wins.
+      const poShipMethods = (tm.po_ship_methods || {}) as Record<string, string>;
+      const ciMethods: Record<string, string> = {};
+      for (const [k, v] of Object.entries(poShipMethods)) { if (typeof v === "string" && v) ciMethods[ciKey(k)] = v; }
+      const vendorShipMethod =
+        (printVendor && poShipMethods[printVendor]) || poShipMethods[decName] ||
+        ciMethods[ciKey(printVendor)] || ciMethods[ciKey(decName)] || ciMethods[ciKey(shortCode)] || "";
+      const pickupFromPO = /pick\s*-?\s*up/i.test(vendorShipMethod);
+
       const prodItem: ProdItem = {
         id: it.id, name: it.name, job_id: it.job_id, letter: String.fromCharCode(65 + (it.sort_order ?? 0)),
         pipeline_stage: it.pipeline_stage === "shipped" ? "shipped" : "in_production",
         ship_tracking: it.ship_tracking,
+        pickup_ready: !!it.pickup_ready || pickupFromPO,
         pipeline_timestamps: it.pipeline_timestamps || {},
         blank_vendor: it.blank_vendor, blank_sku: it.blank_sku,
         decorator_name: decName, decorator_short_code: shortCode,
@@ -639,6 +651,17 @@ export default function ProductionPage() {
     const key = `${field}_${itemId}`;
     if (saveTimers.current[key]) { clearTimeout(saveTimers.current[key]); delete saveTimers.current[key]; }
     persistField(itemId, field, value);
+  }
+
+  // pickup_ready is a NOT-NULL boolean — never route through persistField's
+  // value||null coercion. Update local tree + write the boolean directly.
+  function setPickupReady(itemId: string, checked: boolean) {
+    setProjects(prev => prev.map(p => ({
+      ...p, decoratorGroups: p.decoratorGroups.map(dg => ({
+        ...dg, items: dg.items.map(it => it.id === itemId ? { ...it, pickup_ready: checked } : it)
+      }))
+    })));
+    supabase.from("items").update({ pickup_ready: checked }).eq("id", itemId);
   }
 
   // Sample pulls are a whole-array JSONB write, so they get their own save
@@ -1609,10 +1632,16 @@ export default function ProductionPage() {
                                       action-oriented field; ETA is the
                                       follow-up client-facing detail). */}
                                   <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                                    {/* Tracking — paste inline. Saving doesn't
-                                        mark shipped; that still requires the Ship
-                                        modal. Hidden once shipped. */}
+                                    {/* Ready for pickup — local pickup vendors. Pre-checks
+                                        when the PO ship method is "Pick Up". Replaces the
+                                        tracking field; groups by vendor on Receiving. */}
                                     {!isShipped && (
+                                      <label onClick={e => e.stopPropagation()} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", width: 212, background: item.pickup_ready ? T.greenDim : "transparent", border: `1px solid ${item.pickup_ready ? T.green : T.border}`, borderRadius: 5, padding: "3px 7px" }}>
+                                        <input type="checkbox" checked={!!item.pickup_ready} onChange={e => { e.stopPropagation(); setPickupReady(item.id, e.target.checked); }} style={{ cursor: "pointer" }} />
+                                        <span style={{ fontSize: 11, fontWeight: item.pickup_ready ? 700 : 600, color: item.pickup_ready ? T.green : T.muted }}>Ready for pickup</span>
+                                      </label>
+                                    )}
+                                    {!isShipped && !item.pickup_ready && (
                                       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                                         <span style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", width: 26 }}>TRK</span>
                                         <input type="text"

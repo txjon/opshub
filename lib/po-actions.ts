@@ -101,14 +101,23 @@ export async function shipItemFromDecorator(supabase: any, item: any): Promise<v
   const existing = item.pipeline_timestamps || {};
   const timestamps = { ...existing, shipped: existing.shipped || ts };
   const shipQtysToSave = item.ship_qtys && Object.keys(item.ship_qtys).length > 0 ? item.ship_qtys : null;
+  const pickup = !!item.pickup_ready;
   await supabase.from("items").update({
     pipeline_stage: "shipped", pipeline_timestamps: timestamps,
-    ship_notes: item.ship_notes || null, ship_tracking: item.ship_tracking || null,
+    ship_notes: item.ship_notes || null,
+    // Local pickup replaces tracking — groups by vendor on Receiving, not by #.
+    ship_tracking: pickup ? null : (item.ship_tracking || null),
+    pickup_ready: pickup,
     ship_qtys: shipQtysToSave,
     received_at_hpd: false, received_at_hpd_at: null, received_qtys: null,
   }).eq("id", item.id);
   if (item.decorator_assignment_id) {
     await supabase.from("decorator_assignments").update({ pipeline_stage: "shipped" }).eq("id", item.decorator_assignment_id);
+  }
+  // Notify Goose/Dante — the route only emails on a vendor's 0→1 pickup
+  // transition (one email per cycle, no spam from same-day marks).
+  if (pickup && typeof fetch !== "undefined") {
+    fetch("/api/email/pickup-ready", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: item.id }) }).catch(() => {});
   }
   const { data: jobRow } = await supabase.from("jobs").select("shipping_route").eq("id", item.job_id).single();
   const route = item.shipping_route || (jobRow as any)?.shipping_route || "ship_through";
