@@ -51,6 +51,7 @@ type ProdItem = {
   sizes: string[]; qtys: Record<string, number>;
   ship_qtys: Record<string, number>; ship_notes: string;
   client_eta: string | null; client_eta_note: string | null;
+  expected_arrival: string | null;
   sample_pulls: SamplePull[];
 };
 
@@ -89,11 +90,28 @@ type ProjectGroup = {
 };
 
 type DecoratorGroup = {
-  decoratorId: string | null; decoratorName: string; shortCode: string;
+  decoratorId: string | null; decoratorName: string; shortCode: string; transitDays: number | null;
   items: ProdItem[];
   inProduction: number; shipped: number; totalUnits: number;
   contacts: { name: string; email: string | null }[];
 };
+
+// Vendor transit buffer (business days) when a decorator has none set.
+const DEFAULT_TRANSIT_DAYS = 5;
+function addBusinessDays(dateStr: string, n: number): string {
+  const d = new Date(dateStr + "T00:00:00");
+  let added = 0;
+  while (added < n) { d.setDate(d.getDate() + 1); const w = d.getDay(); if (w !== 0 && w !== 6) added++; }
+  return d.toISOString().slice(0, 10);
+}
+// Expected arrival at HPD (the ASN). drop_ship goes direct (= the ship date);
+// HPD-routed (ship_through/stage) adds the vendor's transit buffer. ASAP/empty
+// pass through unchanged. A per-item expected_arrival override wins upstream.
+function computeArrivalEta(route: string, shipDate: string | null, transitDays: number | null): string | null {
+  if (!shipDate || shipDate === "ASAP") return shipDate || null;
+  if (route === "drop_ship") return shipDate;
+  return addBusinessDays(shipDate, transitDays ?? DEFAULT_TRANSIT_DAYS);
+}
 
 export default function ProductionPage() {
   const supabase = createClient();
@@ -288,7 +306,7 @@ export default function ProductionPage() {
 
     const { data: allItems } = await supabase
       .from("items")
-      .select("*, buy_sheet_lines(size, qty_ordered), decorator_assignments(id, pipeline_stage, decoration_type, decorator_id, decorators(id, name, short_code, contacts_list))")
+      .select("*, buy_sheet_lines(size, qty_ordered), decorator_assignments(id, pipeline_stage, decoration_type, decorator_id, decorators(id, name, short_code, contacts_list, transit_days))")
       .in("job_id", jobIds)
       .order("sort_order");
 
@@ -377,6 +395,7 @@ export default function ProductionPage() {
         shipping_route: it.shipping_route || null,
         ship_qtys: it.ship_qtys || {}, ship_notes: it.ship_notes || "",
         client_eta: it.client_eta || null, client_eta_note: it.client_eta_note || null,
+        expected_arrival: it.expected_arrival || null,
         sample_pulls: normalizePulls(it.sample_pulls),
       };
 
@@ -412,6 +431,7 @@ export default function ProductionPage() {
       if (!decGroup) {
         decGroup = {
           decoratorId: decId, decoratorName: decName, shortCode,
+          transitDays: assignment?.decorators?.transit_days ?? null,
           items: [], inProduction: 0, shipped: 0, totalUnits: 0,
           contacts: (contacts || []).map((c: any) => ({ name: c.name, email: c.email })),
         };
@@ -662,20 +682,6 @@ export default function ProductionPage() {
       }))
     })));
     supabase.from("items").update({ pickup_ready: checked }).eq("id", itemId);
-  }
-
-  // Strip-level Client ETA — sets client_eta for the whole vendor batch (all
-  // items in this job×vendor strip) in one write. items.client_eta is the
-  // single source the overview worksheet, client worksheet, portal, and
-  // quote/invoice PDFs all read — so editing it here flows everywhere.
-  function setStripEta(strip: { dg: any }, value: string) {
-    const ids: string[] = strip.dg.items.map((it: any) => it.id);
-    setProjects(prev => prev.map(p => ({
-      ...p, decoratorGroups: p.decoratorGroups.map(dg => ({
-        ...dg, items: dg.items.map(it => ids.includes(it.id) ? { ...it, client_eta: value || null } : it)
-      }))
-    })));
-    supabase.from("items").update({ client_eta: value || null, client_eta_set_at: value ? new Date().toISOString() : null }).in("id", ids);
   }
 
   // Sample pulls are a whole-array JSONB write, so they get their own save
@@ -1356,7 +1362,7 @@ export default function ProductionPage() {
           <div style={{ width: 240, flexShrink: 0 }}>Job</div>
           <div style={{ width: 150, flexShrink: 0 }}>Vendor</div>
           <div style={{ width: 130, flexShrink: 0 }}>Route</div>
-          <div style={{ width: 160, flexShrink: 0 }}>Client ETA</div>
+          <div style={{ width: 160, flexShrink: 0 }}>Arrival ETA</div>
           <div style={{ flex: 1 }} />
           <div style={{ width: 90, flexShrink: 0, textAlign: "right" }}>Ship</div>
         </div>
@@ -1368,7 +1374,10 @@ export default function ProductionPage() {
         const allShipped = dg.items.every((it: any) => it.pipeline_stage === "shipped");
         const dest = strip.route === "drop_ship" ? `drop-ship → ${project.clientName || "client"}`
           : strip.route === "stage" ? "→ HPD · stage" : "→ HPD";
-        const stripEta = dg.items.find((i: any) => i.client_eta)?.client_eta || "";
+        // Arrival-at-HPD ETA: a per-item override wins, else auto (ship + buffer).
+        const stripArrivalOverride = dg.items.find((i: any) => i.expected_arrival)?.expected_arrival || null;
+        const stripArrival = stripArrivalOverride || computeArrivalEta(strip.route, strip.shipDate, dg.transitDays);
+        const stripArrivalLabel = !stripArrival ? "—" : stripArrival === "ASAP" ? "ASAP" : new Date(stripArrival + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
         return (
           <div key={project.jobId + "::" + strip.decKey} style={{
             background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden",
@@ -1401,13 +1410,11 @@ export default function ProductionPage() {
               </div>
               {/* Route → destination */}
               <div style={{ width: 130, flexShrink: 0, fontSize: 11.5, color: T.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{dest}</div>
-              {/* Client ETA — writes the whole vendor batch; overview/worksheet/
-                  portal/PDFs all read items.client_eta, so it propagates. */}
-              <div style={{ width: 160, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
-                <input type="date" value={stripEta}
-                  onClick={e => e.stopPropagation()}
-                  onChange={e => { e.stopPropagation(); setStripEta(strip, e.target.value); }}
-                  style={{ ...ic, width: "100%", padding: "5px 8px", fontSize: 11, fontFamily: mono }} />
+              {/* Arrival ETA at HPD (display-only). Auto = ship + vendor buffer;
+                  overridable per item in the expanded view. */}
+              <div style={{ width: 160, flexShrink: 0, fontFamily: mono, fontSize: 12 }}>
+                <span style={{ color: stripArrival ? T.text : T.faint, fontWeight: stripArrivalOverride ? 700 : 400 }}>{stripArrivalLabel}</span>
+                {!stripArrivalOverride && stripArrival && stripArrival !== "ASAP" && <span style={{ fontSize: 9, color: T.faint, marginLeft: 6 }}>auto</span>}
               </div>
               <div style={{ flex: 1 }} />
               {/* Ship — this vendor's own ship date / urgency */}
@@ -1664,16 +1671,17 @@ export default function ProductionPage() {
                                           style={{ ...ic, width: 180, padding: "3px 6px", fontSize: 11, fontFamily: mono, flexShrink: 0 }} />
                                       </div>
                                     )}
-                                    {/* ETA — same field as the Production tab. Blank
-                                        falls back to the job target ship date on the
-                                        portal. */}
+                                    {/* Arrival-at-HPD ETA (the ASN) override. Blank =
+                                        auto (ship date + the vendor's transit buffer),
+                                        shown on the strip. Set it once you have a real
+                                        carrier ETA. Distinct from client_eta. */}
                                     <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                                      <span style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", width: 26 }}>ETA</span>
+                                      <span style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", width: 26 }} title="Expected arrival at HPD — overrides the auto ship+buffer estimate">ETA</span>
                                       <input type="date"
-                                        value={item.client_eta || ""}
+                                        value={item.expected_arrival || ""}
                                         onClick={e => e.stopPropagation()}
-                                        onChange={e => { e.stopPropagation(); updateField(item.id, "client_eta", e.target.value); }}
-                                        onBlur={e => flushField(item.id, "client_eta", e.target.value)}
+                                        onChange={e => { e.stopPropagation(); updateField(item.id, "expected_arrival", e.target.value); }}
+                                        onBlur={e => flushField(item.id, "expected_arrival", e.target.value)}
                                         style={{ ...ic, width: 180, padding: "3px 6px", fontSize: 11, fontFamily: mono, flexShrink: 0 }} />
                                     </div>
                                   </div>
