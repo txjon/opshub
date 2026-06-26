@@ -664,6 +664,20 @@ export default function ProductionPage() {
     supabase.from("items").update({ pickup_ready: checked }).eq("id", itemId);
   }
 
+  // Strip-level Client ETA — sets client_eta for the whole vendor batch (all
+  // items in this job×vendor strip) in one write. items.client_eta is the
+  // single source the overview worksheet, client worksheet, portal, and
+  // quote/invoice PDFs all read — so editing it here flows everywhere.
+  function setStripEta(strip: { dg: any }, value: string) {
+    const ids: string[] = strip.dg.items.map((it: any) => it.id);
+    setProjects(prev => prev.map(p => ({
+      ...p, decoratorGroups: p.decoratorGroups.map(dg => ({
+        ...dg, items: dg.items.map(it => ids.includes(it.id) ? { ...it, client_eta: value || null } : it)
+      }))
+    })));
+    supabase.from("items").update({ client_eta: value || null, client_eta_set_at: value ? new Date().toISOString() : null }).in("id", ids);
+  }
+
   // Sample pulls are a whole-array JSONB write, so they get their own save
   // path. updateField is string-only. Local state updates immediately; the
   // array persists debounced, and onBlur flushes the pending write.
@@ -1344,6 +1358,7 @@ export default function ProductionPage() {
         const allShipped = dg.items.every((it: any) => it.pipeline_stage === "shipped");
         const dest = strip.route === "drop_ship" ? `drop-ship → ${project.clientName || "client"}`
           : strip.route === "stage" ? "→ HPD · stage" : "→ HPD";
+        const stripEta = dg.items.find((i: any) => i.client_eta)?.client_eta || "";
         return (
           <div key={project.jobId + "::" + strip.decKey} style={{
             background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden",
@@ -1374,8 +1389,19 @@ export default function ProductionPage() {
                   {dg.shipped > 0 && <span style={{ color: T.green }}> · {dg.shipped} shipped</span>}
                 </div>
               </div>
-              {/* Route → destination */}
-              <div style={{ flex: 1, minWidth: 0, fontSize: 11.5, color: T.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{dest}</div>
+              {/* Route → destination + editable Client ETA. The ETA writes the
+                  whole vendor batch; overview/worksheet/portal/PDFs all read
+                  items.client_eta, so it propagates without extra plumbing. */}
+              <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 18 }}>
+                <span style={{ fontSize: 11.5, color: T.muted, whiteSpace: "nowrap", flexShrink: 0 }}>{dest}</span>
+                <label onClick={e => e.stopPropagation()} style={{ display: "flex", alignItems: "center", gap: 7, flexShrink: 0 }}>
+                  <span style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em" }}>Client ETA</span>
+                  <input type="date" value={stripEta}
+                    onClick={e => e.stopPropagation()}
+                    onChange={e => { e.stopPropagation(); setStripEta(strip, e.target.value); }}
+                    style={{ ...ic, width: 150, padding: "4px 7px", fontSize: 11, fontFamily: mono }} />
+                </label>
+              </div>
               {/* Right: priority + this vendor's own ship date */}
               <div style={{ flexShrink: 0, textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 1, minWidth: 70 }}>
                 {(() => {
