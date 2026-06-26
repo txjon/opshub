@@ -906,6 +906,14 @@ export default function ProductionPage() {
   const [tab, setTab] = useState<"active" | "overdue" | "stalled" | "shipped">("active");
   const [sortKey, setSortKey] = useState<"ship_date" | "days_at_decorator" | "decorator" | "client" | "units">("ship_date");
   const [viewMode, setViewMode] = useState<"grouped" | "list">("grouped");
+  // Build-shipment flow — consolidate a vendor's items (across jobs) into one
+  // shipment under one tracking #, marked shipped together.
+  const [buildOpen, setBuildOpen] = useState(false);
+  const [buildVendor, setBuildVendor] = useState<string | null>(null);
+  const [buildChecked, setBuildChecked] = useState<Set<string>>(new Set());
+  const [buildTracking, setBuildTracking] = useState("");
+  const [buildPickup, setBuildPickup] = useState(false);
+  const [buildSaving, setBuildSaving] = useState(false);
   const [mockupMap, setMockupMap] = useState<Record<string, { driveFileId: string | null; driveLink: string | null }>>({});
   const [mockupPeek, setMockupPeek] = useState<{ driveFileId: string | null; name: string } | null>(null);
   // List-view sorting is driven by clicking column headers (asc/desc toggle),
@@ -1029,6 +1037,41 @@ export default function ProductionPage() {
     const val = (d: string | null) => (d === "ASAP" ? -Infinity : d ? new Date(d).getTime() : Infinity);
     return out.sort((a, b) => val(a.shipDate) - val(b.shipDate));
   }, [activeProjects]);
+
+  // All un-shipped items grouped by vendor (across ALL jobs, any tab) — the
+  // source for the Build-shipment picker. A consolidator (One Stop) shows its
+  // 30 items spanning 15 jobs here, to ship as one tracking #.
+  const vendorShipGroups = useMemo(() => {
+    const m = new Map<string, { decKey: string; name: string; shortCode: string; items: { id: string; ref: string; name: string; units: number; item: ProdItem }[] }>();
+    for (const p of projects) for (const dg of p.decoratorGroups) {
+      const decKey = dg.decoratorId || dg.decoratorName;
+      for (const it of dg.items) {
+        if (it.pipeline_stage === "shipped") continue;
+        let g = m.get(decKey);
+        if (!g) { g = { decKey, name: dg.decoratorName, shortCode: dg.shortCode, items: [] }; m.set(decKey, g); }
+        g.items.push({ id: it.id, ref: p.invoiceNumber || p.jobNumber, name: it.name, units: it.total_units || 0, item: it });
+      }
+    }
+    return Array.from(m.values()).filter(g => g.items.length > 0).sort((a, b) => a.name.localeCompare(b.name));
+  }, [projects]);
+
+  function openBuild() { setBuildVendor(null); setBuildChecked(new Set()); setBuildTracking(""); setBuildPickup(false); setBuildOpen(true); }
+  function selectBuildVendor(decKey: string) {
+    setBuildVendor(decKey);
+    const g = vendorShipGroups.find(x => x.decKey === decKey);
+    setBuildChecked(new Set((g?.items || []).map(i => i.id))); // pre-check all
+  }
+  async function shipBuild() {
+    const g = vendorShipGroups.find(x => x.decKey === buildVendor);
+    if (!g) return;
+    const targets = g.items.filter(i => buildChecked.has(i.id));
+    if (!targets.length) return;
+    setBuildSaving(true);
+    for (const t of targets) {
+      await shipItemFromDecorator(supabase, { ...t.item, ship_tracking: buildPickup ? null : (buildTracking.trim() || null), pickup_ready: buildPickup, ship_qtys: t.item.qtys });
+    }
+    setBuildSaving(false); setBuildOpen(false); loadAll();
+  }
 
   const getDaysToShip = (d: string | null) => {
     if (!d || d === "ASAP") return null;
@@ -1238,6 +1281,10 @@ export default function ProductionPage() {
           );
         })}
         <div style={{ flex: 1 }} />
+        <button onClick={openBuild}
+          style={{ background: T.green, color: "#fff", border: "none", borderRadius: 6, padding: "6px 13px", fontSize: 11.5, fontWeight: 700, fontFamily: font, cursor: "pointer", marginRight: 4 }}>
+          + Build shipment
+        </button>
         <div style={{ display: "flex", border: `1px solid ${T.border}`, borderRadius: 6, overflow: "hidden" }}>
           {(["grouped", "list"] as const).map(m => (
             <button key={m} onClick={() => setViewMode(m)}
@@ -1799,6 +1846,67 @@ export default function ProductionPage() {
           </div>
         );
       })}
+
+      {/* Build-shipment modal — pick a vendor, check items across jobs, ship as
+          one tracking #. The shared tracking groups them as one shipment in Receiving. */}
+      {buildOpen && (() => {
+        const g = vendorShipGroups.find(x => x.decKey === buildVendor);
+        const checkedCount = g ? g.items.filter(i => buildChecked.has(i.id)).length : 0;
+        return (
+          <div onClick={() => !buildSaving && setBuildOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(16,18,32,0.55)", backdropFilter: "blur(3px)", zIndex: 1100, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+            <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 16, width: "min(620px, 94vw)", maxHeight: "86vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 24px 70px rgba(16,18,32,0.4)", fontFamily: font }}>
+              <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ fontSize: 16, fontWeight: 800, color: T.text }}>Build shipment</div>
+                <button onClick={() => setBuildOpen(false)} style={{ background: "transparent", border: "none", color: T.faint, fontSize: 22, cursor: "pointer", lineHeight: 1 }}>×</button>
+              </div>
+              <div style={{ padding: "14px 20px", borderBottom: `1px solid ${T.border}` }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>Vendor</div>
+                <select value={buildVendor || ""} onChange={e => selectBuildVendor(e.target.value)} style={{ width: "100%", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, fontFamily: font, fontSize: 13, padding: "8px 10px", outline: "none", cursor: "pointer" }}>
+                  <option value="">Select a vendor…</option>
+                  {vendorShipGroups.map(grp => <option key={grp.decKey} value={grp.decKey}>{grp.name} · {grp.items.length} item{grp.items.length !== 1 ? "s" : ""}</option>)}
+                </select>
+              </div>
+              {g && (
+                <div style={{ flex: 1, overflowY: "auto", padding: "6px 20px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", fontSize: 11, color: T.muted }}>
+                    <button onClick={() => setBuildChecked(new Set(g.items.map(i => i.id)))} style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 11, fontFamily: font }}>All</button>
+                    <button onClick={() => setBuildChecked(new Set())} style={{ background: "none", border: "none", color: T.muted, cursor: "pointer", fontSize: 11, fontFamily: font }}>None</button>
+                    <span style={{ marginLeft: "auto" }}>{checkedCount} of {g.items.length} selected</span>
+                  </div>
+                  {g.items.map(i => {
+                    const on = buildChecked.has(i.id);
+                    return (
+                      <label key={i.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 0", borderTop: `1px solid ${T.border}33`, cursor: "pointer" }}>
+                        <input type="checkbox" checked={on} onChange={e => { const n = new Set(buildChecked); e.target.checked ? n.add(i.id) : n.delete(i.id); setBuildChecked(n); }} style={{ cursor: "pointer" }} />
+                        <span style={{ fontFamily: mono, fontSize: 12, color: T.text, width: 90, flexShrink: 0 }}>{i.ref}</span>
+                        <span style={{ flex: 1, fontSize: 12.5, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{i.name}</span>
+                        <span style={{ fontFamily: mono, fontSize: 11, color: T.muted }}>{i.units}u</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+              {g && (
+                <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}` }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, cursor: "pointer" }}>
+                    <input type="checkbox" checked={buildPickup} onChange={e => setBuildPickup(e.target.checked)} />
+                    <span style={{ fontSize: 12, color: buildPickup ? T.green : T.text, fontWeight: buildPickup ? 700 : 500 }}>Local pickup (no tracking)</span>
+                  </label>
+                  {!buildPickup && (
+                    <input value={buildTracking} onChange={e => setBuildTracking(e.target.value)} placeholder="Shipment tracking # — one for the whole box" style={{ ...ic, width: "100%", padding: "8px 10px", fontSize: 12, fontFamily: mono, marginBottom: 10, boxSizing: "border-box" }} />
+                  )}
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <button onClick={shipBuild} disabled={buildSaving || checkedCount === 0} style={{ background: checkedCount > 0 ? T.green : T.surface, color: checkedCount > 0 ? "#fff" : T.faint, border: "none", borderRadius: 8, padding: "9px 18px", fontSize: 13, fontWeight: 700, cursor: checkedCount > 0 && !buildSaving ? "pointer" : "default", fontFamily: font }}>
+                      {buildSaving ? "Shipping…" : `Ship ${checkedCount} item${checkedCount !== 1 ? "s" : ""}`}
+                    </button>
+                    <span style={{ fontSize: 11.5, color: T.muted }}>{g.name}{buildPickup ? " · pickup" : buildTracking ? ` · ${buildTracking}` : ""}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Packing slip viewer modal */}
       {mockupPeek && <MockupPeek driveFileId={mockupPeek.driveFileId} name={mockupPeek.name} onClose={() => setMockupPeek(null)} />}
