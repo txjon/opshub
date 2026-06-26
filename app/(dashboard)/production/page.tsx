@@ -885,7 +885,7 @@ export default function ProductionPage() {
   const STALL_DAYS = 7;
   const [tab, setTab] = useState<"active" | "overdue" | "stalled" | "shipped">("active");
   const [sortKey, setSortKey] = useState<"ship_date" | "days_at_decorator" | "decorator" | "client" | "units">("ship_date");
-  const [viewMode, setViewMode] = useState<"grouped" | "list">("list");
+  const [viewMode, setViewMode] = useState<"grouped" | "list">("grouped");
   const [mockupMap, setMockupMap] = useState<Record<string, { driveFileId: string | null; driveLink: string | null }>>({});
   const [mockupPeek, setMockupPeek] = useState<{ driveFileId: string | null; name: string } | null>(null);
   // List-view sorting is driven by clicking column headers (asc/desc toggle),
@@ -990,6 +990,25 @@ export default function ProductionPage() {
   // Tab-filtered list; row UI handles both in-production and shipped
   // states via the existing decorator-group rendering.
   const activeProjects = visible;
+
+  // Phase 1 — each active project's decorator groups flatten into one strip
+  // per JOB×VENDOR (the real ship unit). The strip carries that VENDOR's own
+  // ship date (so the day counter is precise, not the job's earliest), its
+  // route→destination, and unit count. Sorted by urgency (ASAP/overdue first).
+  const activeStrips = useMemo(() => {
+    const out: { project: any; dg: any; decKey: string; shipDate: string | null; units: number; route: string }[] = [];
+    for (const project of activeProjects) {
+      for (const dg of project.decoratorGroups) {
+        const decKey = dg.decoratorId || dg.decoratorName;
+        const shipDate = dg.items.find((i: any) => i.target_ship_date)?.target_ship_date ?? project.shipDate ?? null;
+        const units = dg.items.reduce((a: number, it: any) => a + (it.total_units || 0), 0);
+        const route = dg.items.find((i: any) => i.shipping_route)?.shipping_route || project.shippingRoute || "ship_through";
+        out.push({ project, dg, decKey, shipDate, units, route });
+      }
+    }
+    const val = (d: string | null) => (d === "ASAP" ? -Infinity : d ? new Date(d).getTime() : Infinity);
+    return out.sort((a, b) => val(a.shipDate) - val(b.shipDate));
+  }, [activeProjects]);
 
   const getDaysToShip = (d: string | null) => {
     if (!d || d === "ASAP") return null;
@@ -1223,7 +1242,7 @@ export default function ProductionPage() {
       </div>
 
       {/* ── Active Projects ── */}
-      {viewMode === "grouped" && activeProjects.length === 0 && (
+      {viewMode === "grouped" && activeStrips.length === 0 && (
         <div style={{ textAlign: "center", color: T.muted, fontSize: 13, padding: "2rem" }}>
           {tab === "active" ? "No active production" : tab === "overdue" ? "Nothing overdue" : tab === "stalled" ? "No stalls" : "Nothing shipped"}
         </div>
@@ -1318,98 +1337,56 @@ export default function ProductionPage() {
         )
       )}
 
-      {viewMode === "grouped" && activeProjects.map(project => {
-        const isModalOpen = modalProject?.jobId === project.jobId;
-        const ship = shipDatePill(project.shipDate);
-        const allShipped = project.decoratorGroups.every(dg => dg.items.every(it => it.pipeline_stage === "shipped"));
-
+      {viewMode === "grouped" && activeStrips.map(strip => {
+        const project = strip.project; const dg = strip.dg;
+        const isModalOpen = modalProject?.jobId === project.jobId && modalDecoratorKey === strip.decKey;
+        const ship = shipDatePill(strip.shipDate);
+        const allShipped = dg.items.every((it: any) => it.pipeline_stage === "shipped");
+        const dest = strip.route === "drop_ship" ? `drop-ship → ${project.clientName || "client"}`
+          : strip.route === "stage" ? "→ HPD · stage" : "→ HPD";
         return (
-          <div key={project.jobId} style={{
+          <div key={project.jobId + "::" + strip.decKey} style={{
             background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden",
           }}>
-            {/* ── Row — vendor chips are the only entry point into the
-                modal. Row body itself is non-clickable so accidental
-                clicks while reading don't disrupt scanning. ── */}
+            {/* ── Job×vendor strip — the ship unit. One vendor's portion of one
+                job, with that vendor's own ship date. Click opens the modal
+                scoped to this vendor (the view the chip used to open). ── */}
             <div
-              style={{ padding: "14px 18px", display: "flex", gap: 16, alignItems: "flex-start" }}
+              onClick={() => { setModalDecoratorKey(strip.decKey); setExpandedDecorators(new Set([strip.decKey])); setModalProject(project); }}
+              style={{ padding: "12px 18px", display: "flex", gap: 16, alignItems: "center", cursor: "pointer" }}
+              onMouseEnter={e => (e.currentTarget.style.background = T.surface)}
+              onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
             >
-              {/* Title block — fixed width so the memo wraps inside it,
-                  freeing the middle of the row for vendor chips. */}
-              <div style={{ display: "flex", alignItems: "flex-start", gap: 12, width: 220, flexShrink: 0 }}>
-                <span style={{ fontSize: 14, fontWeight: 700, color: project.invoiceNumber ? T.text : "transparent", fontFamily: mono, whiteSpace: "nowrap", alignSelf: "center" }}>
-                  {project.invoiceNumber || ""}
-                </span>
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: T.text, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                    <span>{project.clientName || "No client"}</span>
-                    {allShipped && <span style={{ fontSize: 10, fontWeight: 700, color: T.green, letterSpacing: "0.06em", textTransform: "uppercase", flexShrink: 0 }}>All Shipped</span>}
-                  </div>
-                  {project.jobTitle && (
-                    <div style={{ fontSize: 12, color: T.faint, marginTop: 2, lineHeight: 1.4, wordBreak: "break-word" }}>
-                      {project.jobTitle}
-                    </div>
-                  )}
+              {/* Job + client */}
+              <div style={{ width: 250, flexShrink: 0, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: project.invoiceNumber ? T.text : T.faint, fontFamily: mono, whiteSpace: "nowrap" }}>{project.invoiceNumber || project.jobNumber}</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{project.clientName || "No client"}</span>
+                  {allShipped && <span style={{ fontSize: 9, fontWeight: 700, color: T.green, letterSpacing: "0.06em", textTransform: "uppercase", flexShrink: 0 }}>shipped</span>}
+                </div>
+                {project.jobTitle && <div style={{ fontSize: 11, color: T.faint, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{project.jobTitle}</div>}
+              </div>
+              {/* Vendor — the strip's identity */}
+              <div style={{ width: 160, flexShrink: 0, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{dg.shortCode || dg.decoratorName}</div>
+                <div style={{ fontSize: 10.5, color: T.muted }}>
+                  {dg.items.length} item{dg.items.length !== 1 ? "s" : ""} · {strip.units.toLocaleString()}u
+                  {dg.shipped > 0 && <span style={{ color: T.green }}> · {dg.shipped} shipped</span>}
                 </div>
               </div>
-
-              {/* Per-decorator mini breakdown — fills the middle of the
-                  row so vendor chips sit visually between the title and
-                  the ship date / units column. */}
-              <div style={{ flex: 1, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-start" }}>
-                {project.decoratorGroups.map(dg => {
-                  const decKey = dg.decoratorId || dg.decoratorName;
-                  return (
-                    <button key={decKey}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setModalDecoratorKey(decKey);
-                        setExpandedDecorators(new Set([decKey]));
-                        setModalProject(project);
-                      }}
-                      style={{
-                        display: "flex", alignItems: "center", gap: 6,
-                        padding: "4px 10px", borderRadius: 6, background: T.surface,
-                        fontSize: 11, border: `1px solid ${T.border}`, cursor: "pointer",
-                        fontFamily: font, transition: "all 0.12s",
-                      }}
-                      onMouseEnter={(e) => { e.currentTarget.style.background = T.accentDim; e.currentTarget.style.borderColor = T.accent; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.background = T.surface; e.currentTarget.style.borderColor = T.border; }}>
-                      <span style={{ fontWeight: 600, color: T.text }}>{dg.shortCode || dg.decoratorName}</span>
-                      <span style={{ color: T.muted }}>{dg.items.length} item{dg.items.length !== 1 ? "s" : ""}</span>
-                      <span style={{ color: T.faint }}>·</span>
-                      {dg.inProduction > 0 && <span style={{ color: T.accent }}>{dg.inProduction} active</span>}
-                      {dg.shipped > 0 && <span style={{ color: T.green }}>{dg.shipped} shipped</span>}
-                    </button>
-                  );
-                })}
-              </div>
-
-              {/* Right side: priority on top, days bold, date below,
-                  units underneath — matches the Projects page format. */}
-              <div style={{ flexShrink: 0, marginLeft: 12, textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, minWidth: 70 }}>
+              {/* Route → destination */}
+              <div style={{ flex: 1, minWidth: 0, fontSize: 11.5, color: T.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{dest}</div>
+              {/* Right: priority + this vendor's own ship date */}
+              <div style={{ flexShrink: 0, textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 1, minWidth: 70 }}>
                 {(() => {
                   const pri = project.priority === "hot" ? { label: "HOT", color: T.red }
-                    : project.priority === "rush" ? { label: "RUSH", color: T.amber }
-                    : null;
-                  return pri ? (
-                    <span style={{ fontSize: 10, fontWeight: 800, color: pri.color, letterSpacing: "0.1em", whiteSpace: "nowrap" }}>
-                      {pri.label}
-                    </span>
-                  ) : null;
+                    : project.priority === "rush" ? { label: "RUSH", color: T.amber } : null;
+                  return pri ? <span style={{ fontSize: 10, fontWeight: 800, color: pri.color, letterSpacing: "0.1em", whiteSpace: "nowrap" }}>{pri.label}</span> : null;
                 })()}
-                {ship && (
-                  <>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: ship.color, fontFamily: mono, whiteSpace: "nowrap" }}>
-                      {ship.label}
-                    </div>
-                    <div style={{ fontSize: 10, color: T.faint, whiteSpace: "nowrap" }}>
-                      {ship.dateStr}
-                    </div>
-                  </>
-                )}
-                <span style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
-                  {project.totalUnits.toLocaleString()} units
-                </span>
+                {ship && (<>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: ship.color, fontFamily: mono, whiteSpace: "nowrap" }}>{ship.label}</div>
+                  <div style={{ fontSize: 10, color: T.faint, whiteSpace: "nowrap" }}>{ship.dateStr}</div>
+                </>)}
               </div>
             </div>
 
