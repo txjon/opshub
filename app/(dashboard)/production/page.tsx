@@ -1369,7 +1369,6 @@ export default function ProductionPage() {
       )}
       {viewMode === "grouped" && activeStrips.map(strip => {
         const project = strip.project; const dg = strip.dg;
-        const isModalOpen = modalProject?.jobId === project.jobId && modalDecoratorKey === strip.decKey;
         const ship = shipDatePill(strip.shipDate);
         const allShipped = dg.items.every((it: any) => it.pipeline_stage === "shipped");
         const dest = strip.route === "drop_ship" ? `drop-ship → ${project.clientName || "client"}`
@@ -1431,9 +1430,17 @@ export default function ProductionPage() {
               </div>
             </div>
 
-            {/* ── Full-page modal — takes over the viewport, mirrors
-                the art-studio brief modal pattern. ESC or × to close. ── */}
-            {isModalOpen && (
+          </div>
+        );
+      })}
+
+      {/* Full-page ship modal — relocated out of the strips map so it can
+          render for a single job OR a whole vendor (Build-shipment). Driven
+          by modalProject. */}
+      {modalProject && (() => {
+        const project = modalProject;
+        const ship = shipDatePill(project.shipDate);
+        return (
               <div style={{ position: "fixed", inset: 0, background: T.bg, zIndex: 1000, display: "flex", flexDirection: "column", fontFamily: font, color: T.text }}>
                 <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
                   {/* Header */}
@@ -1795,10 +1802,8 @@ export default function ProductionPage() {
                   </div>
                 </div>
               </div>
-            )}
-          </div>
         );
-      })}
+      })()}
 
       {/* Packing slip viewer modal */}
       {mockupPeek && <MockupPeek driveFileId={mockupPeek.driveFileId} name={mockupPeek.name} onClose={() => setMockupPeek(null)} />}
