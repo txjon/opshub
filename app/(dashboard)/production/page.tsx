@@ -906,6 +906,7 @@ export default function ProductionPage() {
   const [tab, setTab] = useState<"active" | "overdue" | "stalled" | "shipped">("active");
   const [sortKey, setSortKey] = useState<"ship_date" | "days_at_decorator" | "decorator" | "client" | "units">("ship_date");
   const [viewMode, setViewMode] = useState<"grouped" | "list">("grouped");
+  const [buildPickerOpen, setBuildPickerOpen] = useState(false); // "+ Build shipment" vendor picker
   const [mockupMap, setMockupMap] = useState<Record<string, { driveFileId: string | null; driveLink: string | null }>>({});
   const [mockupPeek, setMockupPeek] = useState<{ driveFileId: string | null; name: string } | null>(null);
   // List-view sorting is driven by clicking column headers (asc/desc toggle),
@@ -1029,6 +1030,44 @@ export default function ProductionPage() {
     const val = (d: string | null) => (d === "ASAP" ? -Infinity : d ? new Date(d).getTime() : Infinity);
     return out.sort((a, b) => val(a.shipDate) - val(b.shipDate));
   }, [activeProjects]);
+
+  // All un-shipped items grouped by vendor across ALL jobs — the Build-shipment
+  // source. Each item carries its jobRef so the modal can label cross-job rows.
+  const vendorShipGroups = useMemo(() => {
+    const m = new Map<string, { decKey: string; name: string; shortCode: string; transitDays: number | null; items: any[]; units: number }>();
+    for (const p of projects) for (const dg of p.decoratorGroups) {
+      const decKey = dg.decoratorId || dg.decoratorName;
+      for (const it of dg.items) {
+        if (it.pipeline_stage === "shipped") continue;
+        let g = m.get(decKey);
+        if (!g) { g = { decKey, name: dg.decoratorName, shortCode: dg.shortCode, transitDays: dg.transitDays, items: [], units: 0 }; m.set(decKey, g); }
+        g.items.push({ ...it, jobRef: p.invoiceNumber || p.jobNumber });
+        g.units += it.total_units || 0;
+      }
+    }
+    return Array.from(m.values()).filter(g => g.items.length > 0).sort((a, b) => a.name.localeCompare(b.name));
+  }, [projects]);
+
+  // Open the rich ship modal VENDOR-WIDE — a synthetic project holding all of one
+  // vendor's in-production items across every job. "Select all → Ship Selected"
+  // then consolidates them under one tracking # (the existing batch-ship already
+  // spans jobs). No new ship path — same modal, broader item set.
+  function openBuildVendor(decKey: string) {
+    const g = vendorShipGroups.find(x => x.decKey === decKey);
+    if (!g) return;
+    const synth: any = {
+      jobId: "vw::" + decKey, jobNumber: g.name, invoiceNumber: null,
+      jobTitle: "Build shipment", clientName: "", shipDate: null, phase: "production",
+      completedAt: null, priority: null, totalItems: g.items.length, totalUnits: g.units,
+      shippingNotifications: [], shippingRoute: null, venueAddress: "", poShipTo: {}, vendorWide: true,
+      decoratorGroups: [{
+        decoratorId: g.decKey, decoratorName: g.name, shortCode: g.shortCode, transitDays: g.transitDays,
+        items: g.items, inProduction: g.items.length, shipped: 0, totalUnits: g.units, contacts: [],
+      }],
+    };
+    setModalDecoratorKey(decKey); setExpandedDecorators(new Set([decKey])); setModalProject(synth);
+    setBuildPickerOpen(false);
+  }
 
   const getDaysToShip = (d: string | null) => {
     if (!d || d === "ASAP") return null;
@@ -1238,6 +1277,10 @@ export default function ProductionPage() {
           );
         })}
         <div style={{ flex: 1 }} />
+        <button onClick={() => setBuildPickerOpen(true)}
+          style={{ background: T.green, color: "#fff", border: "none", borderRadius: 6, padding: "6px 13px", fontSize: 11.5, fontWeight: 700, fontFamily: font, cursor: "pointer", marginRight: 4 }}>
+          + Build shipment
+        </button>
         <div style={{ display: "flex", border: `1px solid ${T.border}`, borderRadius: 6, overflow: "hidden" }}>
           {(["grouped", "list"] as const).map(m => (
             <button key={m} onClick={() => setViewMode(m)}
@@ -1461,12 +1504,14 @@ export default function ProductionPage() {
                           {ship.dateStr} · {ship.label}
                         </div>
                       )}
+                      {!(project as any).vendorWide && (
                       <button onClick={() => { setModalProject(null); router.push(`/jobs/${project.jobId}`); }}
                         style={{ background: "transparent", border: `1px solid ${T.border}`, color: T.text, fontSize: 11, fontWeight: 700, padding: "6px 12px", borderRadius: 6, cursor: "pointer", fontFamily: font, letterSpacing: "0.04em" }}
                         onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; }}
                         onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.text; }}>
                         View Project →
                       </button>
+                      )}
                       <button onClick={closeModalRespectReturn} title="Close (Esc)"
                         style={{ background: "none", border: "none", color: T.muted, fontSize: 22, cursor: "pointer", padding: "0 6px", lineHeight: 1 }}>×</button>
                     </div>
@@ -1643,7 +1688,10 @@ export default function ProductionPage() {
                               <span style={{ fontSize: 13, fontWeight: 800, color: T.muted, fontFamily: mono, flexShrink: 0 }}>{item.letter}</span>
                               {/* Title + specs stack */}
                               <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{item.name}</div>
+                                <div style={{ fontSize: 13, fontWeight: 600, color: T.text, display: "flex", alignItems: "center", gap: 8 }}>
+                                  {(item as any).jobRef && <span style={{ fontFamily: mono, fontSize: 11, fontWeight: 700, color: T.accent, background: T.accentDim, padding: "1px 6px", borderRadius: 4, flexShrink: 0 }}>{(item as any).jobRef}</span>}
+                                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.name}</span>
+                                </div>
                                 <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
                                   {item.blank_vendor || "—"} · {item.total_units} units
                                 </div>
@@ -1804,6 +1852,29 @@ export default function ProductionPage() {
               </div>
         );
       })()}
+
+      {/* Build-shipment vendor picker — pick a vendor, then the rich ship modal
+          opens vendor-wide (all their in-production items across every job). */}
+      {buildPickerOpen && (
+        <div onClick={() => setBuildPickerOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(16,18,32,0.55)", backdropFilter: "blur(3px)", zIndex: 1100, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 16, width: "min(460px, 92vw)", maxHeight: "80vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 24px 70px rgba(16,18,32,0.4)", fontFamily: font }}>
+            <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+              <div><div style={{ fontSize: 16, fontWeight: 800, color: T.text }}>Build shipment</div><div style={{ fontSize: 11.5, color: T.muted, marginTop: 2 }}>Pick a vendor — you'll get all their in-production items across jobs.</div></div>
+              <button onClick={() => setBuildPickerOpen(false)} style={{ background: "transparent", border: "none", color: T.faint, fontSize: 22, cursor: "pointer", lineHeight: 1 }}>×</button>
+            </div>
+            <div style={{ overflowY: "auto" }}>
+              {vendorShipGroups.length === 0 ? <div style={{ padding: 20, color: T.faint, fontSize: 13 }}>Nothing in production.</div> : vendorShipGroups.map(g => (
+                <button key={g.decKey} onClick={() => openBuildVendor(g.decKey)} style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", textAlign: "left", padding: "12px 20px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}33`, cursor: "pointer", fontFamily: font }}
+                  onMouseEnter={e => e.currentTarget.style.background = T.surface} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                  <span style={{ fontSize: 13.5, fontWeight: 700, color: T.text, flex: 1 }}>{g.name}</span>
+                  <span style={{ fontSize: 11.5, color: T.muted }}>{g.items.length} item{g.items.length !== 1 ? "s" : ""} · {g.units.toLocaleString()}u</span>
+                  <span style={{ color: T.faint }}>›</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Packing slip viewer modal */}
       {mockupPeek && <MockupPeek driveFileId={mockupPeek.driveFileId} name={mockupPeek.name} onClose={() => setMockupPeek(null)} />}
