@@ -1351,6 +1351,16 @@ export default function ProductionPage() {
         )
       )}
 
+      {viewMode === "grouped" && activeStrips.length > 0 && (
+        <div style={{ display: "flex", gap: 14, alignItems: "center", padding: "0 19px 2px", fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em" }}>
+          <div style={{ width: 240, flexShrink: 0 }}>Job</div>
+          <div style={{ width: 150, flexShrink: 0 }}>Vendor</div>
+          <div style={{ width: 130, flexShrink: 0 }}>Route</div>
+          <div style={{ width: 160, flexShrink: 0 }}>Client ETA</div>
+          <div style={{ flex: 1 }} />
+          <div style={{ width: 90, flexShrink: 0, textAlign: "right" }}>Ship</div>
+        </div>
+      )}
       {viewMode === "grouped" && activeStrips.map(strip => {
         const project = strip.project; const dg = strip.dg;
         const isModalOpen = modalProject?.jobId === project.jobId && modalDecoratorKey === strip.decKey;
@@ -1368,12 +1378,12 @@ export default function ProductionPage() {
                 scoped to this vendor (the view the chip used to open). ── */}
             <div
               onClick={() => { setModalDecoratorKey(strip.decKey); setExpandedDecorators(new Set([strip.decKey])); setModalProject(project); }}
-              style={{ padding: "12px 18px", display: "flex", gap: 16, alignItems: "center", cursor: "pointer" }}
+              style={{ padding: "12px 18px", display: "flex", gap: 14, alignItems: "center", cursor: "pointer" }}
               onMouseEnter={e => (e.currentTarget.style.background = T.surface)}
               onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
             >
               {/* Job + client */}
-              <div style={{ width: 250, flexShrink: 0, minWidth: 0 }}>
+              <div style={{ width: 240, flexShrink: 0, minWidth: 0 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={{ fontSize: 13, fontWeight: 700, color: project.invoiceNumber ? T.text : T.faint, fontFamily: mono, whiteSpace: "nowrap" }}>{project.invoiceNumber || project.jobNumber}</span>
                   <span style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{project.clientName || "No client"}</span>
@@ -1382,28 +1392,26 @@ export default function ProductionPage() {
                 {project.jobTitle && <div style={{ fontSize: 11, color: T.faint, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{project.jobTitle}</div>}
               </div>
               {/* Vendor — the strip's identity */}
-              <div style={{ width: 160, flexShrink: 0, minWidth: 0 }}>
+              <div style={{ width: 150, flexShrink: 0, minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{dg.shortCode || dg.decoratorName}</div>
-                <div style={{ fontSize: 10.5, color: T.muted }}>
+                <div style={{ fontSize: 10.5, color: T.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                   {dg.items.length} item{dg.items.length !== 1 ? "s" : ""} · {strip.units.toLocaleString()}u
                   {dg.shipped > 0 && <span style={{ color: T.green }}> · {dg.shipped} shipped</span>}
                 </div>
               </div>
-              {/* Route → destination + editable Client ETA. The ETA writes the
-                  whole vendor batch; overview/worksheet/portal/PDFs all read
-                  items.client_eta, so it propagates without extra plumbing. */}
-              <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 18 }}>
-                <span style={{ fontSize: 11.5, color: T.muted, whiteSpace: "nowrap", flexShrink: 0 }}>{dest}</span>
-                <label onClick={e => e.stopPropagation()} style={{ display: "flex", alignItems: "center", gap: 7, flexShrink: 0 }}>
-                  <span style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em" }}>Client ETA</span>
-                  <input type="date" value={stripEta}
-                    onClick={e => e.stopPropagation()}
-                    onChange={e => { e.stopPropagation(); setStripEta(strip, e.target.value); }}
-                    style={{ ...ic, width: 150, padding: "4px 7px", fontSize: 11, fontFamily: mono }} />
-                </label>
+              {/* Route → destination */}
+              <div style={{ width: 130, flexShrink: 0, fontSize: 11.5, color: T.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{dest}</div>
+              {/* Client ETA — writes the whole vendor batch; overview/worksheet/
+                  portal/PDFs all read items.client_eta, so it propagates. */}
+              <div style={{ width: 160, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+                <input type="date" value={stripEta}
+                  onClick={e => e.stopPropagation()}
+                  onChange={e => { e.stopPropagation(); setStripEta(strip, e.target.value); }}
+                  style={{ ...ic, width: "100%", padding: "5px 8px", fontSize: 11, fontFamily: mono }} />
               </div>
-              {/* Right: priority + this vendor's own ship date */}
-              <div style={{ flexShrink: 0, textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 1, minWidth: 70 }}>
+              <div style={{ flex: 1 }} />
+              {/* Ship — this vendor's own ship date / urgency */}
+              <div style={{ width: 90, flexShrink: 0, textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 1 }}>
                 {(() => {
                   const pri = project.priority === "hot" ? { label: "HOT", color: T.red }
                     : project.priority === "rush" ? { label: "RUSH", color: T.amber } : null;
