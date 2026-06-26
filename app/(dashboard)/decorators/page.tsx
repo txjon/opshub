@@ -30,6 +30,7 @@ type Decorator = {
   zip: string | null;
   capabilities: string[];
   lead_time_days: number | null;
+  transit_days: number | null;
   notes: string | null;
   default_shipping_route: string | null;
   pricing_data: PricingData | null;
@@ -528,9 +529,10 @@ export default function DecoratorsPage() {
                       <SectionHead title="Company Info" />
                       <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:16 }}>
                         <Field label="Company name" value={d.name||""} onChange={v=>upd({name:v})} placeholder="ICON Printing" />
-                        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+                        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8 }}>
                           <Field label="Short code" value={d.short_code||""} onChange={v=>upd({short_code:v.toUpperCase()})} placeholder="ICON" isMono />
                           <Field label="Lead time (days)" value={String(d.lead_time_days||"")} onChange={v=>upd({lead_time_days:parseInt(v)||null} as any)} placeholder="7" isMono />
+                          <Field label="Transit days" value={String(d.transit_days||"")} onChange={v=>upd({transit_days:parseInt(v)||null} as any)} placeholder="5" isMono />
                         </div>
                         {/* Default shipping route — applied to this vendor's items
                             on PO send (only when the item has no manual route).
