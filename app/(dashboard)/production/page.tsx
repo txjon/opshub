@@ -10,6 +10,7 @@ import { shipItemFromDecorator } from "@/lib/po-actions";
 import { computeArrivalEta } from "@/lib/arrival-eta";
 import { NotifyShipmentDialog } from "@/components/NotifyShipmentDialog";
 import { MockupPeek } from "@/components/MockupPeek";
+import { DriveThumb } from "@/components/DriveThumb";
 
 const tQty = (q: Record<string, number>) => Object.values(q || {}).reduce((a, v) => a + v, 0);
 
@@ -1386,6 +1387,7 @@ export default function ProductionPage() {
 
       {viewMode === "grouped" && activeStrips.length > 0 && (
         <div style={{ display: "flex", gap: 14, alignItems: "center", padding: "0 19px 2px", fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em" }}>
+          <div style={{ width: 38, flexShrink: 0 }} />
           <div style={{ width: 240, flexShrink: 0 }}>Job</div>
           <div style={{ width: 150, flexShrink: 0 }}>Vendor</div>
           <div style={{ width: 130, flexShrink: 0 }}>Route</div>
@@ -1417,6 +1419,15 @@ export default function ProductionPage() {
               onMouseEnter={e => (e.currentTarget.style.background = T.surface)}
               onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
             >
+              {/* Mockup thumb — first item in this vendor batch that has one.
+                  No lightbox: a click bubbles up and opens the strip's modal. */}
+              {(() => {
+                const tid = dg.items.find((it: any) => mockupMap[it.id]?.driveFileId)?.id;
+                const fid = tid ? mockupMap[tid].driveFileId : null;
+                return fid
+                  ? <DriveThumb driveFileId={fid} alt={dg.items[0]?.name || ""} style={{ width: 38, height: 38, borderRadius: 6, objectFit: "cover", flexShrink: 0, border: `1px solid ${T.border}` }} />
+                  : <div style={{ width: 38, height: 38, borderRadius: 6, flexShrink: 0, background: T.surface, border: `1px solid ${T.border}` }} />;
+              })()}
               {/* Job + client */}
               <div style={{ width: 240, flexShrink: 0, minWidth: 0 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -1670,6 +1681,11 @@ export default function ProductionPage() {
                                 style={{ width: 16, height: 16, cursor: "pointer", accentColor: T.accent, flexShrink: 0 }}
                               />
                               <span style={{ fontSize: 13, fontWeight: 800, color: T.muted, fontFamily: mono, flexShrink: 0 }}>{item.letter}</span>
+                              {/* Mockup thumbnail (click to enlarge) */}
+                              {mockupMap[item.id]?.driveFileId && (
+                                <DriveThumb driveFileId={mockupMap[item.id].driveFileId} alt={item.name} enlargeable
+                                  style={{ width: 40, height: 40, borderRadius: 6, objectFit: "cover", flexShrink: 0, border: `1px solid ${T.border}` }} />
+                              )}
                               {/* Title + specs stack */}
                               <div style={{ flex: 1, minWidth: 0 }}>
                                 <div style={{ fontSize: 13, fontWeight: 600, color: T.text, display: "flex", alignItems: "center", gap: 8 }}>
