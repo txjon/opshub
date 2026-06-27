@@ -7,6 +7,7 @@ import { T, font, mono, sortSizes } from "@/lib/theme";
 import { logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
 import { uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
 import { shipItemFromDecorator } from "@/lib/po-actions";
+import { computeArrivalEta } from "@/lib/arrival-eta";
 import { NotifyShipmentDialog } from "@/components/NotifyShipmentDialog";
 import { MockupPeek } from "@/components/MockupPeek";
 
@@ -95,23 +96,6 @@ type DecoratorGroup = {
   inProduction: number; shipped: number; totalUnits: number;
   contacts: { name: string; email: string | null }[];
 };
-
-// Vendor transit buffer (business days) when a decorator has none set.
-const DEFAULT_TRANSIT_DAYS = 5;
-function addBusinessDays(dateStr: string, n: number): string {
-  const d = new Date(dateStr + "T00:00:00");
-  let added = 0;
-  while (added < n) { d.setDate(d.getDate() + 1); const w = d.getDay(); if (w !== 0 && w !== 6) added++; }
-  return d.toISOString().slice(0, 10);
-}
-// Expected arrival at HPD (the ASN). drop_ship goes direct (= the ship date);
-// HPD-routed (ship_through/stage) adds the vendor's transit buffer. ASAP/empty
-// pass through unchanged. A per-item expected_arrival override wins upstream.
-function computeArrivalEta(route: string, shipDate: string | null, transitDays: number | null): string | null {
-  if (!shipDate || shipDate === "ASAP") return shipDate || null;
-  if (route === "drop_ship") return shipDate;
-  return addBusinessDays(shipDate, transitDays ?? DEFAULT_TRANSIT_DAYS);
-}
 
 export default function ProductionPage() {
   const supabase = createClient();
