@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { T, font, mono, SIZE_ORDER } from "@/lib/theme";
 import { useWarehouse, tQty, type WarehouseJob, type WarehouseItem } from "@/lib/use-warehouse";
 import { useShipments, isRealTracking, type Shipment } from "@/lib/use-shipments";
+import { computeArrivalEta } from "@/lib/arrival-eta";
 import { uploadToReceiving, uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
 import { DriveFileLink } from "@/components/DriveFileLink";
 import { DriveThumb } from "@/components/DriveThumb";
@@ -208,17 +209,9 @@ export default function ReceivingPage() {
   // project's full vendor mix.
   const [modalShipmentKey, setModalShipmentKey] = useState<string | null>(null);
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
-  // List view (production-style per-item view) — toggle on pending/received.
-  const [viewMode, setViewMode] = useState<"shipments" | "list">("shipments");
   // Batch-receive confirm modal — the items queued by "Receive Selected".
   const [batchReceiveItems, setBatchReceiveItems] = useState<WarehouseItem[] | null>(null);
   const [mockupPeek, setMockupPeek] = useState<{ driveFileId: string | null; name: string } | null>(null);
-  const [listSortKey, setListSortKey] = useState<"inv" | "client" | "item" | "decorator" | "tracking" | "shipped" | "eta" | "units">("shipped");
-  const [listSortDir, setListSortDir] = useState<"asc" | "desc">("asc");
-  const listHeaderClick = (key: typeof listSortKey) => {
-    if (key === listSortKey) setListSortDir(d => d === "asc" ? "desc" : "asc");
-    else { setListSortKey(key); setListSortDir("asc"); }
-  };
 
   // Receive UI state — keyed by item id
   const [conditionNote, setConditionNote] = useState<Record<string, string>>({});
@@ -738,8 +731,12 @@ export default function ReceivingPage() {
       : 0;
     const isStale = shipment.pending_count > 0 && ageDays >= 5;
     const routeForBadge = primaryJob?.shipping_route || "ship_through";
-    const etas = shipment.items.map(it => it.client_eta).filter(Boolean).sort() as string[];
-    const eta = fmtEta(etas[0] || null);
+    // Arrival ETA (ASN) = a per-item expected_arrival override, else the actual
+    // ship date + the vendor's transit buffer. NOT client_eta (that's client comms).
+    const arrivalOverride = (shipment.items.map(it => it.expected_arrival).filter(Boolean).sort() as string[])[0] || null;
+    const transitDays = shipment.items.find(it => it.transit_days != null)?.transit_days ?? null;
+    const arrivalEta = arrivalOverride || (shipment.shipped_at ? computeArrivalEta("ship_through", shipment.shipped_at.slice(0, 10), transitDays) : null);
+    const eta = fmtEta(arrivalEta);
     const notes = Array.from(new Set(shipment.items.map(it => (it.ship_notes || "").trim()).filter(Boolean)));
     const pullCount = shipment.items.reduce((n, it) => n + activePulls(it).length, 0);
     return (
@@ -901,248 +898,6 @@ export default function ReceivingPage() {
     <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: T.amber, background: T.card, border: `1px solid ${T.amber}`, padding: "1px 5px", borderRadius: 4, whiteSpace: "nowrap" }}>Outside</span>
   );
 
-  // List-view row (matches renderListView columns).
-  const renderOutsideListRow = (s: OutsideShipment, received: boolean) => {
-    const units = outsideUnits(s, received);
-    const summary = outsideItemsSummary(s);
-    return (
-      <div key={s.id} style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "10px 14px", borderBottom: `1px solid ${T.border}55`, fontSize: 12, background: T.amberDim, borderLeft: `3px solid ${T.amber}` }}>
-        {!received && <div style={{ width: 24, flexShrink: 0 }} />}
-        <div style={{ width: 60, flexShrink: 0, display: "flex", alignItems: "flex-start" }}>{OUTSIDE_BADGE}</div>
-        <div style={{ flexGrow: 0, flexShrink: 1, flexBasis: 300, minWidth: 0, paddingLeft: 10 }}>
-          <div style={{ fontWeight: 600, color: T.text, wordBreak: "break-word" }}>{s.description}</div>
-          <div style={{ fontSize: 11, color: T.muted, marginTop: 1, wordBreak: "break-word", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-            {renderClientLink(s)}
-            {summary && <span style={{ color: T.faint }}>· {summary}</span>}
-          </div>
-        </div>
-        <div style={{ width: 64, flexShrink: 0, textAlign: "right", fontFamily: mono, color: T.text }}>{units || "—"}</div>
-        <div style={{ flex: 1 }} />
-        <div style={{ width: 88, flexShrink: 0, color: T.muted, fontFamily: mono, fontSize: 11, lineHeight: 1.3, wordBreak: "break-word" }}>{s.sender || "—"}</div>
-        <div style={{ width: 140, flexShrink: 0, fontFamily: mono, fontSize: 11, lineHeight: 1.3, display: "flex", alignItems: "flex-start" }} title={s.tracking || ""}>
-          <span style={{ color: s.tracking ? T.muted : T.faint, wordBreak: "break-all", minWidth: 0 }}>{s.tracking || "—"}</span>
-          {isRealTracking(s.tracking) && <CopyBtn text={s.tracking} />}
-        </div>
-        <div style={{ width: 64, flexShrink: 0, textAlign: "right", fontFamily: mono, color: T.muted }}>{s.received_at ? new Date(s.received_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}</div>
-        <div style={{ width: 60, flexShrink: 0, textAlign: "right", fontFamily: mono, fontSize: 11, color: received ? T.green : T.faint }}>{received ? new Date(s.received_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}</div>
-        <div style={{ width: 84, flexShrink: 0, display: "flex", justifyContent: "flex-end" }}>
-          {received ? (
-            <span style={{ fontSize: 10, fontWeight: 700, color: T.green, textTransform: "uppercase", letterSpacing: "0.04em" }}>Received</span>
-          ) : (
-            <button onClick={() => openReceiveOutside(s)} style={{ background: T.green, color: "#fff", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: font }}>Receive</button>
-          )}
-        </div>
-      </div>
-    );
-  };
-
-  // Shipments-view card (matches renderShipmentRow columns).
-  const renderOutsideShipmentRow = (s: OutsideShipment, received: boolean) => {
-    const units = outsideUnits(s, received);
-    const summary = outsideItemsSummary(s);
-    return (
-      <div key={s.id} style={{ background: T.amberDim, border: `1px solid ${T.amber}55`, borderLeft: `3px solid ${T.amber}`, borderRadius: 10, padding: "10px 14px", display: "flex", gap: 12, alignItems: "flex-start", fontSize: 12 }}>
-        <div style={{ width: 110, flexShrink: 0 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: T.text, wordBreak: "break-word" }}>{s.sender || "Outside"}</div>
-          <div style={{ marginTop: 3 }}>{OUTSIDE_BADGE}</div>
-        </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: T.text, wordBreak: "break-word" }}>{s.description}</div>
-          <div style={{ fontSize: 11, color: T.muted, marginTop: 1, wordBreak: "break-word", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-            {renderClientLink(s)}
-            {summary && <span style={{ color: T.faint }}>· {summary}</span>}
-          </div>
-        </div>
-        <div style={{ width: 150, flexShrink: 0, fontFamily: mono, fontSize: 11, lineHeight: 1.3, display: "flex", alignItems: "flex-start" }} title={s.tracking || ""}>
-          <span style={{ color: s.tracking ? T.muted : T.faint, wordBreak: "break-all", minWidth: 0 }}>{s.tracking || "—"}</span>
-          {isRealTracking(s.tracking) && <CopyBtn text={s.tracking} />}
-        </div>
-        <div style={{ width: 90, flexShrink: 0, fontFamily: mono, fontSize: 11, color: T.muted }}>{s.received_at ? new Date(s.received_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}</div>
-        <div style={{ width: 64, flexShrink: 0, textAlign: "right", fontFamily: mono, fontSize: 11, color: received ? T.green : T.faint }}>{received ? new Date(s.received_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}</div>
-        <div style={{ width: 80, flexShrink: 0, textAlign: "right", fontFamily: mono }}>
-          <div style={{ fontSize: 12, color: T.text }}>{units.toLocaleString()}</div>
-          <div style={{ fontSize: 9, color: T.muted, fontFamily: font, textTransform: "uppercase", letterSpacing: "0.04em" }}>units</div>
-        </div>
-        <div style={{ width: 96, flexShrink: 0, textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2 }}>
-          {received ? (
-            <span style={{ fontSize: 11, fontWeight: 700, color: T.green, textTransform: "uppercase", letterSpacing: "0.04em" }}>✓ Received</span>
-          ) : (
-            <button onClick={() => openReceiveOutside(s)} style={{ background: T.green, color: "#fff", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: font }}>Receive</button>
-          )}
-        </div>
-      </div>
-    );
-  };
-
-  // Flat per-item list (production-style). Reuses filteredShipments (search +
-  // decorator already applied), flattens to items for the active tab, sortable
-  // by column. Per-item Receive opens that item's shipment modal (full receive
-  // flow); multi-select runs bulkMarkReceived.
-  function renderListView() {
-    const isPending = tab === "pending";
-    const rows = filteredShipments.flatMap(s =>
-      s.items
-        .filter(it => !!it.received_at_hpd === !isPending)
-        .map(it => ({ it, s, job: s.jobs.find(j => j.id === it.job_id) || s.jobs[0] }))
-    );
-    const shipVal = (d: string | null) => d ? new Date(d).getTime() : Infinity;
-    const etaVal = (d: string | null) => d ? new Date(d.slice(0, 10)).getTime() : Infinity;
-    const recvVal = (d: string | null) => d ? new Date(d).getTime() : Infinity;
-    const fmtRecv = (d: string | null) => d ? new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : null;
-    const isReceivedTab = tab === "received";
-    const dir = listSortDir === "asc" ? 1 : -1;
-
-    const selected = rows.filter(r => selectedItemIds.has(r.it.id));
-    const eligible = selected.filter(r => !r.it.received_at_hpd);
-
-    const sortGlyph = (k: typeof listSortKey) => (
-      <span style={{ fontSize: 8, opacity: listSortKey === k ? 0.9 : 0.3 }}>{listSortKey === k ? (listSortDir === "asc" ? "▲" : "▼") : "↕"}</span>
-    );
-    const hCell = (k: typeof listSortKey, label: string, style: any) => (
-      <div onClick={() => listHeaderClick(k)} style={{ ...style, cursor: "pointer", display: "flex", alignItems: "center", gap: 3, color: listSortKey === k ? T.text : T.muted }}>{label}{sortGlyph(k)}</div>
-    );
-
-    if (rows.length === 0 && outsideForTab(isReceivedTab).length === 0) {
-      return <div style={{ textAlign: "center", color: T.muted, fontSize: 13, padding: "2rem" }}>{isPending ? "Nothing pending — every box is received." : "Nothing received yet."}</div>;
-    }
-
-    // Unified entries — outside packages file in alongside job items and sort by
-    // the active column (their logged date = ship date). Not pinned to top.
-    type Entry = { kind: "item"; r: typeof rows[number] } | { kind: "outside"; s: OutsideShipment };
-    const entries: Entry[] = [
-      ...rows.map(r => ({ kind: "item", r } as Entry)),
-      ...outsideForTab(isReceivedTab).map(s => ({ kind: "outside", s } as Entry)),
-    ];
-    const sortVal = (e: Entry): string | number => {
-      if (e.kind === "item") {
-        const { it, s, job } = e.r;
-        switch (listSortKey) {
-          case "inv": return (job?.display_number || "").toLowerCase();
-          case "client": return (job?.client_name || "").toLowerCase();
-          case "item": return (it.name || "").toLowerCase();
-          case "decorator": return (it.decorator_short_code || it.decorator_name || "").toLowerCase();
-          case "tracking": return (it.ship_tracking || "").toLowerCase();
-          case "shipped": return shipVal(s.shipped_at);
-          case "eta": return isReceivedTab ? recvVal(it.received_at_hpd_at || null) : etaVal(it.client_eta);
-          case "units": return tQty(it.qtys);
-        }
-      } else {
-        const s = e.s;
-        const ts = s.received_at ? new Date(s.received_at).getTime() : Infinity;
-        switch (listSortKey) {
-          case "inv": return "";
-          case "client": return (clientNameOf(s) || s.sender || "").toLowerCase();
-          case "item": return (s.description || "").toLowerCase();
-          case "decorator": return (s.sender || "").toLowerCase();
-          case "tracking": return (s.tracking || "").toLowerCase();
-          case "shipped": return ts;       // logged date stands in for ship date
-          case "eta": return isReceivedTab ? ts : Infinity;
-          case "units": return outsideUnits(s, isReceivedTab);
-        }
-      }
-      return 0;
-    };
-    entries.sort((a, b) => {
-      const va = sortVal(a), vb = sortVal(b);
-      const c = (typeof va === "number" && typeof vb === "number") ? va - vb : String(va).localeCompare(String(vb));
-      return c * dir;
-    });
-
-    // Received tab: collapse entries received >15 days ago behind a toggle.
-    const cutoff15 = Date.now() - 15 * 86400000;
-    const recvTs = (e: Entry) => e.kind === "item"
-      ? (e.r.it.received_at_hpd_at ? new Date(e.r.it.received_at_hpd_at as string).getTime() : 0)
-      : (e.s.received_at ? new Date(e.s.received_at).getTime() : 0);
-    const isOldEntry = (e: Entry) => isReceivedTab && recvTs(e) > 0 && recvTs(e) < cutoff15;
-    const recentRows = entries.filter(e => !isOldEntry(e));
-    const olderRows = entries.filter(e => isOldEntry(e));
-    const renderEntry = (e: Entry) => e.kind === "item" ? renderItemRow(e.r) : renderOutsideListRow(e.s, isReceivedTab);
-
-    const renderItemRow = ({ it, s, job }: typeof rows[number]) => {
-      const isReceived = it.received_at_hpd;
-      const shippedStr = s.shipped_at ? new Date(s.shipped_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—";
-      return (
-        <div key={it.id} style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "10px 14px", borderBottom: `1px solid ${T.border}55`, fontSize: 12 }}
-          onMouseEnter={e => (e.currentTarget.style.background = T.surface)}
-          onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
-          {isPending && (
-            <div style={{ width: 24, flexShrink: 0, display: "flex", alignItems: "center", paddingTop: 1 }} onClick={e => e.stopPropagation()}>
-              <input type="checkbox" checked={selectedItemIds.has(it.id)} onChange={() => toggleItemSelected(it.id)} style={{ width: 15, height: 15, cursor: "pointer", accentColor: T.accent }} />
-            </div>
-          )}
-          <div style={{ width: 60, flexShrink: 0, color: job?.display_number ? T.text : T.faint, fontFamily: mono, fontWeight: 700, whiteSpace: "nowrap" }}>{job?.display_number || "—"}</div>
-          <div style={{ flexGrow: 0, flexShrink: 1, flexBasis: 300, minWidth: 0, paddingLeft: 10 }}>
-            <div onClick={() => setMockupPeek({ driveFileId: mockupMap[it.id]?.driveFileId || null, name: it.name })} title="View mockup"
-              style={{ fontWeight: 600, color: T.text, lineHeight: 1.3, cursor: "pointer", wordBreak: "break-word" }}>{it.name}</div>
-            <div style={{ fontSize: 11, color: T.muted, marginTop: 1, wordBreak: "break-word" }}>{job?.client_name || "No client"}</div>
-            {it.ship_notes && (
-              <div style={{ fontSize: 11, color: T.amber, marginTop: 2, display: "flex", gap: 5 }}>
-                <span style={{ flexShrink: 0 }}>✎</span>
-                <span style={{ minWidth: 0, wordBreak: "break-word" }}>{it.ship_notes}</span>
-              </div>
-            )}
-            <SamplePullsBlock item={it} hideEta />
-          </div>
-          <div style={{ width: 64, flexShrink: 0, textAlign: "right", fontFamily: mono, color: T.text }}>{tQty(it.qtys)}</div>
-          <div style={{ flex: 1 }} />
-          <div style={{ width: 88, flexShrink: 0, color: T.muted, fontFamily: mono, fontSize: 11, lineHeight: 1.3, wordBreak: "break-word" }}>{it.decorator_short_code || it.decorator_name || "—"}</div>
-          <div style={{ width: 140, flexShrink: 0, fontFamily: mono, fontSize: 11, lineHeight: 1.3, display: "flex", alignItems: "flex-start" }} title={it.ship_tracking || ""}>
-            <span style={{ color: it.ship_tracking ? T.muted : T.faint, wordBreak: "break-all", minWidth: 0 }}>{it.ship_tracking || "—"}</span>
-            {isRealTracking(it.ship_tracking) && <CopyBtn text={it.ship_tracking!} />}
-          </div>
-          <div style={{ width: 64, flexShrink: 0, textAlign: "right", fontFamily: mono, color: T.muted }}>{shippedStr}</div>
-          {isReceivedTab ? (
-            <div style={{ width: 60, flexShrink: 0, textAlign: "right", fontFamily: mono, fontSize: 11, color: fmtRecv(it.received_at_hpd_at || null) ? T.green : T.faint }}>{fmtRecv(it.received_at_hpd_at || null) || "—"}</div>
-          ) : (
-            <div style={{ width: 60, flexShrink: 0, textAlign: "right", fontFamily: mono, fontSize: 11, color: fmtEta(it.client_eta) ? T.accent : T.faint }}>{fmtEta(it.client_eta) || "—"}</div>
-          )}
-          <div style={{ width: 84, flexShrink: 0, display: "flex", justifyContent: "flex-end" }}>
-            {isReceived ? (
-              <span style={{ fontSize: 10, fontWeight: 700, color: T.green, textTransform: "uppercase", letterSpacing: "0.04em" }}>Received</span>
-            ) : (
-              <button onClick={() => setModalShipmentKey(s.key)} style={{ background: T.green, color: "#fff", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: font }}>Receive</button>
-            )}
-          </div>
-        </div>
-      );
-    };
-
-    return (
-      <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
-        {isPending && eligible.length > 0 && (
-          <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 14px", borderBottom: `1px solid ${T.border}`, background: T.surface }}>
-            <span style={{ fontSize: 12, color: T.text, fontWeight: 600 }}>{eligible.length} selected</span>
-            <button onClick={() => setSelectedItemIds(new Set())} style={{ background: "none", border: "none", color: T.muted, fontSize: 11, cursor: "pointer", fontFamily: font }}>Clear</button>
-            <div style={{ flex: 1 }} />
-            <button onClick={() => setBatchReceiveItems(eligible.map(r => r.it))}
-              style={{ background: T.green, color: "#fff", border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>
-              Receive Selected · {eligible.length}
-            </button>
-          </div>
-        )}
-        <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 14px", borderBottom: `1px solid ${T.border}`, fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em", userSelect: "none" }}>
-          {isPending && <div style={{ width: 24, flexShrink: 0 }} />}
-          {hCell("inv", "Inv #", { width: 60, flexShrink: 0 })}
-          {hCell("item", "Item / Client", { flexGrow: 0, flexShrink: 1, flexBasis: 300, minWidth: 0, paddingLeft: 10 })}
-          {hCell("units", "Units", { width: 64, flexShrink: 0, justifyContent: "flex-end" })}
-          <div style={{ flex: 1 }} />
-          {hCell("decorator", "Vendor", { width: 88, flexShrink: 0 })}
-          {hCell("tracking", "Tracking", { width: 140, flexShrink: 0 })}
-          {hCell("shipped", "Shipped", { width: 64, flexShrink: 0, justifyContent: "flex-end" })}
-          {hCell("eta", isReceivedTab ? "Date" : "ETA", { width: 60, flexShrink: 0, justifyContent: "flex-end" })}
-          <div style={{ width: 84, flexShrink: 0 }} />
-        </div>
-        {recentRows.map(renderEntry)}
-        {isReceivedTab && olderRows.length > 0 && (
-          <div onClick={() => setShowAllReceived(v => !v)}
-            style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 14px", borderTop: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.05em", userSelect: "none" }}>
-            {showAllReceived ? "▾" : "▸"} {showAllReceived ? "Hide" : `Show ${olderRows.length}`} received earlier than 15 days ago
-          </div>
-        )}
-        {isReceivedTab && showAllReceived && olderRows.map(renderEntry)}
-      </div>
-    );
-  }
 
   if (loading) return <div style={{ padding: "2rem", color: T.muted, fontSize: 13, fontFamily: font }}>Loading receiving...</div>;
 
@@ -1230,27 +985,11 @@ export default function ReceivingPage() {
             </button>
           );
         })}
-        {tab !== "outside" && (
-          <>
-            <div style={{ flex: 1 }} />
-            <div style={{ display: "flex", border: `1px solid ${T.border}`, borderRadius: 6, overflow: "hidden" }}>
-              {(["shipments", "list"] as const).map(m => (
-                <button key={m} onClick={() => setViewMode(m)}
-                  style={{ background: viewMode === m ? T.surface : "transparent", color: viewMode === m ? T.text : T.muted, border: "none", padding: "5px 12px", fontSize: 11, fontWeight: 700, fontFamily: font, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                  {m === "shipments" ? "Shipments" : "Item List"}
-                </button>
-              ))}
-            </div>
-          </>
-        )}
       </div>
-
-      {/* ── List view (pending / received) — one row per item ── */}
-      {tab !== "outside" && viewMode === "list" && renderListView()}
 
       {/* ── Pending tab — shipment rows, flat list (outside packages filed in,
           highlighted + marked OUTSIDE) ── */}
-      {tab === "pending" && viewMode === "shipments" && (() => {
+      {tab === "pending" && (() => {
         const outsideRows = outsideForTab(false);
         if (visibleShipments.length === 0 && outsideRows.length === 0) {
           return <div style={{ textAlign: "center", color: T.muted, fontSize: 13, padding: "2rem" }}>Nothing pending — every box is received.</div>;
@@ -1274,7 +1013,7 @@ export default function ReceivingPage() {
           gives the floor a clear daily working list; time buckets
           collapse the historical pile so the page doesn't read as
           a wall of "done" stuff. */}
-      {tab === "received" && receivedBuckets && viewMode === "shipments" && (
+      {tab === "received" && receivedBuckets && (
         <>
           {visibleShipments.length === 0 && outsideForTab(true).length === 0 && (
             <div style={{ textAlign: "center", color: T.muted, fontSize: 13, padding: "2rem" }}>

@@ -31,6 +31,10 @@ export type WarehouseItem = {
   // Local-pickup flag (migration 106). When true the item is grouped into a
   // single per-vendor pickup block on Receiving instead of by tracking #.
   pickup_ready: boolean;
+  // Warehouse-arrival ETA override (migration 107) + the vendor's transit buffer
+  // (business days). Receiving's ETA = expected_arrival ?? shipped + buffer.
+  expected_arrival: string | null;
+  transit_days: number | null;
   received_at_hpd: boolean;
   received_at_hpd_at: string | null;
   // Outbound HPD → client forward (ship_through). Null = received but not yet
@@ -147,11 +151,11 @@ export function useWarehouse() {
     const allItems = itemsRes.data;
     const allContacts = contactsRes.data || [];
     const assignmentMap: Record<string, string> = {};
-    const decoratorMap: Record<string, { id: string | null; name: string; short_code: string | null }> = {};
+    const decoratorMap: Record<string, { id: string | null; name: string; short_code: string | null; transit_days: number | null }> = {};
     if (allItems?.length) {
       const itemIds = allItems.map((it: any) => it.id);
       const { data: assignments } = await supabase.from("decorator_assignments")
-        .select("id, item_id, decorator_id, decorators(name, short_code)")
+        .select("id, item_id, decorator_id, decorators(name, short_code, transit_days)")
         .in("item_id", itemIds);
       for (const a of (assignments || []) as any[]) {
         assignmentMap[a.item_id] = a.id;
@@ -160,6 +164,7 @@ export function useWarehouse() {
             id: a.decorator_id || null,
             name: a.decorators?.name || "Unassigned",
             short_code: a.decorators?.short_code || null,
+            transit_days: a.decorators?.transit_days ?? null,
           };
         }
       }
@@ -211,6 +216,8 @@ export function useWarehouse() {
             ship_date: ts.shipped || null,
             shipping_route: it.shipping_route || null,
             pickup_ready: it.pickup_ready || false,
+            expected_arrival: it.expected_arrival || null,
+            transit_days: decoratorMap[it.id]?.transit_days ?? null,
             received_at_hpd: it.received_at_hpd || false, received_at_hpd_at: it.received_at_hpd_at,
             forwarded_at: it.forwarded_at || null, forward_tracking: it.forward_tracking || null,
             webstore_entered_at: it.webstore_entered_at || null,
