@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { T, font, mono, sortSizes } from "@/lib/theme";
+import { T, font, mono } from "@/lib/theme";
 import { resolveItemStatus, STATE_LABELS } from "@/lib/item-status";
 import { etaCountdown } from "@/lib/eta";
 
