@@ -897,6 +897,46 @@ export default function ReceivingPage() {
   const OUTSIDE_BADGE = (
     <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: T.amber, background: T.card, border: `1px solid ${T.amber}`, padding: "1px 5px", borderRadius: 4, whiteSpace: "nowrap" }}>Outside</span>
   );
+  // Outside-package row (amber card). Restored — it was deleted by mistake in
+  // cf946190 while removing the list-view code, but the shipments view still
+  // calls it (Pending + Received tabs), so its absence crashed Receiving the
+  // moment any outside shipment existed.
+  const renderOutsideShipmentRow = (s: OutsideShipment, received: boolean) => {
+    const units = outsideUnits(s, received);
+    const summary = outsideItemsSummary(s);
+    return (
+      <div key={s.id} style={{ background: T.amberDim, border: `1px solid ${T.amber}55`, borderLeft: `3px solid ${T.amber}`, borderRadius: 10, padding: "10px 14px", display: "flex", gap: 12, alignItems: "flex-start", fontSize: 12 }}>
+        <div style={{ width: 110, flexShrink: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: T.text, wordBreak: "break-word" }}>{s.sender || "Outside"}</div>
+          <div style={{ marginTop: 3 }}>{OUTSIDE_BADGE}</div>
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: T.text, wordBreak: "break-word" }}>{s.description}</div>
+          <div style={{ fontSize: 11, color: T.muted, marginTop: 1, wordBreak: "break-word", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            {renderClientLink(s)}
+            {summary && <span style={{ color: T.faint }}>· {summary}</span>}
+          </div>
+        </div>
+        <div style={{ width: 150, flexShrink: 0, fontFamily: mono, fontSize: 11, lineHeight: 1.3, display: "flex", alignItems: "flex-start" }} title={s.tracking || ""}>
+          <span style={{ color: s.tracking ? T.muted : T.faint, wordBreak: "break-all", minWidth: 0 }}>{s.tracking || "—"}</span>
+          {isRealTracking(s.tracking) && <CopyBtn text={s.tracking} />}
+        </div>
+        <div style={{ width: 90, flexShrink: 0, fontFamily: mono, fontSize: 11, color: T.muted }}>{s.received_at ? new Date(s.received_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}</div>
+        <div style={{ width: 64, flexShrink: 0, textAlign: "right", fontFamily: mono, fontSize: 11, color: received ? T.green : T.faint }}>{received ? new Date(s.received_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}</div>
+        <div style={{ width: 80, flexShrink: 0, textAlign: "right", fontFamily: mono }}>
+          <div style={{ fontSize: 12, color: T.text }}>{units.toLocaleString()}</div>
+          <div style={{ fontSize: 9, color: T.muted, fontFamily: font, textTransform: "uppercase", letterSpacing: "0.04em" }}>units</div>
+        </div>
+        <div style={{ width: 96, flexShrink: 0, textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2 }}>
+          {received ? (
+            <span style={{ fontSize: 11, fontWeight: 700, color: T.green, textTransform: "uppercase", letterSpacing: "0.04em" }}>✓ Received</span>
+          ) : (
+            <button onClick={() => openReceiveOutside(s)} style={{ background: T.green, color: "#fff", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: font }}>Receive</button>
+          )}
+        </div>
+      </div>
+    );
+  };
 
 
   if (loading) return <div style={{ padding: "2rem", color: T.muted, fontSize: 13, fontFamily: font }}>Loading receiving...</div>;
