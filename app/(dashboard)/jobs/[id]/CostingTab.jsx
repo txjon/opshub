@@ -2016,7 +2016,12 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
   }, [actionsRef, handlePullFromPsds]);
   useEffect(() => {
     if (onPullStateChange) onPullStateChange(pullingPsds, pullResult);
-  }, [pullingPsds, pullResult, onPullStateChange]);
+    // Fire only when the ACTUAL pull state changes — NOT on onPullStateChange's
+    // identity. The parent passes it inline (new ref every render); depending on
+    // that ref re-ran this effect every render → setCostingPull(new obj) →
+    // re-render → loop ("Maximum update depth exceeded"). The stuck-in-project bug.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pullingPsds, pullResult]);
 
   // First-load auto-run — same behavior as before, just delegates to
   // the shared function now.

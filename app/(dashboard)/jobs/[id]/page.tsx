@@ -123,6 +123,9 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   // without keeping a duplicate toolbar inside the costing tab itself.
   const costingActionsRef = useRef<{pullFromPsds?: () => Promise<void>; openRfqModal?: () => void}>({});
   const [costingPull, setCostingPull] = useState<{pulling: boolean; result: string | null}>({pulling: false, result: null});
+  // Stable ref so CostingTabWrapper's notify effect doesn't see a new callback
+  // every render (which fed the stuck-in-project render loop).
+  const handleCostingPull = useCallback((pulling: boolean, result: string | null) => setCostingPull({ pulling, result }), []);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const autoSelectedRef = useRef(false);
   const [job, setJob] = useState<Job|null>(null);
@@ -1645,7 +1648,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           hideSubTabs={true}
           hideToolbar={!isMobile}
           actionsRef={costingActionsRef}
-          onPullStateChange={(pulling: boolean, result: string | null) => setCostingPull({pulling, result})}
+          onPullStateChange={handleCostingPull}
           selectedItemId={selectedItemId}
           onSelectItem={(id: string) => setSelectedItemId(prev => prev === id ? null : id)}
           onUpdateProject={(updates: any) => setJob(j => j ? {...j, ...updates} : j)}
