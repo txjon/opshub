@@ -152,7 +152,7 @@ export async function POST(req: NextRequest) {
       // packing-slip route filters by — passing it would produce an
       // empty PDF. Only filter when this is a per-vendor drop-ship.
       const isVendorScope = type === "order_shipped_vendor";
-      let pdfBuffer: Buffer;
+      let pdfBuffer: Buffer | null = null;
       try {
         const params = new URLSearchParams();
         if (isVendorScope) {
@@ -162,8 +162,8 @@ export async function POST(req: NextRequest) {
         const slipUrl = `${BASE_URL()}/api/pdf/packing-slip/${jobId}${params.toString() ? `?${params.toString()}` : ""}`;
         pdfBuffer = await fetchPdf(slipUrl, _slug);
       } catch (e: any) {
-        console.error(`[notify/${type}] packing slip fetch failed:`, e.message);
-        return NextResponse.json({ error: "Packing slip generation failed" }, { status: 500 });
+        // Don't block the shipped notice over a slip hiccup — the portal CTA has it.
+        console.error(`[notify/${type}] packing slip fetch failed (sending without it):`, e.message);
       }
 
       const html = renderBrandedEmail({
@@ -184,7 +184,7 @@ export async function POST(req: NextRequest) {
         to: clientEmail,
         subject,
         html,
-        attachments: [{ filename: pdfFilename, content: pdfBuffer.toString("base64") }],
+        attachments: pdfBuffer ? [{ filename: pdfFilename, content: pdfBuffer.toString("base64") }] : undefined,
       });
       if ((_r1 as any)?.error) throw new Error((_r1 as any).error.message || "Resend rejected the send");
 
@@ -524,7 +524,7 @@ export async function POST(req: NextRequest) {
       // because the packing-slip route filters items by item.ship_tracking
       // (the decorator→HPD inbound number), which would never match the
       // outbound fulfillment_tracking and produce a header-only PDF.
-      let pdfBuffer: Buffer;
+      let pdfBuffer: Buffer | null = null;
       try {
         const params = new URLSearchParams();
         if (isWaveForward) {
@@ -537,8 +537,10 @@ export async function POST(req: NextRequest) {
         const slipUrl = `${BASE_URL()}/api/pdf/packing-slip/${jobId}${params.toString() ? `?${params.toString()}` : ""}`;
         pdfBuffer = await fetchPdf(slipUrl, _slug);
       } catch (e: any) {
-        console.error(`[notify/shipment_notify] packing slip fetch failed:`, e.message);
-        return NextResponse.json({ error: "Packing slip generation failed" }, { status: 500 });
+        // The slip PDF can hiccup (Browserless transient, etc.). Don't block the
+        // warehouse heads-up over a missing attachment — send without it and note
+        // that the slip is on the receiving board.
+        console.error(`[notify/shipment_notify] packing slip fetch failed (sending without it):`, e.message);
       }
       const pdfFilename = `HPD-PackingSlip-${invoiceNum}.pdf`;
 
@@ -547,7 +549,7 @@ export async function POST(req: NextRequest) {
         eyebrow: tenantName,
         heading,
         greeting,
-        bodyHtml: customMessageHtml + bodyHtml,
+        bodyHtml: customMessageHtml + bodyHtml + (pdfBuffer ? "" : `<br/><br/><em style="color:#888">Packing slip couldn't be attached — view it on the receiving board.</em>`),
         extraHtml: trackingBlock(trackingNumber || null, carrier || null),
         cta: route === "drop_ship" && portalUrl ? { label: "Open project portal →", url: portalUrl, style: "outline" } : route !== "drop_ship" ? { label: "Open receiving →", url: `${await appBaseUrl()}/receiving`, style: "outline" } : undefined,
         closing,
@@ -567,7 +569,7 @@ export async function POST(req: NextRequest) {
           bcc: !testRecipient && bccList.length ? bccList : undefined,
           subject: finalSubject,
           html,
-          attachments: [{ filename: pdfFilename, content: pdfBuffer.toString("base64") }],
+          attachments: pdfBuffer ? [{ filename: pdfFilename, content: pdfBuffer.toString("base64") }] : undefined,
         } as any);
         if ((_rs as any)?.error) throw new Error((_rs as any).error.message || "Resend rejected the send");
       } catch (e: any) {
