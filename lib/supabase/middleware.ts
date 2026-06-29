@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { resolveSlugFromHost } from "@/lib/tenants";
+import { canAccessPath, firstGrantedHref } from "@/lib/access";
 
 export async function updateSession(request: NextRequest) {
   // Clone the request headers so we can add x-company-slug. The slug is
@@ -71,6 +72,30 @@ export async function updateSession(request: NextRequest) {
     const url = request.nextUrl.clone();
     url.pathname = "/dashboard";
     return NextResponse.redirect(url);
+  }
+
+  // ── Page-level access guard ──
+  // Enforce per-user page_access on authenticated app routes. Fail-OPEN:
+  // uncatalogued paths, god users, missing/empty page_access (legacy role
+  // fallback handled in canAccessPath), or any profile-read error all pass
+  // through — we never hard-lock someone out on a transient hiccup.
+  if (user && !isApiRoute && !isPublicRoute && !isAuthRoute) {
+    try {
+      const { data: prof } = await supabase
+        .from("profiles")
+        .select("role, is_god, page_access")
+        .eq("id", user.id)
+        .single();
+      const accessUser = { role: prof?.role, isGod: prof?.is_god === true, pageAccess: prof?.page_access };
+      if (!canAccessPath(pathname, accessUser)) {
+        const url = request.nextUrl.clone();
+        url.pathname = firstGrantedHref(accessUser) || "/login";
+        url.search = "";
+        return NextResponse.redirect(url);
+      }
+    } catch {
+      // fail-open: a profile-read hiccup must not lock anyone out
+    }
   }
 
   return supabaseResponse;

@@ -76,6 +76,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         companySlug={company.slug}
         companyName={company.name}
         isGod={isGod}
+        pageAccess={(profile as any)?.page_access ?? null}
       >
         {children}
       </AppShell>
