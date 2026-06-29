@@ -2283,7 +2283,14 @@ export default function ProductionPage() {
                 const canNotify = allShipped && !!batchTracking.trim() && !!project.invoiceNumber;
                 return (
                   <div style={{ marginTop: 24, display: "flex", justifyContent: "flex-end", gap: 8, alignItems: "center" }}>
-                    <button onClick={() => { setBatchShipState(null); setSelectedItemIds(new Set()); }}
+                    <button onClick={() => {
+                        setBatchShipState(null); setSelectedItemIds(new Set());
+                        // A vendor-wide synthetic project (jobId "vw::…") can't be
+                        // refreshed by the modal-sync effect, so it would show the
+                        // just-shipped items as still in-production. Close it too —
+                        // the board already refreshed via loadAll.
+                        if ((project as any).vendorWide) setModalProject(null);
+                      }}
                       style={{ padding: "8px 16px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
                       {allShipped ? "Done" : "Cancel"}
                     </button>

@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { T, font, mono, sortSizes } from "@/lib/theme";
+import { T, font, mono } from "@/lib/theme";
 import { resolveItemStatus, STATE_LABELS } from "@/lib/item-status";
 import { etaCountdown } from "@/lib/eta";
 
@@ -16,9 +16,9 @@ const ETA_BAND_COLORS = {
 };
 
 // Job Overview items list — worksheet-style row layout.
-// Mirrors the per-item working sheet on /clients/[id] so ETA edits
-// here auto-sync there (and to ProductionTab + /production page).
-// All four surfaces edit the same items.client_eta column.
+// Mirrors the per-item working sheet on /clients/[id]: both EDIT the same
+// items.client_eta column, which the client portal + quote/invoice PDFs READ.
+// (Production shipping is read-only here — see the "Ship in Production →" link.)
 //
 // Columns: name (+ vendor / sku) · qty · status · ETA
 // Status: canonical resolveItemStatus from lib/item-status.
