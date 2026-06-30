@@ -758,6 +758,17 @@ export async function createVendor(name: string): Promise<any> {
   return data.Vendor;
 }
 
+// Free-text vendor search for the contractor → QB-vendor mapping picker (mirrors
+// the customer-candidates flow). Contains-match on DisplayName so "sandate" finds
+// "Patrick Samuel Sandate".
+export async function searchVendors(q: string, limit = 20): Promise<{ id: string; name: string }[]> {
+  const s = (q || "").trim();
+  if (!s) return [];
+  const query = encodeURIComponent(`SELECT * FROM Vendor WHERE DisplayName LIKE '%${s.replace(/'/g, "\\'")}%' AND Active = true MAXRESULTS ${Math.max(1, Math.min(50, limit))}`);
+  const data = await qbFetch(`/query?query=${query}`);
+  return (data?.QueryResponse?.Vendor || []).map((v: any) => ({ id: String(v.Id), name: v.DisplayName }));
+}
+
 // Resolve an OpsHub AP vendor to a QB Vendor. These almost always already exist
 // in QB (they show up in the bill/transaction reports), so we match exact →
 // suffix-stripped → closest fuzzy before creating. Unlike the customer path we
@@ -788,6 +799,22 @@ export async function getCogsAccountRef(): Promise<{ id: string; name: string }>
   const exact = accounts.find((a: any) => String(a.Name || "").toLowerCase() === "cost of goods sold");
   const acct = exact || accounts[0];
   if (!acct) throw new Error("No 'Cost of Goods Sold' account found in QuickBooks");
+  return { id: String(acct.Id), name: acct.Name };
+}
+
+// Resolve a QB account by name (exact match first, then fuzzy contains). Used for
+// the contractor-labor account ("3rd party fulfillment").
+export async function getAccountRefByName(name: string): Promise<{ id: string; name: string }> {
+  const esc = name.replace(/'/g, "\\'");
+  let data = await qbFetch(`/query?query=${encodeURIComponent(`SELECT * FROM Account WHERE Name = '${esc}' AND Active = true MAXRESULTS 5`)}`);
+  let accounts = data?.QueryResponse?.Account || [];
+  if (!accounts.length) {
+    data = await qbFetch(`/query?query=${encodeURIComponent("SELECT * FROM Account WHERE Active = true MAXRESULTS 1000")}`);
+    const lc = name.toLowerCase();
+    accounts = (data?.QueryResponse?.Account || []).filter((a: any) => String(a.Name || "").toLowerCase().includes(lc));
+  }
+  const acct = accounts[0];
+  if (!acct) throw new Error(`No active QuickBooks account matching "${name}" found`);
   return { id: String(acct.Id), name: acct.Name };
 }
 
