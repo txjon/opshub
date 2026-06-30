@@ -6,6 +6,7 @@ import { poSentToItem, isItemInProduction } from "@/lib/item-status";
 import { buildPrintersMap } from "@/lib/pricing";
 import { computeBillingQueue } from "@/lib/billing-queue";
 import { computeVarianceSummary } from "@/lib/variance";
+import { shippingVarianceNet, isFreightSource } from "@/lib/ups-freight";
 
 // Owner cockpit. Gated by is_god OR an explicit /god-mode page grant (the
 // access model) — NOT a hardcoded email, which broke god-by-flag accounts and
@@ -70,9 +71,13 @@ export default async function GodModePage() {
   // ── Cost-vs-Plan variance (decorator bills + blanks vs projection) ──
   // Same engine as the /reconciliation Variances tab — shared lib/variance.
   const vxPrinters = buildPrintersMap(decorators);
-  const vxQueue = computeBillingQueue({ jobs, printers: vxPrinters, apVendors: (apVendorsRes.data as any) || [], entries: (costEntriesRes.data as any) || [], marks: (costMarksRes.data as any) || [] });
+  // UPS inbound freight lives in its own pipeline — exclude it from the PO-bill
+  // queue, then add the freight variance to the total below.
+  const vxFreight = ((costEntriesRes.data as any) || []).filter((e: any) => isFreightSource(e.source));
+  const vxQueue = computeBillingQueue({ jobs, printers: vxPrinters, apVendors: (apVendorsRes.data as any) || [], entries: ((costEntriesRes.data as any) || []).filter((e: any) => !isFreightSource(e.source)), marks: (costMarksRes.data as any) || [] });
   const vxJobsRaw = Object.fromEntries(jobs.map((j: any) => [j.id, j]));
-  const costVariance = computeVarianceSummary({ queue: vxQueue, jobsRaw: vxJobsRaw, items, printers: vxPrinters }).netVar;
+  // Total cost-vs-plan = decorator-bill variance + inbound-freight variance.
+  const costVariance = computeVarianceSummary({ queue: vxQueue, jobsRaw: vxJobsRaw, items, printers: vxPrinters }).netVar + shippingVarianceNet(vxFreight, vxJobsRaw as any);
   // Only reports that became a real invoice (QB invoice # or emailed to the
   // client) count as revenue — unsent drafts don't.
   const ssReports: any[] = (ssReportsRes.data || []).filter((r: any) => r.qb_invoice_number || r.sent_at);

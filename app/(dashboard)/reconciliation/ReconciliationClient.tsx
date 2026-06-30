@@ -13,6 +13,8 @@ import { buildPoRefIndex, resolvePoRef, type JobLite } from "@/lib/po-ref-match"
 import { buildPrintersMap, calcCostProduct } from "@/lib/pricing";
 import { computeBillingQueue } from "@/lib/billing-queue";
 import { VarianceView } from "./VarianceView";
+import { ShippingView } from "./ShippingView";
+import { isFreightSource } from "@/lib/ups-freight";
 
 const supabase = createClient();
 
@@ -84,6 +86,7 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [jobs, setJobs] = useState<JobLite[]>([]);
   const [entries, setEntries] = useState<Entry[]>([]);
+  const [freightEntries, setFreightEntries] = useState<any[]>([]); // UPS inbound freight — separate pipeline
   const [decorators, setDecorators] = useState<any[]>([]);
   const [jobItems, setJobItems] = useState<any[]>([]); // items (blanks_order_cost) for the Variances tab
   const [jobsRaw, setJobsRaw] = useState<Record<string, any>>({});
@@ -107,7 +110,7 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
   const [showForm, setShowForm] = useState(false);
   const [showByVendor, setShowByVendor] = useState(false);
   const [search, setSearch] = useState("");
-  const [view, setView] = useState<"queue" | "history" | "variances">("queue");
+  const [view, setView] = useState<"queue" | "history" | "variances" | "shipping">("queue");
   // (inline bill entry removed — all bill creation goes through the New Bill form)
   // New Bill modal (QB-style entry, job-aware)
   const [showBill, setShowBill] = useState(false);
@@ -150,7 +153,10 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
     // vendor-level / not-job-specific entries (null job_id). Removes other tenants'
     // bills from totals + Bill History.
     const jobIdSet = new Set(jrows.map((x: any) => x.id));
-    setEntries((((e.data as any) || []) as any[]).filter(en => !en.job_id || jobIdSet.has(en.job_id)));
+    // Exclude UPS inbound-freight imports — those live entirely in the Shipping
+    // (Inbound Freight) tab, never the PO-bill queue / Billed KPI / variance.
+    setEntries((((e.data as any) || []) as any[]).filter(en => !isFreightSource(en.source) && (!en.job_id || jobIdSet.has(en.job_id))));
+    setFreightEntries((((e.data as any) || []) as any[]).filter(en => isFreightSource(en.source)));
     setDecorators((d.data as any) || []);
     setJobItems((((itm.data as any) || []) as any[]).filter(it => jobIdSet.has(it.job_id))); // for blank variance
     setLoading(false);
@@ -760,7 +766,7 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <h1 style={{ fontSize: 20, fontWeight: 800, color: T.text, margin: 0 }}>{billingOnly ? "Billing" : "Cost Reconciliation"}</h1>
           <div style={{ display: "flex", gap: 3, background: T.surface, borderRadius: 8, padding: 3 }}>
-            {(([["queue", "Billing Queue"], ["history", "Bill History"], ["variances", "Variances"]] as const).filter(([k]) => !billingOnly || k !== "variances")).map(([k, label]) => (
+            {(([["queue", "Billing Queue"], ["history", "Bill History"], ["shipping", "Freight"], ["variances", "Variances"]] as const).filter(([k]) => !billingOnly || k !== "variances")).map(([k, label]) => (
               <button key={k} onClick={() => setView(k)} style={{ background: view === k ? T.card : "transparent", color: view === k ? T.text : T.muted, border: "none", borderRadius: 6, padding: "5px 13px", fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: font, boxShadow: view === k ? "0 1px 2px rgba(0,0,0,0.08)" : "none" }}>{label}</button>
             ))}
           </div>
@@ -1050,8 +1056,9 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
           </div>
         </div>
       )}
+      {view === "shipping" && <ShippingView companyId={companyId} billingOnly={billingOnly} />}
       {!billingOnly && view === "variances" && (
-        <VarianceView queue={queue} jobsRaw={jobsRaw} items={jobItems} printers={printers} />
+        <VarianceView queue={queue} jobsRaw={jobsRaw} items={jobItems} printers={printers} freightEntries={freightEntries} />
       )}
     </div>
   );

@@ -9,6 +9,7 @@ import { useEffect, useMemo, useState } from "react";
 import { T, font, mono } from "@/lib/theme";
 import type { BillingQueue } from "@/lib/billing-queue";
 import { computeVarianceSummary, type VarianceJobRow } from "@/lib/variance";
+import { shippingVarianceNet } from "@/lib/ups-freight";
 
 const money = (n: number) => (n < 0 ? "−" : "") + "$" + Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const moneyK = (n: number) => { const a = Math.abs(n); const s = n < 0 ? "−" : ""; return a >= 1000 ? `${s}$${(a / 1000).toFixed(a >= 10000 ? 0 : 1)}k` : `${s}$${a.toFixed(0)}`; };
@@ -39,14 +40,16 @@ function Spark({ data }: { data: number[] }) {
 
 type JobRow = VarianceJobRow;
 
-export function VarianceView({ queue, jobsRaw, items, printers }: { queue: BillingQueue; jobsRaw: Record<string, any>; items: any[]; printers: Record<string, any> }) {
+export function VarianceView({ queue, jobsRaw, items, printers, freightEntries = [] }: { queue: BillingQueue; jobsRaw: Record<string, any>; items: any[]; printers: Record<string, any>; freightEntries?: any[] }) {
   const [cut, setCut] = useState<"vendor" | "job" | "blanks" | "month">("job");
   const [drillJob, setDrillJob] = useState<JobRow | null>(null);
   const [drillVendor, setDrillVendor] = useState<string | null>(null);
 
   const data = useMemo(() => computeVarianceSummary({ queue, jobsRaw, items, printers }), [queue, jobsRaw, items, printers]);
+  const shipNet = useMemo(() => shippingVarianceNet(freightEntries, jobsRaw), [freightEntries, jobsRaw]);
+  const totalNet = data.netVar + shipNet; // decorator-bill variance + inbound-freight variance
 
-  const net = useCountUp(data.netVar);
+  const net = useCountUp(totalNet);
   const over = useCountUp(data.totalOver);
   const under = useCountUp(data.totalUnder);
 
@@ -95,12 +98,12 @@ export function VarianceView({ queue, jobsRaw, items, printers }: { queue: Billi
 
       {/* Hero KPIs */}
       <div className="vx-kpis">
-        <Kpi i={0} label="Net cost vs plan" value={money(net)} accent={data.netVar > 0 ? T.red : T.green} sub={data.netVar > 0 ? "over projection" : "under projection"} />
+        <Kpi i={0} label="Net cost vs plan" value={money(net)} accent={totalNet > 0 ? T.red : T.green} sub={`${totalNet > 0 ? "over" : "under"} projection${shipNet ? ` · incl. freight ${money(shipNet)}` : ""}`} />
         <Kpi i={1} label="Total over" value={money(over)} accent={T.red} sub={`${data.jobsOver} jobs`} />
         <Kpi i={2} label="Total under" value={money(under)} accent={T.green} sub={`${data.jobsUnder} jobs`} />
         <Kpi i={3} label="Jobs reconciled" value={String(data.rows.length)} sub="with actual cost" />
         <Kpi i={4} label="Worst job" value={data.worst ? moneyK(data.worst.totalVar) : "—"} accent={data.worst && data.worst.totalVar > 0 ? T.red : T.green} sub={data.worst?.jobNumber || ""} />
-        <Kpi i={5} label="Margin impact" value={moneyK(-data.netVar)} accent={data.netVar > 0 ? T.red : T.green} sub={data.netVar > 0 ? "eroded" : "preserved"} />
+        <Kpi i={5} label="Margin impact" value={moneyK(-totalNet)} accent={totalNet > 0 ? T.red : T.green} sub={totalNet > 0 ? "eroded" : "preserved"} />
       </div>
 
       {/* Nav cards */}
