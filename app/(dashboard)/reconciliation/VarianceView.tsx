@@ -33,9 +33,11 @@ function Kpi({ i, label, value, sub, accent }: { i: number; label: string; value
     </div>
   );
 }
-function Spark({ data }: { data: number[] }) {
+function Spark({ data, goodUp }: { data: number[]; goodUp?: boolean }) {
   const max = Math.max(1, ...data.map(Math.abs));
-  return <div className="vx-spark">{data.map((d, i) => <div key={i} className="vx-spark-bar" style={{ height: `${Math.max(8, (Math.abs(d) / max) * 100)}%`, background: d > 0 ? T.red : d < 0 ? T.green : T.border, opacity: Math.abs(d) > 0 ? 0.9 : 0.3 }} />)}</div>;
+  const pos = goodUp ? T.green : T.red; // for freight, a positive value (margin captured) is good → green
+  const neg = goodUp ? T.red : T.green;
+  return <div className="vx-spark">{data.map((d, i) => <div key={i} className="vx-spark-bar" style={{ height: `${Math.max(8, (Math.abs(d) / max) * 100)}%`, background: d > 0 ? pos : d < 0 ? neg : T.border, opacity: Math.abs(d) > 0 ? 0.9 : 0.3 }} />)}</div>;
 }
 
 type JobRow = VarianceJobRow;
@@ -75,7 +77,8 @@ export function VarianceView({ queue, jobsRaw, items, printers, freightEntries =
 
   // sparkline previews per nav card
   const vendorSpark = data.vendors.slice(0, 12).map(v => v.variance);
-  const jobSpark = data.byJob.slice(0, 14).map(r => r.totalVar);
+  const jobMovers = data.byJob.filter(r => r.totalVar !== 0); // matched (0-variance) jobs aren't "movers"
+  const jobSpark = jobMovers.slice(0, 14).map(r => r.totalVar);
   const blankSpark = data.blanks.slice(0, 14).map(r => r.blankVar);
   const monthSpark = data.months.map(m => m.v);
 
@@ -128,7 +131,7 @@ export function VarianceView({ queue, jobsRaw, items, printers, freightEntries =
       <div className="vx-nav-grid">
         {([
           { k: "job", title: "By Job", accent: T.red, value: `${data.jobsOver} over`, sub: "margin-erosion ranking", spark: jobSpark },
-          { k: "freight", title: "Freight margin", accent: T.green, value: money(freightData.captured), sub: "captured via LTL", spark: freightData.rows.slice(0, 14).map(r => r.margin) },
+          { k: "freight", title: "Freight margin", accent: T.green, value: money(freightData.captured), sub: "captured via LTL", spark: freightData.rows.slice(0, 14).map(r => r.margin), goodUp: true },
           { k: "vendor", title: "Vendor Scorecards", accent: T.blue || "#3b82f6", value: `${data.vendors.length}`, sub: "vendors · accuracy", spark: vendorSpark },
           { k: "blanks", title: "Blanks", accent: T.amber, value: moneyK(data.blanks.reduce((s, r) => s + r.blankVar, 0)), sub: `${data.blanks.length} jobs ordered`, spark: blankSpark },
           { k: "month", title: "By Month", accent: T.green, value: `${data.months.length} mo`, sub: "variance trend", spark: monthSpark },
@@ -136,14 +139,14 @@ export function VarianceView({ queue, jobsRaw, items, printers, freightEntries =
           <button key={c.k} className={`vx-nav${cut === c.k ? " active" : ""}`} style={{ ["--nav" as any]: c.accent }} onClick={() => setCut(c.k as any)}>
             <div className="vx-nav-title">{c.title}</div>
             <div className="vx-nav-value">{c.value}</div>
-            <Spark data={c.spark.length ? c.spark : [0]} />
+            <Spark data={c.spark.length ? c.spark : [0]} goodUp={(c as any).goodUp} />
             <div className="vx-nav-sub">{c.sub}</div>
           </button>
         ))}
       </div>
 
       {/* Detail panel */}
-      {cut === "job" && <JobCut rows={data.byJob} onDrill={setDrillJob} />}
+      {cut === "job" && <JobCut rows={jobMovers} onDrill={setDrillJob} />}
       {cut === "vendor" && <VendorCut vendors={data.vendors} onDrill={setDrillVendor} />}
       {cut === "blanks" && <BlanksCut rows={data.blanks} onDrill={setDrillJob} />}
       {cut === "month" && <MonthCut months={data.months} />}
