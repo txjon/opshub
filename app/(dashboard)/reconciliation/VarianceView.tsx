@@ -84,7 +84,8 @@ export function VarianceView({ queue, jobsRaw, items, printers, freightEntries =
   return (
     <div style={{ ["--card" as any]: T.card, ["--border" as any]: T.border, ["--surface" as any]: T.surface, ["--text" as any]: T.text, ["--muted" as any]: T.muted, ["--faint" as any]: T.faint, ["--red" as any]: T.red, ["--green" as any]: T.green, ["--amber" as any]: T.amber, ["--mono" as any]: mono, fontFamily: font }}>
       <style>{`
-        .vx-kpis { display: grid; grid-template-columns: repeat(6,1fr); gap: 12px; margin: 18px 0 26px; }
+        .vx-kpis { display: grid; grid-template-columns: 3fr 1fr; gap: 12px; margin: 18px 0 26px; }
+        @media (max-width:700px){ .vx-kpis{ grid-template-columns: 1fr;} }
         @media (max-width:1100px){ .vx-kpis{ grid-template-columns: repeat(3,1fr);} }
         @media (max-width:600px){ .vx-kpis{ grid-template-columns: repeat(2,1fr);} }
         .vx-kpi { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 15px 16px 14px; opacity: 0; animation: vx-rise .55s cubic-bezier(.2,.7,.2,1) forwards; }
@@ -118,12 +119,9 @@ export function VarianceView({ queue, jobsRaw, items, printers, freightEntries =
 
       {/* Hero KPIs */}
       <div className="vx-kpis">
-        <Kpi i={0} label="Net cost vs plan" value={money(net)} accent={totalNet > 0 ? T.red : T.green} sub={`${totalNet > 0 ? "over" : "under"} projection · incl. freight`} />
-        <Kpi i={1} label="Total over" value={money(over)} accent={T.red} sub={`${data.jobsOver} jobs`} />
-        <Kpi i={2} label="Total under" value={money(under)} accent={T.green} sub={`${data.jobsUnder} jobs`} />
-        <Kpi i={3} label="Jobs reconciled" value={String(data.rows.length)} sub="with actual cost" />
-        <Kpi i={4} label="Worst job" value={data.worst ? moneyK(data.worst.totalVar) : "—"} accent={data.worst && data.worst.totalVar > 0 ? T.red : T.green} sub={data.worst?.jobNumber || ""} />
-        <Kpi i={5} label="Margin impact" value={moneyK(-totalNet)} accent={totalNet > 0 ? T.red : T.green} sub={totalNet > 0 ? "eroded" : "preserved"} />
+        <Kpi i={0} label="Net cost vs plan" value={money(net)} accent={totalNet > 0 ? T.red : T.green}
+          sub={`${totalNet > 0 ? "over" : "under"} projection · ${money(over)} over (${data.jobsOver}) · ${money(under)} under (${data.jobsUnder}) · incl. freight`} />
+        <Kpi i={1} label="Jobs reconciled" value={String(data.rows.length)} sub="with actual cost" />
       </div>
 
       {/* Nav cards */}
