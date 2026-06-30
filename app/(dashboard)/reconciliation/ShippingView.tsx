@@ -29,6 +29,7 @@ export function ShippingView({ companyId, billingOnly = false }: { companyId: st
   const [showHistory, setShowHistory] = useState(false);
   const [showManual, setShowManual] = useState(false);
   const [selQ, setSelQ] = useState<Set<string>>(new Set());
+  const [showPool, setShowPool] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [addPo, setAddPo] = useState("");
   const [addAmt, setAddAmt] = useState("");
@@ -107,21 +108,33 @@ export function ShippingView({ companyId, billingOnly = false }: { companyId: st
     setQSearch(p => { const n = { ...p }; delete n[id]; return n; });
     loadAll();
   }
-  async function ignoreEntry(id: string) {
+  async function poolEntry(id: string) { // general weekly shipping cost → counts toward total, no job
     await supabase.from("cost_entries").update({ not_job_specific: true } as any).eq("id", id);
     loadAll();
   }
-  async function removeManual(id: string) {
+  async function removeEntry(id: string) { // not our cost (pre-OpsHub / wrong) → gone entirely
     await supabase.from("cost_entries").delete().eq("id", id);
     loadAll();
   }
+  const removeManual = removeEntry;
+  async function unpoolEntry(id: string) { // move a mis-pooled charge back to the needs-a-match queue
+    await supabase.from("cost_entries").update({ not_job_specific: false } as any).eq("id", id);
+    loadAll();
+  }
   const toggleSel = (id: string) => setSelQ(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  async function ignoreSelected() {
+  async function poolSelected() {
     if (!selQ.size) return;
     await supabase.from("cost_entries").update({ not_job_specific: true } as any).in("id", [...selQ]);
     setSelQ(new Set()); loadAll();
   }
+  async function removeSelected() {
+    if (!selQ.size) return;
+    await supabase.from("cost_entries").delete().in("id", [...selQ]);
+    setSelQ(new Set()); loadAll();
+  }
   const manualEntries = useMemo(() => existing.filter(e => e.source === "manual_freight").sort((a, b) => (b.created_at || "").localeCompare(a.created_at || "")), [existing]);
+  const pooled = useMemo(() => existing.filter(e => e.not_job_specific).sort((a, b) => Number(b.amount || 0) - Number(a.amount || 0)), [existing]);
+  const poolTotal = pooled.reduce((a, e) => a + Number(e.amount || 0), 0);
   function suggestions(sender: string | null, ref: string | null): JobFull[] {
     const digits = (String(ref || "").match(/\d{3,4}/) || [])[0];
     const sn = (sender || "").toLowerCase().split(" ")[0];
@@ -240,8 +253,11 @@ export function ShippingView({ companyId, billingOnly = false }: { companyId: st
             <span style={{ fontSize: 13, fontWeight: 800, color: T.text }}>Needs a match — {queue.length}</span>
             <span style={{ fontSize: 11.5, color: T.muted, fontFamily: mono }}>{money(queueTotal)} unassigned</span>
             {selQ.size > 0
-              ? <button onClick={ignoreSelected} style={{ marginLeft: "auto", background: T.faint, color: "#fff", border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>Ignore {selQ.size} selected</button>
-              : <span style={{ fontSize: 11, color: T.muted, marginLeft: "auto" }}>assign each to a job, or ignore (non-job charges)</span>}
+              ? <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+                  <button onClick={poolSelected} title="General weekly shipping cost — counts toward the total" style={{ background: T.amber, color: "#fff", border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>General ({selQ.size})</button>
+                  <button onClick={removeSelected} title="Not our cost — remove entirely" style={{ background: "transparent", color: T.muted, border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>Remove ({selQ.size})</button>
+                </div>
+              : <span style={{ fontSize: 11, color: T.muted, marginLeft: "auto" }}>assign to a job · general (counts in total) · remove (not our cost)</span>}
           </div>
           {queue.map(e => (
             <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 16px", borderTop: `1px solid ${T.border}22`, fontSize: 12 }}>
@@ -264,7 +280,8 @@ export function ShippingView({ companyId, billingOnly = false }: { companyId: st
                     </div>
                   )}
                 </div>
-                <button onClick={() => ignoreEntry(e.id)} style={{ background: "none", border: "none", color: T.faint, fontSize: 10.5, cursor: "pointer", textDecoration: "underline" }}>ignore</button>
+                <button onClick={() => poolEntry(e.id)} title="General weekly shipping cost — counts toward the total, no job" style={{ background: "none", border: "none", color: T.muted, fontSize: 10.5, cursor: "pointer", textDecoration: "underline" }}>general</button>
+                <button onClick={() => removeEntry(e.id)} title="Not our cost (pre-OpsHub / wrong) — remove entirely" style={{ background: "none", border: "none", color: T.faint, fontSize: 10.5, cursor: "pointer", textDecoration: "underline" }}>remove</button>
               </div>
             </div>
           ))}
@@ -275,7 +292,7 @@ export function ShippingView({ companyId, billingOnly = false }: { companyId: st
       <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 10 }}>
         <h2 style={{ fontSize: 14, fontWeight: 800, color: T.text, margin: 0 }}>Freight by job</h2>
         {!billingOnly && perJob.length > 0 && (
-          <span style={{ fontSize: 12, color: T.muted }}>actual <strong style={{ fontFamily: mono, color: T.text }}>{money(totalActual)}</strong> vs calculated <strong style={{ fontFamily: mono, color: T.text }}>{money(totalCalc)}</strong> · <strong style={{ fontFamily: mono, color: totalActual - totalCalc > 0 ? T.red : T.green }}>{totalActual - totalCalc >= 0 ? "+" : ""}{money(totalActual - totalCalc)}</strong> variance</span>
+          <span style={{ fontSize: 12, color: T.muted }}>actual <strong style={{ fontFamily: mono, color: T.text }}>{money(totalActual)}</strong> vs calculated <strong style={{ fontFamily: mono, color: T.text }}>{money(totalCalc)}</strong>{poolTotal ? <> · general <strong style={{ fontFamily: mono, color: T.text }}>+{money(poolTotal)}</strong></> : null} · <strong style={{ fontFamily: mono, color: totalActual - totalCalc + poolTotal > 0 ? T.red : T.green }}>{totalActual - totalCalc + poolTotal >= 0 ? "+" : ""}{money(totalActual - totalCalc + poolTotal)}</strong> variance</span>
         )}
       </div>
       {loading ? <div style={{ color: T.muted, fontSize: 12, padding: 12 }}>Loading…</div>
@@ -297,6 +314,32 @@ export function ShippingView({ companyId, billingOnly = false }: { companyId: st
               ))}
             </div>
           )}
+
+      {/* General shipping — pooled non-job costs that count toward the total variance */}
+      {pooled.length > 0 && (
+        <div style={{ marginTop: 24 }}>
+          <button onClick={() => setShowPool(s => !s)} style={{ background: "none", border: "none", color: T.muted, fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", fontFamily: font, padding: 0 }}>{showPool ? "▾" : "▸"} General shipping — {pooled.length} · {money(poolTotal)} <span style={{ textTransform: "none", letterSpacing: 0, fontWeight: 400, color: T.faint }}>(in total variance, no job)</span></button>
+          {showPool && (
+            <div style={{ border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden", marginTop: 8 }}>
+              <div style={{ display: "flex", gap: 12, padding: "8px 14px", background: T.surface, ...lbl }}>
+                <span style={{ width: 100 }}>Date</span><span style={{ width: 150 }}>Tracking</span><span style={{ flex: 1 }}>Sender</span><span style={{ width: 100, textAlign: "right" }}>Amount</span><span style={{ width: 130, textAlign: "right" }}>Action</span>
+              </div>
+              {pooled.map(e => (
+                <div key={e.id} style={{ display: "flex", gap: 12, padding: "9px 14px", borderTop: `1px solid ${T.border}22`, fontSize: 12.5, alignItems: "center" }}>
+                  <span style={{ width: 100, fontSize: 11.5, color: T.muted }}>{e.ext_date || (e.created_at ? new Date(e.created_at).toLocaleDateString() : "—")}</span>
+                  <span style={{ width: 150, fontFamily: mono, fontSize: 10.5, color: T.faint, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={e.ext_tracking || ""}>{e.ext_tracking || "—"}</span>
+                  <span style={{ flex: 1, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.vendor_name || "—"}</span>
+                  <span style={{ width: 100, textAlign: "right", fontFamily: mono, color: T.text }}>{money(Number(e.amount || 0))}</span>
+                  <span style={{ width: 130, textAlign: "right", display: "flex", gap: 10, justifyContent: "flex-end", alignItems: "center" }}>
+                    <button onClick={() => unpoolEntry(e.id)} title="Move back to the needs-a-match queue" style={{ background: "none", border: "none", color: T.muted, fontSize: 10.5, cursor: "pointer", textDecoration: "underline" }}>to queue</button>
+                    <button onClick={() => removeEntry(e.id)} title="Not our cost — remove" style={{ background: "none", border: "none", color: T.faint, fontSize: 14, cursor: "pointer", padding: "2px 6px" }}>×</button>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Manual freight entries — keyed-in LTL/CC charges */}
       {manualEntries.length > 0 && (
