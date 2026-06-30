@@ -7,16 +7,20 @@ import { buildPrintersMap } from "@/lib/pricing";
 import { computeBillingQueue } from "@/lib/billing-queue";
 import { computeVarianceSummary } from "@/lib/variance";
 
-// Owner-only page. Email-gated (distinct from role=owner so multi-owner
-// setups don't auto-expose Jon's financial view).
-const OWNER_EMAIL = "jon@housepartydistro.com";
+// Owner cockpit. Gated by is_god OR an explicit /god-mode page grant (the
+// access model) — NOT a hardcoded email, which broke god-by-flag accounts and
+// co-owners (e.g. Corey) who were granted it. Middleware enforces the same;
+// this is defense-in-depth at the page.
 
 export const dynamic = "force-dynamic";
 
 export default async function GodModePage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user || user.email !== OWNER_EMAIL) redirect("/dashboard");
+  if (!user) redirect("/login");
+  const { data: gate } = await supabase.from("profiles").select("is_god, page_access").eq("id", user.id).single();
+  const allowed = gate?.is_god === true || (((gate?.page_access as string[] | null) || []).includes("/god-mode"));
+  if (!allowed) redirect("/dashboard");
 
   // ── Fetch ─────────────────────────────────────────────────────────────
   const [
