@@ -543,6 +543,20 @@ QB_WEBHOOK_VERIFIER_TOKEN          — HMAC verification for QB webhooks
 - **Internal server-to-server** (email → PDF): Uses `x-internal-key` header with `SUPABASE_SERVICE_ROLE_KEY`
 - **Google Drive**: Service account with domain-wide delegation impersonating `jon@housepartydistro.com`
 
+### Access Control — per-user page grants (live 2026-06-29)
+
+Access is **per-user, page-level**, enforced server-side — NOT role-based nav-hiding.
+- **Source of truth:** `lib/access.ts` `PAGE_CATALOG` — every grantable page (key=href, group, `sensitive`). `profiles.page_access` (text[]) is each user's allowed pages.
+- **Enforcement:** the middleware (`lib/supabase/middleware.ts`) calls `canAccessPath` and redirects denials. `is_god` → all. Explicit `page_access` → membership. NULL/empty `page_access` → legacy role→group fallback (so un-seeded users are unchanged).
+- **Nav:** `AppShell` renders from `grantedPages(user)`. Gates by `is_god` OR grant — never a hardcoded email (that pattern broke god-by-flag + co-owners; don't reintroduce it).
+
+**RULE — every new `(dashboard)` page MUST be scoped from the start:**
+1. Add it to `PAGE_CATALOG` (pick a `group`; set `sensitive: true` for financial/admin/owner pages).
+2. Decide who gets it (update `opshub-access-map.csv` + grant via `scripts/seed-page-access.cjs` or a targeted `page_access` update).
+3. **Why this is mandatory:** uncatalogued paths **fail OPEN** — the guard allows anything it doesn't recognize. A new page you forget to catalog is silently reachable by *everyone* with the URL. So cataloguing isn't hygiene, it's the thing that keeps a new sensitive page from being an open hole.
+
+Gate a page's own server check (when it has one beyond the middleware) on `is_god` OR `page_access` membership — mirror `app/(dashboard)/god-mode/page.tsx`. See `opshub-permissions-plan.md`.
+
 ### Automation & Workflow Helpers
 
 - **Client defaults on new project**: Selecting a client auto-fills payment terms from `clients.default_terms` and auto-adds all client contacts to the job (primary gets "primary" role, others get "cc")
