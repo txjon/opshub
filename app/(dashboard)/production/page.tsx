@@ -278,7 +278,7 @@ export default function ProductionPage() {
     // Active jobs + recently completed (last 30 days)
     const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString();
     const [activeRes, completedRes] = await Promise.all([
-      supabase.from("jobs").select("id, title, job_number, phase, priority, type_meta, costing_data, shipping_route, clients(name)").in("phase", ["production", "receiving", "fulfillment"]),
+      supabase.from("jobs").select("id, title, job_number, phase, priority, type_meta, costing_data, shipping_route, clients(name)").in("phase", ["production", "receiving", "fulfillment", "shipping"]),
       supabase.from("jobs").select("id, title, job_number, phase, priority, type_meta, phase_timestamps, shipping_route, clients(name)").eq("phase", "complete").gte("updated_at", thirtyDaysAgo),
     ]);
     const jobs = [...(activeRes.data || []), ...(completedRes.data || [])];
