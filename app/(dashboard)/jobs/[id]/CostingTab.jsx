@@ -2088,14 +2088,24 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
         // costs back to the catalog value (the per-item revert bug).
         const blankReassigned = (bi.blank_vendor && bi.blank_vendor !== cp.style) || (bi.blank_sku && bi.blank_sku !== cp.color);
         if (bi.blank_vendor && bi.blank_vendor !== cp.style) { updates.style = bi.blank_vendor; updates.color = bi.blank_sku || cp.color; }
-        // Pull the item's blank costs when the blank was reassigned, OR when
-        // costing has no real cost yet but the item does — e.g. a re-assign to the
-        // SAME vendor after the cost was wiped (blankReassigned stays false but the
-        // item now carries the supplier price). Never overwrite a real refined cost
-        // on an unchanged blank (the per-item revert bug), and never pull all-zeros.
+        // Pull the item's blank costs when the blank was reassigned, when the
+        // costing copy is STALE (missing a cost for a size the item now has —
+        // the fingerprint a blank swap leaves behind), OR when costing has no
+        // real cost yet but the item does (re-assign to the same vendor after a
+        // wipe). Reassign/stale are allowed to pull $0 costs (free / client-
+        // supplied blanks) — without that, a swap to a free blank stranded the
+        // old cost and Costing's save wrote it back onto the item. Still guarded
+        // so we NEVER overwrite a refined cost on an unchanged blank (the
+        // per-item revert bug) and never pull a transient empty buyItems snapshot.
         const cpHasRealCost = cp.blankCosts && Object.values(cp.blankCosts).some(v => (Number(v) || 0) > 0);
         const biHasRealCost = bi.blankCosts && Object.values(bi.blankCosts).some(v => (Number(v) || 0) > 0);
-        if ((blankReassigned || !cpHasRealCost) && biHasRealCost) {
+        const biSizes = bi.sizes || [];
+        const biHasCostKeys = bi.blankCosts && Object.keys(bi.blankCosts).length > 0;
+        // Stale = a live size has no cost in costing's copy. A blank merely
+        // priced for EXTRA sizes the order doesn't include (costing ⊇ live) is
+        // benign and must NOT trigger a pull.
+        const blankCostsStale = biHasCostKeys && biSizes.some(sz => !cp.blankCosts || !(sz in cp.blankCosts));
+        if ((blankReassigned || blankCostsStale || (!cpHasRealCost && biHasRealCost)) && biHasCostKeys) {
           updates.blankCosts = bi.blankCosts;
           const rv = Object.values(bi.blankCosts).filter(v => (Number(v) || 0) > 0);
           updates.blankCostPerUnit = rv.length ? rv.reduce((a, v) => a + Number(v), 0) / rv.length : 0;
