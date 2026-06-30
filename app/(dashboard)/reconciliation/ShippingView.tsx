@@ -2,8 +2,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
-import { parseUpsCsv, aggregateShipments, matchShipments, calculatedShipping } from "@/lib/ups-freight";
-import type { JobLite } from "@/lib/po-ref-match";
+import { parseUpsCsv, aggregateShipments, matchShipments, calculatedShipping, FREIGHT_SOURCES } from "@/lib/ups-freight";
+import { resolvePoRef, buildPoRefIndex, type JobLite } from "@/lib/po-ref-match";
 
 // Inbound production freight (UPS). Upload CSV(s) → match by ref → IMPORT ALL
 // (matched → jobs, unmatched → a persistent "Needs a match" queue) → reconcile the
@@ -11,7 +11,7 @@ import type { JobLite } from "@/lib/po-ref-match";
 // Outbound (distro) is a separate UPS account / feed.
 
 type JobFull = JobLite & { costing_data: any };
-type FreightEntry = { id: string; job_id: string | null; amount: number; ext_tracking: string | null; ext_date: string | null; vendor_invoice_number: string | null; vendor_name: string | null; po_ref: string | null; not_job_specific: boolean; created_at: string };
+type FreightEntry = { id: string; job_id: string | null; amount: number; ext_tracking: string | null; ext_date: string | null; vendor_invoice_number: string | null; vendor_name: string | null; po_ref: string | null; not_job_specific: boolean; created_at: string; source: string };
 type Staged = { invoiceNumber: string; tracking: string; cost: number; ref: string; sender: string; date: string; sections: string[]; job: JobFull | null; dupe: boolean };
 
 const money = (n: number) => `$${(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -27,12 +27,16 @@ export function ShippingView({ companyId, billingOnly = false }: { companyId: st
   const [importing, setImporting] = useState(false);
   const [qSearch, setQSearch] = useState<Record<string, string>>({}); // queue-row job search
   const [showHistory, setShowHistory] = useState(false);
+  const [showAdd, setShowAdd] = useState(false);
+  const [addPo, setAddPo] = useState("");
+  const [addAmt, setAddAmt] = useState("");
+  const [addSaving, setAddSaving] = useState(false);
 
   async function loadAll() {
     setLoading(true);
     const [{ data: js }, { data: es }] = await Promise.all([
       supabase.from("jobs").select("id, job_number, type_meta, costing_data, clients(name)").eq("company_id", companyId),
-      supabase.from("cost_entries").select("id, job_id, amount, ext_tracking, ext_date, vendor_invoice_number, vendor_name, po_ref, not_job_specific, created_at").eq("source", "ups_inbound"),
+      supabase.from("cost_entries").select("id, job_id, amount, ext_tracking, ext_date, vendor_invoice_number, vendor_name, po_ref, not_job_specific, created_at, source").in("source", FREIGHT_SOURCES),
     ]);
     setJobs(((js as any[]) || []).map(j => ({ id: j.id, job_number: j.job_number, qb_invoice_number: j.type_meta?.qb_invoice_number ?? null, client_name: (j.clients as any)?.name ?? null, costing_data: j.costing_data })));
     setExisting((es as any[]) || []);
@@ -42,6 +46,23 @@ export function ShippingView({ companyId, billingOnly = false }: { companyId: st
 
   const jobById = useMemo(() => Object.fromEntries(jobs.map(j => [j.id, j])), [jobs]);
   const importedKeys = useMemo(() => new Set(existing.map(e => `${e.vendor_invoice_number || ""}::${e.ext_tracking || ""}`)), [existing]);
+
+  // ── manual freight entry (LTL / CC) — type a PO, auto-resolve the job ──
+  const poIndex = useMemo(() => buildPoRefIndex(jobs), [jobs]);
+  const addResolved = addPo.trim() ? (resolvePoRef(addPo, poIndex) as JobFull | null) : null;
+  async function saveManual() {
+    const amt = parseFloat(addAmt.replace(/[$,]/g, "")) || 0;
+    if (!amt) return;
+    setAddSaving(true);
+    const { error } = await supabase.from("cost_entries").insert({
+      source: "manual_freight", charge_type: "freight", status: addResolved ? "matched" : "unmatched",
+      job_id: addResolved?.id ?? null, vendor_name: "Freight (manual)", po_ref: addPo.trim() || null,
+      ext_date: new Date().toISOString().slice(0, 10), amount: amt, not_job_specific: false, notes: "manual freight (CC)",
+    } as any);
+    setAddSaving(false);
+    if (error) { alert("Save failed: " + error.message); return; }
+    setShowAdd(false); setAddPo(""); setAddAmt(""); loadAll();
+  }
 
   async function onFiles(files: FileList | null) {
     if (!files?.length) return;
@@ -117,6 +138,7 @@ export function ShippingView({ companyId, billingOnly = false }: { companyId: st
   const importHistory = useMemo(() => {
     const m: Record<string, { invoice: string; imported: string; n: number; total: number; matched: number; unmatched: number }> = {};
     for (const e of existing) {
+      if (e.source !== "ups_inbound") continue; // import history = UPS CSV uploads only
       const inv = e.vendor_invoice_number || "(no invoice #)";
       const g = (m[inv] ??= { invoice: inv, imported: e.created_at, n: 0, total: 0, matched: 0, unmatched: 0 });
       g.n++; g.total += Number(e.amount || 0);
@@ -128,15 +150,38 @@ export function ShippingView({ companyId, billingOnly = false }: { companyId: st
 
   return (
     <div>
+      {/* Add freight cost (manual / LTL) — PO resolves the job */}
+      {showAdd && (
+        <div onClick={() => !addSaving && setShowAdd(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 100, display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: "12vh" }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 12, width: 420, maxWidth: "92vw", padding: "18px 20px", boxShadow: "0 20px 60px rgba(0,0,0,0.3)", fontFamily: font }}>
+            <div style={{ fontSize: 16, fontWeight: 800, color: T.text, marginBottom: 2 }}>Add freight cost</div>
+            <div style={{ fontSize: 12, color: T.muted, marginBottom: 14 }}>LTL / credit-card freight booked outside UPS. Type the PO — it resolves the job.</div>
+            <div style={{ ...lbl, marginBottom: 4 }}>PO number</div>
+            <input autoFocus value={addPo} onChange={e => setAddPo(e.target.value)} placeholder="e.g. 4305" style={{ width: "100%", padding: "8px 11px", border: `1px solid ${T.border}`, borderRadius: 7, background: T.card, color: T.text, fontSize: 14, fontFamily: mono, outline: "none", boxSizing: "border-box" }} />
+            <div style={{ minHeight: 22, marginTop: 6, fontSize: 12.5 }}>
+              {addPo.trim() ? (addResolved ? <span style={{ color: T.green, fontWeight: 700 }}>✓ {addResolved.job_number} · {addResolved.client_name}</span> : <span style={{ color: T.amber }}>no job matched — saves to the Needs-a-match queue</span>) : null}
+            </div>
+            <div style={{ ...lbl, margin: "10px 0 4px" }}>Amount</div>
+            <input value={addAmt} onChange={e => setAddAmt(e.target.value)} onKeyDown={e => e.key === "Enter" && saveManual()} inputMode="decimal" placeholder="0.00" style={{ width: "100%", padding: "8px 11px", border: `1px solid ${T.border}`, borderRadius: 7, background: T.card, color: T.text, fontSize: 14, fontFamily: mono, outline: "none", boxSizing: "border-box" }} />
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 18 }}>
+              <button onClick={saveManual} disabled={addSaving || !(parseFloat(addAmt.replace(/[$,]/g, "")) > 0)} style={{ background: parseFloat(addAmt.replace(/[$,]/g, "")) > 0 ? T.green : T.surface, color: parseFloat(addAmt.replace(/[$,]/g, "")) > 0 ? "#fff" : T.faint, border: "none", borderRadius: 6, padding: "9px 18px", fontSize: 13, fontWeight: 700, cursor: parseFloat(addAmt.replace(/[$,]/g, "")) > 0 ? "pointer" : "default", fontFamily: font }}>{addSaving ? "Saving…" : "Add freight cost"}</button>
+              <button onClick={() => setShowAdd(false)} disabled={addSaving} style={{ marginLeft: "auto", background: "transparent", border: `1px solid ${T.border}`, color: T.muted, borderRadius: 6, padding: "9px 14px", fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: font }}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Upload */}
       <div style={{ border: `1px dashed ${T.border}`, borderRadius: 12, padding: "16px 18px", marginBottom: 18, background: T.surface, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
         <div>
-          <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Upload UPS invoice CSV(s) — inbound production freight</div>
-          <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>32-col Detail (preferred) or 10-col Summary. Re-uploading is safe — imported charges are skipped. Matched go to jobs, the rest to the queue below.</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Freight costs — UPS invoice upload + manual LTL/CC</div>
+          <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>UPS: 32-col Detail (preferred) or 10-col Summary; re-uploading is safe. Or "+ Add freight cost" to key in an LTL/CC charge by PO.</div>
         </div>
-        <label style={{ background: T.accent, color: "#fff", borderRadius: 7, padding: "9px 16px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: font, whiteSpace: "nowrap" }}>
-          Choose CSV(s)<input type="file" accept=".csv" multiple style={{ display: "none" }} onChange={e => { onFiles(e.target.files); e.target.value = ""; }} />
-        </label>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={() => setShowAdd(true)} style={{ background: "transparent", border: `1px solid ${T.border}`, color: T.text, borderRadius: 7, padding: "9px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: font, whiteSpace: "nowrap" }}>+ Add freight cost</button>
+          <label style={{ background: T.accent, color: "#fff", borderRadius: 7, padding: "9px 16px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: font, whiteSpace: "nowrap" }}>
+            Choose CSV(s)<input type="file" accept=".csv" multiple style={{ display: "none" }} onChange={e => { onFiles(e.target.files); e.target.value = ""; }} />
+          </label>
+        </div>
       </div>
 
       {/* Review (read-only preview → Import all) */}
@@ -211,7 +256,7 @@ export function ShippingView({ companyId, billingOnly = false }: { companyId: st
 
       {/* Per-job ledger */}
       <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 10 }}>
-        <h2 style={{ fontSize: 14, fontWeight: 800, color: T.text, margin: 0 }}>Inbound freight by job</h2>
+        <h2 style={{ fontSize: 14, fontWeight: 800, color: T.text, margin: 0 }}>Freight by job</h2>
         {!billingOnly && perJob.length > 0 && (
           <span style={{ fontSize: 12, color: T.muted }}>actual <strong style={{ fontFamily: mono, color: T.text }}>{money(totalActual)}</strong> vs calculated <strong style={{ fontFamily: mono, color: T.text }}>{money(totalCalc)}</strong> · <strong style={{ fontFamily: mono, color: totalActual - totalCalc > 0 ? T.red : T.green }}>{totalActual - totalCalc >= 0 ? "+" : ""}{money(totalActual - totalCalc)}</strong> variance</span>
         )}

@@ -19,6 +19,11 @@ export interface UpsCharge {
   date: string;            // pickup/transaction date
 }
 
+// All cost_entries.source values that are HPD carrier/freight costs (vs decorator
+// PO bills) — reconciled in the Freight view, excluded from the PO-bill queue.
+export const FREIGHT_SOURCES = ["ups_inbound", "ups_outbound", "manual_freight"];
+export const isFreightSource = (s: string | null | undefined) => FREIGHT_SOURCES.includes(s || "");
+
 const num = (x: any) => { const n = parseFloat(String(x ?? "").replace(/[$,]/g, "")); return isNaN(n) ? 0 : n; };
 
 // minimal CSV parse (handles quoted fields w/ commas); strips BOM.

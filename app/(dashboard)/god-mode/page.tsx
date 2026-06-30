@@ -6,7 +6,7 @@ import { poSentToItem, isItemInProduction } from "@/lib/item-status";
 import { buildPrintersMap } from "@/lib/pricing";
 import { computeBillingQueue } from "@/lib/billing-queue";
 import { computeVarianceSummary } from "@/lib/variance";
-import { shippingVarianceNet } from "@/lib/ups-freight";
+import { shippingVarianceNet, isFreightSource } from "@/lib/ups-freight";
 
 // Owner cockpit. Gated by is_god OR an explicit /god-mode page grant (the
 // access model) — NOT a hardcoded email, which broke god-by-flag accounts and
@@ -73,8 +73,8 @@ export default async function GodModePage() {
   const vxPrinters = buildPrintersMap(decorators);
   // UPS inbound freight lives in its own pipeline — exclude it from the PO-bill
   // queue, then add the freight variance to the total below.
-  const vxFreight = ((costEntriesRes.data as any) || []).filter((e: any) => e.source === "ups_inbound");
-  const vxQueue = computeBillingQueue({ jobs, printers: vxPrinters, apVendors: (apVendorsRes.data as any) || [], entries: ((costEntriesRes.data as any) || []).filter((e: any) => e.source !== "ups_inbound"), marks: (costMarksRes.data as any) || [] });
+  const vxFreight = ((costEntriesRes.data as any) || []).filter((e: any) => isFreightSource(e.source));
+  const vxQueue = computeBillingQueue({ jobs, printers: vxPrinters, apVendors: (apVendorsRes.data as any) || [], entries: ((costEntriesRes.data as any) || []).filter((e: any) => !isFreightSource(e.source)), marks: (costMarksRes.data as any) || [] });
   const vxJobsRaw = Object.fromEntries(jobs.map((j: any) => [j.id, j]));
   // Total cost-vs-plan = decorator-bill variance + inbound-freight variance.
   const costVariance = computeVarianceSummary({ queue: vxQueue, jobsRaw: vxJobsRaw, items, printers: vxPrinters }).netVar + shippingVarianceNet(vxFreight, vxJobsRaw as any);
