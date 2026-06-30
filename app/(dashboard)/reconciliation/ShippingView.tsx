@@ -27,6 +27,7 @@ export function ShippingView({ companyId, billingOnly = false }: { companyId: st
   const [importing, setImporting] = useState(false);
   const [qSearch, setQSearch] = useState<Record<string, string>>({}); // queue-row job search
   const [showHistory, setShowHistory] = useState(false);
+  const [showManual, setShowManual] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [addPo, setAddPo] = useState("");
   const [addAmt, setAddAmt] = useState("");
@@ -109,6 +110,11 @@ export function ShippingView({ companyId, billingOnly = false }: { companyId: st
     await supabase.from("cost_entries").update({ not_job_specific: true } as any).eq("id", id);
     loadAll();
   }
+  async function removeManual(id: string) {
+    await supabase.from("cost_entries").delete().eq("id", id);
+    loadAll();
+  }
+  const manualEntries = useMemo(() => existing.filter(e => e.source === "manual_freight").sort((a, b) => (b.created_at || "").localeCompare(a.created_at || "")), [existing]);
   function suggestions(sender: string | null, ref: string | null): JobFull[] {
     const digits = (String(ref || "").match(/\d{3,4}/) || [])[0];
     const sn = (sender || "").toLowerCase().split(" ")[0];
@@ -280,6 +286,32 @@ export function ShippingView({ companyId, billingOnly = false }: { companyId: st
               ))}
             </div>
           )}
+
+      {/* Manual freight entries — keyed-in LTL/CC charges */}
+      {manualEntries.length > 0 && (
+        <div style={{ marginTop: 24 }}>
+          <button onClick={() => setShowManual(s => !s)} style={{ background: "none", border: "none", color: T.muted, fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", fontFamily: font, padding: 0 }}>{showManual ? "▾" : "▸"} Manual freight entries ({manualEntries.length})</button>
+          {showManual && (
+            <div style={{ border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden", marginTop: 8 }}>
+              <div style={{ display: "flex", gap: 12, padding: "8px 14px", background: T.surface, ...lbl }}>
+                <span style={{ width: 100 }}>Date</span><span style={{ width: 90 }}>PO</span><span style={{ flex: 1 }}>Job</span><span style={{ width: 100, textAlign: "right" }}>Amount</span><span style={{ width: 40 }} />
+              </div>
+              {manualEntries.map(e => {
+                const job = e.job_id ? jobById[e.job_id] : null;
+                return (
+                  <div key={e.id} style={{ display: "flex", gap: 12, padding: "9px 14px", borderTop: `1px solid ${T.border}22`, fontSize: 12.5, alignItems: "center" }}>
+                    <span style={{ width: 100, fontSize: 11.5, color: T.muted }}>{e.ext_date || (e.created_at ? new Date(e.created_at).toLocaleDateString() : "—")}</span>
+                    <span style={{ width: 90, fontFamily: mono, fontSize: 11, color: T.faint }}>{e.po_ref || "—"}</span>
+                    <span style={{ flex: 1, color: job ? T.text : T.amber, fontWeight: 600 }}>{job ? `${job.job_number} · ${job.client_name}` : "⚠ Unassigned"}</span>
+                    <span style={{ width: 100, textAlign: "right", fontFamily: mono, color: T.text }}>{money(Number(e.amount || 0))}</span>
+                    <span style={{ width: 40, textAlign: "right" }}><button onClick={() => removeManual(e.id)} title="Remove" style={{ background: "none", border: "none", color: T.faint, fontSize: 14, cursor: "pointer", padding: "2px 6px" }}>×</button></span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Import history — what's been processed, grouped by UPS invoice # */}
       {importHistory.length > 0 && (
