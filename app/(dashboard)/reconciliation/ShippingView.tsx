@@ -64,7 +64,7 @@ export function ShippingView({ companyId, billingOnly = false }: { companyId: st
 
   async function doImport() {
     const rows = fresh.map(s => ({
-      source: "ups_inbound", charge_type: "freight", status: s.job ? "matched" : "unassigned",
+      source: "ups_inbound", charge_type: "freight", status: s.job ? "matched" : "unmatched",
       job_id: s.job?.id ?? null, vendor_name: s.sender || "UPS", vendor_invoice_number: s.invoiceNumber,
       po_ref: s.ref || null, ext_tracking: s.tracking, ext_date: s.date || null, amount: s.cost,
       not_job_specific: false, notes: `UPS inbound${s.sections.length ? " · " + s.sections.join("/") : ""}`,
@@ -84,7 +84,7 @@ export function ShippingView({ companyId, billingOnly = false }: { companyId: st
     loadAll();
   }
   async function ignoreEntry(id: string) {
-    await supabase.from("cost_entries").update({ not_job_specific: true, status: "ignored" } as any).eq("id", id);
+    await supabase.from("cost_entries").update({ not_job_specific: true } as any).eq("id", id);
     loadAll();
   }
   function suggestions(sender: string | null, ref: string | null): JobFull[] {
