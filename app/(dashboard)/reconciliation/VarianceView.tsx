@@ -9,7 +9,7 @@ import { useEffect, useMemo, useState } from "react";
 import { T, font, mono } from "@/lib/theme";
 import type { BillingQueue } from "@/lib/billing-queue";
 import { computeVarianceSummary, type VarianceJobRow } from "@/lib/variance";
-import { shippingVarianceNet } from "@/lib/ups-freight";
+import { shippingVarianceNet, calculatedShipping } from "@/lib/ups-freight";
 
 const money = (n: number) => (n < 0 ? "−" : "") + "$" + Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const moneyK = (n: number) => { const a = Math.abs(n); const s = n < 0 ? "−" : ""; return a >= 1000 ? `${s}$${(a / 1000).toFixed(a >= 10000 ? 0 : 1)}k` : `${s}$${a.toFixed(0)}`; };
@@ -41,13 +41,33 @@ function Spark({ data }: { data: number[] }) {
 type JobRow = VarianceJobRow;
 
 export function VarianceView({ queue, jobsRaw, items, printers, freightEntries = [] }: { queue: BillingQueue; jobsRaw: Record<string, any>; items: any[]; printers: Record<string, any>; freightEntries?: any[] }) {
-  const [cut, setCut] = useState<"vendor" | "job" | "blanks" | "month">("job");
+  const [cut, setCut] = useState<"vendor" | "job" | "blanks" | "month" | "freight">("job");
   const [drillJob, setDrillJob] = useState<JobRow | null>(null);
   const [drillVendor, setDrillVendor] = useState<string | null>(null);
 
   const data = useMemo(() => computeVarianceSummary({ queue, jobsRaw, items, printers }), [queue, jobsRaw, items, printers]);
   const shipNet = useMemo(() => shippingVarianceNet(freightEntries, jobsRaw), [freightEntries, jobsRaw]);
   const totalNet = data.netVar + shipNet; // decorator-bill variance + inbound-freight variance
+
+  // Freight margin captured = UPS-costed baseline (calc) − actual (negotiated LTL),
+  // per job, less general non-job freight. Positive = margin we keep. = −shipNet.
+  const freightData = useMemo(() => {
+    const byJob: Record<string, number> = {}; let pool = 0;
+    for (const e of (freightEntries || [])) {
+      if ((e as any).status === "ignored") continue;
+      if (e.not_job_specific) { pool += Number(e.amount || 0); continue; }
+      if (!e.job_id) continue;
+      byJob[e.job_id] = (byJob[e.job_id] || 0) + Number(e.amount || 0);
+    }
+    const rows = Object.entries(byJob).map(([jid, actual]) => {
+      const job = jobsRaw[jid];
+      const cl = job ? (Array.isArray(job.clients) ? job.clients[0]?.name : job.clients?.name) : "";
+      const calc = job ? calculatedShipping(job.costing_data) : 0;
+      return { jobNumber: job?.job_number || jid, client: cl || "", actual: Math.round(actual * 100) / 100, calc, margin: Math.round((calc - actual) * 100) / 100 };
+    }).sort((a, b) => b.margin - a.margin);
+    const captured = Math.round((rows.reduce((s, r) => s + r.margin, 0) - pool) * 100) / 100;
+    return { rows, pool, captured };
+  }, [freightEntries, jobsRaw]);
 
   const net = useCountUp(totalNet);
   const over = useCountUp(data.totalOver);
@@ -71,7 +91,7 @@ export function VarianceView({ queue, jobsRaw, items, printers, freightEntries =
         .vx-kpi-label { font-size: 9.5px; letter-spacing:.09em; text-transform:uppercase; font-weight:700; color: var(--faint); margin-bottom: 9px; }
         .vx-kpi-value { font-size: 25px; font-weight: 800; font-family: var(--mono); letter-spacing:-.02em; line-height:1; color: var(--text); }
         .vx-kpi-sub { font-size: 11px; color: var(--muted); margin-top: 7px; }
-        .vx-nav-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; margin-bottom: 24px; }
+        .vx-nav-grid { display: grid; grid-template-columns: repeat(5,1fr); gap: 12px; margin-bottom: 24px; }
         @media (max-width:900px){ .vx-nav-grid{ grid-template-columns: repeat(2,1fr);} }
         .vx-nav { text-align:left; background: var(--card); border:1px solid var(--border); border-radius:14px; padding:14px 15px; cursor:pointer; font-family:${font}; display:flex; flex-direction:column; gap:9px; transition: transform .14s, box-shadow .14s, border-color .14s; }
         .vx-nav:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(16,18,32,.10); }
@@ -98,7 +118,7 @@ export function VarianceView({ queue, jobsRaw, items, printers, freightEntries =
 
       {/* Hero KPIs */}
       <div className="vx-kpis">
-        <Kpi i={0} label="Net cost vs plan" value={money(net)} accent={totalNet > 0 ? T.red : T.green} sub={`${totalNet > 0 ? "over" : "under"} projection${shipNet ? ` · incl. freight ${money(shipNet)}` : ""}`} />
+        <Kpi i={0} label="Net cost vs plan" value={money(net)} accent={totalNet > 0 ? T.red : T.green} sub={`${totalNet > 0 ? "over" : "under"} projection · incl. freight`} />
         <Kpi i={1} label="Total over" value={money(over)} accent={T.red} sub={`${data.jobsOver} jobs`} />
         <Kpi i={2} label="Total under" value={money(under)} accent={T.green} sub={`${data.jobsUnder} jobs`} />
         <Kpi i={3} label="Jobs reconciled" value={String(data.rows.length)} sub="with actual cost" />
@@ -110,6 +130,7 @@ export function VarianceView({ queue, jobsRaw, items, printers, freightEntries =
       <div className="vx-nav-grid">
         {([
           { k: "job", title: "By Job", accent: T.red, value: `${data.jobsOver} over`, sub: "margin-erosion ranking", spark: jobSpark },
+          { k: "freight", title: "Freight margin", accent: T.green, value: money(freightData.captured), sub: "captured via LTL", spark: freightData.rows.slice(0, 14).map(r => r.margin) },
           { k: "vendor", title: "Vendor Scorecards", accent: T.blue || "#3b82f6", value: `${data.vendors.length}`, sub: "vendors · accuracy", spark: vendorSpark },
           { k: "blanks", title: "Blanks", accent: T.amber, value: moneyK(data.blanks.reduce((s, r) => s + r.blankVar, 0)), sub: `${data.blanks.length} jobs ordered`, spark: blankSpark },
           { k: "month", title: "By Month", accent: T.green, value: `${data.months.length} mo`, sub: "variance trend", spark: monthSpark },
@@ -128,6 +149,7 @@ export function VarianceView({ queue, jobsRaw, items, printers, freightEntries =
       {cut === "vendor" && <VendorCut vendors={data.vendors} onDrill={setDrillVendor} />}
       {cut === "blanks" && <BlanksCut rows={data.blanks} onDrill={setDrillJob} />}
       {cut === "month" && <MonthCut months={data.months} />}
+      {cut === "freight" && <FreightCut data={freightData} />}
 
       {/* Drill: job → line detail */}
       {drillJob && (
@@ -258,6 +280,39 @@ function MonthCut({ months }: { months: { month: string; v: number }[] }) {
         })}
       </div>
       <div style={{ fontSize: 11, color: T.faint, marginTop: 8 }}>Red = billed over projection · green = under. Hover a bar for the amount.</div>
+    </div>
+  );
+}
+function FreightCut({ data }: { data: { rows: { jobNumber: string; client: string; actual: number; calc: number; margin: number }[]; pool: number; captured: number } }) {
+  return (
+    <div className="vx-card">
+      <div style={{ padding: "12px 16px 4px" }}><div className="vx-sectitle">Freight margin captured — UPS-costed baseline vs actual (negotiated LTL)</div></div>
+      <div style={{ display: "flex", gap: 12, fontSize: 9.5, color: T.faint, padding: "2px 16px 6px", textTransform: "uppercase", letterSpacing: ".08em" }}>
+        <span style={{ width: 120 }}>Job</span><span style={{ flex: 1 }}>Client</span><span style={{ width: 100, textAlign: "right" }}>Baseline</span><span style={{ width: 100, textAlign: "right" }}>Actual</span><span style={{ width: 110, textAlign: "right" }}>Margin</span>
+      </div>
+      {data.rows.map((r, i) => (
+        <div key={r.jobNumber + i} className="vx-row" style={{ cursor: "default" }}>
+          <span style={{ width: 120, fontFamily: mono, fontSize: 12, color: T.text }}>{r.jobNumber}</span>
+          <span style={{ flex: 1, fontSize: 11.5, color: T.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.client}</span>
+          <span style={{ width: 100, textAlign: "right", fontFamily: mono, fontSize: 12, color: T.muted }}>{money(r.calc)}</span>
+          <span style={{ width: 100, textAlign: "right", fontFamily: mono, fontSize: 12, color: T.text }}>{money(r.actual)}</span>
+          <span style={{ width: 110, textAlign: "right", fontFamily: mono, fontSize: 12.5, fontWeight: 700, color: r.margin > 0 ? T.green : r.margin < 0 ? T.red : T.faint }}>{r.margin >= 0 ? "+" : ""}{money(r.margin)}</span>
+        </div>
+      ))}
+      {data.pool ? (
+        <div className="vx-row" style={{ cursor: "default" }}>
+          <span style={{ width: 120, fontSize: 12, color: T.muted }}>—</span>
+          <span style={{ flex: 1, fontSize: 11.5, color: T.muted }}>General freight (not job-specific)</span>
+          <span style={{ width: 100, textAlign: "right", fontFamily: mono, fontSize: 12, color: T.faint }}>—</span>
+          <span style={{ width: 100, textAlign: "right", fontFamily: mono, fontSize: 12, color: T.text }}>{money(data.pool)}</span>
+          <span style={{ width: 110, textAlign: "right", fontFamily: mono, fontSize: 12.5, fontWeight: 700, color: T.red }}>−{money(data.pool)}</span>
+        </div>
+      ) : null}
+      <div style={{ display: "flex", gap: 12, padding: "11px 16px", borderTop: `2px solid ${T.border}`, alignItems: "center" }}>
+        <span style={{ flex: 1, fontSize: 12.5, fontWeight: 800, color: T.text }}>Net freight margin captured</span>
+        <span style={{ fontFamily: mono, fontSize: 15, fontWeight: 800, color: data.captured >= 0 ? T.green : T.red }}>{data.captured >= 0 ? "+" : ""}{money(data.captured)}</span>
+      </div>
+      <div style={{ fontSize: 11, color: T.faint, padding: "0 16px 12px" }}>Baseline = the UPS rate costed into the job. Actual = what we paid via our negotiated network. Green margin = freight savings we keep.</div>
     </div>
   );
 }
