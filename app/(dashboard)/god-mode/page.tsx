@@ -57,7 +57,7 @@ export default async function GodModePage() {
       .select("id, client_id, report_type, postage_mode, period_label, totals, postage_totals, qb_invoice_number, qb_total_with_tax, qb_tax_amount, paid_at, paid_amount, sent_at, created_at"),
     // For the Cost-vs-Plan tile (decorator-bill variance via the billing queue).
     supabase.from("ap_vendors").select("id, name, kind, decorator_id, match_keys").eq("active", true),
-    supabase.from("cost_entries").select("job_id, vendor_id, amount, po_ref, not_job_specific"),
+    supabase.from("cost_entries").select("job_id, vendor_id, amount, po_ref, not_job_specific, source"),
     supabase.from("cost_vendor_status").select("job_id, vendor_id, reason"),
   ]);
 
