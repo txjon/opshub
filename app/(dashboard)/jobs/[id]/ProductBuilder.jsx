@@ -328,12 +328,29 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
         else if (blankSizes.length === 1) { sizes = blankSizes; qtys = { [blankSizes[0]]: oldTotal }; }
         else { sizes = it.sizes || []; qtys = it.qtys || {}; }
       }
+      // Normalize: qtys must hold EXACTLY the resolved sizes — strip any keys
+      // left over from the old blank's size system (e.g. "Adjustable" lingering
+      // after a swap to "OS"). Stray keys survive the save's buy_sheet_lines
+      // prune (it keys on Object.keys(qtys)) and become orphan rows that
+      // double-count and show a phantom size on the card. New sizes start at 0.
+      qtys = Object.fromEntries(sizes.map(sz => [sz, qtys[sz] || 0]));
       const newTotal = Object.values(qtys).reduce((a, v) => a + (v || 0), 0);
+      // A blank swap must re-derive cost_per_unit from the NEW blank's per-size
+      // costs — otherwise the old blank's average lingers on the item row and
+      // the Blanks tab keeps pricing off it (a $0/free blank would still show
+      // the old cost). Same formula CostingTab uses on save (avg of the >0
+      // per-size costs; all-zero/free → 0) so the two write paths agree.
+      const newBlankCosts = blankData.blankCosts || {};
+      const costVals = Object.values(newBlankCosts).map(Number).filter(v => v > 0);
+      const newCostPerUnit = costVals.length
+        ? Math.round(costVals.reduce((a, v) => a + v, 0) / costVals.length * 100) / 100
+        : 0;
       return {
         ...it, blank_vendor: blankData.blank_vendor, blank_sku: blankData.blank_sku,
         style: blankData.style, color: blankData.color, sizes,
         qtys,
-        blankCosts: blankData.blankCosts || {},
+        blankCosts: newBlankCosts,
+        cost_per_unit: newCostPerUnit,
         garment_type: blankData.garment_type || detectGarmentType("", (it.name || "") + " " + (blankData.blank_vendor || "")) || it.garment_type,
         totalQty: newTotal,
         curve: blankData.curve || it.curve || DEFAULT_CURVE,
