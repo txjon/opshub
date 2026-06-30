@@ -85,6 +85,7 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [jobs, setJobs] = useState<JobLite[]>([]);
   const [entries, setEntries] = useState<Entry[]>([]);
+  const [freightEntries, setFreightEntries] = useState<any[]>([]); // UPS inbound freight — separate pipeline
   const [decorators, setDecorators] = useState<any[]>([]);
   const [jobItems, setJobItems] = useState<any[]>([]); // items (blanks_order_cost) for the Variances tab
   const [jobsRaw, setJobsRaw] = useState<Record<string, any>>({});
@@ -154,6 +155,7 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
     // Exclude UPS inbound-freight imports — those live entirely in the Shipping
     // (Inbound Freight) tab, never the PO-bill queue / Billed KPI / variance.
     setEntries((((e.data as any) || []) as any[]).filter(en => en.source !== "ups_inbound" && (!en.job_id || jobIdSet.has(en.job_id))));
+    setFreightEntries((((e.data as any) || []) as any[]).filter(en => en.source === "ups_inbound"));
     setDecorators((d.data as any) || []);
     setJobItems((((itm.data as any) || []) as any[]).filter(it => jobIdSet.has(it.job_id))); // for blank variance
     setLoading(false);
@@ -1055,7 +1057,7 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
       )}
       {view === "shipping" && <ShippingView companyId={companyId} billingOnly={billingOnly} />}
       {!billingOnly && view === "variances" && (
-        <VarianceView queue={queue} jobsRaw={jobsRaw} items={jobItems} printers={printers} />
+        <VarianceView queue={queue} jobsRaw={jobsRaw} items={jobItems} printers={printers} freightEntries={freightEntries} />
       )}
     </div>
   );

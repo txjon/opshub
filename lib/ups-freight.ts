@@ -118,6 +118,23 @@ export function matchShipments(shipments: ShipmentCharge[], jobs: JobLite[]): Ma
   });
 }
 
+// Net inbound-freight variance (actual UPS − calculated shipping), summed across
+// jobs that have freight assigned. Positive = over plan (margin erosion). Feeds
+// the global total variance alongside the decorator-bill variance.
+export function shippingVarianceNet(
+  freightEntries: { job_id: string | null; amount: number }[],
+  jobsById: Record<string, { costing_data: any } | undefined>,
+): number {
+  const actual: Record<string, number> = {};
+  for (const e of freightEntries) { if (!e.job_id) continue; actual[e.job_id] = (actual[e.job_id] || 0) + Number(e.amount || 0); }
+  let net = 0;
+  for (const [jid, act] of Object.entries(actual)) {
+    const job = jobsById[jid];
+    net += act - (job ? calculatedShipping(job.costing_data) : 0);
+  }
+  return Math.round(net * 100) / 100;
+}
+
 // Calculated (estimated) inbound shipping for a job = sum over costProds of the
 // per-unit ship rate × qty (effectiveShipRate, the costing's freight buffer).
 export function calculatedShipping(costingData: any): number {
