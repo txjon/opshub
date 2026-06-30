@@ -97,7 +97,9 @@ export function AppShell({
   // Per-user page access (lib/access). When page_access is set, the whole sidebar
   // is driven off the granted catalog pages; otherwise fall back to the legacy
   // role∩company department list so un-seeded users are completely unchanged.
-  const usePerUser = Array.isArray(pageAccess) && pageAccess.length > 0;
+  // Gods always use the catalog-driven nav (they see every page, incl new ones
+  // like Billing) — never the legacy DEPT_NAV, which would silently miss pages.
+  const usePerUser = !!isGod || (Array.isArray(pageAccess) && pageAccess.length > 0);
   const grantedCatalog = usePerUser ? grantedPages({ role, isGod, pageAccess }) : [];
   const grantedHrefs = new Set(grantedCatalog.map(p => p.href));
   const grantedGroups = new Set(grantedCatalog.map(p => p.group));
