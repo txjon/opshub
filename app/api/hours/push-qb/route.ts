@@ -4,7 +4,7 @@ export const maxDuration = 60;
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
-import { getOrCreateVendor, getAccountRefByName, createBill } from "@/lib/quickbooks";
+import { getAccountRefByName, createBill } from "@/lib/quickbooks";
 
 // Push a contractor's logged hours for a period to QuickBooks as a vendor Bill.
 // Hours are entered rate-blind in /hours; rate is applied here (billing-gated).
@@ -56,15 +56,11 @@ export async function POST(req: NextRequest) {
     if (hours <= 0) return NextResponse.json({ error: "No un-pushed, completed hours in this period" }, { status: 400 });
     const amount = Math.round(hours * rateNum * 100) / 100;
 
-    // Resolve QB vendor (cached on contractor_pay, else create by name)
-    const { data: pay } = await admin.from("contractor_pay").select("qb_vendor_id, qb_vendor_name").eq("contractor_id", contractorId).single();
-    let qbVendorId = pay?.qb_vendor_id as string | null;
-    let qbVendorName = pay?.qb_vendor_name as string | null;
-    if (!qbVendorId) {
-      const qv = await getOrCreateVendor(contractor.name);
-      qbVendorId = String(qv.Id); qbVendorName = qv.DisplayName || contractor.name;
-      await admin.from("contractor_pay").upsert({ contractor_id: contractorId, hourly_rate: rateNum, qb_vendor_id: qbVendorId, qb_vendor_name: qbVendorName, updated_at: new Date().toISOString() });
-    }
+    // QB vendor must be explicitly mapped (no auto-create — that's what made the
+    // "Patrick Sandate" vs "Patrick Samuel Sandate" duplicate).
+    const { data: pay } = await admin.from("contractor_pay").select("qb_vendor_id").eq("contractor_id", contractorId).single();
+    const qbVendorId = pay?.qb_vendor_id as string | null;
+    if (!qbVendorId) return NextResponse.json({ error: `Map ${contractor.name} to a QuickBooks vendor first (prevents duplicate vendors).` }, { status: 400 });
 
     const acct = await getAccountRefByName(CONTRACTOR_LABOR_ACCOUNT);
 

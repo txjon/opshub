@@ -758,6 +758,17 @@ export async function createVendor(name: string): Promise<any> {
   return data.Vendor;
 }
 
+// Free-text vendor search for the contractor → QB-vendor mapping picker (mirrors
+// the customer-candidates flow). Contains-match on DisplayName so "sandate" finds
+// "Patrick Samuel Sandate".
+export async function searchVendors(q: string, limit = 20): Promise<{ id: string; name: string }[]> {
+  const s = (q || "").trim();
+  if (!s) return [];
+  const query = encodeURIComponent(`SELECT * FROM Vendor WHERE DisplayName LIKE '%${s.replace(/'/g, "\\'")}%' AND Active = true MAXRESULTS ${Math.max(1, Math.min(50, limit))}`);
+  const data = await qbFetch(`/query?query=${query}`);
+  return (data?.QueryResponse?.Vendor || []).map((v: any) => ({ id: String(v.Id), name: v.DisplayName }));
+}
+
 // Resolve an OpsHub AP vendor to a QB Vendor. These almost always already exist
 // in QB (they show up in the bill/transaction reports), so we match exact →
 // suffix-stripped → closest fuzzy before creating. Unlike the customer path we
