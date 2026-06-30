@@ -71,6 +71,16 @@ export function VarianceView({ queue, jobsRaw, items, printers, freightEntries =
     return { rows, pool, captured };
   }, [freightEntries, jobsRaw]);
 
+  // Projected cost plan = decorator expected + blank calc (when ordered) + freight calc.
+  // Margin impact % = net variance ÷ plan (negative net = under plan = margin gained).
+  const planCost = useMemo(() => {
+    let p = 0;
+    for (const r of data.rows) p += (r.decoExp || 0) + (r.blankOrdered ? (r.blankCalc || 0) : 0);
+    for (const fr of freightData.rows) p += fr.calc || 0;
+    return p;
+  }, [data.rows, freightData.rows]);
+  const marginPct = planCost > 0 ? (totalNet / planCost) * 100 : 0;
+
   const net = useCountUp(totalNet);
   const over = useCountUp(data.totalOver);
   const under = useCountUp(data.totalUnder);
@@ -87,7 +97,7 @@ export function VarianceView({ queue, jobsRaw, items, printers, freightEntries =
   return (
     <div style={{ ["--card" as any]: T.card, ["--border" as any]: T.border, ["--surface" as any]: T.surface, ["--text" as any]: T.text, ["--muted" as any]: T.muted, ["--faint" as any]: T.faint, ["--red" as any]: T.red, ["--green" as any]: T.green, ["--amber" as any]: T.amber, ["--mono" as any]: mono, fontFamily: font }}>
       <style>{`
-        .vx-kpis { display: grid; grid-template-columns: 3fr 1fr; gap: 12px; margin: 18px 0 26px; }
+        .vx-kpis { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 12px; margin: 18px 0 26px; }
         @media (max-width:700px){ .vx-kpis{ grid-template-columns: 1fr;} }
         @media (max-width:1100px){ .vx-kpis{ grid-template-columns: repeat(3,1fr);} }
         @media (max-width:600px){ .vx-kpis{ grid-template-columns: repeat(2,1fr);} }
@@ -124,7 +134,8 @@ export function VarianceView({ queue, jobsRaw, items, printers, freightEntries =
       <div className="vx-kpis">
         <Kpi i={0} label="Net cost vs plan" value={money(net)} accent={totalNet > 0 ? T.red : T.green}
           sub={`${totalNet > 0 ? "over" : "under"} projection · ${money(over)} over (${data.jobsOver}) · ${money(under)} under (${data.jobsUnder}) · incl. freight`} />
-        <Kpi i={1} label="Jobs reconciled" value={String(data.rows.length)} sub="with actual cost" />
+        <Kpi i={1} label="Margin impact" value={`${Math.abs(marginPct).toFixed(1)}%`} accent={totalNet <= 0 ? T.green : T.red} sub={`${totalNet <= 0 ? "under" : "over"} cost plan`} />
+        <Kpi i={2} label="Jobs reconciled" value={String(data.rows.length)} sub="with actual cost" />
       </div>
 
       {/* Nav cards */}
