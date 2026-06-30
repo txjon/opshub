@@ -791,6 +791,22 @@ export async function getCogsAccountRef(): Promise<{ id: string; name: string }>
   return { id: String(acct.Id), name: acct.Name };
 }
 
+// Resolve a QB account by name (exact match first, then fuzzy contains). Used for
+// the contractor-labor account ("3rd party fulfillment").
+export async function getAccountRefByName(name: string): Promise<{ id: string; name: string }> {
+  const esc = name.replace(/'/g, "\\'");
+  let data = await qbFetch(`/query?query=${encodeURIComponent(`SELECT * FROM Account WHERE Name = '${esc}' AND Active = true MAXRESULTS 5`)}`);
+  let accounts = data?.QueryResponse?.Account || [];
+  if (!accounts.length) {
+    data = await qbFetch(`/query?query=${encodeURIComponent("SELECT * FROM Account WHERE Active = true MAXRESULTS 1000")}`);
+    const lc = name.toLowerCase();
+    accounts = (data?.QueryResponse?.Account || []).filter((a: any) => String(a.Name || "").toLowerCase().includes(lc));
+  }
+  const acct = accounts[0];
+  if (!acct) throw new Error(`No active QuickBooks account matching "${name}" found`);
+  return { id: String(acct.Id), name: acct.Name };
+}
+
 // ── Bill operations (AP write-path) ──
 
 export type QBBillLine = {
