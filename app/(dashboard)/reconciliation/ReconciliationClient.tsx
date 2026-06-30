@@ -151,7 +151,9 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
     // vendor-level / not-job-specific entries (null job_id). Removes other tenants'
     // bills from totals + Bill History.
     const jobIdSet = new Set(jrows.map((x: any) => x.id));
-    setEntries((((e.data as any) || []) as any[]).filter(en => !en.job_id || jobIdSet.has(en.job_id)));
+    // Exclude UPS inbound-freight imports — those live entirely in the Shipping
+    // (Inbound Freight) tab, never the PO-bill queue / Billed KPI / variance.
+    setEntries((((e.data as any) || []) as any[]).filter(en => en.source !== "ups_inbound" && (!en.job_id || jobIdSet.has(en.job_id))));
     setDecorators((d.data as any) || []);
     setJobItems((((itm.data as any) || []) as any[]).filter(it => jobIdSet.has(it.job_id))); // for blank variance
     setLoading(false);
