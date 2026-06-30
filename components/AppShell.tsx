@@ -2,11 +2,12 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LogOut, FlaskConical, Truck, Store, Users, Cog, ChartColumn, Lightbulb } from "lucide-react";
+import { LogOut, FlaskConical, Truck, Store, Users, Cog, ChartColumn, Lightbulb, Receipt } from "lucide-react";
 import { GlobalSearch } from "@/components/GlobalSearch";
 import { useIsMobile } from "@/lib/useIsMobile";
+import { grantedPages, pathToGroup } from "@/lib/access";
 
-type Department = "owner" | "labs" | "distro" | "ecomm" | "contacts" | "settings";
+type Department = "owner" | "labs" | "distro" | "ecomm" | "contacts" | "settings" | "billing";
 
 const DEPT_NAV: Record<Department, { href: string; label: string }[]> = {
   owner: [
@@ -40,6 +41,9 @@ const DEPT_NAV: Record<Department, { href: string; label: string }[]> = {
   settings: [
     { href: "/settings", label: "Team" },
   ],
+  billing: [
+    { href: "/billing", label: "Billing" },
+  ],
 };
 
 // Side quest pages accessible from any department
@@ -54,6 +58,7 @@ const DEPT_ICONS: Record<Department, { Icon: any; label: string }> = {
   ecomm: { Icon: Store, label: "Ecomm" },
   contacts: { Icon: Users, label: "Contacts" },
   settings: { Icon: Cog, label: "Settings" },
+  billing: { Icon: Receipt, label: "Billing" },
 };
 
 // Cross-links between departments
@@ -63,6 +68,7 @@ const DEPT_CROSSLINKS: Partial<Record<Department, { href: string; label: string;
 };
 
 function detectDept(pathname: string): Department {
+  if (pathname.startsWith("/billing")) return "billing";
   if (["/insights", "/reports", "/reconciliation", "/hours", "/god-mode", "/integrations"].some(p => pathname.startsWith(p))) return "owner";
   if (["/ecomm"].some(p => pathname.startsWith(p))) return "ecomm";
   if (["/distro", "/receiving", "/shipping", "/fulfillment"].some(p => pathname.startsWith(p))) return "distro";
@@ -77,25 +83,42 @@ function detectDept(pathname: string): Department {
 
 export function AppShell({
   email, role, isOwner, departments, extraAccess, userId,
-  companySlug, companyName, isGod,
+  companySlug, companyName, isGod, pageAccess,
   children,
 }: {
   email: string; role: string; isOwner: boolean;
   departments: string[]; extraAccess: string[]; userId: string;
   companySlug?: string; companyName?: string; isGod?: boolean;
+  pageAccess?: string[] | null;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
   const isViewer = role === "viewer";
-  const hasDept = (d: string) => departments.includes(d);
+  // Per-user page access (lib/access). When page_access is set, the whole sidebar
+  // is driven off the granted catalog pages; otherwise fall back to the legacy
+  // role∩company department list so un-seeded users are completely unchanged.
+  const usePerUser = Array.isArray(pageAccess) && pageAccess.length > 0;
+  const grantedCatalog = usePerUser ? grantedPages({ role, isGod, pageAccess }) : [];
+  const grantedHrefs = new Set(grantedCatalog.map(p => p.href));
+  const grantedGroups = new Set(grantedCatalog.map(p => p.group));
+  const navByGroup: Record<string, { href: string; label: string }[]> = {};
+  for (const p of grantedCatalog) (navByGroup[p.group] ||= []).push({ href: p.href, label: p.label });
+  const hasDept = (d: string) => usePerUser ? grantedGroups.has(d) : departments.includes(d);
   const hasExtra = (page: string) => extraAccess.includes(page);
   // A user can land (via bookmark/URL) on a page whose department they don't
   // have — e.g. a contractor on /hours, which lives under "owner". Resolve to
   // their own first department instead, so we never render another dept's nav
   // (and never surface owner links like Reports/Reconciliation) to someone who
   // lacks that dept. Page-level access is a separate guard (tracked).
-  const resolveDept = (d: Department): Department => (departments.includes(d) ? d : ((departments[0] as Department) || "labs"));
-  const [activeDept, setActiveDept] = useState<Department>(resolveDept(detectDept(pathname)));
+  const resolveDept = (d: Department): Department => {
+    if (usePerUser) return grantedGroups.has(d) ? d : ((grantedCatalog[0]?.group as Department) || "labs");
+    return departments.includes(d) ? d : ((departments[0] as Department) || "labs");
+  };
+  // Per-user mode: the active department is the catalog GROUP of the current page
+  // (so /hours lands on Distro, /billing on Billing). Legacy: detectDept.
+  const deptForPath = (path: string): Department =>
+    usePerUser ? ((pathToGroup(path) as Department) || (grantedCatalog[0]?.group as Department) || "labs") : detectDept(path);
+  const [activeDept, setActiveDept] = useState<Department>(resolveDept(deptForPath(pathname)));
   const [showSideQuests, setShowSideQuests] = useState(false);
   const isMobile = useIsMobile();
   // Dashboard nav badge — count of external-driven items awaiting an
@@ -106,8 +129,7 @@ export function AppShell({
 
   // Sync dept when pathname changes (after navigation completes, not during render)
   useEffect(() => {
-    const deptFromPath = detectDept(pathname);
-    setActiveDept(resolveDept(deptFromPath));
+    setActiveDept(resolveDept(deptForPath(pathname)));
   }, [pathname]);
 
   useEffect(() => {
@@ -133,12 +155,11 @@ export function AppShell({
     return () => { cancelled = true; clearInterval(id); };
   }, [pathname]);
 
-  const baseNavItems = DEPT_NAV[activeDept] || [];
-  // "Overview" (route stays /god-mode for backwards-compat) is email-gated
-  // to Jon — it's the owner's high-altitude decision view, not for other
-  // owner-role users. Prepended so it's the landing tab when Jon clicks
-  // the Owner department icon.
-  const navItems = activeDept === "owner" && email === "jon@housepartydistro.com"
+  // Per-user mode: nav items come straight from the granted catalog for the
+  // active group — this is also what moves Log Hours into Distro, God Mode into
+  // Owner, etc. Legacy mode: the static DEPT_NAV with Jon's Overview prepend.
+  const baseNavItems = usePerUser ? (navByGroup[activeDept] || []) : (DEPT_NAV[activeDept] || []);
+  const navItems = !usePerUser && activeDept === "owner" && email === "jon@housepartydistro.com"
     ? [{ href: "/god-mode", label: "Overview" }, ...baseNavItems]
     : baseNavItems;
   // Tenant override for the "Labs" department label. IHM doesn't think
@@ -197,10 +218,11 @@ export function AppShell({
             // For Jon, clicking the Owner icon lands on Overview (/god-mode)
             // since it's the prepended first tab. Everyone else lands on
             // the static DEPT_NAV first entry (/insights for owner).
-            const landingHref =
-              dept === "owner" && email === "jon@housepartydistro.com"
-                ? "/god-mode"
-                : DEPT_NAV[dept][0].href;
+            const landingHref = usePerUser
+              ? (navByGroup[dept]?.[0]?.href || "/dashboard")
+              : (dept === "owner" && email === "jon@housepartydistro.com"
+                  ? "/god-mode"
+                  : DEPT_NAV[dept][0].href);
             return (
               <Link
                 key={dept}
@@ -224,6 +246,7 @@ export function AppShell({
           {/* References — team SOPs + training docs. Always visible to
               every authenticated user; not gated by department access. */}
           {(() => {
+            if (usePerUser && !grantedHrefs.has("/references")) return null;
             const isActive = pathname === "/references" || pathname?.startsWith("/references/");
             return (
               <Link
@@ -344,9 +367,9 @@ export function AppShell({
 
             {/* Side quests dropdown — uses position:fixed w/ ref-measured coords
                 so it escapes the nav container's overflow:hidden clip */}
-            {SIDE_QUESTS.some(sq => hasExtra(sq.label.toLowerCase())) && (
+            {SIDE_QUESTS.some(sq => usePerUser ? grantedHrefs.has(sq.href) : hasExtra(sq.label.toLowerCase())) && (
               <SideQuestsMenu
-                items={SIDE_QUESTS.filter(sq => hasExtra(sq.label.toLowerCase()))}
+                items={SIDE_QUESTS.filter(sq => usePerUser ? grantedHrefs.has(sq.href) : hasExtra(sq.label.toLowerCase()))}
                 pathname={pathname}
                 open={showSideQuests}
                 setOpen={setShowSideQuests}
