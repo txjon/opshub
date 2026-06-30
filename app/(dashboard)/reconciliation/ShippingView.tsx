@@ -28,6 +28,7 @@ export function ShippingView({ companyId, billingOnly = false }: { companyId: st
   const [qSearch, setQSearch] = useState<Record<string, string>>({}); // queue-row job search
   const [showHistory, setShowHistory] = useState(false);
   const [showManual, setShowManual] = useState(false);
+  const [selQ, setSelQ] = useState<Set<string>>(new Set());
   const [showAdd, setShowAdd] = useState(false);
   const [addPo, setAddPo] = useState("");
   const [addAmt, setAddAmt] = useState("");
@@ -113,6 +114,12 @@ export function ShippingView({ companyId, billingOnly = false }: { companyId: st
   async function removeManual(id: string) {
     await supabase.from("cost_entries").delete().eq("id", id);
     loadAll();
+  }
+  const toggleSel = (id: string) => setSelQ(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  async function ignoreSelected() {
+    if (!selQ.size) return;
+    await supabase.from("cost_entries").update({ not_job_specific: true } as any).in("id", [...selQ]);
+    setSelQ(new Set()); loadAll();
   }
   const manualEntries = useMemo(() => existing.filter(e => e.source === "manual_freight").sort((a, b) => (b.created_at || "").localeCompare(a.created_at || "")), [existing]);
   function suggestions(sender: string | null, ref: string | null): JobFull[] {
@@ -229,12 +236,16 @@ export function ShippingView({ companyId, billingOnly = false }: { companyId: st
       {queue.length > 0 && (
         <div style={{ border: `1px solid ${T.amber}66`, borderRadius: 12, marginBottom: 24, overflow: "hidden" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 16px", background: T.amberDim, borderBottom: `1px solid ${T.amber}44` }}>
+            <input type="checkbox" title="Select all" checked={selQ.size > 0 && selQ.size === queue.length} ref={el => { if (el) el.indeterminate = selQ.size > 0 && selQ.size < queue.length; }} onChange={e => setSelQ(e.target.checked ? new Set(queue.map(q => q.id)) : new Set())} style={{ cursor: "pointer", width: 15, height: 15 }} />
             <span style={{ fontSize: 13, fontWeight: 800, color: T.text }}>Needs a match — {queue.length}</span>
             <span style={{ fontSize: 11.5, color: T.muted, fontFamily: mono }}>{money(queueTotal)} unassigned</span>
-            <span style={{ fontSize: 11, color: T.muted, marginLeft: "auto" }}>assign each to a job, or ignore (non-job charges)</span>
+            {selQ.size > 0
+              ? <button onClick={ignoreSelected} style={{ marginLeft: "auto", background: T.faint, color: "#fff", border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>Ignore {selQ.size} selected</button>
+              : <span style={{ fontSize: 11, color: T.muted, marginLeft: "auto" }}>assign each to a job, or ignore (non-job charges)</span>}
           </div>
           {queue.map(e => (
             <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 16px", borderTop: `1px solid ${T.border}22`, fontSize: 12 }}>
+              <input type="checkbox" checked={selQ.has(e.id)} onChange={() => toggleSel(e.id)} style={{ cursor: "pointer", width: 14, height: 14, flexShrink: 0 }} />
               <span style={{ width: 140, fontFamily: mono, fontSize: 10.5, color: T.faint, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={e.ext_tracking || ""}>{e.ext_tracking}</span>
               <span style={{ width: 78, fontFamily: mono, fontSize: 11, color: T.muted }}>{e.ext_date || "—"}</span>
               <span style={{ width: 180, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={e.vendor_name || ""}>{e.vendor_name || "—"}</span>
