@@ -2,12 +2,12 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LogOut, FlaskConical, Truck, Store, Users, Cog, ChartColumn, Lightbulb } from "lucide-react";
+import { LogOut, FlaskConical, Truck, Store, Users, Cog, ChartColumn, Lightbulb, Receipt } from "lucide-react";
 import { GlobalSearch } from "@/components/GlobalSearch";
 import { useIsMobile } from "@/lib/useIsMobile";
-import { grantedPages } from "@/lib/access";
+import { grantedPages, pathToGroup } from "@/lib/access";
 
-type Department = "owner" | "labs" | "distro" | "ecomm" | "contacts" | "settings";
+type Department = "owner" | "labs" | "distro" | "ecomm" | "contacts" | "settings" | "billing";
 
 const DEPT_NAV: Record<Department, { href: string; label: string }[]> = {
   owner: [
@@ -41,6 +41,9 @@ const DEPT_NAV: Record<Department, { href: string; label: string }[]> = {
   settings: [
     { href: "/settings", label: "Team" },
   ],
+  billing: [
+    { href: "/billing", label: "Billing" },
+  ],
 };
 
 // Side quest pages accessible from any department
@@ -55,6 +58,7 @@ const DEPT_ICONS: Record<Department, { Icon: any; label: string }> = {
   ecomm: { Icon: Store, label: "Ecomm" },
   contacts: { Icon: Users, label: "Contacts" },
   settings: { Icon: Cog, label: "Settings" },
+  billing: { Icon: Receipt, label: "Billing" },
 };
 
 // Cross-links between departments
@@ -64,6 +68,7 @@ const DEPT_CROSSLINKS: Partial<Record<Department, { href: string; label: string;
 };
 
 function detectDept(pathname: string): Department {
+  if (pathname.startsWith("/billing")) return "billing";
   if (["/insights", "/reports", "/reconciliation", "/hours", "/god-mode", "/integrations"].some(p => pathname.startsWith(p))) return "owner";
   if (["/ecomm"].some(p => pathname.startsWith(p))) return "ecomm";
   if (["/distro", "/receiving", "/shipping", "/fulfillment"].some(p => pathname.startsWith(p))) return "distro";
@@ -105,8 +110,15 @@ export function AppShell({
   // their own first department instead, so we never render another dept's nav
   // (and never surface owner links like Reports/Reconciliation) to someone who
   // lacks that dept. Page-level access is a separate guard (tracked).
-  const resolveDept = (d: Department): Department => (departments.includes(d) ? d : ((departments[0] as Department) || "labs"));
-  const [activeDept, setActiveDept] = useState<Department>(resolveDept(detectDept(pathname)));
+  const resolveDept = (d: Department): Department => {
+    if (usePerUser) return grantedGroups.has(d) ? d : ((grantedCatalog[0]?.group as Department) || "labs");
+    return departments.includes(d) ? d : ((departments[0] as Department) || "labs");
+  };
+  // Per-user mode: the active department is the catalog GROUP of the current page
+  // (so /hours lands on Distro, /billing on Billing). Legacy: detectDept.
+  const deptForPath = (path: string): Department =>
+    usePerUser ? ((pathToGroup(path) as Department) || (grantedCatalog[0]?.group as Department) || "labs") : detectDept(path);
+  const [activeDept, setActiveDept] = useState<Department>(resolveDept(deptForPath(pathname)));
   const [showSideQuests, setShowSideQuests] = useState(false);
   const isMobile = useIsMobile();
   // Dashboard nav badge — count of external-driven items awaiting an
@@ -117,8 +129,7 @@ export function AppShell({
 
   // Sync dept when pathname changes (after navigation completes, not during render)
   useEffect(() => {
-    const deptFromPath = detectDept(pathname);
-    setActiveDept(resolveDept(deptFromPath));
+    setActiveDept(resolveDept(deptForPath(pathname)));
   }, [pathname]);
 
   useEffect(() => {

@@ -80,7 +80,7 @@ const money = (n: number) => "$" + Number(n || 0).toLocaleString("en-US", { mini
 // Tolerate "$7,627.20" / "7,627.20" pasted straight from an invoice.
 const parseAmount = (s: string) => parseFloat(String(s).replace(/[^0-9.]/g, "")) || 0;
 
-export default function ReconciliationClient({ companyId }: { companyId: string }) {
+export default function ReconciliationClient({ companyId, billingOnly = false }: { companyId: string; billingOnly?: boolean }) {
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [jobs, setJobs] = useState<JobLite[]>([]);
   const [entries, setEntries] = useState<Entry[]>([]);
@@ -859,9 +859,9 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
       )}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-          <h1 style={{ fontSize: 20, fontWeight: 800, color: T.text, margin: 0 }}>Cost Reconciliation</h1>
+          <h1 style={{ fontSize: 20, fontWeight: 800, color: T.text, margin: 0 }}>{billingOnly ? "Billing" : "Cost Reconciliation"}</h1>
           <div style={{ display: "flex", gap: 3, background: T.surface, borderRadius: 8, padding: 3 }}>
-            {([["queue", "Billing Queue"], ["history", "Bill History"], ["variances", "Variances"]] as const).map(([k, label]) => (
+            {(([["queue", "Billing Queue"], ["history", "Bill History"], ["variances", "Variances"]] as const).filter(([k]) => !billingOnly || k !== "variances")).map(([k, label]) => (
               <button key={k} onClick={() => setView(k)} style={{ background: view === k ? T.card : "transparent", color: view === k ? T.text : T.muted, border: "none", borderRadius: 6, padding: "5px 13px", fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: font, boxShadow: view === k ? "0 1px 2px rgba(0,0,0,0.08)" : "none" }}>{label}</button>
             ))}
           </div>
@@ -1149,7 +1149,7 @@ export default function ReconciliationClient({ companyId }: { companyId: string 
           </div>
         </div>
       )}
-      {view === "variances" && (
+      {!billingOnly && view === "variances" && (
         <VarianceView queue={queue} jobsRaw={jobsRaw} items={jobItems} printers={printers} />
       )}
     </div>

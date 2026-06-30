@@ -6,7 +6,7 @@ Owner,Integrations,/integrations,QuickBooks + external connections / API tokens,
 Labs,Labs Dashboard,/dashboard,"Production KPIs, stalled items, shipping this week",,X,,X,X,,X,,
 Labs,Projects,/jobs,"The job hub — every project: costing, POs, items, quotes",,X,,X,X,,X,,
 Labs,Art Studio,/art-studio,Art + proof workflow and approvals,,X,,X,X,,X,,
-Labs,Production,/production,"Production board — ship items, build shipments, pickups",,X,,X,X,,X,X,X
+Labs,Production,/production,"Production board — ship items, build shipments, pickups",,X,,X,X,,X,,
 Distro,Distro Dashboard,/distro,Warehouse overview,,X,,X,X,,X,X,X
 Distro,Receiving,/receiving,Incoming shipments — receive + confirm quantities,,X,,X,X,,X,X,X
 Distro,Shipping,/shipping,Outbound shipping,,X,,X,X,,X,X,X

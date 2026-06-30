@@ -9,7 +9,7 @@
 //     fallback is vestigial.
 // The middleware enforces this server-side (the real lock); AppShell uses it to render nav.
 
-export type PageGroup = "owner" | "labs" | "distro" | "ecomm" | "contacts" | "settings" | "side";
+export type PageGroup = "owner" | "labs" | "distro" | "ecomm" | "contacts" | "settings" | "billing" | "side";
 
 export type CatalogPage = {
   key: string;       // stable id stored in page_access — equals href
@@ -45,6 +45,8 @@ export const PAGE_CATALOG: CatalogPage[] = [
   { key: "/clients", href: "/clients", label: "Clients", group: "contacts" },
   { key: "/decorators", href: "/decorators", label: "Decorators", group: "contacts" },
   { key: "/settings/designers", href: "/settings/designers", label: "Designers", group: "contacts" },
+  // Billing (bookkeeper surface — bill entry + inline variance + QB push)
+  { key: "/billing", href: "/billing", label: "Billing", group: "billing", sensitive: true },
   // Admin
   { key: "/settings", href: "/settings", label: "Team", group: "settings", sensitive: true },
   // Always-available utilities
@@ -102,6 +104,12 @@ export function canAccessPath(pathname: string, user: AccessUser): boolean {
   const key = pathToPageKey(pathname);
   if (!key) return true;
   return canAccessKey(key, user);
+}
+
+/** The catalog group a request pathname belongs to (for nav active-dept), or null. */
+export function pathToGroup(pathname: string): PageGroup | null {
+  const key = pathToPageKey(pathname);
+  return key ? (CATALOG_BY_KEY[key]?.group ?? null) : null;
 }
 
 /** The catalog pages this user may see — drives the sidebar. */

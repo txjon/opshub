@@ -22,7 +22,7 @@ const CATALOG = new Set([
   '/dashboard','/jobs','/art-studio','/production',
   '/distro','/receiving','/shipping','/fulfillment','/hours',
   '/ecomm','/intake','/clients','/decorators','/settings/designers',
-  '/settings','/toolkit','/references',
+  '/settings','/billing','/toolkit','/references',
 ]);
 
 function parseCsv(text) {
