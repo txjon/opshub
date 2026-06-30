@@ -11,7 +11,7 @@ import type { JobLite } from "@/lib/po-ref-match";
 // Outbound (distro) is a separate UPS account / feed.
 
 type JobFull = JobLite & { costing_data: any };
-type FreightEntry = { id: string; job_id: string | null; amount: number; ext_tracking: string | null; ext_date: string | null; vendor_invoice_number: string | null; vendor_name: string | null; po_ref: string | null; not_job_specific: boolean };
+type FreightEntry = { id: string; job_id: string | null; amount: number; ext_tracking: string | null; ext_date: string | null; vendor_invoice_number: string | null; vendor_name: string | null; po_ref: string | null; not_job_specific: boolean; created_at: string };
 type Staged = { invoiceNumber: string; tracking: string; cost: number; ref: string; sender: string; date: string; sections: string[]; job: JobFull | null; dupe: boolean };
 
 const money = (n: number) => `$${(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -26,12 +26,13 @@ export function ShippingView({ companyId, billingOnly = false }: { companyId: st
   const [staged, setStaged] = useState<Staged[]>([]);
   const [importing, setImporting] = useState(false);
   const [qSearch, setQSearch] = useState<Record<string, string>>({}); // queue-row job search
+  const [showHistory, setShowHistory] = useState(false);
 
   async function loadAll() {
     setLoading(true);
     const [{ data: js }, { data: es }] = await Promise.all([
       supabase.from("jobs").select("id, job_number, type_meta, costing_data, clients(name)").eq("company_id", companyId),
-      supabase.from("cost_entries").select("id, job_id, amount, ext_tracking, ext_date, vendor_invoice_number, vendor_name, po_ref, not_job_specific").eq("source", "ups_inbound"),
+      supabase.from("cost_entries").select("id, job_id, amount, ext_tracking, ext_date, vendor_invoice_number, vendor_name, po_ref, not_job_specific, created_at").eq("source", "ups_inbound"),
     ]);
     setJobs(((js as any[]) || []).map(j => ({ id: j.id, job_number: j.job_number, qb_invoice_number: j.type_meta?.qb_invoice_number ?? null, client_name: (j.clients as any)?.name ?? null, costing_data: j.costing_data })));
     setExisting((es as any[]) || []);
@@ -111,6 +112,19 @@ export function ShippingView({ companyId, billingOnly = false }: { companyId: st
   }, [existing, jobById]);
   const totalActual = perJob.reduce((a, r) => a + r.actual, 0);
   const totalCalc = perJob.filter(r => r.job).reduce((a, r) => a + r.calc, 0);
+
+  // import history — grouped by UPS invoice #
+  const importHistory = useMemo(() => {
+    const m: Record<string, { invoice: string; imported: string; n: number; total: number; matched: number; unmatched: number }> = {};
+    for (const e of existing) {
+      const inv = e.vendor_invoice_number || "(no invoice #)";
+      const g = (m[inv] ??= { invoice: inv, imported: e.created_at, n: 0, total: 0, matched: 0, unmatched: 0 });
+      g.n++; g.total += Number(e.amount || 0);
+      if (e.created_at && e.created_at < g.imported) g.imported = e.created_at;
+      if (e.job_id) g.matched++; else if (!e.not_job_specific) g.unmatched++;
+    }
+    return Object.values(m).sort((a, b) => (b.imported || "").localeCompare(a.imported || ""));
+  }, [existing]);
 
   return (
     <div>
@@ -221,6 +235,31 @@ export function ShippingView({ companyId, billingOnly = false }: { companyId: st
               ))}
             </div>
           )}
+
+      {/* Import history — what's been processed, grouped by UPS invoice # */}
+      {importHistory.length > 0 && (
+        <div style={{ marginTop: 24 }}>
+          <button onClick={() => setShowHistory(s => !s)} style={{ background: "none", border: "none", color: T.muted, fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", fontFamily: font, padding: 0 }}>{showHistory ? "▾" : "▸"} Import history ({importHistory.length} invoice{importHistory.length !== 1 ? "s" : ""})</button>
+          {showHistory && (
+            <div style={{ border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden", marginTop: 8 }}>
+              <div style={{ display: "flex", gap: 12, padding: "8px 14px", background: T.surface, ...lbl }}>
+                <span style={{ flex: 1 }}>UPS Invoice</span><span style={{ width: 110 }}>Imported</span><span style={{ width: 70, textAlign: "right" }}>Shp</span><span style={{ width: 110, textAlign: "right" }}>Total</span><span style={{ width: 160, textAlign: "right" }}>Matched / Queue</span>
+              </div>
+              {importHistory.map(h => (
+                <div key={h.invoice} style={{ display: "flex", gap: 12, padding: "9px 14px", borderTop: `1px solid ${T.border}22`, fontSize: 12.5, alignItems: "center" }}>
+                  <span style={{ flex: 1, fontFamily: mono, color: T.text }}>{h.invoice}</span>
+                  <span style={{ width: 110, fontSize: 11.5, color: T.muted }}>{h.imported ? new Date(h.imported).toLocaleDateString() : "—"}</span>
+                  <span style={{ width: 70, textAlign: "right", fontFamily: mono, color: T.faint }}>{h.n}</span>
+                  <span style={{ width: 110, textAlign: "right", fontFamily: mono, color: T.text }}>{money(h.total)}</span>
+                  <span style={{ width: 160, textAlign: "right", fontSize: 11.5, fontFamily: mono }}>
+                    <span style={{ color: T.green }}>{h.matched} matched</span>{h.unmatched > 0 && <span style={{ color: T.amber }}> · {h.unmatched} queue</span>}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
