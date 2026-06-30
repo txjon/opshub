@@ -769,7 +769,8 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
       </div>
 
       {view === "queue" && (<>
-      {/* Open PO hero + stats */}
+      {/* Open PO hero + stats — owner aggregate KPIs, hidden in billing-only */}
+      {!billingOnly && (
       <div style={{ display: "flex", gap: 14, marginBottom: 20, flexWrap: "wrap" }}>
         <div style={{ background: T.accent, color: "#fff", borderRadius: 12, padding: "16px 22px", minWidth: 240 }}>
           <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", opacity: 0.7 }}>Open PO Commitment</div>
@@ -788,9 +789,10 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
           </div>
         ))}
       </div>
+      )}
 
-      {/* Open PO by vendor */}
-      {openByVendor.length > 0 && (
+      {/* Open PO by vendor — owner aggregate, hidden in billing-only */}
+      {!billingOnly && openByVendor.length > 0 && (
         <div style={{ marginBottom: 20 }}>
           <button onClick={() => setShowByVendor(s => !s)} style={{ background: "none", border: "none", color: T.muted, fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", fontFamily: font, padding: 0 }}>{showByVendor ? "▾" : "▸"} Open PO by vendor ({openByVendor.length})</button>
           {showByVendor && (
