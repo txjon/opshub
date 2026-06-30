@@ -50,6 +50,22 @@ God Mode, Reports, Reconciliation, Integrations, Team & Access.
 ## Open questions
 - None — spec complete 2026-06-29. Abigail pushes bills to QB herself (confirmed).
 
+## Status
+- Phase 1 (engine + guard + grant-driven nav) — BUILT + verified on dev (all personas walked).
+- Phase 1.5 (/billing surface + migration 109 RLS + /hours in Distro) — BUILT + verified on dev;
+  Abigail created a bill + pushed to QB under her non-owner session (RLS path confirmed) 2026-06-29.
+- Ready for ONE push (Phase 1 + 1.5). NOT pushed yet.
+- Phase 2 (self-serve Team & Access toggle grid in /settings) — not built.
+
+## PARKED backlog
+- **Billing-queue cleanup:** make the per-job queue modal READ-ONLY for bill entry — remove the
+  inline `+ bill` buttons (per-line / per-vendor / job-header); force ALL bill creation through the
+  "+ New bill" form (matches how vendors invoice). KEEP the dispositions (Mark fully billed /
+  Over–accepted / Reopen). Shared component → applies to both /billing and /reconciliation. Open Q:
+  should Abigail be able to accept an over-variance, or is that owner-only?
+- Pre-push housekeeping: reset OpsHubTesting.page_access back to NULL (it's been mirroring personas
+  during testing).
+
 ## Notes
 - Keep a simple `is_owner` capability (who may edit others' access) — even "no roles" needs an admin.
 - Hours→QB-bill billing feature (the original ask) folds in once `/hours` + `/billing` are grantable
