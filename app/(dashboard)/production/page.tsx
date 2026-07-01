@@ -958,63 +958,68 @@ export default function ProductionPage() {
 
   // Per-tab counts (always reflect the base-filtered set so they update
   // as the user types or picks a decorator).
-  const tabCounts = useMemo(() => ({
-    active: baseFiltered.filter(e => e.anyInProduction).length,
-    overdue: baseFiltered.filter(e => e.isOverdue).length,
-    stalled: baseFiltered.filter(e => e.isStalled).length,
-    shipped: baseFiltered.filter(e => e.isShipped).length,
-  }), [baseFiltered]);
-
-  // Visible set — matches the current tab.
-  const visible = useMemo(() => {
-    const arr = baseFiltered.filter(e => {
-      if (tab === "active") return e.anyInProduction;
-      if (tab === "overdue") return e.isOverdue;
-      if (tab === "stalled") return e.isStalled;
-      if (tab === "shipped") return e.isShipped;
-      return true;
-    });
-    const cmp = (a: typeof arr[number], b: typeof arr[number]) => {
-      if (sortKey === "ship_date") {
-        const av = a.p.shipDate ? new Date(a.p.shipDate).getTime() : Infinity;
-        const bv = b.p.shipDate ? new Date(b.p.shipDate).getTime() : Infinity;
-        return av - bv;
-      }
-      if (sortKey === "days_at_decorator") return b.daysAtDecorator - a.daysAtDecorator;
-      if (sortKey === "decorator") {
-        const av = a.p.decoratorGroups[0]?.decoratorName.toLowerCase() || "";
-        const bv = b.p.decoratorGroups[0]?.decoratorName.toLowerCase() || "";
-        return av.localeCompare(bv);
-      }
-      if (sortKey === "client") return a.p.clientName.toLowerCase().localeCompare(b.p.clientName.toLowerCase());
-      if (sortKey === "units") return b.p.totalUnits - a.p.totalUnits;
-      return 0;
-    };
-    return [...arr].sort(cmp).map(e => e.p);
-  }, [baseFiltered, tab, sortKey]);
-
-  // Tab-filtered list; row UI handles both in-production and shipped
-  // states via the existing decorator-group rendering.
-  const activeProjects = visible;
-
-  // Phase 1 — each active project's decorator groups flatten into one strip
-  // per JOB×VENDOR (the real ship unit). The strip carries that VENDOR's own
-  // ship date (so the day counter is precise, not the job's earliest), its
-  // route→destination, and unit count. Sorted by urgency (ASAP/overdue first).
-  const activeStrips = useMemo(() => {
-    const out: { project: any; dg: any; decKey: string; shipDate: string | null; units: number; route: string }[] = [];
-    for (const project of activeProjects) {
+  // Per-strip (job×vendor) state — the strip is the real ship unit, so
+  // shipped/overdue/stalled are computed for THAT vendor's items only, not the
+  // whole job. A vendor whose items all shipped drops to Shipped even while a
+  // sibling vendor on the same job is still out. Built from baseFiltered so the
+  // search/decorator/client filters carry through.
+  const allStrips = useMemo(() => {
+    const out: { project: any; dg: any; decKey: string; shipDate: string | null; units: number; route: string; anyInProduction: boolean; isShipped: boolean; isOverdue: boolean; isStalled: boolean; daysAtDecorator: number }[] = [];
+    for (const { p: project } of baseFiltered) {
       for (const dg of project.decoratorGroups) {
+        let anyInProduction = false, allShipped = true, isOverdue = false;
+        let oldestInProdTs: number | null = null;
+        for (const it of dg.items) {
+          if (it.pipeline_stage === "in_production") {
+            anyInProduction = true; allShipped = false;
+            const ipAt = it.pipeline_timestamps?.in_production;
+            if (ipAt) { const t = new Date(ipAt).getTime(); if (oldestInProdTs === null || t < oldestInProdTs) oldestInProdTs = t; }
+            if (it.target_ship_date && it.target_ship_date !== "ASAP" && new Date(it.target_ship_date).getTime() < now.getTime()) isOverdue = true;
+          } else if (it.pipeline_stage !== "shipped") {
+            allShipped = false;
+          }
+        }
+        const daysAtDecorator = oldestInProdTs ? Math.floor((now.getTime() - oldestInProdTs) / 86400000) : 0;
+        const isShipped = allShipped || project.phase === "complete";
+        const isStalled = anyInProduction && daysAtDecorator >= STALL_DAYS;
         const decKey = dg.decoratorId || dg.decoratorName;
         const shipDate = dg.items.find((i: any) => i.target_ship_date)?.target_ship_date ?? project.shipDate ?? null;
         const units = dg.items.reduce((a: number, it: any) => a + (it.total_units || 0), 0);
         const route = dg.items.find((i: any) => i.shipping_route)?.shipping_route || project.shippingRoute || "ship_through";
-        out.push({ project, dg, decKey, shipDate, units, route });
+        out.push({ project, dg, decKey, shipDate, units, route, anyInProduction, isShipped, isOverdue, isStalled, daysAtDecorator });
       }
     }
+    return out;
+  }, [baseFiltered]);
+
+  // Per-tab counts — per strip now, matching the grouped board.
+  const tabCounts = useMemo(() => ({
+    active: allStrips.filter(s => s.anyInProduction).length,
+    overdue: allStrips.filter(s => s.isOverdue).length,
+    stalled: allStrips.filter(s => s.isStalled).length,
+    shipped: allStrips.filter(s => s.isShipped).length,
+  }), [allStrips]);
+
+  // Visible strips — filtered to the current tab (per-strip state) + sorted by
+  // urgency. A shipped vendor strip drops to Shipped independently of a sibling
+  // vendor still out on the same job.
+  const activeStrips = useMemo(() => {
+    const arr = allStrips.filter(s => {
+      if (tab === "active") return s.anyInProduction;
+      if (tab === "overdue") return s.isOverdue;
+      if (tab === "stalled") return s.isStalled;
+      if (tab === "shipped") return s.isShipped;
+      return true;
+    });
     const val = (d: string | null) => (d === "ASAP" ? -Infinity : d ? new Date(d).getTime() : Infinity);
-    return out.sort((a, b) => val(a.shipDate) - val(b.shipDate));
-  }, [activeProjects]);
+    return [...arr].sort((a, b) => {
+      if (sortKey === "days_at_decorator") return b.daysAtDecorator - a.daysAtDecorator;
+      if (sortKey === "decorator") return (a.dg.decoratorName || "").toLowerCase().localeCompare((b.dg.decoratorName || "").toLowerCase());
+      if (sortKey === "client") return a.project.clientName.toLowerCase().localeCompare(b.project.clientName.toLowerCase());
+      if (sortKey === "units") return b.units - a.units;
+      return val(a.shipDate) - val(b.shipDate);
+    });
+  }, [allStrips, tab, sortKey]);
 
   // All un-shipped items grouped by vendor across ALL jobs — the Build-shipment
   // source. Each item carries its jobRef so the modal can label cross-job rows.
@@ -1461,7 +1466,9 @@ export default function ProductionPage() {
                     : project.priority === "rush" ? { label: "RUSH", color: T.amber } : null;
                   return pri ? <span style={{ fontSize: 10, fontWeight: 800, color: pri.color, letterSpacing: "0.1em", whiteSpace: "nowrap" }}>{pri.label}</span> : null;
                 })()}
-                {ship && (<>
+                {allShipped ? (
+                  <div style={{ fontSize: 13, fontWeight: 700, color: T.green, fontFamily: mono, whiteSpace: "nowrap" }}>Shipped</div>
+                ) : ship && (<>
                   <div style={{ fontSize: 13, fontWeight: 700, color: ship.color, fontFamily: mono, whiteSpace: "nowrap" }}>{ship.label}</div>
                   <div style={{ fontSize: 10, color: T.faint, whiteSpace: "nowrap" }}>{ship.dateStr}</div>
                 </>)}
