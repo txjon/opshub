@@ -79,22 +79,25 @@ app/api/
 
 ### Project Detail Page (`jobs/[id]/`)
 
-The central hub. Horizontal pill tabs across the top, content below. 8 tabs ordered to match the actual workflow:
+The central hub. Horizontal pill tabs across the top, content below. Tabs ordered to match the actual workflow:
 
 | Tab | Component | Owns |
 |---|---|---|
 | Overview | Inline in page.tsx | Project info + shipping details (top row), contacts + invoice/payments (left), items + activity stats (right) |
-| Buy Sheet | BuySheetTab.jsx | Item creation, size/qty entry, S&S + manual catalog pickers, drag-to-reorder |
-| Art Files | ArtTab.jsx | Per-item file upload to Google Drive, stages, proof approval workflow, mockup generator |
-| Costing | CostingTab.jsx | Decoration pricing, margin calc, auto-save, share groups |
+| Product Builder | ProductBuilder.jsx (tab key `builder`) | The merged Buy Sheet + Art surface: item creation, size/qty, S&S + manual catalog pickers, drag-to-reorder, and per-item art/mockups. Reuses `BuySheetTab.jsx` (items) + `ArtTab.jsx` (art) internally — those are NOT dead, they're sub-components now. |
+| Approvals | ApprovalsTab.jsx (tab key `proofs`) | Proof review + approval workflow, revised-proof re-send nudge; reuses `ArtTab.jsx` |
+| Costing | CostingTab.jsx (tab key `costing`) | Decoration pricing, margin calc, auto-save, share groups |
 | Client Quote | CostingTab.jsx (quote sub-tab) | Quote preview + PDF download/email + quote approval + post-approval next-step links |
 | Blanks | BlanksTab.jsx | Per-item S&S order # + cost entry with 3-gate checklist |
 | Purchase Order | POTab.jsx | PO preview, PDF export/email, per-item fields + copy-to-all, blanks warning, PO sent tracker |
-| Production | ProductionTab.jsx | Tracking entry (auto-advances to shipped), per-size shipped quantities, ship notifications |
+| Production | Read-only status strip (inline) + "Ship in Production →" link | Read-only now — **all shipping moved to the /production board** (`ProductionTab.jsx` was deleted, commit 20cb08bc). The job page shows in_production / "✓ Shipped · tracking" status only. |
 
-**Tab order matches workflow**: Taylor sets up (Overview → Buy Sheet → Art Files) → Drake costs and sells (Costing → Client Quote) → Drake orders and sends (Blanks → PO → Production).
+NOTE (2026-06): the old separate "Buy Sheet" and "Art Files" tabs were merged into **Product Builder**;
+`BuySheetTab.jsx` / `ArtTab.jsx` still exist and export live helpers used by ProductBuilder + ApprovalsTab
+(and `assignBlank` lives in BuySheetTab, invoked via ProductBuilder). Verify page.tsx imports before assuming
+either file is dead.
 
-**Progress checklist**: Shown at top of every active project (hidden on complete/cancelled). Shows ✓/→/○ for each step: Buy Sheet, Art Files, Costing, Quote Approved, Proofs Approved, Payment, Blanks Ordered, POs Sent, Production. Clicking a step navigates to that tab. Progress bar shows overall percentage.
+**Progress checklist**: Shown at top of every active project (hidden on complete/cancelled). Shows ✓/→/○ for each workflow step. Clicking a step navigates to that tab. Progress bar shows overall percentage.
 
 **Job numbers**: Auto-generated on insert via DB trigger. Format: `HPD-YYMM-NNN` (e.g. HPD-2603-001). Shown on all PDFs (quote, PO, invoice).
 
