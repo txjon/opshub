@@ -42,8 +42,8 @@ function getPrintRate(pr: any, qty: number, colors: number): number {
   return pr.prices[c]?.[idx] || 0;
 }
 
-function calcDecorationLines(p: any, allProds: any[] = []): { label: string; qty: number; rate: number; total: number }[] {
-  const lines: { label: string; qty: number; rate: number; total: number }[] = [];
+function calcDecorationLines(p: any, allProds: any[] = []): { label: string; qty: number; rate: number; total: number; sub?: string }[] {
+  const lines: { label: string; qty: number; rate: number; total: number; sub?: string }[] = [];
   const pr = PRINTERS[p.printVendor];
   if (!pr) return lines;
   const qty = p.totalQty || 0;
@@ -74,7 +74,14 @@ function calcDecorationLines(p: any, allProds: any[] = []): { label: string; qty
     // embroidery/accessory spot priced via a custom cost, or a printer with no
     // screen-print table) would otherwise print a duplicate ghost $0.00 line
     // that clutters the PO. Real charges still render (custom costs, setup fees).
-    if (rate > 0) lines.push({ label: ld.location || `Location ${loc}`, qty, rate, total: rate * qty });
+    if (rate > 0) {
+      // Sublabel mirrors the locked costing view: "6 colors · Group A" — the share
+      // group matters to the printer (which locations share screens/art).
+      const subParts: string[] = [];
+      if (screens > 0) subParts.push(`${screens} color${screens === 1 ? "" : "s"}`);
+      if (isShared) subParts.push(`Group ${ld.shareGroup}`);
+      lines.push({ label: ld.location || `Location ${loc}`, qty, rate, total: rate * qty, sub: subParts.join(" · ") });
+    }
     // Skip screen fees for duplicate locations in same share group (within + across items)
     if (isShared) {
       if (seenShareGroups[groupKey]) {
@@ -106,7 +113,10 @@ function calcDecorationLines(p: any, allProds: any[] = []): { label: string; qty
       let idx = 0; for (let ti = 0; ti < (pr.qtys||[]).length; ti++) { if (tagEffQty >= pr.qtys[ti]) idx = ti; }
       tagRate = pr.tagPrices?.[idx] || 0;
     }
-    lines.push({ label: "Tag print", qty, rate: tagRate, total: tagRate * qty });
+    const tagSubParts: string[] = [];
+    if (p.tagRepeat) tagSubParts.push("Repeat");
+    if (p.tagShared && tagGroup) tagSubParts.push(`Group ${tagGroup}`);
+    lines.push({ label: "Tag print", qty, rate: tagRate, total: tagRate * qty, sub: tagSubParts.join(" · ") });
   }
 
   // Finishing — dynamic from decorator pricing
@@ -249,7 +259,7 @@ function renderPOHTML(data: any): string {
     // Pants (Fit/Waist/Inseam) pivot into a cut-ticket grid; simple sizes stay inline.
     const sizeGridHtml = sizeMatrixHtml(sizeLabels, item.qtys, { mono });
     const incoming = item.incoming_goods || (item.supplier ? "Blanks from " + item.supplier : "");
-    const decoLines: { label: string; qty: number; rate: number; total: number }[] = item.decoLines || [];
+    const decoLines: { label: string; qty: number; rate: number; total: number; sub?: string }[] = item.decoLines || [];
     const itemTotal = decoLines.reduce((a: number, l: any) => a + l.total, 0);
     grandTotal += itemTotal;
 
@@ -259,7 +269,7 @@ function renderPOHTML(data: any): string {
         <table style="width:100%;border-collapse:collapse;font-size:9px">
           ${decoLines.map((l: any) => `
             <tr>
-              <td style="padding:1px 0;color:#444">${l.label}</td>
+              <td style="padding:1px 0;color:#444">${l.label}${l.sub ? `<span style="color:#aaa;font-size:8px;margin-left:6px">${l.sub}</span>` : ""}</td>
               <td style="padding:1px 6px;text-align:right;color:#888;font-family:${mono}">${l.qty.toLocaleString()}×${fmtD(l.rate)}</td>
               <td style="padding:1px 0;text-align:right;font-weight:700;font-family:${mono}">${fmtD(l.total)}</td>
             </tr>`).join("")}
