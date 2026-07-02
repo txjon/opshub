@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useRef, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { T, font, mono } from "@/lib/theme";
+import { T, font, mono, sortSizes } from "@/lib/theme";
 import { logJobActivity } from "@/components/JobActivityPanel";
 import { useIsMobile } from "@/lib/useIsMobile";
 import SizeGrid from "@/components/SizeGrid";
