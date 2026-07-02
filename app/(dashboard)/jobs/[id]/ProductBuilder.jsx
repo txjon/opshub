@@ -324,7 +324,16 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
       } else {
         const exact = Object.fromEntries(blankSizes.map(sz => [sz, it.qtys?.[sz] || 0]));
         const carried = Object.values(exact).reduce((a, v) => a + (v || 0), 0);
-        if (carried > 0 || oldTotal === 0) { sizes = blankSizes; qtys = exact; }
+        if (carried > 0 || oldTotal === 0) {
+          // Keep ordered sizes the blank DOESN'T carry (e.g. a 5001 maxes at 3XL but
+          // the pre-order has 4XL) instead of dropping them — those units are real
+          // orders. They stay on the card as substitution candidates (no blank cost
+          // until a per-size substitute is set). This is the fix for silent size/unit
+          // loss on assign; see size_subs.
+          const uncovered = (it.sizes || []).filter(sz => !blankSizes.includes(sz) && (it.qtys?.[sz] || 0) > 0);
+          sizes = [...blankSizes, ...uncovered];
+          qtys = Object.fromEntries(sizes.map(sz => [sz, it.qtys?.[sz] || 0]));
+        }
         else if (blankSizes.length === 1) { sizes = blankSizes; qtys = { [blankSizes[0]]: oldTotal }; }
         else { sizes = it.sizes || []; qtys = it.qtys || {}; }
       }
