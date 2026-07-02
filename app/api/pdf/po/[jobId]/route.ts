@@ -295,6 +295,24 @@ function renderPOHTML(data: any): string {
       ${sizeGridHtml || (sizeStr ? `<div style="font-size:9px;color:#555;padding:3px 8px;background:#f7f7f7;border-radius:3px;margin-bottom:4px">
         <span style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#aaa;margin-right:6px">Sizes</span>${sizeStr}
       </div>` : "")}
+      ${(() => {
+        // Per-size blank substitutions — a DIFFERENT garment for specific sizes
+        // (same print). This is a hard callout: the printer must expect and
+        // handle a different blank for these sizes. Amber, bordered, unmissable.
+        const subs = item.size_subs || {};
+        const rows = sortSizes(Object.keys(subs))
+          .filter((sz: string) => (item.qtys?.[sz] || 0) > 0)
+          .map((sz: string) => {
+            const s = subs[sz] || {};
+            const garment = [s.label, s.color].filter(Boolean).join(" · ");
+            const parts = [garment, s.note].filter(Boolean).join(" — ");
+            return `<div style="padding:2px 0"><span style="display:inline-block;min-width:34px;font-weight:800;font-family:${mono}">${sz}</span><span style="color:#7a5200">(${item.qtys[sz]} pcs)</span> &nbsp;${parts || "substitute blank"}</div>`;
+          }).join("");
+        return rows ? `<div style="font-size:9.5px;color:#7a5200;padding:6px 9px;background:#fff4d6;border:1px solid #f0c869;border-radius:4px;margin-bottom:6px">
+          <div style="font-size:8px;font-weight:800;text-transform:uppercase;letter-spacing:0.08em;color:#9a6400;margin-bottom:3px">⚠ Blank substitution — different garment for these sizes</div>
+          ${rows}
+        </div>` : "";
+      })()}
       ${item.drive_link ? `<div style="font-size:9px;margin-bottom:4px;padding:3px 8px;background:#f0f5ff;border-radius:3px">
         <span style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#888;margin-right:6px">Production folder</span>
         <a href="${item.drive_link}" style="color:#1a56db">${item.drive_link}</a>
@@ -486,6 +504,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
         decorator,
         qtys,
         totalQty,
+        size_subs: it.size_subs || {},
         decoLines,
         // Per-item shipping route override. When set, surfaced as a
         // small badge on the PO so the decorator sees this item takes

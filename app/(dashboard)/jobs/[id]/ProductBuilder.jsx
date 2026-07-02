@@ -163,6 +163,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
           blank_vendor: item.blank_vendor || null, blank_sku: item.blank_sku || null,
           cost_per_unit: item.cost_per_unit || null,
           blank_costs: item.blankCosts && Object.keys(item.blankCosts).length > 0 ? item.blankCosts : null,
+          size_subs: item.sizeSubs && Object.keys(item.sizeSubs).length > 0 ? item.sizeSubs : {},
           garment_type: item.garment_type || null,
           qb_item_type: item.qb_item_type || null,
           status: "tbd", artwork_status: "not_started", sort_order: current.indexOf(item),
@@ -186,6 +187,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
         if (item.qb_item_type !== prev?.qb_item_type) dbUpdates.qb_item_type = item.qb_item_type || null;
         if (item.cost_per_unit !== prev?.cost_per_unit) dbUpdates.cost_per_unit = item.cost_per_unit || null;
         if (JSON.stringify(item.blankCosts) !== JSON.stringify(prev?.blankCosts)) dbUpdates.blank_costs = item.blankCosts || null;
+        if (JSON.stringify(item.sizeSubs) !== JSON.stringify(prev?.sizeSubs)) dbUpdates.size_subs = item.sizeSubs || {};
         if (item.blank_vendor) dbUpdates.blank_vendor = item.blank_vendor;
         if (item.blank_sku) dbUpdates.blank_sku = item.blank_sku;
         if (item.is_fleece !== prev?.is_fleece) dbUpdates.is_fleece = !!item.is_fleece;
@@ -439,6 +441,8 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
   // through the full blank picker (supplier → brand → style → color →
   // sizes). Holds the item id; null = closed.
   const [editSizesItemId, setEditSizesItemId] = useState(null);
+  // Per-size blank substitution editor — { itemId, size } while open.
+  const [subEditor, setSubEditor] = useState(null);
   // Accessories
   const [accType, setAccType] = useState("");
   const [accName, setAccName] = useState("");
@@ -1381,7 +1385,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
                 scheduleCommit={scheduleCommit} inputRefs={inputRefs} distRow={distRow}
                 setDistRow={setDistRow} distTotal={distTotal} setDistTotal={setDistTotal}
                 handleDist={handleDist} removeItem={removeItem} setAssignBlankTo={setAssignBlankTo}
-                setEditSizesItemId={setEditSizesItemId}
+                setEditSizesItemId={setEditSizesItemId} setSubEditor={setSubEditor}
                 setShowAddModal={setShowAddModal} setMobilePickerOpen={setMobilePickerOpen} onItemsChanged={onItemsChanged}
                 requestMove={(it) => setMoveItemTarget({ id: it.id, name: it.name || "" })}
                 requestCopy={(it) => setCopyItemTarget({ id: it.id, name: it.name || "" })}
@@ -1498,6 +1502,95 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
           />
         );
       })()}
+      {subEditor && (() => {
+        const target = (workingItems || []).find(it => it.id === subEditor.itemId);
+        if (!target) return null;
+        return (
+          <SizeSubModal
+            item={target} size={subEditor.size}
+            onClose={() => setSubEditor(null)}
+            onSave={({ label, color, cost, note }) => {
+              const size = subEditor.size;
+              const sizeSubs = { ...(target.sizeSubs || {}) };
+              const blankCosts = { ...(target.blankCosts || {}) };
+              const hasSub = !!(label || color || note);
+              if (hasSub) sizeSubs[size] = { ...(label ? { label } : {}), ...(color ? { color } : {}), ...(note ? { note } : {}) };
+              else delete sizeSubs[size];
+              if (cost !== "" && cost != null && !isNaN(Number(cost))) blankCosts[size] = Number(cost);
+              else delete blankCosts[size];
+              // Re-derive cost_per_unit (avg of the >0 per-size costs) so the item
+              // rollup + Blanks tab agree — same formula as assignBlank / CostingTab.
+              const costVals = Object.values(blankCosts).map(Number).filter(v => v > 0);
+              const cpu = costVals.length ? Math.round(costVals.reduce((a, v) => a + v, 0) / costVals.length * 100) / 100 : 0;
+              updateLocal((workingItems || []).map(it => it.id === subEditor.itemId ? { ...it, sizeSubs, blankCosts, cost_per_unit: cpu } : it));
+              onUpdateItem(subEditor.itemId, { sizeSubs, blankCosts, cost_per_unit: cpu });
+              setSubEditor(null);
+            }}
+          />
+        );
+      })()}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SizeSubModal — per-size blank substitution. Same decoration, a
+// different garment (brand/style/color) for ONE size: the assigned
+// blank maxes out below a pre-ordered size, or a size/color/brand
+// sells out and we pivot. Customer price is unchanged; only our cost
+// moves. Cost → the item's per-size blank_costs (drives costing + PO
+// margin); label/color/note → size_subs (drives the PO note + badge).
+// ═══════════════════════════════════════════════════════════════
+function SizeSubModal({ item, size, onClose, onSave }) {
+  const cur = (item.sizeSubs || {})[size] || {};
+  const curCost = (item.blankCosts || {})[size];
+  const [label, setLabel] = useState(cur.label || "");
+  const [color, setColor] = useState(cur.color || "");
+  const [note, setNote] = useState(cur.note || "");
+  const [cost, setCost] = useState(curCost != null ? String(curCost) : "");
+  const qty = item.qtys?.[size] || 0;
+  const baseBlank = [item.blank_vendor, item.blank_sku].filter(Boolean).join(" · ");
+  const hasExisting = !!(cur.label || cur.color || cur.note || curCost != null);
+  const inp = { width: "100%", padding: "8px 10px", border: `1px solid ${T.border}`, borderRadius: 7, background: T.surface, color: T.text, fontSize: 13, fontFamily: font, boxSizing: "border-box", outline: "none" };
+  const lbl = { fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4, display: "block" };
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 200, display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: "12vh" }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 12, width: 470, maxWidth: "94vw", padding: "18px 20px", boxShadow: "0 20px 60px rgba(0,0,0,0.35)", fontFamily: font }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+          <div style={{ fontSize: 16, fontWeight: 800, color: T.text }}>Substitute blank — {size}</div>
+          <button onClick={onClose} style={{ background: "transparent", border: "none", color: T.faint, fontSize: 20, cursor: "pointer", lineHeight: 1 }}>×</button>
+        </div>
+        <div style={{ fontSize: 11.5, color: T.muted, marginBottom: 14, lineHeight: 1.5 }}>
+          {qty.toLocaleString()} unit{qty !== 1 ? "s" : ""} of {size}{baseBlank ? ` · default blank ${baseBlank}` : ""}. Set a different garment for just this size — same print. Customer price is unchanged; only your cost moves.
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <div style={{ gridColumn: "1 / -1" }}>
+            <label style={lbl}>Substitute blank / style</label>
+            <input value={label} onChange={e => setLabel(e.target.value)} placeholder="e.g. Gildan 2000" style={inp} autoFocus />
+          </div>
+          <div>
+            <label style={lbl}>Color</label>
+            <input value={color} onChange={e => setColor(e.target.value)} placeholder="e.g. Sand" style={inp} />
+          </div>
+          <div>
+            <label style={lbl}>Cost / unit</label>
+            <input value={cost} onChange={e => setCost(e.target.value)} inputMode="decimal" placeholder="0.00" style={{ ...inp, fontFamily: mono }} />
+          </div>
+          <div style={{ gridColumn: "1 / -1" }}>
+            <label style={lbl}>PO note <span style={{ color: T.faint, fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>— shown to the printer for this size</span></label>
+            <input value={note} onChange={e => setNote(e.target.value)} placeholder="e.g. 5001 maxes at 3XL — sub Gildan 2000 for 4XL" style={inp} />
+          </div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 18 }}>
+          <button onClick={() => onSave({ label: label.trim(), color: color.trim(), cost: cost.trim(), note: note.trim() })}
+            style={{ background: T.accent, color: "#fff", border: "none", borderRadius: 7, padding: "9px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: font }}>Save substitute</button>
+          {hasExisting && (
+            <button onClick={() => onSave({ label: "", color: "", cost: "", note: "" })}
+              style={{ background: "transparent", color: T.red, border: `1px solid ${T.border}`, borderRadius: 7, padding: "9px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: font }}>Remove</button>
+          )}
+          <button onClick={onClose} style={{ marginLeft: "auto", background: "transparent", color: T.muted, border: `1px solid ${T.border}`, borderRadius: 7, padding: "9px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: font }}>Cancel</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1784,7 +1877,17 @@ function sortSizesLocal(arr) {
 // ═══════════════════════════════════════════════════════════════
 // Expanded item body — manages its own file state per item
 // ═══════════════════════════════════════════════════════════════
-function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, project, hasBlank, getLocalQty, setLocalQty, commitQty, scheduleCommit, inputRefs, distRow, setDistRow, distTotal, setDistTotal, handleDist, removeItem, setAssignBlankTo, setEditSizesItemId, setShowAddModal, setMobilePickerOpen, onItemsChanged, onUpdateItem, onFilesChanged, preloadedMockupId, ic, costingLocked, requestMove, requestCopy }) {
+function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, project, hasBlank, getLocalQty, setLocalQty, commitQty, scheduleCommit, inputRefs, distRow, setDistRow, distTotal, setDistTotal, handleDist, removeItem, setAssignBlankTo, setEditSizesItemId, setSubEditor, setShowAddModal, setMobilePickerOpen, onItemsChanged, onUpdateItem, onFilesChanged, preloadedMockupId, ic, costingLocked, requestMove, requestCopy }) {
+  // Per-size blank substitution state, derived from blank_costs + size_subs:
+  //  · hasSub(sz)   — a substitute (brand/color/note) is configured for this size
+  //  · needsSub(sz) — the size has orders but no blank cost while the blank clearly
+  //                   covers other sizes → a coverage gap that wants a substitute
+  const _subBlankCosts = item.blankCosts || {};
+  const _hasRealCosts = Object.values(_subBlankCosts).some(v => Number(v) > 0);
+  const _hasBlank = !!(item.blank_sku || item.blank_vendor);
+  const subInfo = (sz) => (item.sizeSubs || {})[sz];
+  const hasSub = (sz) => { const s = subInfo(sz); return !!(s && (s.label || s.color || s.note)); };
+  const needsSub = (sz) => (item.qtys?.[sz] || 0) > 0 && _hasBlank && _hasRealCosts && !(Number(_subBlankCosts[sz]) > 0) && !hasSub(sz);
   const isMobile = useIsMobile();
   const cutSew = isCutSewOnly(useClientBranding().slug); // DMD: no blanks
   const [files, setFiles] = useState([]);
@@ -2020,7 +2123,11 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
                   const displayVal = localVal !== null ? localVal : (item.qtys[sz] || 0);
                   return (
                     <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
-                      <span style={{ fontSize: 10, fontWeight: 600, color: T.faint, fontFamily: mono }}>{sz}</span>
+                      <button type="button" onClick={() => !costingLocked && setSubEditor({ itemId: item.id, size: sz })} disabled={costingLocked}
+                        title={hasSub(sz) ? `Substitute set for ${sz} — click to edit` : needsSub(sz) ? `No blank in ${sz} — click to set a substitute` : `Set a blank substitute for ${sz}`}
+                        style={{ background: "transparent", border: "none", padding: "0 2px", lineHeight: 1.2, cursor: costingLocked ? "default" : "pointer", fontSize: 10, fontWeight: (needsSub(sz) || hasSub(sz)) ? 800 : 600, fontFamily: mono, color: needsSub(sz) ? T.amber : hasSub(sz) ? T.accent : T.faint }}>
+                        {sz}{needsSub(sz) ? " ⚠" : hasSub(sz) ? " ↔" : ""}
+                      </button>
                       <input
                         ref={el => { inputRefs.current[`${idx}_${ci}`] = el; }}
                         type="text" inputMode="numeric" value={displayVal} disabled={costingLocked}

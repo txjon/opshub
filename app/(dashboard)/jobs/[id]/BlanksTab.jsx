@@ -582,6 +582,19 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
           const blankInfo = [item.blank_vendor, item.blank_sku, item.color || item.blank_color].filter(Boolean).join(" · ");
           const isLast = i === items.length - 1;
 
+          // Per-size blank substitutions — a different garment for specific sizes.
+          // Whoever orders blanks needs to know to order the substitute separately.
+          const _subs = item.sizeSubs || item.size_subs || {};
+          const _subSizes = sortSizes((item.sizes || []).filter(sz => {
+            const s = _subs[sz]; return s && (s.label || s.color || s.note) && (item.qtys?.[sz] || 0) > 0;
+          }));
+          const subNote = _subSizes.length ? (
+            <div style={{ marginTop: 6, fontSize: 11, color: T.amber, border: `1px solid ${T.amber}`, borderRadius: 5, padding: "5px 9px", lineHeight: 1.5, fontFamily: font }}>
+              <span style={{ fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.05em", fontSize: 9, marginRight: 6 }}>⚠ Substitute blank</span>
+              {_subSizes.map(sz => { const s = _subs[sz]; const g = [s.label, s.color].filter(Boolean).join(" "); return `${sz} (${(item.qtys?.[sz] || 0).toLocaleString()}): ${g || "sub"}${s.note ? ` — ${s.note}` : ""}`; }).join("  ·  ")}
+            </div>
+          ) : null;
+
           // Mobile: stacked card layout — letter+ref+status on row 1,
           // blank info on row 2, sizes wrap on row 3, order total + variance
           // on row 4. Each section gets enough breathing room to be tappable.
@@ -628,6 +641,8 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
                     <span style={{ fontSize: 12, color: T.muted, fontFamily: mono, fontWeight: 600, paddingBottom: 1 }}>· {totalUnits.toLocaleString()} units</span>
                   </div>
                 )}
+
+                {subNote && <div style={{ paddingLeft: 26 }}>{subNote}</div>}
 
                 {/* Row 4: order total input + variance */}
                 <div style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: "space-between", paddingLeft: 26, marginTop: 2 }}>
@@ -692,6 +707,7 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
                     <span style={{ fontSize: 14, color: T.muted, fontFamily: mono, fontWeight: 600, paddingBottom: 1 }}>· {totalUnits.toLocaleString()} units</span>
                   </div>
                 )}
+                {subNote}
               </div>
               {/* Order total input — sized for $100,000.00, right-aligned */}
               <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
