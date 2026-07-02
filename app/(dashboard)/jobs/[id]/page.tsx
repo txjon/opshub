@@ -64,6 +64,8 @@ type Item = {
   garment_type: string|null; status: string; artwork_status: string; notes: string|null;
   cost_per_unit: number|null; sell_per_unit: number|null; sort_order: number;
   blank_costs: Record<string,number>|null;
+  size_subs?: Record<string,{label?:string;color?:string;note?:string}>|null;
+  sizeSubs?: Record<string,{label?:string;color?:string;note?:string}>;
   costing_data: Record<string,any>|null;
   costing_summary: {grossRev:number,totalCost:number,netProfit:number,margin:number,avgPerUnit:number,totalQty:number}|null;
   decorator?: string; decoration_type?: string; pipeline_stage?: string;
@@ -267,6 +269,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           pipeline_stage: it.pipeline_stage || assignment?.pipeline_stage || null,
           decorator_assignment_id: assignment?.id || null,
           blankCosts: it.blank_costs || null,
+          sizeSubs: it.size_subs || {},
           pipeline_timestamps: it.pipeline_timestamps || {},
         };
       });
@@ -305,6 +308,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           pipeline_stage: it.pipeline_stage || assignment?.pipeline_stage || null,
           decorator_assignment_id: assignment?.id || null,
           blankCosts: it.blank_costs || null,
+          sizeSubs: it.size_subs || {},
           pipeline_timestamps: it.pipeline_timestamps || {},
         };
       });
@@ -489,6 +493,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
     const dbUpdates: any = {};
     if (cost_per_unit !== undefined) dbUpdates.cost_per_unit = cost_per_unit;
     if ((updates as any).blankCosts !== undefined) dbUpdates.blank_costs = (updates as any).blankCosts || null;
+    if ((updates as any).sizeSubs !== undefined) dbUpdates.size_subs = (updates as any).sizeSubs || {};
     if (sell_per_unit !== undefined) dbUpdates.sell_per_unit = sell_per_unit;
     if (status !== undefined) dbUpdates.status = status;
     if (artwork_status !== undefined) dbUpdates.artwork_status = artwork_status;
