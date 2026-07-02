@@ -338,10 +338,31 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
     }
     return m;
   }, [queue]);
-  // Normalized PO refs that already have a cost entry — so New Bill can flag a
-  // line as already-billed before you save it again (dup guard).
-  const billedPoKeys = useMemo(() => new Set(entries.map(e => (e.po_ref || "").toUpperCase().replace(/[^A-Z0-9]/g, "")).filter(Boolean)), [entries]);
-  const isLineDup = (l: { resolved: NbResolved | null }) => !!l.resolved && billedPoKeys.has(l.resolved.poRef.toUpperCase().replace(/[^A-Z0-9]/g, ""));
+  // Amount already billed on each PO (across existing cost entries), so New Bill can
+  // show CUMULATIVE variance — a revised/additional charge on an already-billed PO is
+  // normal, and the variance must be (prior + this line) vs projected, not this line alone.
+  const billedPoTotals = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const e of entries) {
+      const k = (e.po_ref || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+      if (k) m[k] = Math.round(((m[k] || 0) + Number(e.amount || 0)) * 100) / 100;
+    }
+    return m;
+  }, [entries]);
+  const billedPoAmounts = useMemo(() => {
+    const m: Record<string, number[]> = {};
+    for (const e of entries) {
+      const k = (e.po_ref || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+      if (k) (m[k] = m[k] || []).push(Number(e.amount || 0));
+    }
+    return m;
+  }, [entries]);
+  // A same-amount re-entry on a PO is the real double-bill signal (vs a legit
+  // additional charge, which has a different amount). Only this hard-blocks on save.
+  const isExactDup = (poRef: string, amt: number) => {
+    const k = poRef.toUpperCase().replace(/[^A-Z0-9]/g, "");
+    return amt > 0 && (billedPoAmounts[k] || []).some(a => Math.abs(a - amt) < 0.005);
+  };
   // Resolve a typed PO ref to a New Bill line — a single item, OR a multi-item ref
   // (one line covering several POs, summed projection), matching how vendors invoice.
   const resolveNbPo = (input: string) => {
@@ -527,7 +548,7 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
     );
   }
 
-  function openNewBill() { setShowBill(true); setNbVendor(""); setNbVendorSearch(""); setNbVendorOpen(false); setNbBillNumber(computeNextBillNumber()); setNbLines(Array.from({ length: 3 }, () => ({ id: crypto.randomUUID(), poInput: "", invoiceNumber: "", amount: "", resolved: null as NbResolved | null }))); setNbSavedIds(null); setNbPushedId(null); setNbNotified(false); setNbBillGroupId(crypto.randomUUID()); setNbAttachments([]); }
+  function openNewBill() { setShowBill(true); setNbVendor(""); setNbVendorSearch(""); setNbVendorOpen(false); setNbBillNumber(computeNextBillNumber()); setNbLines(Array.from({ length: 5 }, () => ({ id: crypto.randomUUID(), poInput: "", invoiceNumber: "", amount: "", resolved: null as NbResolved | null }))); setNbSavedIds(null); setNbPushedId(null); setNbNotified(false); setNbBillGroupId(crypto.randomUUID()); setNbAttachments([]); }
   function closeBill() { setShowBill(false); setNbSavedIds(null); setNbPushedId(null); setNbNotified(false); setNbAttachments([]); }
   async function uploadAttachments(files: FileList | File[]) {
     if (!nbBillGroupId) return;
@@ -596,8 +617,8 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
   async function saveBill() {
     const valid = nbValidLines();
     if (!valid.length || !nbVendor) return; // vendor must be chosen intentionally
-    const dups = valid.filter(isLineDup);
-    if (dups.length && !window.confirm(`${dups.length} line${dups.length !== 1 ? "s" : ""} (${dups.map(l => l.resolved!.poRef).join(", ")}) already ${dups.length !== 1 ? "have" : "has"} a cost entry — this would double-bill. Save anyway?`)) return;
+    const dups = valid.filter(l => isExactDup(l.resolved!.poRef, parseAmount(l.amount)));
+    if (dups.length && !window.confirm(`${dups.length} line${dups.length !== 1 ? "s" : ""} (${dups.map(l => l.resolved!.poRef).join(", ")}) ${dups.length !== 1 ? "have" : "has"} the SAME amount already billed on that PO — this looks like a double-bill. Save anyway?`)) return;
     const vId = nbVendor;
     setNbSaving(true);
     const vendorName = vendors.find(v => v.id === vId)?.name || null;
@@ -647,7 +668,7 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
       )}
       {showBill && (
         <div onClick={tryCloseBill} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 100, display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: "8vh" }}>
-          <div onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 12, width: 880, maxWidth: "94vw", maxHeight: "92vh", overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.3)", fontFamily: font }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 12, width: 1040, maxWidth: "94vw", maxHeight: "92vh", overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.3)", fontFamily: font }}>
             <div style={{ padding: "15px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div style={{ fontSize: 16, fontWeight: 800, color: T.text }}>New Bill</div>
               <button onClick={tryCloseBill} className="bq-x" style={{ fontSize: 18 }}>×</button>
@@ -693,30 +714,53 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
                 </div>}
               </div>
               <div style={{ display: "flex", gap: 8, padding: "0 24px 4px 0" }}>
-                <span style={{ ...lbl, flex: 1.6 }}>PO #</span>
-                <span style={{ ...lbl, flex: 1 }}>Vendor inv #</span>
-                <span style={{ ...lbl, width: 130, flexShrink: 0 }}>Amount</span>
-                <span style={{ ...lbl, flex: 1.4 }}>Job · client</span>
-                <span style={{ ...lbl, width: 86, flexShrink: 0, textAlign: "right" }}>Variance</span>
+                <span style={{ ...lbl, flex: 1.5, minWidth: 0 }}>PO #</span>
+                <span style={{ ...lbl, width: 110, flexShrink: 0 }}>Vendor inv #</span>
+                <span style={{ ...lbl, width: 96, flexShrink: 0 }}>Amount</span>
+                <span style={{ ...lbl, flex: 2, minWidth: 0 }}>Job · client</span>
+                <span style={{ ...lbl, width: 104, flexShrink: 0, textAlign: "right" }}>Variance</span>
               </div>
               <div style={{ maxHeight: "48vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 5 }}>
                 {nbLines.length === 0 && <div style={{ padding: "10px 0", fontSize: 12, color: T.faint }}>No lines — click “+ Add line” (or +5/+10), then fill each column down.</div>}
                 {nbLines.map(l => {
                   const amt = parseAmount(l.amount);
-                  const d = l.resolved && amt > 0 ? Math.round((amt - l.resolved.projected) * 100) / 100 : 0;
+                  const poKey = l.resolved ? l.resolved.poRef.toUpperCase().replace(/[^A-Z0-9]/g, "") : "";
+                  // Saved → read-only confirmation. This line is now in billedPoTotals, so variance
+                  // = total billed on the PO − projected (do NOT re-add this line, and no dup alerts:
+                  // it would flag itself). Empty rows are dropped from the saved summary.
+                  if (nbSavedIds) {
+                    if (!(l.resolved && amt > 0)) return null;
+                    const dv = Math.round(((billedPoTotals[poKey] || 0) - l.resolved.projected) * 100) / 100;
+                    const ro = { fontSize: 12, whiteSpace: "nowrap" as const, overflow: "hidden", textOverflow: "ellipsis", padding: "6px 2px" };
+                    return (
+                      <div key={l.id} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                        <span className="bq-mono" style={{ ...ro, flex: 1.5, minWidth: 0, fontFamily: mono, color: T.text }}>{l.poInput}</span>
+                        <span className="bq-mono" style={{ ...ro, width: 110, flexShrink: 0, fontFamily: mono, color: T.muted }}>{l.invoiceNumber || "—"}</span>
+                        <span className="bq-mono" style={{ ...ro, width: 96, flexShrink: 0, fontFamily: mono, color: T.text }}>{money(amt)}</span>
+                        <span style={{ ...ro, flex: 2, minWidth: 0, fontSize: 11.5, color: T.muted }}><strong className="bq-mono" style={{ fontFamily: mono, color: T.text }}>{l.resolved.job_number}</strong> · {l.resolved.client_name || "—"}</span>
+                        <span className="bq-mono" style={{ width: 104, flexShrink: 0, textAlign: "right", fontSize: 11.5, fontFamily: mono, fontWeight: 700, color: dv === 0 ? T.green : dv > 0 ? T.red : T.amber }}>{dv === 0 ? "✓ match" : `${dv < 0 ? "−" : "+"}${money(Math.abs(dv))}`}</span>
+                        <span style={{ width: 18, flexShrink: 0 }} />
+                      </div>
+                    );
+                  }
+                  const prior = poKey ? (billedPoTotals[poKey] || 0) : 0; // already billed on this PO
+                  // Variance is CUMULATIVE: everything billed on this PO (prior + this line) vs projected.
+                  const d = l.resolved && amt > 0 ? Math.round((prior + amt - l.resolved.projected) * 100) / 100 : 0;
                   const mism = nbVendor && l.resolved && l.resolved.apVendorId !== nbVendor;
-                  const dup = isLineDup(l);
+                  const exactDup = isExactDup(poKey, amt); // same amount already billed → likely a real double-bill
                   return (
                     <div key={l.id} style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                      <input value={l.poInput} disabled={!!nbSavedIds} onChange={e => updateLine(l.id, { poInput: e.target.value })} style={{ ...inp, flex: 1.6, minWidth: 0, fontFamily: mono, padding: "6px 8px", borderColor: dup ? T.red : (T.border as any) } as any} />
-                      <input value={l.invoiceNumber} disabled={!!nbSavedIds} onChange={e => updateLine(l.id, { invoiceNumber: e.target.value })} style={{ ...inp, flex: 1, minWidth: 0, fontFamily: mono, padding: "6px 8px" } as any} />
-                      <input value={l.amount} disabled={!!nbSavedIds} onChange={e => updateLine(l.id, { amount: e.target.value })} inputMode="decimal" style={{ ...inp, width: 130, flexShrink: 0, fontFamily: mono, padding: "6px 8px", color: d > 0 ? T.red : d < 0 ? T.amber : T.text } as any} />
-                      <span style={{ flex: 1.4, minWidth: 0, fontSize: 11.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: (mism || dup) ? T.red : T.muted }}>
+                      <input value={l.poInput} disabled={!!nbSavedIds} onChange={e => updateLine(l.id, { poInput: e.target.value })} style={{ ...inp, flex: 1.5, minWidth: 0, fontFamily: mono, padding: "6px 8px", borderColor: exactDup ? T.red : (prior > 0 ? T.amber : (T.border as any)) } as any} />
+                      <input value={l.invoiceNumber} disabled={!!nbSavedIds} onChange={e => updateLine(l.id, { invoiceNumber: e.target.value })} style={{ ...inp, width: 110, flexShrink: 0, fontFamily: mono, padding: "6px 8px" } as any} />
+                      <input value={l.amount} disabled={!!nbSavedIds} onChange={e => updateLine(l.id, { amount: e.target.value })} inputMode="decimal" style={{ ...inp, width: 96, flexShrink: 0, fontFamily: mono, padding: "6px 8px", color: amt <= 0 ? T.text : d > 0 ? T.red : d < 0 ? T.amber : T.text } as any} />
+                      <span style={{ flex: 2, minWidth: 0, fontSize: 11.5, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: mism ? T.red : T.muted }}>
                         {l.poInput.trim() === "" ? <span style={{ color: T.faint }}>—</span>
-                          : l.resolved ? <>{dup ? <span style={{ color: T.red, fontWeight: 700 }}>⚠ already billed · </span> : mism ? "⚠ " : ""}<strong className="bq-mono" style={{ fontFamily: mono, color: T.text }}>{l.resolved.job_number}</strong> · {l.resolved.client_name || "—"}</>
+                          : l.resolved ? <>{exactDup ? <span style={{ color: T.red, fontWeight: 700 }}>⚠ same amount already billed · </span>
+                              : prior > 0 ? <span style={{ color: T.amber, fontWeight: 700 }}>{money(prior)} already billed · </span>
+                              : mism ? "⚠ " : ""}<strong className="bq-mono" style={{ fontFamily: mono, color: T.text }}>{l.resolved.job_number}</strong> · {l.resolved.client_name || "—"}</>
                           : <span style={{ color: T.amber }}>⚠ no match</span>}
                       </span>
-                      <span className="bq-mono" style={{ width: 86, flexShrink: 0, textAlign: "right", fontSize: 11.5, fontFamily: mono, fontWeight: 700, color: amt <= 0 ? T.faint : d === 0 ? T.green : d > 0 ? T.red : T.amber }}>{l.resolved && amt > 0 ? (d === 0 ? "✓ match" : `${d < 0 ? "−" : "+"}${money(Math.abs(d))}`) : ""}</span>
+                      <span className="bq-mono" style={{ width: 104, flexShrink: 0, textAlign: "right", fontSize: 11.5, fontFamily: mono, fontWeight: 700, color: amt <= 0 ? T.faint : d === 0 ? T.green : d > 0 ? T.red : T.amber }}>{l.resolved && amt > 0 ? (d === 0 ? "✓ match" : `${d < 0 ? "−" : "+"}${money(Math.abs(d))}`) : ""}</span>
                       {!nbSavedIds && <button onClick={() => removeLine(l.id)} className="bq-x" style={{ width: 18, flexShrink: 0 }}>×</button>}
                     </div>
                   );
