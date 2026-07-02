@@ -390,8 +390,12 @@ export default function PreorderDetail() {
         }
         next[p.id] ||= {};
         for (const r of group) {
-          const combo = [r["Option1 Value"], r["Option2 Value"], r["Option3 Value"]]
-            .map(v => (v || "").trim()).filter(v => v && v !== "Default Title").join(" / ");
+          // Normalize the sold row's size the SAME way the product import does
+          // (canonicalSize: "2X Large" → 2XL, "Small" → S) so it matches the
+          // product's stored canonical sizes — otherwise every verbose-sized row
+          // (Small/…/4X Large) fails to match and its sold qty is dropped.
+          const combo = canonicalSize([r["Option1 Value"], r["Option2 Value"], r["Option3 Value"]]
+            .map(v => (v || "").trim()).filter(v => v && v !== "Default Title").join(" / "));
           const sizeKey = combo || "One Size"; // single-variant row (Default Title) → the "One Size" line
           // Case-insensitive size match — the inventory export uppercases sizes (S/M/L)
           // while the products import may have stored them lowercase. Key the fill by the
