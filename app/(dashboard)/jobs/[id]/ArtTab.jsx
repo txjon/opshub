@@ -205,6 +205,56 @@ async function parsePsdFileToInfo(fileRow) {
   return extractPrintInfoFromPsd(psd);
 }
 
+// A PSD whose filename reads like a tag/neck-label file is treated as the tag
+// artwork. Vendors want tags as a SEPARATE file (not embedded in the main PSD),
+// so a proof can carry both: main art PSD + tag PSD.
+// Word-boundary match so a tag file ("SupDef - TAGS.psd", "neck-label.psd") is
+// caught, but a main-art name that merely contains the letters ("vintage.psd",
+// "stage.psd") is NOT wrongly flagged — a false positive would drop main art into
+// the tag row, which is worse than a missed hint.
+const TAG_PSD_HINT = /\b(tags?|neck|labels?)\b/i;
+
+// Parse EVERY print-ready PSD on the item and merge their print locations into
+// one spec — so a main-art PSD + a separate tag PSD both land on the proof
+// (previously only a single PSD was parsed and the other was silently ignored).
+// Tag-file locations are labeled so they read distinctly; duplicates by placement
+// are collapsed (main wins). `prior` carries callouts forward on a re-pull.
+async function parsePsdFilesToSpec(psdFiles, prior = []) {
+  // The proof renderer + summary recognize a tag by placement === "tag"/"tags"
+  // (counted as "size tags", excluded from the location count). So a tag-file
+  // PSD's locations are normalized to "Tag" to slot into that convention.
+  const isTagPlacement = (s) => { const t = (s || "").toLowerCase().trim(); return t === "tag" || t === "tags"; };
+  const merged = [];
+  for (const f of (psdFiles || [])) {
+    const isTag = TAG_PSD_HINT.test(f.file_name || "");
+    let info = [];
+    try { info = await parsePsdFileToInfo(f); }
+    catch (e) { console.error("PSD parse error:", f.file_name, e); }
+    for (const p of (info || [])) {
+      const placement = isTag
+        ? (isTagPlacement(p.placement) ? p.placement : "Tag")
+        : (p.placement || "");
+      merged.push({ ...p, placement });
+    }
+  }
+  const seen = new Set();
+  const deduped = merged.filter(p => {
+    const k = (p.placement || "").toLowerCase().trim();
+    if (!k) return true;
+    if (seen.has(k)) return false;
+    seen.add(k); return true;
+  });
+  return psdInfoToSpecLocations(deduped, prior);
+}
+
+// All print-ready PSDs on the item (fall back to any PSDs if none are flagged
+// print-ready), so the proof considers every uploaded PSD, not just one.
+function activePsdFiles(files) {
+  const psds = (files || []).filter(f => f.file_name?.toLowerCase().endsWith(".psd"));
+  const ready = psds.filter(f => f.stage === "print_ready");
+  return ready.length ? ready : psds;
+}
+
 export function ProofModal({ item, clientName, projectTitle, mockupFile, files, costingData, onClose, onUpdateItem, onSaved, generateAllCounter }) {
   const isMobile = useIsMobile();
   const METHODS = ["Screen Print", "DTF", "Embroidery"];
@@ -315,8 +365,8 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
   //   2. PSD parse (first open with art)
   //   3. skeleton from costing's print locations (no PSD yet)
   useEffect(() => {
-    const psdFile = (files || []).find(f => f.stage === "print_ready" && f.file_name?.toLowerCase().endsWith(".psd"))
-      || [...(files || [])].reverse().find(f => f.file_name?.toLowerCase().endsWith(".psd"));
+    const psdFiles = activePsdFiles(files);
+    const psdFile = psdFiles[0]; // primary — drives the re-pull button + newness hint
     if (psdFile) setPsdFileMeta(psdFile);
 
     const saved = item.proof_spec;
@@ -332,22 +382,20 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
       if (typeof saved.notes === "string") setNotes(saved.notes);
       if (typeof saved.summaryText === "string") setSummaryOverride(saved.summaryText);
       seededFromRef.current = saved.seededFrom || null;
-      // Newer PSD uploaded since this spec was seeded → surface a hint.
-      if (psdFile && saved.seededFrom?.at && psdFile.created_at &&
-          new Date(psdFile.created_at) > new Date(saved.seededFrom.at)) {
+      // Any PSD uploaded since this spec was seeded → surface a re-pull hint.
+      if (saved.seededFrom?.at && psdFiles.some(f => f.created_at && new Date(f.created_at) > new Date(saved.seededFrom.at))) {
         setPsdNewer(true);
       }
       setSpecLoaded(true);
       return;
     }
 
-    if (psdFile) {
+    if (psdFiles.length) {
       setLoadingPsd(true);
       (async () => {
         try {
-          const info = await parsePsdFileToInfo(psdFile);
-          setSpecLocations(psdInfoToSpecLocations(info));
-          seededFromRef.current = { fileId: psdFile.drive_file_id, at: new Date().toISOString() };
+          setSpecLocations(await parsePsdFilesToSpec(psdFiles));
+          seededFromRef.current = { fileId: psdFile.drive_file_id, fileIds: psdFiles.map(f => f.drive_file_id), at: new Date().toISOString() };
         } catch(e) { console.error("PSD parse error:", e); }
         finally { setLoadingPsd(false); setSpecLoaded(true); }
       })();
@@ -367,13 +415,15 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
   // fresh parse (callouts carry over by matching placement name).
   // Method / instructions / notes are untouched.
   async function repullFromPsd() {
-    if (!psdFileMeta || loadingPsd) return;
-    if (!window.confirm("Re-pull print locations from the PSD?\n\nLocation names, sizes, and colors will be replaced by the PSD parse. Placement callouts carry over where names match. Method, instructions, and notes are kept.")) return;
+    const psdFiles = activePsdFiles(files);
+    if (!psdFiles.length || loadingPsd) return;
+    const many = psdFiles.length > 1;
+    if (!window.confirm(`Re-pull print locations from ${many ? `all ${psdFiles.length} PSDs` : "the PSD"}?\n\nLocation names, sizes, and colors will be replaced by the PSD parse${many ? " (main art + tag file merged)" : ""}. Placement callouts carry over where names match. Method, instructions, and notes are kept.`)) return;
     setLoadingPsd(true);
     try {
-      const info = await parsePsdFileToInfo(psdFileMeta);
-      setSpecLocations(prev => psdInfoToSpecLocations(info, prev));
-      seededFromRef.current = { fileId: psdFileMeta.drive_file_id, at: new Date().toISOString() };
+      const spec = await parsePsdFilesToSpec(psdFiles, specLocations);
+      setSpecLocations(spec);
+      seededFromRef.current = { fileId: psdFiles[0].drive_file_id, fileIds: psdFiles.map(f => f.drive_file_id), at: new Date().toISOString() };
       setPsdNewer(false);
     } catch (e) { setError("PSD re-pull failed: " + e.message); }
     finally { setLoadingPsd(false); }
