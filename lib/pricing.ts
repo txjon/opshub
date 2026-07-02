@@ -318,7 +318,11 @@ export function calcDecorationLines(
       return sum + (matchingLocs.length > 0 ? (cp.totalQty || 0) * matchingLocs.length : 0);
     }, 0) || qty : qty;
     const rate = lookupPrintPrice(printers, ld.printer || p.printVendor, effectiveQty, screens);
-    lines.push({ label: ld.location || `Location ${loc}`, qty, rate, total: rate * qty });
+    // Skip $0 print-location lines — a location with no resolved rate (e.g. an
+    // embroidery/accessory spot priced via a custom cost, or a printer with no
+    // screen-print table) would otherwise show a duplicate ghost $0.00 line on
+    // the locked costing view + vendor portal. Real charges still render.
+    if (rate > 0) lines.push({ label: ld.location || `Location ${loc}`, qty, rate, total: rate * qty });
     if (isShared) {
       if (seenShareGroups[groupKey]) {
         sharedScreensToSkip += screens;
