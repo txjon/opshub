@@ -28,13 +28,34 @@ export const SIZE_ORDER = [
   "YXS","YS","YM","YL","YXL",
 ];
 
-// Canonical display form for a size label: uppercases ONLY recognized simple
-// size tokens (s→S, 2xl→2XL) so Shopify's lowercase imports read cleanly.
+// Verbose / alias spellings → canonical token, keyed by an alphanumeric-only
+// uppercase form ("2X Large" → "2XLARGE", "X-Large" → "XLARGE") so spacing,
+// hyphens, and case never matter. Lets stores that spell sizes out ("Small",
+// "2X Large") land on our standard S/M/L/XL/2XL… convention on import.
+const SIZE_ALIASES: Record<string, string> = {
+  XSMALL: "XS", EXTRASMALL: "XS",
+  SMALL: "S", SM: "S",
+  MEDIUM: "M", MED: "M",
+  LARGE: "L", LG: "L",
+  XLARGE: "XL", EXTRALARGE: "XL",
+  XXLARGE: "2XL", "2XLARGE": "2XL", XXL: "2XL", "2X": "2XL",
+  XXXLARGE: "3XL", "3XLARGE": "3XL", XXXL: "3XL", "3X": "3XL",
+  XXXXLARGE: "4XL", "4XLARGE": "4XL", XXXXL: "4XL", "4X": "4XL",
+  "5XLARGE": "5XL", "5X": "5XL",
+  "6XLARGE": "6XL", "6X": "6XL",
+  YOUTHXSMALL: "YXS", YOUTHSMALL: "YS", YOUTHMEDIUM: "YM",
+  YOUTHLARGE: "YL", YOUTHXLARGE: "YXL",
+};
+
+// Canonical display form for a size label: maps recognized simple size tokens and
+// their verbose spellings to our standard convention (small→S, "2X Large"→2XL).
 // Multi-dimensional / unknown labels (pants "Relaxed / 32 / 34", "One Size",
 // numeric waists) pass through untouched.
 export const canonicalSize = (s: string): string => {
   const up = String(s).trim().toUpperCase();
-  return SIZE_ORDER.includes(up) ? up : s;
+  if (SIZE_ORDER.includes(up)) return up;
+  const key = up.replace(/[^A-Z0-9]/g, "");
+  return SIZE_ALIASES[key] || s;
 };
 
 export const sortSizes = (sizes: string[]) =>
