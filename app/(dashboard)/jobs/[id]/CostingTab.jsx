@@ -256,7 +256,7 @@ function AddDecoratorModal({ open, onClose, onSaved }) {
   );
 }
 
-const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,setCostProds,costMargin,setCostMargin,inclShip,setInclShip,inclCC,setInclCC,orderInfo,setOrderInfo,invoiceExtraLines=[],setInvoiceExtraLines,decoratorRecords=[],onRefreshDecorators,costingDirty,onSave,saveStatus,initialTab,hideSubTabs,selectedItemId,onSelectItem,onUpdateProject,onPullFromPsds,pullingPsds,pullResult,hideToolbar=false,openRfqRef})=>{
+const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,setCostProds,qtyEditedRef,notesEditedRef,costMargin,setCostMargin,inclShip,setInclShip,inclCC,setInclCC,orderInfo,setOrderInfo,invoiceExtraLines=[],setInvoiceExtraLines,decoratorRecords=[],onRefreshDecorators,costingDirty,onSave,saveStatus,initialTab,hideSubTabs,selectedItemId,onSelectItem,onUpdateProject,onPullFromPsds,pullingPsds,pullResult,hideToolbar=false,openRfqRef})=>{
   const branding=useClientBranding();
   const isMobile=useIsMobile();
   // Effective lock = manual "Lock In Pricing" OR archived phase.
@@ -726,6 +726,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                           const q = parseInt(raw) || 0;
                           const newQtys = { ...(p.qtys||{}), [sz]: q };
                           const newTotal = Object.values(newQtys).reduce((a,v)=>a+(v||0),0);
+                          qtyEditedRef?.current?.add(p.id); // mark: this qty was edited in Costing → persist it on save
                           updateProd(i,{...p,qtys:newQtys,totalQty:newTotal});
                           if(onUpdateBuyItems){onUpdateBuyItems(prev=>prev.map(bi=>bi.id===p.id?{...bi,qtys:newQtys,totalQty:newTotal}:bi));}
                         };
@@ -827,7 +828,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                       </div>
                       <div>
                         <div style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Production notes</div>
-                        <textarea value={p.itemNotes||""} onChange={e=>updateProd(i,{...p,itemNotes:e.target.value})} placeholder="Item note on PO" rows={1}
+                        <textarea value={p.itemNotes||""} onChange={e=>{notesEditedRef?.current?.add(p.id);updateProd(i,{...p,itemNotes:e.target.value});}} placeholder="Item note on PO" rows={1}
                           style={{width:"100%",background:T.surface,border:"1px solid "+T.border,borderRadius:6,color:T.text,fontFamily:font,fontSize:12,padding:"7px 10px",resize:"vertical",outline:"none",minHeight:32,boxSizing:"border-box",lineHeight:1.4}}/>
                       </div>
                       </div>
@@ -1080,7 +1081,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                                     <td style={{padding:"2px 6px",fontFamily:mono,fontSize:11,fontWeight:600,color:T.muted,borderRight:`1px solid ${T.border}`}}>{sz}</td>
                                     <td style={{padding:"2px 4px",textAlign:"right",borderRight:`1px solid ${T.border}`}}>
                                       <input type="text" inputMode="numeric" pattern="[0-9]*" value={qty||""} placeholder="0"
-                                        onChange={e=>{const q=parseInt(e.target.value)||0;const newQtys={...(p.qtys||{}),[sz]:q};const newTotal=Object.values(newQtys).reduce((a,v)=>a+v,0);updateProd(i,{...p,qtys:newQtys,totalQty:newTotal});if(onUpdateBuyItems){onUpdateBuyItems(prev=>prev.map(bi=>bi.id===p.id?{...bi,qtys:newQtys,totalQty:newTotal}:bi));}}}
+                                        onChange={e=>{const q=parseInt(e.target.value)||0;const newQtys={...(p.qtys||{}),[sz]:q};const newTotal=Object.values(newQtys).reduce((a,v)=>a+v,0);qtyEditedRef?.current?.add(p.id);updateProd(i,{...p,qtys:newQtys,totalQty:newTotal});if(onUpdateBuyItems){onUpdateBuyItems(prev=>prev.map(bi=>bi.id===p.id?{...bi,qtys:newQtys,totalQty:newTotal}:bi));}}}
                                         data-costfield onKeyDown={e=>{if(e.key==="Enter"||e.key==="Tab")focusNext(e,e.shiftKey);if(e.key==="ArrowDown"){e.preventDefault();focusNext({...e,key:"Tab",shiftKey:false},false);}if(e.key==="ArrowUp"){e.preventDefault();focusNext({...e,key:"Tab",shiftKey:true},true);}}}
                                         style={{width:36,textAlign:"right",background:"transparent",border:"none",outline:"none",color:T.text,fontSize:11,fontFamily:mono}}/>
                                     </td>
@@ -1177,7 +1178,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                       </div>
                       <div>
                         <div style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Production notes</div>
-                        <textarea value={p.itemNotes||""} onChange={e=>updateProd(i,{...p,itemNotes:e.target.value})} placeholder="Item note on PO" rows={1}
+                        <textarea value={p.itemNotes||""} onChange={e=>{notesEditedRef?.current?.add(p.id);updateProd(i,{...p,itemNotes:e.target.value});}} placeholder="Item note on PO" rows={1}
                           style={{width:"100%",background:T.surface,border:"1px solid "+T.border,borderRadius:6,color:T.text,fontFamily:font,fontSize:12,padding:"7px 10px",resize:"vertical",outline:"none",minHeight:32,boxSizing:"border-box",lineHeight:1.4}}/>
                       </div>
                     </div>
@@ -1733,6 +1734,20 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
   // opening the tab to view history must never mutate it.
   const isArchivedJob = project?.phase === "complete" || project?.phase === "cancelled";
   const effectiveLock = !!project?.type_meta?.costing_locked || isArchivedJob;
+  // Item ids whose per-size qtys were edited IN Costing's blanks chip. ONLY these
+  // get their qtys written back to buy_sheet_lines on save. Qtys for every other
+  // item are owned by Product Builder (which persists its own) — Costing must never
+  // mirror its (possibly stale) copy over them. This is what stops the qty-revert
+  // bug in BOTH lock states; without it, any Costing save stamped its whole
+  // costProds.qtys snapshot over the buy sheet.
+  const qtyEditedInCostingRef = React.useRef(new Set());
+  // Same idea for the item note: production_notes_po is shared with the PO tab,
+  // and Costing only seeds cp.itemNotes at mount — so a note typed on the PO tab
+  // later is invisible here and Costing's save would stamp its stale copy over it
+  // (that's how a revised PO went out with the notes wiped). Only write the note
+  // for items whose note was edited in Costing. SEPARATE from the qty ref so a qty
+  // edit never triggers a (stale) note write, or vice-versa.
+  const notesEditedInCostingRef = React.useRef(new Set());
   const [pricingReady, setPricingReady] = useState(false);
   const [decoratorRecords, setDecoratorRecords] = useState([]);
   const vendorIdMapRef = React.useRef({});
@@ -2237,10 +2252,13 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
           if (r2 && r2.qty > 0 && r2.totalCost >= 0) {
             itemUpdates.cost_per_unit_all_in = Math.round((r2.totalCost / r2.qty) * 100) / 100;
           }
-          // Production notes — single source of truth on items, mirrors
-          // the field exposed on POTab. Always written so PO tab sees the
-          // latest from costing without waiting on a separate save.
-          itemUpdates.production_notes_po = (cp.itemNotes || "").trim() || null;
+          // Production notes are shared with the PO tab. ONLY write from Costing
+          // when the note was edited in Costing this session — otherwise Costing's
+          // mount-time (possibly empty) copy would clobber a note typed on the PO
+          // tab, which is how a revised PO went out with notes wiped.
+          if (notesEditedInCostingRef.current.has(cp.id)) {
+            itemUpdates.production_notes_po = (cp.itemNotes || "").trim() || null;
+          }
           if (Object.keys(itemUpdates).length > 0) {
             await supabase.from("items").update(itemUpdates).eq("id", cp.id);
           }
@@ -2249,7 +2267,14 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
           // Production, Warehouse). Without this, qty edits in the Blanks
           // grid only land in jobs.costing_data and get wiped by the next
           // sync from empty buy_sheet_lines on refresh.
-          if (cp.qtys && Object.keys(cp.qtys).length > 0) {
+          //
+          // ONLY write qtys for items whose qtys were edited in Costing's blanks
+          // chip this session (qtyEditedInCostingRef). Product Builder owns qtys
+          // and persists its own; if Costing blindly wrote its costProds.qtys —
+          // which goes stale while locked (sync skipped) or lagging a fresh
+          // Product Builder edit — it reverted those edits. Also gated on
+          // !effectiveLock: locked costing never touches the buy sheet.
+          if (!effectiveLock && qtyEditedInCostingRef.current.has(cp.id) && cp.qtys && Object.keys(cp.qtys).length > 0) {
             const rows = Object.entries(cp.qtys).map(([size, qty]) => ({
               item_id: cp.id, size, qty_ordered: Number(qty) || 0,
             }));
@@ -2293,7 +2318,7 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
   return (
     <CostingTab
       project={project} buyItems={buyItems} contacts={contacts} onUpdateBuyItems={onUpdateBuyItems}
-      costProds={costProds} setCostProds={setCostProds}
+      costProds={costProds} setCostProds={setCostProds} qtyEditedRef={qtyEditedInCostingRef} notesEditedRef={notesEditedInCostingRef}
       costMargin={costMargin} setCostMargin={setCostMargin}
       inclShip={inclShip} setInclShip={setInclShip}
       inclCC={inclCC} setInclCC={setInclCC}
