@@ -80,9 +80,18 @@ function PaymentTabQB({ job, items = [], contacts, payments, onReload, onRecalcP
   // staleness comparison must add them to the product-only grossRev —
   // otherwise any invoice with additional charges would read as permanently
   // "stale" against the QB total that already includes them.
-  const extrasSubtotal = (Array.isArray(job?.type_meta?.invoice_extra_lines) ? job.type_meta.invoice_extra_lines : [])
-    .reduce((a, l) => a + (Number(l?.amount) || 0), 0);
-  const currentSubtotal = (job.costing_summary?.grossRev || 0) + extrasSubtotal;
+  const _extraLines = (Array.isArray(job?.type_meta?.invoice_extra_lines) ? job.type_meta.invoice_extra_lines : []);
+  const extrasSubtotal = _extraLines.reduce((a, l) => a + (Number(l?.amount) || 0), 0);
+  // What OpsHub would push as the invoice subtotal = real-product revenue
+  // (grossRev) + passthruTotal (passthrough PRODUCTS + passthru-type extra lines)
+  // + the remaining non-passthru extra lines. passthruTotal is essential: a
+  // passthrough job has grossRev $0 but QB still bills the full passthrough
+  // amount, so without it the invoice reads as permanently "stale". Excluding
+  // passthru-type extras from the tail avoids double-counting (they're already
+  // inside passthruTotal). For non-passthrough jobs this equals grossRev + extras.
+  const _passthruTotal = Number(job.costing_summary?.passthruTotal) || 0;
+  const _nonPassthruExtras = _extraLines.filter(l => l?.type !== "passthru").reduce((a, l) => a + (Number(l?.amount) || 0), 0);
+  const currentSubtotal = (job.costing_summary?.grossRev || 0) + _passthruTotal + _nonPassthruExtras;
   const qbSubtotal = (job.type_meta?.qb_total_with_tax || 0) - (job.type_meta?.qb_tax_amount || 0);
   const qbInvoiceId = job.type_meta?.qb_invoice_id;
   const isManualInvoice = !!qbInvoiceNumber && !qbInvoiceId;
@@ -95,7 +104,7 @@ function PaymentTabQB({ job, items = [], contacts, payments, onReload, onRecalcP
   // above the table and to override individual row pills so a "paid"
   // row doesn't visually contradict a "Partial Paid" project.
   const aggInvoiceTotal = Number(job?.type_meta?.qb_total_with_tax)
-    || (Number(job?.costing_summary?.grossRev || 0) + extrasSubtotal)
+    || currentSubtotal
     || 0;
   const aggPaidSum = (payments || [])
     .filter(p => p.status === "paid" || p.status === "partial")
