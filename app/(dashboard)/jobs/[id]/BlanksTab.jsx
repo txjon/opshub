@@ -11,6 +11,17 @@ import { parseSizeMatrix } from "@/lib/size-grid";
 const GRID_PALETTE = { text: T.text, muted: T.muted, faint: T.faint, border: T.border, surface: T.surface, accent: T.accent };
 
 const tQty = (q) => Object.values(q || {}).reduce((a, v) => a + v, 0);
+// Calculated blank cost = precise per-size sum (blank_costs[sz] × qty[sz]) — the
+// SAME source Project Totals uses — not the cent-rounded cost_per_unit average,
+// which drifts from the per-size total (e.g. 8.0362 rounds to 8.04 → $57 off on
+// 15k units). Falls back to cost_per_unit × units when there are no per-size costs.
+const blankCalcCost = (item) => {
+  const bc = item.blank_costs || {};
+  if (Object.keys(bc).length > 0) {
+    return Math.round(Object.entries(bc).reduce((a, [sz, c]) => a + (Number(c) || 0) * (Number(item.qtys?.[sz]) || 0), 0) * 100) / 100;
+  }
+  return item.cost_per_unit != null ? Math.round(item.cost_per_unit * tQty(item.qtys || {}) * 100) / 100 : null;
+};
 const ic = { width: "100%", padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, color: T.text, fontSize: 12, fontFamily: font, boxSizing: "border-box", outline: "none" };
 
 // Items that aren't actual garment blanks. Matches lib/pricing.ts NON_GARMENT.
@@ -456,7 +467,7 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
           // Calculated: cost_per_unit × units — the SAME figure shown under
           // each item's order box (the blank cost the job is priced off of).
           // Must match the per-row calc below so the rows sum to this total.
-          const calcCost = item.cost_per_unit != null ? item.cost_per_unit * totalUnits : 0;
+          const calcCost = blankCalcCost(item) || 0;
           const actualCost = f.blanks_order_cost ? parseFloat(String(f.blanks_order_cost).replace(/[^0-9.\-]/g, "")) : 0;
           totalCalc += calcCost;
           totalActual += actualCost;
@@ -560,7 +571,7 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
           // Multi-dimensional sizes (pants: Fit/Waist/Inseam) → cut-ticket grid;
           // null for 1-D sizes (S/M/L) so tees/hats keep the inline stacks.
           const sizeMatrix = parseSizeMatrix(item.sizes || [], item.qtys || {});
-          const calcCost = item.cost_per_unit != null ? (item.cost_per_unit * totalUnits) : null;
+          const calcCost = blankCalcCost(item);
           // Prefer localFields (in-progress edits), fall back to the
           // items prop so a remount or stale local state still shows
           // the persisted value from DB.

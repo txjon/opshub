@@ -66,7 +66,10 @@ export function calcCostProduct(p: any, margin: string, inclShip: boolean, inclC
   // so a mis-populated blankCosts can never wreck the margin math.
   const vendor = (p.blank_vendor || p.blankVendor || "");
   const is10pct = vendor.startsWith("LA Apparel") || vendor.startsWith("Cotton Collective");
-  const blankBuffer = is10pct ? 1.10 : 1.05;
+  // Passthrough items carry NO blank buffer — the client is billed the exact cost
+  // and HPD pays it straight to the vendor, so there's no over-order/spoilage
+  // allowance to fold in. Normal items: LA Apparel/Cotton Collective 10%, else 5%.
+  const blankBuffer = p.passthrough ? 1.0 : (is10pct ? 1.10 : 1.05);
   const blankCost = isNonGarment ? 0 : (() => {
     if (p.blankCosts && Object.keys(p.blankCosts).length > 0) {
       let total = 0;

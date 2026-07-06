@@ -1007,7 +1007,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             else if (job.phase==="cancelled"){shipLabel="Cancelled";shipColor=T.red;}
             else if (["fulfillment","shipping","receiving"].includes(job.phase)){shipLabel="At HPD";shipColor=T.green;}
             else if (shipRaw){const d=new Date(shipRaw);const days=Math.ceil((d.getTime()-Date.now())/86400000);shipSub=d.toLocaleDateString("en-US",{month:"short",day:"numeric"});shipLabel=days<0?`${Math.abs(days)}d over`:days===0?"Today":`In ${days}d`;shipColor=days<0?T.red:days<=3?T.amber:T.text;}
-            const invoiceTotal=Number(tm.qb_total_with_tax)||Number((job as any)?.costing_summary?.grossRev)||0;
+            const invoiceTotal=Number(tm.qb_total_with_tax)||(Number((job as any)?.costing_summary?.grossRev)+Number((job as any)?.costing_summary?.passthruTotal||0))||0;
             const paidSum=(payments||[]).filter((p:any)=>p.status==="paid"||p.status==="partial").reduce((a:number,p:any)=>a+(Number(p.amount)||0),0);
             const balance=Math.max(0,invoiceTotal-paidSum);
             const payState=paidSum>0.01&&balance<=0.01?"Paid":paidSum>0.01?"Partial":invoiceTotal>0?"Unpaid":"No invoice";
@@ -1402,7 +1402,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 {payments.length===0&&<p style={{fontSize:12,color:T.muted}}>No payments recorded yet.</p>}
                 {payments.length>0&&(() => {
                   const invoiceTotal = Number((job as any)?.type_meta?.qb_total_with_tax)
-                    || Number((job as any)?.costing_summary?.grossRev)
+                    || (Number((job as any)?.costing_summary?.grossRev) + Number((job as any)?.costing_summary?.passthruTotal || 0))
                     || 0;
                   const paidSum = (payments || [])
                     .filter(p => p.status === "paid" || p.status === "partial")

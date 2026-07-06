@@ -256,7 +256,21 @@ function AddDecoratorModal({ open, onClose, onSaved }) {
   );
 }
 
-const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,setCostProds,qtyEditedRef,notesEditedRef,costMargin,setCostMargin,inclShip,setInclShip,inclCC,setInclCC,orderInfo,setOrderInfo,invoiceExtraLines=[],setInvoiceExtraLines,decoratorRecords=[],onRefreshDecorators,costingDirty,onSave,saveStatus,initialTab,hideSubTabs,selectedItemId,onSelectItem,onUpdateProject,onPullFromPsds,pullingPsds,pullResult,hideToolbar=false,openRfqRef})=>{
+// Per-item passthrough toggle. On = the client is billed for this product and HPD
+// pays it straight to the vendor ($0 margin) — excluded from revenue & margin; the
+// client-billed amount is tracked as passthrough volume. An HPD fee on the deal is
+// entered as an Additional charge (type "fee").
+function PassthroughToggle({ on, disabled, onToggle }) {
+  return (
+    <button type="button" onClick={e => { e.stopPropagation(); if (!disabled) onToggle(); }}
+      title={"Passthrough: client billed for the product, HPD pays the vendor — $0 margin. Excluded from revenue & margin; tracked as passthrough volume. Add any HPD fee as an Additional charge."}
+      style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", padding: "2px 7px", borderRadius: 4, cursor: disabled ? "default" : "pointer", fontFamily: font, lineHeight: 1.4, border: `1px solid ${on ? T.amber : T.border}`, background: on ? T.amber : "transparent", color: on ? "#fff" : T.faint }}>
+      {on ? "⇄ Passthrough" : "Passthrough"}
+    </button>
+  );
+}
+
+const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,setCostProds,qtyEditedRef,notesEditedRef,isGod,costMargin,setCostMargin,inclShip,setInclShip,inclCC,setInclCC,orderInfo,setOrderInfo,invoiceExtraLines=[],setInvoiceExtraLines,decoratorRecords=[],onRefreshDecorators,costingDirty,onSave,saveStatus,initialTab,hideSubTabs,selectedItemId,onSelectItem,onUpdateProject,onPullFromPsds,pullingPsds,pullResult,hideToolbar=false,openRfqRef})=>{
   const branding=useClientBranding();
   const isMobile=useIsMobile();
   // Effective lock = manual "Lock In Pricing" OR archived phase.
@@ -487,11 +501,15 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
   const addExtraLine = () => setInvoiceExtraLines && setInvoiceExtraLines(ls => [...ls, { id: `xl_${Date.now()}_${Math.round(Math.random() * 1e6)}`, description: "", amount: "", qb_item: "", type: "fee" }]);
   const removeExtraLine = (id) => setInvoiceExtraLines && setInvoiceExtraLines(ls => ls.filter(l => l.id !== id));
 
-  const rawResults=costProds.map(p=>calcCostProduct(p,costMargin,inclShip,inclCC,costProds)).filter(Boolean);
+  const rawResults=costProds.map(p=>{const r=calcCostProduct(p,costMargin,inclShip,inclCC,costProds); return r?{...r, passthrough: !!p.passthrough}:null;}).filter(Boolean);
   // Round sellPerUnit to cent (same as what gets saved to items.sell_per_unit) so display matches PDFs
   const results=rawResults.map(r=>({...r, sellPerUnit: Math.round(r.sellPerUnit*100)/100, grossRev: Math.round(Math.round(r.sellPerUnit*100)/100 * r.qty * 100)/100 }));
-  const totGross=results.reduce((a,r)=>a+r.grossRev,0);
-  const totProfit=totGross - results.reduce((a,r)=>a+r.totalCost,0);
+  // Passthrough items ($0-margin, client-billed → vendor) are excluded from the job
+  // revenue/margin so the header matches the reported P&L. passthruTotal below tracks them.
+  const realResults=results.filter(r=>!r.passthrough);
+  const totGross=realResults.reduce((a,r)=>a+r.grossRev,0);
+  const totProfit=totGross - realResults.reduce((a,r)=>a+r.totalCost,0);
+  const totPassthru=results.filter(r=>r.passthrough).reduce((a,r)=>a+r.grossRev,0);
   const netMarg=totGross>0?totProfit/totGross:0;
   const mc=netMarg>=0.30?T.green:netMarg>=0.20?T.amber:T.red;
 
@@ -639,6 +657,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                           <span style={{color:T.text,fontFamily:font,fontSize:13,fontWeight:600}}>{p.name||p.qb_item_type||"Item"}</span>
                           <span style={{fontSize:10,color:T.purple,fontWeight:600}}>{p.qb_item_type||"Accessory"}</span>
                           <RfqBadge itemId={p.id} />
+                          {isGod && <PassthroughToggle on={!!p.passthrough} disabled={costingLocked} onToggle={()=>updateProd(i,{...p,passthrough:!p.passthrough})} />}
                         </div>
                         {isMobile && !selectedItemId && <span style={{fontSize:14,color:T.faint,marginLeft:6,flexShrink:0,lineHeight:1}}>›</span>}
                       </div>
@@ -886,6 +905,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                         <span style={{color:T.text,fontFamily:font,fontSize:13,fontWeight:600}}>{p.name||("Product "+(i+1))}</span>
                         {(p.style||p.color)&&<span style={{fontSize:11,color:T.muted,fontFamily:font}}>{p.style}{p.color?` · ${p.color}`:""}</span>}
                         <RfqBadge itemId={p.id} />
+                        {isGod && <PassthroughToggle on={!!p.passthrough} disabled={costingLocked} onToggle={()=>updateProd(i,{...p,passthrough:!p.passthrough})} />}
                       </div>
                       {isMobile && !selectedItemId && <span style={{fontSize:14,color:T.faint,marginLeft:6,flexShrink:0,lineHeight:1}}>›</span>}
                     </div>
@@ -1074,7 +1094,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                               {(p.sizes||[]).map((sz,si)=>{
                                 const qty=p.qtys?.[sz]||0;
                                 const bc=p.blankCosts?.[sz]||0;
-                                const subtotal=bc*qty*1.035;
+                                const subtotal=bc*qty*(p.passthrough?1:1.035);
                                 const isLast=si===p.sizes.length-1;
                                 return(
                                   <tr key={sz} style={{borderBottom:isLast?"none":`1px solid ${T.border}22`,background:qty>0?T.surface:T.card}}>
@@ -1104,7 +1124,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                                   <td style={{padding:"4px 6px",fontSize:9,fontWeight:700,color:T.muted,fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em",borderRight:`1px solid ${T.border}`}}>Total</td>
                                   <td style={{padding:"4px 6px",textAlign:"right",fontFamily:mono,fontWeight:700,fontSize:11,color:T.text,borderRight:`1px solid ${T.border}`}}>{p.totalQty||0}</td>
                                   <td style={{borderRight:`1px solid ${T.border}`}}/>
-                                  <td style={{padding:"4px 6px",textAlign:"right",fontFamily:mono,fontWeight:700,fontSize:11,color:T.accent}}>{fmtD(Object.entries(p.blankCosts||{}).reduce((a,[sz,bc])=>a+bc*(p.qtys?.[sz]||0)*1.035,0))}</td>
+                                  <td style={{padding:"4px 6px",textAlign:"right",fontFamily:mono,fontWeight:700,fontSize:11,color:T.accent}}>{fmtD(Object.entries(p.blankCosts||{}).reduce((a,[sz,bc])=>a+bc*(p.qtys?.[sz]||0)*(p.passthrough?1:1.035),0))}</td>
                                 </tr>
                               )}
                             </tbody>
@@ -1116,7 +1136,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                       (p.sizes||[]).forEach(sz=>{const q=String(sz).split(" / ").map(s=>s.trim()); if(q.length>=3)__lk[`${q[0]}~${q[1]}~${q.slice(2).join(" / ")}`]=sz; else if(q.length===2)__lk[`~${q[0]}~${q[1]}`]=sz;});
                       const __costs=(p.sizes||[]).map(sz=>getCostDisplay(p.id,sz,p.blankCosts?.[sz]||0));
                       const __allVal=(__costs.length>0&&__costs.every(c=>c===__costs[0]))?__costs[0]:"";
-                      const __grandCost=Object.entries(p.blankCosts||{}).reduce((a,[sz,bc])=>a+bc*(p.qtys?.[sz]||0)*1.035,0);
+                      const __grandCost=Object.entries(p.blankCosts||{}).reduce((a,[sz,bc])=>a+bc*(p.qtys?.[sz]||0)*(p.passthrough?1:1.035),0);
                       const GH={padding:"3px 7px",fontSize:9,fontWeight:700,color:T.muted,textAlign:"center",borderBottom:`1px solid ${T.border}`,whiteSpace:"nowrap",fontFamily:font,textTransform:"uppercase",letterSpacing:"0.06em"};
                       return (
                         <div>
@@ -1259,6 +1279,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                   <tbody>
                     {[
                       ["Revenue",    fmtD(totGross),    T.accent],
+                      ...(totPassthru>0?[["Passthrough", fmtD(totPassthru), T.amber]]:[]),
                       ["Blanks",     fmtD(totBlank),    T.text],
                       ["PO Total",   fmtD(totPO),       T.text],
                       ...vendorEntries.map(([v,t])=>["  "+v, fmtD(t), T.faint]),
@@ -1748,6 +1769,21 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
   // for items whose note was edited in Costing. SEPARATE from the qty ref so a qty
   // edit never triggers a (stale) note write, or vice-versa.
   const notesEditedInCostingRef = React.useRef(new Set());
+  // Passthrough is an owner-only edge case (Drake/Taylor don't handle it), so the
+  // toggle is gated on is_god — the owner flag, per the access model (never a
+  // hardcoded email, which breaks co-owners). Non-owners never see the button.
+  const [isGod, setIsGod] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const sb = createClient();
+      const { data: { user } } = await sb.auth.getUser();
+      if (!user || cancelled) return;
+      const { data } = await sb.from("profiles").select("is_god").eq("id", user.id).single();
+      if (!cancelled) setIsGod(!!data?.is_god);
+    })();
+    return () => { cancelled = true; };
+  }, []);
   const [pricingReady, setPricingReady] = useState(false);
   const [decoratorRecords, setDecoratorRecords] = useState([]);
   const vendorIdMapRef = React.useRef({});
@@ -2205,16 +2241,28 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
         const rawResults = costProds.map((p, idx) => { const r = calcCostProduct(p, costMargin, inclShip, inclCC, costProds); return r ? { ...r, _idx: idx } : null; }).filter(Boolean);
         // Round sellPerUnit to cent first, then derive grossRev — matches what gets saved to items.sell_per_unit
         const results = rawResults.map(r => ({ ...r, sellPerUnit: Math.round(r.sellPerUnit * 100) / 100, grossRev: Math.round(Math.round(r.sellPerUnit * 100) / 100 * r.qty * 100) / 100 }));
-        const grossRev = results.reduce((a, r) => a + r.grossRev, 0);
-        const totalCost = Math.round(results.reduce((a,r) => a + r.totalCost, 0) * 100) / 100;
+        // Passthrough items are $0-margin: the client is billed for the product,
+        // HPD pays it straight to the vendor. Exclude BOTH their revenue and cost
+        // from the P&L (so margin reflects only real HPD work) and route the client-
+        // billed amount into passthruTotal — effectiveRevenue nets it out and
+        // reporting can show passthrough volume separately. An HPD fee on a
+        // passthrough deal is entered as an Additional charge (type "fee").
+        const isPT = r => !!costProds[r._idx]?.passthrough;
+        const realResults = results.filter(r => !isPT(r));
+        const grossRev = Math.round(realResults.reduce((a, r) => a + r.grossRev, 0) * 100) / 100;
+        const totalCost = Math.round(realResults.reduce((a, r) => a + r.totalCost, 0) * 100) / 100;
+        const passthruProducts = Math.round(results.filter(isPT).reduce((a, r) => a + r.grossRev, 0) * 100) / 100;
         const netProfit = Math.round((grossRev - totalCost) * 100) / 100;
         const totalQty = results.reduce((a,r) => a + r.qty, 0);
+        const realQty = realResults.reduce((a,r) => a + r.qty, 0);
         const margin = grossRev > 0 ? netProfit / grossRev * 100 : 0;
-        const avgPerUnit = totalQty > 0 ? grossRev / totalQty : 0;
+        const avgPerUnit = realQty > 0 ? grossRev / realQty : 0;
         // Additional-charges split. grossRev stays product-only (margin math
         // unpolluted); feeRevenue/passthruTotal ride alongside so the reporting
-        // helper can add fee revenue and exclude passthru.
-        const { feeRevenue, passthruTotal } = computeExtraSummary(invoiceExtraLines);
+        // helper can add fee revenue and exclude passthru. Passthrough PRODUCTS
+        // add to passthruTotal on top of any passthru additional-charge lines.
+        const { feeRevenue, passthruTotal: extraPassthru } = computeExtraSummary(invoiceExtraLines);
+        const passthruTotal = Math.round((extraPassthru + passthruProducts) * 100) / 100;
         const costingSummary = { grossRev, totalCost, netProfit, margin, avgPerUnit, totalQty, feeRevenue, passthruTotal };
         await supabase.from("jobs").update({
           costing_data: { costProds, costMargin, inclShip, inclCC, orderInfo },
@@ -2327,7 +2375,7 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
   return (
     <CostingTab
       project={project} buyItems={buyItems} contacts={contacts} onUpdateBuyItems={onUpdateBuyItems}
-      costProds={costProds} setCostProds={setCostProds} qtyEditedRef={qtyEditedInCostingRef} notesEditedRef={notesEditedInCostingRef}
+      costProds={costProds} setCostProds={setCostProds} qtyEditedRef={qtyEditedInCostingRef} notesEditedRef={notesEditedInCostingRef} isGod={isGod}
       costMargin={costMargin} setCostMargin={setCostMargin}
       inclShip={inclShip} setInclShip={setInclShip}
       inclCC={inclCC} setInclCC={setInclCC}
