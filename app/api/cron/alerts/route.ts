@@ -89,12 +89,20 @@ export async function GET(req: NextRequest) {
       if (job.target_ship_date && job.phase !== "complete") {
         const daysUntil = Math.ceil((new Date(job.target_ship_date).getTime() - now.getTime()) / 86400000);
         if (daysUntil < 0) {
-          alerts.push({
-            priority: 0,
-            type: "overdue_ship",
-            message: `Ship date passed ${Math.abs(daysUntil)}d ago · ${ref}`,
-            jobId: job.id,
-          });
+          // Suppress "ship date passed" once EVERY item has shipped — production
+          // and shipping are done; what's left (receive / forward / mark complete)
+          // is internal admin, not a late-to-client alert. Stops old finished-but-
+          // unclosed jobs (phase never auto-advanced) from nagging forever, without
+          // an arbitrary age cap. Any item still un-shipped = genuinely behind → alert.
+          const allShipped = items.length > 0 && items.every(it => it.pipeline_stage === "shipped");
+          if (!allShipped) {
+            alerts.push({
+              priority: 0,
+              type: "overdue_ship",
+              message: `Ship date passed ${Math.abs(daysUntil)}d ago · ${ref}`,
+              jobId: job.id,
+            });
+          }
         } else if (daysUntil <= 3) {
           alerts.push({
             priority: 1,
