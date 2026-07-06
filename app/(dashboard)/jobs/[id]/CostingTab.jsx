@@ -2303,6 +2303,15 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
             const updates = {};
             if (cp.printVendor) updates.decorator = cp.printVendor;
             if (r2?.sellPerUnit > 0) updates.sell_per_unit = r2.sellPerUnit;
+            // Propagate the blank cost too, so surfaces reading parent state — the
+            // Blanks tab "Calculated" = cost_per_unit × units — don't show a stale
+            // $0 until a full page reload (mirrors what's written to the DB above).
+            const cvals = (cp.blankCosts ? Object.values(cp.blankCosts) : []).filter(v => (Number(v) || 0) > 0);
+            if (cvals.length > 0) {
+              updates.blankCosts = cp.blankCosts;
+              updates.cost_per_unit = Math.round(cvals.reduce((a, v) => a + (Number(v) || 0), 0) / cvals.length * 100) / 100;
+            }
+            if (r2 && r2.qty > 0 && r2.totalCost >= 0) updates.cost_per_unit_all_in = Math.round((r2.totalCost / r2.qty) * 100) / 100;
             if (Object.keys(updates).length > 0) itemMap[cp.id] = updates;
           }
           if (Object.keys(itemMap).length > 0) {
