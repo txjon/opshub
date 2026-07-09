@@ -882,7 +882,16 @@ export default function ReceivingPage() {
                   {j.display_number !== j.job_number ? j.display_number : j.job_number}
                 </span>
               </div>
-              {j.title && <div style={{ fontSize: 11, color: T.faint, wordBreak: "break-word" }}>{j.title}</div>}
+              {(() => {
+                // Items in THIS box for THIS job — what the receiver actually
+                // scans for. Replaces the project title (unimportant here).
+                const its = shipment.items.filter(it => it.job_id === j.id);
+                if (its.length === 0) return j.title ? <div style={{ fontSize: 11, color: T.faint, wordBreak: "break-word" }}>{j.title}</div> : null;
+                const names = its.map(it => it.name);
+                const shown = names.slice(0, 3).join(", ");
+                const extra = names.length > 3 ? ` +${names.length - 3} more` : "";
+                return <div style={{ fontSize: 11.5, color: T.muted, wordBreak: "break-word", lineHeight: 1.4 }}>{shown}{extra}</div>;
+              })()}
             </div>
           ))}
           {multiJob && <div style={{ fontSize: 10, color: T.amber, fontWeight: 600 }}>Multi-project ({shipment.jobs.length})</div>}
@@ -966,7 +975,7 @@ export default function ReceivingPage() {
   const shipmentColHeader = (
     <div style={{ display: "flex", gap: 12, alignItems: "center", padding: "0 15px", fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em", userSelect: "none" }}>
       <div style={{ width: 110, flexShrink: 0 }}>Vendor</div>
-      <div style={{ flex: 1, minWidth: 0 }}>Client / Project</div>
+      <div style={{ flex: 1, minWidth: 0 }}>Client / Items</div>
       <div style={{ width: 150, flexShrink: 0 }}>Tracking</div>
       <div style={{ width: 90, flexShrink: 0 }}>Shipped</div>
       <div style={{ width: 64, flexShrink: 0, textAlign: "right" }}>{tab === "received" ? "Date" : "ETA"}</div>
