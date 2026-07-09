@@ -296,13 +296,10 @@ export default function ReceivingPage() {
   // project's full vendor mix.
   const [modalShipmentKey, setModalShipmentKey] = useState<string | null>(null);
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
-  // Batch-receive confirm modal — the items queued by "Receive Selected".
-  const [batchReceiveItems, setBatchReceiveItems] = useState<WarehouseItem[] | null>(null);
   const [mockupPeek, setMockupPeek] = useState<{ driveFileId: string | null; name: string } | null>(null);
 
   // Receive UI state — keyed by item id
   const [conditionNote, setConditionNote] = useState<Record<string, string>>({});
-  const [itemCondition, setItemCondition] = useState<Record<string, string>>({});
   // Condition + notes are the exception, not the default — hidden behind a
   // "Flag issue" toggle so the happy path is just count → Receive.
   const [flaggedItems, setFlaggedItems] = useState<Set<string>>(new Set());
@@ -1444,12 +1441,12 @@ export default function ReceivingPage() {
                   </button>
                   {eligible.length > 0 && (
                     <button onClick={async () => {
-                      // bulkMarkReceived resolves per-item condition+notes
-                      // from the row inputs, runs all the writes, then
-                      // fires the "all received" email + phase recalc
-                      // exactly once per affected job after the loop.
+                      // Batch = the single-row Receive applied to every checked
+                      // row: same values (per-size qtys/samples already on each
+                      // item, note from any flagged row), one commit. Fires the
+                      // "all received" email + phase recalc once per job.
                       await bulkMarkReceived(eligible, (it) => ({
-                        condition: itemCondition[it.id] || "good",
+                        condition: "good",
                         notes: conditionNote[it.id] || "",
                       }), { skipClientEmail: silentMode });
                       setSelectedItemIds(prev => {
@@ -2113,62 +2110,7 @@ export default function ReceivingPage() {
       )}
 
       {/* Packing slip viewer modal */}
-      {/* Batch-receive confirm — opened by "Receive Selected" in List view.
-          Review each item's qty + condition, then commit via bulkMarkReceived.
-          Per-size / photo detail stays in the per-item Receive modal. */}
       {mockupPeek && <MockupPeek driveFileId={mockupPeek.driveFileId} name={mockupPeek.name} onClose={() => setMockupPeek(null)} />}
-
-      {batchReceiveItems && (() => {
-        const items = batchReceiveItems;
-        return (
-          <div onClick={() => setBatchReceiveItems(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1100, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
-            <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, width: "min(560px, 100%)", maxHeight: "85vh", display: "flex", flexDirection: "column", fontFamily: font, color: T.text }}>
-              <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <div style={{ fontSize: 16, fontWeight: 800 }}>Receive {items.length} item{items.length !== 1 ? "s" : ""}</div>
-                <button onClick={() => setBatchReceiveItems(null)} style={{ background: "none", border: "none", color: T.muted, fontSize: 22, cursor: "pointer", lineHeight: 1 }}>×</button>
-              </div>
-              <div style={{ flex: 1, overflowY: "auto", padding: "12px 20px" }}>
-                <div style={{ fontSize: 11, color: T.muted, marginBottom: 10 }}>Confirm quantities + condition, then mark received. For per-size or photo detail, use the row&apos;s Receive button instead.</div>
-                {items.map(it => {
-                  const cond = itemCondition[it.id] || "good";
-                  const shipped = tQty(it.ship_qtys) || tQty(it.qtys);
-                  return (
-                    <div key={it.id} style={{ padding: "10px 0", borderBottom: `1px solid ${T.border}55`, display: "flex", flexDirection: "column", gap: 6 }}>
-                      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10 }}>
-                        <div style={{ minWidth: 0 }}>
-                          <div style={{ fontSize: 13, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.name}</div>
-                          <div style={{ fontSize: 11, color: T.muted }}>{it.decorator_short_code || it.decorator_name || "—"}</div>
-                        </div>
-                        <div style={{ fontSize: 13, fontWeight: 700, fontFamily: mono, whiteSpace: "nowrap" }}>{shipped} units</div>
-                      </div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        {(["good", "damaged"] as const).map(c => (
-                          <button key={c} onClick={() => setItemCondition(prev => ({ ...prev, [it.id]: c }))}
-                            style={{ fontSize: 11, fontWeight: 600, padding: "4px 12px", borderRadius: 6, border: `1px solid ${cond === c ? (c === "damaged" ? T.red : T.green) : T.border}`, background: cond === c ? (c === "damaged" ? T.redDim : T.greenDim) : "transparent", color: cond === c ? (c === "damaged" ? T.red : T.green) : T.muted, cursor: "pointer", fontFamily: font, textTransform: "capitalize" }}>{c}</button>
-                        ))}
-                        {cond === "damaged" && (
-                          <input value={conditionNote[it.id] || ""} onChange={e => setConditionNote(prev => ({ ...prev, [it.id]: e.target.value }))} placeholder="What's damaged?"
-                            style={{ flex: 1, fontSize: 12, padding: "5px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, outline: "none", fontFamily: font }} />
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "flex-end", gap: 10 }}>
-                <button onClick={() => setBatchReceiveItems(null)} style={{ padding: "8px 16px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: font }}>Cancel</button>
-                <button onClick={async () => {
-                  await bulkMarkReceived(items, (it) => ({ condition: itemCondition[it.id] || "good", notes: conditionNote[it.id] || "" }), { skipClientEmail: silentMode });
-                  setSelectedItemIds(prev => { const next = new Set(prev); for (const it of items) next.delete(it.id); return next; });
-                  setBatchReceiveItems(null);
-                }} style={{ padding: "8px 18px", borderRadius: 6, border: "none", background: T.green, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>
-                  Mark {items.length} Received
-                </button>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
 
       {viewingSlips && (
         <div onClick={() => setViewingSlips(null)}
