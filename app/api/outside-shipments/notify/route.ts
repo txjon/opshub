@@ -12,9 +12,12 @@ import { renderBrandedEmail, trackingBlock, tenantClosing } from "@/lib/email-te
 // client's selected contacts the outbound tracking.
 export async function POST(req: NextRequest) {
   try {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const internal = req.headers.get("x-internal-key") === process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!internal) {
+      const supabase = await createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
     const body = await req.json();
     const { recipients, tracking, description, clientName } = body;
@@ -27,7 +30,7 @@ export async function POST(req: NextRequest) {
     //    no tracking required. ────────────────────────────────────────────────
     if (body.mode === "warehouse_incoming") {
       const { carrier, sender, route, lineItems } = body;
-      const to = ["warehouse@housepartydistro.com"];
+      const to = body.testRecipient ? [body.testRecipient] : ["warehouse@housepartydistro.com"];
       const meta = (label: string, val: string | null) =>
         val ? `<p style="margin:0 0 6px;font-size:13px;color:#444;"><strong>${label}:</strong> ${String(val).replace(/</g, "&lt;")}</p>` : "";
       const itemsHtml = Array.isArray(lineItems) && lineItems.length
@@ -48,7 +51,8 @@ export async function POST(req: NextRequest) {
         bodyHtml,
         closing: "— House Party Distro",
       });
-      await resend.emails.send({ from, to, subject: `Incoming package — ${sender || description || tracking || "outside shipment"}`, html });
+      const subj = `${body.testRecipient ? "[TEST] " : ""}Incoming package — ${sender || description || tracking || "outside shipment"}`;
+      await resend.emails.send({ from, to, subject: subj, html });
       return NextResponse.json({ success: true, sentTo: to });
     }
 
