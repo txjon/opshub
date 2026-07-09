@@ -1517,6 +1517,12 @@ export default function ReceivingPage() {
                                     const totalQty = tQty(item.qtys);
                                     const receivedTotal = tQty(item.received_qtys);
                                     const sampleTotal = tQty(item.sample_qtys);
+                                    // Delivered on the SAME basis the grid shows: received qty if
+                                    // entered, else the shipped/ordered fallback — so "continuing"
+                                    // is right even before Receive is clicked (received_qtys still 0).
+                                    const deliveredTotal = (item.sizes.length ? item.sizes : Object.keys(item.qtys || {}))
+                                      .reduce((sum, sz) => sum + (item.received_qtys?.[sz] ?? item.ship_qtys?.[sz] ?? item.qtys?.[sz] ?? 0), 0);
+                                    const continuingTotal = Math.max(0, deliveredTotal - sampleTotal);
                                     const hasVariance = isReceived && receivedTotal > 0 && receivedTotal !== (shippedQty || totalQty);
                                     return (
                                       <div key={item.id} style={{
@@ -1777,9 +1783,9 @@ export default function ReceivingPage() {
                                             )}
                                             {sampleTotal > 0 && (
                                               <span style={{ color: T.muted }}>
-                                                <span style={{ color: T.amber, fontWeight: 600 }}>{sampleTotal}</span> sample{sampleTotal !== 1 ? "s" : ""} pulled
+                                                <span style={{ color: T.amber, fontWeight: 600 }}>{sampleTotal}</span> pulled
                                                 {" · "}
-                                                <span style={{ color: T.text, fontWeight: 700, fontFamily: mono }}>{receivedTotal - sampleTotal}</span> continuing
+                                                <span style={{ color: T.text, fontWeight: 700, fontFamily: mono }}>{continuingTotal}</span> continuing to client
                                               </span>
                                             )}
                           </div>
