@@ -7,6 +7,7 @@ import { T, font, mono, sortSizes } from "@/lib/theme";
 import { logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
 import { uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
 import { shipItemFromDecorator } from "@/lib/po-actions";
+import { removeShipmentLineForItem, createPullRequest, updatePullRequest, PULL_KINDS, type PullRequestRow } from "@/lib/handoff";
 import { computeArrivalEta } from "@/lib/arrival-eta";
 import { NotifyShipmentDialog } from "@/components/NotifyShipmentDialog";
 import { MockupPeek } from "@/components/MockupPeek";
@@ -14,30 +15,11 @@ import { DriveThumb } from "@/components/DriveThumb";
 
 const tQty = (q: Record<string, number>) => Object.values(q || {}).reduce((a, v) => a + v, 0);
 
-// One ad-hoc "pull a sample" instruction on an item. Free-form — there is no
-// fixed catalog of pulls. Entered on Production at ship time, then checked off
-// on Receiving (pulled flips true, which feeds sample_qtys per size).
-//   qtys   — per-size counts to pull, e.g. { L: 1 } or { S:1, M:1, L:1 } for a run
-//   for    — who the sample is for
-//   to     — where it needs to go
-//   pulled — set true on Receiving when the warehouse pulls it
-type SamplePull = { qtys: Record<string, number>; for: string; to: string; pulled?: boolean };
-
-// Tolerant read of the JSONB. Handles the in-development single-size shape
-// ({ qty, size }) so early test rows don't read as empty after the model
-// moved to a per-size qtys map.
-function normalizePulls(raw: any): SamplePull[] {
-  if (!Array.isArray(raw)) return [];
-  return raw.map((p: any) => ({
-    qtys: p && p.qtys && typeof p.qtys === "object"
-      ? p.qtys
-      : (p && p.size ? { [p.size]: parseInt(p.qty, 10) || 1 } : {}),
-    for: (p && p.for) || "",
-    to: (p && p.to) || "",
-    pulled: !!(p && p.pulled),
-  }));
-}
-const pullTotal = (p: SamplePull) => Object.values(p.qtys || {}).reduce((a, n) => a + (n || 0), 0);
+// Pull requests (migration 117) — production's "hold N units back for X"
+// instruction on an item. Rows in pull_requests, created here ahead of
+// arrival, fulfilled on Receiving (which writes the pulled_inventory bucket
+// and rolls qtys into sample_qtys). Replaces the old items.sample_pulls JSONB
+// (backfilled by the migration; nothing writes that column anymore).
 
 type ProdItem = {
   id: string; name: string; job_id: string; letter: string;
@@ -54,7 +36,6 @@ type ProdItem = {
   ship_qtys: Record<string, number>; ship_notes: string;
   client_eta: string | null; client_eta_note: string | null;
   expected_arrival: string | null;
-  sample_pulls: SamplePull[];
 };
 
 // Per-item shipping_route (migration 076) wins over the job's route in every
@@ -128,6 +109,10 @@ export default function ProductionPage() {
   >(null);
   const [batchTracking, setBatchTracking] = useState("");
   const [batchNotes, setBatchNotes] = useState("");
+  // Production → warehouse instructions, stored on the shipments row
+  // (migration 117) and shown prominently on /receiving. Shipment-level:
+  // one message for the whole box, unlike per-item ship_notes.
+  const [batchWarehouseNotes, setBatchWarehouseNotes] = useState("");
   // Drag highlight target for the slip dropzones. Either modal's
   // upload area can be the active drop zone at a time.
   const [slipDragOver, setSlipDragOver] = useState<"ship" | "batch" | null>(null);
@@ -159,10 +144,12 @@ export default function ProductionPage() {
   const shipModalSlipInputRef = useRef<HTMLInputElement | null>(null);
   const batchModalSlipInputRef = useRef<HTMLInputElement | null>(null);
   const saveTimers = useRef<Record<string, any>>({});
-  // Latest unsaved sample-pulls array per item, so onBlur can flush the
-  // pending debounced write immediately (same bulletproof-save pattern as
-  // the text fields, but the payload is a whole array not a string).
-  const pendingSamplePulls = useRef<Record<string, SamplePull[]>>({});
+  // Open pull requests keyed by item id (loaded with the board; edited via
+  // the per-item pull editor). Only pending/partial — fulfilled ones are the
+  // warehouse's history, not production's working list.
+  const [pullReqsByItem, setPullReqsByItem] = useState<Record<string, PullRequestRow[]>>({});
+  // Draft pull row per item — local until the user commits it with "Add".
+  const [pullDrafts, setPullDrafts] = useState<Record<string, { qtys: Record<string, number>; kind: string; reason: string }>>({});
   const now = new Date();
 
   useEffect(() => { loadAll(); }, []);
@@ -381,7 +368,6 @@ export default function ProductionPage() {
         ship_qtys: it.ship_qtys || {}, ship_notes: it.ship_notes || "",
         client_eta: it.client_eta || null, client_eta_note: it.client_eta_note || null,
         expected_arrival: it.expected_arrival || null,
-        sample_pulls: normalizePulls(it.sample_pulls),
       };
 
       if (!projectMap[it.job_id]) {
@@ -490,6 +476,18 @@ export default function ProductionPage() {
     // Load packing slip files for all items
     const allItemIds = (allItems || []).map((it: any) => it.id);
     if (allItemIds.length > 0) {
+      // Open pull requests (migration 117) for the pull editor.
+      const { data: openPulls } = await supabase
+        .from("pull_requests").select("*")
+        .in("item_id", allItemIds)
+        .in("status", ["pending", "partial"])
+        .order("created_at");
+      const prMap: Record<string, PullRequestRow[]> = {};
+      for (const pr of ((openPulls || []) as PullRequestRow[])) {
+        if (!prMap[pr.item_id]) prMap[pr.item_id] = [];
+        prMap[pr.item_id].push(pr);
+      }
+      setPullReqsByItem(prMap);
       const { data: slipFiles } = await supabase.from("item_files").select("id, item_id, file_name, drive_link, notes").eq("stage", "packing_slip").in("item_id", allItemIds);
       const slipMap: Record<string, { id: string; file_name: string; drive_link: string; folder_link?: string }[]> = {};
       for (const f of (slipFiles || [])) {
@@ -512,16 +510,17 @@ export default function ProductionPage() {
   // effects, then triggers a full reload. The batch flow loops over
   // items and would otherwise reload N times — pass `skipReload: true`
   // for each item in the loop and call loadAll() once at the end.
-  async function markShipped(item: ProdItem, opts?: { skipReload?: boolean }) {
+  async function markShipped(item: ProdItem, opts?: { skipReload?: boolean; warehouseNotes?: string }) {
     // Flush ALL pending debounces for this item so the latest tracking / qtys
     // are on the item object before the write.
     for (const key of Object.keys(saveTimers.current).filter(k => k.includes(item.id))) {
       clearTimeout(saveTimers.current[key]);
       delete saveTimers.current[key];
     }
-    // Canonical ship effect lives in lib/po-actions (shared with the job
-    // Overview items modal) so the two surfaces can never drift.
-    await shipItemFromDecorator(supabase, item);
+    // Canonical ship effect lives in lib/po-actions — the ONLY ship path.
+    // It also persists the shipments row + line (handoff spine, mig 117);
+    // warehouseNotes rides along to shipments.warehouse_notes.
+    await shipItemFromDecorator(supabase, item, { warehouseNotes: opts?.warehouseNotes || null });
     if (!opts?.skipReload) loadAll();
   }
 
@@ -575,6 +574,9 @@ export default function ProductionPage() {
     if (item.decorator_assignment_id) {
       await supabase.from("decorator_assignments").update({ pipeline_stage: "in_production" }).eq("id", item.decorator_assignment_id);
     }
+    // Handoff spine: drop the item's line from its un-received shipment
+    // (and the shipment itself if this was its last line).
+    await removeShipmentLineForItem(supabase, item.id);
     loadAll();
   }
 
@@ -669,102 +671,127 @@ export default function ProductionPage() {
     supabase.from("items").update({ pickup_ready: checked }).eq("id", itemId);
   }
 
-  // Sample pulls are a whole-array JSONB write, so they get their own save
-  // path. updateField is string-only. Local state updates immediately; the
-  // array persists debounced, and onBlur flushes the pending write.
-  async function persistSamplePulls(itemId: string, pulls: SamplePull[]) {
-    const { error } = await supabase.from("items").update({ sample_pulls: pulls }).eq("id", itemId);
-    if (error) console.error("[production sample_pulls save error]", { itemId, error });
-  }
-  function saveSamplePulls(itemId: string, pulls: SamplePull[]) {
-    setProjects(prev => prev.map(p => ({
-      ...p, decoratorGroups: p.decoratorGroups.map(dg => ({
-        ...dg, items: dg.items.map(it => it.id === itemId ? { ...it, sample_pulls: pulls } : it)
-      }))
-    })));
-    pendingSamplePulls.current[itemId] = pulls;
-    const key = `sample_pulls_${itemId}`;
-    if (saveTimers.current[key]) clearTimeout(saveTimers.current[key]);
-    saveTimers.current[key] = setTimeout(() => {
-      persistSamplePulls(itemId, pulls);
-      delete pendingSamplePulls.current[itemId];
-    }, 800);
-  }
-  function flushSamplePulls(itemId: string) {
-    const key = `sample_pulls_${itemId}`;
-    if (saveTimers.current[key]) { clearTimeout(saveTimers.current[key]); delete saveTimers.current[key]; }
-    const pending = pendingSamplePulls.current[itemId];
-    if (pending) { persistSamplePulls(itemId, pending); delete pendingSamplePulls.current[itemId]; }
-  }
-
-  // Per-item sample-pulls editor (Production list rows). Each pull is a row in
-  // a per-size grid: type a qty under each size, then who it's for and where it
-  // goes. One row covers a single garment ({ L: 1 }) or a full size run.
+  // Per-item pull-request editor (Production list rows). Existing OPEN
+  // requests render as rows (qtys editable inline, saved on blur; × deletes
+  // the request outright — it was never fulfilled). New pulls start as a
+  // local draft committed with "Add" — a pull request is a discrete ask, not
+  // a keystroke stream, so no debounce machinery here.
   function samplePullsEditor(item: ProdItem) {
-    const pulls = item.sample_pulls || [];
+    const pulls = pullReqsByItem[item.id] || [];
+    const draft = pullDrafts[item.id] || null;
     const sizes = item.sizes.length > 0 ? item.sizes : ["OS"];
     const cell = { padding: "3px 5px", fontSize: 11 } as const;
-    const setText = (idx: number, field: "for" | "to", value: string) =>
-      saveSamplePulls(item.id, pulls.map((p, i) => i === idx ? { ...p, [field]: value } : p));
-    const setQty = (idx: number, sz: string, value: string) => {
+    const setRows = (rows: PullRequestRow[]) =>
+      setPullReqsByItem(prev => ({ ...prev, [item.id]: rows }));
+    const setExistingQty = (pr: PullRequestRow, sz: string, value: string) => {
       const n = parseInt(value, 10);
-      saveSamplePulls(item.id, pulls.map((p, i) => {
-        if (i !== idx) return p;
-        const q = { ...p.qtys };
-        if (!n || n <= 0) delete q[sz]; else q[sz] = n;
-        return { ...p, qtys: q };
-      }));
+      const q = { ...(pr.qtys || {}) };
+      if (!n || n <= 0) delete q[sz]; else q[sz] = n;
+      setRows(pulls.map(p => p.id === pr.id ? { ...p, qtys: q } : p));
     };
-    const cols = `repeat(${sizes.length}, 34px) minmax(70px,1fr) minmax(84px,1.3fr) 16px`;
+    const commitExisting = (prId: string) => {
+      const pr = (pullReqsByItem[item.id] || []).find(p => p.id === prId);
+      if (pr) updatePullRequest(supabase, pr.id, { qtys: pr.qtys, reason: pr.reason });
+    };
+    const removeExisting = async (pr: PullRequestRow) => {
+      await supabase.from("pull_requests").delete().eq("id", pr.id);
+      setRows(pulls.filter(p => p.id !== pr.id));
+    };
+    const setDraft = (patch: Partial<{ qtys: Record<string, number>; kind: string; reason: string }>) =>
+      setPullDrafts(prev => {
+        const base = prev[item.id] || { qtys: {}, kind: "sample", reason: "" };
+        return { ...prev, [item.id]: { ...base, ...patch } };
+      });
+    const setDraftQty = (sz: string, value: string) => {
+      const n = parseInt(value, 10);
+      const q = { ...((draft?.qtys) || {}) };
+      if (!n || n <= 0) delete q[sz]; else q[sz] = n;
+      setDraft({ qtys: q });
+    };
+    const commitDraft = async () => {
+      if (!draft || Object.values(draft.qtys || {}).every(n => !n)) return;
+      const created = await createPullRequest(supabase, {
+        job_id: item.job_id, item_id: item.id,
+        kind: draft.kind, qtys: draft.qtys, reason: draft.reason,
+      });
+      if (created) {
+        setRows([...pulls, created]);
+        setPullDrafts(prev => { const next = { ...prev }; delete next[item.id]; return next; });
+      }
+    };
+    const cols = `repeat(${sizes.length}, 34px) minmax(150px,1.6fr) 16px`;
+    const qtyInput = (v: number | undefined, onChange: (val: string) => void, onBlur?: () => void) => (
+      <input value={v ? String(v) : ""} placeholder="·" inputMode="numeric"
+        onChange={e => onChange(e.target.value)} onBlur={onBlur}
+        style={{ ...ic, ...cell, width: 34, textAlign: "center", fontFamily: mono, color: v ? T.amber : T.faint, borderColor: v ? T.amber : T.border }} />
+    );
     return (
       <div onClick={e => e.stopPropagation()} style={{ display: "flex", flexDirection: "column", gap: 5, width: "100%", maxWidth: 540, overflowX: "auto" }}>
-        <span style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em" }}>Sample pulls (internal)</span>
-        {pulls.length > 0 && (
+        <span style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em" }}>Pulls (warehouse holds these back)</span>
+        {(pulls.length > 0 || draft) && (
           <div style={{ display: "grid", gridTemplateColumns: cols, gap: 4, alignItems: "center" }}>
-            {/* header */}
             {sizes.map(sz => (
               <span key={`h-${sz}`} style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", textAlign: "center", fontFamily: mono }}>{sz}</span>
             ))}
-            <span style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", paddingLeft: 2 }}>For</span>
-            <span style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", paddingLeft: 2 }}>To</span>
+            <span style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", paddingLeft: 2 }}>Type · reason</span>
             <span />
-            {/* rows */}
-            {pulls.map((p, idx) => (
-              <Fragment key={idx}>
-                {sizes.map(sz => {
-                  const v = p.qtys?.[sz];
-                  return (
-                    <input key={sz} value={v ? String(v) : ""} placeholder="·" inputMode="numeric"
-                      onChange={e => setQty(idx, sz, e.target.value)} onBlur={() => flushSamplePulls(item.id)}
-                      style={{ ...ic, ...cell, width: 34, textAlign: "center", fontFamily: mono, color: v ? T.amber : T.faint, borderColor: v ? T.amber : T.border }} />
-                  );
-                })}
-                <input value={p.for || ""} placeholder="for who"
-                  onChange={e => setText(idx, "for", e.target.value)} onBlur={() => flushSamplePulls(item.id)}
-                  style={{ ...ic, ...cell, minWidth: 0 }} />
-                <input value={p.to || ""} placeholder="where to"
-                  onChange={e => setText(idx, "to", e.target.value)} onBlur={() => flushSamplePulls(item.id)}
-                  style={{ ...ic, ...cell, minWidth: 0 }} />
-                <button onClick={() => { saveSamplePulls(item.id, pulls.filter((_, i) => i !== idx)); flushSamplePulls(item.id); }}
-                  title="Remove pull"
+            {pulls.map(pr => (
+              <Fragment key={pr.id}>
+                {sizes.map(sz => (
+                  <Fragment key={sz}>{qtyInput(pr.qtys?.[sz], v => setExistingQty(pr, sz, v), () => commitExisting(pr.id))}</Fragment>
+                ))}
+                <div style={{ display: "flex", gap: 4, minWidth: 0, alignItems: "center" }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: T.amber, flexShrink: 0, textTransform: "capitalize" }}>{pr.kind}</span>
+                  <input value={pr.reason || ""} placeholder="reason / where to"
+                    onChange={e => setRows(pulls.map(p => p.id === pr.id ? { ...p, reason: e.target.value } : p))}
+                    onBlur={() => commitExisting(pr.id)}
+                    style={{ ...ic, ...cell, minWidth: 0, flex: 1 }} />
+                </div>
+                <button onClick={() => removeExisting(pr)} title="Remove request"
                   style={{ background: "none", border: "none", color: T.faint, cursor: "pointer", fontSize: 15, lineHeight: 1, padding: 0, flexShrink: 0 }}>×</button>
               </Fragment>
             ))}
+            {draft && (
+              <Fragment>
+                {sizes.map(sz => (
+                  <Fragment key={sz}>{qtyInput(draft.qtys?.[sz], v => setDraftQty(sz, v))}</Fragment>
+                ))}
+                <div style={{ display: "flex", gap: 4, minWidth: 0, alignItems: "center" }}>
+                  <select value={draft.kind} onChange={e => setDraft({ kind: e.target.value })}
+                    style={{ ...ic, ...cell, width: 84, flexShrink: 0 }}>
+                    {PULL_KINDS.map(k => <option key={k.id} value={k.id}>{k.label}</option>)}
+                  </select>
+                  <input value={draft.reason} placeholder="reason / where to"
+                    onChange={e => setDraft({ reason: e.target.value })}
+                    onKeyDown={e => { if (e.key === "Enter") commitDraft(); }}
+                    style={{ ...ic, ...cell, minWidth: 0, flex: 1 }} />
+                  <button onClick={commitDraft}
+                    disabled={Object.values(draft.qtys || {}).every(n => !n)}
+                    style={{ fontSize: 10, fontWeight: 700, padding: "3px 10px", borderRadius: 5, border: "none", background: Object.values(draft.qtys || {}).some(n => n > 0) ? T.accent : T.surface, color: Object.values(draft.qtys || {}).some(n => n > 0) ? "#fff" : T.faint, cursor: "pointer", fontFamily: font, flexShrink: 0 }}>
+                    Add
+                  </button>
+                </div>
+                <button onClick={() => setPullDrafts(prev => { const next = { ...prev }; delete next[item.id]; return next; })} title="Discard"
+                  style={{ background: "none", border: "none", color: T.faint, cursor: "pointer", fontSize: 15, lineHeight: 1, padding: 0, flexShrink: 0 }}>×</button>
+              </Fragment>
+            )}
           </div>
         )}
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          <button onClick={() => saveSamplePulls(item.id, [...pulls, { qtys: {}, for: "", to: "" }])}
-            style={{ fontSize: 11, fontWeight: 600, color: T.accent, background: "none", border: `1px dashed ${T.border}`, borderRadius: 5, padding: "3px 10px", cursor: "pointer", fontFamily: font }}>
-            + Add pull
-          </button>
-          {item.sizes.length > 1 && (
-            <button onClick={() => saveSamplePulls(item.id, [...pulls, { qtys: Object.fromEntries(item.sizes.map(sz => [sz, 1])), for: "", to: "" }])}
-              title="Adds a pull with one of every size"
-              style={{ fontSize: 11, fontWeight: 600, color: T.muted, background: "none", border: `1px dashed ${T.border}`, borderRadius: 5, padding: "3px 10px", cursor: "pointer", fontFamily: font }}>
-              + Size run
+        {!draft && (
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <button onClick={() => setDraft({})}
+              style={{ fontSize: 11, fontWeight: 600, color: T.accent, background: "none", border: `1px dashed ${T.border}`, borderRadius: 5, padding: "3px 10px", cursor: "pointer", fontFamily: font }}>
+              + Request pull
             </button>
-          )}
-        </div>
+            {item.sizes.length > 1 && (
+              <button onClick={() => setDraft({ qtys: Object.fromEntries(item.sizes.map(sz => [sz, 1])) })}
+                title="Starts a request with one of every size"
+                style={{ fontSize: 11, fontWeight: 600, color: T.muted, background: "none", border: `1px dashed ${T.border}`, borderRadius: 5, padding: "3px 10px", cursor: "pointer", fontFamily: font }}>
+                + Size run
+              </button>
+            )}
+          </div>
+        )}
       </div>
     );
   }
@@ -1185,6 +1212,7 @@ export default function ProductionPage() {
     if (!dg) return;
     setBatchTracking("");
     setBatchNotes("");
+    setBatchWarehouseNotes("");
     setBatchShipState({ items: listEligible.map(r => r.it), project: first.p, dg });
   };
 
@@ -1648,6 +1676,7 @@ export default function ProductionPage() {
                               const seedNotes = eligible.find(it => it.ship_notes)?.ship_notes || "";
                               setBatchTracking(seedTracking);
                               setBatchNotes(seedNotes);
+                              setBatchWarehouseNotes("");
                               setBatchShipState({ items: eligible, project, dg });
                             }} style={{ fontSize: 12, fontWeight: 700, padding: "6px 14px", borderRadius: 6, background: T.green, color: "#fff", border: "none", cursor: "pointer", fontFamily: font }}>
                               Ship Selected · {eligible.length}
@@ -2244,6 +2273,14 @@ export default function ProductionPage() {
                     style={{ ...ic, fontSize: 13, padding: "8px 10px" }} />
                 </div>
                 <div>
+                  <label style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: 0.6, display: "block", marginBottom: 6 }}>Warehouse instructions</label>
+                  <textarea value={batchWarehouseNotes} placeholder="Anything the warehouse needs to know when this lands — pulls, handling, priorities…"
+                    onChange={e => setBatchWarehouseNotes(e.target.value)}
+                    rows={2}
+                    style={{ ...ic, fontSize: 13, padding: "8px 10px", resize: "vertical", fontFamily: font }} />
+                  <div style={{ fontSize: 10, color: T.faint, marginTop: 4 }}>Shows on Receiving with this shipment.</div>
+                </div>
+                <div>
                   <label style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: 0.6, display: "block", marginBottom: 6 }}>Packing slip</label>
                   {uniqueSlips.length > 0 && (
                     <div style={{ marginBottom: 8, display: "flex", flexDirection: "column", gap: 4 }}>
@@ -2307,7 +2344,7 @@ export default function ProductionPage() {
                         // skipReload: true on each so the modal doesn't flash
                         // N times; one loadAll at the end refreshes state.
                         for (const it of liveItems) {
-                          await markShipped({ ...it, ship_tracking: batchTracking, ship_notes: batchNotes }, { skipReload: true });
+                          await markShipped({ ...it, ship_tracking: batchTracking, ship_notes: batchNotes }, { skipReload: true, warehouseNotes: batchWarehouseNotes });
                         }
                         await loadAll();
                       }}

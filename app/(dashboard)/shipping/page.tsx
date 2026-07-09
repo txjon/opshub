@@ -22,7 +22,7 @@ type ShippedHistoryEntry = {
 };
 
 export default function ShippingPage() {
-  const { loading, shipThrough, undoReceived, updateFulfillment, debounceFulfillmentTracking, forwardItems, addSamplePull, logJobActivity, supabase, setJobs } = useWarehouse();
+  const { loading, shipThrough, undoReceived, updateFulfillment, debounceFulfillmentTracking, forwardItems, addPull, logJobActivity, supabase, setJobs } = useWarehouse();
   const [outsideShipments, setOutsideShipments] = useState<any[]>([]);
   const [tab, setTab] = useState<"ready" | "shipped">("ready");
   // Silent mode — suppresses the Notify Recipient dialog on Mark Shipped.
@@ -274,12 +274,14 @@ export default function ShippingPage() {
     });
   }
 
-  // Record a post-receiving product pull (sample held back — photos/catalog).
+  // Record a post-receiving product pull (units held back — photos/catalog).
+  // Ad-hoc path: creates an already-fulfilled pull_request + pulled_inventory
+  // bucket (mig 117) and deducts from the forwardable balance via sample_qtys.
   async function savePull(item: WarehouseItem) {
     const qtys: Record<string, number> = {};
     for (const [s, v] of Object.entries(pullQtys)) { const n = parseInt(v) || 0; if (n > 0) qtys[s] = n; }
     if (Object.keys(qtys).length === 0) { setPullFor(null); return; }
-    await addSamplePull(item, qtys, pullReason.trim() || "Internal", "");
+    await addPull(item, qtys, "sample", pullReason.trim() || "Internal");
     setPullFor(null); setPullQtys({}); setPullReason("");
   }
 
