@@ -1705,46 +1705,32 @@ export default function ReceivingPage() {
                                               </>
                                             ) : (
                                               <>
-                                                {/* Condition + notes are the EXCEPTION path — hidden
-                                                    until "Flag issue" is clicked. (Condition is a label
-                                                    only today; real damage handling that deducts units
-                                                    is the D2 build.) Happy path = count → Receive. */}
+                                                {/* Flag issue = a free-text note only. No per-item
+                                                    condition dropdown — damage is a whole-shipment
+                                                    concern, not per garment, and the Good/Damaged label
+                                                    did nothing downstream. Happy path = count → Receive. */}
                                                 {flaggedItems.has(item.id) && (
-                                                  <>
-                                                    <select
-                                                      value={itemCondition[item.id] || "good"}
-                                                      onChange={e => setItemCondition(prev => ({ ...prev, [item.id]: e.target.value }))}
-                                                      style={{ ...ic, width: 150, fontSize: 11, padding: "5px 8px" }}
-                                                    >
-                                                      <option value="good">Good</option>
-                                                      <option value="partial_damage">Partial damage</option>
-                                                      <option value="damaged">Damaged</option>
-                                                    </select>
-                                                    <input
-                                                      type="text"
-                                                      autoFocus
-                                                      placeholder={itemCondition[item.id] && itemCondition[item.id] !== "good" ? "Describe the issue…" : "Note (optional)"}
-                                                      value={conditionNote[item.id] || ""}
-                                                      onChange={e => setConditionNote(prev => ({ ...prev, [item.id]: e.target.value }))}
-                                                      style={{
-                                                        ...ic, width: 150, fontSize: 11, padding: "5px 8px",
-                                                        fontFamily: font,
-                                                        borderColor: itemCondition[item.id] && itemCondition[item.id] !== "good" ? T.amber : T.border,
-                                                      }}
-                                                    />
-                                                  </>
+                                                  <input
+                                                    type="text"
+                                                    autoFocus
+                                                    placeholder="What's the issue?"
+                                                    value={conditionNote[item.id] || ""}
+                                                    onChange={e => setConditionNote(prev => ({ ...prev, [item.id]: e.target.value }))}
+                                                    style={{ ...ic, width: 190, fontSize: 11, padding: "5px 8px", fontFamily: font, borderColor: T.amber }}
+                                                  />
                                                 )}
                                                 {!flaggedItems.has(item.id) && (
                                                   <button onClick={() => toggleFlag(item.id)}
                                                     style={{ fontSize: 10, fontWeight: 600, color: T.faint, background: "none", border: "none", cursor: "pointer", fontFamily: font, textDecoration: "underline", padding: 0 }}
-                                                    title="Record a condition / note for this receipt">
+                                                    title="Note a problem with this receipt">
                                                     ⚑ Flag issue
                                                   </button>
                                                 )}
                                                 <div style={{ display: "flex", gap: 4, marginTop: 2 }}>
                                                   <button onClick={() => returnToProduction(item)} style={{ fontSize: 10, color: T.faint, background: "none", border: `1px solid ${T.border}`, borderRadius: 4, padding: "3px 10px", cursor: "pointer" }} title="Send back to decorator">← Production</button>
                                                   <button onClick={() => markReceived(item, {
-                                                    condition: itemCondition[item.id] || "good",
+                                                    // condition removed from this view — note only.
+                                                    condition: "good",
                                                     notes: conditionNote[item.id] || "",
                                                     skipClientEmail: silentMode,
                                                   })} style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: T.green, border: "none", borderRadius: 4, padding: "5px 14px", cursor: "pointer" }}>Receive</button>
