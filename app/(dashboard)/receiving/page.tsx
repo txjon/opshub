@@ -1348,8 +1348,10 @@ export default function ReceivingPage() {
         // to their own project's folder.
         const jobById = new Map(shipment.jobs.map(j => [j.id, j]));
         return (
-          <div style={{ position: "fixed", inset: 0, background: T.bg, zIndex: 1000, display: "flex", flexDirection: "column", fontFamily: font, color: T.text }}>
-            <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          <div onClick={() => setModalShipmentKey(null)}
+            style={{ position: "fixed", inset: 0, background: "rgba(10,12,20,0.5)", backdropFilter: "blur(2px)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "clamp(12px, 4vh, 44px)", fontFamily: font, color: T.text }}>
+            <div onClick={e => e.stopPropagation()}
+              style={{ background: T.bg, width: "100%", maxWidth: 980, maxHeight: "90vh", borderRadius: 16, overflow: "hidden", boxShadow: "0 24px 70px rgba(0,0,0,0.45)", border: `1px solid ${T.border}`, display: "flex", flexDirection: "column" }}>
               {/* Header — vendor + tracking primary; project context secondary */}
               <div style={{ padding: "14px 22px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexShrink: 0, background: T.card }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
