@@ -202,7 +202,10 @@ export function useWarehouse() {
       const relevant = jobItems.filter((it: any) => {
         const effectiveRoute = it.shipping_route || jobRoute;
         if (effectiveRoute === "drop_ship") return false;
-        return it.pipeline_stage === "shipped" || it.received_at_hpd;
+        // Include anything with shipped units (even partial waves where the item
+        // is still in_production for the balance), plus already-received items.
+        const shippedUnits = tQty(it.ship_qtys || {});
+        return it.pipeline_stage === "shipped" || it.received_at_hpd || shippedUnits > 0;
       });
       if (relevant.length === 0) continue;
 
@@ -431,12 +434,22 @@ export function useWarehouse() {
       received_at: now,
     };
 
+    // Wave-aware "fully received": an item is only done receiving when the
+    // received total catches up to the shipped total — OR the item is fully
+    // shipped (all waves out), in which case a short receive is a final
+    // variance, not "more coming". A partial item still awaiting later waves
+    // stays received_at_hpd=false so it remains in the pending list.
+    const cumShipped = tQty(item.ship_qtys || {});
+    const cumReceived = tQty(item.received_qtys || {});
+    const caughtUp = cumReceived >= cumShipped;
+    const fullyShipped = item.pipeline_stage === "shipped";
+    const nowReceived = caughtUp || fullyShipped;
     // Bundle pending qty edits with the receive flag so a single update
     // lands. Empty objects are skipped — downstream readers fall back to
     // ship_qtys when received_qtys is missing.
     const updates: any = {
-      received_at_hpd: true,
-      received_at_hpd_at: now,
+      received_at_hpd: nowReceived,
+      received_at_hpd_at: nowReceived ? now : null,
       receiving_data: receivingData,
     };
     if (item.received_qtys && Object.keys(item.received_qtys).length > 0) {

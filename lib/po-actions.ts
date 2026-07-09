@@ -187,7 +187,7 @@ export async function shipItemWave(supabase: any, args: {
   const tracking = (args.tracking || "").trim() || null;
   const { data: item } = await supabase
     .from("items")
-    .select("id, name, job_id, ship_qtys, ship_tracking, pipeline_stage, pipeline_timestamps, expected_arrival, decorator_assignments(id, decorator_id, decorators(name, short_code)), buy_sheet_lines(size, qty_ordered)")
+    .select("id, name, job_id, ship_qtys, received_qtys, ship_tracking, pipeline_stage, pipeline_timestamps, expected_arrival, decorator_assignments(id, decorator_id, decorators(name, short_code)), buy_sheet_lines(size, qty_ordered)")
     .eq("id", args.itemId).single();
   if (!item) return { shipped: 0, ordered: 0, remaining: 0, fullyShipped: false };
 
@@ -203,12 +203,16 @@ export async function shipItemWave(supabase: any, args: {
   const ts = new Date().toISOString();
   const timestamps = { ...(item.pipeline_timestamps || {}), shipped: (item.pipeline_timestamps || {}).shipped || ts };
   const da = (item.decorator_assignments || [])[0];
+  // A new wave means un-received units exist again → pull the item back into
+  // the receiving pending list (received_at_hpd off when received < shipped).
+  const receivedTotal = Object.values(item.received_qtys || {}).reduce((a: number, n: any) => a + (Number(n) || 0), 0);
   await supabase.from("items").update({
     ship_qtys: newShip,                                   // cumulative across waves
     ship_tracking: tracking || item.ship_tracking || null, // latest wave's tracking
     pipeline_stage: prog.fullyShipped ? "shipped" : "in_production",
     pipeline_timestamps: timestamps,
-    // received_at_hpd / received_qtys intentionally untouched.
+    received_at_hpd: receivedTotal >= prog.shipped ? true : false,
+    // received_qtys intentionally untouched (cumulative received carries over).
   }).eq("id", item.id);
   if (da?.id) {
     await supabase.from("decorator_assignments").update({ pipeline_stage: prog.fullyShipped ? "shipped" : "in_production" }).eq("id", da.id);

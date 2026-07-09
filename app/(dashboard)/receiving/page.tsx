@@ -6,6 +6,7 @@ import { T, font, mono, SIZE_ORDER } from "@/lib/theme";
 import { useWarehouse, tQty, type WarehouseJob, type WarehouseItem } from "@/lib/use-warehouse";
 import { useShipments, isRealTracking, type Shipment } from "@/lib/use-shipments";
 import { resolvePulledInventory, resolvePostShopifyPull } from "@/lib/handoff";
+import { shipProgress } from "@/lib/ship-progress";
 import { computeArrivalEta } from "@/lib/arrival-eta";
 import { uploadToReceiving, uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
 import { DriveFileLink } from "@/components/DriveFileLink";
@@ -180,7 +181,7 @@ type DecoratorGroup = {
 type FileRec = { file_name: string; drive_link: string; drive_file_id: string | null; mime_type: string | null };
 
 export default function ReceivingPage() {
-  const { loading, jobs, updateReceivedQty, updateSampleQty, markReceived, bulkMarkReceived, undoReceived, returnToProduction, fulfillPull, addPull, cancelPull, logJobActivity } = useWarehouse();
+  const { loading, jobs, setJobs, updateReceivedQty, updateSampleQty, markReceived, bulkMarkReceived, undoReceived, returnToProduction, fulfillPull, addPull, cancelPull, logJobActivity } = useWarehouse();
   const supabase = createClient();
 
   // Pulled inventory (migration 117): units held back from shipments — the
@@ -369,6 +370,27 @@ export default function ReceivingPage() {
       setSelectedItemIds(new Set());
     }
   }, [modalShipmentKey]);
+
+  // On open: pre-fill each PENDING item's Delivered inputs to the full shipped
+  // total (so a later wave shows "receive 300", not the 100 already logged from
+  // a prior wave). Receiver adjusts down for a shortage. Persists nothing until
+  // Receive; just seeds the local displayed received_qtys.
+  useEffect(() => {
+    if (!modalShipmentKey) return;
+    const shp = shipments.find(s => s.key === modalShipmentKey);
+    if (!shp) return;
+    const pendingIds = new Set(shp.items.filter(it => !it.received_at_hpd).map(it => it.id));
+    if (pendingIds.size === 0) return;
+    setJobs(prev => prev.map(j => ({
+      ...j, items: j.items.map(it => {
+        if (!pendingIds.has(it.id)) return it;
+        // Seed received to the full shipped total for any size not already set
+        // to it — receiver confirms the cumulative received.
+        const seeded = { ...(it.ship_qtys || {}) };
+        return { ...it, received_qtys: seeded };
+      }),
+    })));
+  }, [modalShipmentKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function toggleItemSelected(itemId: string) {
     setSelectedItemIds(prev => {
@@ -1609,6 +1631,20 @@ export default function ReceivingPage() {
                                             {fmtEta(item.client_eta) && (
                                               <div style={{ fontSize: 11, fontWeight: 600, color: T.accent, marginTop: 3 }}>ETA {fmtEta(item.client_eta)}</div>
                                             )}
+                                            {/* Wave progress — ordered / shipped / remaining. Shows a
+                                                'Partial shipment' badge when the vendor still owes units. */}
+                                            {(() => {
+                                              const p = shipProgress(item.qtys, item.ship_qtys, item.received_qtys);
+                                              if (p.ordered === 0) return null;
+                                              const partial = p.remaining > 0;
+                                              return (
+                                                <div style={{ marginTop: 4, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", fontSize: 11, fontFamily: mono }}>
+                                                  {partial && <span style={{ fontSize: 9, fontWeight: 800, color: T.amber, background: T.amberDim, border: `1px solid ${T.amber}55`, borderRadius: 4, padding: "1px 6px", letterSpacing: "0.04em", textTransform: "uppercase", fontFamily: font }}>Partial shipment</span>}
+                                                  <span style={{ color: T.muted }}>{p.shipped}/{p.ordered} shipped</span>
+                                                  {p.remaining > 0 && <span style={{ color: T.amber }}>· {p.remaining} still to ship</span>}
+                                                </div>
+                                              );
+                                            })()}
 
                                             {/* Photos */}
                                             <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 6, alignItems: "center" }}>
