@@ -7,7 +7,7 @@
 import { useState, useEffect } from "react";
 import { T, font, mono } from "@/lib/theme";
 
-const GOOSE_EMAIL = "goose@housepartydistro.com";
+const WAREHOUSE_EMAIL = "warehouse@housepartydistro.com";
 
 export function NotifyShipmentDialog({
   open,
@@ -30,7 +30,7 @@ export function NotifyShipmentDialog({
   const [recipientSel, setRecipientSel] = useState({}); // contactIdx -> bool
   const [extraEmail, setExtraEmail] = useState("");
   const [bccEmail, setBccEmail] = useState("");
-  const [includeGoose, setIncludeGoose] = useState(true);
+  const [includeWarehouse, setIncludeWarehouse] = useState(true);
   const [warehouseExtraEmail, setWarehouseExtraEmail] = useState("");
 
   // Subject + body
@@ -52,7 +52,7 @@ export function NotifyShipmentDialog({
       contacts.forEach((c, i) => { if (c?.email) sel[i] = true; });
       setRecipientSel(sel);
     } else {
-      setIncludeGoose(true);
+      setIncludeWarehouse(true);
       setWarehouseExtraEmail("");
     }
     setExtraEmail("");
@@ -80,7 +80,7 @@ export function NotifyShipmentDialog({
     : [];
   const warehouseRecipients = !isDropShip
     ? [
-        ...(includeGoose ? [GOOSE_EMAIL] : []),
+        ...(includeWarehouse ? [WAREHOUSE_EMAIL] : []),
         ...(warehouseExtraEmail.trim() ? [warehouseExtraEmail.trim()] : []),
       ]
     : [];
@@ -227,18 +227,18 @@ export function NotifyShipmentDialog({
               <label style={{
                 display: "flex", alignItems: "center", gap: 10,
                 padding: "8px 12px",
-                background: includeGoose ? T.accentDim : T.surface,
-                border: `1px solid ${includeGoose ? T.accent + "66" : T.border}`,
+                background: includeWarehouse ? T.accentDim : T.surface,
+                border: `1px solid ${includeWarehouse ? T.accent + "66" : T.border}`,
                 borderRadius: 6, cursor: "pointer",
               }}>
-                <input type="checkbox" checked={includeGoose}
-                  onChange={e => setIncludeGoose(e.target.checked)}
+                <input type="checkbox" checked={includeWarehouse}
+                  onChange={e => setIncludeWarehouse(e.target.checked)}
                   style={{ accentColor: T.accent }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Goose</span>
-                  <span style={{ fontSize: 10, color: T.muted, marginLeft: 6 }}>HPD Warehouse</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Warehouse</span>
+                  <span style={{ fontSize: 10, color: T.muted, marginLeft: 6 }}>HPD Warehouse team</span>
                 </div>
-                <span style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>{GOOSE_EMAIL}</span>
+                <span style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>{WAREHOUSE_EMAIL}</span>
               </label>
               <input value={warehouseExtraEmail} onChange={e => setWarehouseExtraEmail(e.target.value)}
                 placeholder="+ Add another email"
@@ -269,7 +269,7 @@ export function NotifyShipmentDialog({
             <textarea value={customMessage} onChange={e => setCustomMessage(e.target.value)} rows={3}
               placeholder={isDropShip
                 ? "Anything extra you'd like the customer to know? Special handling, follow-up info, thank-you, etc."
-                : "Anything Goose should know? Quirky packaging, partial qty, double-box, etc."}
+                : "Anything the warehouse should know? Quirky packaging, partial qty, double-box, etc."}
               style={{ ...inp, resize: "vertical", lineHeight: 1.5, fontSize: 13 }} />
           </div>
 
