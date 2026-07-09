@@ -108,7 +108,6 @@ export default function ProductionPage() {
     { items: ProdItem[]; project: ProjectGroup; dg: DecoratorGroup } | null
   >(null);
   const [batchTracking, setBatchTracking] = useState("");
-  const [batchNotes, setBatchNotes] = useState("");
   // Production → warehouse instructions, stored on the shipments row
   // (migration 117) and shown prominently on /receiving. Shipment-level:
   // one message for the whole box, unlike per-item ship_notes.
@@ -130,6 +129,7 @@ export default function ProductionPage() {
     jobTitle: string;
     route: string;
     contacts: Array<{ name: string; email: string; role: string }>;
+    note: string;
   } | null>(null);
   const [contactsByJob, setContactsByJob] = useState<Record<string, Array<{ name: string; email: string; role: string }>>>({});
   // Per-decorator expand state inside the modal. Reset on modal change
@@ -616,6 +616,7 @@ export default function ProductionPage() {
     decoratorName: string;
     tracking: string;
     route?: string;
+    note?: string;
   }) {
     const { project, decoratorId, decoratorName, tracking } = args;
     const route = args.route || project.shippingRoute || "ship_through";
@@ -630,6 +631,7 @@ export default function ProductionPage() {
       jobTitle: project.jobTitle || "",
       route,
       contacts,
+      note: args.note || "",
     });
   }
 
@@ -1217,7 +1219,6 @@ export default function ProductionPage() {
     const dg = first.p.decoratorGroups.find(g => (g.decoratorId || g.decoratorName) === (first.it.decorator_id || first.it.decorator_name));
     if (!dg) return;
     setBatchTracking("");
-    setBatchNotes("");
     setBatchWarehouseNotes("");
     setBatchShipState({ items: listEligible.map(r => r.it), project: first.p, dg });
   };
@@ -1675,14 +1676,13 @@ export default function ProductionPage() {
                           </button>
                           {eligible.length > 0 && (
                             <button onClick={() => {
-                              // Seed tracking from any selected item that
-                              // already has one (e.g. set previously via the
-                              // per-item modal). Notes seeded the same way.
+                              // Seed tracking + the warehouse note from any
+                              // selected item that already has one (e.g. set on
+                              // the per-item modal).
                               const seedTracking = eligible.find(it => it.ship_tracking)?.ship_tracking || "";
                               const seedNotes = eligible.find(it => it.ship_notes)?.ship_notes || "";
                               setBatchTracking(seedTracking);
-                              setBatchNotes(seedNotes);
-                              setBatchWarehouseNotes("");
+                              setBatchWarehouseNotes(seedNotes);
                               setBatchShipState({ items: eligible, project, dg });
                             }} style={{ fontSize: 12, fontWeight: 700, padding: "6px 14px", borderRadius: 6, background: T.green, color: "#fff", border: "none", cursor: "pointer", fontFamily: font }}>
                               Ship Selected · {eligible.length}
@@ -1846,8 +1846,8 @@ export default function ProductionPage() {
                                         r.decoratorId === item.decorator_id &&
                                         (r.tracking || null) === (item.ship_tracking || null)
                                       );
-                                      const canNotify = !!item.ship_tracking && !!project.invoiceNumber;
                                       const itemRoute = resolveRoute(item.shipping_route, project.shippingRoute);
+                                      const canNotify = !!item.ship_tracking && (itemRoute === "drop_ship" ? !!project.invoiceNumber : true);
                                       const label = notified ? "Notified ✓" : (itemRoute === "drop_ship" ? "Notify customer" : "Notify warehouse");
                                       const bg = notified ? T.greenDim : T.accent;
                                       const color = notified ? T.green : "#fff";
@@ -1862,10 +1862,11 @@ export default function ProductionPage() {
                                             decoratorName: item.decorator_name || "",
                                             tracking: item.ship_tracking || "",
                                             route: itemRoute,
+                                            note: item.ship_notes || "",
                                           });
                                         }}
                                           disabled={!canNotify}
-                                          title={!project.invoiceNumber ? "Generate invoice first" : (!item.ship_tracking ? "Tracking required" : "")}
+                                          title={(itemRoute === "drop_ship" && !project.invoiceNumber) ? "Generate invoice first" : (!item.ship_tracking ? "Tracking required" : "")}
                                           style={{ fontSize: 10, fontWeight: 600, padding: "3px 10px", borderRadius: 4, border, background: bg, color, cursor: canNotify ? "pointer" : "not-allowed", whiteSpace: "nowrap", opacity: canNotify ? 1 : 0.5, fontFamily: font }}>
                                           {label}
                                         </button>
@@ -2054,8 +2055,8 @@ export default function ProductionPage() {
                     style={{ ...ic, fontSize: 13, padding: "8px 10px" }} />
                 </div>
                 <div>
-                  <label style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: 0.6, display: "block", marginBottom: 6 }}>Notes</label>
-                  <input value={item.ship_notes || ""} placeholder="Optional"
+                  <label style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: 0.6, display: "block", marginBottom: 6 }}>Note to warehouse</label>
+                  <input value={item.ship_notes || ""} placeholder="Shows on Receiving + in the warehouse email"
                     onChange={e => updateField(item.id, "ship_notes", e.target.value)}
                     style={{ ...ic, fontSize: 13, padding: "8px 10px" }} />
                 </div>
@@ -2112,13 +2113,16 @@ export default function ProductionPage() {
                     + tracking); clicking still opens the dialog → backend
                     dedups → "Already sent — Resend?" confirm. */}
                 {item.pipeline_stage === "shipped" && (() => {
-                  const canNotify = !!item.ship_tracking && !!project.invoiceNumber;
+                  const itemRoute = resolveRoute(item.shipping_route, project.shippingRoute);
+                  // Customer notify (drop_ship) references the client invoice, so it
+                  // needs one. Warehouse notify (ship_through/stage) is an internal
+                  // incoming-goods alert to the warehouse — no invoice required.
+                  const canNotify = !!item.ship_tracking && (itemRoute === "drop_ship" ? !!project.invoiceNumber : true);
                   const notified = project.shippingNotifications.some(r =>
                     (r.type === "drop_ship_vendor" || r.type === "decorator_to_warehouse") &&
                     r.decoratorId === item.decorator_id &&
                     (r.tracking || null) === (item.ship_tracking || null)
                   );
-                  const itemRoute = resolveRoute(item.shipping_route, project.shippingRoute);
                   const baseLabel = itemRoute === "drop_ship" ? "Notify customer" : "Notify warehouse";
                   // Lock once notified so a stray click can't re-fire the email.
                   const label = notified ? (itemRoute === "drop_ship" ? "Customer notified ✓" : "Warehouse notified ✓") : baseLabel;
@@ -2136,16 +2140,17 @@ export default function ProductionPage() {
                           decoratorName: item.decorator_name || "",
                           tracking: item.ship_tracking || "",
                           route: itemRoute,
+                          note: item.ship_notes || "",
                         });
                       }}
-                      title={notified ? "Already notified — duplicate send blocked" : !project.invoiceNumber ? "Generate invoice first" : (!item.ship_tracking ? "Tracking required" : "")}
+                      title={notified ? "Already notified — duplicate send blocked" : (itemRoute === "drop_ship" && !project.invoiceNumber) ? "Generate invoice first" : (!item.ship_tracking ? "Tracking required" : "")}
                       style={{ padding: "8px 18px", borderRadius: 6, border, background: bg, color, fontSize: 12, fontWeight: 700, cursor: notified ? "default" : (canNotify ? "pointer" : "not-allowed"), fontFamily: font, opacity: (notified || canNotify) ? 1 : 0.6 }}>
                       {label}
                     </button>
                   );
                 })()}
                 {item.pipeline_stage !== "shipped" && (
-                  <button onClick={async () => { await markShipped(item); }}
+                  <button onClick={async () => { await markShipped(item, { warehouseNotes: item.ship_notes || "" }); }}
                     style={{ padding: "8px 18px", borderRadius: 6, border: "none", background: T.green, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>
                     Mark Shipped
                   </button>
@@ -2278,18 +2283,12 @@ export default function ProductionPage() {
                   <div style={{ fontSize: 10, color: T.faint, marginTop: 4 }}>Applied to all {liveItems.length} items.</div>
                 </div>
                 <div>
-                  <label style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: 0.6, display: "block", marginBottom: 6 }}>Notes</label>
-                  <input value={batchNotes} placeholder="Optional"
-                    onChange={e => setBatchNotes(e.target.value)}
-                    style={{ ...ic, fontSize: 13, padding: "8px 10px" }} />
-                </div>
-                <div>
-                  <label style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: 0.6, display: "block", marginBottom: 6 }}>Warehouse instructions</label>
-                  <textarea value={batchWarehouseNotes} placeholder="Anything the warehouse needs to know when this lands — pulls, handling, priorities…"
+                  <label style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: 0.6, display: "block", marginBottom: 6 }}>Note to warehouse</label>
+                  <textarea value={batchWarehouseNotes} placeholder="Anything the warehouse needs when this lands — pulls, handling, priorities…"
                     onChange={e => setBatchWarehouseNotes(e.target.value)}
                     rows={2}
                     style={{ ...ic, fontSize: 13, padding: "8px 10px", resize: "vertical", fontFamily: font }} />
-                  <div style={{ fontSize: 10, color: T.faint, marginTop: 4 }}>Shows on Receiving with this shipment.</div>
+                  <div style={{ fontSize: 10, color: T.faint, marginTop: 4 }}>Shows on Receiving + in the warehouse email.</div>
                 </div>
                 <div>
                   <label style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: 0.6, display: "block", marginBottom: 6 }}>Packing slip</label>
@@ -2335,7 +2334,8 @@ export default function ProductionPage() {
               </div>
               {(() => {
                 const allShipped = liveItems.length > 0 && liveItems.every(it => it.pipeline_stage === "shipped");
-                const canNotify = allShipped && !!batchTracking.trim() && !!project.invoiceNumber;
+                const batchIsDropShip = Array.from(new Set(liveItems.map(it => resolveRoute(it.shipping_route, project.shippingRoute))))[0] === "drop_ship";
+                const canNotify = allShipped && !!batchTracking.trim() && (batchIsDropShip ? !!project.invoiceNumber : true);
                 return (
                   <div style={{ marginTop: 24, display: "flex", justifyContent: "flex-end", gap: 8, alignItems: "center" }}>
                     <button onClick={() => {
@@ -2355,7 +2355,7 @@ export default function ProductionPage() {
                         // skipReload: true on each so the modal doesn't flash
                         // N times; one loadAll at the end refreshes state.
                         for (const it of liveItems) {
-                          await markShipped({ ...it, ship_tracking: batchTracking, ship_notes: batchNotes }, { skipReload: true, warehouseNotes: batchWarehouseNotes });
+                          await markShipped({ ...it, ship_tracking: batchTracking, ship_notes: batchWarehouseNotes }, { skipReload: true, warehouseNotes: batchWarehouseNotes });
                         }
                         await loadAll();
                       }}
@@ -2391,9 +2391,10 @@ export default function ProductionPage() {
                               decoratorName: dg.decoratorName,
                               tracking: batchTracking,
                               route: batchRoutes[0],
+                              note: batchWarehouseNotes,
                             });
                           }}
-                          title={notified ? "Already notified — duplicate send blocked" : mixedRoute ? "These items have different shipping routes — notify each from its own job/row" : !project.invoiceNumber ? "Generate invoice first" : (!batchTracking ? "Tracking required" : "")}
+                          title={notified ? "Already notified — duplicate send blocked" : mixedRoute ? "These items have different shipping routes — notify each from its own job/row" : (batchIsDropShip && !project.invoiceNumber) ? "Generate invoice first" : (!batchTracking ? "Tracking required" : "")}
                           style={{ padding: "8px 18px", borderRadius: 6, border, background: bg, color, fontSize: 12, fontWeight: 700, cursor: notified ? "default" : (canNotify ? "pointer" : "not-allowed"), fontFamily: font, opacity: (notified || canNotify) ? 1 : 0.6 }}>
                           {label}
                         </button>
@@ -2426,6 +2427,7 @@ export default function ProductionPage() {
         clientName={notifyState?.clientName || ""}
         jobTitle={notifyState?.jobTitle || ""}
         contacts={notifyState?.contacts || []}
+        initialMessage={notifyState?.note || ""}
       />
 
     </div>

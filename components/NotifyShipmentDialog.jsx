@@ -22,6 +22,7 @@ export function NotifyShipmentDialog({
   clientName,
   jobTitle,
   contacts = [], // [{ name, email, role }] — drop_ship only
+  initialMessage = "", // seed the message body (e.g. the ship-time note to warehouse)
 }) {
   const isDropShip = route === "drop_ship";
 
@@ -61,7 +62,7 @@ export function NotifyShipmentDialog({
         ? `Your order has shipped — ${qbInvoiceNumber || ""} — ${jobTitle || ""}`
         : `Incoming: ${decoratorName || ""} — ${qbInvoiceNumber || ""} — ${clientName || ""} — ${tracking || ""}`
     );
-    setCustomMessage("");
+    setCustomMessage(initialMessage || "");
     setError("");
     setSent(false);
     setShowResendConfirm(false);
