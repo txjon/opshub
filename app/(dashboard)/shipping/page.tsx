@@ -746,24 +746,26 @@ export default function ShippingPage() {
                     shipped). Without the production half, the shipper can't tell
                     more is coming and might forward a partial box early. */}
                 {(() => {
-                  const inTransit = awaiting.map(it => `${it.name}${it.decorator_short_code ? ` (${it.decorator_short_code})` : ""}`);
-                  const inProd = (stillInProd[job.id] || []).map(x => `${x.name}${x.vendor ? ` (${x.vendor})` : ""}`);
+                  const inTransit = awaiting.map(it => ({ name: it.name, vendor: it.decorator_short_code || it.decorator_name || null }));
+                  const inProd = (stillInProd[job.id] || []).map(x => ({ name: x.name, vendor: x.vendor }));
                   const total = inTransit.length + inProd.length;
                   if (total === 0) return null;
+                  const row = (x: { name: string; vendor: string | null }, i: number) => (
+                    <div key={i} style={{ display: "flex", alignItems: "baseline", gap: 8, padding: "3px 0" }}>
+                      <span style={{ color: T.amber, flexShrink: 0 }}>•</span>
+                      <span style={{ flex: 1, minWidth: 0, color: T.text, wordBreak: "break-word" }}>{x.name}</span>
+                      {x.vendor && <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 700, fontFamily: mono, color: T.muted, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 4, padding: "1px 6px", textTransform: "uppercase", letterSpacing: "0.04em" }}>{x.vendor}</span>}
+                    </div>
+                  );
+                  const header = (label: string) => (
+                    <div style={{ fontSize: 9, fontWeight: 800, color: T.faint, textTransform: "uppercase", letterSpacing: "0.08em", margin: "8px 0 2px" }}>{label}</div>
+                  );
                   return (
-                    <div style={{ padding: "10px 14px", borderRadius: 8, background: T.amberDim, border: `1px solid ${T.amber}`, fontSize: 12 }}>
-                      <span style={{ fontWeight: 800, color: T.amber }}>{total} more item{total === 1 ? "" : "s"} coming on this order</span>
-                      {inProd.length > 0 && (
-                        <div style={{ color: T.muted, marginTop: 4 }}>
-                          <span style={{ fontWeight: 700, color: T.faint }}>Still in production: </span>{inProd.join(", ")}
-                        </div>
-                      )}
-                      {inTransit.length > 0 && (
-                        <div style={{ color: T.muted, marginTop: 2 }}>
-                          <span style={{ fontWeight: 700, color: T.faint }}>In transit to us: </span>{inTransit.join(", ")}
-                        </div>
-                      )}
-                      <div style={{ color: T.faint, marginTop: 4 }}>Forward what's landed now, or wait to consolidate — they'll appear here as they arrive.</div>
+                    <div style={{ padding: "12px 14px", borderRadius: 8, background: T.amberDim, border: `1px solid ${T.amber}`, fontSize: 12.5 }}>
+                      <div style={{ fontWeight: 800, color: T.amber }}>{total} more item{total === 1 ? "" : "s"} coming on this order</div>
+                      {inProd.length > 0 && (<>{header("Still in production")}{inProd.map(row)}</>)}
+                      {inTransit.length > 0 && (<>{header("In transit to us")}{inTransit.map(row)}</>)}
+                      <div style={{ color: T.faint, marginTop: 8, fontSize: 11.5 }}>Forward what's landed now, or wait to consolidate.</div>
                     </div>
                   );
                 })()}
