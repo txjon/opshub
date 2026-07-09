@@ -75,6 +75,33 @@ export default function ShippingPage() {
     setForwardTracking(""); setPullFor(null); setPullQtys({}); setPullReason("");
   }, [modalJobId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Items still IN PRODUCTION on these jobs — invisible to useWarehouse (it only
+  // loads shipped/received items). Without this the shipper can't tell a job has
+  // 5 more items coming from other vendors, and might forward a partial box that
+  // should have waited to consolidate. Keyed by job_id → [{name, vendor}].
+  const [stillInProd, setStillInProd] = useState<Record<string, { name: string; vendor: string | null }[]>>({});
+  useEffect(() => {
+    const ids = shipThrough.map(j => j.id);
+    if (ids.length === 0) { setStillInProd({}); return; }
+    (async () => {
+      const routeByJob: Record<string, string> = {};
+      for (const j of shipThrough) routeByJob[j.id] = j.shipping_route || "ship_through";
+      const { data } = await supabase
+        .from("items")
+        .select("job_id, name, shipping_route, pipeline_stage, received_at_hpd, decorator_assignments(decorators(short_code, name))")
+        .in("job_id", ids);
+      const map: Record<string, { name: string; vendor: string | null }[]> = {};
+      for (const it of ((data || []) as any[])) {
+        const route = it.shipping_route || routeByJob[it.job_id] || "ship_through";
+        if (route === "drop_ship") continue;               // never comes to HPD
+        if (it.received_at_hpd || it.pipeline_stage === "shipped") continue; // already landed or in transit (useWarehouse has it)
+        const dec = it.decorator_assignments?.[0]?.decorators;
+        (map[it.job_id] ||= []).push({ name: it.name, vendor: dec?.short_code || dec?.name || null });
+      }
+      setStillInProd(map);
+    })();
+  }, [shipThrough, supabase]);
+
   useEffect(() => {
     if (!modalJobId) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setModalJobId(null); };
@@ -462,7 +489,12 @@ export default function ShippingPage() {
                   )}
                   {cardAwaiting > 0 && (
                     <span style={{ fontSize: 10, fontWeight: 700, color: T.amber, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-                      Awaiting {cardAwaiting}
+                      Awaiting {cardAwaiting} in transit
+                    </span>
+                  )}
+                  {(stillInProd[job.id]?.length || 0) > 0 && (
+                    <span style={{ fontSize: 10, fontWeight: 700, color: T.amber, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                      ⏳ {stillInProd[job.id].length} still in production
                     </span>
                   )}
                 </div>
@@ -704,14 +736,32 @@ export default function ShippingPage() {
                   </div>
                 )}
 
-                {/* Still-awaiting alert */}
-                {awaiting.length > 0 && (
-                  <div style={{ padding: "10px 14px", borderRadius: 8, background: T.amberDim, border: `1px solid ${T.amber}`, fontSize: 12 }}>
-                    <span style={{ fontWeight: 800, color: T.amber }}>Still awaiting {awaiting.length} item{awaiting.length === 1 ? "" : "s"}</span>
-                    <span style={{ color: T.muted }}> — {awaiting.map(it => `${it.name}${it.decorator_short_code ? ` (${it.decorator_short_code})` : ""}`).join(", ")}</span>
-                    <div style={{ color: T.faint, marginTop: 3 }}>Ship what's landed now, or wait — they'll appear here as they arrive.</div>
-                  </div>
-                )}
+                {/* Still-coming alert — BOTH in-transit (shipped from decorator,
+                    not yet at HPD) AND still-in-production (other vendors haven't
+                    shipped). Without the production half, the shipper can't tell
+                    more is coming and might forward a partial box early. */}
+                {(() => {
+                  const inTransit = awaiting.map(it => `${it.name}${it.decorator_short_code ? ` (${it.decorator_short_code})` : ""}`);
+                  const inProd = (stillInProd[job.id] || []).map(x => `${x.name}${x.vendor ? ` (${x.vendor})` : ""}`);
+                  const total = inTransit.length + inProd.length;
+                  if (total === 0) return null;
+                  return (
+                    <div style={{ padding: "10px 14px", borderRadius: 8, background: T.amberDim, border: `1px solid ${T.amber}`, fontSize: 12 }}>
+                      <span style={{ fontWeight: 800, color: T.amber }}>⏳ {total} more item{total === 1 ? "" : "s"} coming on this order</span>
+                      {inProd.length > 0 && (
+                        <div style={{ color: T.muted, marginTop: 4 }}>
+                          <span style={{ fontWeight: 700, color: T.faint }}>Still in production: </span>{inProd.join(", ")}
+                        </div>
+                      )}
+                      {inTransit.length > 0 && (
+                        <div style={{ color: T.muted, marginTop: 2 }}>
+                          <span style={{ fontWeight: 700, color: T.faint }}>In transit to us: </span>{inTransit.join(", ")}
+                        </div>
+                      )}
+                      <div style={{ color: T.faint, marginTop: 4 }}>Forward what's landed now, or wait to consolidate — they'll appear here as they arrive.</div>
+                    </div>
+                  );
+                })()}
 
                 {/* READY TO FORWARD */}
                 {ready.length > 0 && (
