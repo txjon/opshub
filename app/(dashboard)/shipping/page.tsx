@@ -428,9 +428,27 @@ export default function ShippingPage() {
                   <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{job.client_name || "No client"}</span>
                   <span style={{ fontSize: 11, color: T.faint, fontFamily: mono }}>{displayInv}</span>
                 </div>
-                {job.title && (
-                  <div style={{ fontSize: 12, color: T.muted, marginTop: 2, wordBreak: "break-word" }}>{job.title}</div>
-                )}
+                {(() => {
+                  // Items summary — what's in the box, not the project name.
+                  // Forward qty per item = delivered (received ?? shipped ??
+                  // ordered) − samples pulled.
+                  const readyItems = cardSt.filter(it => bucketOf(it) === "ready");
+                  const show = (readyItems.length ? readyItems : cardSt);
+                  if (show.length === 0) return null;
+                  const fwd = (it: WarehouseItem) => {
+                    const szs = it.sizes.length ? it.sizes : Object.keys(it.qtys || {});
+                    const delivered = szs.reduce((s, sz) => s + ((it.received_qtys?.[sz] ?? it.ship_qtys?.[sz] ?? it.qtys?.[sz]) ?? 0), 0);
+                    const samples = Object.values(it.sample_qtys || {}).reduce((a, n) => a + (Number(n) || 0), 0);
+                    return Math.max(0, delivered - samples);
+                  };
+                  const parts = show.slice(0, 3).map(it => `${it.name} · ${fwd(it)}`);
+                  const extra = show.length > 3 ? ` +${show.length - 3} more` : "";
+                  return (
+                    <div style={{ fontSize: 12, color: T.muted, marginTop: 2, wordBreak: "break-word" }}>
+                      {parts.join("  ·  ")}{extra}
+                    </div>
+                  );
+                })()}
                 <div style={{ display: "flex", gap: 12, marginTop: 6, flexWrap: "wrap", alignItems: "baseline" }}>
                   {job.ship_method && (
                     <span style={{ fontSize: 10, fontWeight: 700, color: T.accent, letterSpacing: "0.06em", textTransform: "uppercase" }}>
@@ -792,7 +810,7 @@ export default function ShippingPage() {
                     disabled={!canForward}
                     title={invoiceMissing ? "Generate invoice first" : (selReady.length === 0 ? "Select a landed item" : (!forwardTracking.trim() ? "Tracking required" : ""))}
                     style={{ background: canForward ? T.green : T.surface, border: "none", borderRadius: 6, color: canForward ? "#fff" : T.faint, fontSize: 13, fontWeight: 700, padding: "10px 22px", cursor: canForward ? "pointer" : "not-allowed", opacity: canForward ? 1 : 0.5, fontFamily: font, whiteSpace: "nowrap" }}>
-                    Ship {selReady.length} landed
+                    Forward {selReady.length} to client
                   </button>
                 </div>
                 {invoiceMissing && (
