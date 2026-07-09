@@ -17,6 +17,21 @@
 -- dual-write transition. Legacy item columns (ship_qtys/received_qtys/
 -- sample_qtys) keep being written — readers migrate page by page.
 
+-- A legacy, empty `shipments` table (pre-repo vintage, zero rows, zero code
+-- references) existed in prod and silently absorbed the CREATE IF NOT EXISTS.
+-- Rename it aside — detected by the absence of group_key so this stays
+-- idempotent and can never touch the real table.
+do $$
+begin
+  if exists (select 1 from information_schema.tables
+             where table_schema = 'public' and table_name = 'shipments')
+     and not exists (select 1 from information_schema.columns
+                     where table_schema = 'public' and table_name = 'shipments'
+                       and column_name = 'group_key') then
+    alter table shipments rename to shipments_legacy_pre117;
+  end if;
+end $$;
+
 -- ── shipments ──────────────────────────────────────────────────────────
 create table if not exists shipments (
   id uuid primary key default gen_random_uuid(),
