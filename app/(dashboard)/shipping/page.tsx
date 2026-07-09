@@ -671,28 +671,30 @@ export default function ShippingPage() {
           <div style={{ position: "fixed", inset: 0, background: T.bg, zIndex: 1000, display: "flex", flexDirection: "column", fontFamily: font, color: T.text }}>
             <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
               {/* Header */}
-              <div style={{ padding: "14px 22px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexShrink: 0, background: T.card }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 16, fontWeight: 800, color: T.text, display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
-                    <span>{job.client_name || "No client"}</span>
-                    <span style={{ fontSize: 12, color: T.muted, fontWeight: 600 }}>{job.title}</span>
-                    <span style={{ fontFamily: mono, color: T.faint, fontWeight: 500, fontSize: 12 }}>{displayInv}</span>
+              <div style={{ padding: "16px 22px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "center", flexShrink: 0, background: T.card }}>
+                <div style={{ width: "100%", maxWidth: 900, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: T.text, display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap", letterSpacing: "-0.01em" }}>
+                      <span>{job.client_name || "No client"}</span>
+                      <span style={{ fontFamily: mono, color: T.faint, fontWeight: 500, fontSize: 12 }}>{displayInv}</span>
+                    </div>
+                    <div style={{ fontSize: 12, color: T.muted, marginTop: 3 }}>
+                      {job.title}
+                    </div>
                   </div>
-                  <div style={{ fontSize: 12, color: T.faint, marginTop: 2 }}>
-                    {job.items.length} item{job.items.length === 1 ? "" : "s"} · {totalUnits.toLocaleString()} units
+                  <div style={{ display: "flex", alignItems: "center", gap: 14, flexShrink: 0 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: T.accent, letterSpacing: "0.07em", textTransform: "uppercase" }}>
+                      Forward to client
+                    </span>
+                    <button onClick={() => setModalJobId(null)} title="Close (Esc)"
+                      style={{ background: "none", border: "none", color: T.muted, fontSize: 22, cursor: "pointer", padding: "0 4px", lineHeight: 1 }}>×</button>
                   </div>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: T.accent, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-                    → Forward to client
-                  </span>
-                  <button onClick={() => setModalJobId(null)} title="Close (Esc)"
-                    style={{ background: "none", border: "none", color: T.muted, fontSize: 22, cursor: "pointer", padding: "0 6px", lineHeight: 1 }}>×</button>
                 </div>
               </div>
 
-              {/* Body */}
-              <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "16px 22px", display: "flex", flexDirection: "column", gap: 14 }}>
+              {/* Body — centered column so content reads as composed, not sprawled */}
+              <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "22px" }}>
+               <div style={{ maxWidth: 900, margin: "0 auto", width: "100%", display: "flex", flexDirection: "column", gap: 18 }}>
                 {/* Ship to + contact + ship method — text labels, no pills */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
                   <div>
@@ -761,20 +763,21 @@ export default function ShippingPage() {
                     <div style={{ fontSize: 9, fontWeight: 800, color: T.faint, textTransform: "uppercase", letterSpacing: "0.08em", margin: "8px 0 2px" }}>{label}</div>
                   );
                   return (
-                    <div style={{ padding: "12px 14px", borderRadius: 8, background: T.amberDim, border: `1px solid ${T.amber}`, fontSize: 12.5 }}>
-                      <div style={{ fontWeight: 800, color: T.amber }}>{total} more item{total === 1 ? "" : "s"} coming on this order</div>
+                    <div style={{ padding: "12px 16px", borderRadius: 10, background: T.surface, borderLeft: `3px solid ${T.amber}`, border: `1px solid ${T.border}`, borderLeftWidth: 3, borderLeftColor: T.amber, fontSize: 12.5 }}>
+                      <div style={{ fontWeight: 700, color: T.amber, fontSize: 12 }}>{total} more item{total === 1 ? "" : "s"} still coming on this order</div>
                       {inProd.length > 0 && (<>{header("Still in production")}{inProd.map(row)}</>)}
                       {inTransit.length > 0 && (<>{header("In transit to us")}{inTransit.map(row)}</>)}
-                      <div style={{ color: T.faint, marginTop: 8, fontSize: 11.5 }}>Forward what's landed now, or wait to consolidate.</div>
+                      <div style={{ color: T.faint, marginTop: 10, fontSize: 11.5 }}>Forward what's landed now, or wait to consolidate.</div>
                     </div>
                   );
                 })()}
 
-                {/* READY TO FORWARD */}
+                {/* READY TO FORWARD — the hero: its own card so the action reads
+                    as the primary work, above the secondary "still coming" panel. */}
                 {ready.length > 0 && (
-                  <>
+                  <div style={{ background: T.card, border: `1px solid ${T.green}44`, borderRadius: 12, padding: "16px 18px", display: "flex", flexDirection: "column", gap: 12 }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                      <div style={{ fontSize: 9, fontWeight: 700, color: T.green, textTransform: "uppercase", letterSpacing: "0.07em" }}>Ready to forward · {ready.length}</div>
+                      <div style={{ fontSize: 11, fontWeight: 800, color: T.green, textTransform: "uppercase", letterSpacing: "0.07em" }}>Ready to forward · {ready.length}</div>
                       <button onClick={() => setSelectedItemIds(prev => {
                         const next = new Set(prev);
                         if (allReadySelected) ready.forEach(it => next.delete(it.id)); else ready.forEach(it => next.add(it.id));
@@ -832,7 +835,7 @@ export default function ShippingPage() {
                         );
                       })}
                     </div>
-                  </>
+                  </div>
                 )}
 
                 {/* FORWARDED (done) */}
@@ -854,10 +857,12 @@ export default function ShippingPage() {
                 {ready.length === 0 && awaiting.length === 0 && forwarded.length > 0 && (
                   <div style={{ fontSize: 12, color: T.faint }}>All items forwarded.</div>
                 )}
+               </div>
               </div>
 
               {/* Footer — per-wave forward */}
-              <div style={{ padding: "12px 22px", borderTop: `1px solid ${T.border}`, background: T.card, flexShrink: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ padding: "14px 22px", borderTop: `1px solid ${T.border}`, background: T.card, flexShrink: 0, display: "flex", justifyContent: "center" }}>
+               <div style={{ maxWidth: 900, margin: "0 auto", width: "100%", display: "flex", flexDirection: "column", gap: 8 }}>
                 <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
                   <div style={{ flex: 1 }}>
                     <label style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4, display: "block" }}>Outbound tracking # (this shipment)</label>
@@ -876,6 +881,7 @@ export default function ShippingPage() {
                 {awaiting.length > 0 && selReady.length > 0 && (
                   <div style={{ fontSize: 11, color: T.muted }}>{awaiting.length} item{awaiting.length === 1 ? "" : "s"} still awaiting — they'll come back here when received.</div>
                 )}
+               </div>
               </div>
             </div>
           </div>
