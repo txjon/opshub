@@ -7,6 +7,7 @@ import { T, font, mono, sortSizes } from "@/lib/theme";
 import { logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
 import { uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
 import { shipItemFromDecorator } from "@/lib/po-actions";
+import { removeShipmentLineForItem, createPullRequest, updatePullRequest, PULL_KINDS, type PullRequestRow } from "@/lib/handoff";
 import { computeArrivalEta } from "@/lib/arrival-eta";
 import { NotifyShipmentDialog } from "@/components/NotifyShipmentDialog";
 import { MockupPeek } from "@/components/MockupPeek";
@@ -14,30 +15,11 @@ import { DriveThumb } from "@/components/DriveThumb";
 
 const tQty = (q: Record<string, number>) => Object.values(q || {}).reduce((a, v) => a + v, 0);
 
-// One ad-hoc "pull a sample" instruction on an item. Free-form — there is no
-// fixed catalog of pulls. Entered on Production at ship time, then checked off
-// on Receiving (pulled flips true, which feeds sample_qtys per size).
-//   qtys   — per-size counts to pull, e.g. { L: 1 } or { S:1, M:1, L:1 } for a run
-//   for    — who the sample is for
-//   to     — where it needs to go
-//   pulled — set true on Receiving when the warehouse pulls it
-type SamplePull = { qtys: Record<string, number>; for: string; to: string; pulled?: boolean };
-
-// Tolerant read of the JSONB. Handles the in-development single-size shape
-// ({ qty, size }) so early test rows don't read as empty after the model
-// moved to a per-size qtys map.
-function normalizePulls(raw: any): SamplePull[] {
-  if (!Array.isArray(raw)) return [];
-  return raw.map((p: any) => ({
-    qtys: p && p.qtys && typeof p.qtys === "object"
-      ? p.qtys
-      : (p && p.size ? { [p.size]: parseInt(p.qty, 10) || 1 } : {}),
-    for: (p && p.for) || "",
-    to: (p && p.to) || "",
-    pulled: !!(p && p.pulled),
-  }));
-}
-const pullTotal = (p: SamplePull) => Object.values(p.qtys || {}).reduce((a, n) => a + (n || 0), 0);
+// Pull requests (migration 117) — production's "hold N units back for X"
+// instruction on an item. Rows in pull_requests, created here ahead of
+// arrival, fulfilled on Receiving (which writes the pulled_inventory bucket
+// and rolls qtys into sample_qtys). Replaces the old items.sample_pulls JSONB
+// (backfilled by the migration; nothing writes that column anymore).
 
 type ProdItem = {
   id: string; name: string; job_id: string; letter: string;
@@ -54,7 +36,6 @@ type ProdItem = {
   ship_qtys: Record<string, number>; ship_notes: string;
   client_eta: string | null; client_eta_note: string | null;
   expected_arrival: string | null;
-  sample_pulls: SamplePull[];
 };
 
 // Per-item shipping_route (migration 076) wins over the job's route in every
@@ -127,7 +108,10 @@ export default function ProductionPage() {
     { items: ProdItem[]; project: ProjectGroup; dg: DecoratorGroup } | null
   >(null);
   const [batchTracking, setBatchTracking] = useState("");
-  const [batchNotes, setBatchNotes] = useState("");
+  // Production → warehouse instructions, stored on the shipments row
+  // (migration 117) and shown prominently on /receiving. Shipment-level:
+  // one message for the whole box, unlike per-item ship_notes.
+  const [batchWarehouseNotes, setBatchWarehouseNotes] = useState("");
   // Drag highlight target for the slip dropzones. Either modal's
   // upload area can be the active drop zone at a time.
   const [slipDragOver, setSlipDragOver] = useState<"ship" | "batch" | null>(null);
@@ -145,6 +129,7 @@ export default function ProductionPage() {
     jobTitle: string;
     route: string;
     contacts: Array<{ name: string; email: string; role: string }>;
+    note: string;
   } | null>(null);
   const [contactsByJob, setContactsByJob] = useState<Record<string, Array<{ name: string; email: string; role: string }>>>({});
   // Per-decorator expand state inside the modal. Reset on modal change
@@ -159,10 +144,12 @@ export default function ProductionPage() {
   const shipModalSlipInputRef = useRef<HTMLInputElement | null>(null);
   const batchModalSlipInputRef = useRef<HTMLInputElement | null>(null);
   const saveTimers = useRef<Record<string, any>>({});
-  // Latest unsaved sample-pulls array per item, so onBlur can flush the
-  // pending debounced write immediately (same bulletproof-save pattern as
-  // the text fields, but the payload is a whole array not a string).
-  const pendingSamplePulls = useRef<Record<string, SamplePull[]>>({});
+  // Open pull requests keyed by item id (loaded with the board; edited via
+  // the per-item pull editor). Only pending/partial — fulfilled ones are the
+  // warehouse's history, not production's working list.
+  const [pullReqsByItem, setPullReqsByItem] = useState<Record<string, PullRequestRow[]>>({});
+  // Draft pull row per item — local until the user commits it with "Add".
+  const [pullDrafts, setPullDrafts] = useState<Record<string, { qtys: Record<string, number>; kind: string; reason: string }>>({});
   const now = new Date();
 
   useEffect(() => { loadAll(); }, []);
@@ -381,7 +368,6 @@ export default function ProductionPage() {
         ship_qtys: it.ship_qtys || {}, ship_notes: it.ship_notes || "",
         client_eta: it.client_eta || null, client_eta_note: it.client_eta_note || null,
         expected_arrival: it.expected_arrival || null,
-        sample_pulls: normalizePulls(it.sample_pulls),
       };
 
       if (!projectMap[it.job_id]) {
@@ -490,6 +476,18 @@ export default function ProductionPage() {
     // Load packing slip files for all items
     const allItemIds = (allItems || []).map((it: any) => it.id);
     if (allItemIds.length > 0) {
+      // Open pull requests (migration 117) for the pull editor.
+      const { data: openPulls } = await supabase
+        .from("pull_requests").select("*")
+        .in("item_id", allItemIds)
+        .in("status", ["pending", "partial"])
+        .order("created_at");
+      const prMap: Record<string, PullRequestRow[]> = {};
+      for (const pr of ((openPulls || []) as PullRequestRow[])) {
+        if (!prMap[pr.item_id]) prMap[pr.item_id] = [];
+        prMap[pr.item_id].push(pr);
+      }
+      setPullReqsByItem(prMap);
       const { data: slipFiles } = await supabase.from("item_files").select("id, item_id, file_name, drive_link, notes").eq("stage", "packing_slip").in("item_id", allItemIds);
       const slipMap: Record<string, { id: string; file_name: string; drive_link: string; folder_link?: string }[]> = {};
       for (const f of (slipFiles || [])) {
@@ -497,10 +495,16 @@ export default function ProductionPage() {
         slipMap[f.item_id].push({ id: f.id, file_name: f.file_name, drive_link: f.drive_link, folder_link: f.notes || undefined });
       }
       setPackingSlips(slipMap);
-      // Mockups for the item-click peek modal (List view).
-      const { data: mockupFiles } = await supabase.from("item_files").select("item_id, drive_file_id, drive_link, created_at").eq("stage", "mockup").is("superseded_at", null).in("item_id", allItemIds).order("created_at", { ascending: false });
-      const mMap: Record<string, { driveFileId: string | null; driveLink: string | null }> = {};
-      for (const f of ((mockupFiles || []) as any[])) { if (!mMap[f.item_id]) mMap[f.item_id] = { driveFileId: f.drive_file_id, driveLink: f.drive_link }; }
+      // Item art for thumbnails + the click-to-peek modal. Prefer the mockup;
+      // fall back to the proof so items without a mockup still show a picture.
+      const { data: mockupFiles } = await supabase.from("item_files").select("item_id, drive_file_id, drive_link, stage, created_at").in("stage", ["mockup", "proof"]).is("superseded_at", null).in("item_id", allItemIds).order("created_at", { ascending: false });
+      const mMap: Record<string, { driveFileId: string | null; driveLink: string | null; stage?: string }> = {};
+      for (const f of ((mockupFiles || []) as any[])) {
+        const cur = mMap[f.item_id];
+        if (!cur || (cur.stage !== "mockup" && f.stage === "mockup")) {
+          mMap[f.item_id] = { driveFileId: f.drive_file_id, driveLink: f.drive_link, stage: f.stage };
+        }
+      }
       setMockupMap(mMap);
     }
 
@@ -512,16 +516,17 @@ export default function ProductionPage() {
   // effects, then triggers a full reload. The batch flow loops over
   // items and would otherwise reload N times — pass `skipReload: true`
   // for each item in the loop and call loadAll() once at the end.
-  async function markShipped(item: ProdItem, opts?: { skipReload?: boolean }) {
+  async function markShipped(item: ProdItem, opts?: { skipReload?: boolean; warehouseNotes?: string }) {
     // Flush ALL pending debounces for this item so the latest tracking / qtys
     // are on the item object before the write.
     for (const key of Object.keys(saveTimers.current).filter(k => k.includes(item.id))) {
       clearTimeout(saveTimers.current[key]);
       delete saveTimers.current[key];
     }
-    // Canonical ship effect lives in lib/po-actions (shared with the job
-    // Overview items modal) so the two surfaces can never drift.
-    await shipItemFromDecorator(supabase, item);
+    // Canonical ship effect lives in lib/po-actions — the ONLY ship path.
+    // It also persists the shipments row + line (handoff spine, mig 117);
+    // warehouseNotes rides along to shipments.warehouse_notes.
+    await shipItemFromDecorator(supabase, item, { warehouseNotes: opts?.warehouseNotes || null });
     if (!opts?.skipReload) loadAll();
   }
 
@@ -575,6 +580,9 @@ export default function ProductionPage() {
     if (item.decorator_assignment_id) {
       await supabase.from("decorator_assignments").update({ pipeline_stage: "in_production" }).eq("id", item.decorator_assignment_id);
     }
+    // Handoff spine: drop the item's line from its un-received shipment
+    // (and the shipment itself if this was its last line).
+    await removeShipmentLineForItem(supabase, item.id);
     loadAll();
   }
 
@@ -608,6 +616,7 @@ export default function ProductionPage() {
     decoratorName: string;
     tracking: string;
     route?: string;
+    note?: string;
   }) {
     const { project, decoratorId, decoratorName, tracking } = args;
     const route = args.route || project.shippingRoute || "ship_through";
@@ -622,6 +631,7 @@ export default function ProductionPage() {
       jobTitle: project.jobTitle || "",
       route,
       contacts,
+      note: args.note || "",
     });
   }
 
@@ -669,102 +679,127 @@ export default function ProductionPage() {
     supabase.from("items").update({ pickup_ready: checked }).eq("id", itemId);
   }
 
-  // Sample pulls are a whole-array JSONB write, so they get their own save
-  // path. updateField is string-only. Local state updates immediately; the
-  // array persists debounced, and onBlur flushes the pending write.
-  async function persistSamplePulls(itemId: string, pulls: SamplePull[]) {
-    const { error } = await supabase.from("items").update({ sample_pulls: pulls }).eq("id", itemId);
-    if (error) console.error("[production sample_pulls save error]", { itemId, error });
-  }
-  function saveSamplePulls(itemId: string, pulls: SamplePull[]) {
-    setProjects(prev => prev.map(p => ({
-      ...p, decoratorGroups: p.decoratorGroups.map(dg => ({
-        ...dg, items: dg.items.map(it => it.id === itemId ? { ...it, sample_pulls: pulls } : it)
-      }))
-    })));
-    pendingSamplePulls.current[itemId] = pulls;
-    const key = `sample_pulls_${itemId}`;
-    if (saveTimers.current[key]) clearTimeout(saveTimers.current[key]);
-    saveTimers.current[key] = setTimeout(() => {
-      persistSamplePulls(itemId, pulls);
-      delete pendingSamplePulls.current[itemId];
-    }, 800);
-  }
-  function flushSamplePulls(itemId: string) {
-    const key = `sample_pulls_${itemId}`;
-    if (saveTimers.current[key]) { clearTimeout(saveTimers.current[key]); delete saveTimers.current[key]; }
-    const pending = pendingSamplePulls.current[itemId];
-    if (pending) { persistSamplePulls(itemId, pending); delete pendingSamplePulls.current[itemId]; }
-  }
-
-  // Per-item sample-pulls editor (Production list rows). Each pull is a row in
-  // a per-size grid: type a qty under each size, then who it's for and where it
-  // goes. One row covers a single garment ({ L: 1 }) or a full size run.
+  // Per-item pull-request editor (Production list rows). Existing OPEN
+  // requests render as rows (qtys editable inline, saved on blur; × deletes
+  // the request outright — it was never fulfilled). New pulls start as a
+  // local draft committed with "Add" — a pull request is a discrete ask, not
+  // a keystroke stream, so no debounce machinery here.
   function samplePullsEditor(item: ProdItem) {
-    const pulls = item.sample_pulls || [];
+    const pulls = pullReqsByItem[item.id] || [];
+    const draft = pullDrafts[item.id] || null;
     const sizes = item.sizes.length > 0 ? item.sizes : ["OS"];
     const cell = { padding: "3px 5px", fontSize: 11 } as const;
-    const setText = (idx: number, field: "for" | "to", value: string) =>
-      saveSamplePulls(item.id, pulls.map((p, i) => i === idx ? { ...p, [field]: value } : p));
-    const setQty = (idx: number, sz: string, value: string) => {
+    const setRows = (rows: PullRequestRow[]) =>
+      setPullReqsByItem(prev => ({ ...prev, [item.id]: rows }));
+    const setExistingQty = (pr: PullRequestRow, sz: string, value: string) => {
       const n = parseInt(value, 10);
-      saveSamplePulls(item.id, pulls.map((p, i) => {
-        if (i !== idx) return p;
-        const q = { ...p.qtys };
-        if (!n || n <= 0) delete q[sz]; else q[sz] = n;
-        return { ...p, qtys: q };
-      }));
+      const q = { ...(pr.qtys || {}) };
+      if (!n || n <= 0) delete q[sz]; else q[sz] = n;
+      setRows(pulls.map(p => p.id === pr.id ? { ...p, qtys: q } : p));
     };
-    const cols = `repeat(${sizes.length}, 34px) minmax(70px,1fr) minmax(84px,1.3fr) 16px`;
+    const commitExisting = (prId: string) => {
+      const pr = (pullReqsByItem[item.id] || []).find(p => p.id === prId);
+      if (pr) updatePullRequest(supabase, pr.id, { qtys: pr.qtys, reason: pr.reason });
+    };
+    const removeExisting = async (pr: PullRequestRow) => {
+      await supabase.from("pull_requests").delete().eq("id", pr.id);
+      setRows(pulls.filter(p => p.id !== pr.id));
+    };
+    const setDraft = (patch: Partial<{ qtys: Record<string, number>; kind: string; reason: string }>) =>
+      setPullDrafts(prev => {
+        const base = prev[item.id] || { qtys: {}, kind: "sample", reason: "" };
+        return { ...prev, [item.id]: { ...base, ...patch } };
+      });
+    const setDraftQty = (sz: string, value: string) => {
+      const n = parseInt(value, 10);
+      const q = { ...((draft?.qtys) || {}) };
+      if (!n || n <= 0) delete q[sz]; else q[sz] = n;
+      setDraft({ qtys: q });
+    };
+    const commitDraft = async () => {
+      if (!draft || Object.values(draft.qtys || {}).every(n => !n)) return;
+      const created = await createPullRequest(supabase, {
+        job_id: item.job_id, item_id: item.id,
+        kind: draft.kind, qtys: draft.qtys, reason: draft.reason,
+      });
+      if (created) {
+        setRows([...pulls, created]);
+        setPullDrafts(prev => { const next = { ...prev }; delete next[item.id]; return next; });
+      }
+    };
+    const cols = `repeat(${sizes.length}, 34px) minmax(150px,1.6fr) 16px`;
+    const qtyInput = (v: number | undefined, onChange: (val: string) => void, onBlur?: () => void) => (
+      <input value={v ? String(v) : ""} placeholder="·" inputMode="numeric"
+        onChange={e => onChange(e.target.value)} onBlur={onBlur}
+        style={{ ...ic, ...cell, width: 34, textAlign: "center", fontFamily: mono, color: v ? T.amber : T.faint, borderColor: v ? T.amber : T.border }} />
+    );
     return (
       <div onClick={e => e.stopPropagation()} style={{ display: "flex", flexDirection: "column", gap: 5, width: "100%", maxWidth: 540, overflowX: "auto" }}>
-        <span style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em" }}>Sample pulls (internal)</span>
-        {pulls.length > 0 && (
+        <span style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em" }}>Pulls (warehouse holds these back)</span>
+        {(pulls.length > 0 || draft) && (
           <div style={{ display: "grid", gridTemplateColumns: cols, gap: 4, alignItems: "center" }}>
-            {/* header */}
             {sizes.map(sz => (
               <span key={`h-${sz}`} style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", textAlign: "center", fontFamily: mono }}>{sz}</span>
             ))}
-            <span style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", paddingLeft: 2 }}>For</span>
-            <span style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", paddingLeft: 2 }}>To</span>
+            <span style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", paddingLeft: 2 }}>Type · reason</span>
             <span />
-            {/* rows */}
-            {pulls.map((p, idx) => (
-              <Fragment key={idx}>
-                {sizes.map(sz => {
-                  const v = p.qtys?.[sz];
-                  return (
-                    <input key={sz} value={v ? String(v) : ""} placeholder="·" inputMode="numeric"
-                      onChange={e => setQty(idx, sz, e.target.value)} onBlur={() => flushSamplePulls(item.id)}
-                      style={{ ...ic, ...cell, width: 34, textAlign: "center", fontFamily: mono, color: v ? T.amber : T.faint, borderColor: v ? T.amber : T.border }} />
-                  );
-                })}
-                <input value={p.for || ""} placeholder="for who"
-                  onChange={e => setText(idx, "for", e.target.value)} onBlur={() => flushSamplePulls(item.id)}
-                  style={{ ...ic, ...cell, minWidth: 0 }} />
-                <input value={p.to || ""} placeholder="where to"
-                  onChange={e => setText(idx, "to", e.target.value)} onBlur={() => flushSamplePulls(item.id)}
-                  style={{ ...ic, ...cell, minWidth: 0 }} />
-                <button onClick={() => { saveSamplePulls(item.id, pulls.filter((_, i) => i !== idx)); flushSamplePulls(item.id); }}
-                  title="Remove pull"
+            {pulls.map(pr => (
+              <Fragment key={pr.id}>
+                {sizes.map(sz => (
+                  <Fragment key={sz}>{qtyInput(pr.qtys?.[sz], v => setExistingQty(pr, sz, v), () => commitExisting(pr.id))}</Fragment>
+                ))}
+                <div style={{ display: "flex", gap: 4, minWidth: 0, alignItems: "center" }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: T.amber, flexShrink: 0, textTransform: "capitalize" }}>{pr.kind}</span>
+                  <input value={pr.reason || ""} placeholder="reason / where to"
+                    onChange={e => setRows(pulls.map(p => p.id === pr.id ? { ...p, reason: e.target.value } : p))}
+                    onBlur={() => commitExisting(pr.id)}
+                    style={{ ...ic, ...cell, minWidth: 0, flex: 1 }} />
+                </div>
+                <button onClick={() => removeExisting(pr)} title="Remove request"
                   style={{ background: "none", border: "none", color: T.faint, cursor: "pointer", fontSize: 15, lineHeight: 1, padding: 0, flexShrink: 0 }}>×</button>
               </Fragment>
             ))}
+            {draft && (
+              <Fragment>
+                {sizes.map(sz => (
+                  <Fragment key={sz}>{qtyInput(draft.qtys?.[sz], v => setDraftQty(sz, v))}</Fragment>
+                ))}
+                <div style={{ display: "flex", gap: 4, minWidth: 0, alignItems: "center" }}>
+                  <select value={draft.kind} onChange={e => setDraft({ kind: e.target.value })}
+                    style={{ ...ic, ...cell, width: 84, flexShrink: 0 }}>
+                    {PULL_KINDS.map(k => <option key={k.id} value={k.id}>{k.label}</option>)}
+                  </select>
+                  <input value={draft.reason} placeholder="reason / where to"
+                    onChange={e => setDraft({ reason: e.target.value })}
+                    onKeyDown={e => { if (e.key === "Enter") commitDraft(); }}
+                    style={{ ...ic, ...cell, minWidth: 0, flex: 1 }} />
+                  <button onClick={commitDraft}
+                    disabled={Object.values(draft.qtys || {}).every(n => !n)}
+                    style={{ fontSize: 10, fontWeight: 700, padding: "3px 10px", borderRadius: 5, border: "none", background: Object.values(draft.qtys || {}).some(n => n > 0) ? T.accent : T.surface, color: Object.values(draft.qtys || {}).some(n => n > 0) ? "#fff" : T.faint, cursor: "pointer", fontFamily: font, flexShrink: 0 }}>
+                    Add
+                  </button>
+                </div>
+                <button onClick={() => setPullDrafts(prev => { const next = { ...prev }; delete next[item.id]; return next; })} title="Discard"
+                  style={{ background: "none", border: "none", color: T.faint, cursor: "pointer", fontSize: 15, lineHeight: 1, padding: 0, flexShrink: 0 }}>×</button>
+              </Fragment>
+            )}
           </div>
         )}
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          <button onClick={() => saveSamplePulls(item.id, [...pulls, { qtys: {}, for: "", to: "" }])}
-            style={{ fontSize: 11, fontWeight: 600, color: T.accent, background: "none", border: `1px dashed ${T.border}`, borderRadius: 5, padding: "3px 10px", cursor: "pointer", fontFamily: font }}>
-            + Add pull
-          </button>
-          {item.sizes.length > 1 && (
-            <button onClick={() => saveSamplePulls(item.id, [...pulls, { qtys: Object.fromEntries(item.sizes.map(sz => [sz, 1])), for: "", to: "" }])}
-              title="Adds a pull with one of every size"
-              style={{ fontSize: 11, fontWeight: 600, color: T.muted, background: "none", border: `1px dashed ${T.border}`, borderRadius: 5, padding: "3px 10px", cursor: "pointer", fontFamily: font }}>
-              + Size run
+        {!draft && (
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <button onClick={() => setDraft({})}
+              style={{ fontSize: 11, fontWeight: 600, color: T.accent, background: "none", border: `1px dashed ${T.border}`, borderRadius: 5, padding: "3px 10px", cursor: "pointer", fontFamily: font }}>
+              + Request pull
             </button>
-          )}
-        </div>
+            {item.sizes.length > 1 && (
+              <button onClick={() => setDraft({ qtys: Object.fromEntries(item.sizes.map(sz => [sz, 1])) })}
+                title="Starts a request with one of every size"
+                style={{ fontSize: 11, fontWeight: 600, color: T.muted, background: "none", border: `1px dashed ${T.border}`, borderRadius: 5, padding: "3px 10px", cursor: "pointer", fontFamily: font }}>
+                + Size run
+              </button>
+            )}
+          </div>
+        )}
       </div>
     );
   }
@@ -1184,7 +1219,7 @@ export default function ProductionPage() {
     const dg = first.p.decoratorGroups.find(g => (g.decoratorId || g.decoratorName) === (first.it.decorator_id || first.it.decorator_name));
     if (!dg) return;
     setBatchTracking("");
-    setBatchNotes("");
+    setBatchWarehouseNotes("");
     setBatchShipState({ items: listEligible.map(r => r.it), project: first.p, dg });
   };
 
@@ -1486,8 +1521,10 @@ export default function ProductionPage() {
         const project = modalProject;
         const ship = shipDatePill(project.shipDate);
         return (
-              <div style={{ position: "fixed", inset: 0, background: T.bg, zIndex: 1000, display: "flex", flexDirection: "column", fontFamily: font, color: T.text }}>
-                <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+              <div onClick={closeModalRespectReturn}
+                style={{ position: "fixed", inset: 0, background: "rgba(10,12,20,0.5)", backdropFilter: "blur(2px)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "clamp(12px, 4vh, 44px)", fontFamily: font, color: T.text }}>
+                <div onClick={e => e.stopPropagation()}
+                  style={{ background: T.bg, width: "100%", maxWidth: 1000, maxHeight: "90vh", borderRadius: 16, overflow: "hidden", boxShadow: "0 24px 70px rgba(0,0,0,0.45)", border: `1px solid ${T.border}`, display: "flex", flexDirection: "column" }}>
                   {/* Header */}
                   <div style={{ padding: "14px 22px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexShrink: 0, background: T.card }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -1641,13 +1678,13 @@ export default function ProductionPage() {
                           </button>
                           {eligible.length > 0 && (
                             <button onClick={() => {
-                              // Seed tracking from any selected item that
-                              // already has one (e.g. set previously via the
-                              // per-item modal). Notes seeded the same way.
+                              // Seed tracking + the warehouse note from any
+                              // selected item that already has one (e.g. set on
+                              // the per-item modal).
                               const seedTracking = eligible.find(it => it.ship_tracking)?.ship_tracking || "";
                               const seedNotes = eligible.find(it => it.ship_notes)?.ship_notes || "";
                               setBatchTracking(seedTracking);
-                              setBatchNotes(seedNotes);
+                              setBatchWarehouseNotes(seedNotes);
                               setBatchShipState({ items: eligible, project, dg });
                             }} style={{ fontSize: 12, fontWeight: 700, padding: "6px 14px", borderRadius: 6, background: T.green, color: "#fff", border: "none", cursor: "pointer", fontFamily: font }}>
                               Ship Selected · {eligible.length}
@@ -1688,10 +1725,15 @@ export default function ProductionPage() {
                                 style={{ width: 16, height: 16, cursor: "pointer", accentColor: T.accent, flexShrink: 0 }}
                               />
                               <span style={{ fontSize: 13, fontWeight: 800, color: T.muted, fontFamily: mono, flexShrink: 0 }}>{item.letter}</span>
-                              {/* Mockup thumbnail (click to enlarge) */}
-                              {mockupMap[item.id]?.driveFileId && (
+                              {/* Art thumbnail (mockup, else proof) — click to enlarge.
+                                  Always renders the slot: a neutral placeholder when the
+                                  item has no art yet, so rows scan consistently. */}
+                              {mockupMap[item.id]?.driveFileId ? (
                                 <DriveThumb driveFileId={mockupMap[item.id].driveFileId} alt={item.name} enlargeable
-                                  style={{ width: 40, height: 40, borderRadius: 6, objectFit: "cover", flexShrink: 0, border: `1px solid ${T.border}` }} />
+                                  style={{ width: 88, alignSelf: "stretch", height: "auto", minHeight: 64, borderRadius: 6, objectFit: "cover", flexShrink: 0, border: `1px solid ${T.border}` }} />
+                              ) : (
+                                <div title="No mockup/proof uploaded yet"
+                                  style={{ width: 88, alignSelf: "stretch", minHeight: 64, borderRadius: 6, flexShrink: 0, border: `1px dashed ${T.border}`, background: T.surface, display: "flex", alignItems: "center", justifyContent: "center", color: T.faint, fontSize: 18 }}>🖼</div>
                               )}
                               {/* Title + specs stack */}
                               <div style={{ flex: 1, minWidth: 0 }}>
@@ -1806,8 +1848,8 @@ export default function ProductionPage() {
                                         r.decoratorId === item.decorator_id &&
                                         (r.tracking || null) === (item.ship_tracking || null)
                                       );
-                                      const canNotify = !!item.ship_tracking && !!project.invoiceNumber;
                                       const itemRoute = resolveRoute(item.shipping_route, project.shippingRoute);
+                                      const canNotify = !!item.ship_tracking && (itemRoute === "drop_ship" ? !!project.invoiceNumber : true);
                                       const label = notified ? "Notified ✓" : (itemRoute === "drop_ship" ? "Notify customer" : "Notify warehouse");
                                       const bg = notified ? T.greenDim : T.accent;
                                       const color = notified ? T.green : "#fff";
@@ -1822,10 +1864,11 @@ export default function ProductionPage() {
                                             decoratorName: item.decorator_name || "",
                                             tracking: item.ship_tracking || "",
                                             route: itemRoute,
+                                            note: item.ship_notes || "",
                                           });
                                         }}
                                           disabled={!canNotify}
-                                          title={!project.invoiceNumber ? "Generate invoice first" : (!item.ship_tracking ? "Tracking required" : "")}
+                                          title={(itemRoute === "drop_ship" && !project.invoiceNumber) ? "Generate invoice first" : (!item.ship_tracking ? "Tracking required" : "")}
                                           style={{ fontSize: 10, fontWeight: 600, padding: "3px 10px", borderRadius: 4, border, background: bg, color, cursor: canNotify ? "pointer" : "not-allowed", whiteSpace: "nowrap", opacity: canNotify ? 1 : 0.5, fontFamily: font }}>
                                           {label}
                                         </button>
@@ -2014,8 +2057,8 @@ export default function ProductionPage() {
                     style={{ ...ic, fontSize: 13, padding: "8px 10px" }} />
                 </div>
                 <div>
-                  <label style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: 0.6, display: "block", marginBottom: 6 }}>Notes</label>
-                  <input value={item.ship_notes || ""} placeholder="Optional"
+                  <label style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: 0.6, display: "block", marginBottom: 6 }}>Note to warehouse</label>
+                  <input value={item.ship_notes || ""} placeholder="Shows on Receiving + in the warehouse email"
                     onChange={e => updateField(item.id, "ship_notes", e.target.value)}
                     style={{ ...ic, fontSize: 13, padding: "8px 10px" }} />
                 </div>
@@ -2072,13 +2115,16 @@ export default function ProductionPage() {
                     + tracking); clicking still opens the dialog → backend
                     dedups → "Already sent — Resend?" confirm. */}
                 {item.pipeline_stage === "shipped" && (() => {
-                  const canNotify = !!item.ship_tracking && !!project.invoiceNumber;
+                  const itemRoute = resolveRoute(item.shipping_route, project.shippingRoute);
+                  // Customer notify (drop_ship) references the client invoice, so it
+                  // needs one. Warehouse notify (ship_through/stage) is an internal
+                  // incoming-goods alert to the warehouse — no invoice required.
+                  const canNotify = !!item.ship_tracking && (itemRoute === "drop_ship" ? !!project.invoiceNumber : true);
                   const notified = project.shippingNotifications.some(r =>
                     (r.type === "drop_ship_vendor" || r.type === "decorator_to_warehouse") &&
                     r.decoratorId === item.decorator_id &&
                     (r.tracking || null) === (item.ship_tracking || null)
                   );
-                  const itemRoute = resolveRoute(item.shipping_route, project.shippingRoute);
                   const baseLabel = itemRoute === "drop_ship" ? "Notify customer" : "Notify warehouse";
                   // Lock once notified so a stray click can't re-fire the email.
                   const label = notified ? (itemRoute === "drop_ship" ? "Customer notified ✓" : "Warehouse notified ✓") : baseLabel;
@@ -2096,16 +2142,17 @@ export default function ProductionPage() {
                           decoratorName: item.decorator_name || "",
                           tracking: item.ship_tracking || "",
                           route: itemRoute,
+                          note: item.ship_notes || "",
                         });
                       }}
-                      title={notified ? "Already notified — duplicate send blocked" : !project.invoiceNumber ? "Generate invoice first" : (!item.ship_tracking ? "Tracking required" : "")}
+                      title={notified ? "Already notified — duplicate send blocked" : (itemRoute === "drop_ship" && !project.invoiceNumber) ? "Generate invoice first" : (!item.ship_tracking ? "Tracking required" : "")}
                       style={{ padding: "8px 18px", borderRadius: 6, border, background: bg, color, fontSize: 12, fontWeight: 700, cursor: notified ? "default" : (canNotify ? "pointer" : "not-allowed"), fontFamily: font, opacity: (notified || canNotify) ? 1 : 0.6 }}>
                       {label}
                     </button>
                   );
                 })()}
                 {item.pipeline_stage !== "shipped" && (
-                  <button onClick={async () => { await markShipped(item); }}
+                  <button onClick={async () => { await markShipped(item, { warehouseNotes: item.ship_notes || "" }); }}
                     style={{ padding: "8px 18px", borderRadius: 6, border: "none", background: T.green, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>
                     Mark Shipped
                   </button>
@@ -2238,10 +2285,12 @@ export default function ProductionPage() {
                   <div style={{ fontSize: 10, color: T.faint, marginTop: 4 }}>Applied to all {liveItems.length} items.</div>
                 </div>
                 <div>
-                  <label style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: 0.6, display: "block", marginBottom: 6 }}>Notes</label>
-                  <input value={batchNotes} placeholder="Optional"
-                    onChange={e => setBatchNotes(e.target.value)}
-                    style={{ ...ic, fontSize: 13, padding: "8px 10px" }} />
+                  <label style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: 0.6, display: "block", marginBottom: 6 }}>Note to warehouse</label>
+                  <textarea value={batchWarehouseNotes} placeholder="Anything the warehouse needs when this lands — pulls, handling, priorities…"
+                    onChange={e => setBatchWarehouseNotes(e.target.value)}
+                    rows={2}
+                    style={{ ...ic, fontSize: 13, padding: "8px 10px", resize: "vertical", fontFamily: font }} />
+                  <div style={{ fontSize: 10, color: T.faint, marginTop: 4 }}>Shows on Receiving + in the warehouse email.</div>
                 </div>
                 <div>
                   <label style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: 0.6, display: "block", marginBottom: 6 }}>Packing slip</label>
@@ -2287,7 +2336,8 @@ export default function ProductionPage() {
               </div>
               {(() => {
                 const allShipped = liveItems.length > 0 && liveItems.every(it => it.pipeline_stage === "shipped");
-                const canNotify = allShipped && !!batchTracking.trim() && !!project.invoiceNumber;
+                const batchIsDropShip = Array.from(new Set(liveItems.map(it => resolveRoute(it.shipping_route, project.shippingRoute))))[0] === "drop_ship";
+                const canNotify = allShipped && !!batchTracking.trim() && (batchIsDropShip ? !!project.invoiceNumber : true);
                 return (
                   <div style={{ marginTop: 24, display: "flex", justifyContent: "flex-end", gap: 8, alignItems: "center" }}>
                     <button onClick={() => {
@@ -2307,7 +2357,7 @@ export default function ProductionPage() {
                         // skipReload: true on each so the modal doesn't flash
                         // N times; one loadAll at the end refreshes state.
                         for (const it of liveItems) {
-                          await markShipped({ ...it, ship_tracking: batchTracking, ship_notes: batchNotes }, { skipReload: true });
+                          await markShipped({ ...it, ship_tracking: batchTracking, ship_notes: batchWarehouseNotes }, { skipReload: true, warehouseNotes: batchWarehouseNotes });
                         }
                         await loadAll();
                       }}
@@ -2343,9 +2393,10 @@ export default function ProductionPage() {
                               decoratorName: dg.decoratorName,
                               tracking: batchTracking,
                               route: batchRoutes[0],
+                              note: batchWarehouseNotes,
                             });
                           }}
-                          title={notified ? "Already notified — duplicate send blocked" : mixedRoute ? "These items have different shipping routes — notify each from its own job/row" : !project.invoiceNumber ? "Generate invoice first" : (!batchTracking ? "Tracking required" : "")}
+                          title={notified ? "Already notified — duplicate send blocked" : mixedRoute ? "These items have different shipping routes — notify each from its own job/row" : (batchIsDropShip && !project.invoiceNumber) ? "Generate invoice first" : (!batchTracking ? "Tracking required" : "")}
                           style={{ padding: "8px 18px", borderRadius: 6, border, background: bg, color, fontSize: 12, fontWeight: 700, cursor: notified ? "default" : (canNotify ? "pointer" : "not-allowed"), fontFamily: font, opacity: (notified || canNotify) ? 1 : 0.6 }}>
                           {label}
                         </button>
@@ -2378,6 +2429,7 @@ export default function ProductionPage() {
         clientName={notifyState?.clientName || ""}
         jobTitle={notifyState?.jobTitle || ""}
         contacts={notifyState?.contacts || []}
+        initialMessage={notifyState?.note || ""}
       />
 
     </div>

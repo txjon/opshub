@@ -5,6 +5,11 @@ import { sortSizes } from "@/lib/theme";
 import { logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
 import { calculatePhase } from "@/lib/lifecycle";
 import { poSentToItem } from "@/lib/item-status";
+import {
+  receiveShipmentLineForItem, unreceiveShipmentLineForItem, removeShipmentLineForItem,
+  fulfillPullRequest, recordAdHocPull, updatePullRequest,
+  type PullRequestRow,
+} from "@/lib/handoff";
 
 export const tQty = (q: Record<string, number>) => Object.values(q || {}).reduce((a, v) => a + v, 0);
 
@@ -51,10 +56,11 @@ export type WarehouseItem = {
   received_qtys: Record<string, number>;
   sample_qtys: Record<string, number>;
   ship_notes: string;
-  // Internal sample-pull instructions set on Production: per-size counts to
-  // pull, for who, where. Checked off on Receiving — `pulled` flips true and
-  // the whole per-size map is added to sample_qtys.
-  sample_pulls: { qtys: Record<string, number>; for: string; to: string; pulled?: boolean }[];
+  // Open pull requests for this item (migration 117): production's
+  // pre-declared "hold N units back for X" tasks, fulfilled by the warehouse.
+  // Fulfilled/cancelled requests are not loaded here — the receive card only
+  // needs the outstanding work.
+  pull_requests: PullRequestRow[];
   // Per-item delivery ETA (manual override on Production). Receiving shows it
   // so the warehouse sees the deadline.
   client_eta: string | null;
@@ -63,6 +69,10 @@ export type WarehouseItem = {
   decorator_name: string | null;
   decorator_short_code: string | null;
   receiving_data?: { condition?: string; notes?: string; received_by?: string | null; received_by_email?: string | null; received_at?: string } | null;
+  // Production-side notes that must survive the handoff (typed on the PO tab /
+  // Costing). Loaded here so /receiving can finally display them.
+  production_notes_po: string | null;
+  packing_notes: string | null;
 };
 
 export type WarehouseJob = {
@@ -83,21 +93,6 @@ export type WarehouseJob = {
   contact_phone: string;
   items: WarehouseItem[];
 };
-
-// Tolerant read of items.sample_pulls. Handles the in-development single-size
-// shape ({ qty, size }) so early test rows don't read as empty after the model
-// moved to a per-size qtys map.
-function normalizePulls(raw: any): WarehouseItem["sample_pulls"] {
-  if (!Array.isArray(raw)) return [];
-  return raw.map((p: any) => ({
-    qtys: p && p.qtys && typeof p.qtys === "object"
-      ? p.qtys
-      : (p && p.size ? { [p.size]: parseInt(p.qty, 10) || 1 } : {}),
-    for: (p && p.for) || "",
-    to: (p && p.to) || "",
-    pulled: !!(p && p.pulled),
-  }));
-}
 
 export function useWarehouse() {
   const supabase = createClient();
@@ -128,12 +123,12 @@ export function useWarehouse() {
     const [activeRes, recentEnteredRes] = await Promise.all([
       supabase
         .from("jobs")
-        .select("id, title, job_number, shipping_route, fulfillment_status, fulfillment_tracking, phase, type_meta, clients(name, shipping_address)")
+        .select("id, title, job_number, client_id, shipping_route, fulfillment_status, fulfillment_tracking, phase, type_meta, clients(name, shipping_address)")
         .not("phase", "in", '("complete","cancelled")')
         .order("created_at", { ascending: false }),
       supabase
         .from("jobs")
-        .select("id, title, job_number, shipping_route, fulfillment_status, fulfillment_tracking, phase, type_meta, clients(name, shipping_address)")
+        .select("id, title, job_number, client_id, shipping_route, fulfillment_status, fulfillment_tracking, phase, type_meta, clients(name, shipping_address)")
         .eq("shipping_route", "stage")
         .eq("phase", "complete")
         .gte("updated_at", fortyEightHoursAgo)
@@ -150,6 +145,33 @@ export function useWarehouse() {
     ]);
     const allItems = itemsRes.data;
     const allContacts = contactsRes.data || [];
+    // Fallback contacts: when a job has no job_contacts row (seeded jobs, or
+    // jobs created before the auto-copy-from-client existed), fall back to the
+    // client's own contacts so the warehouse still gets a name/phone/email.
+    const clientIds = Array.from(new Set(dbJobs.map((j: any) => j.client_id).filter(Boolean)));
+    const clientContacts: Record<string, { name: string; phone: string | null; email: string | null }> = {};
+    if (clientIds.length) {
+      const { data: cc } = await supabase.from("contacts").select("client_id, name, phone, email").in("client_id", clientIds);
+      for (const c of ((cc || []) as any[])) {
+        if (!clientContacts[c.client_id] && (c.name || c.email)) {
+          clientContacts[c.client_id] = { name: c.name || "", phone: c.phone || null, email: c.email || null };
+        }
+      }
+    }
+    // Open pull requests (migration 117), keyed by item. Only pending/partial —
+    // the warehouse card shows outstanding work, not history.
+    const pullsByItem: Record<string, PullRequestRow[]> = {};
+    if (allItems?.length) {
+      const { data: openPulls } = await supabase
+        .from("pull_requests").select("*")
+        .in("item_id", allItems.map((it: any) => it.id))
+        .in("status", ["pending", "partial"])
+        .order("created_at");
+      for (const pr of (openPulls || []) as PullRequestRow[]) {
+        if (!pullsByItem[pr.item_id]) pullsByItem[pr.item_id] = [];
+        pullsByItem[pr.item_id].push(pr);
+      }
+    }
     const assignmentMap: Record<string, string> = {};
     const decoratorMap: Record<string, { id: string | null; name: string; short_code: string | null; transit_days: number | null }> = {};
     if (allItems?.length) {
@@ -185,8 +207,16 @@ export function useWarehouse() {
       if (relevant.length === 0) continue;
 
       const typeMeta = (j as any).type_meta || {};
-      const primaryContact = allContacts.find((c: any) => c.job_id === j.id && c.role_on_job === "primary");
-      const contactData = (primaryContact as any)?.contacts || {};
+      // Show a contact if the job has ANY — don't require role="primary".
+      // Prefer primary → logistics/shipping → any contact with a name/email
+      // (mirrors the email resolver, which already falls back this way).
+      const jobContacts = allContacts.filter((c: any) => c.job_id === j.id && c.contacts);
+      const pickContact =
+        jobContacts.find((c: any) => c.role_on_job === "primary")
+        || jobContacts.find((c: any) => c.role_on_job === "logistics" || c.role_on_job === "shipping")
+        || jobContacts.find((c: any) => (c.contacts as any)?.name || (c.contacts as any)?.email);
+      // Job contact if linked; otherwise the client's contact.
+      const contactData = (pickContact as any)?.contacts || clientContacts[(j as any).client_id] || {};
       const packingNotes = relevant.map((it: any) => it.packing_notes).filter(Boolean).join(" · ");
 
       mapped.push({
@@ -211,7 +241,7 @@ export function useWarehouse() {
           return {
             id: it.id, name: it.name, letter: String.fromCharCode(65 + (it.sort_order ?? 0)), blank_vendor: it.blank_vendor, blank_sku: it.blank_sku,
             job_id: it.job_id, pipeline_stage: it.pipeline_stage, ship_tracking: it.ship_tracking, ship_notes: it.ship_notes || "",
-            sample_pulls: normalizePulls(it.sample_pulls),
+            pull_requests: pullsByItem[it.id] || [],
             client_eta: it.client_eta || null,
             ship_date: ts.shipped || null,
             shipping_route: it.shipping_route || null,
@@ -231,6 +261,8 @@ export function useWarehouse() {
             decorator_name: decoratorMap[it.id]?.name || null,
             decorator_short_code: decoratorMap[it.id]?.short_code || null,
             receiving_data: it.receiving_data || null,
+            production_notes_po: it.production_notes_po || null,
+            packing_notes: it.packing_notes || null,
           };
         }),
       });
@@ -290,49 +322,57 @@ export function useWarehouse() {
     }, 800);
   }
 
-  // Check a sample pull off on Receiving. Flips `pulled` and auto-rolls the
-  // pull qty into sample_qtys[size] (which already deducts from the continuing
-  // client qty) — so the receiver never re-enters counts by hand. Sizeless
-  // legacy pulls just toggle. Writes immediately (a checkbox is discrete).
-  async function toggleSamplePull(item: WarehouseItem, idx: number) {
-    const pulls = item.sample_pulls || [];
-    const target = pulls[idx];
-    if (!target) return;
-    const nowPulled = !target.pulled;
-    const nextPulls = pulls.map((p, i) => i === idx ? { ...p, pulled: nowPulled } : p);
-
-    // Roll the whole per-size map into sample_qtys (+ when pulled, − when
-    // un-pulled). Only sizes that actually exist on the item are counted.
-    const nextSamples = { ...(item.sample_qtys || {}) };
-    for (const [sz, n] of Object.entries(target.qtys || {})) {
-      if (!n || n <= 0 || !item.sizes.includes(sz)) continue;
-      nextSamples[sz] = Math.max(0, (nextSamples[sz] || 0) + (nowPulled ? n : -n));
-    }
-
+  // ── Pull requests (migration 117) ──────────────────────────────────────
+  // (The old items.sample_pulls JSONB toggle/add mutations lived here — the
+  // migration backfilled that column into pull_requests and nothing writes
+  // it anymore.)
+  // Fulfill a pre-declared pull: writes pulled_inventory, rolls qtys into the
+  // legacy sample_qtys map (keeps deductSamples balance math working), and
+  // drops the request from the item's open list.
+  async function fulfillPull(item: WarehouseItem, pull: PullRequestRow, fulfilledQtys?: Record<string, number>) {
+    const nextSamples = await fulfillPullRequest(supabase, pull, {
+      fulfilledQtys,
+      itemName: item.name,
+      currentSampleQtys: item.sample_qtys || {},
+    });
     setJobs(prev => prev.map(j => ({
-      ...j, items: j.items.map(it => it.id === item.id ? { ...it, sample_pulls: nextPulls, sample_qtys: nextSamples } : it),
+      ...j, items: j.items.map(it => it.id === item.id
+        ? { ...it, sample_qtys: nextSamples, pull_requests: (it.pull_requests || []).filter(p => p.id !== pull.id) }
+        : it),
     })));
-    // Flush any pending per-size sample debounce so it can't clobber this write.
-    const sk = `sx_${item.id}`;
-    if (saveTimers.current[sk]) { clearTimeout(saveTimers.current[sk]); delete saveTimers.current[sk]; }
-    await supabase.from("items").update({ sample_pulls: nextPulls, sample_qtys: nextSamples }).eq("id", item.id);
+    const total = Object.values(fulfilledQtys || pull.qtys || {}).reduce((a, n) => a + (Number(n) || 0), 0);
+    const why = [pull.kind !== "sample" ? pull.kind : null, pull.reason].filter(Boolean).join(" — ");
+    logJobActivity(item.job_id, `${item.name} — pull fulfilled: ${total} unit${total === 1 ? "" : "s"}${why ? ` (${why})` : ""}`);
   }
 
-  // Ad-hoc product pull, post-receiving (held back for internal use — photos,
-  // catalog). Records a new sample_pull AND rolls the qty into sample_qtys so it
-  // deducts from the continuing/forward qty (deductSamples). Writes immediately.
-  async function addSamplePull(item: WarehouseItem, qtys: Record<string, number>, forWhom: string, to: string) {
-    const clean = Object.fromEntries(Object.entries(qtys).map(([s, n]) => [s, Number(n) || 0]).filter(([s, n]) => (n as number) > 0 && item.sizes.includes(s as string)));
+  // Ad-hoc pull logged by the warehouse at receive/forward time. Creates an
+  // already-fulfilled pull_request + pulled_inventory bucket in one step.
+  async function addPull(item: WarehouseItem, qtys: Record<string, number>, kind: string, reason: string) {
+    const clean = Object.fromEntries(Object.entries(qtys)
+      .map(([s, n]) => [s, Number(n) || 0])
+      .filter(([s, n]) => (n as number) > 0 && item.sizes.includes(s as string)));
     if (Object.keys(clean).length === 0) return;
-    const nextPulls = [...(item.sample_pulls || []), { qtys: clean, for: forWhom || "Internal", to: to || "", pulled: true }];
-    const nextSamples = { ...(item.sample_qtys || {}) };
-    for (const [sz, n] of Object.entries(clean)) nextSamples[sz] = Math.max(0, (nextSamples[sz] || 0) + (n as number));
+    const nextSamples = await recordAdHocPull(supabase, {
+      job_id: item.job_id, item_id: item.id, item_name: item.name,
+      kind: kind || "sample", qtys: clean, reason,
+      currentSampleQtys: item.sample_qtys || {},
+    });
     setJobs(prev => prev.map(j => ({
-      ...j, items: j.items.map(it => it.id === item.id ? { ...it, sample_pulls: nextPulls, sample_qtys: nextSamples } : it),
+      ...j, items: j.items.map(it => it.id === item.id ? { ...it, sample_qtys: nextSamples } : it),
     })));
-    const sk = `sx_${item.id}`;
-    if (saveTimers.current[sk]) { clearTimeout(saveTimers.current[sk]); delete saveTimers.current[sk]; }
-    await supabase.from("items").update({ sample_pulls: nextPulls, sample_qtys: nextSamples }).eq("id", item.id);
+    const total = Object.values(clean).reduce((a: number, n) => a + (Number(n) || 0), 0);
+    logJobActivity(item.job_id, `${item.name} — ${total} unit${total === 1 ? "" : "s"} pulled${reason ? ` (${reason})` : ""}`);
+  }
+
+  // Dismiss a pull the warehouse can't or shouldn't fulfill (e.g. shipment
+  // came in short). Stays in the table as history.
+  async function cancelPull(item: WarehouseItem, pull: PullRequestRow) {
+    await updatePullRequest(supabase, pull.id, { status: "cancelled" });
+    setJobs(prev => prev.map(j => ({
+      ...j, items: j.items.map(it => it.id === item.id
+        ? { ...it, pull_requests: (it.pull_requests || []).filter(p => p.id !== pull.id) }
+        : it),
+    })));
   }
 
   // Forward a wave of received ship-through items to the client. Stamps
@@ -407,6 +447,15 @@ export function useWarehouse() {
     }
     await supabase.from("items").update(updates).eq("id", item.id);
 
+    // Handoff spine (mig 117): mirror the receive onto the item's shipment
+    // line + flip the shipment to received when its last line lands. No-op
+    // for legacy items shipped before the shipments table existed.
+    await receiveShipmentLineForItem(supabase, item.id, {
+      received_qtys: item.received_qtys,
+      condition: opts?.condition || "good",
+      notes: opts?.notes || null,
+    });
+
     // Activity log — capture per-size totals for the audit trail.
     // "Atomic Tee received at warehouse — 76/76 delivered, 2 samples pulled
     //  (74 continuing) (damaged) — minor scuffing on neckline"
@@ -434,23 +483,8 @@ export function useWarehouse() {
     const notesTag = opts?.notes ? ` — ${opts.notes}` : "";
     logJobActivity(item.job_id, `${item.name} received at warehouse${conditionTag} — ${parts.join(", ")}${notesTag}`);
 
-    // Destination trail — log WHERE each pulled sample went, not just the count,
-    // so it's a permanent record on the job feed (the count line above only
-    // says "2 samples pulled"). Only checked-off pulls with a qty are logged.
-    const pulledDest = (item.sample_pulls || [])
-      .filter(p => p.pulled && Object.values(p.qtys || {}).some(n => (n || 0) > 0))
-      .map(p => {
-        const entries = Object.entries(p.qtys || {}).filter(([, n]) => (n || 0) > 0);
-        const tot = entries.reduce((a, [, n]) => a + (n || 0), 0);
-        const sizeStr = entries.length === 1
-          ? `${entries[0][1]}×${entries[0][0]}`
-          : `${tot} pcs (${entries.map(([s, n]) => (n > 1 ? `${n}×${s}` : s)).join(", ")})`;
-        const label = [p.for?.trim(), p.to?.trim() && `(${p.to.trim()})`].filter(Boolean).join(" ");
-        return label ? `${sizeStr} → ${label}` : sizeStr;
-      });
-    if (pulledDest.length > 0) {
-      logJobActivity(item.job_id, `${item.name} samples pulled — ${pulledDest.join("; ")}`);
-    }
+    // (Pull destinations are logged per-pull by fulfillPull/addPull — the
+    // old sample_pulls destination trail that lived here is retired.)
 
     setJobs(prev => prev.map(j => ({
       ...j, items: j.items.map(it => it.id === item.id ? { ...it, received_at_hpd: true, received_at_hpd_at: now, receiving_data: receivingData as any } : it),
@@ -576,6 +610,7 @@ export function useWarehouse() {
 
   async function undoReceived(item: WarehouseItem) {
     await supabase.from("items").update({ received_at_hpd: false, received_at_hpd_at: null }).eq("id", item.id);
+    await unreceiveShipmentLineForItem(supabase, item.id);
     setJobs(prev => prev.map(j => ({
       ...j, items: j.items.map(it => it.id === item.id ? { ...it, received_at_hpd: false, received_at_hpd_at: null } : it),
     })));
@@ -592,6 +627,10 @@ export function useWarehouse() {
     if (item.decorator_assignment_id) {
       await supabase.from("decorator_assignments").update({ pipeline_stage: "in_production" }).eq("id", item.decorator_assignment_id);
     }
+    // The item is back at the decorator — its box manifest no longer includes
+    // it. Un-receive the line first (remove only touches received=false rows).
+    await unreceiveShipmentLineForItem(supabase, item.id);
+    await removeShipmentLineForItem(supabase, item.id);
     logJobActivity(item.job_id, `${item.name} returned to production from receiving`);
     setJobs(prev => prev.map(j => ({
       ...j, items: j.items.map(it => it.id === item.id ? { ...it, pipeline_stage: "in_production", received_at_hpd: false, received_at_hpd_at: null, received_qtys: null } : it),
@@ -644,7 +683,8 @@ export function useWarehouse() {
 
   return {
     loading, jobs, setJobs, incoming, shipThrough, fulfillment,
-    updateReceivedQty, updateSampleQty, toggleSamplePull, addSamplePull, forwardItems, markReceived, bulkMarkReceived, undoReceived, returnToProduction,
+    updateReceivedQty, updateSampleQty, forwardItems, markReceived, bulkMarkReceived, undoReceived, returnToProduction,
+    fulfillPull, addPull, cancelPull,
     bulkMarkWebstoreEntered, undoWebstoreEntered,
     updateFulfillment, debounceFulfillmentTracking,
     supabase, logJobActivity,

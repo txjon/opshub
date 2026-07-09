@@ -68,7 +68,7 @@ export type Shipment = {
   all_received: boolean;
 };
 
-function normalizeTracking(raw: string | null | undefined): string | null {
+export function normalizeTracking(raw: string | null | undefined): string | null {
   if (!raw) return null;
   const trimmed = raw.trim();
   if (!trimmed) return null;
@@ -94,20 +94,36 @@ export function isRealTracking(trk: string | null | undefined): boolean {
   return !!trk && !NON_TRACKING_TOKENS.has(trk.trim().toLowerCase());
 }
 
-function groupKeyFor(item: WarehouseItem): string {
-  const decKey = item.decorator_id || item.decorator_name || "unassigned";
+// Pure group-key builder, shared with the persisted `shipments` table
+// (lib/handoff.ts writes shipments.group_key with THIS function) so the
+// derived grouping and the stored rows can never disagree during the
+// dual-write transition. Any change here changes the persisted key — keep
+// them moving together.
+export function shipmentGroupKey(f: {
+  decorator_id: string | null;
+  decorator_name?: string | null;
+  pickup_ready?: boolean;
+  ship_tracking?: string | null;
+  ship_date?: string | null;
+  job_id: string;
+}): string {
+  const decKey = f.decorator_id || f.decorator_name || "unassigned";
   // Local pickup: all of a vendor's ready-for-pickup items lump into ONE block
   // (one trip to that vendor), regardless of job/date/tracking. This is the
   // intentional version of the old "type PICK-UP in tracking" behavior.
-  if (item.pickup_ready) return `${decKey}::pickup`;
-  const trk = normalizeTracking(item.ship_tracking);
+  if (f.pickup_ready) return `${decKey}::pickup`;
+  const trk = normalizeTracking(f.ship_tracking);
   if (isRealTracking(trk)) return `${decKey}::${trk}`;
   // Fallback: bucket by (decorator, ship_date_day, job_id). Including
   // job_id here means a vendor that ships items for two different jobs
   // on the same day with no tracking gets two separate rows — which
   // matches reality (two distinct deliveries).
-  const dateDay = item.ship_date ? item.ship_date.slice(0, 10) : "unknown";
-  return `${decKey}::notrk:${dateDay}:${item.job_id}`;
+  const dateDay = f.ship_date ? f.ship_date.slice(0, 10) : "unknown";
+  return `${decKey}::notrk:${dateDay}:${f.job_id}`;
+}
+
+function groupKeyFor(item: WarehouseItem): string {
+  return shipmentGroupKey(item);
 }
 
 export function useShipments(jobs: WarehouseJob[]): Shipment[] {

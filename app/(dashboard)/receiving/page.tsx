@@ -5,38 +5,48 @@ import { createClient } from "@/lib/supabase/client";
 import { T, font, mono, SIZE_ORDER } from "@/lib/theme";
 import { useWarehouse, tQty, type WarehouseJob, type WarehouseItem } from "@/lib/use-warehouse";
 import { useShipments, isRealTracking, type Shipment } from "@/lib/use-shipments";
+import { resolvePulledInventory, resolvePostShopifyPull } from "@/lib/handoff";
 import { computeArrivalEta } from "@/lib/arrival-eta";
 import { uploadToReceiving, uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
 import { DriveFileLink } from "@/components/DriveFileLink";
 import { DriveThumb } from "@/components/DriveThumb";
 import { MockupPeek } from "@/components/MockupPeek";
 
-// ── Internal sample pulls + delivery ETA ──────────────────────────────────
-// Set on the Production page when an item ships; the warehouse reads them
-// here. One renderer so the modal, list row, and card stay consistent.
-type Pull = WarehouseItem["sample_pulls"][number];
-function pullEntries(p: Pull) {
-  return Object.entries(p.qtys || {}).filter(([, n]) => n > 0);
+// ── Pull requests + delivery ETA ──────────────────────────────────────────
+// Pull requests (migration 117) are created on Production (or ad-hoc here)
+// and fulfilled by the warehouse. useWarehouse loads only OPEN requests
+// (pending/partial) onto item.pull_requests — fulfilled ones live in the
+// Pulls tab (pulled_inventory) and the job activity feed.
+type PullReq = WarehouseItem["pull_requests"][number];
+const PULL_KIND_LABELS: Record<string, string> = {
+  sample: "Sample", photo: "Photo shoot", catalog: "Catalog",
+  client: "Client", event: "Event", other: "Other",
+};
+function pullEntries(qtys: Record<string, number> | null | undefined) {
+  return Object.entries(qtys || {}).filter(([, n]) => n > 0);
 }
-function samplePullText(p: Pull) {
-  const entries = pullEntries(p);
+// Canonical size-qty format across every surface: "L-1, XL-1" (size-qty),
+// never "1×L". One helper so no surface drifts.
+function fmtSizeQtys(qtys: Record<string, number> | null | undefined): string {
+  return pullEntries(qtys).map(([s, n]) => `${s}-${n}`).join(", ");
+}
+function pullReqText(p: PullReq) {
+  const entries = pullEntries(p.qtys);
   const total = entries.reduce((a, [, n]) => a + n, 0);
-  const sizeStr = entries.map(([s, n]) => (n > 1 ? `${n}×${s}` : s)).join(", ");
+  const sizeStr = fmtSizeQtys(p.qtys);
   const head = entries.length === 0
-    ? "sample"
+    ? "pull"
     : entries.length === 1
-      ? `${entries[0][1]}×${entries[0][0]}`
+      ? sizeStr
       : `${total} pcs · ${sizeStr}`;
   const tail = [
-    p.for?.trim() && `for ${p.for.trim()}`,
-    p.to?.trim() && `→ ${p.to.trim()}`,
-  ].filter(Boolean).join(" ");
+    p.kind && p.kind !== "sample" ? (PULL_KIND_LABELS[p.kind] || p.kind).toLowerCase() : null,
+    p.reason?.trim() || null,
+  ].filter(Boolean).join(" — ");
   return tail ? `${head} — ${tail}` : head;
 }
-function activePulls(item: WarehouseItem): { p: Pull; idx: number }[] {
-  return (item.sample_pulls || [])
-    .map((p, idx) => ({ p, idx }))
-    .filter(({ p }) => pullEntries(p).length > 0 || p.for || p.to);
+function activePulls(item: WarehouseItem): PullReq[] {
+  return item.pull_requests || [];
 }
 function fmtEta(d: string | null) {
   if (!d) return null;
@@ -83,55 +93,45 @@ function CopyBtn({ text }: { text: string }) {
     >{copied ? "✓" : "⧉"}</button>
   );
 }
-// Read-only summary — list rows + collapsed cards. Shows ETA + each pull,
-// with done pulls struck through. No interaction here.
-function SamplePullsBlock({ item, hideEta = false }: { item: WarehouseItem; hideEta?: boolean }) {
+// Interactive checklist — used in the receive modal. Fulfilling a pull writes
+// pulled_inventory, rolls the qty into sample_qtys (which deducts from the
+// continuing/forward balance), and drops it from the open list. "Skip" cancels
+// a pull that can't be honored (e.g. box came in short) — kept as history.
+function PullChecklist({ item, onFulfill, onCancel }: {
+  item: WarehouseItem;
+  onFulfill: (pull: PullReq) => void;
+  onCancel: (pull: PullReq) => void;
+}) {
   const pulls = activePulls(item);
-  const eta = hideEta ? null : fmtEta(item.client_eta);
-  if (pulls.length === 0 && !eta) return null;
-  return (
-    <div style={{ marginTop: 4, display: "flex", flexDirection: "column", gap: 3 }}>
-      {eta && (
-        <div style={{ fontSize: 11, fontWeight: 600, color: T.accent }}>ETA {eta}</div>
-      )}
-      {pulls.length > 0 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-          <span style={{ fontSize: 9, fontWeight: 800, color: T.amber, textTransform: "uppercase", letterSpacing: "0.06em" }}>Pull samples</span>
-          {pulls.map(({ p, idx }) => (
-            <div key={idx} style={{ fontSize: 11, color: p.pulled ? T.faint : T.amber, display: "flex", gap: 5, textDecoration: p.pulled ? "line-through" : "none" }}>
-              <span style={{ flexShrink: 0 }}>{p.pulled ? "✓" : "•"}</span>
-              <span style={{ minWidth: 0, wordBreak: "break-word" }}>{samplePullText(p)}</span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-// Interactive checklist — used in the receive modal. Checking a pull rolls its
-// qty into sample_qtys[size] via onToggle (the warehouse hook handles the math).
-function SamplePullChecklist({ item, onToggle }: { item: WarehouseItem; onToggle: (idx: number) => void }) {
-  const pulls = activePulls(item);
+  const [busyId, setBusyId] = useState<string | null>(null);
   if (pulls.length === 0) return null;
-  const done = pulls.filter(({ p }) => p.pulled).length;
   return (
     <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 6, background: T.amberDim + "55", border: `1px solid ${T.amber}44` }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 5 }}>
-        <span style={{ fontSize: 9, fontWeight: 800, color: T.amber, textTransform: "uppercase", letterSpacing: "0.06em" }}>Pull samples</span>
-        <span style={{ fontSize: 10, fontWeight: 700, color: done === pulls.length ? T.green : T.amber, fontFamily: mono }}>{done}/{pulls.length} pulled</span>
+        <span style={{ fontSize: 9, fontWeight: 800, color: T.amber, textTransform: "uppercase", letterSpacing: "0.06em" }}>Pulls requested</span>
+        <span style={{ fontSize: 10, fontWeight: 700, color: T.amber, fontFamily: mono }}>{pulls.length} open</span>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-        {pulls.map(({ p, idx }) => {
-          const countable = pullEntries(p).some(([s, n]) => n > 0 && item.sizes.includes(s));
+        {pulls.map(p => {
+          const countable = pullEntries(p.qtys).some(([s, n]) => n > 0 && item.sizes.includes(s));
+          const busy = busyId === p.id;
           return (
-            <label key={idx} style={{ display: "flex", gap: 8, alignItems: "flex-start", cursor: "pointer" }}>
-              <input type="checkbox" checked={!!p.pulled} onChange={() => onToggle(idx)}
-                style={{ width: 15, height: 15, accentColor: T.amber, cursor: "pointer", marginTop: 1, flexShrink: 0 }} />
-              <span style={{ fontSize: 12, color: p.pulled ? T.faint : T.text, textDecoration: p.pulled ? "line-through" : "none", lineHeight: 1.3, minWidth: 0, wordBreak: "break-word" }}>
-                {samplePullText(p)}
-                {!countable && <span style={{ color: T.faint, fontStyle: "italic" }}> · no size — count manually</span>}
+            <div key={p.id} style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+              <span style={{ fontSize: 12, color: T.text, lineHeight: 1.3, minWidth: 0, wordBreak: "break-word", flex: 1 }}>
+                {pullReqText(p)}
+                {p.requested_by_name && <span style={{ color: T.faint }}> · {p.requested_by_name.split("@")[0]}</span>}
+                {!countable && <span style={{ color: T.faint, fontStyle: "italic" }}> · sizes don't match item — count manually</span>}
               </span>
-            </label>
+              <button disabled={busy}
+                onClick={async () => { setBusyId(p.id); try { await onFulfill(p); } finally { setBusyId(null); } }}
+                style={{ fontSize: 10, fontWeight: 700, padding: "3px 10px", borderRadius: 5, border: "none", background: T.amber, color: "#1a1508", cursor: busy ? "default" : "pointer", fontFamily: font, flexShrink: 0, opacity: busy ? 0.6 : 1 }}>
+                {busy ? "…" : "Pulled ✓"}
+              </button>
+              <button disabled={busy} onClick={() => onCancel(p)} title="Can't fulfill — dismiss (kept as history)"
+                style={{ fontSize: 10, fontWeight: 600, padding: "3px 8px", borderRadius: 5, border: `1px solid ${T.border}`, background: "transparent", color: T.faint, cursor: "pointer", fontFamily: font, flexShrink: 0 }}>
+                Skip
+              </button>
+            </div>
           );
         })}
       </div>
@@ -180,8 +180,95 @@ type DecoratorGroup = {
 type FileRec = { file_name: string; drive_link: string; drive_file_id: string | null; mime_type: string | null };
 
 export default function ReceivingPage() {
-  const { loading, jobs, updateReceivedQty, updateSampleQty, toggleSamplePull, markReceived, bulkMarkReceived, undoReceived, returnToProduction } = useWarehouse();
+  const { loading, jobs, updateReceivedQty, updateSampleQty, markReceived, bulkMarkReceived, undoReceived, returnToProduction, fulfillPull, addPull, cancelPull, logJobActivity } = useWarehouse();
   const supabase = createClient();
+
+  // Pulled inventory (migration 117): units held back from shipments — the
+  // physical shelf of samples/photo/client pulls. Held rows are the working
+  // list; resolving (returned / shipped out / consumed) clears them off.
+  type PulledRow = {
+    id: string; item_id: string | null; item_name: string | null; job_id: string | null;
+    qtys: Record<string, number>; location: string | null; status: string; notes: string | null;
+    created_at: string;
+  };
+  const [heldPulls, setHeldPulls] = useState<PulledRow[]>([]);
+  const [pullJobRefs, setPullJobRefs] = useState<Record<string, string>>({});
+  async function loadHeldPulls() {
+    const { data } = await supabase
+      .from("pulled_inventory").select("*")
+      .eq("status", "held")
+      .order("created_at", { ascending: false });
+    const rows = (data || []) as PulledRow[];
+    setHeldPulls(rows);
+    const jobIds = Array.from(new Set(rows.map(r => r.job_id).filter(Boolean))) as string[];
+    if (jobIds.length > 0) {
+      const { data: jrows } = await supabase.from("jobs").select("id, job_number, title, type_meta, clients(name)").in("id", jobIds);
+      const refs: Record<string, string> = {};
+      for (const j of (jrows || []) as any[]) {
+        refs[j.id] = [j.clients?.name, j.type_meta?.qb_invoice_number || j.job_number].filter(Boolean).join(" · ");
+      }
+      setPullJobRefs(refs);
+    }
+  }
+  useEffect(() => { loadHeldPulls(); }, [jobs.length]);
+
+  // Post-Shopify pull tasks (Jon's rule): once an item is keyed into Shopify,
+  // a pull is executed as a Shopify ORDER (fulfillment flow) or a SHELF PULL
+  // with a manual Shopify count adjustment. These land in the Holding strip —
+  // queried directly so they surface even when the job aged out of the
+  // warehouse view.
+  type PostShopifyPull = { pull: any; item_name: string; job_ref: string };
+  const [postShopifyPulls, setPostShopifyPulls] = useState<PostShopifyPull[]>([]);
+  async function loadPostShopifyPulls() {
+    const { data: open } = await supabase
+      .from("pull_requests")
+      .select("*, items!inner(id, name, webstore_entered_at, job_id, jobs(job_number, type_meta, clients(name)))")
+      .in("status", ["pending", "partial"])
+      .not("items.webstore_entered_at", "is", null)
+      .order("created_at");
+    setPostShopifyPulls(((open || []) as any[]).map(r => ({
+      pull: r,
+      item_name: r.items?.name || "Item",
+      job_ref: [r.items?.jobs?.clients?.name, r.items?.jobs?.type_meta?.qb_invoice_number || r.items?.jobs?.job_number].filter(Boolean).join(" · "),
+    })));
+  }
+  useEffect(() => { loadPostShopifyPulls(); }, [jobs.length]);
+  async function resolvePostShopify(t: PostShopifyPull, mode: "shopify_order" | "shelf_pull") {
+    await resolvePostShopifyPull(supabase, t.pull, mode, { itemName: t.item_name });
+    setPostShopifyPulls(prev => prev.filter(x => x.pull.id !== t.pull.id));
+    if (mode === "shelf_pull") loadHeldPulls();
+    const total = Object.values(t.pull.qtys || {}).reduce((a: number, n) => a + (Number(n) || 0), 0);
+    if (t.pull.job_id) logJobActivity(t.pull.job_id, `${t.item_name} — ${total} unit pull ${mode === "shopify_order" ? "placed as Shopify order" : "pulled off shelf, Shopify count adjusted"}`);
+  }
+
+  async function resolveHeldPull(row: PulledRow, status: "returned" | "shipped_out" | "consumed") {
+    await resolvePulledInventory(supabase, row as any, status);
+    setHeldPulls(prev => prev.filter(r => r.id !== row.id));
+    if (row.job_id) {
+      const total = Object.values(row.qtys || {}).reduce((a, n) => a + (Number(n) || 0), 0);
+      const verb = status === "returned" ? "returned to stock" : status === "shipped_out" ? "shipped out" : "consumed";
+      logJobActivity(row.job_id, `${row.item_name || "Pulled units"} — ${total} pulled unit${total === 1 ? "" : "s"} ${verb}`);
+    }
+  }
+
+  // Persisted shipment rows (migration 117), keyed by group_key — the SAME key
+  // the derived grouping uses, so meta[shipment.key] lines up 1:1. Carries the
+  // production→warehouse handoff note. Legacy boxes shipped before 117 simply
+  // have no row (no note to show).
+  const [shipmentMeta, setShipmentMeta] = useState<Record<string, { id: string; warehouse_notes: string | null }>>({});
+  useEffect(() => {
+    (async () => {
+      const cutoff = new Date(Date.now() - 60 * 86400000).toISOString();
+      const { data } = await supabase
+        .from("shipments")
+        .select("id, group_key, warehouse_notes")
+        .eq("direction", "inbound")
+        .gte("created_at", cutoff);
+      const map: Record<string, { id: string; warehouse_notes: string | null }> = {};
+      for (const s of (data || []) as any[]) map[s.group_key] = { id: s.id, warehouse_notes: s.warehouse_notes };
+      setShipmentMeta(map);
+    })();
+  }, [jobs.length]); // refresh alongside the warehouse data
 
   // Filters / tabs
   const [search, setSearch] = useState("");
@@ -209,13 +296,27 @@ export default function ReceivingPage() {
   // project's full vendor mix.
   const [modalShipmentKey, setModalShipmentKey] = useState<string | null>(null);
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
-  // Batch-receive confirm modal — the items queued by "Receive Selected".
-  const [batchReceiveItems, setBatchReceiveItems] = useState<WarehouseItem[] | null>(null);
   const [mockupPeek, setMockupPeek] = useState<{ driveFileId: string | null; name: string } | null>(null);
 
   // Receive UI state — keyed by item id
   const [conditionNote, setConditionNote] = useState<Record<string, string>>({});
-  const [itemCondition, setItemCondition] = useState<Record<string, string>>({});
+  // Condition + notes are the exception, not the default — hidden behind a
+  // "Flag issue" toggle so the happy path is just count → Receive.
+  const [flaggedItems, setFlaggedItems] = useState<Set<string>>(new Set());
+  const toggleFlag = (id: string) => setFlaggedItems(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  // Ad-hoc pull, inline in the receive modal (one open at a time).
+  const [adhocPullFor, setAdhocPullFor] = useState<string | null>(null);
+  const [adhocQtys, setAdhocQtys] = useState<Record<string, string>>({});
+  const [adhocReason, setAdhocReason] = useState("");
+  async function saveAdhocPull(item: WarehouseItem) {
+    const qtys: Record<string, number> = {};
+    for (const [s, v] of Object.entries(adhocQtys)) { const n = parseInt(v) || 0; if (n > 0) qtys[s] = n; }
+    if (Object.keys(qtys).length > 0) {
+      await addPull(item, qtys, "sample", adhocReason.trim() || "Pulled at receiving");
+      loadHeldPulls();
+    }
+    setAdhocPullFor(null); setAdhocQtys({}); setAdhocReason("");
+  }
 
   // Files
   const [packingSlips, setPackingSlips] = useState<Record<string, FileRec[]>>({});
@@ -236,6 +337,7 @@ export default function ReceivingPage() {
   const [recvPendingFiles, setRecvPendingFiles] = useState<File[]>([]);
   const [recvBusy, setRecvBusy] = useState(false);
   const [showForm, setShowForm] = useState(false);
+  const [notifyWarehouse, setNotifyWarehouse] = useState(true);
   const [form, setForm] = useState({ carrier: "", tracking: "", sender: "", description: "", condition: "", notes: "", destination: "ship_through", clientId: "" });
   // Structured line items for an outside shipment (name + size/qty rows).
   // Editor shape uses arrays for stable editing; collapsed to {name, sizes:{}}
@@ -394,6 +496,20 @@ export default function ReceivingPage() {
       route, status: "pending", resolved: false, client_id: form.clientId || null,
       line_items: lineItems,
     });
+    // Warehouse heads-up email (warehouse@) — fire-and-forget so a mail hiccup
+    // never blocks the log.
+    if (notifyWarehouse) {
+      const clientName = form.clientId ? (linkableClients.find(c => c.id === form.clientId)?.name || null) : null;
+      fetch("/api/outside-shipments/notify", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: "warehouse_incoming",
+          carrier: form.carrier || null, tracking: form.tracking || null,
+          sender: form.sender || null, description: form.description,
+          route, clientName, lineItems, files: uploadedFiles,
+        }),
+      }).catch(() => {});
+    }
     setForm({ carrier: "", tracking: "", sender: "", description: "", condition: "", notes: "", destination: "ship_through", clientId: "" });
     setFormLineItems([]); setOrderSearch("");
     setPendingFiles([]); setShowForm(false); setSaving(false);
@@ -781,13 +897,28 @@ export default function ReceivingPage() {
                   {j.display_number !== j.job_number ? j.display_number : j.job_number}
                 </span>
               </div>
-              {j.title && <div style={{ fontSize: 11, color: T.faint, wordBreak: "break-word" }}>{j.title}</div>}
+              {(() => {
+                // Items in THIS box for THIS job — what the receiver actually
+                // scans for. Replaces the project title (unimportant here).
+                const its = shipment.items.filter(it => it.job_id === j.id);
+                if (its.length === 0) return j.title ? <div style={{ fontSize: 11, color: T.faint, wordBreak: "break-word" }}>{j.title}</div> : null;
+                const names = its.map(it => it.name);
+                const shown = names.slice(0, 3).join(", ");
+                const extra = names.length > 3 ? ` +${names.length - 3} more` : "";
+                return <div style={{ fontSize: 11.5, color: T.muted, wordBreak: "break-word", lineHeight: 1.4 }}>{shown}{extra}</div>;
+              })()}
             </div>
           ))}
           {multiJob && <div style={{ fontSize: 10, color: T.amber, fontWeight: 600 }}>Multi-project ({shipment.jobs.length})</div>}
-          {(pullCount > 0 || notes.length > 0) && (
+          {(pullCount > 0 || notes.length > 0 || shipmentMeta[shipment.key]?.warehouse_notes) && (
             <div style={{ marginTop: 2, display: "flex", flexDirection: "column", gap: 2 }}>
-              {pullCount > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: T.amber }}>⚑ {pullCount} sample pull{pullCount === 1 ? "" : "s"}</span>}
+              {shipmentMeta[shipment.key]?.warehouse_notes && (
+                <div style={{ fontSize: 11, fontWeight: 600, color: T.text, background: T.amberDim, border: `1px solid ${T.amber}44`, borderRadius: 5, padding: "4px 8px", display: "flex", gap: 6 }}>
+                  <span style={{ flexShrink: 0, color: T.amber }}>📋</span>
+                  <span style={{ minWidth: 0, wordBreak: "break-word" }}>{shipmentMeta[shipment.key]!.warehouse_notes}</span>
+                </div>
+              )}
+              {pullCount > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: T.amber }}>⚑ {pullCount} open pull{pullCount === 1 ? "" : "s"}</span>}
               {notes.map((n, i) => (
                 <div key={i} style={{ fontSize: 11, color: T.amber, display: "flex", gap: 5 }}>
                   <span style={{ flexShrink: 0 }}>✎</span>
@@ -859,7 +990,7 @@ export default function ReceivingPage() {
   const shipmentColHeader = (
     <div style={{ display: "flex", gap: 12, alignItems: "center", padding: "0 15px", fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em", userSelect: "none" }}>
       <div style={{ width: 110, flexShrink: 0 }}>Vendor</div>
-      <div style={{ flex: 1, minWidth: 0 }}>Client / Project</div>
+      <div style={{ flex: 1, minWidth: 0 }}>Client / Items</div>
       <div style={{ width: 150, flexShrink: 0 }}>Tracking</div>
       <div style={{ width: 90, flexShrink: 0 }}>Shipped</div>
       <div style={{ width: 64, flexShrink: 0, textAlign: "right" }}>{tab === "received" ? "Date" : "ETA"}</div>
@@ -1000,6 +1131,71 @@ export default function ReceivingPage() {
           </div>
         ))}
       </div>
+
+      {/* ── Holding strip — no navigation, always in view when non-empty.
+          Two kinds of open work: units physically held on the shelf (resolve
+          when they move), and post-Shopify pull requests (Shopify order OR
+          shelf pull + manual count adjust — Jon's rule). ── */}
+      {(heldPulls.length > 0 || postShopifyPulls.length > 0) && (
+        <div style={{ background: T.card, border: `1px solid ${T.amber}55`, borderLeft: `3px solid ${T.amber}`, borderRadius: 10, padding: "10px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ fontSize: 10, fontWeight: 800, color: T.amber, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+            Holding · {heldPulls.length + postShopifyPulls.length} open
+          </div>
+          {postShopifyPulls.map(t => {
+            const entries = sortSizeEntries(t.pull.qtys || {}).filter(([, n]) => (Number(n) || 0) > 0);
+            const total = entries.reduce((a, [, n]) => a + (Number(n) || 0), 0);
+            return (
+              <div key={t.pull.id} style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", fontSize: 12, paddingTop: 6, borderTop: `1px dashed ${T.border}` }}>
+                <div style={{ flex: 1, minWidth: 200 }}>
+                  <span style={{ fontWeight: 700, color: T.text }}>Pull from Shopify stock: {t.item_name}</span>
+                  <span style={{ color: T.faint }}> · {t.job_ref}</span>
+                  <div style={{ fontSize: 11, color: T.muted }}>
+                    {total} pcs ({entries.map(([s, n]) => `${s}-${n}`).join(", ")}){t.pull.reason ? ` — ${t.pull.reason}` : ""}
+                  </div>
+                </div>
+                <button onClick={() => resolvePostShopify(t, "shopify_order")}
+                  title="Entered as a real Shopify order — fulfillment ships it, stock decrements itself"
+                  style={{ fontSize: 10, fontWeight: 700, padding: "4px 10px", borderRadius: 5, border: `1px solid ${T.border}`, background: "transparent", color: T.muted, cursor: "pointer", fontFamily: font }}>
+                  Placed as Shopify order
+                </button>
+                <button onClick={() => resolvePostShopify(t, "shelf_pull")}
+                  title="Pulled off the shelf — confirm you adjusted the Shopify count down"
+                  style={{ fontSize: 10, fontWeight: 700, padding: "4px 10px", borderRadius: 5, border: "none", background: T.amber, color: "#1a1508", cursor: "pointer", fontFamily: font }}>
+                  Pulled — Shopify adjusted ✓
+                </button>
+              </div>
+            );
+          })}
+          {heldPulls.map(row => {
+            const entries = sortSizeEntries(row.qtys || {}).filter(([, n]) => (Number(n) || 0) > 0);
+            const total = entries.reduce((a, [, n]) => a + (Number(n) || 0), 0);
+            return (
+              <div key={row.id} style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", fontSize: 12, paddingTop: 6, borderTop: `1px dashed ${T.border}` }}>
+                <div style={{ flex: 1, minWidth: 200 }}>
+                  <span style={{ fontWeight: 700, color: T.text }}>{row.item_name || "Item"}</span>
+                  {row.job_id && pullJobRefs[row.job_id] && <span style={{ color: T.faint }}> · {pullJobRefs[row.job_id]}</span>}
+                  <div style={{ fontSize: 11, color: T.muted }}>
+                    {total} pcs ({entries.map(([s, n]) => `${s}-${n}`).join(", ")}){row.notes ? ` — ${row.notes}` : ""} · held since {new Date(row.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                  </div>
+                </div>
+                <button onClick={() => resolveHeldPull(row, "returned")}
+                  title="Put the units back — restores the item's forward/continuing balance"
+                  style={{ fontSize: 10, fontWeight: 700, padding: "4px 10px", borderRadius: 5, border: `1px solid ${T.green}55`, background: "transparent", color: T.green, cursor: "pointer", fontFamily: font }}>
+                  Return to stock
+                </button>
+                <button onClick={() => resolveHeldPull(row, "shipped_out")}
+                  style={{ fontSize: 10, fontWeight: 600, padding: "4px 10px", borderRadius: 5, border: `1px solid ${T.border}`, background: "transparent", color: T.muted, cursor: "pointer", fontFamily: font }}>
+                  Shipped out
+                </button>
+                <button onClick={() => resolveHeldPull(row, "consumed")}
+                  style={{ fontSize: 10, fontWeight: 600, padding: "4px 10px", borderRadius: 5, border: `1px solid ${T.border}`, background: "transparent", color: T.muted, cursor: "pointer", fontFamily: font }}>
+                  Consumed
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* Tab bar — flat underline */}
       <div style={{ display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap", borderBottom: `1px solid ${T.border}`, paddingBottom: 6 }}>
@@ -1176,8 +1372,10 @@ export default function ReceivingPage() {
         // to their own project's folder.
         const jobById = new Map(shipment.jobs.map(j => [j.id, j]));
         return (
-          <div style={{ position: "fixed", inset: 0, background: T.bg, zIndex: 1000, display: "flex", flexDirection: "column", fontFamily: font, color: T.text }}>
-            <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          <div onClick={() => setModalShipmentKey(null)}
+            style={{ position: "fixed", inset: 0, background: "rgba(10,12,20,0.5)", backdropFilter: "blur(2px)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "clamp(12px, 4vh, 44px)", fontFamily: font, color: T.text }}>
+            <div onClick={e => e.stopPropagation()}
+              style={{ background: T.bg, width: "100%", maxWidth: 980, maxHeight: "90vh", borderRadius: 16, overflow: "hidden", boxShadow: "0 24px 70px rgba(0,0,0,0.45)", border: `1px solid ${T.border}`, display: "flex", flexDirection: "column" }}>
               {/* Header — vendor + tracking primary; project context secondary */}
               <div style={{ padding: "14px 22px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexShrink: 0, background: T.card }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -1216,6 +1414,17 @@ export default function ReceivingPage() {
 
               {/* Body */}
               <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "16px 22px" }}>
+                {/* Production's message to the warehouse — the handoff packet.
+                    Top of the modal, impossible to miss. */}
+                {shipmentMeta[shipment.key]?.warehouse_notes && (
+                  <div style={{ marginBottom: 14, padding: "10px 14px", borderRadius: 8, background: T.amberDim, border: `1px solid ${T.amber}66`, display: "flex", gap: 10, alignItems: "flex-start" }}>
+                    <span style={{ fontSize: 15, flexShrink: 0 }}>📋</span>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 9, fontWeight: 800, color: T.amber, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 2 }}>From production</div>
+                      <div style={{ fontSize: 13, color: T.text, lineHeight: 1.4, wordBreak: "break-word" }}>{shipmentMeta[shipment.key]!.warehouse_notes}</div>
+                    </div>
+                  </div>
+                )}
                 {/* Shipment header — counts + bulk actions */}
                 <div style={{ paddingBottom: 14, borderBottom: `1px solid ${T.border}`, marginBottom: 14 }}>
                   <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
@@ -1258,12 +1467,12 @@ export default function ReceivingPage() {
                   </button>
                   {eligible.length > 0 && (
                     <button onClick={async () => {
-                      // bulkMarkReceived resolves per-item condition+notes
-                      // from the row inputs, runs all the writes, then
-                      // fires the "all received" email + phase recalc
-                      // exactly once per affected job after the loop.
+                      // Batch = the single-row Receive applied to every checked
+                      // row: same values (per-size qtys/samples already on each
+                      // item, note from any flagged row), one commit. Fires the
+                      // "all received" email + phase recalc once per job.
                       await bulkMarkReceived(eligible, (it) => ({
-                        condition: itemCondition[it.id] || "good",
+                        condition: "good",
                         notes: conditionNote[it.id] || "",
                       }), { skipClientEmail: silentMode });
                       setSelectedItemIds(prev => {
@@ -1335,6 +1544,12 @@ export default function ReceivingPage() {
                                     const totalQty = tQty(item.qtys);
                                     const receivedTotal = tQty(item.received_qtys);
                                     const sampleTotal = tQty(item.sample_qtys);
+                                    // Delivered on the SAME basis the grid shows: received qty if
+                                    // entered, else the shipped/ordered fallback — so "continuing"
+                                    // is right even before Receive is clicked (received_qtys still 0).
+                                    const deliveredTotal = (item.sizes.length ? item.sizes : Object.keys(item.qtys || {}))
+                                      .reduce((sum, sz) => sum + (item.received_qtys?.[sz] ?? item.ship_qtys?.[sz] ?? item.qtys?.[sz] ?? 0), 0);
+                                    const continuingTotal = Math.max(0, deliveredTotal - sampleTotal);
                                     const hasVariance = isReceived && receivedTotal > 0 && receivedTotal !== (shippedQty || totalQty);
                                     return (
                                       <div key={item.id} style={{
@@ -1377,6 +1592,20 @@ export default function ReceivingPage() {
                                               {item.ship_tracking && <> · <span style={{ fontFamily: mono }}>{item.ship_tracking}</span></>}
                                             </div>
                                             {item.ship_notes && <div style={{ fontSize: 11, color: T.amber, marginTop: 3 }}>{item.ship_notes}</div>}
+                                            {/* Production-side notes finally cross the handoff:
+                                                PO-tab packing/production notes shown to the receiver. */}
+                                            {item.production_notes_po && (
+                                              <div style={{ fontSize: 11, color: T.muted, marginTop: 3 }}>
+                                                <span style={{ fontWeight: 700, color: T.faint, textTransform: "uppercase", fontSize: 9, letterSpacing: "0.05em" }}>Production </span>
+                                                {item.production_notes_po}
+                                              </div>
+                                            )}
+                                            {item.packing_notes && (
+                                              <div style={{ fontSize: 11, color: T.muted, marginTop: 3 }}>
+                                                <span style={{ fontWeight: 700, color: T.faint, textTransform: "uppercase", fontSize: 9, letterSpacing: "0.05em" }}>Packing </span>
+                                                {item.packing_notes}
+                                              </div>
+                                            )}
                                             {fmtEta(item.client_eta) && (
                                               <div style={{ fontSize: 11, fontWeight: 600, color: T.accent, marginTop: 3 }}>ETA {fmtEta(item.client_eta)}</div>
                                             )}
@@ -1499,35 +1728,32 @@ export default function ReceivingPage() {
                                               </>
                                             ) : (
                                               <>
-                                                {/* Condition is metadata only — damaged units must be
-                                                    manually decremented from Delivered above. There's
-                                                    no per-size damage column yet, so a "Damaged" tag
-                                                    won't auto-deduct from the continuing qty that
-                                                    flows to packing slip / QB invoice / fulfillment. */}
-                                                <select
-                                                  value={itemCondition[item.id] || "good"}
-                                                  onChange={e => setItemCondition(prev => ({ ...prev, [item.id]: e.target.value }))}
-                                                  style={{ ...ic, width: 130, fontSize: 11, padding: "5px 8px" }}
-                                                >
-                                                  <option value="good">Good</option>
-                                                  <option value="partial_damage">Partial damage</option>
-                                                  <option value="damaged">Damaged</option>
-                                                </select>
-                                                <input
-                                                  type="text"
-                                                  placeholder={itemCondition[item.id] && itemCondition[item.id] !== "good" ? "Describe damage..." : "Notes (optional)"}
-                                                  value={conditionNote[item.id] || ""}
-                                                  onChange={e => setConditionNote(prev => ({ ...prev, [item.id]: e.target.value }))}
-                                                  style={{
-                                                    ...ic, width: 130, fontSize: 11, padding: "5px 8px",
-                                                    fontFamily: font,
-                                                    borderColor: itemCondition[item.id] && itemCondition[item.id] !== "good" ? T.amber : T.border,
-                                                  }}
-                                                />
+                                                {/* Flag issue = a free-text note only. No per-item
+                                                    condition dropdown — damage is a whole-shipment
+                                                    concern, not per garment, and the Good/Damaged label
+                                                    did nothing downstream. Happy path = count → Receive. */}
+                                                {flaggedItems.has(item.id) && (
+                                                  <input
+                                                    type="text"
+                                                    autoFocus
+                                                    placeholder="What's the issue?"
+                                                    value={conditionNote[item.id] || ""}
+                                                    onChange={e => setConditionNote(prev => ({ ...prev, [item.id]: e.target.value }))}
+                                                    style={{ ...ic, width: 190, fontSize: 11, padding: "5px 8px", fontFamily: font, borderColor: T.amber }}
+                                                  />
+                                                )}
+                                                {!flaggedItems.has(item.id) && (
+                                                  <button onClick={() => toggleFlag(item.id)}
+                                                    style={{ fontSize: 10, fontWeight: 600, color: T.faint, background: "none", border: "none", cursor: "pointer", fontFamily: font, textDecoration: "underline", padding: 0 }}
+                                                    title="Note a problem with this receipt">
+                                                    ⚑ Flag issue
+                                                  </button>
+                                                )}
                                                 <div style={{ display: "flex", gap: 4, marginTop: 2 }}>
                                                   <button onClick={() => returnToProduction(item)} style={{ fontSize: 10, color: T.faint, background: "none", border: `1px solid ${T.border}`, borderRadius: 4, padding: "3px 10px", cursor: "pointer" }} title="Send back to decorator">← Production</button>
                                                   <button onClick={() => markReceived(item, {
-                                                    condition: itemCondition[item.id] || "good",
+                                                    // condition removed from this view — note only.
+                                                    condition: "good",
                                                     notes: conditionNote[item.id] || "",
                                                     skipClientEmail: silentMode,
                                                   })} style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: T.green, border: "none", borderRadius: 4, padding: "5px 14px", cursor: "pointer" }}>Receive</button>
@@ -1537,10 +1763,39 @@ export default function ReceivingPage() {
                                           </div>
                                         </div>
 
-                                        {/* Sample pulls — check each off as it's
-                                            pulled; the qty auto-rolls into the
-                                            Samples row above (sample_qtys[size]). */}
-                                        <SamplePullChecklist item={item} onToggle={idx => toggleSamplePull(item, idx)} />
+                                        {/* Pull requests — "Pulled ✓" fulfills: writes the
+                                            pulled_inventory bucket and auto-rolls the qty into
+                                            the Samples row above (sample_qtys[size]). */}
+                                        <PullChecklist item={item} onFulfill={async p => { await fulfillPull(item, p); loadHeldPulls(); }} onCancel={p => cancelPull(item, p)} />
+
+                                        {/* Ad-hoc pull, right where he's counting — no separate page. */}
+                                        {!isReceived && (adhocPullFor === item.id ? (
+                                          <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 6, background: T.surface, border: `1px dashed ${T.amber}66`, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                                            {item.sizes.map(sz => (
+                                              <label key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                                                <span style={{ fontSize: 9, color: T.faint, fontWeight: 700, fontFamily: mono }}>{sz}</span>
+                                                <input value={adhocQtys[sz] || ""} placeholder="·" inputMode="numeric"
+                                                  onChange={e => setAdhocQtys(prev => ({ ...prev, [sz]: e.target.value }))}
+                                                  style={{ ...ic, width: 36, textAlign: "center", padding: "4px 2px", fontSize: 12, fontFamily: mono }} />
+                                              </label>
+                                            ))}
+                                            <input value={adhocReason} placeholder="what's it for?"
+                                              onChange={e => setAdhocReason(e.target.value)}
+                                              onKeyDown={e => { if (e.key === "Enter") saveAdhocPull(item); }}
+                                              style={{ ...ic, flex: 1, minWidth: 120, fontSize: 12, padding: "5px 8px" }} />
+                                            <button onClick={() => saveAdhocPull(item)}
+                                              style={{ fontSize: 10, fontWeight: 700, padding: "5px 12px", borderRadius: 5, border: "none", background: T.amber, color: "#1a1508", cursor: "pointer", fontFamily: font }}>
+                                              Pull
+                                            </button>
+                                            <button onClick={() => { setAdhocPullFor(null); setAdhocQtys({}); setAdhocReason(""); }}
+                                              style={{ fontSize: 12, background: "none", border: "none", color: T.faint, cursor: "pointer" }}>×</button>
+                                          </div>
+                                        ) : (
+                                          <button onClick={() => setAdhocPullFor(item.id)}
+                                            style={{ marginTop: 6, fontSize: 10, fontWeight: 600, color: T.amber, background: "none", border: `1px dashed ${T.amber}55`, borderRadius: 5, padding: "3px 10px", cursor: "pointer", fontFamily: font, alignSelf: "flex-start" }}>
+                                            + Pull from this box
+                                          </button>
+                                        ))}
 
                                         {/* Variance / samples summary */}
                                         {(hasVariance || sampleTotal > 0) && (
@@ -1552,9 +1807,9 @@ export default function ReceivingPage() {
                                             )}
                                             {sampleTotal > 0 && (
                                               <span style={{ color: T.muted }}>
-                                                <span style={{ color: T.amber, fontWeight: 600 }}>{sampleTotal}</span> sample{sampleTotal !== 1 ? "s" : ""} pulled
+                                                <span style={{ color: T.amber, fontWeight: 600 }}>{sampleTotal}</span> pulled
                                                 {" · "}
-                                                <span style={{ color: T.text, fontWeight: 700, fontFamily: mono }}>{receivedTotal - sampleTotal}</span> continuing
+                                                <span style={{ color: T.text, fontWeight: 700, fontFamily: mono }}>{continuingTotal}</span> continuing to client
                                               </span>
                                             )}
                           </div>
@@ -1756,6 +2011,11 @@ export default function ReceivingPage() {
                 })()}
               </div>
 
+              <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 12, color: T.text, padding: "2px 0" }}>
+                <input type="checkbox" checked={notifyWarehouse} onChange={e => setNotifyWarehouse(e.target.checked)} style={{ width: 15, height: 15, accentColor: T.accent, cursor: "pointer" }} />
+                Email the warehouse a heads-up <span style={{ fontFamily: mono, color: T.faint, fontSize: 11 }}>warehouse@housepartydistro.com</span>
+              </label>
+
               <div style={{ display: "flex", gap: 8 }}>
                 <button onClick={submitOutside} disabled={saving || !form.description.trim()}
                   style={{ padding: "8px 20px", borderRadius: 6, border: "none", cursor: "pointer", background: T.green, color: "#fff", fontSize: 12, fontWeight: 700, opacity: saving || !form.description.trim() ? 0.5 : 1 }}>
@@ -1881,62 +2141,7 @@ export default function ReceivingPage() {
       )}
 
       {/* Packing slip viewer modal */}
-      {/* Batch-receive confirm — opened by "Receive Selected" in List view.
-          Review each item's qty + condition, then commit via bulkMarkReceived.
-          Per-size / photo detail stays in the per-item Receive modal. */}
       {mockupPeek && <MockupPeek driveFileId={mockupPeek.driveFileId} name={mockupPeek.name} onClose={() => setMockupPeek(null)} />}
-
-      {batchReceiveItems && (() => {
-        const items = batchReceiveItems;
-        return (
-          <div onClick={() => setBatchReceiveItems(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1100, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
-            <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, width: "min(560px, 100%)", maxHeight: "85vh", display: "flex", flexDirection: "column", fontFamily: font, color: T.text }}>
-              <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <div style={{ fontSize: 16, fontWeight: 800 }}>Receive {items.length} item{items.length !== 1 ? "s" : ""}</div>
-                <button onClick={() => setBatchReceiveItems(null)} style={{ background: "none", border: "none", color: T.muted, fontSize: 22, cursor: "pointer", lineHeight: 1 }}>×</button>
-              </div>
-              <div style={{ flex: 1, overflowY: "auto", padding: "12px 20px" }}>
-                <div style={{ fontSize: 11, color: T.muted, marginBottom: 10 }}>Confirm quantities + condition, then mark received. For per-size or photo detail, use the row&apos;s Receive button instead.</div>
-                {items.map(it => {
-                  const cond = itemCondition[it.id] || "good";
-                  const shipped = tQty(it.ship_qtys) || tQty(it.qtys);
-                  return (
-                    <div key={it.id} style={{ padding: "10px 0", borderBottom: `1px solid ${T.border}55`, display: "flex", flexDirection: "column", gap: 6 }}>
-                      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10 }}>
-                        <div style={{ minWidth: 0 }}>
-                          <div style={{ fontSize: 13, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.name}</div>
-                          <div style={{ fontSize: 11, color: T.muted }}>{it.decorator_short_code || it.decorator_name || "—"}</div>
-                        </div>
-                        <div style={{ fontSize: 13, fontWeight: 700, fontFamily: mono, whiteSpace: "nowrap" }}>{shipped} units</div>
-                      </div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        {(["good", "damaged"] as const).map(c => (
-                          <button key={c} onClick={() => setItemCondition(prev => ({ ...prev, [it.id]: c }))}
-                            style={{ fontSize: 11, fontWeight: 600, padding: "4px 12px", borderRadius: 6, border: `1px solid ${cond === c ? (c === "damaged" ? T.red : T.green) : T.border}`, background: cond === c ? (c === "damaged" ? T.redDim : T.greenDim) : "transparent", color: cond === c ? (c === "damaged" ? T.red : T.green) : T.muted, cursor: "pointer", fontFamily: font, textTransform: "capitalize" }}>{c}</button>
-                        ))}
-                        {cond === "damaged" && (
-                          <input value={conditionNote[it.id] || ""} onChange={e => setConditionNote(prev => ({ ...prev, [it.id]: e.target.value }))} placeholder="What's damaged?"
-                            style={{ flex: 1, fontSize: 12, padding: "5px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, outline: "none", fontFamily: font }} />
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "flex-end", gap: 10 }}>
-                <button onClick={() => setBatchReceiveItems(null)} style={{ padding: "8px 16px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: font }}>Cancel</button>
-                <button onClick={async () => {
-                  await bulkMarkReceived(items, (it) => ({ condition: itemCondition[it.id] || "good", notes: conditionNote[it.id] || "" }), { skipClientEmail: silentMode });
-                  setSelectedItemIds(prev => { const next = new Set(prev); for (const it of items) next.delete(it.id); return next; });
-                  setBatchReceiveItems(null);
-                }} style={{ padding: "8px 18px", borderRadius: 6, border: "none", background: T.green, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>
-                  Mark {items.length} Received
-                </button>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
 
       {viewingSlips && (
         <div onClick={() => setViewingSlips(null)}

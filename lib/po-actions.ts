@@ -10,6 +10,7 @@
 
 import { poSentToItem } from "./item-status";
 import { logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
+import { upsertShipmentForItem } from "./handoff";
 
 async function fetchVendorItems(supabase: any, jobId: string, vendor: string): Promise<any[]> {
   const [{ data: job }, { data: items }] = await Promise.all([
@@ -96,7 +97,7 @@ export async function revertPoSentFromVendorItems(supabase: any, jobId: string, 
 // "invoice ready" once every item on the job has shipped. The CALLER owns UI
 // concerns (debounce flush, optimistic state, reload) — pass an item carrying the
 // latest ship_tracking / ship_qtys / ship_notes.
-export async function shipItemFromDecorator(supabase: any, item: any): Promise<void> {
+export async function shipItemFromDecorator(supabase: any, item: any, opts?: { warehouseNotes?: string | null }): Promise<void> {
   const ts = new Date().toISOString();
   const existing = item.pipeline_timestamps || {};
   const timestamps = { ...existing, shipped: existing.shipped || ts };
@@ -114,6 +115,22 @@ export async function shipItemFromDecorator(supabase: any, item: any): Promise<v
   if (item.decorator_assignment_id) {
     await supabase.from("decorator_assignments").update({ pipeline_stage: "shipped" }).eq("id", item.decorator_assignment_id);
   }
+  // Handoff spine (migration 117): persist the box as a shipments row + this
+  // item as a line. Same group key as the derived grouping, so receiving sees
+  // one consistent shipment either way. Never blocks the ship on failure.
+  await upsertShipmentForItem(supabase, {
+    job_id: item.job_id,
+    item_id: item.id,
+    item_name: item.name || null,
+    decorator_id: item.decorator_id || null,
+    decorator_name: item.decorator_name || null,
+    pickup_ready: pickup,
+    ship_tracking: pickup ? null : (item.ship_tracking || null),
+    ship_date: timestamps.shipped,
+    ship_qtys: shipQtysToSave,
+    expected_arrival: item.expected_arrival || null,
+    warehouse_notes: opts?.warehouseNotes || null,
+  });
   // Notify Goose/Dante — the route only emails on a vendor's 0→1 pickup
   // transition (one email per cycle, no spam from same-day marks).
   if (pickup && typeof fetch !== "undefined") {

@@ -22,7 +22,7 @@ type ShippedHistoryEntry = {
 };
 
 export default function ShippingPage() {
-  const { loading, shipThrough, undoReceived, updateFulfillment, debounceFulfillmentTracking, forwardItems, addSamplePull, logJobActivity, supabase, setJobs } = useWarehouse();
+  const { loading, shipThrough, undoReceived, updateFulfillment, debounceFulfillmentTracking, forwardItems, addPull, logJobActivity, supabase, setJobs } = useWarehouse();
   const [outsideShipments, setOutsideShipments] = useState<any[]>([]);
   const [tab, setTab] = useState<"ready" | "shipped">("ready");
   // Silent mode — suppresses the Notify Recipient dialog on Mark Shipped.
@@ -74,6 +74,33 @@ export default function ShippingPage() {
     else setSelectedItemIds(new Set());
     setForwardTracking(""); setPullFor(null); setPullQtys({}); setPullReason("");
   }, [modalJobId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Items still IN PRODUCTION on these jobs — invisible to useWarehouse (it only
+  // loads shipped/received items). Without this the shipper can't tell a job has
+  // 5 more items coming from other vendors, and might forward a partial box that
+  // should have waited to consolidate. Keyed by job_id → [{name, vendor}].
+  const [stillInProd, setStillInProd] = useState<Record<string, { name: string; vendor: string | null }[]>>({});
+  useEffect(() => {
+    const ids = shipThrough.map(j => j.id);
+    if (ids.length === 0) { setStillInProd({}); return; }
+    (async () => {
+      const routeByJob: Record<string, string> = {};
+      for (const j of shipThrough) routeByJob[j.id] = j.shipping_route || "ship_through";
+      const { data } = await supabase
+        .from("items")
+        .select("job_id, name, shipping_route, pipeline_stage, received_at_hpd, decorator_assignments(decorators(short_code, name))")
+        .in("job_id", ids);
+      const map: Record<string, { name: string; vendor: string | null }[]> = {};
+      for (const it of ((data || []) as any[])) {
+        const route = it.shipping_route || routeByJob[it.job_id] || "ship_through";
+        if (route === "drop_ship") continue;               // never comes to HPD
+        if (it.received_at_hpd || it.pipeline_stage === "shipped") continue; // already landed or in transit (useWarehouse has it)
+        const dec = it.decorator_assignments?.[0]?.decorators;
+        (map[it.job_id] ||= []).push({ name: it.name, vendor: dec?.short_code || dec?.name || null });
+      }
+      setStillInProd(map);
+    })();
+  }, [shipThrough, supabase]);
 
   useEffect(() => {
     if (!modalJobId) return;
@@ -274,12 +301,14 @@ export default function ShippingPage() {
     });
   }
 
-  // Record a post-receiving product pull (sample held back — photos/catalog).
+  // Record a post-receiving product pull (units held back — photos/catalog).
+  // Ad-hoc path: creates an already-fulfilled pull_request + pulled_inventory
+  // bucket (mig 117) and deducts from the forwardable balance via sample_qtys.
   async function savePull(item: WarehouseItem) {
     const qtys: Record<string, number> = {};
     for (const [s, v] of Object.entries(pullQtys)) { const n = parseInt(v) || 0; if (n > 0) qtys[s] = n; }
     if (Object.keys(qtys).length === 0) { setPullFor(null); return; }
-    await addSamplePull(item, qtys, pullReason.trim() || "Internal", "");
+    await addPull(item, qtys, "sample", pullReason.trim() || "Internal");
     setPullFor(null); setPullQtys({}); setPullReason("");
   }
 
@@ -426,9 +455,27 @@ export default function ShippingPage() {
                   <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{job.client_name || "No client"}</span>
                   <span style={{ fontSize: 11, color: T.faint, fontFamily: mono }}>{displayInv}</span>
                 </div>
-                {job.title && (
-                  <div style={{ fontSize: 12, color: T.muted, marginTop: 2, wordBreak: "break-word" }}>{job.title}</div>
-                )}
+                {(() => {
+                  // Items summary — what's in the box, not the project name.
+                  // Forward qty per item = delivered (received ?? shipped ??
+                  // ordered) − samples pulled.
+                  const readyItems = cardSt.filter(it => bucketOf(it) === "ready");
+                  const show = (readyItems.length ? readyItems : cardSt);
+                  if (show.length === 0) return null;
+                  const fwd = (it: WarehouseItem) => {
+                    const szs = it.sizes.length ? it.sizes : Object.keys(it.qtys || {});
+                    const delivered = szs.reduce((s, sz) => s + ((it.received_qtys?.[sz] ?? it.ship_qtys?.[sz] ?? it.qtys?.[sz]) ?? 0), 0);
+                    const samples = Object.values(it.sample_qtys || {}).reduce((a, n) => a + (Number(n) || 0), 0);
+                    return Math.max(0, delivered - samples);
+                  };
+                  const parts = show.slice(0, 3).map(it => `${it.name} · ${fwd(it)}`);
+                  const extra = show.length > 3 ? ` +${show.length - 3} more` : "";
+                  return (
+                    <div style={{ fontSize: 12, color: T.muted, marginTop: 2, wordBreak: "break-word" }}>
+                      {parts.join("  ·  ")}{extra}
+                    </div>
+                  );
+                })()}
                 <div style={{ display: "flex", gap: 12, marginTop: 6, flexWrap: "wrap", alignItems: "baseline" }}>
                   {job.ship_method && (
                     <span style={{ fontSize: 10, fontWeight: 700, color: T.accent, letterSpacing: "0.06em", textTransform: "uppercase" }}>
@@ -440,22 +487,32 @@ export default function ShippingPage() {
                       Invoice missing
                     </span>
                   )}
-                  {cardAwaiting > 0 && (
-                    <span style={{ fontSize: 10, fontWeight: 700, color: T.amber, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-                      Awaiting {cardAwaiting}
+                </div>
+              </div>
+              {/* Right: readiness in context. "1 ready" alone reads as "done" —
+                  so "still coming" sits right beside it, equal weight, and the
+                  whole order only reads green when nothing is outstanding. */}
+              {(() => {
+                const coming = cardAwaiting + (stillInProd[job.id]?.length || 0);
+                const complete = coming === 0 && cardReady > 0;
+                return (
+                  <div style={{ flexShrink: 0, textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3, minWidth: 130 }}>
+                    {cardReady > 0 && (
+                      <div style={{ fontSize: 13, fontWeight: 700, color: complete ? T.green : T.text, fontFamily: mono }}>
+                        {cardReady} ready{complete ? " · all here" : ""}
+                      </div>
+                    )}
+                    {coming > 0 && (
+                      <div style={{ fontSize: 12, fontWeight: 700, color: T.amber, fontFamily: mono }}>
+                        {coming} still coming
+                      </div>
+                    )}
+                    <span style={{ fontSize: 11, color: T.faint, marginTop: 1 }}>
+                      {totalUnits.toLocaleString()} units here
                     </span>
-                  )}
-                </div>
-              </div>
-              {/* Right: counts */}
-              <div style={{ flexShrink: 0, textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, minWidth: 120 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: cardReady > 0 ? T.green : T.muted, fontFamily: mono }}>
-                  {cardReady} ready
-                </div>
-                <span style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
-                  {totalUnits.toLocaleString()} units{cardAwaiting > 0 ? ` · ${cardAwaiting} awaiting` : ""}
-                </span>
-              </div>
+                  </div>
+                );
+              })()}
             </div>
           );
         })
@@ -611,31 +668,35 @@ export default function ShippingPage() {
         const allReadySelected = ready.length > 0 && ready.every(it => selectedItemIds.has(it.id));
         const canForward = !invoiceMissing && selReady.length > 0 && forwardTracking.trim().length > 0;
         return (
-          <div style={{ position: "fixed", inset: 0, background: T.bg, zIndex: 1000, display: "flex", flexDirection: "column", fontFamily: font, color: T.text }}>
-            <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          <div onClick={() => setModalJobId(null)}
+            style={{ position: "fixed", inset: 0, background: "rgba(10,12,20,0.5)", backdropFilter: "blur(2px)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "clamp(12px, 4vh, 44px)", fontFamily: font, color: T.text }}>
+            <div onClick={e => e.stopPropagation()}
+              style={{ background: T.bg, width: "100%", maxWidth: 960, maxHeight: "90vh", borderRadius: 16, overflow: "hidden", boxShadow: "0 24px 70px rgba(0,0,0,0.45)", border: `1px solid ${T.border}`, display: "flex", flexDirection: "column" }}>
               {/* Header */}
-              <div style={{ padding: "14px 22px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexShrink: 0, background: T.card }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 16, fontWeight: 800, color: T.text, display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
-                    <span>{job.client_name || "No client"}</span>
-                    <span style={{ fontSize: 12, color: T.muted, fontWeight: 600 }}>{job.title}</span>
-                    <span style={{ fontFamily: mono, color: T.faint, fontWeight: 500, fontSize: 12 }}>{displayInv}</span>
+              <div style={{ padding: "16px 22px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "center", flexShrink: 0, background: T.card }}>
+                <div style={{ width: "100%", maxWidth: 900, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: T.text, display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap", letterSpacing: "-0.01em" }}>
+                      <span>{job.client_name || "No client"}</span>
+                      <span style={{ fontFamily: mono, color: T.faint, fontWeight: 500, fontSize: 12 }}>{displayInv}</span>
+                    </div>
+                    <div style={{ fontSize: 12, color: T.muted, marginTop: 3 }}>
+                      {job.title}
+                    </div>
                   </div>
-                  <div style={{ fontSize: 12, color: T.faint, marginTop: 2 }}>
-                    {job.items.length} item{job.items.length === 1 ? "" : "s"} · {totalUnits.toLocaleString()} units
+                  <div style={{ display: "flex", alignItems: "center", gap: 14, flexShrink: 0 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: T.accent, letterSpacing: "0.07em", textTransform: "uppercase" }}>
+                      Forward to client
+                    </span>
+                    <button onClick={() => setModalJobId(null)} title="Close (Esc)"
+                      style={{ background: "none", border: "none", color: T.muted, fontSize: 22, cursor: "pointer", padding: "0 4px", lineHeight: 1 }}>×</button>
                   </div>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: T.accent, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-                    → Forward to client
-                  </span>
-                  <button onClick={() => setModalJobId(null)} title="Close (Esc)"
-                    style={{ background: "none", border: "none", color: T.muted, fontSize: 22, cursor: "pointer", padding: "0 6px", lineHeight: 1 }}>×</button>
                 </div>
               </div>
 
-              {/* Body */}
-              <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "16px 22px", display: "flex", flexDirection: "column", gap: 14 }}>
+              {/* Body — centered column so content reads as composed, not sprawled */}
+              <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "22px" }}>
+               <div style={{ maxWidth: 900, margin: "0 auto", width: "100%", display: "flex", flexDirection: "column", gap: 18 }}>
                 {/* Ship to + contact + ship method — text labels, no pills */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
                   <div>
@@ -684,20 +745,41 @@ export default function ShippingPage() {
                   </div>
                 )}
 
-                {/* Still-awaiting alert */}
-                {awaiting.length > 0 && (
-                  <div style={{ padding: "10px 14px", borderRadius: 8, background: T.amberDim, border: `1px solid ${T.amber}`, fontSize: 12 }}>
-                    <span style={{ fontWeight: 800, color: T.amber }}>Still awaiting {awaiting.length} item{awaiting.length === 1 ? "" : "s"}</span>
-                    <span style={{ color: T.muted }}> — {awaiting.map(it => `${it.name}${it.decorator_short_code ? ` (${it.decorator_short_code})` : ""}`).join(", ")}</span>
-                    <div style={{ color: T.faint, marginTop: 3 }}>Ship what's landed now, or wait — they'll appear here as they arrive.</div>
-                  </div>
-                )}
+                {/* Still-coming alert — BOTH in-transit (shipped from decorator,
+                    not yet at HPD) AND still-in-production (other vendors haven't
+                    shipped). Without the production half, the shipper can't tell
+                    more is coming and might forward a partial box early. */}
+                {(() => {
+                  const inTransit = awaiting.map(it => ({ name: it.name, vendor: it.decorator_short_code || it.decorator_name || null }));
+                  const inProd = (stillInProd[job.id] || []).map(x => ({ name: x.name, vendor: x.vendor }));
+                  const total = inTransit.length + inProd.length;
+                  if (total === 0) return null;
+                  const row = (x: { name: string; vendor: string | null }, i: number) => (
+                    <div key={i} style={{ display: "flex", alignItems: "baseline", gap: 8, padding: "3px 0" }}>
+                      <span style={{ color: T.amber, flexShrink: 0 }}>•</span>
+                      <span style={{ flex: 1, minWidth: 0, color: T.text, wordBreak: "break-word" }}>{x.name}</span>
+                      {x.vendor && <span style={{ flexShrink: 0, fontSize: 10, fontWeight: 700, fontFamily: mono, color: T.muted, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 4, padding: "1px 6px", textTransform: "uppercase", letterSpacing: "0.04em" }}>{x.vendor}</span>}
+                    </div>
+                  );
+                  const header = (label: string) => (
+                    <div style={{ fontSize: 9, fontWeight: 800, color: T.faint, textTransform: "uppercase", letterSpacing: "0.08em", margin: "8px 0 2px" }}>{label}</div>
+                  );
+                  return (
+                    <div style={{ padding: "12px 16px", borderRadius: 10, background: T.surface, borderLeft: `3px solid ${T.amber}`, border: `1px solid ${T.border}`, borderLeftWidth: 3, borderLeftColor: T.amber, fontSize: 12.5 }}>
+                      <div style={{ fontWeight: 700, color: T.amber, fontSize: 12 }}>{total} more item{total === 1 ? "" : "s"} still coming on this order</div>
+                      {inProd.length > 0 && (<>{header("Still in production")}{inProd.map(row)}</>)}
+                      {inTransit.length > 0 && (<>{header("In transit to us")}{inTransit.map(row)}</>)}
+                      <div style={{ color: T.faint, marginTop: 10, fontSize: 11.5 }}>Forward what's landed now, or wait to consolidate.</div>
+                    </div>
+                  );
+                })()}
 
-                {/* READY TO FORWARD */}
+                {/* READY TO FORWARD — the hero: its own card so the action reads
+                    as the primary work, above the secondary "still coming" panel. */}
                 {ready.length > 0 && (
-                  <>
+                  <div style={{ background: T.card, border: `1px solid ${T.green}44`, borderRadius: 12, padding: "16px 18px", display: "flex", flexDirection: "column", gap: 12 }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                      <div style={{ fontSize: 9, fontWeight: 700, color: T.green, textTransform: "uppercase", letterSpacing: "0.07em" }}>Ready to forward · {ready.length}</div>
+                      <div style={{ fontSize: 11, fontWeight: 800, color: T.green, textTransform: "uppercase", letterSpacing: "0.07em" }}>Ready to forward · {ready.length}</div>
                       <button onClick={() => setSelectedItemIds(prev => {
                         const next = new Set(prev);
                         if (allReadySelected) ready.forEach(it => next.delete(it.id)); else ready.forEach(it => next.add(it.id));
@@ -755,7 +837,7 @@ export default function ShippingPage() {
                         );
                       })}
                     </div>
-                  </>
+                  </div>
                 )}
 
                 {/* FORWARDED (done) */}
@@ -777,10 +859,12 @@ export default function ShippingPage() {
                 {ready.length === 0 && awaiting.length === 0 && forwarded.length > 0 && (
                   <div style={{ fontSize: 12, color: T.faint }}>All items forwarded.</div>
                 )}
+               </div>
               </div>
 
               {/* Footer — per-wave forward */}
-              <div style={{ padding: "12px 22px", borderTop: `1px solid ${T.border}`, background: T.card, flexShrink: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ padding: "14px 22px", borderTop: `1px solid ${T.border}`, background: T.card, flexShrink: 0, display: "flex", justifyContent: "center" }}>
+               <div style={{ maxWidth: 900, margin: "0 auto", width: "100%", display: "flex", flexDirection: "column", gap: 8 }}>
                 <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
                   <div style={{ flex: 1 }}>
                     <label style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4, display: "block" }}>Outbound tracking # (this shipment)</label>
@@ -790,7 +874,7 @@ export default function ShippingPage() {
                     disabled={!canForward}
                     title={invoiceMissing ? "Generate invoice first" : (selReady.length === 0 ? "Select a landed item" : (!forwardTracking.trim() ? "Tracking required" : ""))}
                     style={{ background: canForward ? T.green : T.surface, border: "none", borderRadius: 6, color: canForward ? "#fff" : T.faint, fontSize: 13, fontWeight: 700, padding: "10px 22px", cursor: canForward ? "pointer" : "not-allowed", opacity: canForward ? 1 : 0.5, fontFamily: font, whiteSpace: "nowrap" }}>
-                    Ship {selReady.length} landed
+                    Forward {selReady.length} to client
                   </button>
                 </div>
                 {invoiceMissing && (
@@ -799,6 +883,7 @@ export default function ShippingPage() {
                 {awaiting.length > 0 && selReady.length > 0 && (
                   <div style={{ fontSize: 11, color: T.muted }}>{awaiting.length} item{awaiting.length === 1 ? "" : "s"} still awaiting — they'll come back here when received.</div>
                 )}
+               </div>
               </div>
             </div>
           </div>

@@ -395,10 +395,14 @@ export async function POST(req: NextRequest) {
 
       const typeMeta = ((job as any).type_meta || {}) as any;
       // Provider-agnostic — accept either QB or Stripe invoice number.
-      const invoiceNum: string | undefined = typeMeta.qb_invoice_number || typeMeta.stripe_invoice_number;
-      if (!invoiceNum) {
+      // The customer email (drop_ship) references the invoice, so it's required
+      // there. The warehouse email (ship_through/stage) is an internal incoming-
+      // goods alert — no invoice needed; fall back to the job number for labels.
+      const invoiceNumRaw: string | undefined = typeMeta.qb_invoice_number || typeMeta.stripe_invoice_number;
+      if (!invoiceNumRaw && route === "drop_ship") {
         return NextResponse.json({ error: "Invoice number required — generate the invoice before notifying", code: "invoice_required" }, { status: 400 });
       }
+      const invoiceNum: string = invoiceNumRaw || (job as any).job_number || "";
 
       // The `route` request param controls which email template renders
       // (customer "Your order has shipped" vs warehouse "Incoming"). The
@@ -487,6 +491,32 @@ export async function POST(req: NextRequest) {
       }).join("");
       const itemsBlock = `<ul style="margin:8px 0 16px;padding-left:20px;">${itemListHtml}</ul>`;
 
+      // Open pull requests on these items (migration 117) — the warehouse must
+      // hold these units back when the box lands. Only rendered on the warehouse
+      // email (not the customer one). Pending/partial only.
+      let pullsBlock = "";
+      if (route !== "drop_ship" && scopedItems.length > 0) {
+        const { data: pulls } = await sb
+          .from("pull_requests")
+          .select("item_id, kind, qtys, reason")
+          .in("item_id", scopedItems.map((it: any) => it.id))
+          .in("status", ["pending", "partial"]);
+        if (pulls && pulls.length > 0) {
+          const nameOf = (id: string) => scopedItems.find((it: any) => it.id === id)?.name || "Item";
+          const rows = (pulls as any[]).map(p => {
+            const sizeStr = Object.entries(p.qtys || {})
+              .filter(([, n]) => (Number(n) || 0) > 0)
+              .map(([s, n]) => `${s}-${n}`).join(", ");
+            const why = [p.kind && p.kind !== "sample" ? p.kind : null, p.reason].filter(Boolean).join(" — ");
+            return `<li style="margin:4px 0;font-size:13px;color:#8a5c0d;"><strong>${nameOf(p.item_id)}</strong> — ${sizeStr}${why ? ` — ${String(why).replace(/</g, "&lt;")}` : ""}</li>`;
+          }).join("");
+          pullsBlock = `<div style="margin:8px 0 16px;padding:10px 14px;background:#fdf6e9;border-left:3px solid #d99a2b;border-radius:4px;">
+            <div style="font-size:11px;font-weight:800;letter-spacing:0.05em;text-transform:uppercase;color:#a06010;margin-bottom:4px;">⚑ Pull these before forwarding</div>
+            <ul style="margin:4px 0 0;padding-left:20px;">${rows}</ul>
+          </div>`;
+        }
+      }
+
       // Subject + body per route
       let subject: string;
       let heading: string;
@@ -503,12 +533,12 @@ export async function POST(req: NextRequest) {
         fromAddr = tenantFromQuotes;
         closing = `If anything looks off when it arrives, just reply here — we'll get you sorted.\n\n— The ${tenantName} team\n${tenantFromQuotes}`;
       } else {
-        subject = customSubject || `Incoming: ${vendorName || "Vendor"} — ${invoiceNum} — ${clientName} — ${trackingNumber}`;
+        subject = customSubject || `Incoming: ${vendorName || "Vendor"} — ${clientName} — ${trackingNumber}`;
         heading = "Incoming shipment";
         greeting = `Heads up — a shipment is inbound to ${tenantName}.`;
         const fromLine = vendorName ? `<p style="margin:0 0 6px;font-size:13px;color:#444;"><strong>From:</strong> ${vendorName}</p>` : "";
-        const projLine = `<p style="margin:0 0 12px;font-size:13px;color:#444;"><strong>Project:</strong> ${projectTitle}</p>`;
-        bodyHtml = `${fromLine}${projLine}${itemsBlock}Packing slip attached. Confirm receipt in OpsHub when it arrives.`;
+        const clientLine = `<p style="margin:0 0 12px;font-size:13px;color:#444;"><strong>Client:</strong> ${clientName || projectTitle}</p>`;
+        bodyHtml = `${fromLine}${clientLine}${itemsBlock}${pullsBlock}Packing slip attached. Confirm receipt in OpsHub when it arrives.`;
         fromAddr = tenantFromProduction;
         closing = `— ${tenantName}`;
       }
