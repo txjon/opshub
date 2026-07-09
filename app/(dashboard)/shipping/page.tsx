@@ -487,27 +487,32 @@ export default function ShippingPage() {
                       Invoice missing
                     </span>
                   )}
-                  {cardAwaiting > 0 && (
-                    <span style={{ fontSize: 10, fontWeight: 700, color: T.amber, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-                      Awaiting {cardAwaiting} in transit
-                    </span>
-                  )}
-                  {(stillInProd[job.id]?.length || 0) > 0 && (
-                    <span style={{ fontSize: 10, fontWeight: 700, color: T.amber, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-                      ⏳ {stillInProd[job.id].length} still in production
-                    </span>
-                  )}
                 </div>
               </div>
-              {/* Right: counts */}
-              <div style={{ flexShrink: 0, textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, minWidth: 120 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: cardReady > 0 ? T.green : T.muted, fontFamily: mono }}>
-                  {cardReady} ready
-                </div>
-                <span style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
-                  {totalUnits.toLocaleString()} units{cardAwaiting > 0 ? ` · ${cardAwaiting} awaiting` : ""}
-                </span>
-              </div>
+              {/* Right: readiness in context. "1 ready" alone reads as "done" —
+                  so "still coming" sits right beside it, equal weight, and the
+                  whole order only reads green when nothing is outstanding. */}
+              {(() => {
+                const coming = cardAwaiting + (stillInProd[job.id]?.length || 0);
+                const complete = coming === 0 && cardReady > 0;
+                return (
+                  <div style={{ flexShrink: 0, textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3, minWidth: 130 }}>
+                    {cardReady > 0 && (
+                      <div style={{ fontSize: 13, fontWeight: 700, color: complete ? T.green : T.text, fontFamily: mono }}>
+                        {cardReady} ready{complete ? " · all here" : ""}
+                      </div>
+                    )}
+                    {coming > 0 && (
+                      <div style={{ fontSize: 12, fontWeight: 700, color: T.amber, fontFamily: mono }}>
+                        {coming} still coming
+                      </div>
+                    )}
+                    <span style={{ fontSize: 11, color: T.faint, marginTop: 1 }}>
+                      {totalUnits.toLocaleString()} units here
+                    </span>
+                  </div>
+                );
+              })()}
             </div>
           );
         })
@@ -747,7 +752,7 @@ export default function ShippingPage() {
                   if (total === 0) return null;
                   return (
                     <div style={{ padding: "10px 14px", borderRadius: 8, background: T.amberDim, border: `1px solid ${T.amber}`, fontSize: 12 }}>
-                      <span style={{ fontWeight: 800, color: T.amber }}>⏳ {total} more item{total === 1 ? "" : "s"} coming on this order</span>
+                      <span style={{ fontWeight: 800, color: T.amber }}>{total} more item{total === 1 ? "" : "s"} coming on this order</span>
                       {inProd.length > 0 && (
                         <div style={{ color: T.muted, marginTop: 4 }}>
                           <span style={{ fontWeight: 700, color: T.faint }}>Still in production: </span>{inProd.join(", ")}
