@@ -1728,10 +1728,10 @@ export default function ProductionPage() {
                                   item has no art yet, so rows scan consistently. */}
                               {mockupMap[item.id]?.driveFileId ? (
                                 <DriveThumb driveFileId={mockupMap[item.id].driveFileId} alt={item.name} enlargeable
-                                  style={{ width: 40, height: 40, borderRadius: 6, objectFit: "cover", flexShrink: 0, border: `1px solid ${T.border}` }} />
+                                  style={{ width: 88, alignSelf: "stretch", height: "auto", minHeight: 64, borderRadius: 6, objectFit: "cover", flexShrink: 0, border: `1px solid ${T.border}` }} />
                               ) : (
                                 <div title="No mockup/proof uploaded yet"
-                                  style={{ width: 40, height: 40, borderRadius: 6, flexShrink: 0, border: `1px dashed ${T.border}`, background: T.surface, display: "flex", alignItems: "center", justifyContent: "center", color: T.faint, fontSize: 15 }}>🖼</div>
+                                  style={{ width: 88, alignSelf: "stretch", minHeight: 64, borderRadius: 6, flexShrink: 0, border: `1px dashed ${T.border}`, background: T.surface, display: "flex", alignItems: "center", justifyContent: "center", color: T.faint, fontSize: 18 }}>🖼</div>
                               )}
                               {/* Title + specs stack */}
                               <div style={{ flex: 1, minWidth: 0 }}>
