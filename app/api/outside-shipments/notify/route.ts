@@ -39,11 +39,18 @@ export async function POST(req: NextRequest) {
             return `<li style="margin:4px 0;font-size:13px;color:#444;">${String(it.name || "Item").replace(/</g, "&lt;")}${sizeStr ? ` — <span style="font-family:monospace;color:#666;">${sizeStr}</span>` : ""}</li>`;
           }).join("")}</ul>`
         : "";
+      // Uploaded docs (packing slips / photos) → clickable Drive links.
+      const files = Array.isArray(body.files) ? body.files.filter((f: any) => f && f.driveLink) : [];
+      const filesHtml = files.length
+        ? `<p style="margin:12px 0 4px;font-size:13px;color:#444;"><strong>Documents</strong></p>
+           <ul style="margin:0;padding-left:20px;">${files.map((f: any) =>
+             `<li style="margin:4px 0;font-size:13px;"><a href="${f.driveLink}" style="color:#2563eb;">${String(f.name || "Document").replace(/</g, "&lt;")}</a></li>`).join("")}</ul>`
+        : "";
       const bodyHtml = `A package has been logged as inbound to the warehouse.
         ${meta("From", sender)}${meta("For client", clientName)}${meta("Carrier", carrier)}${meta("Tracking", tracking)}
         ${meta("After receiving", route === "stage" ? "Stage / fulfillment" : "Forward to client")}
         ${description ? `<p style="margin:8px 0 0;font-size:13px;color:#444;"><strong>Details:</strong> ${String(description).replace(/</g, "&lt;")}</p>` : ""}
-        ${itemsHtml}`;
+        ${itemsHtml}${filesHtml}`;
       const html = renderBrandedEmail({
         eyebrow: "House Party Distro",
         heading: "Incoming package logged",

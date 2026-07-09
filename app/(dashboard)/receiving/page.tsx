@@ -506,7 +506,7 @@ export default function ReceivingPage() {
           mode: "warehouse_incoming",
           carrier: form.carrier || null, tracking: form.tracking || null,
           sender: form.sender || null, description: form.description,
-          route, clientName, lineItems,
+          route, clientName, lineItems, files: uploadedFiles,
         }),
       }).catch(() => {});
     }
