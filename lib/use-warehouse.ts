@@ -123,12 +123,12 @@ export function useWarehouse() {
     const [activeRes, recentEnteredRes] = await Promise.all([
       supabase
         .from("jobs")
-        .select("id, title, job_number, shipping_route, fulfillment_status, fulfillment_tracking, phase, type_meta, clients(name, shipping_address)")
+        .select("id, title, job_number, client_id, shipping_route, fulfillment_status, fulfillment_tracking, phase, type_meta, clients(name, shipping_address)")
         .not("phase", "in", '("complete","cancelled")')
         .order("created_at", { ascending: false }),
       supabase
         .from("jobs")
-        .select("id, title, job_number, shipping_route, fulfillment_status, fulfillment_tracking, phase, type_meta, clients(name, shipping_address)")
+        .select("id, title, job_number, client_id, shipping_route, fulfillment_status, fulfillment_tracking, phase, type_meta, clients(name, shipping_address)")
         .eq("shipping_route", "stage")
         .eq("phase", "complete")
         .gte("updated_at", fortyEightHoursAgo)
@@ -145,6 +145,19 @@ export function useWarehouse() {
     ]);
     const allItems = itemsRes.data;
     const allContacts = contactsRes.data || [];
+    // Fallback contacts: when a job has no job_contacts row (seeded jobs, or
+    // jobs created before the auto-copy-from-client existed), fall back to the
+    // client's own contacts so the warehouse still gets a name/phone/email.
+    const clientIds = Array.from(new Set(dbJobs.map((j: any) => j.client_id).filter(Boolean)));
+    const clientContacts: Record<string, { name: string; phone: string | null; email: string | null }> = {};
+    if (clientIds.length) {
+      const { data: cc } = await supabase.from("contacts").select("client_id, name, phone, email").in("client_id", clientIds);
+      for (const c of ((cc || []) as any[])) {
+        if (!clientContacts[c.client_id] && (c.name || c.email)) {
+          clientContacts[c.client_id] = { name: c.name || "", phone: c.phone || null, email: c.email || null };
+        }
+      }
+    }
     // Open pull requests (migration 117), keyed by item. Only pending/partial —
     // the warehouse card shows outstanding work, not history.
     const pullsByItem: Record<string, PullRequestRow[]> = {};
@@ -202,7 +215,8 @@ export function useWarehouse() {
         jobContacts.find((c: any) => c.role_on_job === "primary")
         || jobContacts.find((c: any) => c.role_on_job === "logistics" || c.role_on_job === "shipping")
         || jobContacts.find((c: any) => (c.contacts as any)?.name || (c.contacts as any)?.email);
-      const contactData = (pickContact as any)?.contacts || {};
+      // Job contact if linked; otherwise the client's contact.
+      const contactData = (pickContact as any)?.contacts || clientContacts[(j as any).client_id] || {};
       const packingNotes = relevant.map((it: any) => it.packing_notes).filter(Boolean).join(" · ");
 
       mapped.push({
