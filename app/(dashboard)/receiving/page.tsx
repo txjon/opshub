@@ -337,6 +337,7 @@ export default function ReceivingPage() {
   const [recvPendingFiles, setRecvPendingFiles] = useState<File[]>([]);
   const [recvBusy, setRecvBusy] = useState(false);
   const [showForm, setShowForm] = useState(false);
+  const [notifyWarehouse, setNotifyWarehouse] = useState(true);
   const [form, setForm] = useState({ carrier: "", tracking: "", sender: "", description: "", condition: "", notes: "", destination: "ship_through", clientId: "" });
   // Structured line items for an outside shipment (name + size/qty rows).
   // Editor shape uses arrays for stable editing; collapsed to {name, sizes:{}}
@@ -495,6 +496,20 @@ export default function ReceivingPage() {
       route, status: "pending", resolved: false, client_id: form.clientId || null,
       line_items: lineItems,
     });
+    // Warehouse heads-up email (warehouse@) — fire-and-forget so a mail hiccup
+    // never blocks the log.
+    if (notifyWarehouse) {
+      const clientName = form.clientId ? (linkableClients.find(c => c.id === form.clientId)?.name || null) : null;
+      fetch("/api/outside-shipments/notify", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: "warehouse_incoming",
+          carrier: form.carrier || null, tracking: form.tracking || null,
+          sender: form.sender || null, description: form.description,
+          route, clientName, lineItems,
+        }),
+      }).catch(() => {});
+    }
     setForm({ carrier: "", tracking: "", sender: "", description: "", condition: "", notes: "", destination: "ship_through", clientId: "" });
     setFormLineItems([]); setOrderSearch("");
     setPendingFiles([]); setShowForm(false); setSaving(false);
@@ -1995,6 +2010,11 @@ export default function ReceivingPage() {
                   );
                 })()}
               </div>
+
+              <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 12, color: T.text, padding: "2px 0" }}>
+                <input type="checkbox" checked={notifyWarehouse} onChange={e => setNotifyWarehouse(e.target.checked)} style={{ width: 15, height: 15, accentColor: T.accent, cursor: "pointer" }} />
+                Email the warehouse a heads-up <span style={{ fontFamily: mono, color: T.faint, fontSize: 11 }}>warehouse@housepartydistro.com</span>
+              </label>
 
               <div style={{ display: "flex", gap: 8 }}>
                 <button onClick={submitOutside} disabled={saving || !form.description.trim()}
