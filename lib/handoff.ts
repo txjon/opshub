@@ -306,6 +306,32 @@ export async function recordAdHocPull(supabase: Sb, req: {
   });
 }
 
+// Post-Shopify pull (Jon's rule, 2026-07-08): once goods are keyed into
+// Shopify, Shopify owns the count — a pull is executed EITHER as a real
+// Shopify order (order decrements stock, fulfillment flow ships it) OR as a
+// shelf pull where the warehouse manually adjusts the Shopify count. Neither
+// touches items.sample_qtys (that math only applies pre-entry). OpsHub just
+// closes the request with a trail; a shelf pull also gets a held bucket.
+export async function resolvePostShopifyPull(supabase: Sb, pull: PullRequestRow, mode: "shopify_order" | "shelf_pull", opts?: {
+  itemName?: string | null;
+}): Promise<void> {
+  const now = new Date().toISOString();
+  const { data: { user } = { user: null } } = await supabase.auth.getUser();
+  const note = mode === "shopify_order" ? "Handled as Shopify order" : "Shelf pull — Shopify count adjusted manually";
+  await supabase.from("pull_requests").update({
+    status: "fulfilled", fulfilled_qtys: pull.qtys, fulfilled_at: now, fulfilled_by: user?.id || null,
+    reason: [pull.reason, note].filter(Boolean).join(" · "),
+  }).eq("id", pull.id);
+  if (mode === "shelf_pull") {
+    const { error } = await supabase.from("pulled_inventory").insert({
+      pull_request_id: pull.id, job_id: pull.job_id, item_id: pull.item_id,
+      item_name: opts?.itemName || null, qtys: pull.qtys, status: "held",
+      notes: [pull.kind !== "sample" ? pull.kind : null, pull.reason, "(post-Shopify shelf pull)"].filter(Boolean).join(" — "),
+    });
+    if (error) console.error("[handoff] post-shopify pulled_inventory insert", error);
+  }
+}
+
 // Resolve a pulled-inventory bucket. Returning to stock ALSO deducts the
 // units back out of items.sample_qtys, which restores the forwardable /
 // continuing balance automatically (the whole point of tracking pulls).

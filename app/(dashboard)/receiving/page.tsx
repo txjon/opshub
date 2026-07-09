@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { T, font, mono, SIZE_ORDER } from "@/lib/theme";
 import { useWarehouse, tQty, type WarehouseJob, type WarehouseItem } from "@/lib/use-warehouse";
 import { useShipments, isRealTracking, type Shipment } from "@/lib/use-shipments";
-import { resolvePulledInventory } from "@/lib/handoff";
+import { resolvePulledInventory, resolvePostShopifyPull } from "@/lib/handoff";
 import { computeArrivalEta } from "@/lib/arrival-eta";
 import { uploadToReceiving, uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
 import { DriveFileLink } from "@/components/DriveFileLink";
@@ -206,6 +206,36 @@ export default function ReceivingPage() {
     }
   }
   useEffect(() => { loadHeldPulls(); }, [jobs.length]);
+
+  // Post-Shopify pull tasks (Jon's rule): once an item is keyed into Shopify,
+  // a pull is executed as a Shopify ORDER (fulfillment flow) or a SHELF PULL
+  // with a manual Shopify count adjustment. These land in the Holding strip —
+  // queried directly so they surface even when the job aged out of the
+  // warehouse view.
+  type PostShopifyPull = { pull: any; item_name: string; job_ref: string };
+  const [postShopifyPulls, setPostShopifyPulls] = useState<PostShopifyPull[]>([]);
+  async function loadPostShopifyPulls() {
+    const { data: open } = await supabase
+      .from("pull_requests")
+      .select("*, items!inner(id, name, webstore_entered_at, job_id, jobs(job_number, type_meta, clients(name)))")
+      .in("status", ["pending", "partial"])
+      .not("items.webstore_entered_at", "is", null)
+      .order("created_at");
+    setPostShopifyPulls(((open || []) as any[]).map(r => ({
+      pull: r,
+      item_name: r.items?.name || "Item",
+      job_ref: [r.items?.jobs?.clients?.name, r.items?.jobs?.type_meta?.qb_invoice_number || r.items?.jobs?.job_number].filter(Boolean).join(" · "),
+    })));
+  }
+  useEffect(() => { loadPostShopifyPulls(); }, [jobs.length]);
+  async function resolvePostShopify(t: PostShopifyPull, mode: "shopify_order" | "shelf_pull") {
+    await resolvePostShopifyPull(supabase, t.pull, mode, { itemName: t.item_name });
+    setPostShopifyPulls(prev => prev.filter(x => x.pull.id !== t.pull.id));
+    if (mode === "shelf_pull") loadHeldPulls();
+    const total = Object.values(t.pull.qtys || {}).reduce((a: number, n) => a + (Number(n) || 0), 0);
+    if (t.pull.job_id) logJobActivity(t.pull.job_id, `${t.item_name} — ${total} unit pull ${mode === "shopify_order" ? "placed as Shopify order" : "pulled off shelf, Shopify count adjusted"}`);
+  }
+
   async function resolveHeldPull(row: PulledRow, status: "returned" | "shipped_out" | "consumed") {
     await resolvePulledInventory(supabase, row as any, status);
     setHeldPulls(prev => prev.filter(r => r.id !== row.id));
@@ -238,7 +268,7 @@ export default function ReceivingPage() {
   // Filters / tabs
   const [search, setSearch] = useState("");
   const [filterDecorator, setFilterDecorator] = useState("");
-  const [tab, setTab] = useState<"pending" | "received" | "outside" | "pulls">("pending");
+  const [tab, setTab] = useState<"pending" | "received" | "outside">("pending");
   // Silent mode — suppresses the production_complete client email for
   // receives keyed in this session. Used when backfilling historical
   // receives (boxes that physically arrived weeks ago but haven't been
@@ -268,6 +298,19 @@ export default function ReceivingPage() {
   // Receive UI state — keyed by item id
   const [conditionNote, setConditionNote] = useState<Record<string, string>>({});
   const [itemCondition, setItemCondition] = useState<Record<string, string>>({});
+  // Ad-hoc pull, inline in the receive modal (one open at a time).
+  const [adhocPullFor, setAdhocPullFor] = useState<string | null>(null);
+  const [adhocQtys, setAdhocQtys] = useState<Record<string, string>>({});
+  const [adhocReason, setAdhocReason] = useState("");
+  async function saveAdhocPull(item: WarehouseItem) {
+    const qtys: Record<string, number> = {};
+    for (const [s, v] of Object.entries(adhocQtys)) { const n = parseInt(v) || 0; if (n > 0) qtys[s] = n; }
+    if (Object.keys(qtys).length > 0) {
+      await addPull(item, qtys, "sample", adhocReason.trim() || "Pulled at receiving");
+      loadHeldPulls();
+    }
+    setAdhocPullFor(null); setAdhocQtys({}); setAdhocReason("");
+  }
 
   // Files
   const [packingSlips, setPackingSlips] = useState<Record<string, FileRec[]>>({});
@@ -1059,12 +1102,76 @@ export default function ReceivingPage() {
         ))}
       </div>
 
+      {/* ── Holding strip — no navigation, always in view when non-empty.
+          Two kinds of open work: units physically held on the shelf (resolve
+          when they move), and post-Shopify pull requests (Shopify order OR
+          shelf pull + manual count adjust — Jon's rule). ── */}
+      {(heldPulls.length > 0 || postShopifyPulls.length > 0) && (
+        <div style={{ background: T.card, border: `1px solid ${T.amber}55`, borderLeft: `3px solid ${T.amber}`, borderRadius: 10, padding: "10px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ fontSize: 10, fontWeight: 800, color: T.amber, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+            Holding · {heldPulls.length + postShopifyPulls.length} open
+          </div>
+          {postShopifyPulls.map(t => {
+            const entries = sortSizeEntries(t.pull.qtys || {}).filter(([, n]) => (Number(n) || 0) > 0);
+            const total = entries.reduce((a, [, n]) => a + (Number(n) || 0), 0);
+            return (
+              <div key={t.pull.id} style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", fontSize: 12, paddingTop: 6, borderTop: `1px dashed ${T.border}` }}>
+                <div style={{ flex: 1, minWidth: 200 }}>
+                  <span style={{ fontWeight: 700, color: T.text }}>Pull from Shopify stock: {t.item_name}</span>
+                  <span style={{ color: T.faint }}> · {t.job_ref}</span>
+                  <div style={{ fontSize: 11, color: T.muted }}>
+                    {total} pcs ({entries.map(([s, n]) => `${n}×${s}`).join(", ")}){t.pull.reason ? ` — ${t.pull.reason}` : ""}
+                  </div>
+                </div>
+                <button onClick={() => resolvePostShopify(t, "shopify_order")}
+                  title="Entered as a real Shopify order — fulfillment ships it, stock decrements itself"
+                  style={{ fontSize: 10, fontWeight: 700, padding: "4px 10px", borderRadius: 5, border: `1px solid ${T.border}`, background: "transparent", color: T.muted, cursor: "pointer", fontFamily: font }}>
+                  Placed as Shopify order
+                </button>
+                <button onClick={() => resolvePostShopify(t, "shelf_pull")}
+                  title="Pulled off the shelf — confirm you adjusted the Shopify count down"
+                  style={{ fontSize: 10, fontWeight: 700, padding: "4px 10px", borderRadius: 5, border: "none", background: T.amber, color: "#1a1508", cursor: "pointer", fontFamily: font }}>
+                  Pulled — Shopify adjusted ✓
+                </button>
+              </div>
+            );
+          })}
+          {heldPulls.map(row => {
+            const entries = sortSizeEntries(row.qtys || {}).filter(([, n]) => (Number(n) || 0) > 0);
+            const total = entries.reduce((a, [, n]) => a + (Number(n) || 0), 0);
+            return (
+              <div key={row.id} style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", fontSize: 12, paddingTop: 6, borderTop: `1px dashed ${T.border}` }}>
+                <div style={{ flex: 1, minWidth: 200 }}>
+                  <span style={{ fontWeight: 700, color: T.text }}>{row.item_name || "Item"}</span>
+                  {row.job_id && pullJobRefs[row.job_id] && <span style={{ color: T.faint }}> · {pullJobRefs[row.job_id]}</span>}
+                  <div style={{ fontSize: 11, color: T.muted }}>
+                    {total} pcs ({entries.map(([s, n]) => `${n}×${s}`).join(", ")}){row.notes ? ` — ${row.notes}` : ""} · held since {new Date(row.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                  </div>
+                </div>
+                <button onClick={() => resolveHeldPull(row, "returned")}
+                  title="Put the units back — restores the item's forward/continuing balance"
+                  style={{ fontSize: 10, fontWeight: 700, padding: "4px 10px", borderRadius: 5, border: `1px solid ${T.green}55`, background: "transparent", color: T.green, cursor: "pointer", fontFamily: font }}>
+                  Return to stock
+                </button>
+                <button onClick={() => resolveHeldPull(row, "shipped_out")}
+                  style={{ fontSize: 10, fontWeight: 600, padding: "4px 10px", borderRadius: 5, border: `1px solid ${T.border}`, background: "transparent", color: T.muted, cursor: "pointer", fontFamily: font }}>
+                  Shipped out
+                </button>
+                <button onClick={() => resolveHeldPull(row, "consumed")}
+                  style={{ fontSize: 10, fontWeight: 600, padding: "4px 10px", borderRadius: 5, border: `1px solid ${T.border}`, background: "transparent", color: T.muted, cursor: "pointer", fontFamily: font }}>
+                  Consumed
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {/* Tab bar — flat underline */}
       <div style={{ display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap", borderBottom: `1px solid ${T.border}`, paddingBottom: 6 }}>
         {([
           ["pending", "Pending", tabCounts.pending, T.text],
           ["received", "Received", tabCounts.received, T.green],
-          ["pulls", "Pulls", heldPulls.length, T.amber],
         ] as const).map(([k, l, count, tone]) => {
           const active = tab === k;
           return (
@@ -1106,59 +1213,6 @@ export default function ReceivingPage() {
           </>
         );
       })()}
-
-      {/* ── Pulls tab — the physical shelf of held-back units. Each row is a
-          pulled_inventory bucket; resolving clears it. "Return to stock" also
-          restores the item's forwardable/continuing balance automatically. */}
-      {tab === "pulls" && (
-        heldPulls.length === 0 ? (
-          <div style={{ textAlign: "center", color: T.muted, fontSize: 13, padding: "2rem" }}>
-            No pulled units on hand. Pulls land here when a "Pulls requested" task is fulfilled during receiving, or via "+ Pull" on Shipping.
-          </div>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {heldPulls.map(row => {
-              const entries = sortSizeEntries(row.qtys || {}).filter(([, n]) => (Number(n) || 0) > 0);
-              const total = entries.reduce((a, [, n]) => a + (Number(n) || 0), 0);
-              return (
-                <div key={row.id} style={{ background: T.card, border: `1px solid ${T.border}`, borderLeft: `3px solid ${T.amber}`, borderRadius: 10, padding: "10px 14px", display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", fontSize: 12 }}>
-                  <div style={{ flex: 1, minWidth: 200 }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{row.item_name || "Item"}</div>
-                    {row.job_id && pullJobRefs[row.job_id] && (
-                      <div style={{ fontSize: 11, color: T.faint }}>{pullJobRefs[row.job_id]}</div>
-                    )}
-                    {row.notes && <div style={{ fontSize: 11, color: T.amber, marginTop: 2 }}>{row.notes}</div>}
-                  </div>
-                  <div style={{ fontFamily: mono, color: T.text, fontWeight: 600 }}>
-                    {total} pcs
-                    <span style={{ color: T.faint, fontWeight: 400 }}> · {entries.map(([s, n]) => `${n}×${s}`).join(", ")}</span>
-                  </div>
-                  <div style={{ fontSize: 11, color: T.faint }}>
-                    {new Date(row.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                  </div>
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <button onClick={() => resolveHeldPull(row, "returned")}
-                      title="Put the units back — restores the item's forward/continuing balance"
-                      style={{ fontSize: 10, fontWeight: 700, padding: "4px 10px", borderRadius: 5, border: `1px solid ${T.green}55`, background: "transparent", color: T.green, cursor: "pointer", fontFamily: font }}>
-                      Return to stock
-                    </button>
-                    <button onClick={() => resolveHeldPull(row, "shipped_out")}
-                      title="Units left the building (sent to client, event, etc.)"
-                      style={{ fontSize: 10, fontWeight: 600, padding: "4px 10px", borderRadius: 5, border: `1px solid ${T.border}`, background: "transparent", color: T.muted, cursor: "pointer", fontFamily: font }}>
-                      Shipped out
-                    </button>
-                    <button onClick={() => resolveHeldPull(row, "consumed")}
-                      title="Used up (photo samples, damage, giveaways)"
-                      style={{ fontSize: 10, fontWeight: 600, padding: "4px 10px", borderRadius: 5, border: `1px solid ${T.border}`, background: "transparent", color: T.muted, cursor: "pointer", fontFamily: font }}>
-                      Consumed
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )
-      )}
 
       {/* ── Received tab — sectioned: Needs attention · Today · This
           week · Last 30 days · Older. Action-required pinned on top
@@ -1678,6 +1732,35 @@ export default function ReceivingPage() {
                                             pulled_inventory bucket and auto-rolls the qty into
                                             the Samples row above (sample_qtys[size]). */}
                                         <PullChecklist item={item} onFulfill={async p => { await fulfillPull(item, p); loadHeldPulls(); }} onCancel={p => cancelPull(item, p)} />
+
+                                        {/* Ad-hoc pull, right where he's counting — no separate page. */}
+                                        {!isReceived && (adhocPullFor === item.id ? (
+                                          <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 6, background: T.surface, border: `1px dashed ${T.amber}66`, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                                            {item.sizes.map(sz => (
+                                              <label key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                                                <span style={{ fontSize: 9, color: T.faint, fontWeight: 700, fontFamily: mono }}>{sz}</span>
+                                                <input value={adhocQtys[sz] || ""} placeholder="·" inputMode="numeric"
+                                                  onChange={e => setAdhocQtys(prev => ({ ...prev, [sz]: e.target.value }))}
+                                                  style={{ ...ic, width: 36, textAlign: "center", padding: "4px 2px", fontSize: 12, fontFamily: mono }} />
+                                              </label>
+                                            ))}
+                                            <input value={adhocReason} placeholder="what's it for?"
+                                              onChange={e => setAdhocReason(e.target.value)}
+                                              onKeyDown={e => { if (e.key === "Enter") saveAdhocPull(item); }}
+                                              style={{ ...ic, flex: 1, minWidth: 120, fontSize: 12, padding: "5px 8px" }} />
+                                            <button onClick={() => saveAdhocPull(item)}
+                                              style={{ fontSize: 10, fontWeight: 700, padding: "5px 12px", borderRadius: 5, border: "none", background: T.amber, color: "#1a1508", cursor: "pointer", fontFamily: font }}>
+                                              Pull
+                                            </button>
+                                            <button onClick={() => { setAdhocPullFor(null); setAdhocQtys({}); setAdhocReason(""); }}
+                                              style={{ fontSize: 12, background: "none", border: "none", color: T.faint, cursor: "pointer" }}>×</button>
+                                          </div>
+                                        ) : (
+                                          <button onClick={() => setAdhocPullFor(item.id)}
+                                            style={{ marginTop: 6, fontSize: 10, fontWeight: 600, color: T.amber, background: "none", border: `1px dashed ${T.amber}55`, borderRadius: 5, padding: "3px 10px", cursor: "pointer", fontFamily: font, alignSelf: "flex-start" }}>
+                                            + Pull from this box
+                                          </button>
+                                        ))}
 
                                         {/* Variance / samples summary */}
                                         {(hasVariance || sampleTotal > 0) && (
