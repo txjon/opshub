@@ -495,10 +495,16 @@ export default function ProductionPage() {
         slipMap[f.item_id].push({ id: f.id, file_name: f.file_name, drive_link: f.drive_link, folder_link: f.notes || undefined });
       }
       setPackingSlips(slipMap);
-      // Mockups for the item-click peek modal (List view).
-      const { data: mockupFiles } = await supabase.from("item_files").select("item_id, drive_file_id, drive_link, created_at").eq("stage", "mockup").is("superseded_at", null).in("item_id", allItemIds).order("created_at", { ascending: false });
-      const mMap: Record<string, { driveFileId: string | null; driveLink: string | null }> = {};
-      for (const f of ((mockupFiles || []) as any[])) { if (!mMap[f.item_id]) mMap[f.item_id] = { driveFileId: f.drive_file_id, driveLink: f.drive_link }; }
+      // Item art for thumbnails + the click-to-peek modal. Prefer the mockup;
+      // fall back to the proof so items without a mockup still show a picture.
+      const { data: mockupFiles } = await supabase.from("item_files").select("item_id, drive_file_id, drive_link, stage, created_at").in("stage", ["mockup", "proof"]).is("superseded_at", null).in("item_id", allItemIds).order("created_at", { ascending: false });
+      const mMap: Record<string, { driveFileId: string | null; driveLink: string | null; stage?: string }> = {};
+      for (const f of ((mockupFiles || []) as any[])) {
+        const cur = mMap[f.item_id];
+        if (!cur || (cur.stage !== "mockup" && f.stage === "mockup")) {
+          mMap[f.item_id] = { driveFileId: f.drive_file_id, driveLink: f.drive_link, stage: f.stage };
+        }
+      }
       setMockupMap(mMap);
     }
 
@@ -1717,10 +1723,15 @@ export default function ProductionPage() {
                                 style={{ width: 16, height: 16, cursor: "pointer", accentColor: T.accent, flexShrink: 0 }}
                               />
                               <span style={{ fontSize: 13, fontWeight: 800, color: T.muted, fontFamily: mono, flexShrink: 0 }}>{item.letter}</span>
-                              {/* Mockup thumbnail (click to enlarge) */}
-                              {mockupMap[item.id]?.driveFileId && (
+                              {/* Art thumbnail (mockup, else proof) — click to enlarge.
+                                  Always renders the slot: a neutral placeholder when the
+                                  item has no art yet, so rows scan consistently. */}
+                              {mockupMap[item.id]?.driveFileId ? (
                                 <DriveThumb driveFileId={mockupMap[item.id].driveFileId} alt={item.name} enlargeable
                                   style={{ width: 40, height: 40, borderRadius: 6, objectFit: "cover", flexShrink: 0, border: `1px solid ${T.border}` }} />
+                              ) : (
+                                <div title="No mockup/proof uploaded yet"
+                                  style={{ width: 40, height: 40, borderRadius: 6, flexShrink: 0, border: `1px dashed ${T.border}`, background: T.surface, display: "flex", alignItems: "center", justifyContent: "center", color: T.faint, fontSize: 15 }}>🖼</div>
                               )}
                               {/* Title + specs stack */}
                               <div style={{ flex: 1, minWidth: 0 }}>
