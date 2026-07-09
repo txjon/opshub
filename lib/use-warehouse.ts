@@ -194,8 +194,15 @@ export function useWarehouse() {
       if (relevant.length === 0) continue;
 
       const typeMeta = (j as any).type_meta || {};
-      const primaryContact = allContacts.find((c: any) => c.job_id === j.id && c.role_on_job === "primary");
-      const contactData = (primaryContact as any)?.contacts || {};
+      // Show a contact if the job has ANY — don't require role="primary".
+      // Prefer primary → logistics/shipping → any contact with a name/email
+      // (mirrors the email resolver, which already falls back this way).
+      const jobContacts = allContacts.filter((c: any) => c.job_id === j.id && c.contacts);
+      const pickContact =
+        jobContacts.find((c: any) => c.role_on_job === "primary")
+        || jobContacts.find((c: any) => c.role_on_job === "logistics" || c.role_on_job === "shipping")
+        || jobContacts.find((c: any) => (c.contacts as any)?.name || (c.contacts as any)?.email);
+      const contactData = (pickContact as any)?.contacts || {};
       const packingNotes = relevant.map((it: any) => it.packing_notes).filter(Boolean).join(" · ");
 
       mapped.push({
