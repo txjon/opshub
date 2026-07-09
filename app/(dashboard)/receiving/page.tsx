@@ -25,14 +25,19 @@ const PULL_KIND_LABELS: Record<string, string> = {
 function pullEntries(qtys: Record<string, number> | null | undefined) {
   return Object.entries(qtys || {}).filter(([, n]) => n > 0);
 }
+// Canonical size-qty format across every surface: "L-1, XL-1" (size-qty),
+// never "1×L". One helper so no surface drifts.
+function fmtSizeQtys(qtys: Record<string, number> | null | undefined): string {
+  return pullEntries(qtys).map(([s, n]) => `${s}-${n}`).join(", ");
+}
 function pullReqText(p: PullReq) {
   const entries = pullEntries(p.qtys);
   const total = entries.reduce((a, [, n]) => a + n, 0);
-  const sizeStr = entries.map(([s, n]) => (n > 1 ? `${n}×${s}` : s)).join(", ");
+  const sizeStr = fmtSizeQtys(p.qtys);
   const head = entries.length === 0
     ? "pull"
     : entries.length === 1
-      ? `${entries[0][1]}×${entries[0][0]}`
+      ? sizeStr
       : `${total} pcs · ${sizeStr}`;
   const tail = [
     p.kind && p.kind !== "sample" ? (PULL_KIND_LABELS[p.kind] || p.kind).toLowerCase() : null,
@@ -1120,7 +1125,7 @@ export default function ReceivingPage() {
                   <span style={{ fontWeight: 700, color: T.text }}>Pull from Shopify stock: {t.item_name}</span>
                   <span style={{ color: T.faint }}> · {t.job_ref}</span>
                   <div style={{ fontSize: 11, color: T.muted }}>
-                    {total} pcs ({entries.map(([s, n]) => `${n}×${s}`).join(", ")}){t.pull.reason ? ` — ${t.pull.reason}` : ""}
+                    {total} pcs ({entries.map(([s, n]) => `${s}-${n}`).join(", ")}){t.pull.reason ? ` — ${t.pull.reason}` : ""}
                   </div>
                 </div>
                 <button onClick={() => resolvePostShopify(t, "shopify_order")}
@@ -1145,7 +1150,7 @@ export default function ReceivingPage() {
                   <span style={{ fontWeight: 700, color: T.text }}>{row.item_name || "Item"}</span>
                   {row.job_id && pullJobRefs[row.job_id] && <span style={{ color: T.faint }}> · {pullJobRefs[row.job_id]}</span>}
                   <div style={{ fontSize: 11, color: T.muted }}>
-                    {total} pcs ({entries.map(([s, n]) => `${n}×${s}`).join(", ")}){row.notes ? ` — ${row.notes}` : ""} · held since {new Date(row.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                    {total} pcs ({entries.map(([s, n]) => `${s}-${n}`).join(", ")}){row.notes ? ` — ${row.notes}` : ""} · held since {new Date(row.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                   </div>
                 </div>
                 <button onClick={() => resolveHeldPull(row, "returned")}

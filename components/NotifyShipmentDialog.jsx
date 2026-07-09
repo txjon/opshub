@@ -60,7 +60,7 @@ export function NotifyShipmentDialog({
     setSubject(
       isDropShip
         ? `Your order has shipped — ${qbInvoiceNumber || ""} — ${jobTitle || ""}`
-        : `Incoming: ${decoratorName || ""} — ${qbInvoiceNumber || ""} — ${clientName || ""} — ${tracking || ""}`
+        : `Incoming: ${decoratorName || ""} — ${clientName || ""} — ${tracking || ""}`
     );
     setCustomMessage(initialMessage || "");
     setError("");

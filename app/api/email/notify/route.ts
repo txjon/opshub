@@ -506,7 +506,7 @@ export async function POST(req: NextRequest) {
           const rows = (pulls as any[]).map(p => {
             const sizeStr = Object.entries(p.qtys || {})
               .filter(([, n]) => (Number(n) || 0) > 0)
-              .map(([s, n]) => `${n}×${s}`).join(", ");
+              .map(([s, n]) => `${s}-${n}`).join(", ");
             const why = [p.kind && p.kind !== "sample" ? p.kind : null, p.reason].filter(Boolean).join(" — ");
             return `<li style="margin:4px 0;font-size:13px;color:#8a5c0d;"><strong>${nameOf(p.item_id)}</strong> — ${sizeStr}${why ? ` — ${String(why).replace(/</g, "&lt;")}` : ""}</li>`;
           }).join("");
@@ -533,12 +533,12 @@ export async function POST(req: NextRequest) {
         fromAddr = tenantFromQuotes;
         closing = `If anything looks off when it arrives, just reply here — we'll get you sorted.\n\n— The ${tenantName} team\n${tenantFromQuotes}`;
       } else {
-        subject = customSubject || `Incoming: ${vendorName || "Vendor"} — ${invoiceNum} — ${clientName} — ${trackingNumber}`;
+        subject = customSubject || `Incoming: ${vendorName || "Vendor"} — ${clientName} — ${trackingNumber}`;
         heading = "Incoming shipment";
         greeting = `Heads up — a shipment is inbound to ${tenantName}.`;
         const fromLine = vendorName ? `<p style="margin:0 0 6px;font-size:13px;color:#444;"><strong>From:</strong> ${vendorName}</p>` : "";
-        const projLine = `<p style="margin:0 0 12px;font-size:13px;color:#444;"><strong>Project:</strong> ${projectTitle}</p>`;
-        bodyHtml = `${fromLine}${projLine}${itemsBlock}${pullsBlock}Packing slip attached. Confirm receipt in OpsHub when it arrives.`;
+        const clientLine = `<p style="margin:0 0 12px;font-size:13px;color:#444;"><strong>Client:</strong> ${clientName || projectTitle}</p>`;
+        bodyHtml = `${fromLine}${clientLine}${itemsBlock}${pullsBlock}Packing slip attached. Confirm receipt in OpsHub when it arrives.`;
         fromAddr = tenantFromProduction;
         closing = `— ${tenantName}`;
       }
