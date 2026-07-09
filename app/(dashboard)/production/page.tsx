@@ -6,7 +6,8 @@ import Link from "next/link";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 import { logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
 import { uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
-import { shipItemFromDecorator } from "@/lib/po-actions";
+import { shipItemFromDecorator, shipItemWave } from "@/lib/po-actions";
+import { shipProgress, remainingToShip } from "@/lib/ship-progress";
 import { removeShipmentLineForItem, createPullRequest, updatePullRequest, PULL_KINDS, type PullRequestRow } from "@/lib/handoff";
 import { computeArrivalEta } from "@/lib/arrival-eta";
 import { NotifyShipmentDialog } from "@/components/NotifyShipmentDialog";
@@ -150,6 +151,23 @@ export default function ProductionPage() {
   const [pullReqsByItem, setPullReqsByItem] = useState<Record<string, PullRequestRow[]>>({});
   // Draft pull row per item — local until the user commits it with "Add".
   const [pullDrafts, setPullDrafts] = useState<Record<string, { qtys: Record<string, number>; kind: string; reason: string }>>({});
+  // "This wave" per-size qtys per item — transient, defaults to the remaining
+  // balance (ordered − already shipped). Shipping accumulates it onto the item's
+  // cumulative ship_qtys via shipItemWave. Not persisted until Ship.
+  const [waveQtys, setWaveQtys] = useState<Record<string, Record<string, number>>>({});
+  // The wave qty to ship for an item, per size: the user's edit if any, else the
+  // remaining balance.
+  const waveQtyFor = (item: ProdItem, sz: string): number => {
+    const edited = waveQtys[item.id];
+    if (edited && sz in edited) return edited[sz];
+    const rem = remainingToShip(item.qtys, item.ship_qtys);
+    return rem[sz] ?? 0;
+  };
+  const waveMapFor = (item: ProdItem): Record<string, number> => {
+    const out: Record<string, number> = {};
+    for (const sz of item.sizes) { const n = waveQtyFor(item, sz); if (n > 0) out[sz] = n; }
+    return out;
+  };
   const now = new Date();
 
   useEffect(() => { loadAll(); }, []);
@@ -523,10 +541,23 @@ export default function ProductionPage() {
       clearTimeout(saveTimers.current[key]);
       delete saveTimers.current[key];
     }
-    // Canonical ship effect lives in lib/po-actions — the ONLY ship path.
-    // It also persists the shipments row + line (handoff spine, mig 117);
+    // Ship a WAVE: accumulate this wave's qtys onto the item's cumulative
+    // shipped; the item stays in production until the waves sum to ordered.
+    // Local pickup keeps the legacy path (no tracking, vendor-grouped, pickup
+    // email). shipItemWave persists the shipments row + line (mig 117);
     // warehouseNotes rides along to shipments.warehouse_notes.
-    await shipItemFromDecorator(supabase, item, { warehouseNotes: opts?.warehouseNotes || null });
+    if (item.pickup_ready) {
+      await shipItemFromDecorator(supabase, item, { warehouseNotes: opts?.warehouseNotes || null });
+    } else {
+      await shipItemWave(supabase, {
+        itemId: item.id,
+        waveQtys: waveMapFor(item),
+        tracking: item.ship_tracking || null,
+        warehouseNotes: opts?.warehouseNotes || null,
+      });
+      // Clear the transient wave draft so it re-defaults to the new remaining.
+      setWaveQtys(prev => { const n = { ...prev }; delete n[item.id]; return n; });
+    }
     if (!opts?.skipReload) loadAll();
   }
 
@@ -1175,31 +1206,27 @@ export default function ProductionPage() {
   // state immediately, so Mark Shipped persists exactly what's shown. The
   // grouped view has its own inline copy of this grid (left untouched on
   // purpose) — this helper only serves the two list-flow modals.
+  // Per-size "shipping this wave" inputs. Value defaults to the REMAINING
+  // balance (ordered − already shipped); the small number below each is the
+  // remaining. Editing sets a transient wave qty; Ship accumulates it. Shipping
+  // fewer than remaining leaves the item open for the next wave.
   function shipQtyInputs(item: ProdItem) {
+    const rem = remainingToShip(item.qtys, item.ship_qtys);
     return item.sizes.map(sz => {
-      const ordered = item.qtys[sz] || 0;
-      const shipped = (item.ship_qtys || {})[sz] ?? ordered;
-      const diffColor = shipped < ordered ? T.amber : shipped > ordered ? T.green : null;
+      const remaining = rem[sz] ?? 0;
+      const val = waveQtyFor(item, sz);
+      const over = val > remaining;
       return (
         <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
           <span style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>{sz}</span>
-          <input type="text" inputMode="numeric" value={shipped}
+          <input type="text" inputMode="numeric" value={val}
             onClick={e => { e.stopPropagation(); (e.target as HTMLInputElement).select(); }}
             onChange={e => {
-              const val = parseInt(e.target.value) || 0;
-              const newQtys = { ...(item.ship_qtys || {}), [sz]: val };
-              setProjects(prev => prev.map(p => ({
-                ...p, decoratorGroups: p.decoratorGroups.map(dg2 => ({
-                  ...dg2, items: dg2.items.map(it => it.id === item.id ? { ...it, ship_qtys: newQtys } : it)
-                }))
-              })));
-              if (saveTimers.current[`sqty_${item.id}`]) clearTimeout(saveTimers.current[`sqty_${item.id}`]);
-              saveTimers.current[`sqty_${item.id}`] = setTimeout(() => {
-                (supabase.from("items") as any).update({ ship_qtys: newQtys }).eq("id", item.id);
-              }, 800);
+              const v = parseInt(e.target.value) || 0;
+              setWaveQtys(prev => ({ ...prev, [item.id]: { ...(prev[item.id] || {}), [sz]: v } }));
             }}
-            style={{ ...ic, width: 52, padding: "8px 6px", textAlign: "center", fontSize: 13, fontFamily: mono, border: `1px solid ${diffColor || T.border}`, color: T.text }} />
-          <span style={{ fontSize: 10, color: T.faint, fontFamily: mono }}>{ordered}</span>
+            style={{ ...ic, width: 52, padding: "8px 6px", textAlign: "center", fontSize: 13, fontFamily: mono, border: `1px solid ${over ? T.amber : T.border}`, color: T.text }} />
+          <span style={{ fontSize: 10, color: T.faint, fontFamily: mono }}>/ {remaining}</span>
         </div>
       );
     });
@@ -1744,6 +1771,21 @@ export default function ProductionPage() {
                                 <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
                                   {item.blank_vendor || "—"} · {item.total_units} units
                                 </div>
+                                {/* Ordered / shipped / remaining — visible once anything's
+                                    shipped so multi-wave items read at a glance. */}
+                                {(() => {
+                                  const p = shipProgress(item.qtys, item.ship_qtys);
+                                  if (p.shipped === 0 || p.ordered === 0) return null;
+                                  return (
+                                    <div style={{ fontSize: 11, marginTop: 3, fontFamily: mono, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                                      <span style={{ color: p.fullyShipped ? T.green : T.amber, fontWeight: 700 }}>
+                                        {p.shipped}/{p.ordered} shipped
+                                      </span>
+                                      {p.remaining > 0 && <span style={{ color: T.amber }}>· {p.remaining} to ship</span>}
+                                      {p.fullyShipped && <span style={{ color: T.green }}>· complete</span>}
+                                    </div>
+                                  );
+                                })()}
                                 {/* Two-column edit row: ETA + TRK stacked
                                     on the left, the (taller) note textarea
                                     parallel on the right. Wraps below on
@@ -2040,16 +2082,21 @@ export default function ProductionPage() {
                 );
               })()}
               <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                {/* Shipped quantities — per-size, list-flow only. Grouped sets
-                    these inline on the item row, so the grid is gated to the
-                    list view here to leave the grouped Ship modal unchanged. */}
-                {viewMode === "list" && item.pipeline_stage !== "shipped" && item.sizes.length > 0 && (
-                  <div>
-                    <label style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: 0.6, display: "block", marginBottom: 6 }}>Shipped quantities</label>
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>{shipQtyInputs(item)}</div>
-                    <div style={{ fontSize: 10, color: T.faint, marginTop: 4 }}>Ordered shown below each — adjust if the vendor shipped a different count.</div>
-                  </div>
-                )}
+                {/* Shipping this wave — per-size. Defaults to the remaining
+                    balance; ship fewer to leave the item open for the next wave. */}
+                {item.pipeline_stage !== "shipped" && item.sizes.length > 0 && (() => {
+                  const p = shipProgress(item.qtys, item.ship_qtys);
+                  return (
+                    <div>
+                      <label style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: 0.6, display: "block", marginBottom: 6 }}>
+                        Shipping this wave
+                        {p.shipped > 0 && <span style={{ color: T.amber, marginLeft: 8, fontWeight: 700 }}>{p.shipped}/{p.ordered} already shipped · {p.remaining} remaining</span>}
+                      </label>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>{shipQtyInputs(item)}</div>
+                      <div style={{ fontSize: 10, color: T.faint, marginTop: 4 }}>Remaining shown below each. Ship fewer to leave the rest for a later wave.</div>
+                    </div>
+                  );
+                })()}
                 <div>
                   <label style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: 0.6, display: "block", marginBottom: 6 }}>Tracking #</label>
                   <input value={item.ship_tracking || ""} placeholder="e.g. 1Z999AA10123456784"

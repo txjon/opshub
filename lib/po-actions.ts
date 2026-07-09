@@ -11,6 +11,7 @@
 import { poSentToItem } from "./item-status";
 import { logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
 import { upsertShipmentForItem } from "./handoff";
+import { shipProgress, addQtys, type SizeQtys } from "./ship-progress";
 
 async function fetchVendorItems(supabase: any, jobId: string, vendor: string): Promise<any[]> {
   const [{ data: job }, { data: items }] = await Promise.all([
@@ -168,4 +169,64 @@ export async function shipItemFromDecorator(supabase: any, item: any, opts?: { w
       logJobActivity(item.job_id, "All items shipped — invoice ready to update with shipped qtys");
     }
   }
+}
+
+// Ship ONE WAVE of an item (partial or final). The item is ordered in a fixed
+// qty and the vendor ships it over one or more waves; this accumulates the
+// cumulative shipped and keeps the item IN PRODUCTION until the waves sum to
+// the ordered total. Each wave is its own shipment (its own box + tracking),
+// so /receiving shows partial deliveries separately. Received state is left
+// untouched — earlier waves keep what they received. Re-reads the item fresh
+// so the cumulative math can never double-count a stale local snapshot.
+export async function shipItemWave(supabase: any, args: {
+  itemId: string;
+  waveQtys: SizeQtys;            // per-size shipped in THIS wave
+  tracking?: string | null;
+  warehouseNotes?: string | null;
+}): Promise<{ shipped: number; ordered: number; remaining: number; fullyShipped: boolean }> {
+  const tracking = (args.tracking || "").trim() || null;
+  const { data: item } = await supabase
+    .from("items")
+    .select("id, name, job_id, ship_qtys, ship_tracking, pipeline_stage, pipeline_timestamps, expected_arrival, decorator_assignments(id, decorator_id, decorators(name, short_code)), buy_sheet_lines(size, qty_ordered)")
+    .eq("id", args.itemId).single();
+  if (!item) return { shipped: 0, ordered: 0, remaining: 0, fullyShipped: false };
+
+  const ordered: SizeQtys = Object.fromEntries((item.buy_sheet_lines || []).map((l: any) => [l.size, Number(l.qty_ordered) || 0]));
+  const cleanWave: SizeQtys = Object.fromEntries(
+    Object.entries(args.waveQtys || {}).map(([s, n]) => [s, Number(n) || 0]).filter(([, n]) => (n as number) > 0)
+  );
+  const newShip = addQtys(item.ship_qtys, cleanWave);
+  const prog = shipProgress(ordered, newShip);
+  const waveTotal = Object.values(cleanWave).reduce((a, n) => a + n, 0);
+  if (waveTotal === 0) return { shipped: prog.shipped, ordered: prog.ordered, remaining: prog.remaining, fullyShipped: prog.fullyShipped };
+
+  const ts = new Date().toISOString();
+  const timestamps = { ...(item.pipeline_timestamps || {}), shipped: (item.pipeline_timestamps || {}).shipped || ts };
+  const da = (item.decorator_assignments || [])[0];
+  await supabase.from("items").update({
+    ship_qtys: newShip,                                   // cumulative across waves
+    ship_tracking: tracking || item.ship_tracking || null, // latest wave's tracking
+    pipeline_stage: prog.fullyShipped ? "shipped" : "in_production",
+    pipeline_timestamps: timestamps,
+    // received_at_hpd / received_qtys intentionally untouched.
+  }).eq("id", item.id);
+  if (da?.id) {
+    await supabase.from("decorator_assignments").update({ pipeline_stage: prog.fullyShipped ? "shipped" : "in_production" }).eq("id", da.id);
+  }
+  await upsertShipmentForItem(supabase, {
+    job_id: item.job_id, item_id: item.id, item_name: item.name || null,
+    decorator_id: da?.decorator_id || null,
+    decorator_name: da?.decorators?.name || null,
+    ship_tracking: tracking,
+    ship_date: ts,
+    ship_qtys: cleanWave,                                 // this wave only
+    expected_arrival: item.expected_arrival || null,
+    warehouse_notes: args.warehouseNotes || null,
+  });
+  const trk = tracking ? ` — ${tracking}` : "";
+  logJobActivity(item.job_id, prog.fullyShipped
+    ? `${item.name} — final wave shipped (${waveTotal}) · ${prog.shipped}/${prog.ordered} complete${trk}`
+    : `${item.name} — partial shipment: ${waveTotal} shipped (${prog.shipped}/${prog.ordered} · ${prog.remaining} remaining)${trk}`);
+  notifyTeam(`${prog.fullyShipped ? "Final" : "Partial"} shipment — ${item.name} (${prog.shipped}/${prog.ordered}) incoming to warehouse`, "production", item.job_id, "job");
+  return { shipped: prog.shipped, ordered: prog.ordered, remaining: prog.remaining, fullyShipped: prog.fullyShipped };
 }
