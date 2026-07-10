@@ -1509,7 +1509,17 @@ export default function ProductionPage() {
                 <div style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{dg.shortCode || dg.decoratorName}</div>
                 <div style={{ fontSize: 10.5, color: T.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                   {dg.items.length} item{dg.items.length !== 1 ? "s" : ""} · {strip.units.toLocaleString()}u
-                  {dg.shipped > 0 && <span style={{ color: T.green }}> · {dg.shipped} shipped</span>}
+                  {(() => {
+                    // Unit-level ship progress — surfaces partial waves (item-count
+                    // 'shipped' stays 0 until an item fully ships).
+                    const shippedUnits = dg.items.reduce((a, it) => a + Object.values(it.ship_qtys || {}).reduce((x, n) => x + (Number(n) || 0), 0), 0);
+                    const orderedUnits = dg.items.reduce((a, it) => a + (it.total_units || 0), 0);
+                    if (shippedUnits > 0 && shippedUnits < orderedUnits) {
+                      return <span style={{ color: T.amber, fontWeight: 700 }}> · {shippedUnits}/{orderedUnits} shipped</span>;
+                    }
+                    if (dg.shipped > 0) return <span style={{ color: T.green }}> · {dg.shipped} shipped</span>;
+                    return null;
+                  })()}
                 </div>
               </div>
               {/* Route → destination */}
