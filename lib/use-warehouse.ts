@@ -11,6 +11,7 @@ import {
   type PullRequestRow,
 } from "@/lib/handoff";
 import { recordReceive, recordOutbound, recomputeItemFromLedger, reverseLastMovement, appendMovement } from "@/lib/inventory-ledger";
+import { addQtys, subtractQtys } from "@/lib/ship-progress";
 
 // forwarded/staged qty = what's on hand to send = received (fallback shipped)
 // minus any units pulled as samples.
@@ -433,7 +434,7 @@ export function useWarehouse() {
     return allDelivered;
   }
 
-  async function markReceived(item: WarehouseItem, opts?: { condition?: string; notes?: string; skipSideEffects?: boolean; skipClientEmail?: boolean }) {
+  async function markReceived(item: WarehouseItem, opts?: { condition?: string; notes?: string; skipSideEffects?: boolean; skipClientEmail?: boolean; deliveredQtys?: Record<string, number> }) {
     const now = new Date().toISOString();
 
     // Flush any in-flight qty debounces — receive must commit the latest
@@ -466,12 +467,18 @@ export function useWarehouse() {
     // whose later waves are still in transit stays pending until they land
     // (Jon's decision: hold until all units arrive, forward once). A deliberate
     // short receipt also stays pending as a variance to resolve.
-    // Target cumulative received: what the receiver entered, else caught-up to
-    // everything shipped so far (Jon's rule: no edit = no variance = received
-    // what shipped). The ledger converts this to an append-only delta.
-    const targetReceived = (item.received_qtys && Object.keys(item.received_qtys).length > 0)
-      ? item.received_qtys
-      : (item.ship_qtys || {});
+    // Box-centric receive: the receiver confirms what arrived in THIS receipt
+    // (opts.deliveredQtys), which defaults to the OUTSTANDING balance — what's
+    // shipped so far minus what's already been received in earlier boxes. New
+    // cumulative received = prior + this receipt. This is why a second wave's
+    // box shows "13 to receive" (its own contents), not the item's cumulative
+    // 25 — and receiving it adds 13, landing at 25, instead of double-counting.
+    const priorReceived = item.received_qtys || {};
+    const outstanding = subtractQtys(item.ship_qtys || {}, priorReceived);
+    const deliveredThis = (opts?.deliveredQtys && Object.keys(opts.deliveredQtys).length > 0)
+      ? opts.deliveredQtys
+      : outstanding;
+    const targetReceived = addQtys(priorReceived, deliveredThis);
 
     // Non-quantity audit fields + samples are a direct write; the ledger owns
     // received_qtys / received_at_hpd (recompute reprojects them).
@@ -494,7 +501,7 @@ export function useWarehouse() {
     // line + flip the shipment to received when its last line lands. No-op
     // for legacy items shipped before the shipments table existed.
     await receiveShipmentLineForItem(supabase, item.id, {
-      received_qtys: item.received_qtys,
+      received_qtys: deliveredThis,   // THIS box's received qty (not the cumulative)
       condition: opts?.condition || "good",
       notes: opts?.notes || null,
     });
@@ -504,18 +511,14 @@ export function useWarehouse() {
     //  (74 continuing) (damaged) — minor scuffing on neckline"
     const sumPerSize = (q: Record<string, number> | null | undefined) =>
       Object.values(q || {}).reduce((a, v) => a + (Number(v) || 0), 0);
-    const sizes = Object.keys(item.qtys || {});
-    const rq = item.received_qtys || {};
-    const sq = item.ship_qtys || {};
-    const oq = item.qtys || {};
     const shippedTotal = sumPerSize(item.ship_qtys) || sumPerSize(item.qtys);
-    let deliveredTotal = 0;
-    for (const sz of sizes) deliveredTotal += rq[sz] ?? sq[sz] ?? oq[sz] ?? 0;
+    const deliveredTotal = sumPerSize(targetReceived);   // NEW cumulative received
+    const thisReceiptTotal = sumPerSize(deliveredThis);
     const samplesTotal = sumPerSize(item.sample_qtys);
     const continuingTotal = Math.max(0, deliveredTotal - samplesTotal);
     const variance = deliveredTotal - shippedTotal;
 
-    const parts: string[] = [`${deliveredTotal}/${shippedTotal} delivered`];
+    const parts: string[] = [`${thisReceiptTotal} received (${deliveredTotal}/${shippedTotal} total)`];
     if (samplesTotal > 0) {
       parts.push(`${samplesTotal} sample${samplesTotal === 1 ? "" : "s"} pulled (${continuingTotal} continuing)`);
     }
@@ -529,8 +532,9 @@ export function useWarehouse() {
     // (Pull destinations are logged per-pull by fulfillPull/addPull — the
     // old sample_pulls destination trail that lived here is retired.)
 
+    const caughtUp = sumPerSize(targetReceived) >= shippedTotal;
     setJobs(prev => prev.map(j => ({
-      ...j, items: j.items.map(it => it.id === item.id ? { ...it, received_at_hpd: true, received_at_hpd_at: now, receiving_data: receivingData as any } : it),
+      ...j, items: j.items.map(it => it.id === item.id ? { ...it, received_qtys: targetReceived, received_at_hpd: caughtUp, received_at_hpd_at: caughtUp ? now : null, receiving_data: receivingData as any } : it),
     })));
 
     // Side effects (production_complete email + phase recalc) intentionally
@@ -555,8 +559,8 @@ export function useWarehouse() {
   async function bulkMarkReceived(
     items: WarehouseItem[],
     opts?:
-      | { condition?: string; notes?: string }
-      | ((it: WarehouseItem) => { condition?: string; notes?: string }),
+      | { condition?: string; notes?: string; deliveredQtys?: Record<string, number> }
+      | ((it: WarehouseItem) => { condition?: string; notes?: string; deliveredQtys?: Record<string, number> }),
     sideEffectOpts?: { skipClientEmail?: boolean },
   ) {
     const resolveOpts = (it: WarehouseItem) =>

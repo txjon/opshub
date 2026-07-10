@@ -6,7 +6,7 @@ import { T, font, mono, SIZE_ORDER } from "@/lib/theme";
 import { useWarehouse, tQty, type WarehouseJob, type WarehouseItem } from "@/lib/use-warehouse";
 import { useShipments, isRealTracking, type Shipment } from "@/lib/use-shipments";
 import { resolvePulledInventory, resolvePostShopifyPull } from "@/lib/handoff";
-import { shipProgress } from "@/lib/ship-progress";
+import { shipProgress, subtractQtys } from "@/lib/ship-progress";
 import { computeArrivalEta } from "@/lib/arrival-eta";
 import { uploadToReceiving, uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
 import { DriveFileLink } from "@/components/DriveFileLink";
@@ -275,6 +275,12 @@ export default function ReceivingPage() {
   // Filters / tabs
   const [search, setSearch] = useState("");
   const [historyItem, setHistoryItem] = useState<WarehouseItem | null>(null);
+  // Per-item "delivered in THIS receipt" draft (keyed by item id → per-size),
+  // seeded to the OUTSTANDING balance (shipped − already received) when a box
+  // opens. Receiving adds this to the cumulative — so a wave-2 box shows/receives
+  // its own 13, not the item's cumulative 25.
+  const [deliveredDraft, setDeliveredDraft] = useState<Record<string, Record<string, number>>>({});
+  const outstandingOf = (it: WarehouseItem): Record<string, number> => subtractQtys(it.ship_qtys || {}, it.received_qtys || {});
   const [filterDecorator, setFilterDecorator] = useState("");
   const [tab, setTab] = useState<"pending" | "received" | "outside">("pending");
   // Silent mode — suppresses the production_complete client email for
@@ -373,25 +379,22 @@ export default function ReceivingPage() {
     }
   }, [modalShipmentKey]);
 
-  // On open: pre-fill each PENDING item's Delivered inputs to the full shipped
-  // total (so a later wave shows "receive 300", not the 100 already logged from
-  // a prior wave). Receiver adjusts down for a shortage. Persists nothing until
-  // Receive; just seeds the local displayed received_qtys.
+  // On open: seed each PENDING item's Delivered draft to the OUTSTANDING balance
+  // — what's shipped so far minus what earlier boxes already received. So a
+  // wave-2 box shows "receive 13" (its own contents), not the item's cumulative
+  // 25. Receiver adjusts down for a shortage. Receiving ADDS this to the
+  // cumulative; nothing is persisted until Receive.
   useEffect(() => {
     if (!modalShipmentKey) return;
     const shp = shipments.find(s => s.key === modalShipmentKey);
     if (!shp) return;
-    const pendingIds = new Set(shp.items.filter(it => !it.received_at_hpd).map(it => it.id));
-    if (pendingIds.size === 0) return;
-    setJobs(prev => prev.map(j => ({
-      ...j, items: j.items.map(it => {
-        if (!pendingIds.has(it.id)) return it;
-        // Seed received to the full shipped total for any size not already set
-        // to it — receiver confirms the cumulative received.
-        const seeded = { ...(it.ship_qtys || {}) };
-        return { ...it, received_qtys: seeded };
-      }),
-    })));
+    const pending = shp.items.filter(it => !it.received_at_hpd);
+    if (pending.length === 0) return;
+    setDeliveredDraft(prev => {
+      const next = { ...prev };
+      for (const it of pending) next[it.id] = outstandingOf(it);
+      return next;
+    });
   }, [modalShipmentKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function toggleItemSelected(itemId: string) {
@@ -1463,7 +1466,15 @@ export default function ReceivingPage() {
                         <span style={{ color: T.faint, margin: "0 8px" }}>·</span>
                         <strong style={{ color: T.text, fontWeight: 700 }}>{shipment.received_count}</strong> received
                         <span style={{ color: T.faint, margin: "0 8px" }}>·</span>
-                        <strong style={{ color: T.text, fontWeight: 700 }}>{shipment.total_units.toLocaleString()}</strong> units
+                        {(() => {
+                          // Units in THIS box = sum of the pending items' outstanding
+                          // balances (not the items' cumulative order) — so a wave-2
+                          // box reads "26 to receive", not 50.
+                          const pendingUnits = shipment.items.filter(it => !it.received_at_hpd).reduce((a, it) => a + tQty(outstandingOf(it)), 0);
+                          return shipment.pending_count > 0
+                            ? <><strong style={{ color: T.text, fontWeight: 700 }}>{pendingUnits.toLocaleString()}</strong> to receive</>
+                            : <><strong style={{ color: T.text, fontWeight: 700 }}>{shipment.total_units.toLocaleString()}</strong> units</>;
+                        })()}
                       </div>
                     </div>
                   </div>
@@ -1500,6 +1511,7 @@ export default function ReceivingPage() {
                       await bulkMarkReceived(eligible, (it) => ({
                         condition: "good",
                         notes: conditionNote[it.id] || "",
+                        deliveredQtys: deliveredDraft[it.id] || outstandingOf(it),
                       }), { skipClientEmail: silentMode });
                       setSelectedItemIds(prev => {
                         const next = new Set(prev);
@@ -1700,29 +1712,32 @@ export default function ReceivingPage() {
                                                 <span key={`hdr-${sz}`} style={{ fontSize: 11, color: T.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", textAlign: "center" }}>{sz}</span>
                                               ))}
 
-                                              {/* Row 2 — shipped qty (read-only) */}
-                                              <span />
+                                              {/* Row 2 — expected in THIS box = outstanding
+                                                  (shipped so far − already received). For a fully
+                                                  received item it falls back to the shipped qty. */}
+                                              <span style={{ fontSize: 8, color: T.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", paddingRight: 4, fontFamily: font }}>In box</span>
                                               {item.sizes.map(sz => {
-                                                const shipped = item.ship_qtys?.[sz] ?? item.qtys?.[sz] ?? 0;
+                                                const expected = item.received_at_hpd
+                                                  ? (item.ship_qtys?.[sz] ?? item.qtys?.[sz] ?? 0)
+                                                  : Math.max(0, (item.ship_qtys?.[sz] ?? item.qtys?.[sz] ?? 0) - (item.received_qtys?.[sz] ?? 0));
                                                 return (
-                                                  <span key={`shp-${sz}`} style={{ fontSize: 11, color: T.muted, fontWeight: 600, textAlign: "center" }}>{shipped}</span>
+                                                  <span key={`shp-${sz}`} style={{ fontSize: 11, color: T.muted, fontWeight: 600, textAlign: "center" }}>{expected}</span>
                                                 );
                                               })}
 
-                                              {/* Row 3 — received qty (input). Live variance flag
-                                                  matches Production: under = amber, over = green,
-                                                  equal = neutral. Persists after Receive too so
-                                                  the row keeps showing where the gaps were. */}
+                                              {/* Row 3 — delivered THIS receipt (input), seeded to the
+                                                  outstanding. Under = amber, over = green. Receiving
+                                                  ADDS this to the cumulative received. */}
                                               <span style={{ fontSize: 8, color: T.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", paddingRight: 4, fontFamily: font }}>Delivered</span>
                                               {item.sizes.map(sz => {
-                                                const shipped = item.ship_qtys?.[sz] ?? item.qtys?.[sz] ?? 0;
-                                                const received = item.received_qtys?.[sz] ?? shipped;
-                                                const diffColor = received < shipped ? T.amber : received > shipped ? T.green : null;
+                                                const expected = Math.max(0, (item.ship_qtys?.[sz] ?? item.qtys?.[sz] ?? 0) - (item.received_qtys?.[sz] ?? 0));
+                                                const received = deliveredDraft[item.id]?.[sz] ?? expected;
+                                                const diffColor = received < expected ? T.amber : received > expected ? T.green : null;
                                                 return (
                                                   <input key={`rcv-${sz}`} type="number" min="0" value={received}
-                                                    onChange={e => updateReceivedQty(item, sz, parseInt(e.target.value) || 0)}
+                                                    onChange={e => { const v = parseInt(e.target.value) || 0; setDeliveredDraft(prev => ({ ...prev, [item.id]: { ...(prev[item.id] || {}), [sz]: v } })); }}
                                                     onFocus={e => e.target.select()}
-                                                    title="Received"
+                                                    title="Delivered in this receipt"
                                                     style={{ width: 56, textAlign: "center", padding: "6px 4px", border: `1px solid ${diffColor || T.border}`, borderRadius: 5, background: T.surface, color: diffColor || T.text, fontSize: 13, fontWeight: 600, fontFamily: mono, outline: "none" }} />
                                                 );
                                               })}
@@ -1798,6 +1813,7 @@ export default function ReceivingPage() {
                                                     condition: "good",
                                                     notes: conditionNote[item.id] || "",
                                                     skipClientEmail: silentMode,
+                                                    deliveredQtys: deliveredDraft[item.id] || outstandingOf(item),
                                                   })} style={{ fontSize: 13, fontWeight: 700, color: "#fff", background: T.green, border: "none", borderRadius: 4, padding: "8px 18px", cursor: "pointer", fontFamily: font }}>Receive</button>
                                                   <button onClick={() => returnToProduction(item)} style={{ fontSize: 11, color: T.faint, background: "none", border: "none", cursor: "pointer", textDecoration: "underline", fontFamily: font, whiteSpace: "nowrap" }} title="Send back to decorator">← Production</button>
                                                   <button onClick={() => setHistoryItem(item)} style={{ fontSize: 11, color: T.faint, background: "none", border: "none", cursor: "pointer", textDecoration: "underline", fontFamily: font, whiteSpace: "nowrap" }}>History</button>
