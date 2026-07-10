@@ -1970,7 +1970,10 @@ export default function ProductionPage() {
                 <button key={g.decKey} onClick={() => openBuildVendor(g.decKey)} style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", textAlign: "left", padding: "12px 20px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}33`, cursor: "pointer", fontFamily: font }}
                   onMouseEnter={e => e.currentTarget.style.background = T.surface} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                   <span style={{ fontSize: 13.5, fontWeight: 700, color: T.text, flex: 1 }}>{g.name}</span>
-                  <span style={{ fontSize: 11.5, color: T.muted }}>{g.items.length} item{g.items.length !== 1 ? "s" : ""} · {g.units.toLocaleString()}u</span>
+                  {(() => {
+                    const shp = g.items.reduce((a: number, it: any) => a + Object.values(it.ship_qtys || {}).reduce((x: number, n: any) => x + (Number(n) || 0), 0), 0);
+                    return <span style={{ fontSize: 11.5, color: T.muted }}>{g.items.length} item{g.items.length !== 1 ? "s" : ""} · {g.units.toLocaleString()}u{shp > 0 && shp < g.units && <span style={{ color: T.amber, fontWeight: 700 }}> · {shp}/{g.units} shipped</span>}</span>;
+                  })()}
                   <span style={{ color: T.faint }}>›</span>
                 </button>
               ))}
