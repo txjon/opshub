@@ -1669,6 +1669,14 @@ export default function ReceivingPage() {
                                                 </div>
                                               );
                                             })()}
+                                            {/* Box view: flag a partial shipment — this box is only part
+                                                of the order, with more waves still coming to the warehouse. */}
+                                            {item._shipmentId && item.pipeline_stage !== "shipped" && tQty(item.qtys) > 0 && (
+                                              <div style={{ marginTop: 4, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", fontSize: 11, fontFamily: mono }}>
+                                                <span style={{ fontSize: 9, fontWeight: 800, color: T.amber, background: T.amberDim, border: `1px solid ${T.amber}55`, borderRadius: 4, padding: "1px 6px", letterSpacing: "0.04em", textTransform: "uppercase", fontFamily: font }}>Partial shipment</span>
+                                                <span style={{ color: T.muted }}>{tQty(item.ship_qtys)} of {tQty(item.qtys)} ordered · more waves coming</span>
+                                              </div>
+                                            )}
 
                                             {/* Photos */}
                                             <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 6, alignItems: "center" }}>

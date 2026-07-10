@@ -87,6 +87,7 @@ export default function ProductionPage() {
   const router = useRouter();
   const [projects, setProjects] = useState<ProjectGroup[]>([]);
   const [loading, setLoading] = useState(true);
+  const loadedOnceRef = useRef(false);
   const [search, setSearch] = useState("");
   const [filterDecorator, setFilterDecorator] = useState("");
   const [filterClient, setFilterClient] = useState("");
@@ -282,7 +283,10 @@ export default function ProductionPage() {
   }
 
   async function loadAll() {
-    setLoading(true);
+    // Full-screen spinner only on the FIRST load — a reload after an action
+    // (e.g. Mark Shipped) must NOT unmount the page/modal, which read as a
+    // "white flash + the modal reopening". Subsequent reloads refresh in place.
+    if (!loadedOnceRef.current) setLoading(true);
     // Active jobs + recently completed (last 30 days)
     const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString();
     const [activeRes, completedRes] = await Promise.all([
@@ -291,7 +295,7 @@ export default function ProductionPage() {
     ]);
     const jobs = [...(activeRes.data || []), ...(completedRes.data || [])];
 
-    if (!jobs?.length) { setProjects([]); setLoading(false); return; }
+    if (!jobs?.length) { setProjects([]); setLoading(false); loadedOnceRef.current = true; return; }
 
     const jobIds = jobs.map(j => j.id);
     const jobMap: Record<string, any> = {};
@@ -533,6 +537,7 @@ export default function ProductionPage() {
     }
 
     setLoading(false);
+    loadedOnceRef.current = true;
   }
 
   // ── Item actions ──
@@ -2197,11 +2202,13 @@ export default function ProductionPage() {
                     "Notified ✓" once a record exists for this (decorator
                     + tracking); clicking still opens the dialog → backend
                     dedups → "Already sent — Resend?" confirm. */}
-                {item.pipeline_stage === "shipped" && (() => {
+                {shipProgress(item.qtys, item.ship_qtys).shipped > 0 && (() => {
                   const itemRoute = resolveRoute(item.shipping_route, project.shippingRoute);
                   // Customer notify (drop_ship) references the client invoice, so it
                   // needs one. Warehouse notify (ship_through/stage) is an internal
                   // incoming-goods alert to the warehouse — no invoice required.
+                  // Shows on ANY shipped units (a partial wave IS incoming to HPD),
+                  // not just a fully-shipped item.
                   const canNotify = !!item.ship_tracking && (itemRoute === "drop_ship" ? !!project.invoiceNumber : true);
                   const notified = project.shippingNotifications.some(r =>
                     (r.type === "drop_ship_vendor" || r.type === "decorator_to_warehouse") &&
@@ -2237,10 +2244,10 @@ export default function ProductionPage() {
                 {item.pipeline_stage !== "shipped" && (
                   <button onClick={async () => { await markShipped(item, { warehouseNotes: item.ship_notes || "" }); }}
                     style={{ padding: "8px 18px", borderRadius: 6, border: "none", background: T.green, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>
-                    Mark Shipped
+                    {shipProgress(item.qtys, item.ship_qtys).shipped > 0 ? "Ship next wave" : "Mark Shipped"}
                   </button>
                 )}
-                {item.pipeline_stage === "shipped" && (
+                {shipProgress(item.qtys, item.ship_qtys).shipped > 0 && (
                   <button onClick={() => setShipDetailItem(null)}
                     style={{ padding: "8px 18px", borderRadius: 6, border: `1px solid ${T.green}`, background: T.greenDim, color: T.green, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>
                     Done
