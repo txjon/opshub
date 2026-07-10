@@ -1759,9 +1759,9 @@ export default function ReceivingPage() {
                                                     {(item.receiving_data as any).notes}
                                                   </div>
                                                 )}
-                                                <div style={{ display: "flex", gap: 6, marginTop: 2 }}>
-                                                  <button onClick={() => undoReceived(item)} style={{ fontSize: 12, fontWeight: 600, color: T.muted, background: "none", border: `1px solid ${T.border}`, borderRadius: 4, padding: "8px 14px", cursor: "pointer", fontFamily: font }}>Undo</button>
-                                                  <button onClick={() => returnToProduction(item)} style={{ fontSize: 12, fontWeight: 600, color: T.amber, background: "none", border: `1px solid ${T.amber}55`, borderRadius: 4, padding: "8px 14px", cursor: "pointer", fontFamily: font, whiteSpace: "nowrap" }} title="Send back to decorator">← Production</button>
+                                                <div style={{ display: "flex", gap: 10, marginTop: 2 }}>
+                                                  <button onClick={() => undoReceived(item)} style={{ fontSize: 11, color: T.faint, background: "none", border: "none", cursor: "pointer", textDecoration: "underline", fontFamily: font }}>Undo</button>
+                                                  <button onClick={() => returnToProduction(item)} style={{ fontSize: 11, color: T.amber, background: "none", border: "none", cursor: "pointer", textDecoration: "underline", fontFamily: font, whiteSpace: "nowrap" }} title="Send back to decorator">← Production</button>
                                                 </div>
                                               </>
                                             ) : (
@@ -1787,8 +1787,8 @@ export default function ReceivingPage() {
                                                     ⚑ Flag issue
                                                   </button>
                                                 )}
-                                                <div style={{ display: "flex", gap: 6, marginTop: 2, alignItems: "center" }}>
-                                                  <button onClick={() => returnToProduction(item)} style={{ fontSize: 12, fontWeight: 600, color: T.muted, background: "none", border: `1px solid ${T.border}`, borderRadius: 4, padding: "8px 14px", cursor: "pointer", fontFamily: font, whiteSpace: "nowrap" }} title="Send back to decorator">← Production</button>
+                                                <div style={{ display: "flex", gap: 10, marginTop: 2, alignItems: "center" }}>
+                                                  <button onClick={() => returnToProduction(item)} style={{ fontSize: 11, color: T.faint, background: "none", border: "none", cursor: "pointer", textDecoration: "underline", fontFamily: font, whiteSpace: "nowrap" }} title="Send back to decorator">← Production</button>
                                                   <button onClick={() => markReceived(item, {
                                                     // condition removed from this view — note only.
                                                     condition: "good",
