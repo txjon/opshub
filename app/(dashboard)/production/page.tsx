@@ -2120,10 +2120,24 @@ export default function ProductionPage() {
                   );
                 })()}
                 <div>
-                  <label style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: 0.6, display: "block", marginBottom: 6 }}>Tracking #</label>
-                  <input value={item.ship_tracking || ""} placeholder="e.g. 1Z999AA10123456784"
-                    onChange={e => updateField(item.id, "ship_tracking", e.target.value)}
-                    style={{ ...ic, fontSize: 13, padding: "8px 10px" }} />
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6, gap: 8 }}>
+                    <label style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: 0.6 }}>
+                      {item.pickup_ready ? "Pickup" : "Tracking #"}
+                    </label>
+                    <label onClick={e => e.stopPropagation()} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 11, fontWeight: 600, color: item.pickup_ready ? T.green : T.muted }}>
+                      <input type="checkbox" checked={!!item.pickup_ready} onChange={e => setPickupReady(item.id, e.target.checked)} style={{ cursor: "pointer" }} />
+                      Local pickup — no tracking
+                    </label>
+                  </div>
+                  {item.pickup_ready ? (
+                    <div style={{ ...ic, fontSize: 13, padding: "8px 10px", color: T.green, background: T.greenDim, border: `1px solid ${T.green}55`, display: "flex", alignItems: "center" }}>
+                      Stamped: {pickupTrackingStamp(item.decorator_short_code || item.decorator_name, new Date().toISOString())}
+                    </div>
+                  ) : (
+                    <input value={item.ship_tracking || ""} placeholder="e.g. 1Z999AA10123456784"
+                      onChange={e => updateField(item.id, "ship_tracking", e.target.value)}
+                      style={{ ...ic, fontSize: 13, padding: "8px 10px" }} />
+                  )}
                 </div>
                 <div>
                   <label style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: 0.6, display: "block", marginBottom: 6 }}>Note to warehouse</label>
