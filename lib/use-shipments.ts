@@ -68,6 +68,16 @@ export type Shipment = {
   all_received: boolean;
 };
 
+// A local pickup has no carrier tracking — stamp it with vendor + date so the
+// shipment still has a concrete, referenceable identity ("Pickup · OSM · Jul 10")
+// instead of a blank. Same vendor + same day = one pickup trip = one box.
+export function pickupTrackingStamp(vendorLabel: string | null | undefined, dateIso?: string | null): string {
+  const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const d = dateIso ? new Date(dateIso) : new Date();
+  const v = (vendorLabel || "Vendor").trim() || "Vendor";
+  return `Pickup · ${v} · ${MON[d.getMonth()]} ${d.getDate()}`;
+}
+
 export function normalizeTracking(raw: string | null | undefined): string | null {
   if (!raw) return null;
   const trimmed = raw.trim();
@@ -108,10 +118,14 @@ export function shipmentGroupKey(f: {
   job_id: string;
 }): string {
   const decKey = f.decorator_id || f.decorator_name || "unassigned";
-  // Local pickup: all of a vendor's ready-for-pickup items lump into ONE block
-  // (one trip to that vendor), regardless of job/date/tracking. This is the
-  // intentional version of the old "type PICK-UP in tracking" behavior.
-  if (f.pickup_ready) return `${decKey}::pickup`;
+  // Local pickup: one trip = one box. Group a vendor's pickup items by DAY so
+  // two pickups from the same vendor on different days are distinct boxes
+  // (matching their vendor+date stamps); same vendor + same day collapse into
+  // one trip.
+  if (f.pickup_ready) {
+    const dateDay = f.ship_date ? f.ship_date.slice(0, 10) : "unknown";
+    return `${decKey}::pickup:${dateDay}`;
+  }
   const trk = normalizeTracking(f.ship_tracking);
   if (isRealTracking(trk)) return `${decKey}::${trk}`;
   // Fallback: bucket by (decorator, ship_date_day, job_id). Including

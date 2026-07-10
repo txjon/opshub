@@ -6,9 +6,10 @@ import Link from "next/link";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 import { logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
 import { uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
-import { shipItemFromDecorator, shipItemWave, unshipLastWave } from "@/lib/po-actions";
+import { shipItemWave, unshipLastWave } from "@/lib/po-actions";
 import { shipProgress, remainingToShip } from "@/lib/ship-progress";
 import { createPullRequest, updatePullRequest, PULL_KINDS, type PullRequestRow } from "@/lib/handoff";
+import { pickupTrackingStamp } from "@/lib/use-shipments";
 import { computeArrivalEta } from "@/lib/arrival-eta";
 import { NotifyShipmentDialog } from "@/components/NotifyShipmentDialog";
 import { MockupPeek } from "@/components/MockupPeek";
@@ -552,7 +553,21 @@ export default function ProductionPage() {
     // email). shipItemWave persists the shipments row + line (mig 117);
     // warehouseNotes rides along to shipments.warehouse_notes.
     if (item.pickup_ready) {
-      await shipItemFromDecorator(supabase, item, { warehouseNotes: opts?.warehouseNotes || null });
+      // Local pickup: no carrier tracking, so stamp it "Pickup · Vendor · Date"
+      // for a referenceable box identity. Routes through the SAME wave flow as
+      // everything else so partial pickups work too. Then ping Goose/Dante.
+      const stamp = pickupTrackingStamp(item.decorator_short_code || item.decorator_name, new Date().toISOString());
+      await shipItemWave(supabase, {
+        itemId: item.id,
+        waveQtys: waveMapFor(item),
+        tracking: stamp,
+        pickup: true,
+        warehouseNotes: opts?.warehouseNotes || null,
+      });
+      setWaveQtys(prev => { const n = { ...prev }; delete n[item.id]; return n; });
+      if (typeof fetch !== "undefined") {
+        fetch("/api/email/pickup-ready", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: item.id }) }).catch(() => {});
+      }
     } else {
       await shipItemWave(supabase, {
         itemId: item.id,

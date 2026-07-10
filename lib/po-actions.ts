@@ -198,6 +198,7 @@ export async function shipItemWave(supabase: any, args: {
   waveQtys: SizeQtys;            // per-size shipped in THIS wave
   tracking?: string | null;
   warehouseNotes?: string | null;
+  pickup?: boolean;             // local pickup — box grouped by vendor+day, stamped tracking
 }): Promise<{ shipped: number; ordered: number; remaining: number; fullyShipped: boolean }> {
   const tracking = (args.tracking || "").trim() || null;
   const { data: item } = await supabase
@@ -223,6 +224,7 @@ export async function shipItemWave(supabase: any, args: {
     job_id: item.job_id, item_id: item.id, item_name: item.name || null,
     decorator_id: da?.decorator_id || null,
     decorator_name: da?.decorators?.name || null,
+    pickup_ready: !!args.pickup,
     ship_tracking: tracking,
     ship_date: ts,
     ship_qtys: cleanWave,                                 // this wave only (box manifest)
