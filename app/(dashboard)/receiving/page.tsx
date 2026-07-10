@@ -1787,14 +1787,16 @@ export default function ReceivingPage() {
                                                     ⚑ Flag issue
                                                   </button>
                                                 )}
-                                                <div style={{ display: "flex", gap: 10, marginTop: 2, alignItems: "center" }}>
-                                                  <button onClick={() => returnToProduction(item)} style={{ fontSize: 11, color: T.faint, background: "none", border: "none", cursor: "pointer", textDecoration: "underline", fontFamily: font, whiteSpace: "nowrap" }} title="Send back to decorator">← Production</button>
+                                                {/* Primary green action on top, secondary link
+                                                    below — mirrors production's Ship + Undo stack. */}
+                                                <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 2, alignItems: "flex-end" }}>
                                                   <button onClick={() => markReceived(item, {
                                                     // condition removed from this view — note only.
                                                     condition: "good",
                                                     notes: conditionNote[item.id] || "",
                                                     skipClientEmail: silentMode,
                                                   })} style={{ fontSize: 13, fontWeight: 700, color: "#fff", background: T.green, border: "none", borderRadius: 4, padding: "8px 18px", cursor: "pointer", fontFamily: font }}>Receive</button>
+                                                  <button onClick={() => returnToProduction(item)} style={{ fontSize: 11, color: T.faint, background: "none", border: "none", cursor: "pointer", textDecoration: "underline", fontFamily: font, whiteSpace: "nowrap" }} title="Send back to decorator">← Production</button>
                                                 </div>
                                               </>
                                             )}
