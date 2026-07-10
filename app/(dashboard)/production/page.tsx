@@ -105,6 +105,11 @@ export default function ProductionPage() {
   // those inputs, so the row stays compact.
   const [shipDetailItem, setShipDetailItem] = useState<ProdItem | null>(null);
   const [historyItem, setHistoryItem] = useState<ProdItem | null>(null);
+  // Ship modal has two phases: composing a wave (Cancel + Ship) → after a ship
+  // this session, the confirm phase (Notify warehouse + Done). Resets whenever
+  // a different item's modal opens.
+  const [justShipped, setJustShipped] = useState(false);
+  useEffect(() => { setJustShipped(false); }, [shipDetailItem?.id]);
   // Batch ship sub-modal. Click "Ship Selected · N" → opens with one
   // tracking + notes input + packing slip upload that get applied to
   // every selected item. Vendors typically ship one box with a single
@@ -2193,16 +2198,16 @@ export default function ProductionPage() {
                 </div>
               </div>
               <div style={{ marginTop: 24, display: "flex", justifyContent: "flex-end", gap: 8, alignItems: "center" }}>
-                <button onClick={() => setShipDetailItem(null)}
-                  style={{ padding: "8px 16px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
-                  Cancel
-                </button>
-                {/* Notify Recipient — only shown after Mark Shipped flipped
-                    the item, gated by tracking + QB invoice. Surfaces
-                    "Notified ✓" once a record exists for this (decorator
-                    + tracking); clicking still opens the dialog → backend
-                    dedups → "Already sent — Resend?" confirm. */}
-                {shipProgress(item.qtys, item.ship_qtys).shipped > 0 && (() => {
+                {(() => { const postShip = justShipped || item.pipeline_stage === "shipped"; return (<>
+                {!postShip && (
+                  <button onClick={() => setShipDetailItem(null)}
+                    style={{ padding: "8px 16px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
+                    Cancel
+                  </button>
+                )}
+                {/* Notify Recipient — CONFIRM phase only (after a ship this session
+                    or a fully-shipped item), gated by tracking + QB invoice. */}
+                {postShip && (() => {
                   const itemRoute = resolveRoute(item.shipping_route, project.shippingRoute);
                   // Customer notify (drop_ship) references the client invoice, so it
                   // needs one. Warehouse notify (ship_through/stage) is an internal
@@ -2241,18 +2246,19 @@ export default function ProductionPage() {
                     </button>
                   );
                 })()}
-                {item.pipeline_stage !== "shipped" && (
-                  <button onClick={async () => { await markShipped(item, { warehouseNotes: item.ship_notes || "" }); }}
+                {!postShip && (
+                  <button onClick={async () => { await markShipped(item, { warehouseNotes: item.ship_notes || "" }); setJustShipped(true); }}
                     style={{ padding: "8px 18px", borderRadius: 6, border: "none", background: T.green, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>
                     {shipProgress(item.qtys, item.ship_qtys).shipped > 0 ? "Ship next wave" : "Mark Shipped"}
                   </button>
                 )}
-                {shipProgress(item.qtys, item.ship_qtys).shipped > 0 && (
+                {postShip && (
                   <button onClick={() => setShipDetailItem(null)}
                     style={{ padding: "8px 18px", borderRadius: 6, border: `1px solid ${T.green}`, background: T.greenDim, color: T.green, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>
                     Done
                   </button>
                 )}
+                </>); })()}
               </div>
             </div>
           </div>
