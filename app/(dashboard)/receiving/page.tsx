@@ -12,6 +12,7 @@ import { uploadToReceiving, uploadToDrive, registerFileInDb } from "@/lib/drive-
 import { DriveFileLink } from "@/components/DriveFileLink";
 import { DriveThumb } from "@/components/DriveThumb";
 import { MockupPeek } from "@/components/MockupPeek";
+import LedgerHistory from "@/components/LedgerHistory";
 
 // ── Pull requests + delivery ETA ──────────────────────────────────────────
 // Pull requests (migration 117) are created on Production (or ad-hoc here)
@@ -273,6 +274,7 @@ export default function ReceivingPage() {
 
   // Filters / tabs
   const [search, setSearch] = useState("");
+  const [historyItem, setHistoryItem] = useState<WarehouseItem | null>(null);
   const [filterDecorator, setFilterDecorator] = useState("");
   const [tab, setTab] = useState<"pending" | "received" | "outside">("pending");
   // Silent mode — suppresses the production_complete client email for
@@ -1762,6 +1764,7 @@ export default function ReceivingPage() {
                                                 <div style={{ display: "flex", gap: 10, marginTop: 2 }}>
                                                   <button onClick={() => undoReceived(item)} style={{ fontSize: 11, color: T.faint, background: "none", border: "none", cursor: "pointer", textDecoration: "underline", fontFamily: font }}>Undo</button>
                                                   <button onClick={() => returnToProduction(item)} style={{ fontSize: 11, color: T.amber, background: "none", border: "none", cursor: "pointer", textDecoration: "underline", fontFamily: font, whiteSpace: "nowrap" }} title="Send back to decorator">← Production</button>
+                                                  <button onClick={() => setHistoryItem(item)} style={{ fontSize: 11, color: T.faint, background: "none", border: "none", cursor: "pointer", textDecoration: "underline", fontFamily: font }}>History</button>
                                                 </div>
                                               </>
                                             ) : (
@@ -1797,6 +1800,7 @@ export default function ReceivingPage() {
                                                     skipClientEmail: silentMode,
                                                   })} style={{ fontSize: 13, fontWeight: 700, color: "#fff", background: T.green, border: "none", borderRadius: 4, padding: "8px 18px", cursor: "pointer", fontFamily: font }}>Receive</button>
                                                   <button onClick={() => returnToProduction(item)} style={{ fontSize: 11, color: T.faint, background: "none", border: "none", cursor: "pointer", textDecoration: "underline", fontFamily: font, whiteSpace: "nowrap" }} title="Send back to decorator">← Production</button>
+                                                  <button onClick={() => setHistoryItem(item)} style={{ fontSize: 11, color: T.faint, background: "none", border: "none", cursor: "pointer", textDecoration: "underline", fontFamily: font, whiteSpace: "nowrap" }}>History</button>
                                                   {!isReceived && adhocPullFor !== item.id && (
                                                     <button onClick={() => setAdhocPullFor(item.id)} style={{ fontSize: 11, color: T.amber, background: "none", border: "none", cursor: "pointer", textDecoration: "underline", fontFamily: font, whiteSpace: "nowrap" }}>+ Pull from this box</button>
                                                   )}
@@ -2214,6 +2218,10 @@ export default function ReceivingPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {historyItem && (
+        <LedgerHistory itemId={historyItem.id} itemName={historyItem.name} onClose={() => setHistoryItem(null)} />
       )}
     </div>
   );

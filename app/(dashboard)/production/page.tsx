@@ -13,6 +13,7 @@ import { computeArrivalEta } from "@/lib/arrival-eta";
 import { NotifyShipmentDialog } from "@/components/NotifyShipmentDialog";
 import { MockupPeek } from "@/components/MockupPeek";
 import { DriveThumb } from "@/components/DriveThumb";
+import LedgerHistory from "@/components/LedgerHistory";
 
 const tQty = (q: Record<string, number>) => Object.values(q || {}).reduce((a, v) => a + v, 0);
 
@@ -101,6 +102,7 @@ export default function ProductionPage() {
   // tracking + notes inputs + confirm. Inline row no longer carries
   // those inputs, so the row stays compact.
   const [shipDetailItem, setShipDetailItem] = useState<ProdItem | null>(null);
+  const [historyItem, setHistoryItem] = useState<ProdItem | null>(null);
   // Batch ship sub-modal. Click "Ship Selected · N" → opens with one
   // tracking + notes input + packing slip upload that get applied to
   // every selected item. Vendors typically ship one box with a single
@@ -1892,6 +1894,10 @@ export default function ProductionPage() {
                                       style={{ fontSize: 10, color: T.faint, background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>
                                       Undo
                                     </button>
+                                    <button onClick={(e) => { e.stopPropagation(); setHistoryItem(item); }}
+                                      style={{ fontSize: 10, color: T.faint, background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>
+                                      History
+                                    </button>
                                   </>
                                 ) : (
                                   <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
@@ -1908,6 +1914,12 @@ export default function ProductionPage() {
                                       <button onClick={(e) => { e.stopPropagation(); undoShipped(item); }}
                                         style={{ fontSize: 10, color: T.faint, background: "none", border: "none", cursor: "pointer", textDecoration: "underline", fontFamily: font }}>
                                         Undo last wave
+                                      </button>
+                                    )}
+                                    {shipProgress(item.qtys, item.ship_qtys).shipped > 0 && (
+                                      <button onClick={(e) => { e.stopPropagation(); setHistoryItem(item); }}
+                                        style={{ fontSize: 10, color: T.faint, background: "none", border: "none", cursor: "pointer", textDecoration: "underline", fontFamily: font }}>
+                                        History
                                       </button>
                                     )}
                                   </div>
@@ -2012,6 +2024,10 @@ export default function ProductionPage() {
 
       {/* Ship sub-modal — opens from row-level "Ship" button. Tracking
           and notes only; per-size qtys are edited inline on the row. */}
+      {historyItem && (
+        <LedgerHistory itemId={historyItem.id} itemName={historyItem.name} onClose={() => setHistoryItem(null)} />
+      )}
+
       {shipDetailItem && (() => {
         // Re-find latest version of the item + parent project from state
         // so any inline edits made before opening this modal are reflected.
