@@ -1755,13 +1755,14 @@ export default function ProductionPage() {
                               {/* Art thumbnail (mockup, else proof) — click to enlarge.
                                   Always renders the slot: a neutral placeholder when the
                                   item has no art yet, so rows scan consistently. */}
-                              {mockupMap[item.id]?.driveFileId ? (
-                                <DriveThumb driveFileId={mockupMap[item.id].driveFileId} alt={item.name} enlargeable
-                                  style={{ width: 88, alignSelf: "stretch", height: "auto", minHeight: 64, borderRadius: 6, objectFit: "cover", flexShrink: 0, border: `1px solid ${T.border}` }} />
-                              ) : (
-                                <div title="No mockup/proof uploaded yet"
-                                  style={{ width: 88, alignSelf: "stretch", minHeight: 64, borderRadius: 6, flexShrink: 0, border: `1px dashed ${T.border}`, background: T.surface, display: "flex", alignItems: "center", justifyContent: "center", color: T.faint, fontSize: 18 }}>🖼</div>
-                              )}
+                              <div style={{ width: 88, alignSelf: "stretch", minHeight: 72, flexShrink: 0, borderRadius: 6, overflow: "hidden", background: T.surface, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                                {mockupMap[item.id]?.driveFileId ? (
+                                  <DriveThumb driveFileId={mockupMap[item.id].driveFileId} alt={item.name} enlargeable
+                                    style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                                ) : (
+                                  <span style={{ fontSize: 9, color: T.faint }}>no mockup</span>
+                                )}
+                              </div>
                               {/* Title + specs stack */}
                               <div style={{ flex: 1, minWidth: 0 }}>
                                 <div style={{ fontSize: 13, fontWeight: 600, color: T.text, display: "flex", alignItems: "center", gap: 8 }}>
@@ -1786,21 +1787,14 @@ export default function ProductionPage() {
                                     </div>
                                   );
                                 })()}
-                                {/* Two-column edit row: ETA + TRK stacked
-                                    on the left, the (taller) note textarea
-                                    parallel on the right. Wraps below on
-                                    very narrow widths. */}
-                                <div style={{ display: "flex", gap: 14, marginTop: 6, flexWrap: "wrap", alignItems: "stretch" }}>
-                                  {/* Left sub-col: TRK + ETA (tracking sits
-                                      above the ETA — tracking is the more
-                                      action-oriented field; ETA is the
-                                      follow-up client-facing detail). */}
-                                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                {/* Ship fields — horizontal (pickup · TRK · ETA) so the
+                                    row uses the width and stays short instead of stacking. */}
+                                <div style={{ display: "flex", gap: 12, marginTop: 8, flexWrap: "wrap", alignItems: "center" }}>
                                     {/* Ready for pickup — local pickup vendors. Pre-checks
                                         when the PO ship method is "Pick Up". Replaces the
                                         tracking field; groups by vendor on Receiving. */}
                                     {!isShipped && (
-                                      <label onClick={e => e.stopPropagation()} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", width: 212, background: item.pickup_ready ? T.greenDim : "transparent", border: `1px solid ${item.pickup_ready ? T.green : T.border}`, borderRadius: 5, padding: "3px 7px" }}>
+                                      <label onClick={e => e.stopPropagation()} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", background: item.pickup_ready ? T.greenDim : "transparent", border: `1px solid ${item.pickup_ready ? T.green : T.border}`, borderRadius: 5, padding: "5px 9px", whiteSpace: "nowrap" }}>
                                         <input type="checkbox" checked={!!item.pickup_ready} onChange={e => { e.stopPropagation(); setPickupReady(item.id, e.target.checked); }} style={{ cursor: "pointer" }} />
                                         <span style={{ fontSize: 11, fontWeight: item.pickup_ready ? 700 : 600, color: item.pickup_ready ? T.green : T.muted }}>Ready for pickup</span>
                                       </label>
@@ -1814,7 +1808,7 @@ export default function ProductionPage() {
                                           onClick={e => e.stopPropagation()}
                                           onChange={e => { e.stopPropagation(); updateField(item.id, "ship_tracking", e.target.value); }}
                                           onBlur={e => flushField(item.id, "ship_tracking", e.target.value)}
-                                          style={{ ...ic, width: 180, padding: "3px 6px", fontSize: 11, fontFamily: mono, flexShrink: 0 }} />
+                                          style={{ ...ic, width: 160, padding: "3px 6px", fontSize: 11, fontFamily: mono, flexShrink: 0 }} />
                                       </div>
                                     )}
                                     {/* Arrival-at-HPD ETA (the ASN) override. Blank =
@@ -1828,9 +1822,8 @@ export default function ProductionPage() {
                                         onClick={e => e.stopPropagation()}
                                         onChange={e => { e.stopPropagation(); updateField(item.id, "expected_arrival", e.target.value); }}
                                         onBlur={e => flushField(item.id, "expected_arrival", e.target.value)}
-                                        style={{ ...ic, width: 180, padding: "3px 6px", fontSize: 11, fontFamily: mono, flexShrink: 0 }} />
+                                        style={{ ...ic, width: 160, padding: "3px 6px", fontSize: 11, fontFamily: mono, flexShrink: 0 }} />
                                     </div>
-                                  </div>
                                 </div>
                               </div>
                               {/* Per-size ship qty grid — inline with title */}
