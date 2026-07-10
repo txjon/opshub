@@ -232,6 +232,24 @@ export async function shipItemWave(supabase: any, args: {
     ? `${item.name} — final wave shipped (${waveTotal}) · ${prog.shipped}/${prog.ordered} complete${trk}`
     : `${item.name} — partial shipment: ${waveTotal} shipped (${prog.shipped}/${prog.ordered} · ${prog.remaining} remaining)${trk}`);
   notifyTeam(`${prog.fullyShipped ? "Final" : "Partial"} shipment — ${item.name} (${prog.shipped}/${prog.ordered}) incoming to warehouse`, "production", item.job_id, "job");
+
+  // Invoice-ready nudge (Jon's decision: invoice when fully shipped, not per
+  // wave) — fires only once this wave COMPLETES the item AND every item on the
+  // job has reached its client-delivery state. Mirrors shipItemFromDecorator.
+  if (prog.fullyShipped) {
+    const { data: jr } = await supabase.from("jobs").select("shipping_route").eq("id", item.job_id).single();
+    const jobRoute = (jr as any)?.shipping_route || "ship_through";
+    const { data: jobItems } = await supabase.from("items").select("id, pipeline_stage, shipping_route, forwarded_at, webstore_entered_at").eq("job_id", item.job_id);
+    const delivered = (x: any) => {
+      const r = x.shipping_route || jobRoute;
+      if (r === "ship_through") return !!x.forwarded_at;
+      if (r === "stage") return !!x.webstore_entered_at;
+      return x.pipeline_stage === "shipped"; // drop_ship
+    };
+    if ((jobItems || []).length > 0 && (jobItems || []).every(delivered)) {
+      logJobActivity(item.job_id, "All items shipped — invoice ready to update with shipped qtys");
+    }
+  }
   return { shipped: prog.shipped, ordered: prog.ordered, remaining: prog.remaining, fullyShipped: prog.fullyShipped };
 }
 
