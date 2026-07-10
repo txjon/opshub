@@ -1741,19 +1741,19 @@ export default function ProductionPage() {
                         const isShipped = item.pipeline_stage === "shipped";
                         return (
                           <div key={item.id} style={{
-                            padding: "10px 12px", borderRadius: 6, marginBottom: 6,
+                            padding: "12px 14px", borderRadius: 8, marginBottom: 8, minHeight: 150,
                             background: isShipped ? T.greenDim + "44" : T.card,
                             border: `1px solid ${isShipped ? T.green + "33" : T.border}`,
                           }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                            <div style={{ display: "flex", alignItems: "flex-start", gap: 14 }}>
                               <input
                                 type="checkbox"
                                 checked={selectedItemIds.has(item.id)}
                                 onChange={() => toggleItemSelected(item.id)}
                                 onClick={e => e.stopPropagation()}
-                                style={{ width: 16, height: 16, cursor: "pointer", accentColor: T.accent, flexShrink: 0 }}
+                                style={{ width: 16, height: 16, cursor: "pointer", accentColor: T.accent, flexShrink: 0, marginTop: 4 }}
                               />
-                              <span style={{ fontSize: 13, fontWeight: 800, color: T.muted, fontFamily: mono, flexShrink: 0 }}>{item.letter}</span>
+                              <span style={{ fontSize: 13, fontWeight: 800, color: T.muted, fontFamily: mono, flexShrink: 0, marginTop: 2 }}>{item.letter}</span>
                               {/* Art thumbnail (mockup, else proof) — click to enlarge.
                                   Always renders the slot: a neutral placeholder when the
                                   item has no art yet, so rows scan consistently. */}

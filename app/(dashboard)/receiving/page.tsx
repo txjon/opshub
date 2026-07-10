@@ -1577,8 +1577,8 @@ export default function ReceivingPage() {
                                     const hasVariance = isReceived && receivedTotal > 0 && receivedTotal !== (shippedQty || totalQty);
                                     return (
                                       <div key={item.id} style={{
-                                        padding: "12px 14px", borderRadius: 6, marginBottom: 6,
-                                        background: isReceived ? T.greenDim + "44" : "transparent",
+                                        padding: "12px 14px", borderRadius: 8, marginBottom: 8, minHeight: 150,
+                                        background: isReceived ? T.greenDim + "44" : T.card,
                                         border: `1px solid ${isReceived ? T.green + "33" : T.border}`,
                                       }}>
                                         <div style={{ display: "flex", alignItems: "flex-start", gap: 14 }}>
