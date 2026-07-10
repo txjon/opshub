@@ -1637,10 +1637,11 @@ export default function ProductionPage() {
                             // item, falling back to total_units if the item
                             // has no per-size breakdown.
                             const unitsShipped = dg.items.reduce((acc, it) => {
-                              if (it.pipeline_stage !== "shipped") return acc;
-                              const sq = it.ship_qtys || {};
-                              const sqSum = Object.values(sq).reduce((a, b) => a + (b || 0), 0);
-                              return acc + (sqSum > 0 ? sqSum : (it.total_units || 0));
+                              // Count cumulative shipped units across ALL items,
+                              // including partial waves (item still in production).
+                              const sqSum = Object.values(it.ship_qtys || {}).reduce((a, b) => a + (b || 0), 0);
+                              if (sqSum > 0) return acc + sqSum;
+                              return acc + (it.pipeline_stage === "shipped" ? (it.total_units || 0) : 0);
                             }, 0);
                             return (
                               <div style={{ fontSize: 13, color: T.muted, marginTop: 6 }}>
@@ -2247,6 +2248,9 @@ export default function ProductionPage() {
         const allSlips = liveItems.flatMap(it => packingSlips[it.id] || []);
         const uniqueSlips = allSlips.filter((s, i, arr) => arr.findIndex(x => x.file_name === s.file_name) === i);
         const totalUnits = liveItems.reduce((a, it) => a + (it.total_units || 0), 0);
+        // Units actually shipping in this wave (sum of each item's wave qty).
+        const waveUnits = liveItems.reduce((a, it) => a + Object.values(waveMapFor(it)).reduce((x, n) => x + n, 0), 0);
+        const anyPartial = liveItems.some(it => { const p = shipProgress(it.qtys, it.ship_qtys); return p.shipped > 0 && p.remaining > 0; });
         return (
           <div onClick={() => setBatchShipState(null)}
             style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 10001, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -2256,7 +2260,9 @@ export default function ProductionPage() {
                 Ship {liveItems.length} {liveItems.length === 1 ? "item" : "items"} · {dg.decoratorName}
               </h3>
               <div style={{ fontSize: 12, color: T.muted, marginBottom: 12 }}>
-                {totalUnits.toLocaleString()} total units
+                {anyPartial
+                  ? <><span style={{ color: T.amber, fontWeight: 700 }}>{waveUnits.toLocaleString()} units this wave</span> · {totalUnits.toLocaleString()} ordered</>
+                  : <>{totalUnits.toLocaleString()} total units</>}
               </div>
               {/* Route badge — same intent as the single-item Ship modal:
                   surface the route up front so drop-ship items aren't shipped
@@ -2308,7 +2314,14 @@ export default function ProductionPage() {
                       <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12 }}>
                         <span style={{ fontFamily: mono, color: T.muted, fontWeight: 700 }}>{it.letter}</span>
                         <span style={{ flex: 1, color: T.text }}>{it.name}</span>
-                        <span style={{ color: T.faint, fontFamily: mono }}>{it.total_units} units</span>
+                        {(() => {
+                          const p = shipProgress(it.qtys, it.ship_qtys);
+                          const wave = Object.values(waveMapFor(it)).reduce((a, n) => a + n, 0);
+                          if (p.shipped > 0 && p.remaining > 0) {
+                            return <span style={{ fontFamily: mono, fontSize: 11 }}><span style={{ color: T.text, fontWeight: 700 }}>{wave} to ship</span><span style={{ color: T.amber }}> · {p.shipped}/{p.ordered} shipped</span></span>;
+                          }
+                          return <span style={{ color: T.faint, fontFamily: mono }}>{it.total_units} units</span>;
+                        })()}
                       </div>
                       {it.sizes.length > 0 && (
                         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>{shipQtyInputs(it)}</div>
