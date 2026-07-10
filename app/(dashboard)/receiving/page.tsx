@@ -764,10 +764,12 @@ export default function ReceivingPage() {
       }
     }
     if (isShipThrough && s.received_count > 0 && s.all_received) {
-      // ship_through that's fully received but hasn't been forwarded
-      // out yet. The Mark Shipped outbound action lives on /shipping;
-      // surface here as a nudge so the dispatcher knows.
-      return "Forward to client";
+      // ship_through that's fully received but hasn't been forwarded out yet.
+      // Only nudge to forward when every item is FULLY shipped (no more waves
+      // coming) — we forward the whole order once, not wave-by-wave.
+      const allFullyShipped = s.items.every(it => it.pipeline_stage === "shipped");
+      if (allFullyShipped) return "Forward to client";
+      return "More waves coming";
     }
     return null;
   }

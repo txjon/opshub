@@ -66,7 +66,13 @@ export default function ShippingPage() {
   const [pullReason, setPullReason] = useState("");
   // Ship-through items only (a mixed job's stage items go to Fulfillment).
   const stItemsOf = (job: WarehouseJob) => job.items.filter(it => (it.shipping_route || job.shipping_route) === "ship_through");
-  const bucketOf = (it: WarehouseItem) => it.forwarded_at ? "forwarded" : (it.received_at_hpd ? "ready" : "awaiting");
+  // Ready to forward only when the item is FULLY shipped (all waves out) AND
+  // received — hold a partial (more waves coming) as 'awaiting' so we forward
+  // the whole order once, not wave-by-wave (Jon's decision).
+  const bucketOf = (it: WarehouseItem) =>
+    it.forwarded_at ? "forwarded"
+    : (it.received_at_hpd && it.pipeline_stage === "shipped") ? "ready"
+    : "awaiting";
   useEffect(() => {
     // Default-select the READY (received, unforwarded) ship-through items — the
     // common "forward what's landed" flow needs no clicks.

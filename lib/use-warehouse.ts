@@ -439,11 +439,13 @@ export function useWarehouse() {
     // shipped (all waves out), in which case a short receive is a final
     // variance, not "more coming". A partial item still awaiting later waves
     // stays received_at_hpd=false so it remains in the pending list.
+    // "Received" = caught up to everything shipped so far. A fully-shipped item
+    // whose later waves are still in transit stays pending until they land
+    // (Jon's decision: hold until all units arrive, forward once). A deliberate
+    // short receipt also stays pending as a variance to resolve.
     const cumShipped = tQty(item.ship_qtys || {});
     const cumReceived = tQty(item.received_qtys || {});
-    const caughtUp = cumReceived >= cumShipped;
-    const fullyShipped = item.pipeline_stage === "shipped";
-    const nowReceived = caughtUp || fullyShipped;
+    const nowReceived = cumReceived >= cumShipped;
     // Bundle pending qty edits with the receive flag so a single update
     // lands. Empty objects are skipped — downstream readers fall back to
     // ship_qtys when received_qtys is missing.
