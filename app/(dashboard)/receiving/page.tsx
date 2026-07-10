@@ -1593,7 +1593,7 @@ export default function ReceivingPage() {
 
                                           {/* Mockup thumbnail — visual confirmation
                                               for the receiver. Click enlarges. */}
-                                          <div style={{ width: 72, height: 72, flexShrink: 0, borderRadius: 6, overflow: "hidden", background: T.surface, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                                          <div style={{ width: 88, alignSelf: "stretch", minHeight: 72, flexShrink: 0, borderRadius: 6, overflow: "hidden", background: T.surface, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
                                             {mockupMap[item.id]?.driveFileId ? (
                                               <DriveThumb
                                                 driveFileId={mockupMap[item.id].driveFileId}
