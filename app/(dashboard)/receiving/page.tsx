@@ -1399,7 +1399,7 @@ export default function ReceivingPage() {
           <div onClick={() => setModalShipmentKey(null)}
             style={{ position: "fixed", inset: 0, background: "rgba(10,12,20,0.5)", backdropFilter: "blur(2px)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "clamp(12px, 4vh, 44px)", fontFamily: font, color: T.text }}>
             <div onClick={e => e.stopPropagation()}
-              style={{ background: T.card, width: "100%", maxWidth: 980, maxHeight: "90vh", borderRadius: 16, overflow: "hidden", boxShadow: "0 24px 70px rgba(0,0,0,0.45)", border: `1px solid ${T.border}`, display: "flex", flexDirection: "column" }}>
+              style={{ background: T.card, width: "100%", maxWidth: 1000, maxHeight: "90vh", borderRadius: 16, overflow: "hidden", boxShadow: "0 24px 70px rgba(0,0,0,0.45)", border: `1px solid ${T.border}`, display: "flex", flexDirection: "column" }}>
               {/* Header — vendor + tracking primary; project context secondary */}
               <div style={{ padding: "14px 22px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexShrink: 0, background: T.card }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -1797,6 +1797,9 @@ export default function ReceivingPage() {
                                                     skipClientEmail: silentMode,
                                                   })} style={{ fontSize: 13, fontWeight: 700, color: "#fff", background: T.green, border: "none", borderRadius: 4, padding: "8px 18px", cursor: "pointer", fontFamily: font }}>Receive</button>
                                                   <button onClick={() => returnToProduction(item)} style={{ fontSize: 11, color: T.faint, background: "none", border: "none", cursor: "pointer", textDecoration: "underline", fontFamily: font, whiteSpace: "nowrap" }} title="Send back to decorator">← Production</button>
+                                                  {!isReceived && adhocPullFor !== item.id && (
+                                                    <button onClick={() => setAdhocPullFor(item.id)} style={{ fontSize: 11, color: T.amber, background: "none", border: "none", cursor: "pointer", textDecoration: "underline", fontFamily: font, whiteSpace: "nowrap" }}>+ Pull from this box</button>
+                                                  )}
                                                 </div>
                                               </>
                                             )}
@@ -1830,12 +1833,7 @@ export default function ReceivingPage() {
                                             <button onClick={() => { setAdhocPullFor(null); setAdhocQtys({}); setAdhocReason(""); }}
                                               style={{ fontSize: 12, background: "none", border: "none", color: T.faint, cursor: "pointer" }}>×</button>
                                           </div>
-                                        ) : (
-                                          <button onClick={() => setAdhocPullFor(item.id)}
-                                            style={{ marginTop: 6, fontSize: 10, fontWeight: 600, color: T.amber, background: "none", border: `1px dashed ${T.amber}55`, borderRadius: 5, padding: "3px 10px", cursor: "pointer", fontFamily: font, alignSelf: "flex-start" }}>
-                                            + Pull from this box
-                                          </button>
-                                        ))}
+                                        ) : null)}
 
                                         {/* Variance / samples summary */}
                                         {(hasVariance || sampleTotal > 0) && (
