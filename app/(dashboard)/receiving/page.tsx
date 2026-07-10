@@ -1738,15 +1738,18 @@ export default function ReceivingPage() {
                                                   ADDS this to the cumulative received. */}
                                               <span style={{ fontSize: 8, color: T.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", paddingRight: 4, fontFamily: font }}>Delivered</span>
                                               {item.sizes.map(sz => {
-                                                const expected = Math.max(0, (item.ship_qtys?.[sz] ?? item.qtys?.[sz] ?? 0) - (item.received_qtys?.[sz] ?? 0));
-                                                const received = deliveredDraft[item.id]?.[sz] ?? expected;
+                                                const done = item.received_at_hpd;
+                                                // Received box: show what was received (read-only). Pending
+                                                // box: editable draft, seeded to the outstanding.
+                                                const expected = Math.max(0, (item.ship_qtys?.[sz] ?? item.qtys?.[sz] ?? 0) - (done ? 0 : (item.received_qtys?.[sz] ?? 0)));
+                                                const received = done ? (item.received_qtys?.[sz] ?? 0) : (deliveredDraft[item.id]?.[sz] ?? expected);
                                                 const diffColor = received < expected ? T.amber : received > expected ? T.green : null;
                                                 return (
-                                                  <input key={`rcv-${sz}`} type="number" min="0" value={received}
+                                                  <input key={`rcv-${sz}`} type="number" min="0" value={received} disabled={done}
                                                     onChange={e => { const v = parseInt(e.target.value) || 0; setDeliveredDraft(prev => ({ ...prev, [item.id]: { ...(prev[item.id] || {}), [sz]: v } })); }}
                                                     onFocus={e => e.target.select()}
-                                                    title="Delivered in this receipt"
-                                                    style={{ width: 56, textAlign: "center", padding: "6px 4px", border: `1px solid ${diffColor || T.border}`, borderRadius: 5, background: T.surface, color: diffColor || T.text, fontSize: 13, fontWeight: 600, fontFamily: mono, outline: "none" }} />
+                                                    title={done ? "Received" : "Delivered in this receipt"}
+                                                    style={{ width: 56, textAlign: "center", padding: "6px 4px", border: `1px solid ${diffColor || T.border}`, borderRadius: 5, background: done ? "transparent" : T.surface, color: diffColor || (done ? T.muted : T.text), fontSize: 13, fontWeight: 600, fontFamily: mono, outline: "none", opacity: done ? 0.8 : 1 }} />
                                                 );
                                               })}
 
