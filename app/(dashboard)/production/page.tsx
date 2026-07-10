@@ -323,11 +323,14 @@ export default function ProductionPage() {
         .filter(Boolean).map((s: string) => s.toLowerCase().trim());
       const poSentToVendor = _vendorKeys.some(v => _poSentVendors.has(v));
       if (it.pipeline_stage !== "in_production" && it.pipeline_stage !== "shipped" && !poSentToVendor) continue;
-      // Once an item has been received at HPD, it has moved past the
-      // production stage from this vendor's POV (it's in receiving /
-      // fulfillment / outbound now). Drop it so the decorator chip
-      // clears when all of that vendor's items are received.
-      if (it.received_at_hpd) continue;
+      // Once an item is received AND fully shipped, it has moved past production
+      // (it's in receiving / fulfillment now). But a PARTIAL wave item — some
+      // shipped & received, more still to ship — must STAY on the board so the
+      // next wave can go out. Keep it whenever units remain to ship.
+      const _ordered = (it.buy_sheet_lines || []).reduce((s: number, l: any) => s + (Number(l.qty_ordered) || 0), 0);
+      const _shipped = Object.values(it.ship_qtys || {}).reduce((s: number, n: any) => s + (Number(n) || 0), 0);
+      const _remainingToShip = Math.max(0, _ordered - _shipped);
+      if (it.received_at_hpd && _remainingToShip === 0) continue;
 
       const assignment = it.decorator_assignments?.[0];
       const decName = assignment?.decorators?.name || "Unassigned";
