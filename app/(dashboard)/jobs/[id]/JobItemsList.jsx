@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
 import { resolveItemStatus, STATE_LABELS } from "@/lib/item-status";
+import { shipProgress } from "@/lib/ship-progress";
 import { etaCountdown } from "@/lib/eta";
 
 // Map the eta countdown semantic band onto the internal T palette.
@@ -322,7 +323,19 @@ export function JobItemsList({ items, job, isMobile, onChange, vendorFilter, onC
                     {item.ship_tracking && <span style={{ fontSize: 9, color: T.faint, fontFamily: mono, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.ship_tracking}</span>}
                   </div>
                 ) : state === "in_production" ? (
-                  <span style={{ fontSize: 10, fontWeight: 700, color: T.blue, textTransform: "uppercase", letterSpacing: "0.05em" }}>In production</span>
+                  (() => {
+                    // Show wave progress when partially shipped, else plain status.
+                    const p = shipProgress(item.qtys, item.ship_qtys);
+                    if (p.shipped > 0 && p.remaining > 0) {
+                      return (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                          <span style={{ fontSize: 9, fontWeight: 700, color: T.amber, textTransform: "uppercase", letterSpacing: "0.05em" }}>Partial · {p.shipped}/{p.ordered}</span>
+                          <span style={{ fontSize: 9, color: T.faint }}>{p.remaining} to ship</span>
+                        </div>
+                      );
+                    }
+                    return <span style={{ fontSize: 10, fontWeight: 700, color: T.blue, textTransform: "uppercase", letterSpacing: "0.05em" }}>In production</span>;
+                  })()
                 ) : (
                   <span style={{ fontSize: 11, color: T.faint }}>—</span>
                 )}
