@@ -1827,37 +1827,13 @@ export default function ProductionPage() {
                                 </div>
                               </div>
                               {/* Per-size ship qty grid — inline with title */}
+                              {/* Wave-to-ship qtys — the SAME wave-aware inputs the ship
+                                  modal uses (default = remaining, edits the transient wave,
+                                  '/remaining' below). Was a stale grid bound to cumulative
+                                  ship_qtys, which showed the wrong number on wave 2. */}
                               {!isShipped && item.sizes.length > 0 && (
-                                <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                                  {item.sizes.map(sz => {
-                                    const ordered = item.qtys[sz] || 0;
-                                    const shipped = (item.ship_qtys || {})[sz] ?? ordered;
-                                    const diffColor = shipped < ordered ? T.amber : shipped > ordered ? T.green : null;
-                                    return (
-                                      <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
-                                        <span style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>{sz}</span>
-                                        <input
-                                          type="text" inputMode="numeric" value={shipped}
-                                          onClick={e => { e.stopPropagation(); (e.target as HTMLInputElement).select(); }}
-                                          onChange={e => {
-                                            const val = parseInt(e.target.value) || 0;
-                                            const newQtys = { ...(item.ship_qtys || {}), [sz]: val };
-                                            setProjects(prev => prev.map(p => ({
-                                              ...p, decoratorGroups: p.decoratorGroups.map(dg2 => ({
-                                                ...dg2, items: dg2.items.map(it => it.id === item.id ? { ...it, ship_qtys: newQtys } : it)
-                                              }))
-                                            })));
-                                            if (saveTimers.current[`sqty_${item.id}`]) clearTimeout(saveTimers.current[`sqty_${item.id}`]);
-                                            saveTimers.current[`sqty_${item.id}`] = setTimeout(() => {
-                                              supabase.from("items").update({ ship_qtys: newQtys }).eq("id", item.id);
-                                            }, 800);
-                                          }}
-                                          style={{ ...ic, width: 52, padding: "8px 6px", textAlign: "center", fontSize: 13, fontFamily: mono, border: `1px solid ${diffColor || T.border}`, color: T.text }}
-                                        />
-                                        <span style={{ fontSize: 10, color: T.faint, fontFamily: mono }}>{ordered}</span>
-                                      </div>
-                                    );
-                                  })}
+                                <div style={{ display: "flex", gap: 6, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+                                  {shipQtyInputs(item)}
                                 </div>
                               )}
                               {/* Ship button (or shipped status) */}
