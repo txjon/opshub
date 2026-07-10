@@ -1502,11 +1502,13 @@ export default function ProductionPage() {
                 <div style={{ fontSize: 10.5, color: T.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                   {dg.items.length} item{dg.items.length !== 1 ? "s" : ""} · {strip.units.toLocaleString()}u
                   {(() => {
-                    // Unit-level ship progress — surfaces partial waves (item-count
-                    // 'shipped' stays 0 until an item fully ships).
+                    // Only show unit-level partial progress while SOME items are still
+                    // in production (a wave item mid-ship). A fully-shipped strip shows
+                    // its 'shipped' badge, not a fraction from stale legacy ship_qtys.
+                    const anyInProd = dg.items.some((it: ProdItem) => it.pipeline_stage !== "shipped");
                     const shippedUnits = dg.items.reduce((a: number, it: ProdItem) => a + Object.values(it.ship_qtys || {}).reduce((x: number, n) => x + (Number(n) || 0), 0), 0);
                     const orderedUnits = dg.items.reduce((a: number, it: ProdItem) => a + (it.total_units || 0), 0);
-                    if (shippedUnits > 0 && shippedUnits < orderedUnits) {
+                    if (anyInProd && shippedUnits > 0 && shippedUnits < orderedUnits) {
                       return <span style={{ color: T.amber, fontWeight: 700 }}> · {shippedUnits}/{orderedUnits} shipped</span>;
                     }
                     if (dg.shipped > 0) return <span style={{ color: T.green }}> · {dg.shipped} shipped</span>;
@@ -1639,11 +1641,12 @@ export default function ProductionPage() {
                             // item, falling back to total_units if the item
                             // has no per-size breakdown.
                             const unitsShipped = dg.items.reduce((acc, it) => {
-                              // Count cumulative shipped units across ALL items,
-                              // including partial waves (item still in production).
-                              const sqSum = Object.values(it.ship_qtys || {}).reduce((a, b) => a + (b || 0), 0);
-                              if (sqSum > 0) return acc + sqSum;
-                              return acc + (it.pipeline_stage === "shipped" ? (it.total_units || 0) : 0);
+                              // A fully-shipped item shipped its whole quantity — count
+                              // ordered, not ship_qtys (which is stale/last-batch on legacy
+                              // multi-shipment items). A partial wave item counts its
+                              // cumulative shipped so far.
+                              if (it.pipeline_stage === "shipped") return acc + (it.total_units || 0);
+                              return acc + Object.values(it.ship_qtys || {}).reduce((a, b) => a + (b || 0), 0);
                             }, 0);
                             return (
                               <div style={{ fontSize: 13, color: T.muted, marginTop: 6 }}>
@@ -1778,15 +1781,19 @@ export default function ProductionPage() {
                                 {/* Ordered / shipped / remaining — visible once anything's
                                     shipped so multi-wave items read at a glance. */}
                                 {(() => {
+                                  // Wave progress only applies to items actively shipping in
+                                  // waves (in_production). A fully-shipped item is done — its
+                                  // 'Shipped' badge covers it, and legacy items have stale
+                                  // ship_qtys (last batch only) that must not read as 'X to ship'.
+                                  if (isShipped) return null;
                                   const p = shipProgress(item.qtys, item.ship_qtys);
                                   if (p.shipped === 0 || p.ordered === 0) return null;
                                   return (
                                     <div style={{ fontSize: 11, marginTop: 3, fontFamily: mono, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                                      <span style={{ color: p.fullyShipped ? T.green : T.amber, fontWeight: 700 }}>
+                                      <span style={{ color: T.amber, fontWeight: 700 }}>
                                         {p.shipped}/{p.ordered} shipped
                                       </span>
                                       {p.remaining > 0 && <span style={{ color: T.amber }}>· {p.remaining} to ship</span>}
-                                      {p.fullyShipped && <span style={{ color: T.green }}>· complete</span>}
                                     </div>
                                   );
                                 })()}
