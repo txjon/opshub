@@ -1399,7 +1399,7 @@ export default function ReceivingPage() {
           <div onClick={() => setModalShipmentKey(null)}
             style={{ position: "fixed", inset: 0, background: "rgba(10,12,20,0.5)", backdropFilter: "blur(2px)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "clamp(12px, 4vh, 44px)", fontFamily: font, color: T.text }}>
             <div onClick={e => e.stopPropagation()}
-              style={{ background: T.bg, width: "100%", maxWidth: 980, maxHeight: "90vh", borderRadius: 16, overflow: "hidden", boxShadow: "0 24px 70px rgba(0,0,0,0.45)", border: `1px solid ${T.border}`, display: "flex", flexDirection: "column" }}>
+              style={{ background: T.card, width: "100%", maxWidth: 980, maxHeight: "90vh", borderRadius: 16, overflow: "hidden", boxShadow: "0 24px 70px rgba(0,0,0,0.45)", border: `1px solid ${T.border}`, display: "flex", flexDirection: "column" }}>
               {/* Header — vendor + tracking primary; project context secondary */}
               <div style={{ padding: "14px 22px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexShrink: 0, background: T.card }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -1759,9 +1759,9 @@ export default function ReceivingPage() {
                                                     {(item.receiving_data as any).notes}
                                                   </div>
                                                 )}
-                                                <div style={{ display: "flex", gap: 4, marginTop: 2 }}>
-                                                  <button onClick={() => undoReceived(item)} style={{ fontSize: 10, color: T.faint, background: "none", border: `1px solid ${T.border}`, borderRadius: 4, padding: "3px 10px", cursor: "pointer" }}>Undo</button>
-                                                  <button onClick={() => returnToProduction(item)} style={{ fontSize: 10, color: T.amber, background: "none", border: `1px solid ${T.amber}44`, borderRadius: 4, padding: "3px 10px", cursor: "pointer" }} title="Send back to decorator">← Production</button>
+                                                <div style={{ display: "flex", gap: 6, marginTop: 2 }}>
+                                                  <button onClick={() => undoReceived(item)} style={{ fontSize: 12, fontWeight: 600, color: T.muted, background: "none", border: `1px solid ${T.border}`, borderRadius: 4, padding: "8px 14px", cursor: "pointer", fontFamily: font }}>Undo</button>
+                                                  <button onClick={() => returnToProduction(item)} style={{ fontSize: 12, fontWeight: 600, color: T.amber, background: "none", border: `1px solid ${T.amber}55`, borderRadius: 4, padding: "8px 14px", cursor: "pointer", fontFamily: font, whiteSpace: "nowrap" }} title="Send back to decorator">← Production</button>
                                                 </div>
                                               </>
                                             ) : (
@@ -1787,14 +1787,14 @@ export default function ReceivingPage() {
                                                     ⚑ Flag issue
                                                   </button>
                                                 )}
-                                                <div style={{ display: "flex", gap: 4, marginTop: 2 }}>
-                                                  <button onClick={() => returnToProduction(item)} style={{ fontSize: 10, color: T.faint, background: "none", border: `1px solid ${T.border}`, borderRadius: 4, padding: "3px 10px", cursor: "pointer" }} title="Send back to decorator">← Production</button>
+                                                <div style={{ display: "flex", gap: 6, marginTop: 2, alignItems: "center" }}>
+                                                  <button onClick={() => returnToProduction(item)} style={{ fontSize: 12, fontWeight: 600, color: T.muted, background: "none", border: `1px solid ${T.border}`, borderRadius: 4, padding: "8px 14px", cursor: "pointer", fontFamily: font, whiteSpace: "nowrap" }} title="Send back to decorator">← Production</button>
                                                   <button onClick={() => markReceived(item, {
                                                     // condition removed from this view — note only.
                                                     condition: "good",
                                                     notes: conditionNote[item.id] || "",
                                                     skipClientEmail: silentMode,
-                                                  })} style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: T.green, border: "none", borderRadius: 4, padding: "5px 14px", cursor: "pointer" }}>Receive</button>
+                                                  })} style={{ fontSize: 13, fontWeight: 700, color: "#fff", background: T.green, border: "none", borderRadius: 4, padding: "8px 18px", cursor: "pointer", fontFamily: font }}>Receive</button>
                                                 </div>
                                               </>
                                             )}
