@@ -7,6 +7,7 @@ import { logJobActivity } from "@/components/JobActivityPanel";
 import { createClient } from "@/lib/supabase/client";
 import { deductSamples } from "@/lib/qty";
 import { NotifyShipmentDialog } from "@/components/NotifyShipmentDialog";
+import { shipProgress } from "@/lib/ship-progress";
 
 type ShippedHistoryEntry = {
   id: string;
@@ -810,6 +811,11 @@ export default function ShippingPage() {
                               <span style={{ fontSize: 11, fontWeight: 800, color: T.muted, fontFamily: mono, flexShrink: 0 }}>{item.letter}</span>
                               <div style={{ flex: 1, minWidth: 0 }}>
                                 <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{item.name}</div>
+                                {(() => {
+                                  const p = shipProgress(item.qtys, item.ship_qtys, item.received_qtys);
+                                  if (p.ordered === 0) return null;
+                                  return <div style={{ fontSize: 10.5, color: T.faint, fontFamily: mono, marginTop: 1 }}>{p.received} received of {p.shipped} shipped · {p.ordered} ordered</div>;
+                                })()}
                                 <div style={{ fontSize: 11, color: T.muted, marginTop: 2, display: "flex", gap: 8, flexWrap: "wrap" }}>
                                   {sampleTotal > 0 && <span style={{ color: T.amber }}>{sampleTotal} pulled</span>}
                                   <button onClick={() => { setPullFor(pullFor === item.id ? null : item.id); setPullQtys({}); setPullReason(""); }}
