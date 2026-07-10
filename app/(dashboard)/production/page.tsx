@@ -755,8 +755,11 @@ export default function ProductionPage() {
         onChange={e => onChange(e.target.value)} onBlur={onBlur}
         style={{ ...ic, ...cell, width: 34, textAlign: "center", fontFamily: mono, color: v ? T.amber : T.faint, borderColor: v ? T.amber : T.border }} />
     );
+    // Nothing to show until a pull exists or the user opens a draft (via the
+    // "+ Request pull" link in the row's action column).
+    if (pulls.length === 0 && !draft) return null;
     return (
-      <div onClick={e => e.stopPropagation()} style={{ display: "flex", flexDirection: "column", gap: 5, width: "100%", maxWidth: 540, overflowX: "auto" }}>
+      <div onClick={e => e.stopPropagation()} style={{ display: "flex", flexDirection: "column", gap: 5, width: "100%", maxWidth: 640, overflowX: "auto" }}>
         <span style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em" }}>Pulls (warehouse holds these back)</span>
         {(pulls.length > 0 || draft) && (
           <div style={{ display: "grid", gridTemplateColumns: cols, gap: 4, alignItems: "center" }}>
@@ -807,24 +810,19 @@ export default function ProductionPage() {
             )}
           </div>
         )}
-        {!draft && (
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            <button onClick={() => setDraft({})}
-              style={{ fontSize: 11, fontWeight: 600, color: T.accent, background: "none", border: `1px dashed ${T.border}`, borderRadius: 5, padding: "3px 10px", cursor: "pointer", fontFamily: font }}>
-              + Request pull
-            </button>
-            {item.sizes.length > 1 && (
-              <button onClick={() => setDraft({ qtys: Object.fromEntries(item.sizes.map(sz => [sz, 1])) })}
-                title="Starts a request with one of every size"
-                style={{ fontSize: 11, fontWeight: 600, color: T.muted, background: "none", border: `1px dashed ${T.border}`, borderRadius: 5, padding: "3px 10px", cursor: "pointer", fontFamily: font }}>
-                + Size run
-              </button>
-            )}
-          </div>
+        {draft && item.sizes.length > 1 && Object.keys(draft.qtys || {}).length === 0 && (
+          <button onClick={() => setDraft({ qtys: Object.fromEntries(item.sizes.map(sz => [sz, 1])) })}
+            title="Fill one of every size"
+            style={{ fontSize: 11, fontWeight: 600, color: T.muted, background: "none", border: `1px dashed ${T.border}`, borderRadius: 5, padding: "3px 10px", cursor: "pointer", fontFamily: font, alignSelf: "flex-start" }}>
+            + Size run
+          </button>
         )}
       </div>
     );
   }
+  // Open a fresh pull draft for an item — called from the row's action column.
+  const openPullDraft = (item: ProdItem) =>
+    setPullDrafts(prev => prev[item.id] ? prev : ({ ...prev, [item.id]: { qtys: {}, kind: "sample", reason: "" } }));
 
   async function handlePackingSlipUpload(input: File | File[] | FileList, project: ProjectGroup, dgItems: ProdItem[]) {
     const files: File[] = input instanceof File ? [input] : Array.from(input as any);
@@ -1833,11 +1831,6 @@ export default function ProductionPage() {
                                         style={{ ...ic, width: 180, padding: "3px 6px", fontSize: 11, fontFamily: mono, flexShrink: 0 }} />
                                     </div>
                                   </div>
-                                  {/* Right sub-col: sample-pulls editor. The
-                                      warehouse reads these on Receiving along
-                                      with the ETA — which samples to pull, for
-                                      who, and where they go. Add as needed. */}
-                                  {samplePullsEditor(item)}
                                 </div>
                               </div>
                               {/* Per-size ship qty grid — inline with title */}
@@ -1929,6 +1922,10 @@ export default function ProductionPage() {
                                       style={{ padding: "8px 18px", borderRadius: 4, border: "none", background: T.green, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", fontFamily: font }}>
                                       {shipProgress(item.qtys, item.ship_qtys).shipped > 0 ? "Ship next wave" : "Ship"}
                                     </button>
+                                    <button onClick={(e) => { e.stopPropagation(); openPullDraft(item); }}
+                                      style={{ fontSize: 10, color: T.amber, background: "none", border: "none", cursor: "pointer", textDecoration: "underline", fontFamily: font, whiteSpace: "nowrap" }}>
+                                      + Request pull
+                                    </button>
                                     {/* Undo the last wave on a partially-shipped item. */}
                                     {shipProgress(item.qtys, item.ship_qtys).shipped > 0 && (
                                       <button onClick={(e) => { e.stopPropagation(); undoShipped(item); }}
@@ -1940,6 +1937,9 @@ export default function ProductionPage() {
                                 )}
                               </div>
                             </div>
+                            {/* Pulls editor — expands below the row (full width) when
+                                requested, so the main row stays uncrammed. */}
+                            {samplePullsEditor(item)}
                           </div>
                         );
                       })}
