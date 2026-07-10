@@ -87,6 +87,15 @@ export type WarehouseItem = {
   // Costing). Loaded here so /receiving can finally display them.
   production_notes_po: string | null;
   packing_notes: string | null;
+  // ── Box-scoped fields (set only when this item view belongs to a persisted
+  //    shipment box). ship_qtys/received_qtys/received_at_hpd above are then the
+  //    BOX's numbers; these carry the box identity + the item's CUMULATIVE state
+  //    (for the item-level forward/fulfillment handoff, which stays whole-order).
+  _shipmentId?: string;
+  _lineId?: string;
+  _boxReceived?: boolean;
+  _itemFullyReceived?: boolean;   // item's cumulative received_at_hpd (all boxes in)
+  _cumReceivedQtys?: Record<string, number>;
 };
 
 export type WarehouseJob = {
@@ -112,6 +121,9 @@ export function useWarehouse() {
   const supabase = createClient();
   const [loading, setLoading] = useState(true);
   const [jobs, setJobs] = useState<WarehouseJob[]>([]);
+  // Persisted shipment boxes (migration 117) — the box-centric source for
+  // /receiving. Multiple boxes per item are real, separate shipments.
+  const [boxes, setBoxes] = useState<{ shipments: any[]; lines: any[] }>({ shipments: [], lines: [] });
   const saveTimers = useRef<Record<string, any>>({});
 
   useEffect(() => { loadData(); }, []);
@@ -285,6 +297,26 @@ export function useWarehouse() {
       });
     }
     setJobs(mapped);
+
+    // Persisted shipment boxes + their per-item lines — the box-centric source
+    // for /receiving. Each shipments row is a real box (one tracking / one
+    // vendor drop); its lines carry that box's per-item qtys + receive state.
+    const allItemIds = (allItems || []).map((it: any) => it.id);
+    if (allItemIds.length) {
+      const { data: lineRows } = await supabase.from("shipment_lines")
+        .select("id, shipment_id, item_id, job_id, ship_qtys, received, received_qtys, received_at, condition, notes, created_at")
+        .in("item_id", allItemIds);
+      const shipmentIds = Array.from(new Set((lineRows || []).map((l: any) => l.shipment_id)));
+      const boxRows = shipmentIds.length
+        ? (await supabase.from("shipments")
+            .select("id, tracking, pickup, status, created_at, received_at, expected_arrival, warehouse_notes, decorator_id")
+            .in("id", shipmentIds)).data || []
+        : [];
+      setBoxes({ shipments: boxRows, lines: lineRows || [] });
+    } else {
+      setBoxes({ shipments: [], lines: [] });
+    }
+
     setLoading(false);
   }
 
@@ -473,12 +505,19 @@ export function useWarehouse() {
     // cumulative received = prior + this receipt. This is why a second wave's
     // box shows "13 to receive" (its own contents), not the item's cumulative
     // 25 — and receiving it adds 13, landing at 25, instead of double-counting.
-    const priorReceived = item.received_qtys || {};
-    const outstanding = subtractQtys(item.ship_qtys || {}, priorReceived);
+    // A box-scoped item view (from a persisted shipment box): ship_qtys /
+    // received_qtys are THIS box's numbers, and _cumReceivedQtys is the item's
+    // running cumulative across all boxes. A legacy item view carries the
+    // cumulative directly in received_qtys.
+    const isBox = !!item._shipmentId;
+    const priorCumulative = isBox ? (item._cumReceivedQtys || {}) : (item.received_qtys || {});
+    // Outstanding for THIS box (or item) = what it shipped minus what it already
+    // has received (box: line qtys; legacy: cumulative).
+    const outstanding = subtractQtys(item.ship_qtys || {}, item.received_qtys || {});
     const deliveredThis = (opts?.deliveredQtys && Object.keys(opts.deliveredQtys).length > 0)
       ? opts.deliveredQtys
       : outstanding;
-    const targetReceived = addQtys(priorReceived, deliveredThis);
+    const targetReceived = addQtys(priorCumulative, deliveredThis);
 
     // Non-quantity audit fields + samples are a direct write; the ledger owns
     // received_qtys / received_at_hpd (recompute reprojects them).
@@ -494,17 +533,36 @@ export function useWarehouse() {
     // partially-arrived wave item pending, per Jon's "forward once" rule).
     await recordReceive(supabase, {
       itemId: item.id, jobId: item.job_id, targetReceived,
+      shipmentId: item._shipmentId || null,   // link the receipt to its box
       reason: opts?.notes || null, description: item.name,
     });
 
-    // Handoff spine (mig 117): mirror the receive onto the item's shipment
-    // line + flip the shipment to received when its last line lands. No-op
-    // for legacy items shipped before the shipments table existed.
-    await receiveShipmentLineForItem(supabase, item.id, {
-      received_qtys: deliveredThis,   // THIS box's received qty (not the cumulative)
-      condition: opts?.condition || "good",
-      notes: opts?.notes || null,
-    });
+    // Handoff spine (mig 117): mark THIS box's line received (box-scoped view),
+    // else fall back to the item's open lines (legacy). Flip the shipment to
+    // received once its last line lands.
+    if (isBox && item._lineId && item._shipmentId) {
+      await supabase.from("shipment_lines").update({
+        received: true, received_at: now, received_qtys: deliveredThis,
+        condition: opts?.condition || "good", notes: (opts?.notes || "").trim() || null,
+      }).eq("id", item._lineId);
+      const { count } = await supabase.from("shipment_lines")
+        .select("id", { count: "exact", head: true })
+        .eq("shipment_id", item._shipmentId).eq("received", false);
+      if ((count ?? 0) === 0) {
+        await supabase.from("shipments").update({ status: "received", received_at: now, received_by: user?.id || null }).eq("id", item._shipmentId);
+      }
+      // Optimistic: flip the box's line locally so it moves to the Received tab.
+      setBoxes(prev => ({
+        shipments: prev.shipments.map(s => s.id === item._shipmentId ? { ...s, received_at: s.received_at || now } : s),
+        lines: prev.lines.map(l => l.id === item._lineId ? { ...l, received: true, received_at: now, received_qtys: deliveredThis } : l),
+      }));
+    } else {
+      await receiveShipmentLineForItem(supabase, item.id, {
+        received_qtys: deliveredThis,
+        condition: opts?.condition || "good",
+        notes: opts?.notes || null,
+      });
+    }
 
     // Activity log — capture per-size totals for the audit trail.
     // "Atomic Tee received at warehouse — 76/76 delivered, 2 samples pulled
@@ -748,7 +806,7 @@ export function useWarehouse() {
   const fulfillment = jobs.filter(j => j.fulfillment_status !== "shipped" && j.items.length > 0 && j.items.every(it => it.received_at_hpd) && j.items.some(it => effRoute(j, it) === "stage"));
 
   return {
-    loading, jobs, setJobs, incoming, shipThrough, fulfillment,
+    loading, jobs, setJobs, boxes, incoming, shipThrough, fulfillment,
     updateReceivedQty, updateSampleQty, forwardItems, markReceived, bulkMarkReceived, undoReceived, returnToProduction,
     fulfillPull, addPull, cancelPull,
     bulkMarkWebstoreEntered, undoWebstoreEntered,

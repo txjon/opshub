@@ -126,7 +126,19 @@ function groupKeyFor(item: WarehouseItem): string {
   return shipmentGroupKey(item);
 }
 
-export function useShipments(jobs: WarehouseJob[]): Shipment[] {
+// The persisted-box source: `boxes` = { shipments, lines } loaded from the
+// migration-117 tables. Each shipments row is a REAL box (one tracking / one
+// vendor drop); its lines carry that box's per-item qtys + receive state. This
+// is why two waves of the same item show as two separate boxes in receiving,
+// each received on its own date — instead of collapsing into the item's
+// cumulative under one tracking number (the old derive-from-item bug).
+//
+// Items with NO persisted line (shipped before migration 117) fall back to the
+// old derive-from-item grouping so nothing vanishes from receiving.
+export function useShipments(
+  jobs: WarehouseJob[],
+  boxes?: { shipments: any[]; lines: any[] },
+): Shipment[] {
   return useMemo(() => {
     type Acc = {
       key: string;
@@ -134,21 +146,84 @@ export function useShipments(jobs: WarehouseJob[]): Shipment[] {
       decorator_name: string;
       short_code: string;
       tracking: string | null;
+      pickup?: boolean;
       items: WarehouseItem[];
       jobIds: Set<string>;
       shippedAtCandidates: string[];
+      receivedAtOverride?: string | null;
     };
     const groups = new Map<string, Acc>();
 
-    // Index for job context lookup. WarehouseJob already carries title,
-    // job_number, client_name, shipping_route, display_number — no
-    // extra fetch needed.
+    // Index for job + item context lookup.
     const jobIndex = new Map<string, WarehouseJob>();
     for (const j of jobs) jobIndex.set(j.id, j);
+    const itemIndex = new Map<string, WarehouseItem>();
+    for (const j of jobs) for (const it of j.items) itemIndex.set(it.id, it);
 
+    // ── Real boxes from the persisted shipment_lines ──────────────────────
+    const shipmentRows: any[] = boxes?.shipments || [];
+    const lineRows: any[] = boxes?.lines || [];
+    const shipmentById = new Map<string, any>();
+    for (const s of shipmentRows) shipmentById.set(s.id, s);
+    const linesByShipment = new Map<string, any[]>();
+    for (const l of lineRows) {
+      if (!linesByShipment.has(l.shipment_id)) linesByShipment.set(l.shipment_id, []);
+      linesByShipment.get(l.shipment_id)!.push(l);
+    }
+    // Items covered by at least one persisted line — they use real boxes, so
+    // they must NOT also be synthesized by the legacy fallback below.
+    const coveredItemIds = new Set<string>(lineRows.map(l => l.item_id));
+
+    for (const [shipmentId, lines] of Array.from(linesByShipment.entries())) {
+      const box = shipmentById.get(shipmentId);
+      const boxItems: WarehouseItem[] = [];
+      let anyJobId: string | null = null;
+      for (const line of lines) {
+        const base = itemIndex.get(line.item_id);
+        if (!base) continue; // item not in the loaded/relevant set (e.g. drop_ship, filtered upstream)
+        anyJobId = base.job_id;
+        // Older lines (shipped before wave-qty capture) can carry empty
+        // ship_qtys — fall back to the item's own qty so the box isn't blank.
+        // (Multi-box wave lines always carry their own qtys, so no over-count.)
+        const lineShip = (line.ship_qtys && Object.keys(line.ship_qtys).length) ? line.ship_qtys : (base.ship_qtys || {});
+        const lineRecv = (line.received_qtys && Object.keys(line.received_qtys).length) ? line.received_qtys : (line.received ? lineShip : {});
+        boxItems.push({
+          ...base,
+          // Box-scoped numbers = THIS box's line, not the item's cumulative.
+          ship_qtys: lineShip,
+          received_qtys: lineRecv,
+          received_at_hpd: !!line.received,
+          received_at_hpd_at: line.received_at || null,
+          _shipmentId: shipmentId,
+          _lineId: line.id,
+          _boxReceived: !!line.received,
+          _itemFullyReceived: base.received_at_hpd,   // item cumulative (all boxes in)
+          _cumReceivedQtys: base.received_qtys || {},
+        });
+      }
+      if (boxItems.length === 0) continue;
+      const first = boxItems[0];
+      groups.set(shipmentId, {
+        key: shipmentId,
+        decorator_id: box?.decorator_id ?? first.decorator_id,
+        decorator_name: first.decorator_name || "Unassigned",
+        short_code: first.decorator_short_code || "",
+        tracking: normalizeTracking(box?.tracking) ,
+        pickup: !!box?.pickup,
+        items: boxItems,
+        jobIds: new Set(boxItems.map(it => it.job_id)),
+        // The box's own ship date — its creation, i.e. when THIS wave shipped
+        // (item.ship_date is first-set-wins and wrong for a later box).
+        shippedAtCandidates: [box?.created_at || first.ship_date].filter(Boolean) as string[],
+        receivedAtOverride: box?.received_at || null,
+      });
+    }
+
+    // ── Legacy fallback: items with no persisted line, grouped the old way ─
     for (const j of jobs) {
       for (const it of j.items) {
-        const key = groupKeyFor(it);
+        if (coveredItemIds.has(it.id)) continue;
+        const key = "legacy::" + groupKeyFor(it);
         let acc = groups.get(key);
         if (!acc) {
           acc = {
@@ -175,7 +250,9 @@ export function useShipments(jobs: WarehouseJob[]): Shipment[] {
     const out: Shipment[] = [];
     for (const acc of Array.from(groups.values())) {
       const items = acc.items;
-      const total_units = items.reduce((a, it) => a + tQty(it.qtys), 0);
+      // Units in the box = what was shipped in it (box-scoped ship_qtys), not the
+      // item's whole order. Falls back to ordered for legacy items with no ship_qtys.
+      const total_units = items.reduce((a, it) => a + (tQty(it.ship_qtys) || tQty(it.qtys)), 0);
       const pending_count = items.filter(it => !it.received_at_hpd).length;
       const received_count = items.length - pending_count;
       // Variance is meaningful only for received items. Compare what
@@ -198,9 +275,8 @@ export function useShipments(jobs: WarehouseJob[]): Shipment[] {
       const receivedAtCandidates = items
         .filter(it => it.received_at_hpd && it.received_at_hpd_at)
         .map(it => it.received_at_hpd_at as string);
-      const received_at = receivedAtCandidates.length > 0
-        ? receivedAtCandidates.sort()[0]
-        : null;
+      const received_at = acc.receivedAtOverride
+        || (receivedAtCandidates.length > 0 ? receivedAtCandidates.sort()[0] : null);
       const jobsForShipment = Array.from(acc.jobIds).map(id => {
         const j = jobIndex.get(id);
         if (!j) return null;
@@ -220,7 +296,7 @@ export function useShipments(jobs: WarehouseJob[]): Shipment[] {
         decorator_name: acc.decorator_name,
         short_code: acc.short_code,
         tracking: acc.tracking,
-        pickup: items.some(it => it.pickup_ready),
+        pickup: acc.pickup ?? items.some(it => it.pickup_ready),
         shipped_at,
         received_at,
         items,

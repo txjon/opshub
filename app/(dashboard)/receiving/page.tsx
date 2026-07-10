@@ -182,7 +182,7 @@ type DecoratorGroup = {
 type FileRec = { file_name: string; drive_link: string; drive_file_id: string | null; mime_type: string | null };
 
 export default function ReceivingPage() {
-  const { loading, jobs, setJobs, updateReceivedQty, updateSampleQty, markReceived, bulkMarkReceived, undoReceived, returnToProduction, fulfillPull, addPull, cancelPull, logJobActivity } = useWarehouse();
+  const { loading, jobs, setJobs, boxes, updateReceivedQty, updateSampleQty, markReceived, bulkMarkReceived, undoReceived, returnToProduction, fulfillPull, addPull, cancelPull, logJobActivity } = useWarehouse();
   const supabase = createClient();
 
   // Pulled inventory (migration 117): units held back from shipments — the
@@ -717,7 +717,7 @@ export default function ReceivingPage() {
   // (decorator, tracking) so 3 items shipped today + 4 next week from
   // the same vendor are two rows, not one chip. Falls back to date
   // when tracking is missing.
-  const shipments = useShipments(jobs);
+  const shipments = useShipments(jobs, boxes);
 
   const filteredShipments = useMemo(() => {
     let arr = shipments;
@@ -759,22 +759,27 @@ export default function ReceivingPage() {
     if (s.variance_units !== 0) {
       return s.variance_units > 0 ? "Over-receive" : "Short";
     }
+    // Forwarding/staging is ITEM-level (the whole order forwards once, after
+    // every box is in) — so nudges read the item's CUMULATIVE received state
+    // (_itemFullyReceived), not this one box's.
+    const itemReceived = (it: WarehouseItem) => it._itemFullyReceived ?? it.received_at_hpd;
     const isStage = s.jobs.some(j => j.shipping_route === "stage");
     const isShipThrough = s.jobs.some(j => j.shipping_route === "ship_through");
     if (isStage && s.received_count > 0) {
-      const receivedItems = s.items.filter(it => it.received_at_hpd);
+      const receivedItems = s.items.filter(itemReceived);
       if (receivedItems.length > 0 && receivedItems.some(it => !it.webstore_entered_at)) {
         // Front-office action — warehouse just needs visibility.
         return "Pending front office";
       }
     }
-    if (isShipThrough && s.received_count > 0 && s.all_received) {
-      // ship_through that's fully received but hasn't been forwarded out yet.
-      // Only nudge to forward when every item is FULLY shipped (no more waves
-      // coming) — we forward the whole order once, not wave-by-wave.
+    if (isShipThrough && s.received_count > 0) {
+      // ship_through box received — nudge to forward only once every box of the
+      // item is in AND the item is fully shipped (no more waves). Forward once.
+      const allItemsReceived = s.items.every(itemReceived);
       const allFullyShipped = s.items.every(it => it.pipeline_stage === "shipped");
-      if (allFullyShipped) return "Forward to client";
-      return "More waves coming";
+      if (allItemsReceived && allFullyShipped) return "Forward to client";
+      if (!allFullyShipped) return "More waves coming";
+      return null;
     }
     return null;
   }
@@ -1648,8 +1653,11 @@ export default function ReceivingPage() {
                                               <div style={{ fontSize: 11, fontWeight: 600, color: T.accent, marginTop: 3 }}>ETA {fmtEta(item.client_eta)}</div>
                                             )}
                                             {/* Wave progress — ordered / shipped / remaining. Shows a
-                                                'Partial shipment' badge when the vendor still owes units. */}
-                                            {(() => {
+                                                'Partial shipment' badge when the vendor still owes units.
+                                                Only meaningful on the legacy item-level view — a real box
+                                                is a complete shipment in itself (its qty shows in the grid),
+                                                so the item-level "still to ship" is skipped here. */}
+                                            {!item._shipmentId && (() => {
                                               const p = shipProgress(item.qtys, item.ship_qtys, item.received_qtys);
                                               if (p.ordered === 0) return null;
                                               const partial = p.remaining > 0;
