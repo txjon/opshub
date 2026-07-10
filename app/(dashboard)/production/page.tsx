@@ -6,9 +6,9 @@ import Link from "next/link";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 import { logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
 import { uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
-import { shipItemFromDecorator, shipItemWave } from "@/lib/po-actions";
+import { shipItemFromDecorator, shipItemWave, unshipLastWave } from "@/lib/po-actions";
 import { shipProgress, remainingToShip } from "@/lib/ship-progress";
-import { removeShipmentLineForItem, createPullRequest, updatePullRequest, PULL_KINDS, type PullRequestRow } from "@/lib/handoff";
+import { createPullRequest, updatePullRequest, PULL_KINDS, type PullRequestRow } from "@/lib/handoff";
 import { computeArrivalEta } from "@/lib/arrival-eta";
 import { NotifyShipmentDialog } from "@/components/NotifyShipmentDialog";
 import { MockupPeek } from "@/components/MockupPeek";
@@ -601,19 +601,10 @@ export default function ProductionPage() {
     return;
   }
 
+  // Per-wave undo: backs out only the LAST wave (a multi-wave item drops from
+  // 500/500 to 300/500, not to 0). Legacy items with no wave rows fully revert.
   async function undoShipped(item: ProdItem) {
-    const timestamps = { ...(item.pipeline_timestamps || {}) };
-    delete timestamps.shipped;
-    await supabase.from("items").update({
-      pipeline_stage: "in_production", pipeline_timestamps: timestamps,
-      received_at_hpd: false, received_at_hpd_at: null, received_qtys: null,
-    }).eq("id", item.id);
-    if (item.decorator_assignment_id) {
-      await supabase.from("decorator_assignments").update({ pipeline_stage: "in_production" }).eq("id", item.decorator_assignment_id);
-    }
-    // Handoff spine: drop the item's line from its un-received shipment
-    // (and the shipment itself if this was its last line).
-    await removeShipmentLineForItem(supabase, item.id);
+    await unshipLastWave(supabase, item.id);
     loadAll();
   }
 
@@ -1512,8 +1503,8 @@ export default function ProductionPage() {
                   {(() => {
                     // Unit-level ship progress — surfaces partial waves (item-count
                     // 'shipped' stays 0 until an item fully ships).
-                    const shippedUnits = dg.items.reduce((a, it) => a + Object.values(it.ship_qtys || {}).reduce((x, n) => x + (Number(n) || 0), 0), 0);
-                    const orderedUnits = dg.items.reduce((a, it) => a + (it.total_units || 0), 0);
+                    const shippedUnits = dg.items.reduce((a: number, it: ProdItem) => a + Object.values(it.ship_qtys || {}).reduce((x: number, n) => x + (Number(n) || 0), 0), 0);
+                    const orderedUnits = dg.items.reduce((a: number, it: ProdItem) => a + (it.total_units || 0), 0);
                     if (shippedUnits > 0 && shippedUnits < orderedUnits) {
                       return <span style={{ color: T.amber, fontWeight: 700 }}> · {shippedUnits}/{orderedUnits} shipped</span>;
                     }
@@ -1933,10 +1924,19 @@ export default function ProductionPage() {
                                     </button>
                                   </>
                                 ) : (
-                                  <button onClick={(e) => { e.stopPropagation(); setShipDetailItem(item); }}
-                                    style={{ padding: "8px 18px", borderRadius: 4, border: "none", background: T.green, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", fontFamily: font }}>
-                                    Ship
-                                  </button>
+                                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+                                    <button onClick={(e) => { e.stopPropagation(); setShipDetailItem(item); }}
+                                      style={{ padding: "8px 18px", borderRadius: 4, border: "none", background: T.green, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", fontFamily: font }}>
+                                      {shipProgress(item.qtys, item.ship_qtys).shipped > 0 ? "Ship next wave" : "Ship"}
+                                    </button>
+                                    {/* Undo the last wave on a partially-shipped item. */}
+                                    {shipProgress(item.qtys, item.ship_qtys).shipped > 0 && (
+                                      <button onClick={(e) => { e.stopPropagation(); undoShipped(item); }}
+                                        style={{ fontSize: 10, color: T.faint, background: "none", border: "none", cursor: "pointer", textDecoration: "underline", fontFamily: font }}>
+                                        Undo last wave
+                                      </button>
+                                    )}
+                                  </div>
                                 )}
                               </div>
                             </div>

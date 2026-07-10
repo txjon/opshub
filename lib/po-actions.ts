@@ -11,7 +11,7 @@
 import { poSentToItem } from "./item-status";
 import { logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
 import { upsertShipmentForItem } from "./handoff";
-import { shipProgress, addQtys, type SizeQtys } from "./ship-progress";
+import { shipProgress, addQtys, subtractQtys, type SizeQtys } from "./ship-progress";
 
 async function fetchVendorItems(supabase: any, jobId: string, vendor: string): Promise<any[]> {
   const [{ data: job }, { data: items }] = await Promise.all([
@@ -233,4 +233,60 @@ export async function shipItemWave(supabase: any, args: {
     : `${item.name} — partial shipment: ${waveTotal} shipped (${prog.shipped}/${prog.ordered} · ${prog.remaining} remaining)${trk}`);
   notifyTeam(`${prog.fullyShipped ? "Final" : "Partial"} shipment — ${item.name} (${prog.shipped}/${prog.ordered}) incoming to warehouse`, "production", item.job_id, "job");
   return { shipped: prog.shipped, ordered: prog.ordered, remaining: prog.remaining, fullyShipped: prog.fullyShipped };
+}
+
+// Undo the LAST wave (per-wave undo). Backs the most recent shipment's qtys out
+// of the item's cumulative shipped (and received, if that wave was already
+// received), deletes that shipment line + the shipment if empty, and recomputes
+// stage/received. Legacy items with no shipment rows fall back to a full revert.
+export async function unshipLastWave(supabase: any, itemId: string): Promise<{ undone: boolean; shipped: number; ordered: number }> {
+  const { data: item } = await supabase
+    .from("items")
+    .select("id, name, job_id, ship_qtys, received_qtys, pipeline_stage, pipeline_timestamps, decorator_assignments(id), buy_sheet_lines(size, qty_ordered)")
+    .eq("id", itemId).single();
+  if (!item) return { undone: false, shipped: 0, ordered: 0 };
+  const ordered: SizeQtys = Object.fromEntries((item.buy_sheet_lines || []).map((l: any) => [l.size, Number(l.qty_ordered) || 0]));
+  const da = (item.decorator_assignments || [])[0];
+
+  const { data: lines } = await supabase
+    .from("shipment_lines")
+    .select("id, shipment_id, ship_qtys, received, received_qtys, created_at")
+    .eq("item_id", itemId)
+    .order("created_at", { ascending: false });
+
+  let newShip: SizeQtys;
+  let newReceived: SizeQtys;
+  if (!lines || lines.length === 0) {
+    // Legacy (no shipment rows) — revert the whole item.
+    newShip = {};
+    newReceived = {};
+  } else {
+    const last = lines[0];
+    newShip = subtractQtys(item.ship_qtys, last.ship_qtys || {});
+    newReceived = last.received
+      ? subtractQtys(item.received_qtys, (last.received_qtys && Object.keys(last.received_qtys).length ? last.received_qtys : last.ship_qtys) || {})
+      : (item.received_qtys || {});
+    // Delete the line; delete the shipment if it has no more lines.
+    await supabase.from("shipment_lines").delete().eq("id", last.id);
+    const { count } = await supabase.from("shipment_lines").select("id", { count: "exact", head: true }).eq("shipment_id", last.shipment_id);
+    if ((count ?? 0) === 0) await supabase.from("shipments").delete().eq("id", last.shipment_id);
+  }
+
+  const prog = shipProgress(ordered, newShip);
+  const receivedTotal = Object.values(newReceived).reduce((a: number, n: any) => a + (Number(n) || 0), 0);
+  const anyShipped = prog.shipped > 0;
+  const ts = { ...(item.pipeline_timestamps || {}) };
+  if (!anyShipped) delete ts.shipped;
+  const stage = prog.fullyShipped ? "shipped" : anyShipped ? "in_production" : (item.pipeline_stage === "shipped" ? "in_production" : item.pipeline_stage || "in_production");
+  await supabase.from("items").update({
+    ship_qtys: Object.keys(newShip).length ? newShip : null,
+    received_qtys: Object.keys(newReceived).length ? newReceived : null,
+    pipeline_stage: stage,
+    pipeline_timestamps: ts,
+    received_at_hpd: anyShipped ? (receivedTotal >= prog.shipped) : false,
+    received_at_hpd_at: null,
+  }).eq("id", itemId);
+  if (da?.id) await supabase.from("decorator_assignments").update({ pipeline_stage: prog.fullyShipped ? "shipped" : "in_production" }).eq("id", da.id);
+  logJobActivity(item.job_id, `${item.name} — last shipment undone (now ${prog.shipped}/${prog.ordered} shipped)`);
+  return { undone: true, shipped: prog.shipped, ordered: prog.ordered };
 }

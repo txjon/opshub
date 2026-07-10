@@ -76,3 +76,16 @@ export function addQtys(base: SizeQtys | null | undefined, add: SizeQtys | null 
   }
   return out;
 }
+
+// Back a wave's qtys OUT of a cumulative map (for per-wave undo). Clamps at 0
+// and drops sizes that reach 0.
+export function subtractQtys(base: SizeQtys | null | undefined, sub: SizeQtys | null | undefined): SizeQtys {
+  const out: SizeQtys = { ...(base || {}) };
+  for (const [sz, n] of Object.entries(sub || {})) {
+    const v = Number(n) || 0;
+    if (v === 0) continue;
+    const next = (Number(out[sz]) || 0) - v;
+    if (next > 0) out[sz] = next; else delete out[sz];
+  }
+  return out;
+}
