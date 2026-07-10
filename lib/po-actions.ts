@@ -11,7 +11,8 @@
 import { poSentToItem } from "./item-status";
 import { logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
 import { upsertShipmentForItem } from "./handoff";
-import { shipProgress, addQtys, subtractQtys, type SizeQtys } from "./ship-progress";
+import { shipProgress, type SizeQtys } from "./ship-progress";
+import { recordShip, recordReceive, recomputeItemFromLedger, reverseLastMovement, cleanPositive } from "./inventory-ledger";
 
 async function fetchVendorItems(supabase: any, jobId: string, vendor: string): Promise<any[]> {
   const [{ data: job }, { data: items }] = await Promise.all([
@@ -110,8 +111,8 @@ export async function shipItemFromDecorator(supabase: any, item: any, opts?: { w
     // Local pickup replaces tracking — groups by vendor on Receiving, not by #.
     ship_tracking: pickup ? null : (item.ship_tracking || null),
     pickup_ready: pickup,
-    ship_qtys: shipQtysToSave,
-    received_at_hpd: false, received_at_hpd_at: null, received_qtys: null,
+    // ship_qtys / received_* are owned by the ledger recompute below — not
+    // written here (that's what left 69% of legacy ships with no qty recorded).
   }).eq("id", item.id);
   if (item.decorator_assignment_id) {
     await supabase.from("decorator_assignments").update({ pipeline_stage: "shipped" }).eq("id", item.decorator_assignment_id);
@@ -119,7 +120,7 @@ export async function shipItemFromDecorator(supabase: any, item: any, opts?: { w
   // Handoff spine (migration 117): persist the box as a shipments row + this
   // item as a line. Same group key as the derived grouping, so receiving sees
   // one consistent shipment either way. Never blocks the ship on failure.
-  await upsertShipmentForItem(supabase, {
+  const shipmentId = await upsertShipmentForItem(supabase, {
     job_id: item.job_id,
     item_id: item.id,
     item_name: item.name || null,
@@ -131,6 +132,20 @@ export async function shipItemFromDecorator(supabase: any, item: any, opts?: { w
     ship_qtys: shipQtysToSave,
     expected_arrival: item.expected_arrival || null,
     warehouse_notes: opts?.warehouseNotes || null,
+  });
+
+  // Ledger: this full ship is one movement. Qty = what was entered, else the
+  // ordered qty (Jon's rule: unedited pre-fill = what shipped, no variance).
+  // recompute projects ship_qtys / received_at_hpd back onto the item — so a
+  // ship ALWAYS records a quantity, never a bare "shipped: yes".
+  let waveQtys = shipQtysToSave;
+  if (!waveQtys) {
+    const { data: bsl } = await supabase.from("buy_sheet_lines").select("size, qty_ordered").eq("item_id", item.id);
+    waveQtys = Object.fromEntries((bsl || []).map((l: any) => [l.size, Number(l.qty_ordered) || 0]));
+  }
+  await recordShip(supabase, {
+    itemId: item.id, jobId: item.job_id, waveQtys: waveQtys || {},
+    shipmentId, tracking: pickup ? null : (item.ship_tracking || null), description: item.name || null,
   });
   // Notify Goose/Dante — the route only emails on a vendor's 0→1 pickup
   // transition (one email per cycle, no spam from same-day marks).
@@ -191,42 +206,50 @@ export async function shipItemWave(supabase: any, args: {
     .eq("id", args.itemId).single();
   if (!item) return { shipped: 0, ordered: 0, remaining: 0, fullyShipped: false };
 
-  const ordered: SizeQtys = Object.fromEntries((item.buy_sheet_lines || []).map((l: any) => [l.size, Number(l.qty_ordered) || 0]));
-  const cleanWave: SizeQtys = Object.fromEntries(
-    Object.entries(args.waveQtys || {}).map(([s, n]) => [s, Number(n) || 0]).filter(([, n]) => (n as number) > 0)
-  );
-  const newShip = addQtys(item.ship_qtys, cleanWave);
-  const prog = shipProgress(ordered, newShip);
+  const cleanWave = cleanPositive(args.waveQtys);
   const waveTotal = Object.values(cleanWave).reduce((a, n) => a + n, 0);
-  if (waveTotal === 0) return { shipped: prog.shipped, ordered: prog.ordered, remaining: prog.remaining, fullyShipped: prog.fullyShipped };
+  if (waveTotal === 0) {
+    const ordered: SizeQtys = Object.fromEntries((item.buy_sheet_lines || []).map((l: any) => [l.size, Number(l.qty_ordered) || 0]));
+    const p0 = shipProgress(ordered, item.ship_qtys);
+    return { shipped: p0.shipped, ordered: p0.ordered, remaining: p0.remaining, fullyShipped: p0.fullyShipped };
+  }
 
   const ts = new Date().toISOString();
-  const timestamps = { ...(item.pipeline_timestamps || {}), shipped: (item.pipeline_timestamps || {}).shipped || ts };
   const da = (item.decorator_assignments || [])[0];
-  // A new wave means un-received units exist again → pull the item back into
-  // the receiving pending list (received_at_hpd off when received < shipped).
-  const receivedTotal = Object.values(item.received_qtys || {}).reduce((a: number, n: any) => a + (Number(n) || 0), 0);
-  await supabase.from("items").update({
-    ship_qtys: newShip,                                   // cumulative across waves
-    ship_tracking: tracking || item.ship_tracking || null, // latest wave's tracking
-    pipeline_stage: prog.fullyShipped ? "shipped" : "in_production",
-    pipeline_timestamps: timestamps,
-    received_at_hpd: receivedTotal >= prog.shipped ? true : false,
-    // received_qtys intentionally untouched (cumulative received carries over).
-  }).eq("id", item.id);
-  if (da?.id) {
-    await supabase.from("decorator_assignments").update({ pipeline_stage: prog.fullyShipped ? "shipped" : "in_production" }).eq("id", da.id);
-  }
-  await upsertShipmentForItem(supabase, {
+
+  // 1) The physical box (find-or-create) — the ledger movement links to it, and
+  //    /receiving still groups pending deliveries by shipment.
+  const shipmentId = await upsertShipmentForItem(supabase, {
     job_id: item.job_id, item_id: item.id, item_name: item.name || null,
     decorator_id: da?.decorator_id || null,
     decorator_name: da?.decorators?.name || null,
     ship_tracking: tracking,
     ship_date: ts,
-    ship_qtys: cleanWave,                                 // this wave only
+    ship_qtys: cleanWave,                                 // this wave only (box manifest)
     expected_arrival: item.expected_arrival || null,
     warehouse_notes: args.warehouseNotes || null,
   });
+
+  // 2) The ledger — append this wave as one immutable ship movement; the
+  //    recompute projects cumulative ship_qtys + received_at_hpd back onto the
+  //    item. THE source of truth — no manual accumulate, nothing overwritten.
+  const prog = (await recordShip(supabase, {
+    itemId: item.id, jobId: item.job_id, waveQtys: cleanWave,
+    shipmentId, tracking, description: item.name || null,
+  }))!;
+
+  // 3) Stage is a workflow decision (recompute deliberately doesn't own it):
+  //    fully shipped once the waves sum to ordered; else stays in production for
+  //    the next wave.
+  const timestamps = { ...(item.pipeline_timestamps || {}), shipped: (item.pipeline_timestamps || {}).shipped || ts };
+  await supabase.from("items").update({
+    ship_tracking: tracking || item.ship_tracking || null, // latest wave's tracking
+    pipeline_stage: prog.fullyShipped ? "shipped" : "in_production",
+    pipeline_timestamps: timestamps,
+  }).eq("id", item.id);
+  if (da?.id) {
+    await supabase.from("decorator_assignments").update({ pipeline_stage: prog.fullyShipped ? "shipped" : "in_production" }).eq("id", da.id);
+  }
   const trk = tracking ? ` — ${tracking}` : "";
   logJobActivity(item.job_id, prog.fullyShipped
     ? `${item.name} — final wave shipped (${waveTotal}) · ${prog.shipped}/${prog.ordered} complete${trk}`
@@ -260,51 +283,36 @@ export async function shipItemWave(supabase: any, args: {
 export async function unshipLastWave(supabase: any, itemId: string): Promise<{ undone: boolean; shipped: number; ordered: number }> {
   const { data: item } = await supabase
     .from("items")
-    .select("id, name, job_id, ship_qtys, received_qtys, pipeline_stage, pipeline_timestamps, decorator_assignments(id), buy_sheet_lines(size, qty_ordered)")
+    .select("id, name, job_id, pipeline_stage, pipeline_timestamps, decorator_assignments(id), buy_sheet_lines(size, qty_ordered)")
     .eq("id", itemId).single();
   if (!item) return { undone: false, shipped: 0, ordered: 0 };
-  const ordered: SizeQtys = Object.fromEntries((item.buy_sheet_lines || []).map((l: any) => [l.size, Number(l.qty_ordered) || 0]));
   const da = (item.decorator_assignments || [])[0];
 
-  const { data: lines } = await supabase
-    .from("shipment_lines")
-    .select("id, shipment_id, ship_qtys, received, received_qtys, created_at")
-    .eq("item_id", itemId)
-    .order("created_at", { ascending: false });
+  // Reverse the most recent ship movement (append-only undo — the wave AND its
+  // reversal both stay on the record). recompute reprojects ship_qtys.
+  const target = await reverseLastMovement(supabase, itemId, "ship", "Undo last wave");
+  let st = await recomputeItemFromLedger(supabase, itemId);
+  if (!st) return { undone: false, shipped: 0, ordered: 0 };
 
-  let newShip: SizeQtys;
-  let newReceived: SizeQtys;
-  if (!lines || lines.length === 0) {
-    // Legacy (no shipment rows) — revert the whole item.
-    newShip = {};
-    newReceived = {};
-  } else {
-    const last = lines[0];
-    newShip = subtractQtys(item.ship_qtys, last.ship_qtys || {});
-    newReceived = last.received
-      ? subtractQtys(item.received_qtys, (last.received_qtys && Object.keys(last.received_qtys).length ? last.received_qtys : last.ship_qtys) || {})
-      : (item.received_qtys || {});
-    // Delete the line; delete the shipment if it has no more lines.
-    await supabase.from("shipment_lines").delete().eq("id", last.id);
-    const { count } = await supabase.from("shipment_lines").select("id", { count: "exact", head: true }).eq("shipment_id", last.shipment_id);
-    if ((count ?? 0) === 0) await supabase.from("shipments").delete().eq("id", last.shipment_id);
+  // Invariant received ≤ shipped: if the undone wave had already been received,
+  // clamp received down to the new shipped total (append a corrective receive).
+  if (st.received > st.shipped) {
+    st = (await recordReceive(supabase, { itemId, jobId: item.job_id, targetReceived: st.shippedMap, reason: "Undo last wave (receipt reversed)" })) || st;
   }
 
-  const prog = shipProgress(ordered, newShip);
-  const receivedTotal = Object.values(newReceived).reduce((a: number, n: any) => a + (Number(n) || 0), 0);
-  const anyShipped = prog.shipped > 0;
+  // Clean the box manifest for the reversed wave (receiving groups by shipment).
+  if (target?.shipment_id) {
+    await supabase.from("shipment_lines").delete().eq("shipment_id", target.shipment_id).eq("item_id", itemId);
+    const { count } = await supabase.from("shipment_lines").select("id", { count: "exact", head: true }).eq("shipment_id", target.shipment_id);
+    if ((count ?? 0) === 0) await supabase.from("shipments").delete().eq("id", target.shipment_id);
+  }
+
+  const anyShipped = st.shipped > 0;
   const ts = { ...(item.pipeline_timestamps || {}) };
   if (!anyShipped) delete ts.shipped;
-  const stage = prog.fullyShipped ? "shipped" : anyShipped ? "in_production" : (item.pipeline_stage === "shipped" ? "in_production" : item.pipeline_stage || "in_production");
-  await supabase.from("items").update({
-    ship_qtys: Object.keys(newShip).length ? newShip : null,
-    received_qtys: Object.keys(newReceived).length ? newReceived : null,
-    pipeline_stage: stage,
-    pipeline_timestamps: ts,
-    received_at_hpd: anyShipped ? (receivedTotal >= prog.shipped) : false,
-    received_at_hpd_at: null,
-  }).eq("id", itemId);
-  if (da?.id) await supabase.from("decorator_assignments").update({ pipeline_stage: prog.fullyShipped ? "shipped" : "in_production" }).eq("id", da.id);
-  logJobActivity(item.job_id, `${item.name} — last shipment undone (now ${prog.shipped}/${prog.ordered} shipped)`);
-  return { undone: true, shipped: prog.shipped, ordered: prog.ordered };
+  const stage = st.fullyShipped ? "shipped" : "in_production";
+  await supabase.from("items").update({ pipeline_stage: stage, pipeline_timestamps: ts }).eq("id", itemId);
+  if (da?.id) await supabase.from("decorator_assignments").update({ pipeline_stage: st.fullyShipped ? "shipped" : "in_production" }).eq("id", da.id);
+  logJobActivity(item.job_id, `${item.name} — last shipment undone (now ${st.shipped}/${st.ordered} shipped)`);
+  return { undone: !!target, shipped: st.shipped, ordered: st.ordered };
 }

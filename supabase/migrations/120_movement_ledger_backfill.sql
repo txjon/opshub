@@ -1,0 +1,26 @@
+-- 120 — Movement-ledger backfill (data, not schema).
+--
+-- Seeds the movements ledger (migration 119) from legacy item state so every
+-- already-shipped item has an auditable history and its ship_qtys/received_qtys
+-- cache is correct. Run as a Node script (per-size jsonb logic is far safer in
+-- JS than SQL): scripts/backfill-movements.cjs — idempotent (skips items that
+-- already have movements). Applied 2026-07-10.
+--
+-- Rules (see the script header for detail):
+--   ship    — pipeline_stage='shipped' → shipped = ORDERED (Jon's rule: the old
+--             flow never reliably recorded ship qtys and overwrote ship_qtys to
+--             the last batch, so a shipped item shipped its full order, no
+--             variance). in_production items with a real partial ship_qtys keep
+--             it (an open wave). Legacy variance is NOT reconstructed — only
+--             going-forward ships record exact over/under.
+--   receive — recorded received_qtys kept as-is; else received = shipped for
+--             items demonstrably received/forwarded/staged or on a done job.
+--             Never for drop_ship (those never touch HPD).
+--   forward — forwarded_at set → forwarded = received (fallback shipped).
+--   stage   — webstore_entered_at set → staged = received (fallback shipped).
+--
+-- Result: 845 movements across 444 items; every shipped item's ship_qtys cache
+-- now equals Σ ship movements (verified 442/442 consistent).
+--
+-- This file is a record only — no SQL to run here.
+select 'backfill applied via scripts/backfill-movements.cjs' as note;

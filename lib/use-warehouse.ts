@@ -10,6 +10,19 @@ import {
   fulfillPullRequest, recordAdHocPull, updatePullRequest,
   type PullRequestRow,
 } from "@/lib/handoff";
+import { recordReceive, recordOutbound, recomputeItemFromLedger, reverseLastMovement, appendMovement } from "@/lib/inventory-ledger";
+
+// forwarded/staged qty = what's on hand to send = received (fallback shipped)
+// minus any units pulled as samples.
+const outboundQtys = (base: Record<string, number>, samples: Record<string, number> | null | undefined) => {
+  const out: Record<string, number> = {};
+  for (const [s, n] of Object.entries(base || {})) {
+    const v = (Number(n) || 0) - (Number(samples?.[s]) || 0);
+    if (v > 0) out[s] = v;
+  }
+  return out;
+};
+const negate = (q: Record<string, number>) => Object.fromEntries(Object.entries(q || {}).map(([s, n]) => [s, -(Number(n) || 0)]));
 
 export const tQty = (q: Record<string, number>) => Object.values(q || {}).reduce((a, v) => a + v, 0);
 
@@ -386,6 +399,16 @@ export function useWarehouse() {
   async function forwardItems(jobId: string, itemIds: string[], tracking: string | null) {
     const now = new Date().toISOString();
     await supabase.from("items").update({ forwarded_at: now, forward_tracking: (tracking || "").trim() || null }).in("id", itemIds);
+    // Ledger: one forward movement per item (the auditable "forwarded qty").
+    const { data: fwdItems } = await supabase.from("items")
+      .select("id, name, received_qtys, ship_qtys, sample_qtys").in("id", itemIds);
+    for (const it of fwdItems || []) {
+      const base = (it.received_qtys && Object.keys(it.received_qtys).length) ? it.received_qtys : (it.ship_qtys || {});
+      await recordOutbound(supabase, {
+        itemId: it.id, jobId, type: "forward", qtys: outboundQtys(base, it.sample_qtys),
+        tracking, description: it.name,
+      });
+    }
     setJobs(prev => prev.map(j => j.id === jobId
       ? { ...j, items: j.items.map(it => itemIds.includes(it.id) ? { ...it, forwarded_at: now, forward_tracking: (tracking || "").trim() || null } : it) }
       : j));
@@ -443,24 +466,29 @@ export function useWarehouse() {
     // whose later waves are still in transit stays pending until they land
     // (Jon's decision: hold until all units arrive, forward once). A deliberate
     // short receipt also stays pending as a variance to resolve.
-    const cumShipped = tQty(item.ship_qtys || {});
-    const cumReceived = tQty(item.received_qtys || {});
-    const nowReceived = cumReceived >= cumShipped;
-    // Bundle pending qty edits with the receive flag so a single update
-    // lands. Empty objects are skipped — downstream readers fall back to
-    // ship_qtys when received_qtys is missing.
-    const updates: any = {
-      received_at_hpd: nowReceived,
-      received_at_hpd_at: nowReceived ? now : null,
-      receiving_data: receivingData,
-    };
-    if (item.received_qtys && Object.keys(item.received_qtys).length > 0) {
-      updates.received_qtys = item.received_qtys;
-    }
+    // Target cumulative received: what the receiver entered, else caught-up to
+    // everything shipped so far (Jon's rule: no edit = no variance = received
+    // what shipped). The ledger converts this to an append-only delta.
+    const targetReceived = (item.received_qtys && Object.keys(item.received_qtys).length > 0)
+      ? item.received_qtys
+      : (item.ship_qtys || {});
+
+    // Non-quantity audit fields + samples are a direct write; the ledger owns
+    // received_qtys / received_at_hpd (recompute reprojects them).
+    const auxUpdates: any = { receiving_data: receivingData };
     if (item.sample_qtys && Object.keys(item.sample_qtys).length > 0) {
-      updates.sample_qtys = item.sample_qtys;
+      auxUpdates.sample_qtys = item.sample_qtys;
     }
-    await supabase.from("items").update(updates).eq("id", item.id);
+    await supabase.from("items").update(auxUpdates).eq("id", item.id);
+
+    // Ledger: append this receipt (delta vs the ledger's prior receive total)
+    // and recompute — sets received_qtys + received_at_hpd. received_at_hpd goes
+    // true only when received catches up to everything shipped (holds a
+    // partially-arrived wave item pending, per Jon's "forward once" rule).
+    await recordReceive(supabase, {
+      itemId: item.id, jobId: item.job_id, targetReceived,
+      reason: opts?.notes || null, description: item.name,
+    });
 
     // Handoff spine (mig 117): mirror the receive onto the item's shipment
     // line + flip the shipment to received when its last line lands. No-op
@@ -591,6 +619,14 @@ export function useWarehouse() {
         webstore_entered_by: userId,
       }).eq("id", it.id)
     ));
+    // Ledger: one stage movement per item (the auditable "staged qty").
+    for (const it of items) {
+      const base = (it.received_qtys && Object.keys(it.received_qtys).length) ? it.received_qtys : (it.ship_qtys || {});
+      await recordOutbound(supabase, {
+        itemId: it.id, jobId: it.job_id, type: "stage",
+        qtys: outboundQtys(base, (it as any).sample_qtys), description: it.name,
+      });
+    }
     setJobs(prev => prev.map(j => ({
       ...j,
       items: j.items.map(it => {
@@ -616,6 +652,7 @@ export function useWarehouse() {
       webstore_entered_at: null,
       webstore_entered_by: null,
     }).eq("id", item.id);
+    await reverseLastMovement(supabase, item.id, "stage", "Shopify entry undone");
     setJobs(prev => prev.map(j => ({
       ...j, items: j.items.map(it => it.id === item.id ? { ...it, webstore_entered_at: null } : it),
     })));
@@ -624,7 +661,9 @@ export function useWarehouse() {
   }
 
   async function undoReceived(item: WarehouseItem) {
-    await supabase.from("items").update({ received_at_hpd: false, received_at_hpd_at: null }).eq("id", item.id);
+    // Reverse the last receipt (append-only) — recompute reprojects
+    // received_qtys / received_at_hpd from what's left.
+    await reverseLastMovement(supabase, item.id, "receive", "Receipt undone");
     await unreceiveShipmentLineForItem(supabase, item.id);
     setJobs(prev => prev.map(j => ({
       ...j, items: j.items.map(it => it.id === item.id ? { ...it, received_at_hpd: false, received_at_hpd_at: null } : it),
@@ -633,6 +672,14 @@ export function useWarehouse() {
   }
 
   async function returnToProduction(item: WarehouseItem) {
+    // Item goes back to the decorator — reverse everything shipped/received on
+    // the ledger so it reads 0 shipped, 0 received (append-only reversals).
+    const st = await recomputeItemFromLedger(supabase, item.id);
+    if (st) {
+      if (st.shipped > 0) await appendMovement(supabase, { itemId: item.id, jobId: item.job_id, type: "ship", qtys: negate(st.shippedMap), reason: "Returned to production" });
+      if (st.received > 0) await appendMovement(supabase, { itemId: item.id, jobId: item.job_id, type: "receive", qtys: negate(st.receivedMap), reason: "Returned to production" });
+      await recomputeItemFromLedger(supabase, item.id);
+    }
     await supabase.from("items").update({
       pipeline_stage: "in_production",
       received_at_hpd: false,
