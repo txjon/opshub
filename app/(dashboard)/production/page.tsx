@@ -1640,14 +1640,12 @@ export default function ProductionPage() {
                             // Units shipped = sum of ship_qtys per shipped
                             // item, falling back to total_units if the item
                             // has no per-size breakdown.
-                            const unitsShipped = dg.items.reduce((acc, it) => {
-                              // A fully-shipped item shipped its whole quantity — count
-                              // ordered, not ship_qtys (which is stale/last-batch on legacy
-                              // multi-shipment items). A partial wave item counts its
-                              // cumulative shipped so far.
-                              if (it.pipeline_stage === "shipped") return acc + (it.total_units || 0);
-                              return acc + Object.values(it.ship_qtys || {}).reduce((a, b) => a + (b || 0), 0);
-                            }, 0);
+                            // ACTUAL recorded shipped units — never fabricate 'ordered'.
+                            // For legacy items the old flow rarely recorded ship_qtys, so
+                            // this honestly reads low/zero (the audit gap) rather than
+                            // claiming a full ship that never happened.
+                            const unitsShipped = dg.items.reduce((acc, it) =>
+                              acc + Object.values(it.ship_qtys || {}).reduce((a, b) => a + (b || 0), 0), 0);
                             return (
                               <div style={{ fontSize: 13, color: T.muted, marginTop: 6 }}>
                                 <strong style={{ color: T.text, fontWeight: 700 }}>{dg.inProduction}</strong> in production
