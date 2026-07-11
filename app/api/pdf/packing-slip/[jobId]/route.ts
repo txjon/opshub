@@ -57,8 +57,23 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     let vendorScopedItems = decoratorFilter
       ? (items || []).filter((it: any) => (it.decorator_assignments || []).some((da: any) => da.decorator_id === decoratorFilter))
       : (items || []);
+    // Per-WAVE inbound slip: scope to the persisted box with this tracking and
+    // use that box's line qtys — NOT the item's cumulative ship_qtys, which
+    // would over-count when the item shipped in multiple waves. Falls back to
+    // the legacy item-level ship_tracking match when no box exists (pre-117).
+    let boxLineByItem: Map<string, any> | null = null;
     if (trackingFilter) {
-      vendorScopedItems = vendorScopedItems.filter((it: any) => (it.ship_tracking || "") === trackingFilter);
+      const norm = trackingFilter.trim().toUpperCase();
+      const { data: shipRows } = await supabase.from("shipments").select("id").eq("tracking", norm);
+      const shipIds = (shipRows || []).map((s: any) => s.id);
+      if (shipIds.length) {
+        const { data: lineRows } = await supabase.from("shipment_lines")
+          .select("item_id, ship_qtys, received, received_qtys").in("shipment_id", shipIds);
+        boxLineByItem = new Map((lineRows || []).map((l: any) => [l.item_id, l]));
+        vendorScopedItems = vendorScopedItems.filter((it: any) => boxLineByItem!.has(it.id));
+      } else {
+        vendorScopedItems = vendorScopedItems.filter((it: any) => (it.ship_tracking || "") === trackingFilter);
+      }
     }
     if (forwardTrackingFilter) {
       vendorScopedItems = vendorScopedItems.filter((it: any) => (it.forward_tracking || "") === forwardTrackingFilter);
@@ -78,14 +93,18 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       if (cp?.name && cp?.color) colorByItemName[cp.name] = cp.color;
     }
 
-    const itemRows = vendorScopedItems.filter((it: any) => it.pipeline_stage === "shipped" || it.received_at_hpd || it.ship_tracking).map((item: any, i: number) => {
+    const slipIncludes = (it: any) => boxLineByItem?.has(it.id) || it.pipeline_stage === "shipped" || it.received_at_hpd || it.ship_tracking;
+    const itemRows = vendorScopedItems.filter(slipIncludes).map((item: any, i: number) => {
       const lines = item.buy_sheet_lines || [];
       const itemColor = colorByItemId[item.id] || colorByItemName[item.name] || "";
       // Priority: best available qty source. Drop-ship prefers decorator-reported
       // ship_qtys; ship-through/stage prefers HPD-confirmed received_qtys. Either
       // way, fall through to the other source if primary is empty, then to ordered.
-      const received = (item.received_qtys || {}) as Record<string, number>;
-      const shipped = (item.ship_qtys || {}) as Record<string, number>;
+      // On a per-wave slip, these come from the BOX's line (that wave), not the
+      // item's cumulative.
+      const boxLine = boxLineByItem?.get(item.id);
+      const received = (boxLine ? (boxLine.received_qtys || {}) : (item.received_qtys || {})) as Record<string, number>;
+      const shipped = (boxLine ? (boxLine.ship_qtys || {}) : (item.ship_qtys || {})) as Record<string, number>;
       const firstChoice = itemIsDropShip(item) ? shipped : received;
       const secondChoice = itemIsDropShip(item) ? received : shipped;
       const orderedQtys = Object.fromEntries(lines.map((l: any) => [l.size, l.qty_ordered]));
@@ -156,11 +175,12 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       </tr>`;
     }).join("");
 
-    const totalUnits = vendorScopedItems.filter((it: any) => it.pipeline_stage === "shipped" || it.received_at_hpd || it.ship_tracking)
+    const totalUnits = vendorScopedItems.filter(slipIncludes)
       .reduce((a: number, it: any) => {
         const lines = it.buy_sheet_lines || [];
-        const received = (it.received_qtys || {}) as Record<string, number>;
-        const shipped = (it.ship_qtys || {}) as Record<string, number>;
+        const boxLine = boxLineByItem?.get(it.id);
+        const received = (boxLine ? (boxLine.received_qtys || {}) : (it.received_qtys || {})) as Record<string, number>;
+        const shipped = (boxLine ? (boxLine.ship_qtys || {}) : (it.ship_qtys || {})) as Record<string, number>;
         const firstChoice = itemIsDropShip(it) ? shipped : received;
         const secondChoice = itemIsDropShip(it) ? received : shipped;
         const delivered: Record<string, number> = {};

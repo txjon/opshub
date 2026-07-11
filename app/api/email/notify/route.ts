@@ -441,6 +441,18 @@ export async function POST(req: NextRequest) {
       const waveMatched = (allItems || []).filter((it: any) => (it.forward_tracking || "") === (trackingNumber || ""));
       const isWaveForward = waveMatched.length > 0;
       isJobOutbound = isJobOutbound || isWaveForward;
+      // Inbound decorator→HPD notify for a specific tracking = a specific BOX.
+      // Resolve its line qtys so the email lists THAT wave's contents, not the
+      // item's cumulative ship_qtys (which over-counts a multi-wave item).
+      let boxLineByItem: Map<string, any> | null = null;
+      if (!isJobOutbound && trackingNumber) {
+        const { data: shipRows } = await sb.from("shipments").select("id").eq("tracking", (trackingNumber || "").trim().toUpperCase());
+        const shipIds = (shipRows || []).map((s: any) => s.id);
+        if (shipIds.length) {
+          const { data: lineRows } = await sb.from("shipment_lines").select("item_id, ship_qtys, received_qtys").in("shipment_id", shipIds);
+          boxLineByItem = new Map((lineRows || []).map((l: any) => [l.item_id, l]));
+        }
+      }
       const scopedItems = (allItems || []).filter((it: any) => {
         if (isWaveForward) return (it.forward_tracking || "") === (trackingNumber || "");
         if (isJobOutbound) {
@@ -448,6 +460,7 @@ export async function POST(req: NextRequest) {
         }
         const itDecId = (it.decorator_assignments?.[0] as any)?.decorator_id || null;
         const matchDec = !decoratorId || itDecId === decoratorId;
+        if (boxLineByItem) return matchDec && boxLineByItem.has(it.id);
         const matchTrack = (it.ship_tracking || "") === (trackingNumber || "");
         return matchDec && matchTrack;
       });
@@ -468,8 +481,9 @@ export async function POST(req: NextRequest) {
       const itemListHtml = scopedItems.map((it: any) => {
         const lines = (it.buy_sheet_lines || []) as any[];
         const sizes = Array.from(new Set(lines.map((l: any) => l.size as string))).sort(sortSizes);
-        const shipQtys = it.ship_qtys || {};
-        const receivedQtys = it.received_qtys || {};
+        const boxLine = boxLineByItem?.get(it.id);
+        const shipQtys = (boxLine ? (boxLine.ship_qtys || {}) : (it.ship_qtys || {}));
+        const receivedQtys = (boxLine ? (boxLine.received_qtys || {}) : (it.received_qtys || {}));
         const sampleQtys = it.sample_qtys || {};
         const ordered = Object.fromEntries(lines.map((l: any) => [l.size, l.qty_ordered]));
         // Mirror the packing-slip qty fallback: drop-ship prefers

@@ -10,7 +10,7 @@ import {
   fulfillPullRequest, recordAdHocPull, updatePullRequest,
   type PullRequestRow,
 } from "@/lib/handoff";
-import { recordReceive, recordOutbound, recomputeItemFromLedger, reverseLastMovement, appendMovement } from "@/lib/inventory-ledger";
+import { recordReceive, recordOutbound, recomputeItemFromLedger, reverseLastMovement, reverseReceiptForShipment, appendMovement } from "@/lib/inventory-ledger";
 import { addQtys, subtractQtys } from "@/lib/ship-progress";
 
 // forwarded/staged qty = what's on hand to send = received (fallback shipped)
@@ -96,6 +96,7 @@ export type WarehouseItem = {
   _boxReceived?: boolean;
   _itemFullyReceived?: boolean;   // item's cumulative received_at_hpd (all boxes in)
   _cumReceivedQtys?: Record<string, number>;
+  _cumShippedQtys?: Record<string, number>;   // item cumulative shipped across all waves
 };
 
 export type WarehouseJob = {
@@ -569,14 +570,19 @@ export function useWarehouse() {
     //  (74 continuing) (damaged) — minor scuffing on neckline"
     const sumPerSize = (q: Record<string, number> | null | undefined) =>
       Object.values(q || {}).reduce((a, v) => a + (Number(v) || 0), 0);
-    const shippedTotal = sumPerSize(item.ship_qtys) || sumPerSize(item.qtys);
-    const deliveredTotal = sumPerSize(targetReceived);   // NEW cumulative received
+    // CUMULATIVE shipped across all waves (a box-scoped item's ship_qtys is only
+    // THIS box, so read the carried cumulative). Keeps the log + caught-up check
+    // on one basis: cumulative received vs cumulative shipped.
+    const cumShipped = sumPerSize(
+      item._cumShippedQtys && Object.keys(item._cumShippedQtys).length ? item._cumShippedQtys : item.ship_qtys
+    ) || sumPerSize(item.qtys);
+    const deliveredTotal = sumPerSize(targetReceived);   // cumulative received
     const thisReceiptTotal = sumPerSize(deliveredThis);
     const samplesTotal = sumPerSize(item.sample_qtys);
     const continuingTotal = Math.max(0, deliveredTotal - samplesTotal);
-    const variance = deliveredTotal - shippedTotal;
+    const variance = deliveredTotal - cumShipped;
 
-    const parts: string[] = [`${thisReceiptTotal} received (${deliveredTotal}/${shippedTotal} total)`];
+    const parts: string[] = [`${thisReceiptTotal} received (${deliveredTotal}/${cumShipped} total)`];
     if (samplesTotal > 0) {
       parts.push(`${samplesTotal} sample${samplesTotal === 1 ? "" : "s"} pulled (${continuingTotal} continuing)`);
     }
@@ -590,7 +596,10 @@ export function useWarehouse() {
     // (Pull destinations are logged per-pull by fulfillPull/addPull — the
     // old sample_pulls destination trail that lived here is retired.)
 
-    const caughtUp = sumPerSize(targetReceived) >= shippedTotal;
+    // Caught up = cumulative received ≥ cumulative shipped (NOT this box's qty),
+    // so receiving one box of a multi-wave item doesn't prematurely flip the
+    // item to fully-received and let it forward early.
+    const caughtUp = deliveredTotal >= cumShipped;
     setJobs(prev => prev.map(j => ({
       ...j, items: j.items.map(it => it.id === item.id ? { ...it, received_qtys: targetReceived, received_at_hpd: caughtUp, received_at_hpd_at: caughtUp ? now : null, receiving_data: receivingData as any } : it),
     })));
@@ -723,10 +732,26 @@ export function useWarehouse() {
   }
 
   async function undoReceived(item: WarehouseItem) {
-    // Reverse the last receipt (append-only) — recompute reprojects
-    // received_qtys / received_at_hpd from what's left.
-    await reverseLastMovement(supabase, item.id, "receive", "Receipt undone");
-    await unreceiveShipmentLineForItem(supabase, item.id);
+    // Box-scoped undo: reverse ONLY this box's receipt and un-receive ONLY this
+    // box's line — the item's other received boxes are untouched. (Legacy items
+    // with no box fall back to reversing the last receipt.)
+    if (item._shipmentId) {
+      await reverseReceiptForShipment(supabase, item.id, item._shipmentId, "Receipt undone");
+      if (item._lineId) {
+        await supabase.from("shipment_lines").update({ received: false, received_at: null, received_qtys: null }).eq("id", item._lineId);
+      }
+      const { count } = await supabase.from("shipment_lines").select("id", { count: "exact", head: true }).eq("shipment_id", item._shipmentId).eq("received", true);
+      if ((count ?? 0) === 0) {
+        await supabase.from("shipments").update({ status: "expected", received_at: null, received_by: null }).eq("id", item._shipmentId);
+      }
+      setBoxes(prev => ({
+        shipments: prev.shipments.map(s => s.id === item._shipmentId ? { ...s, status: (count ?? 0) === 0 ? "expected" : s.status, received_at: (count ?? 0) === 0 ? null : s.received_at } : s),
+        lines: prev.lines.map(l => l.id === item._lineId ? { ...l, received: false, received_at: null, received_qtys: null } : l),
+      }));
+    } else {
+      await reverseLastMovement(supabase, item.id, "receive", "Receipt undone");
+      await unreceiveShipmentLineForItem(supabase, item.id);
+    }
     setJobs(prev => prev.map(j => ({
       ...j, items: j.items.map(it => it.id === item.id ? { ...it, received_at_hpd: false, received_at_hpd_at: null } : it),
     })));

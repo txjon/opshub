@@ -243,6 +243,28 @@ export async function recordOutbound(supabase: Sb, opts: {
   return recomputeItemFromLedger(supabase, opts.itemId);
 }
 
+// Reverse the receipt(s) of ONE specific box (shipment). Used by box-scoped
+// undo so undoing one box's receipt never touches the other boxes of the same
+// item. Reverses every not-yet-reversed receive movement carrying shipmentId.
+export async function reverseReceiptForShipment(supabase: Sb, itemId: string, shipmentId: string, reason?: string): Promise<number> {
+  const { data: rows } = await supabase.from("movements")
+    .select("*").eq("item_id", itemId).eq("type", "receive").eq("shipment_id", shipmentId)
+    .order("created_at", { ascending: false });
+  const all = (rows || []) as Movement[];
+  const reversed = new Set(all.filter(m => m.reverses_id).map(m => m.reverses_id));
+  const targets = all.filter(m => !m.reverses_id && !reversed.has(m.id));
+  for (const t of targets) {
+    const negation: SizeQtys = {};
+    for (const [s, n] of Object.entries(t.qtys || {})) negation[s] = -(Number(n) || 0);
+    await appendMovement(supabase, {
+      itemId, jobId: t.job_id, type: "receive", qtys: negation, shipmentId,
+      reason: reason || "Undo receipt", reversesId: t.id, description: t.description,
+    });
+  }
+  await recomputeItemFromLedger(supabase, itemId);
+  return targets.length;
+}
+
 // Reverse the LAST movement of a type (per-wave undo). Finds the most recent
 // non-reversal, not-yet-reversed movement of `type`, appends its negation
 // (reverses_id set), and recomputes. Returns the reversed movement (or null).

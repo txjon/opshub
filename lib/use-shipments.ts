@@ -219,6 +219,7 @@ export function useShipments(
           _boxReceived: !!line.received,
           _itemFullyReceived: base.received_at_hpd,   // item cumulative (all boxes in)
           _cumReceivedQtys: base.received_qtys || {},
+          _cumShippedQtys: base.ship_qtys || {},      // item cumulative shipped (all waves)
         });
       }
       if (boxItems.length === 0) continue;
