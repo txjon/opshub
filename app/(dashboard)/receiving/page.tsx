@@ -827,12 +827,22 @@ export default function ReceivingPage() {
       const bTs = b.received_at ? new Date(b.received_at).getTime() : 0;
       return bTs - aTs;
     });
+    // "Forward to client" is a once-per-JOB action (forwardItems forwards all of
+    // a job's ready items together), but it's evaluated per-box — so a 2-box
+    // item would raise it twice. Show it on only the first (newest) box per job;
+    // the item's other received boxes fall through to the time buckets.
+    const forwardJobsShown = new Set<string>();
     for (const s of sorted) {
       // Live-in-Shopify is a terminal bucket — takes priority over
       // everything else so a fresh-from-Shopify shipment doesn't also
       // show in Today or Needs Attention.
       if (isLiveInShopify(s)) { liveInShopify.push(s); continue; }
-      const reason = actionReasonFor(s);
+      let reason = actionReasonFor(s);
+      if (reason === "Forward to client") {
+        const jid = s.jobs[0]?.id;
+        if (jid && forwardJobsShown.has(jid)) reason = null;
+        else if (jid) forwardJobsShown.add(jid);
+      }
       if (reason) { actionRequired.push({ shipment: s, reason }); continue; }
       const ts = s.received_at ? new Date(s.received_at).getTime() : 0;
       if (ts >= todayStart.getTime()) today.push(s);
@@ -1674,7 +1684,7 @@ export default function ReceivingPage() {
                                             {item._shipmentId && item.pipeline_stage !== "shipped" && tQty(item.qtys) > 0 && (
                                               <div style={{ marginTop: 4, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", fontSize: 11, fontFamily: mono }}>
                                                 <span style={{ fontSize: 9, fontWeight: 800, color: T.amber, background: T.amberDim, border: `1px solid ${T.amber}55`, borderRadius: 4, padding: "1px 6px", letterSpacing: "0.04em", textTransform: "uppercase", fontFamily: font }}>Partial shipment</span>
-                                                <span style={{ color: T.muted }}>{tQty(item.ship_qtys)} of {tQty(item.qtys)} ordered · more waves coming</span>
+                                                <span style={{ color: T.muted }}>{tQty(item.ship_qtys)} in this box · {tQty((item as any)._cumShippedQtys || item.ship_qtys)} of {tQty(item.qtys)} shipped so far · more coming</span>
                                               </div>
                                             )}
 

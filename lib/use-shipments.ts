@@ -209,7 +209,11 @@ export function useShipments(
         const lineRecv = (line.received_qtys && Object.keys(line.received_qtys).length) ? line.received_qtys : (line.received ? lineShip : {});
         boxItems.push({
           ...base,
-          // Box-scoped numbers = THIS box's line, not the item's cumulative.
+          // Box-scoped fields = THIS box's line, not the item's cumulative.
+          // ship_tracking is cumulative (last wave) on the item, so override it
+          // with the box's own tracking — else a box modal's item line shows a
+          // different wave's tracking than the box header.
+          ship_tracking: box?.tracking ?? base.ship_tracking,
           ship_qtys: lineShip,
           received_qtys: lineRecv,
           received_at_hpd: !!line.received,
