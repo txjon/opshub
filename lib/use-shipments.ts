@@ -75,7 +75,13 @@ export function pickupTrackingStamp(vendorLabel: string | null | undefined, date
   const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const d = dateIso ? new Date(dateIso) : new Date();
   const v = (vendorLabel || "Vendor").trim() || "Vendor";
-  return `Pickup · ${v} · ${MON[d.getMonth()]} ${d.getDate()}`;
+  // Include the time so two pickup WAVES on the same day get distinct stamps
+  // (and land in distinct boxes) instead of colliding.
+  const h24 = d.getHours();
+  const ampm = h24 >= 12 ? "p" : "a";
+  const h = ((h24 + 11) % 12) + 1;
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `Pickup · ${v} · ${MON[d.getMonth()]} ${d.getDate()}, ${h}:${mm}${ampm}`;
 }
 
 export function normalizeTracking(raw: string | null | undefined): string | null {
