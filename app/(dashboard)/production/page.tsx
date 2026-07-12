@@ -312,6 +312,25 @@ export default function ProductionPage() {
       .in("job_id", jobIds)
       .order("sort_order");
 
+    // Per-item shipment boxes (waves) — each persisted box that carried this
+    // item, with its own tracking + units + date. Powers the "shipped in N
+    // waves" breakdown on the Shipped row.
+    const itemIdsForWaves = (allItems || []).map((it: any) => it.id);
+    const wavesByItem: Record<string, { tracking: string | null; units: number; date: string | null; pickup: boolean }[]> = {};
+    if (itemIdsForWaves.length) {
+      const { data: slines } = await supabase
+        .from("shipment_lines")
+        .select("item_id, ship_qtys, shipments(tracking, created_at, pickup)")
+        .in("item_id", itemIdsForWaves);
+      for (const l of slines || []) {
+        const s = (l as any).shipments || {};
+        const units = Object.values((l as any).ship_qtys || {}).reduce((a: number, n: any) => a + (Number(n) || 0), 0);
+        (wavesByItem[(l as any).item_id] ||= []).push({ tracking: s.tracking || null, units, date: s.created_at || null, pickup: !!s.pickup });
+      }
+      for (const k of Object.keys(wavesByItem)) wavesByItem[k].sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+    }
+    setShipmentsByItem(wavesByItem);
+
     // Group items by job, then by decorator within each job
     const projectMap: Record<string, ProjectGroup> = {};
 
@@ -978,6 +997,8 @@ export default function ProductionPage() {
   const [viewMode, setViewMode] = useState<"grouped" | "list">("grouped");
   const [buildPickerOpen, setBuildPickerOpen] = useState(false); // "+ Build shipment" vendor picker
   const [mockupMap, setMockupMap] = useState<Record<string, { driveFileId: string | null; driveLink: string | null }>>({});
+  // Per-item shipment boxes (waves) for the "shipped in N waves" breakdown.
+  const [shipmentsByItem, setShipmentsByItem] = useState<Record<string, { tracking: string | null; units: number; date: string | null; pickup: boolean }[]>>({});
   const [mockupPeek, setMockupPeek] = useState<{ driveFileId: string | null; name: string } | null>(null);
   // List-view sorting is driven by clicking column headers (asc/desc toggle),
   // independent of the grouped board's sort dropdown.
@@ -1875,9 +1896,25 @@ export default function ProductionPage() {
                               <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
                                 {isShipped ? (
                                   <>
-                                    <span style={{ fontSize: 10, color: T.green, fontWeight: 600 }}>
-                                      {item.ship_tracking || "Shipped"}
-                                    </span>
+                                    {(() => {
+                                      const waves = shipmentsByItem[item.id] || [];
+                                      if (waves.length > 1) {
+                                        // Multi-wave: show the count + each wave's units and its
+                                        // OWN tracking (the row's single ship_tracking is only the
+                                        // latest wave). Full detail is in the History modal.
+                                        return (
+                                          <div style={{ display: "flex", flexDirection: "column", gap: 1, alignItems: "flex-end" }}>
+                                            <span style={{ fontSize: 10, color: T.green, fontWeight: 700 }}>Shipped · {waves.length} waves</span>
+                                            {waves.map((w, wi) => (
+                                              <span key={wi} style={{ fontSize: 9, color: T.muted, fontFamily: mono, whiteSpace: "nowrap" }}>
+                                                {w.units}u · {w.tracking || "no tracking"}
+                                              </span>
+                                            ))}
+                                          </div>
+                                        );
+                                      }
+                                      return <span style={{ fontSize: 10, color: T.green, fontWeight: 600 }}>{item.ship_tracking || "Shipped"}</span>;
+                                    })()}
                                     {(() => {
                                       // Match either the legacy `drop_ship_vendor` records (still
                                       // written by the existing inline button on shipped rows
