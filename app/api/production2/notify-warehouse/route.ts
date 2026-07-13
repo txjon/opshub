@@ -83,7 +83,10 @@ export async function POST(req: NextRequest) {
 
     const resend = resendForSlug("hpd");
     const from = process.env.EMAIL_FROM_PO || "production@housepartydistro.com";
-    const to = test ? (user.email || WAREHOUSE_EMAIL) : WAREHOUSE_EMAIL;
+    // In test mode NEVER fall back to the real warehouse — send to the caller,
+    // and if we can't resolve their email, fail loudly instead of emailing ops.
+    const to = test ? user.email : WAREHOUSE_EMAIL;
+    if (!to) return NextResponse.json({ error: "Couldn't resolve your email for the test send." }, { status: 400 });
     const r: any = await resend.emails.send({
       from: `House Party Distro <${from}>`, to, subject: test ? `[TEST] ${subject}` : subject, html,
     });

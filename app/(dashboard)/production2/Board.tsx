@@ -391,6 +391,7 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
   const [err, setErr] = useState<string | null>(null);
   const [done, setDone] = useState<{ shipped: number; boxes: number; boxIds: string[]; jobIds: string[] } | null>(null);
   const [notified, setNotified] = useState(false);
+  const [notifyTo, setNotifyTo] = useState<string | null>(null);
   const [notifyBusy, setNotifyBusy] = useState(false);
   const [notifyErr, setNotifyErr] = useState<string | null>(null);
   const [notifyOpen, setNotifyOpen] = useState(false);
@@ -424,7 +425,7 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
         body: JSON.stringify({ shipmentIds: done?.boxIds || [], note, test: isTest }),
       });
       const data = await res.json();
-      if (data.success) setNotified(true); else setNotifyErr(data.error || "Notify failed");
+      if (data.success) { setNotified(true); setNotifyTo(data.to || null); } else setNotifyErr(data.error || "Notify failed");
     } catch (e: any) { setNotifyErr(e?.message || "Notify failed"); }
     setNotifyBusy(false);
   }
@@ -483,7 +484,7 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
           <div style={{ display: "flex", gap: 10, marginTop: notifyErr ? 10 : 22, justifyContent: "center" }}>
             <button onClick={openNotify} disabled={notified || notifyBusy}
               style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "10px 18px", cursor: (notified || notifyBusy) ? "default" : "pointer", border: `1px solid ${T.border}`, background: notified ? T.greenDim : T.card, color: notified ? T.green : T.text }}>
-              {notified ? (isDrop ? "✓ Client notified" : "✓ Warehouse notified") : notifyBusy ? "Sending…" : isDrop ? "Notify client" : "Notify warehouse"}
+              {notified ? (notifyTo ? `✓ Sent to ${notifyTo}` : isDrop ? "✓ Client notified" : "✓ Warehouse notified") : notifyBusy ? "Sending…" : isDrop ? "Notify client" : "Notify warehouse"}
             </button>
             <button onClick={onDone} style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "10px 22px", border: "none", cursor: "pointer", background: T.text, color: "#fff" }}>Done</button>
           </div>
