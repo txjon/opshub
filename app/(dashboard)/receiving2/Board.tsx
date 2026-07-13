@@ -13,9 +13,6 @@ const TEST_CLIENTS = ["Playwright Test Co"];
 
 const tQty = (q: Record<string, number>) => Object.values(q || {}).reduce((a, v) => a + (Number(v) || 0), 0);
 const boxHow = (b: ReceivingBox) => b.pickup ? "Pickup" : [b.carrier, b.tracking].filter(Boolean).join(" · ") || "no tracking";
-const PARCEL = new Set(["ups", "dhl", "fedex", "usps"]);
-// method icon: 📦 parcel · 🚚 freight · 🤝 pickup (mirrors the mockup's row icon)
-const boxIcon = (b: ReceivingBox) => b.pickup ? "🤝" : (b.carrier && PARCEL.has(b.carrier.toLowerCase())) ? "📦" : "🚚";
 // where a received item goes next, by route
 const destOf = (route: string) => route === "stage" ? "Fulfillment" : route === "drop_ship" ? "Client" : "Shipping";
 function fmtDay(iso: string | null): string {
@@ -227,7 +224,6 @@ function BoxCard({ box, status, onReceive, acts }: { box: ReceivingBox; status: 
   return (
     <Card>
       <CardHeader>
-        <span style={{ fontSize: 15 }}>{boxIcon(box)}</span>
         <span style={{ fontSize: 13, fontWeight: 700 }}>{box.vendorName}</span>
         <span style={{ fontSize: 10, fontWeight: 700, color: received ? T.green : box.pickup ? "#a87b00" : T.blue, textTransform: "uppercase", letterSpacing: 0.5 }}>{received ? "Received" : box.pickup ? "Pickup" : "Incoming"}</span>
         <span style={{ fontFamily: mono, fontSize: 12, color: T.muted }}>{boxHow(box)}</span>
@@ -295,7 +291,7 @@ function FlatRow({ l, status, onReceive, acts, showBox, showClient }: { l: FlatL
       <div style={{ minWidth: 170 }}>
         <div style={{ fontSize: 13, fontWeight: 500 }}>{l.itemName}</div>
         {showClient && <div style={{ fontSize: 11, color: T.muted }}>{l.client}{l.invoiceNumber ? ` · #${l.invoiceNumber}` : ""}</div>}
-        {showBox && <div style={{ fontSize: 11, color: T.faint }}>{boxIcon(l.box)} {l.box.vendorName} · {boxHow(l.box)}</div>}
+        {showBox && <div style={{ fontSize: 11, color: T.faint }}>{l.box.vendorName} · {boxHow(l.box)}</div>}
       </div>
       <RouteTag route={l.route} />
       <div style={{ flex: 1, minWidth: 90 }}><VariantChips qtys={qtyOf(l, status)} /></div>
