@@ -121,19 +121,21 @@ export type BoardStrip = {
   items: BoardItem[];
 };
 
-const ACTIVE_PHASES = ["ready", "production", "receiving", "shipping", "fulfillment", "on_hold"];
+// Only jobs actually past the ordering gate. NOT "ready" (POs not sent yet) and
+// NOT "on_hold" — those items haven't been pushed to a decorator.
+const ACTIVE_PHASES = ["production", "receiving", "shipping", "fulfillment"];
 
 export async function loadProductionBoard(sb: Sb): Promise<BoardStrip[]> {
   const { data: jobs } = await sb
     .from("jobs")
-    .select("id, job_number, title, phase, priority, target_ship_date, shipping_route, type_meta, clients(name)")
+    .select("id, job_number, title, phase, priority, target_ship_date, shipping_route, type_meta, costing_data, clients(name)")
     .in("phase", ACTIVE_PHASES);
   const jobById = new Map<string, any>((jobs || []).map((j: any) => [j.id, j]));
   if (!jobById.size) return [];
 
   const { data: items } = await sb
     .from("items")
-    .select("id, job_id, name, mockup_color, garment_type, shipping_route, ship_final, sort_order, buy_sheet_lines(size, qty_ordered), decorator_assignments(decorator_id, decorators(name, short_code))")
+    .select("id, job_id, name, mockup_color, garment_type, shipping_route, ship_final, sort_order, pipeline_stage, buy_sheet_lines(size, qty_ordered), decorator_assignments(decorator_id, decorators(name, short_code))")
     .in("job_id", Array.from(jobById.keys()));
   if (!items?.length) return [];
 
@@ -147,6 +149,20 @@ export async function loadProductionBoard(sb: Sb): Promise<BoardStrip[]> {
   const strips = new Map<string, BoardStrip>();
   for (const item of items) {
     const job = jobById.get(item.job_id); if (!job) continue;
+    const assign = (item.decorator_assignments || [])[0] || {};
+
+    // Membership = the item has actually been pushed to its decorator. Mirrors
+    // the live /production board: pipeline_stage says in_production/shipped, OR a
+    // PO was sent to its vendor (po_sent_vendors — the PO email doesn't reliably
+    // write pipeline_stage). Vendor keys match decorator name/short_code + the
+    // costing printVendor label.
+    const poSent = new Set<string>(((job.type_meta?.po_sent_vendors || []) as string[]).map((s: string) => (s || "").toLowerCase().trim()));
+    const cp = (job.costing_data?.costProds || []).find((c: any) => c?.id === item.id);
+    const vendorKeys = [assign.decorators?.name, assign.decorators?.short_code, cp?.printVendor]
+      .filter(Boolean).map((s: string) => s.toLowerCase().trim());
+    const poSentToVendor = vendorKeys.some(v => poSent.has(v));
+    if (item.pipeline_stage !== "in_production" && item.pipeline_stage !== "shipped" && !poSentToVendor) continue;
+
     const jobRoute = resolveRoute(item.shipping_route, job.shipping_route);
     const state = deriveItem({
       ordered: orderedFrom(item.buy_sheet_lines || []),
@@ -158,8 +174,6 @@ export async function loadProductionBoard(sb: Sb): Promise<BoardStrip[]> {
     // closed (fully shipped or marked final), it's left production — Receiving
     // owns it now. in_production / partially_shipped stay (ship the next wave).
     if (state.closed || state.orderedTotal === 0) continue;
-
-    const assign = (item.decorator_assignments || [])[0] || {};
     const decoratorId = assign.decorator_id || null;
     const decoratorName = assign.decorators?.name || "Unassigned vendor";
     const key = `${item.job_id}::${decoratorId || "none"}`;

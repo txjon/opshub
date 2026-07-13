@@ -118,8 +118,10 @@ export default function Board({ strips }: { strips: BoardStrip[] }) {
               <div key={strip.key} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
                 {/* strip header */}
                 <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderBottom: `1px solid ${T.border}`, background: T.surface }}>
-                  <Link href={`/jobs/${strip.jobId}`} style={{ fontSize: 13, fontWeight: 700, color: T.text, textDecoration: "none" }}>{strip.clientName}</Link>
-                  <span style={{ fontFamily: mono, fontSize: 12, color: T.muted }}>{strip.invoiceNumber ? `#${strip.invoiceNumber}` : "no invoice"}</span>
+                  <span style={{ fontSize: 13, fontWeight: 700 }}>{strip.clientName}</span>
+                  {strip.invoiceNumber
+                    ? <Link href={`/jobs/${strip.jobId}`} style={{ fontFamily: mono, fontSize: 12, color: T.blue, textDecoration: "none", fontWeight: 600 }}>#{strip.invoiceNumber}</Link>
+                    : <Link href={`/jobs/${strip.jobId}`} style={{ fontFamily: mono, fontSize: 12, color: T.faint, textDecoration: "none" }}>no invoice</Link>}
                   <span style={{ fontSize: 10, fontWeight: 700, color: route.fg, textTransform: "uppercase", letterSpacing: 0.5 }}>{route.label}</span>
                   <div style={{ flex: 1 }} />
                   <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{strip.decoratorName}</span>
