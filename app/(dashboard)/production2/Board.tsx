@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 import { DriveThumb } from "@/components/DriveThumb";
 import { shipFromProduction } from "@/lib/production2-ship";
+import { createPullRequest, PULL_KINDS } from "@/lib/handoff";
 import { notifyTeam } from "@/components/JobActivityPanel";
 // @ts-ignore — plain JS helper
 import { uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
@@ -15,6 +16,7 @@ type SelItem = BoardItem & { strip: BoardStrip };
 const TEST_JOBS = ["HPD-2605-054"]; // ship write limited here until Jon signs off
 
 const tQty = (q: Record<string, number>) => Object.values(q || {}).reduce((a, v) => a + v, 0);
+const heldQty = (it: BoardItem) => it.pullRequests.reduce((a, p) => a + tQty(p.qtys), 0);
 
 const ROUTE_LABEL: Record<string, { label: string; fg: string }> = {
   drop_ship: { label: "Drop-ship", fg: T.purple },
@@ -44,6 +46,7 @@ export default function Board({ strips, freightCarriers }: { strips: BoardStrip[
   const router = useRouter();
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [shipOpen, setShipOpen] = useState(false);
+  const [pullFor, setPullFor] = useState<SelItem | null>(null);
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortKey>("ship");
   const [kpi, setKpi] = useState<MetricKey | null>(null);
@@ -201,6 +204,12 @@ export default function Board({ strips, freightCarriers }: { strips: BoardStrip[
                             </span>
                           )}
                         </div>
+                        {heldQty(it) > 0 && (
+                          <span title={it.pullRequests.map(p => `${tQty(p.qtys)} ${p.kind || "pull"}`).join(", ")}
+                            style={{ fontSize: 11, fontWeight: 600, color: T.purple }}>{heldQty(it)} held</span>
+                        )}
+                        <button onClick={e => { e.preventDefault(); e.stopPropagation(); setPullFor({ ...it, strip }); }}
+                          style={{ fontSize: 11, fontWeight: 600, color: T.muted, background: "none", border: `1px solid ${T.border}`, borderRadius: 7, padding: "5px 11px", cursor: "pointer" }}>Pull</button>
                         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", minWidth: 56 }}>
                           <span style={{ fontFamily: mono, fontSize: 14, fontWeight: 700 }}>{it.owedTotal}</span>
                           {it.shippedTotal > 0 && <span style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: 0.3 }}>owed</span>}
@@ -231,7 +240,84 @@ export default function Board({ strips, freightCarriers }: { strips: BoardStrip[
       {shipOpen && <ShipModal items={selectedItems} vendorName={selVendorName} decoratorId={selVendor} freightCarriers={freightCarriers}
         onClose={() => setShipOpen(false)}
         onDone={() => { setShipOpen(false); setSel(new Set()); router.refresh(); }} />}
+      {pullFor && <PullModal item={pullFor} onClose={() => setPullFor(null)}
+        onDone={() => { setPullFor(null); router.refresh(); }} />}
       {kpi && <KpiModal metric={kpi} total={agg.total} byVendor={agg.byVendor} byClient={agg.byClient} onClose={() => setKpi(null)} />}
+    </div>
+  );
+}
+
+// Pull modal — production declares units held back (sample / photo / etc). Creates
+// a pull request; receiving fulfills it, and pulled units don't carry downstream
+// (they stack with any receiving pulls — H8). Per-size + kind + note (per spec).
+function PullModal({ item, onClose, onDone }: { item: SelItem; onClose: () => void; onDone: () => void }) {
+  const sizes = sortSizes(Object.keys(item.ordered));
+  const [qtys, setQtys] = useState<Record<string, number>>({});
+  const [kind, setKind] = useState<string>(PULL_KINDS[0].id);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const isTest = TEST_JOBS.includes(item.strip.jobNumber) || item.strip.clientName === "Playwright Test Co";
+  const total = Object.values(qtys).reduce((a, n) => a + (Number(n) || 0), 0);
+  const setQ = (sz: string, v: string) => setQtys(p => ({ ...p, [sz]: Math.max(0, Math.floor(Number(v) || 0)) }));
+
+  async function confirm() {
+    setBusy(true); setErr(null);
+    const res = await createPullRequest(createClient(), {
+      job_id: item.jobId, item_id: item.itemId, kind, qtys, reason: note.trim() || null,
+    });
+    setBusy(false);
+    if (res) onDone(); else setErr("Pull failed.");
+  }
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", zIndex: 60, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 20px", overflowY: "auto" }}>
+      <div style={{ background: T.card, borderRadius: 14, maxWidth: 520, width: "100%", fontFamily: font, boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}>
+        <div style={{ padding: "18px 22px", borderBottom: `1px solid ${T.border}` }}>
+          <div style={{ fontSize: 17, fontWeight: 700 }}>Pull from {item.name}</div>
+          <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>Hold units back — receiving keeps them out of what forwards to the client.</div>
+        </div>
+        <div style={{ padding: "18px 22px", display: "flex", flexDirection: "column", gap: 14 }}>
+          {item.pullRequests.length > 0 && (
+            <div style={{ fontSize: 12, color: T.purple, background: T.purpleDim, borderRadius: 8, padding: "8px 12px" }}>
+              Already held: {item.pullRequests.map(p => `${tQty(p.qtys)} ${p.kind || "pull"}`).join(" · ")} <span style={{ color: T.faint }}>(new pulls stack)</span>
+            </div>
+          )}
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>Quantity to hold</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {sizes.map(sz => (
+                <label key={sz} style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", minWidth: 46 }}>
+                  <span style={{ fontSize: 9, fontWeight: 700, color: T.faint, marginBottom: 2 }}>{sz}</span>
+                  <input inputMode="numeric" value={qtys[sz] ?? 0} onChange={e => setQ(sz, e.target.value)} onFocus={e => e.target.select()}
+                    style={{ width: 46, boxSizing: "border-box", textAlign: "center", fontFamily: mono, fontSize: 12, fontWeight: 600, padding: "5px 4px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.card }} />
+                </label>
+              ))}
+            </div>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>Reason</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {PULL_KINDS.map(k => (
+                <button key={k.id} onClick={() => setKind(k.id)} style={{ fontSize: 12, fontWeight: 600, padding: "7px 12px", borderRadius: 8, cursor: "pointer", border: `1px solid ${kind === k.id ? T.purple : T.border}`, background: kind === k.id ? T.purpleDim : T.card, color: kind === k.id ? T.purple : T.muted }}>{k.label}</button>
+              ))}
+            </div>
+          </div>
+          <input value={note} onChange={e => setNote(e.target.value)} placeholder="Note (optional)"
+            style={{ width: "100%", boxSizing: "border-box", fontSize: 13, padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, fontFamily: font }} />
+        </div>
+        <div style={{ padding: "16px 22px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
+          {!isTest && <span style={{ fontSize: 12, color: T.amber, fontWeight: 600 }}>Pull write is limited to the test job while we verify.</span>}
+          {err && <span style={{ fontSize: 12, color: T.red, fontWeight: 600 }}>{err}</span>}
+          <div style={{ flex: 1 }} />
+          <button onClick={onClose} disabled={busy} style={{ fontSize: 13, background: "none", border: `1px solid ${T.border}`, borderRadius: 8, padding: "9px 16px", cursor: "pointer", color: T.muted }}>Cancel</button>
+          <button onClick={confirm} disabled={!isTest || busy || total === 0}
+            style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "9px 20px", border: "none", cursor: (!isTest || busy || total === 0) ? "not-allowed" : "pointer", background: (!isTest || busy || total === 0) ? T.accentDim : T.purple, color: (!isTest || busy || total === 0) ? T.faint : "#fff" }}>
+            {busy ? "Holding…" : `Hold ${total} back`}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

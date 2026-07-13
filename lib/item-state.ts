@@ -114,7 +114,10 @@ export type BoardItem = ItemView & {
   embellishments: number;      // (active print locations + tag) × units; garments only
   mockupFileId: string | null; // Drive file id of the latest mockup/proof, for the thumbnail
   shipWaves: { tracking: string | null; total: number }[]; // waves already shipped (for partial rows)
+  pullRequests: PullReq[];     // production-declared pulls (held back for sample/photo/etc), pending
 };
+export type PullReq = { id: string; kind: string | null; qtys: Record<string, number>; reason: string | null };
+const pullTotal = (p: PullReq) => Object.values(p.qtys || {}).reduce((a, n) => a + (Number(n) || 0), 0);
 
 // Ship waves already sent for an item = each non-reversed ship movement.
 function shipWavesFrom(raw: any[]): { tracking: string | null; total: number }[] {
@@ -191,6 +194,14 @@ export async function loadProductionBoard(sb: Sb): Promise<BoardStrip[]> {
   for (const f of mockupFiles || []) { if (f.stage === "mockup" && f.drive_file_id && !mockupById.has(f.item_id)) mockupById.set(f.item_id, f.drive_file_id); }
   for (const f of mockupFiles || []) { if (f.drive_file_id && !mockupById.has(f.item_id)) mockupById.set(f.item_id, f.drive_file_id); }
 
+  // pending production-declared pulls per item
+  const { data: pulls } = await sb
+    .from("pull_requests").select("id, item_id, kind, qtys, reason, status").in("item_id", ids).in("status", ["pending", "partial"]);
+  const pullsByItem = new Map<string, PullReq[]>();
+  for (const p of pulls || []) {
+    const a = pullsByItem.get(p.item_id) || []; a.push({ id: p.id, kind: p.kind, qtys: p.qtys || {}, reason: p.reason }); pullsByItem.set(p.item_id, a);
+  }
+
   const strips = new Map<string, BoardStrip>();
   for (const item of items) {
     const job = jobById.get(item.job_id); if (!job) continue;
@@ -237,6 +248,7 @@ export async function loadProductionBoard(sb: Sb): Promise<BoardStrip[]> {
       embellishments: embellishmentsFor(item.garment_type, job.costing_data?.costProds || [], state.orderedTotal),
       mockupFileId: mockupById.get(item.id) || null,
       shipWaves: shipWavesFrom(rawByItem.get(item.id) || []),
+      pullRequests: pullsByItem.get(item.id) || [],
     });
   }
   // sort: soonest ship date first, then job number
