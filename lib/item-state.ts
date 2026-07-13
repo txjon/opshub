@@ -112,6 +112,7 @@ export type BoardItem = ItemView & {
   decoratorCode: string | null;
   garmentType: string | null;
   embellishments: number;      // (active print locations + tag) × units; garments only
+  mockupFileId: string | null; // Drive file id of the latest mockup/proof, for the thumbnail
 };
 
 // Non-garment items aren't screen-printed/embroidered — excluded from the
@@ -166,6 +167,14 @@ export async function loadProductionBoard(sb: Sb): Promise<BoardStrip[]> {
   const byItem = new Map<string, Movement[]>();
   for (const m of allMoves || []) { const a = byItem.get(m.item_id) || []; a.push(toMovement(m)); byItem.set(m.item_id, a); }
 
+  // latest mockup/proof per item, for the row thumbnail
+  const { data: mockupFiles } = await sb
+    .from("item_files").select("item_id, drive_file_id, created_at")
+    .in("stage", ["mockup", "proof"]).is("superseded_at", null).in("item_id", ids)
+    .order("created_at", { ascending: false });
+  const mockupById = new Map<string, string>();
+  for (const f of mockupFiles || []) { if (f.drive_file_id && !mockupById.has(f.item_id)) mockupById.set(f.item_id, f.drive_file_id); }
+
   const strips = new Map<string, BoardStrip>();
   for (const item of items) {
     const job = jobById.get(item.job_id); if (!job) continue;
@@ -210,6 +219,7 @@ export async function loadProductionBoard(sb: Sb): Promise<BoardStrip[]> {
       ...state, itemId: item.id, jobId: item.job_id, name: item.name, mockupColor: item.mockup_color,
       decoratorId, decoratorName, decoratorCode: assign.decorators?.short_code || null, garmentType: item.garment_type,
       embellishments: embellishmentsFor(item.garment_type, job.costing_data?.costProds || [], state.orderedTotal),
+      mockupFileId: mockupById.get(item.id) || null,
     });
   }
   // sort: soonest ship date first, then job number

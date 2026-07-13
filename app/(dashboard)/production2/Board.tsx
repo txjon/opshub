@@ -2,6 +2,7 @@
 import { useState, useMemo } from "react";
 import Link from "next/link";
 import { T, font, mono, sortSizes } from "@/lib/theme";
+import { DriveThumb } from "@/components/DriveThumb";
 import type { BoardStrip, BoardItem } from "@/lib/item-state";
 
 const tQty = (q: Record<string, number>) => Object.values(q || {}).reduce((a, v) => a + v, 0);
@@ -171,25 +172,16 @@ export default function Board({ strips }: { strips: BoardStrip[] }) {
                   {strip.items.map(it => {
                     const checked = sel.has(it.itemId);
                     const blocked = selVendor !== null && it.decoratorId !== selVendor && !checked;
-                    const sizes = sortSizes(Object.keys(it.owed).length ? Object.keys(it.owed) : Object.keys(it.ordered));
                     return (
                       <label key={it.itemId}
-                        style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 16px", borderTop: `1px solid ${T.border}`, cursor: blocked ? "not-allowed" : "pointer", opacity: blocked ? 0.4 : 1, background: checked ? T.blueDim : "transparent" }}>
+                        style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", borderTop: `1px solid ${T.border}`, cursor: blocked ? "not-allowed" : "pointer", opacity: blocked ? 0.4 : 1, background: checked ? T.blueDim : "transparent" }}>
                         <input type="checkbox" checked={checked} disabled={blocked} onChange={() => toggle(it)}
                           style={{ width: 16, height: 16, accentColor: T.blue, cursor: blocked ? "not-allowed" : "pointer" }} />
-                        {it.mockupColor
-                          ? <span title={it.mockupColor} style={{ width: 18, height: 18, borderRadius: 5, background: it.mockupColor, border: `1px solid ${T.border}`, flexShrink: 0 }} />
-                          : <span style={{ width: 18, height: 18, borderRadius: 5, background: T.accentDim, flexShrink: 0 }} />}
-                        <span style={{ fontSize: 13, fontWeight: 500, minWidth: 180 }}>{it.name}</span>
-                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", flex: 1 }}>
-                          {sizes.map(sz => (
-                            <span key={sz} style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", minWidth: 34, padding: "3px 6px", borderRadius: 6, background: T.surface, border: `1px solid ${T.border}` }}>
-                              <span style={{ fontSize: 9, fontWeight: 700, color: T.faint, letterSpacing: 0.3 }}>{sz}</span>
-                              <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 600 }}>{it.owed[sz] ?? it.ordered[sz] ?? 0}</span>
-                            </span>
-                          ))}
-                        </div>
-                        <span style={{ fontFamily: mono, fontSize: 13, fontWeight: 700, minWidth: 44, textAlign: "right" }}>{it.owedTotal}</span>
+                        <DriveThumb driveFileId={it.mockupFileId} alt={it.name}
+                          style={{ width: 40, height: 40, borderRadius: 8, objectFit: "cover", flexShrink: 0, border: `1px solid ${T.border}` }}
+                          fallback={<span style={{ width: 40, height: 40, borderRadius: 8, background: T.surface, border: `1px solid ${T.border}`, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, fontWeight: 700, color: T.faint }}>{(it.name || "?").charAt(0).toUpperCase()}</span>} />
+                        <span style={{ fontSize: 13, fontWeight: 500, flex: 1 }}>{it.name}</span>
+                        <span style={{ fontFamily: mono, fontSize: 14, fontWeight: 700, minWidth: 56, textAlign: "right" }}>{it.owedTotal}</span>
                       </label>
                     );
                   })}
