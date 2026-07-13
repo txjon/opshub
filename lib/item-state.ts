@@ -115,6 +115,7 @@ export type BoardItem = ItemView & {
 export type BoardStrip = {
   key: string;                 // jobId::decoratorId
   jobId: string; jobNumber: string; jobTitle: string; clientName: string;
+  invoiceNumber: string | null; // QB invoice # (client-facing id, from type_meta)
   jobRoute: Route; phase: string; priority: string | null; shipDate: string | null;
   decoratorId: string | null; decoratorName: string; decoratorCode: string | null;
   items: BoardItem[];
@@ -125,7 +126,7 @@ const ACTIVE_PHASES = ["ready", "production", "receiving", "shipping", "fulfillm
 export async function loadProductionBoard(sb: Sb): Promise<BoardStrip[]> {
   const { data: jobs } = await sb
     .from("jobs")
-    .select("id, job_number, title, phase, priority, target_ship_date, shipping_route, clients(name)")
+    .select("id, job_number, title, phase, priority, target_ship_date, shipping_route, type_meta, clients(name)")
     .in("phase", ACTIVE_PHASES);
   const jobById = new Map<string, any>((jobs || []).map((j: any) => [j.id, j]));
   if (!jobById.size) return [];
@@ -165,7 +166,8 @@ export async function loadProductionBoard(sb: Sb): Promise<BoardStrip[]> {
     if (!strips.has(key)) {
       strips.set(key, {
         key, jobId: job.id, jobNumber: job.job_number, jobTitle: job.title,
-        clientName: job.clients?.name || "—", jobRoute, phase: job.phase,
+        clientName: job.clients?.name || "—", invoiceNumber: job.type_meta?.qb_invoice_number || null,
+        jobRoute, phase: job.phase,
         priority: job.priority, shipDate: job.target_ship_date,
         decoratorId, decoratorName, decoratorCode: assign.decorators?.short_code || null, items: [],
       });
