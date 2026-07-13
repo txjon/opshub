@@ -6,6 +6,7 @@
 // STACK, per H8). Runs client-side, like /production2 + the live /receiving.
 
 import { recordReceive, appendMovement, recomputeItemFromLedger, cleanPositive } from "./inventory-ledger";
+import { fulfillPullRequest, recordAdHocPull } from "./handoff";
 import { logJobActivity } from "@/components/JobActivityPanel";
 
 type SizeQtys = Record<string, number>;
@@ -21,8 +22,8 @@ export type ReceiveItemInput = {
   cumReceived: SizeQtys;    // item's prior cumulative received across boxes
   deliveredQtys: SizeQtys;  // what actually arrived in THIS box
 };
-export type FulfillPullInput = { pullId: string; itemId: string; jobId: string; qtys: SizeQtys };
-export type NewPullInput = { itemId: string; jobId: string; qtys: SizeQtys; kind: string; reason: string | null };
+export type FulfillPullInput = { pullId: string; itemId: string; jobId: string; itemName: string; qtys: SizeQtys };
+export type NewPullInput = { itemId: string; jobId: string; itemName: string; qtys: SizeQtys; kind: string; reason: string | null };
 
 export async function receiveBox(sb: any, args: {
   shipmentId: string;
@@ -64,26 +65,40 @@ export async function receiveBox(sb: any, args: {
       await sb.from("shipments").update({ status: "received", received_at: now, received_by: user?.id || null }).eq("id", args.shipmentId);
     }
 
-    // 3) fulfil production-declared pulls → ledger pull movement + close the request
+    // load current sample_qtys for every item being pulled (fulfillPullRequest/
+    // recordAdHocPull accumulate onto it)
+    const pullItemIds = Array.from(new Set([...(args.fulfillPulls || []).map(p => p.itemId), ...(args.newPulls || []).map(p => p.itemId)]));
+    const sampleMap = new Map<string, SizeQtys>();
+    if (pullItemIds.length) {
+      const { data } = await sb.from("items").select("id, sample_qtys").in("id", pullItemIds);
+      for (const i of data || []) sampleMap.set(i.id, i.sample_qtys || {});
+    }
+
+    // 3) fulfil production-declared pulls — lands in pulled_inventory (the held
+    //    bucket, action in notes) + sample_qtys, AND a ledger `pull` movement so
+    //    the derivation drops them from what forwards.
     for (const p of args.fulfillPulls || []) {
       const q = cleanPositive(p.qtys); const t = sum(q);
       if (!t) continue;
-      await appendMovement(sb, { itemId: p.itemId, jobId: p.jobId, type: "pull", qtys: q, shipmentId: args.shipmentId, reason: "Production pull fulfilled at receiving" });
-      await sb.from("pull_requests").update({ status: "fulfilled", fulfilled_qtys: q, fulfilled_at: now, fulfilled_by: user?.id || null }).eq("id", p.pullId);
+      const { data: pr } = await sb.from("pull_requests").select("*").eq("id", p.pullId).single();
+      if (!pr) continue;
+      const next = await fulfillPullRequest(sb, pr as any, { fulfilledQtys: q, itemName: p.itemName, currentSampleQtys: sampleMap.get(p.itemId) || {} });
+      sampleMap.set(p.itemId, next);
+      await appendMovement(sb, { itemId: p.itemId, jobId: p.jobId, type: "pull", qtys: q, shipmentId: args.shipmentId, reason: [pr.kind, pr.reason].filter(Boolean).join(" — ") || "pull" });
       await recomputeItemFromLedger(sb, p.itemId);
       pulledTotal += t; jobs.add(p.jobId);
     }
 
-    // 4) receiving's own pulls → declare + fulfil at once, ledger pull movement (stacks)
+    // 4) receiving's own pulls — same landing (declare + fulfil at once).
     for (const p of args.newPulls || []) {
       const q = cleanPositive(p.qtys); const t = sum(q);
       if (!t) continue;
-      await sb.from("pull_requests").insert({
-        job_id: p.jobId, item_id: p.itemId, shipment_id: args.shipmentId, kind: p.kind, qtys: q,
-        reason: p.reason || null, status: "fulfilled", fulfilled_qtys: q, fulfilled_at: now,
-        requested_by: user?.id || null, requested_by_name: user?.email || null, fulfilled_by: user?.id || null,
+      const next = await recordAdHocPull(sb, {
+        job_id: p.jobId, item_id: p.itemId, item_name: p.itemName, kind: p.kind, qtys: q,
+        reason: p.reason || null, currentSampleQtys: sampleMap.get(p.itemId) || {},
       });
-      await appendMovement(sb, { itemId: p.itemId, jobId: p.jobId, type: "pull", qtys: q, shipmentId: args.shipmentId, reason: `Receiving pull (${p.kind})` });
+      sampleMap.set(p.itemId, next);
+      await appendMovement(sb, { itemId: p.itemId, jobId: p.jobId, type: "pull", qtys: q, shipmentId: args.shipmentId, reason: [p.kind, p.reason].filter(Boolean).join(" — ") || "pull" });
       await recomputeItemFromLedger(sb, p.itemId);
       pulledTotal += t; jobs.add(p.jobId);
     }

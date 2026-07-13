@@ -280,17 +280,20 @@ function PullModal({ item, onClose, onDone }: { item: SelItem; onClose: () => vo
               ))}
             </div>
           </div>
-          <input value={note} onChange={e => setNote(e.target.value)} placeholder="Note (optional)"
-            style={{ width: "100%", boxSizing: "border-box", fontSize: 13, padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, fontFamily: font }} />
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>Action — what happens to these</div>
+            <input value={note} onChange={e => setNote(e.target.value)} placeholder="e.g. Ship to Andrew · hold for photoshoot"
+              style={{ width: "100%", boxSizing: "border-box", fontSize: 13, padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, fontFamily: font }} />
+          </div>
         </div>
         <div style={{ padding: "16px 22px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
           {!isTest && <span style={{ fontSize: 12, color: T.amber, fontWeight: 600 }}>Pull write is limited to the test job while we verify.</span>}
           {err && <span style={{ fontSize: 12, color: T.red, fontWeight: 600 }}>{err}</span>}
           <div style={{ flex: 1 }} />
           <button onClick={onClose} disabled={busy} style={{ fontSize: 13, background: "none", border: `1px solid ${T.border}`, borderRadius: 8, padding: "9px 16px", cursor: "pointer", color: T.muted }}>Cancel</button>
-          <button onClick={confirm} disabled={!isTest || busy || total === 0}
-            style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "9px 20px", border: "none", cursor: (!isTest || busy || total === 0) ? "not-allowed" : "pointer", background: (!isTest || busy || total === 0) ? T.accentDim : T.purple, color: (!isTest || busy || total === 0) ? T.faint : "#fff" }}>
-            {busy ? "Holding…" : `Hold ${total} back`}
+          <button onClick={confirm} disabled={!isTest || busy || total === 0 || !note.trim()}
+            style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "9px 20px", border: "none", cursor: (!isTest || busy || total === 0 || !note.trim()) ? "not-allowed" : "pointer", background: (!isTest || busy || total === 0 || !note.trim()) ? T.accentDim : T.purple, color: (!isTest || busy || total === 0 || !note.trim()) ? T.faint : "#fff" }}>
+            {busy ? "Holding…" : total === 0 ? "Hold back" : !note.trim() ? "Add an action" : `Hold ${total} back`}
           </button>
         </div>
     </ModalShell>
