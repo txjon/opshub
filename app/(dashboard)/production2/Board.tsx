@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 import { DriveThumb } from "@/components/DriveThumb";
-import { ToggleSearch, KpiStrip, KpiBreakdownModal } from "@/components/board-kit";
+import { BoardFrame, ToggleSearch, KpiStrip, KpiBreakdownModal, ModalShell, Card, CardHeader, VariantChips, RouteTag, ItemThumb } from "@/components/board-kit";
 import { shipFromProduction } from "@/lib/production2-ship";
 import { createPullRequest, PULL_KINDS } from "@/lib/handoff";
 // @ts-ignore — plain JS component
@@ -19,12 +19,6 @@ const TEST_JOBS = ["HPD-2605-054"]; // ship write limited here until Jon signs o
 
 const tQty = (q: Record<string, number>) => Object.values(q || {}).reduce((a, v) => a + v, 0);
 const heldQty = (it: BoardItem) => it.pullRequests.reduce((a, p) => a + tQty(p.qtys), 0);
-
-const ROUTE_LABEL: Record<string, { label: string; fg: string }> = {
-  drop_ship: { label: "Drop-ship", fg: T.purple },
-  ship_through: { label: "Ship-through", fg: T.blue },
-  stage: { label: "Stage", fg: "#a87b00" },
-};
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 function fmtShip(iso: string | null): { text: string; days: number | null } {
@@ -123,19 +117,7 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
   const selVendorName = selectedItems[0]?.decoratorName ?? "";
 
   return (
-    <div style={{ fontFamily: font, background: T.bg, minHeight: "100vh", color: T.text, paddingBottom: 96 }}>
-      <style>{`
-        .kpi-tile { transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease; }
-        .kpi-tile:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(0,0,0,0.09); border-color: #c4c4cc; }
-        .kpi-tile:active { transform: translateY(0); }
-      `}</style>
-      <div style={{ maxWidth: 1180, margin: "0 auto", padding: "28px 24px" }}>
-        {/* header */}
-        <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 4 }}>
-          <h1 style={{ fontSize: 26, fontWeight: 700, margin: 0, letterSpacing: -0.3 }}>Production</h1>
-          <span style={{ fontSize: 12, color: T.faint }}>v2 · parallel dev</span>
-        </div>
-
+    <BoardFrame title="Production">
         <ToggleSearch
           options={[["production", `In production${strips.length ? " · " + strips.reduce((a, s) => a + s.items.length, 0) : ""}`], ["shipped", `Shipped${shippedBoxes.length ? " · " + shippedBoxes.length : ""}`]]}
           value={view} onChange={setView} query={query} setQuery={setQuery} placeholder="Search client, invoice, vendor, or item…" />
@@ -167,26 +149,24 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
 
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {display.map(strip => {
-            const route = ROUTE_LABEL[strip.jobRoute] || ROUTE_LABEL.ship_through;
             const stripUnits = strip.items.reduce((a, i) => a + i.owedTotal, 0);
             const ship = fmtShip(strip.shipDate);
             const shipColor = ship.days == null ? T.faint : ship.days < 0 ? T.red : ship.days <= 3 ? "#a87b00" : T.text;
             return (
-              <div key={strip.key} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
-                {/* strip header */}
-                <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderBottom: `1px solid ${T.border}`, background: T.surface }}>
+              <Card key={strip.key}>
+                <CardHeader>
                   <span style={{ fontSize: 13, fontWeight: 700 }}>{strip.clientName}</span>
                   {strip.invoiceNumber
                     ? <Link href={`/jobs/${strip.jobId}`} style={{ fontFamily: mono, fontSize: 12, color: T.blue, textDecoration: "none", fontWeight: 600 }}>#{strip.invoiceNumber}</Link>
                     : <Link href={`/jobs/${strip.jobId}`} style={{ fontFamily: mono, fontSize: 12, color: T.faint, textDecoration: "none" }}>no invoice</Link>}
-                  <span style={{ fontSize: 10, fontWeight: 700, color: route.fg, textTransform: "uppercase", letterSpacing: 0.5 }}>{route.label}</span>
+                  <RouteTag route={strip.jobRoute} />
                   <div style={{ flex: 1 }} />
                   <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{strip.decoratorName}</span>
                   <span style={{ fontFamily: mono, fontSize: 12, color: T.muted }}>{stripUnits}u</span>
                   <span style={{ fontSize: 13, fontWeight: 700, color: shipColor, minWidth: 78, textAlign: "right" }}>
                     {ship.text}{ship.days != null && ship.days < 0 ? " · late" : ""}
                   </span>
-                </div>
+                </CardHeader>
 
                 {/* items */}
                 <div>
@@ -198,9 +178,7 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
                         style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", borderTop: `1px solid ${T.border}`, cursor: blocked ? "not-allowed" : "pointer", opacity: blocked ? 0.4 : 1, background: checked ? T.blueDim : "transparent" }}>
                         <input type="checkbox" checked={checked} disabled={blocked} onChange={() => toggle(it)}
                           style={{ width: 16, height: 16, accentColor: T.blue, cursor: blocked ? "not-allowed" : "pointer" }} />
-                        <DriveThumb driveFileId={it.mockupFileId} alt="" maxRetries={0} enlargeable title={it.name}
-                          style={{ width: 40, height: 40, borderRadius: 8, objectFit: "cover", flexShrink: 0, border: `1px solid ${T.border}`, cursor: "zoom-in" }}
-                          fallback={<span style={{ width: 40, height: 40, borderRadius: 8, background: T.surface, border: `1px solid ${T.border}`, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, fontWeight: 700, color: T.faint }}>{(it.name || "?").charAt(0).toUpperCase()}</span>} />
+                        <ItemThumb fileId={it.mockupFileId} name={it.name} />
                         <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
                           <span style={{ fontSize: 13, fontWeight: 500 }}>{it.name}</span>
                           {it.shippedTotal > 0 && (
@@ -226,12 +204,11 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
                     );
                   })}
                 </div>
-              </div>
+              </Card>
             );
           })}
         </div>
         </>)}
-      </div>
 
       {/* sticky ship bar */}
       {sel.size > 0 && (
@@ -254,7 +231,7 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
       {kpi && <KpiBreakdownModal label={METRICS.find(m => m.key === kpi)!.label} total={agg.total[kpi]} unit="total in production"
         cols={[{ title: "By vendor", rows: kpiRows(agg.byVendor, kpi) }, { title: "By client", rows: kpiRows(agg.byClient, kpi) }]}
         onClose={() => setKpi(null)} />}
-    </div>
+    </BoardFrame>
   );
 }
 
@@ -283,8 +260,7 @@ function PullModal({ item, onClose, onDone }: { item: SelItem; onClose: () => vo
   }
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", zIndex: 60, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 20px", overflowY: "auto" }}>
-      <div style={{ background: T.card, borderRadius: 14, maxWidth: 520, width: "100%", fontFamily: font, boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}>
+    <ModalShell onClose={onClose} maxWidth={520} dismissable={false}>
         <div style={{ padding: "18px 22px", borderBottom: `1px solid ${T.border}` }}>
           <div style={{ fontSize: 17, fontWeight: 700 }}>Pull from {item.name}</div>
           <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>Hold units back — receiving keeps them out of what forwards to the client.</div>
@@ -328,8 +304,7 @@ function PullModal({ item, onClose, onDone }: { item: SelItem; onClose: () => vo
             {busy ? "Holding…" : `Hold ${total} back`}
           </button>
         </div>
-      </div>
-    </div>
+    </ModalShell>
   );
 }
 
@@ -531,8 +506,9 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
   // ── success screen ──
   if (done) {
     return (
-      <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", zIndex: 60, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 20px", overflowY: "auto" }}>
-        <div style={{ background: T.card, borderRadius: 14, maxWidth: 480, width: "100%", fontFamily: font, boxShadow: "0 20px 60px rgba(0,0,0,0.2)", padding: "28px 26px", textAlign: "center" }}>
+      <>
+      <ModalShell onClose={onDone} maxWidth={480}>
+        <div style={{ padding: "28px 26px", textAlign: "center" }}>
           <div style={{ width: 46, height: 46, borderRadius: 999, background: T.greenDim, color: T.green, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24, margin: "0 auto 12px" }}>✓</div>
           <div style={{ fontSize: 18, fontWeight: 700 }}>Shipped {done.shipped} units</div>
           <div style={{ fontSize: 13, color: T.muted, marginTop: 3 }}>{vendorName} · {done.boxes} box{done.boxes > 1 ? "es" : ""} → receiving</div>
@@ -545,20 +521,20 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
             <button onClick={onDone} style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "10px 22px", border: "none", cursor: "pointer", background: T.text, color: "#fff" }}>Done</button>
           </div>
         </div>
-        {notifyOpen && primary && (
-          <NotifyShipmentDialog open={notifyOpen} onClose={() => setNotifyOpen(false)} onSent={() => { setNotified(true); setNotifyOpen(false); }}
-            route={shipRoute} jobId={primary.jobId} decoratorId={decoratorId} decoratorName={vendorName}
-            tracking={ref || null} qbInvoiceNumber={primary.strip.invoiceNumber || ""} clientName={primary.strip.clientName}
-            jobTitle={primary.strip.jobTitle} contacts={contacts as any} initialMessage={note} />
-        )}
-      </div>
+      </ModalShell>
+      {notifyOpen && primary && (
+        <NotifyShipmentDialog open={notifyOpen} onClose={() => setNotifyOpen(false)} onSent={() => { setNotified(true); setNotifyOpen(false); }}
+          route={shipRoute} jobId={primary.jobId} decoratorId={decoratorId} decoratorName={vendorName}
+          tracking={ref || null} qbInvoiceNumber={primary.strip.invoiceNumber || ""} clientName={primary.strip.clientName}
+          jobTitle={primary.strip.jobTitle} contacts={contacts as any} initialMessage={note} />
+      )}
+      </>
     );
   }
 
   // ── ship form ── (backdrop click does NOT close — only Cancel, to avoid losing input)
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", zIndex: 60, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 20px", overflowY: "auto" }}>
-      <div style={{ background: T.card, borderRadius: 14, maxWidth: 660, width: "100%", fontFamily: font, boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}>
+    <ModalShell onClose={onClose} maxWidth={660} dismissable={false}>
         <div style={{ padding: "18px 22px", borderBottom: `1px solid ${T.border}` }}>
           <div style={{ fontSize: 17, fontWeight: 700 }}>Ship from production</div>
           <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>{vendorName} · {items.length} item{items.length > 1 ? "s" : ""} · {totalUnits} units → one shipment</div>
@@ -654,7 +630,6 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
             {busy ? busyLabel : `Confirm ship · ${totalUnits}u`}
           </button>
         </div>
-      </div>
-    </div>
+    </ModalShell>
   );
 }
