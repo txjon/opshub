@@ -295,7 +295,6 @@ function ReceiveModal({ box, onClose, onDone }: { box: ReceivingBox; onClose: ()
     return f;
   });
   const [newPull, setNewPull] = useState<Record<string, { qtys: Record<string, number>; kind: string; reason: string } | undefined>>({});
-  const [condition, setCondition] = useState<"good" | "damaged">("good");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -322,7 +321,7 @@ function ReceiveModal({ box, onClose, onDone }: { box: ReceivingBox; onClose: ()
   async function confirm() {
     setBusy(true); setErr(null);
     const res = await receiveBoxAction(createClient(), {
-      shipmentId: box.id, note, condition,
+      shipmentId: box.id, note,
       items: box.lines.map(l => ({ itemId: l.itemId, jobId: l.jobId, itemName: l.itemName, cumReceived: l.cumReceived, deliveredQtys: qtys[l.itemId] || {} })),
       fulfillPulls: box.lines.flatMap(l => l.pullRequests.filter(p => fulfil[p.id]).map(p => ({ pullId: p.id, itemId: l.itemId, jobId: l.jobId, itemName: l.itemName, qtys: p.qtys }))),
       newPulls: Object.entries(newPull).filter(([, np]) => np && tQty(np.qtys) > 0).map(([itemId, np]) => {
@@ -423,15 +422,8 @@ function ReceiveModal({ box, onClose, onDone }: { box: ReceivingBox; onClose: ()
           </div>
         ))}
 
-        {/* condition + note */}
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 16 }}>
-          <span style={{ fontSize: 12, color: T.faint }}>Condition</span>
-          {(["good", "damaged"] as const).map(c => (
-            <button key={c} onClick={() => setCondition(c)} style={{ fontSize: 12, fontWeight: 600, padding: "6px 14px", borderRadius: 8, cursor: "pointer", border: `1px solid ${condition === c ? (c === "damaged" ? T.red : T.text) : T.border}`, background: condition === c ? (c === "damaged" ? T.redDim : T.text) : T.card, color: condition === c ? (c === "damaged" ? T.red : "#fff") : T.muted }}>{c === "good" ? "Good" : "Damaged"}</button>
-          ))}
-        </div>
-        <input value={note} onChange={e => setNote(e.target.value)} placeholder="Note (optional)"
-          style={{ marginTop: 10, width: "100%", boxSizing: "border-box", fontSize: 13, padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, fontFamily: font }} />
+        <input value={note} onChange={e => setNote(e.target.value)} placeholder="Note for the box (optional)"
+          style={{ marginTop: 16, width: "100%", boxSizing: "border-box", fontSize: 13, padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, fontFamily: font }} />
       </div>
 
       <div style={{ padding: "16px 22px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>

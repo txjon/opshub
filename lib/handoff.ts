@@ -217,6 +217,7 @@ export type PullRequestRow = {
 };
 
 export const PULL_KINDS = [
+  { id: "damaged", label: "Damaged" },
   { id: "sample", label: "Sample" },
   { id: "photo", label: "Photo shoot" },
   { id: "catalog", label: "Catalog" },
