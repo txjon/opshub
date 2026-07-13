@@ -93,28 +93,27 @@ export default function Board({ strips }: { strips: BoardStrip[] }) {
   const selectedItems = useMemo(() => Array.from(sel).map(id => allItems.get(id)!).filter(Boolean), [sel, allItems]);
   const selUnits = selectedItems.reduce((a, it) => a + it.owedTotal, 0);
   const selVendorName = selectedItems[0]?.decoratorName ?? "";
-  const totalItems = strips.reduce((a, s) => a + s.items.length, 0);
 
   return (
     <div style={{ fontFamily: font, background: T.bg, minHeight: "100vh", color: T.text, paddingBottom: 96 }}>
+      <style>{`
+        .kpi-tile { transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease; }
+        .kpi-tile:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(0,0,0,0.09); border-color: #c4c4cc; }
+        .kpi-tile:active { transform: translateY(0); }
+      `}</style>
       <div style={{ maxWidth: 1180, margin: "0 auto", padding: "28px 24px" }}>
         {/* header */}
         <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 4 }}>
           <h1 style={{ fontSize: 26, fontWeight: 700, margin: 0, letterSpacing: -0.3 }}>Production</h1>
           <span style={{ fontSize: 12, color: T.faint }}>v2 · parallel dev</span>
         </div>
-        <p style={{ color: T.muted, fontSize: 13, margin: "0 0 16px" }}>
-          Ship items out from production. {totalItems} items across {strips.length} job × vendor strips.
-        </p>
-
         {/* KPIs — click a tile for a by-vendor / by-client breakdown */}
-        <div style={{ display: "flex", gap: 12, marginBottom: 18 }}>
+        <div style={{ display: "flex", gap: 12, margin: "16px 0 18px" }}>
           {METRICS.map(m => (
-            <button key={m.key} onClick={() => setKpi(m.key)}
+            <button key={m.key} onClick={() => setKpi(m.key)} className="kpi-tile"
               style={{ flex: 1, textAlign: "left", background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: "14px 16px", cursor: "pointer" }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: 0.5 }}>{m.label}</div>
               <div style={{ fontFamily: mono, fontSize: 26, fontWeight: 700, marginTop: 2 }}>{nf(agg.total[m.key])}</div>
-              <div style={{ fontSize: 11, color: T.blue, marginTop: 2 }}>breakdown →</div>
             </button>
           ))}
         </div>
