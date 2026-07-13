@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 import { DriveThumb } from "@/components/DriveThumb";
+import { ToggleSearch, KpiStrip, KpiBreakdownModal } from "@/components/board-kit";
 import { shipFromProduction } from "@/lib/production2-ship";
 import { createPullRequest, PULL_KINDS } from "@/lib/handoff";
 // @ts-ignore — plain JS component
@@ -135,29 +136,13 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
           <span style={{ fontSize: 12, color: T.faint }}>v2 · parallel dev</span>
         </div>
 
-        {/* view toggle + shared search (works in both views) */}
-        <div style={{ display: "flex", gap: 12, alignItems: "center", margin: "14px 0 2px", flexWrap: "wrap" }}>
-          <div style={{ display: "flex", gap: 8 }}>
-            {([["production", `In production${strips.length ? " · " + strips.reduce((a, s) => a + s.items.length, 0) : ""}`], ["shipped", `Shipped${shippedBoxes.length ? " · " + shippedBoxes.length : ""}`]] as ["production" | "shipped", string][]).map(([k, label]) => (
-              <button key={k} onClick={() => setView(k)} style={{ fontSize: 13, fontWeight: 600, padding: "8px 16px", borderRadius: 9, cursor: "pointer", border: `1px solid ${view === k ? T.text : T.border}`, background: view === k ? T.text : T.card, color: view === k ? "#fff" : T.muted }}>{label}</button>
-            ))}
-          </div>
-          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search client, invoice, vendor, or item…"
-            style={{ flex: 1, minWidth: 220, fontSize: 13, padding: "9px 14px", borderRadius: 9, border: `1px solid ${T.border}`, background: T.card, fontFamily: font, outline: "none" }} />
-        </div>
+        <ToggleSearch
+          options={[["production", `In production${strips.length ? " · " + strips.reduce((a, s) => a + s.items.length, 0) : ""}`], ["shipped", `Shipped${shippedBoxes.length ? " · " + shippedBoxes.length : ""}`]]}
+          value={view} onChange={setView} query={query} setQuery={setQuery} placeholder="Search client, invoice, vendor, or item…" />
 
         {view === "shipped" && <ShippedView boxes={displayBoxes} />}
         {view === "production" && (<>
-        {/* KPIs — click a tile for a by-vendor / by-client breakdown */}
-        <div style={{ display: "flex", gap: 12, margin: "16px 0 18px" }}>
-          {METRICS.map(m => (
-            <button key={m.key} onClick={() => setKpi(m.key)} className="kpi-tile"
-              style={{ flex: 1, textAlign: "left", background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: "14px 16px", cursor: "pointer" }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: 0.5 }}>{m.label}</div>
-              <div style={{ fontFamily: mono, fontSize: 26, fontWeight: 700, marginTop: 2 }}>{nf(agg.total[m.key])}</div>
-            </button>
-          ))}
-        </div>
+        <KpiStrip metrics={METRICS} get={k => agg.total[k]} onClick={setKpi} />
 
         {/* sort (production strips) */}
         <div style={{ display: "flex", gap: 12, marginBottom: 18, alignItems: "center", justifyContent: "flex-end" }}>
@@ -266,7 +251,9 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
         onDone={() => { setShipOpen(false); setSel(new Set()); router.refresh(); }} />}
       {pullFor && <PullModal item={pullFor} onClose={() => setPullFor(null)}
         onDone={() => { setPullFor(null); router.refresh(); }} />}
-      {kpi && <KpiModal metric={kpi} total={agg.total} byVendor={agg.byVendor} byClient={agg.byClient} onClose={() => setKpi(null)} />}
+      {kpi && <KpiBreakdownModal label={METRICS.find(m => m.key === kpi)!.label} total={agg.total[kpi]} unit="total in production"
+        cols={[{ title: "By vendor", rows: kpiRows(agg.byVendor, kpi) }, { title: "By client", rows: kpiRows(agg.byClient, kpi) }]}
+        onClose={() => setKpi(null)} />}
     </div>
   );
 }
@@ -346,46 +333,9 @@ function PullModal({ item, onClose, onDone }: { item: SelItem; onClose: () => vo
   );
 }
 
-// KPI breakdown modal — one metric, split by vendor and by client.
-function KpiModal({ metric, total, byVendor, byClient, onClose }:
-  { metric: MetricKey; total: Metric; byVendor: Map<string, Metric>; byClient: Map<string, Metric>; onClose: () => void }) {
-  const label = METRICS.find(m => m.key === metric)!.label;
-  const rows = (m: Map<string, Metric>) =>
-    Array.from(m.entries()).map(([name, v]) => ({ name, value: v[metric] }))
-      .filter(r => r.value > 0).sort((a, b) => b.value - a.value);
-  const vendors = rows(byVendor), clients = rows(byClient);
-  const Col = ({ title, data }: { title: string; data: { name: string; value: number }[] }) => (
-    <div style={{ flex: 1, minWidth: 0 }}>
-      <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>{title}</div>
-      <div style={{ display: "flex", flexDirection: "column" }}>
-        {data.map(r => (
-          <div key={r.name} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 0", borderBottom: `1px solid ${T.border}` }}>
-            <span style={{ fontSize: 13, flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.name}</span>
-            <span style={{ fontFamily: mono, fontSize: 13, fontWeight: 700 }}>{nf(r.value)}</span>
-          </div>
-        ))}
-        {data.length === 0 && <span style={{ fontSize: 12, color: T.faint }}>None</span>}
-      </div>
-    </div>
-  );
-  return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", zIndex: 60, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 20px", overflowY: "auto" }}>
-      <div onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 14, maxWidth: 620, width: "100%", fontFamily: font, boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}>
-        <div style={{ padding: "18px 22px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "baseline", gap: 10 }}>
-          <span style={{ fontSize: 17, fontWeight: 700 }}>{label}</span>
-          <span style={{ fontFamily: mono, fontSize: 15, fontWeight: 700, color: T.muted }}>{nf(total[metric])}</span>
-          <span style={{ fontSize: 12, color: T.faint }}>total in production</span>
-        </div>
-        <div style={{ padding: "18px 22px", display: "flex", gap: 28 }}>
-          <Col title="By vendor" data={vendors} />
-          <Col title="By client" data={clients} />
-        </div>
-        <div style={{ padding: "14px 22px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "flex-end" }}>
-          <button onClick={onClose} style={{ fontSize: 13, background: "none", border: `1px solid ${T.border}`, borderRadius: 8, padding: "9px 16px", cursor: "pointer", color: T.muted }}>Close</button>
-        </div>
-      </div>
-    </div>
-  );
+// Rows for the shared KPI breakdown modal — one metric, sorted desc.
+function kpiRows(m: Map<string, Metric>, metric: MetricKey) {
+  return Array.from(m.entries()).map(([name, v]) => ({ name, value: v[metric] })).filter(r => r.value > 0).sort((a, b) => b.value - a.value);
 }
 
 // Shipped view — recent boxes shipped from production, still un-received. Lets
