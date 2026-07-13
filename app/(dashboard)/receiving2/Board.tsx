@@ -66,7 +66,19 @@ export default function Board({ boxes }: { boxes: ReceivingBox[] }) {
           <span style={{ fontSize: 12, color: T.faint }}>v2 · parallel dev</span>
         </div>
 
-        {/* KPIs */}
+        {/* view toggle + search FIRST — same order + pill style as production */}
+        <div style={{ display: "flex", gap: 12, alignItems: "center", margin: "14px 0 2px", flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 8 }}>
+            {([["shipment", "By shipment"], ["job", "By job"], ["item", "By item"]] as [ViewKey, string][]).map(([k, label]) => (
+              <button key={k} onClick={() => setView(k)}
+                style={{ fontSize: 13, fontWeight: 600, padding: "8px 16px", borderRadius: 9, cursor: "pointer", border: `1px solid ${view === k ? T.text : T.border}`, background: view === k ? T.text : T.card, color: view === k ? "#fff" : T.muted }}>{label}</button>
+            ))}
+          </div>
+          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search vendor, client, invoice, item, or tracking…"
+            style={{ flex: 1, minWidth: 220, fontSize: 13, padding: "9px 14px", borderRadius: 9, border: `1px solid ${T.border}`, background: T.card, fontFamily: font, outline: "none" }} />
+        </div>
+
+        {/* KPIs — same tiles + spacing as production */}
         <div style={{ display: "flex", gap: 12, margin: "16px 0 18px" }}>
           {METRICS.map(m => (
             <button key={m.key} onClick={() => setKpi(m.key)} className="kpi-tile"
@@ -75,18 +87,6 @@ export default function Board({ boxes }: { boxes: ReceivingBox[] }) {
               <div style={{ fontFamily: mono, fontSize: 26, fontWeight: 700, marginTop: 2 }}>{nf(agg.total[m.key])}</div>
             </button>
           ))}
-        </div>
-
-        {/* view toggle + search (production standard) */}
-        <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 18, flexWrap: "wrap" }}>
-          <div style={{ display: "flex", border: `1px solid ${T.border}`, borderRadius: 9, overflow: "hidden" }}>
-            {([["shipment", "By shipment"], ["job", "By job"], ["item", "By item"]] as [ViewKey, string][]).map(([k, label]) => (
-              <button key={k} onClick={() => setView(k)}
-                style={{ fontSize: 12, fontWeight: 600, padding: "9px 14px", border: "none", cursor: "pointer", background: view === k ? T.text : T.card, color: view === k ? "#fff" : T.muted }}>{label}</button>
-            ))}
-          </div>
-          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search vendor, client, invoice, item, or tracking…"
-            style={{ flex: 1, minWidth: 220, fontSize: 13, padding: "9px 14px", borderRadius: 9, border: `1px solid ${T.border}`, background: T.card, fontFamily: font, outline: "none" }} />
         </div>
 
         {display.length === 0 && (
@@ -261,7 +261,7 @@ function ClientGroups({ lines, thumbs = true }: { lines: ReceivingLine[]; thumbs
 function BoxCard({ box, onReceive }: { box: ReceivingBox; onReceive: () => void }) {
   return (
     <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", background: T.surface }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderBottom: `1px solid ${T.border}`, background: T.surface }}>
         <span style={{ fontSize: 13, fontWeight: 700 }}>{box.vendorName}</span>
         <span style={{ fontSize: 10, fontWeight: 700, color: box.pickup ? "#a87b00" : T.blue, textTransform: "uppercase", letterSpacing: 0.5 }}>{box.pickup ? "Pickup" : "Incoming"}</span>
         <span style={{ fontFamily: mono, fontSize: 12, color: T.muted }}>{boxHow(box)}</span>
@@ -270,8 +270,8 @@ function BoxCard({ box, onReceive }: { box: ReceivingBox; onReceive: () => void 
         ))}
         <div style={{ flex: 1 }} />
         <span style={{ fontSize: 12, color: T.faint }}>{fmtWhen(box.createdAt)}</span>
-        <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700 }}>{box.totalUnits}u</span>
-        <button onClick={onReceive} style={{ fontSize: 13, fontWeight: 600, background: T.text, color: "#fff", border: "none", borderRadius: 8, padding: "7px 16px", cursor: "pointer" }}>Receive →</button>
+        <span style={{ fontFamily: mono, fontSize: 12, color: T.muted }}>{box.totalUnits}u</span>
+        <span onClick={onReceive} style={{ fontSize: 13, fontWeight: 700, color: T.text, cursor: "pointer" }}>Receive →</span>
       </div>
       <ClientGroups lines={box.lines} />
     </div>
