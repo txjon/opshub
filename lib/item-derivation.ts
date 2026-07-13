@@ -15,7 +15,10 @@
 
 export type SizeQtys = Record<string, number>;
 export type Route = "drop_ship" | "ship_through" | "stage";
-export type MovementType = "ship" | "receive" | "forward" | "enter" | "pull" | "adjust";
+// Movement types (align with the DB `movements.type` constraint). `stage` IS the
+// "enter into Shopify" movement — internal name kept from migration 119 (has
+// data); the UI labels it "Enter into Shopify". `pull` is new (pulls in the ledger).
+export type MovementType = "ship" | "receive" | "forward" | "stage" | "pull" | "adjust";
 
 export type Movement = {
   type: MovementType;
@@ -114,7 +117,7 @@ export function deriveItem(input: ItemInput): ItemState {
   const shipped = netType(M, "ship");
   const received = netType(M, "receive");
   const forwarded = netType(M, "forward");
-  const entered = netType(M, "enter");
+  const entered = netType(M, "stage");   // "stage" movement = entered into Shopify
   const pulled = netType(M, "pull");   // production + receiving pulls STACK (all sum here)
 
   const orderedTotal = sum(ordered), shippedTotal = sum(shipped);

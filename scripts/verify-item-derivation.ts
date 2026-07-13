@@ -63,7 +63,7 @@ scenario("H · over-ship (positive variance)",
 
 // I — stage: enter into Shopify = end of road
 scenario("I · stage → entered into Shopify",
-  { ordered: { OSFA: 50 }, route: "stage", shipFinal: true, movements: [mv("ship", { OSFA: 50 }), mv("receive", { OSFA: 50 }), mv("enter", { OSFA: 50 })] },
+  { ordered: { OSFA: 50 }, route: "stage", shipFinal: true, movements: [mv("ship", { OSFA: 50 }), mv("receive", { OSFA: 50 }), mv("stage", { OSFA: 50 })] },
   s => { eqN(s.enteredTotal, 50, "entered 50"); eqN(s.availableToEnterTotal, 0, "avail-to-enter 0"); eqN(s.onHandTotal, 0, "onHand 0"); ok(s.status === "entered", "status entered"); });
 
 // J — the forward-once gate does NOT hang on a short-final item
