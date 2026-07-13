@@ -43,6 +43,30 @@ export async function returnReceivedLine(sb: any, args: { shipmentId: string; it
   } catch (e: any) { console.error("[receiving2] returnReceivedLine", e); return { ok: false, error: e?.message || "Return failed." }; }
 }
 
+// Return an INCOMING (not-yet-received) item back one stage to production
+// (spec: receiving→production). Reverses this box's ship movement(s) for the
+// item (append-only), clears the final flag, and drops the line from the box so
+// the item's owed climbs back and it reappears on the production board.
+export async function returnIncomingToProduction(sb: any, args: { shipmentId: string; itemId: string; jobId: string; itemName: string }): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const { data: rows } = await sb.from("movements")
+      .select("*").eq("item_id", args.itemId).eq("type", "ship").eq("shipment_id", args.shipmentId)
+      .order("created_at", { ascending: false });
+    const all = (rows || []) as any[];
+    const reversed = new Set(all.filter(m => m.reverses_id).map(m => m.reverses_id));
+    const targets = all.filter(m => !m.reverses_id && !reversed.has(m.id));
+    for (const t of targets) {
+      const neg = Object.fromEntries(Object.entries(t.qtys || {}).map(([s, n]) => [s, -(Number(n) || 0)]));
+      await appendMovement(sb, { itemId: args.itemId, jobId: t.job_id, type: "ship", qtys: neg, shipmentId: args.shipmentId, reason: "Returned to production", reversesId: t.id, description: t.description });
+    }
+    await sb.from("items").update({ ship_final: false }).eq("id", args.itemId);
+    await sb.from("shipment_lines").delete().eq("shipment_id", args.shipmentId).eq("item_id", args.itemId);
+    await recomputeItemFromLedger(sb, args.itemId);
+    logJobActivity(args.jobId, `Returned ${args.itemName} to production`);
+    return { ok: true };
+  } catch (e: any) { console.error("[receiving2] returnIncomingToProduction", e); return { ok: false, error: e?.message || "Return failed." }; }
+}
+
 // Edit a received line's count in place — reverse this box's receipt, then append
 // the corrected quantity (both stay on the ledger). Keeps the line received.
 export async function editReceivedLine(sb: any, args: { shipmentId: string; itemId: string; jobId: string; itemName: string; newReceived: SizeQtys }): Promise<{ ok: boolean; error?: string }> {

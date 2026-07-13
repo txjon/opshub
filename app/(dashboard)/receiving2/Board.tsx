@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 import { BoardFrame, ToggleSearch, KpiStrip, KpiBreakdownModal, ModalShell, Card, CardHeader, VariantChips, RouteTag, ItemThumb, SegmentControl, SliceSortRow } from "@/components/board-kit";
-import { receiveBox as receiveBoxAction, resolvePull, returnReceivedLine, editReceivedLine } from "@/lib/receiving2-receive";
+import { receiveBox as receiveBoxAction, resolvePull, returnReceivedLine, editReceivedLine, returnIncomingToProduction } from "@/lib/receiving2-receive";
 import { PULL_KINDS } from "@/lib/handoff";
 import LedgerHistory from "@/components/LedgerHistory";
 import type { ReceivingBox, ReceivingLine, HeldPull } from "@/lib/item-state";
@@ -20,12 +20,9 @@ function fmtDay(iso: string | null): string {
   const d = new Date(iso); if (isNaN(d.getTime())) return "";
   return `${MONTHS[d.getMonth()]} ${d.getDate()}`;
 }
-function Chip({ children, tone = "muted" }: { children: React.ReactNode; tone?: "muted" | "amber" | "blue" }) {
-  const c = tone === "amber" ? { fg: "#a87b00", bg: T.amberDim } : tone === "blue" ? { fg: T.blue, bg: T.blueDim } : { fg: T.muted, bg: T.surface };
-  return <span style={{ fontSize: 10.5, fontWeight: 700, color: c.fg, background: c.bg, borderRadius: 99, padding: "2px 8px", whiteSpace: "nowrap" }}>{children}</span>;
-}
-// LineActions — received-view row handlers (Edit / Return / History), threaded down.
-type LineActions = { onEdit: (l: ReceivingLine, b: ReceivingBox) => void; onReturn: (l: ReceivingLine, b: ReceivingBox) => void; onHistory: (l: ReceivingLine) => void; busyKey: string | null };
+// LineActions — row handlers threaded down. Received: Edit / Return-to-receiving /
+// History. Incoming: Return-to-production / History.
+type LineActions = { onEdit: (l: ReceivingLine, b: ReceivingBox) => void; onReturn: (l: ReceivingLine, b: ReceivingBox) => void; onReturnProd: (l: ReceivingLine, b: ReceivingBox) => void; onHistory: (l: ReceivingLine) => void; busyKey: string | null };
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 function fmtWhen(iso: string | null): string {
   if (!iso) return "";
@@ -59,13 +56,18 @@ export default function Board({ boxes, pulls }: { boxes: ReceivingBox[]; pulls: 
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
   async function returnLine(l: ReceivingLine, b: ReceivingBox) {
-    const key = `${b.id}:${l.itemId}`;
-    setBusyKey(key);
+    setBusyKey(`${b.id}:${l.itemId}`);
     const res = await returnReceivedLine(createClient(), { shipmentId: b.id, itemId: l.itemId, jobId: l.jobId, itemName: l.itemName });
     setBusyKey(null);
     if (res.ok) router.refresh();
   }
-  const acts: LineActions = { onEdit: (line, box) => setEditFor({ line, box }), onReturn: returnLine, onHistory: setHistoryFor, busyKey };
+  async function returnToProd(l: ReceivingLine, b: ReceivingBox) {
+    setBusyKey(`${b.id}:${l.itemId}`);
+    const res = await returnIncomingToProduction(createClient(), { shipmentId: b.id, itemId: l.itemId, jobId: l.jobId, itemName: l.itemName });
+    setBusyKey(null);
+    if (res.ok) router.refresh();
+  }
+  const acts: LineActions = { onEdit: (line, box) => setEditFor({ line, box }), onReturn: returnLine, onReturnProd: returnToProd, onHistory: setHistoryFor, busyKey };
 
   const incoming = useMemo(() => boxes.filter(b => !b.allReceived), [boxes]);
   const received = useMemo(() => boxes.filter(b => b.allReceived), [boxes]);
@@ -147,15 +149,27 @@ export default function Board({ boxes, pulls }: { boxes: ReceivingBox[]; pulls: 
   );
 }
 
-// Received-view row actions: History (ledger), Edit (fix count), ← Return (one stage back).
+const actBtn: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: T.muted, background: "none", border: `1px solid ${T.border}`, borderRadius: 6, padding: "4px 9px", cursor: "pointer" };
+
+// Received-view row actions: History (ledger), Edit (fix count), ← Return-to-receiving.
 function RowActions({ l, box, acts }: { l: ReceivingLine; box: ReceivingBox; acts: LineActions }) {
   const busy = acts.busyKey === `${box.id}:${l.itemId}`;
-  const btn: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: T.muted, background: "none", border: `1px solid ${T.border}`, borderRadius: 6, padding: "4px 9px", cursor: "pointer" };
   return (
     <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-      <button style={btn} onClick={() => acts.onHistory(l)}>History</button>
-      <button style={btn} onClick={() => acts.onEdit(l, box)}>Edit</button>
-      <button style={{ ...btn, color: busy ? T.faint : "#a87b00" }} disabled={busy} onClick={() => acts.onReturn(l, box)}>{busy ? "…" : "← Return"}</button>
+      <button style={actBtn} onClick={() => acts.onHistory(l)}>History</button>
+      <button style={actBtn} onClick={() => acts.onEdit(l, box)}>Edit</button>
+      <button style={{ ...actBtn, color: busy ? T.faint : "#a87b00" }} disabled={busy} onClick={() => acts.onReturn(l, box)}>{busy ? "…" : "← Return"}</button>
+    </div>
+  );
+}
+
+// Incoming-view row actions: History + ← Return to production (spec: receiving→production).
+function IncomingActions({ l, box, acts }: { l: ReceivingLine; box: ReceivingBox; acts: LineActions }) {
+  const busy = acts.busyKey === `${box.id}:${l.itemId}`;
+  return (
+    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+      <button style={actBtn} onClick={() => acts.onHistory(l)}>History</button>
+      <button style={{ ...actBtn, color: busy ? T.faint : "#a87b00" }} disabled={busy} onClick={() => acts.onReturnProd(l, box)}>{busy ? "…" : "← Return to production"}</button>
     </div>
   );
 }
@@ -180,7 +194,9 @@ function LineRow({ l, box, status, acts, right }: { l: ReceivingLine; box: Recei
       <span style={{ fontSize: 13, fontWeight: 500, minWidth: 150 }}>{l.itemName}</span>
       <RouteTag route={l.route} />
       <div style={{ flex: 1, minWidth: 90 }}><VariantChips qtys={qtyOf(l, status)} /></div>
-      {received ? (<><ReceivedTally l={l} />{acts && <RowActions l={l} box={box} acts={acts} />}</>) : right}
+      {received
+        ? (<><ReceivedTally l={l} />{acts && <RowActions l={l} box={box} acts={acts} />}</>)
+        : (<>{right}{acts && <IncomingActions l={l} box={box} acts={acts} />}</>)}
     </div>
   );
 }
@@ -205,18 +221,24 @@ function ClientGroups({ box, status, acts }: { box: ReceivingBox; status: Status
   );
 }
 
-// Chips row under the box header (mockup §1): multi-project · partials · ETA.
+// Box meta line under the header (mockup §1) — plain text, no pills.
+// multi-project · partials · ETA · items·units · to-receive.
 function BoxChips({ box, status }: { box: ReceivingBox; status: Status }) {
   const jobs = new Set(box.lines.map(l => l.jobId)).size;
   const partials = box.lines.filter(l => l.orderedTotal > 0 && tQty(l.shipQtys) < l.orderedTotal).length;
   const toReceive = box.lines.filter(l => !l.received).length;
-  const chips: React.ReactNode[] = [];
-  if (jobs > 1) chips.push(<Chip key="mp" tone="blue">Multi-project · {jobs} jobs</Chip>);
-  if (partials > 0 && status !== "received") chips.push(<Chip key="pt" tone="amber">{partials} partial item{partials > 1 ? "s" : ""}</Chip>);
-  if (box.expectedArrival && status !== "received") chips.push(<Chip key="eta">ETA {fmtDay(box.expectedArrival)}</Chip>);
-  chips.push(<Chip key="iu">{box.lines.length} item{box.lines.length > 1 ? "s" : ""} · {boxUnits(box, status)} units</Chip>);
-  if (status === "incoming" && toReceive > 0) chips.push(<Chip key="tr" tone="amber">{toReceive} to receive</Chip>);
-  return <div style={{ display: "flex", gap: 6, flexWrap: "wrap", padding: "8px 16px 2px" }}>{chips}</div>;
+  const seg = (text: string, color?: string) => <span style={{ color: color || T.muted }}>{text}</span>;
+  const parts: React.ReactNode[] = [];
+  if (jobs > 1) parts.push(seg(`Multi-project · ${jobs} jobs`, T.blue));
+  if (partials > 0 && status !== "received") parts.push(seg(`${partials} partial item${partials > 1 ? "s" : ""}`, "#a87b00"));
+  if (box.expectedArrival && status !== "received") parts.push(seg(`ETA ${fmtDay(box.expectedArrival)}`));
+  parts.push(seg(`${box.lines.length} item${box.lines.length > 1 ? "s" : ""} · ${boxUnits(box, status)} units`));
+  if (status === "incoming" && toReceive > 0) parts.push(seg(`${toReceive} to receive`, "#a87b00"));
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, padding: "8px 16px 2px", fontSize: 11.5, fontWeight: 600 }}>
+      {parts.map((p, i) => <span key={i}>{i > 0 && <span style={{ color: T.faint, margin: "0 6px" }}>·</span>}{p}</span>)}
+    </div>
+  );
 }
 
 function BoxCard({ box, status, onReceive, acts }: { box: ReceivingBox; status: Status; onReceive: () => void; acts?: LineActions }) {
@@ -297,7 +319,7 @@ function FlatRow({ l, status, onReceive, acts, showBox, showClient }: { l: FlatL
       <div style={{ flex: 1, minWidth: 90 }}><VariantChips qtys={qtyOf(l, status)} /></div>
       {received
         ? <><ReceivedTally l={l} />{acts && <RowActions l={l} box={l.box} acts={acts} />}</>
-        : <span onClick={onReceive} style={{ fontSize: 12, fontWeight: 700, color: T.text, cursor: "pointer" }}>Receive →</span>}
+        : <><span onClick={onReceive} style={{ fontSize: 12, fontWeight: 700, color: T.text, cursor: "pointer" }}>Receive →</span>{acts && <IncomingActions l={l} box={l.box} acts={acts} />}</>}
     </div>
   );
 }
