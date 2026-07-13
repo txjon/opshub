@@ -111,7 +111,27 @@ export type BoardItem = ItemView & {
   decoratorName: string | null;
   decoratorCode: string | null;
   garmentType: string | null;
+  embellishments: number;      // (active print locations + tag) × units; garments only
 };
+
+// Non-garment items aren't screen-printed/embroidered — excluded from the
+// Embellishments count (still counted in Items + Units). Mirrors /production.
+const NON_GARMENT = new Set(["accessory", "patch", "sticker", "poster", "pin", "koozie", "banner", "flag", "lighter", "towel", "water_bottle", "samples", "custom", "key_chain", "woven_labels", "bandana", "socks", "tote", "custom_bag", "pillow", "rug", "pens", "napkins", "balloons", "stencils"]);
+
+// Embellishments for one item = (active print locations + tag print) × units,
+// read from the item's costing entry (matched by garment type). Same math as the
+// /production "Prints" KPI, which Jon confirmed is correct.
+function embellishmentsFor(garmentType: string | null, costProds: any[], units: number): number {
+  if (!garmentType || NON_GARMENT.has(garmentType)) return 0;
+  const cp = (costProds || []).find((c: any) => c?.garment_type === garmentType);
+  if (!cp) return 0;
+  const activeLocs = [1, 2, 3, 4, 5, 6].filter(loc => {
+    const ld = cp.printLocations?.[loc];
+    return ld?.screens > 0 || ld?.location;
+  }).length;
+  const hasTag = cp.tagPrint ? 1 : 0;
+  return (activeLocs + hasTag) * units;
+}
 export type BoardStrip = {
   key: string;                 // jobId::decoratorId
   jobId: string; jobNumber: string; jobTitle: string; clientName: string;
@@ -189,6 +209,7 @@ export async function loadProductionBoard(sb: Sb): Promise<BoardStrip[]> {
     strips.get(key)!.items.push({
       ...state, itemId: item.id, jobId: item.job_id, name: item.name, mockupColor: item.mockup_color,
       decoratorId, decoratorName, decoratorCode: assign.decorators?.short_code || null, garmentType: item.garment_type,
+      embellishments: embellishmentsFor(item.garment_type, job.costing_data?.costProds || [], state.orderedTotal),
     });
   }
   // sort: soonest ship date first, then job number

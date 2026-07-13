@@ -23,12 +23,36 @@ function fmtShip(iso: string | null): { text: string; days: number | null } {
 }
 
 type SortKey = "ship" | "client" | "vendor";
+type MetricKey = "items" | "units" | "embellishments";
+type Metric = { items: number; units: number; embellishments: number };
+const METRICS: { key: MetricKey; label: string }[] = [
+  { key: "items", label: "Items" }, { key: "units", label: "Units" }, { key: "embellishments", label: "Embellishments" },
+];
+const nf = (n: number) => n.toLocaleString();
 
 export default function Board({ strips }: { strips: BoardStrip[] }) {
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [shipOpen, setShipOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortKey>("ship");
+  const [kpi, setKpi] = useState<MetricKey | null>(null);
+
+  // KPI aggregates over the whole board (independent of the search filter).
+  const agg = useMemo(() => {
+    const total: Metric = { items: 0, units: 0, embellishments: 0 };
+    const byVendor = new Map<string, Metric>();
+    const byClient = new Map<string, Metric>();
+    const bump = (m: Map<string, Metric>, k: string, it: BoardItem) => {
+      const cur = m.get(k) || { items: 0, units: 0, embellishments: 0 };
+      cur.items += 1; cur.units += it.orderedTotal; cur.embellishments += it.embellishments;
+      m.set(k, cur);
+    };
+    for (const s of strips) for (const it of s.items) {
+      total.items += 1; total.units += it.orderedTotal; total.embellishments += it.embellishments;
+      bump(byVendor, s.decoratorName, it); bump(byClient, s.clientName, it);
+    }
+    return { total, byVendor, byClient };
+  }, [strips]);
 
   const allItems = useMemo(() => {
     const m = new Map<string, BoardItem & { strip: BoardStrip }>();
@@ -79,9 +103,21 @@ export default function Board({ strips }: { strips: BoardStrip[] }) {
           <h1 style={{ fontSize: 26, fontWeight: 700, margin: 0, letterSpacing: -0.3 }}>Production</h1>
           <span style={{ fontSize: 12, color: T.faint }}>v2 · parallel dev</span>
         </div>
-        <p style={{ color: T.muted, fontSize: 13, margin: "0 0 18px" }}>
+        <p style={{ color: T.muted, fontSize: 13, margin: "0 0 16px" }}>
           Ship items out from production. {totalItems} items across {strips.length} job × vendor strips.
         </p>
+
+        {/* KPIs — click a tile for a by-vendor / by-client breakdown */}
+        <div style={{ display: "flex", gap: 12, marginBottom: 18 }}>
+          {METRICS.map(m => (
+            <button key={m.key} onClick={() => setKpi(m.key)}
+              style={{ flex: 1, textAlign: "left", background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: "14px 16px", cursor: "pointer" }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: 0.5 }}>{m.label}</div>
+              <div style={{ fontFamily: mono, fontSize: 26, fontWeight: 700, marginTop: 2 }}>{nf(agg.total[m.key])}</div>
+              <div style={{ fontSize: 11, color: T.blue, marginTop: 2 }}>breakdown →</div>
+            </button>
+          ))}
+        </div>
 
         {/* toolbar: one search + sort */}
         <div style={{ display: "flex", gap: 12, marginBottom: 18, alignItems: "center", flexWrap: "wrap" }}>
@@ -179,6 +215,49 @@ export default function Board({ strips }: { strips: BoardStrip[] }) {
       )}
 
       {shipOpen && <ShipModal items={selectedItems} vendorName={selVendorName} onClose={() => setShipOpen(false)} />}
+      {kpi && <KpiModal metric={kpi} total={agg.total} byVendor={agg.byVendor} byClient={agg.byClient} onClose={() => setKpi(null)} />}
+    </div>
+  );
+}
+
+// KPI breakdown modal — one metric, split by vendor and by client.
+function KpiModal({ metric, total, byVendor, byClient, onClose }:
+  { metric: MetricKey; total: Metric; byVendor: Map<string, Metric>; byClient: Map<string, Metric>; onClose: () => void }) {
+  const label = METRICS.find(m => m.key === metric)!.label;
+  const rows = (m: Map<string, Metric>) =>
+    Array.from(m.entries()).map(([name, v]) => ({ name, value: v[metric] }))
+      .filter(r => r.value > 0).sort((a, b) => b.value - a.value);
+  const vendors = rows(byVendor), clients = rows(byClient);
+  const Col = ({ title, data }: { title: string; data: { name: string; value: number }[] }) => (
+    <div style={{ flex: 1, minWidth: 0 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>{title}</div>
+      <div style={{ display: "flex", flexDirection: "column" }}>
+        {data.map(r => (
+          <div key={r.name} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 0", borderBottom: `1px solid ${T.border}` }}>
+            <span style={{ fontSize: 13, flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.name}</span>
+            <span style={{ fontFamily: mono, fontSize: 13, fontWeight: 700 }}>{nf(r.value)}</span>
+          </div>
+        ))}
+        {data.length === 0 && <span style={{ fontSize: 12, color: T.faint }}>None</span>}
+      </div>
+    </div>
+  );
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", zIndex: 60, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 20px", overflowY: "auto" }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 14, maxWidth: 620, width: "100%", fontFamily: font, boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}>
+        <div style={{ padding: "18px 22px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "baseline", gap: 10 }}>
+          <span style={{ fontSize: 17, fontWeight: 700 }}>{label}</span>
+          <span style={{ fontFamily: mono, fontSize: 15, fontWeight: 700, color: T.muted }}>{nf(total[metric])}</span>
+          <span style={{ fontSize: 12, color: T.faint }}>total in production</span>
+        </div>
+        <div style={{ padding: "18px 22px", display: "flex", gap: 28 }}>
+          <Col title="By vendor" data={vendors} />
+          <Col title="By client" data={clients} />
+        </div>
+        <div style={{ padding: "14px 22px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "flex-end" }}>
+          <button onClick={onClose} style={{ fontSize: 13, background: "none", border: `1px solid ${T.border}`, borderRadius: 8, padding: "9px 16px", cursor: "pointer", color: T.muted }}>Close</button>
+        </div>
+      </div>
     </div>
   );
 }
