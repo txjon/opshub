@@ -283,159 +283,178 @@ function PullCard({ p, onResolved }: { p: HeldPull; onResolved: () => void }) {
 
 const PULL_KIND_LABEL = (id: string) => PULL_KINDS.find(k => k.id === id)?.label || id;
 
+// Receive modal — PER ITEM, per the approved mockup. Each item has its own
+// Receive button; hitting it routes that item downstream (ship_through→Shipping,
+// stage→Fulfillment) and CLEARS it from the modal, leaving only what's left.
+// Grid = In box / Delivered / Samples. Over-one-size + short-another → flag.
 function ReceiveModal({ box, onClose, onDone }: { box: ReceivingBox; onClose: () => void; onDone: () => void }) {
-  const [qtys, setQtys] = useState<Record<string, Record<string, number>>>(() => {
+  const [delivered, setDelivered] = useState<Record<string, Record<string, number>>>(() => {
     const init: Record<string, Record<string, number>> = {};
     for (const l of box.lines) init[l.itemId] = { ...l.shipQtys };
     return init;
   });
+  const [samples, setSamples] = useState<Record<string, Record<string, number>>>({});
   const [fulfil, setFulfil] = useState<Record<string, boolean>>(() => {
     const f: Record<string, boolean> = {};
     for (const l of box.lines) for (const p of l.pullRequests) f[p.id] = true;
     return f;
   });
-  const [newPull, setNewPull] = useState<Record<string, { qtys: Record<string, number>; kind: string; reason: string } | undefined>>({});
-  const [note, setNote] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [extraPull, setExtraPull] = useState<Record<string, { qtys: Record<string, number>; kind: string; reason: string } | undefined>>({});
+  const [cleared, setCleared] = useState<Set<string>>(new Set(box.lines.filter(l => l.received).map(l => l.itemId)));
+  const [busyItem, setBusyItem] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   const isTest = box.clients.every(c => TEST_CLIENTS.includes(c));
-  const setQ = (id: string, sz: string, v: string) =>
-    setQtys(prev => ({ ...prev, [id]: { ...prev[id], [sz]: Math.max(0, Math.floor(Number(v) || 0)) } }));
-  const mutNP = (id: string, patch: Partial<{ qtys: Record<string, number>; kind: string; reason: string }>) =>
-    setNewPull(prev => { const cur = prev[id] || { qtys: {}, kind: PULL_KINDS[0].id, reason: "" }; return { ...prev, [id]: { ...cur, ...patch } }; });
-  const setNP = (id: string, sz: string, v: string) =>
-    setNewPull(prev => { const cur = prev[id] || { qtys: {}, kind: PULL_KINDS[0].id, reason: "" }; return { ...prev, [id]: { ...cur, qtys: { ...cur.qtys, [sz]: Math.max(0, Math.floor(Number(v) || 0)) } } }; });
-  const byClient = new Map<string, ReceivingLine[]>();
-  for (const l of box.lines) { const a = byClient.get(l.client) || []; a.push(l); byClient.set(l.client, a); }
+  const remaining = box.lines.filter(l => !cleared.has(l.itemId));
+  const doneCount = box.lines.length - remaining.length;
 
-  // continuing = delivered − pulled (production fulfilled + receiving pull)
+  const setD = (id: string, sz: string, v: string) => setDelivered(p => ({ ...p, [id]: { ...p[id], [sz]: Math.max(0, Math.floor(Number(v) || 0)) } }));
+  const setS = (id: string, sz: string, v: string) => setSamples(p => ({ ...p, [id]: { ...(p[id] || {}), [sz]: Math.max(0, Math.floor(Number(v) || 0)) } }));
+  const mutEP = (id: string, patch: Partial<{ qtys: Record<string, number>; kind: string; reason: string }>) =>
+    setExtraPull(p => { const cur = p[id] || { qtys: {}, kind: PULL_KINDS[0].id, reason: "" }; return { ...p, [id]: { ...cur, ...patch } }; });
+  const setEPQ = (id: string, sz: string, v: string) =>
+    setExtraPull(p => { const cur = p[id] || { qtys: {}, kind: PULL_KINDS[0].id, reason: "" }; return { ...p, [id]: { ...cur, qtys: { ...cur.qtys, [sz]: Math.max(0, Math.floor(Number(v) || 0)) } } }; });
+
+  // over on one size AND short on another → flag production to resolve w/ vendor (H6)
+  const varianceFlag = (l: ReceivingLine) => {
+    const d = delivered[l.itemId] || {}; let over = false, under = false;
+    for (const sz of Object.keys(l.shipQtys)) { const got = d[sz] ?? 0, want = l.shipQtys[sz] ?? 0; if (got > want) over = true; if (got < want) under = true; }
+    return over && under;
+  };
   const pulledOf = (l: ReceivingLine) =>
-    l.pullRequests.filter(p => fulfil[p.id]).reduce((a, p) => a + tQty(p.qtys), 0) + tQty(newPull[l.itemId]?.qtys || {});
-  const deliveredOf = (l: ReceivingLine) => tQty(qtys[l.itemId] || {});
-  const continuingOf = (l: ReceivingLine) => Math.max(0, deliveredOf(l) - pulledOf(l));
-  const totDelivered = box.lines.reduce((a, l) => a + deliveredOf(l), 0);
-  const totPulled = box.lines.reduce((a, l) => a + pulledOf(l), 0);
-  const totContinuing = box.lines.reduce((a, l) => a + continuingOf(l), 0);
+    l.pullRequests.filter(p => fulfil[p.id]).reduce((a, p) => a + tQty(p.qtys), 0) + tQty(samples[l.itemId] || {}) + tQty(extraPull[l.itemId]?.qtys || {});
+  const continuingOf = (l: ReceivingLine) => Math.max(0, tQty(delivered[l.itemId] || {}) - pulledOf(l));
 
-  async function confirm() {
-    setBusy(true); setErr(null);
+  async function receiveOne(l: ReceivingLine) {
+    setBusyItem(l.itemId); setErr(null);
+    const newPulls: any[] = [];
+    if (tQty(samples[l.itemId] || {}) > 0) newPulls.push({ itemId: l.itemId, jobId: l.jobId, itemName: l.itemName, qtys: samples[l.itemId], kind: "sample", reason: null });
+    const ep = extraPull[l.itemId];
+    if (ep && tQty(ep.qtys) > 0) newPulls.push({ itemId: l.itemId, jobId: l.jobId, itemName: l.itemName, qtys: ep.qtys, kind: ep.kind, reason: (ep.reason || "").trim() || null });
     const res = await receiveBoxAction(createClient(), {
-      shipmentId: box.id, note,
-      items: box.lines.map(l => ({ itemId: l.itemId, jobId: l.jobId, itemName: l.itemName, cumReceived: l.cumReceived, deliveredQtys: qtys[l.itemId] || {} })),
-      fulfillPulls: box.lines.flatMap(l => l.pullRequests.filter(p => fulfil[p.id]).map(p => ({ pullId: p.id, itemId: l.itemId, jobId: l.jobId, itemName: l.itemName, qtys: p.qtys }))),
-      newPulls: Object.entries(newPull).filter(([, np]) => np && tQty(np.qtys) > 0).map(([itemId, np]) => {
-        const l = box.lines.find(x => x.itemId === itemId)!;
-        return { itemId, jobId: l.jobId, itemName: l.itemName, qtys: np!.qtys, kind: np!.kind, reason: (np!.reason || "").trim() || null };
-      }),
+      shipmentId: box.id,
+      items: [{ itemId: l.itemId, jobId: l.jobId, itemName: l.itemName, cumReceived: l.cumReceived, deliveredQtys: delivered[l.itemId] || {} }],
+      fulfillPulls: l.pullRequests.filter(p => fulfil[p.id]).map(p => ({ pullId: p.id, itemId: l.itemId, jobId: l.jobId, itemName: l.itemName, qtys: p.qtys })),
+      newPulls,
     });
-    setBusy(false);
-    if (res.ok) onDone(); else setErr(res.error || "Receive failed.");
+    setBusyItem(null);
+    if (res.ok) {
+      const n = new Set(cleared); n.add(l.itemId); setCleared(n);
+      if (box.lines.every(x => n.has(x.itemId))) onDone();
+    } else setErr(res.error || "Receive failed.");
   }
 
   return (
-    <ModalShell onClose={busy ? () => { } : onClose} maxWidth={680} dismissable={false}>
+    <ModalShell onClose={onClose} maxWidth={640} dismissable={false}>
       <div style={{ padding: "18px 22px", borderBottom: `1px solid ${T.border}` }}>
         <div style={{ fontSize: 17, fontWeight: 700 }}>Receive box — {box.vendorName}</div>
-        <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>{boxHow(box)} · {box.totalUnits} units expected · count what actually arrived</div>
-        {box.slips.length > 0 && <div style={{ marginTop: 8 }}>{box.slips.map((s, i) => (
+        <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>{boxHow(box)} · {box.totalUnits} units expected</div>
+        <div style={{ fontSize: 12, color: T.muted, marginTop: 6 }}><b style={{ color: T.text }}>{remaining.length}</b> left to receive{doneCount > 0 ? ` · ${doneCount} received` : ""}</div>
+        {box.slips.length > 0 && <div style={{ marginTop: 6 }}>{box.slips.map((s, i) => (
           <a key={i} href={s.url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: T.blue, textDecoration: "none", marginRight: 12 }}>📎 {s.name}</a>
         ))}</div>}
       </div>
-      <div style={{ padding: "8px 22px 18px" }}>
-        {Array.from(byClient.entries()).map(([client, ls]) => (
-          <div key={client} style={{ marginTop: 12 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: T.muted, marginBottom: 8 }}>{client}{ls[0]?.invoiceNumber ? ` · #${ls[0].invoiceNumber}` : ""}</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {ls.map(l => {
-                const np = newPull[l.itemId];
-                const pulled = pulledOf(l);
-                return (
-                  <div key={l.itemId} style={{ border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 12px" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                      <span style={{ fontSize: 13, fontWeight: 600 }}>{l.itemName}</span>
-                      <div style={{ flex: 1 }} />
-                      <span onClick={() => setNewPull(p => ({ ...p, [l.itemId]: p[l.itemId] ? undefined : { qtys: {}, kind: PULL_KINDS[0].id, reason: "" } }))}
-                        style={{ fontSize: 11, fontWeight: 600, color: np ? T.purple : T.muted, cursor: "pointer" }}>{np ? "− cancel pull" : "＋ pull back"}</span>
-                    </div>
-                    <div style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 4 }}>Delivered</div>
-                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                      {sortSizes(Object.keys(l.shipQtys)).map(sz => {
-                        const got = qtys[l.itemId]?.[sz] ?? 0, want = l.shipQtys[sz] ?? 0;
-                        const color = got === want ? T.text : got < want ? "#a87b00" : T.green;
-                        return (
-                          <label key={sz} style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", minWidth: 46 }}>
-                            <span style={{ fontSize: 9, fontWeight: 700, color: T.faint, marginBottom: 2 }}>{sz} <span style={{ color: T.faint }}>/{want}</span></span>
-                            <input inputMode="numeric" value={got} onChange={e => setQ(l.itemId, sz, e.target.value)} onFocus={e => e.target.select()}
-                              style={{ width: 46, boxSizing: "border-box", textAlign: "center", fontFamily: mono, fontSize: 12, fontWeight: 700, padding: "5px 4px", borderRadius: 6, border: `1px solid ${got === want ? T.border : color}`, color, background: T.card }} />
-                          </label>
-                        );
-                      })}
-                    </div>
-                    {/* production-declared pulls to fulfil — each shows its ACTION */}
-                    {l.pullRequests.length > 0 && (
-                      <div style={{ marginTop: 10, padding: "8px 10px", background: T.purpleDim, borderRadius: 8 }}>
-                        <div style={{ fontSize: 11, fontWeight: 800, color: T.purple, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 4 }}>⚑ Production wants pulled</div>
-                        {l.pullRequests.map(p => (
-                          <label key={p.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: T.text, cursor: "pointer", padding: "3px 0" }}>
-                            <input type="checkbox" checked={!!fulfil[p.id]} onChange={e => setFulfil(f => ({ ...f, [p.id]: e.target.checked }))} style={{ accentColor: T.purple }} />
-                            <span style={{ fontFamily: mono, fontWeight: 700 }}>{Object.entries(p.qtys).filter(([, n]) => n > 0).map(([s, n]) => `${s}·${n}`).join(" ")}</span>
-                            <span style={{ color: T.muted }}>{PULL_KIND_LABEL(p.kind || "")}</span>
-                            {p.reason && <span style={{ fontWeight: 600, color: T.purple }}>→ {p.reason}</span>}
-                          </label>
-                        ))}
-                      </div>
-                    )}
-                    {/* receiving-added pull — qty + kind + ACTION */}
-                    {np && (
-                      <div style={{ marginTop: 10, padding: "8px 10px", background: T.purpleDim, borderRadius: 8 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                          <span style={{ fontSize: 11, fontWeight: 800, color: T.purple, textTransform: "uppercase", letterSpacing: 0.4 }}>Pull back</span>
-                          <select value={np.kind} onChange={e => mutNP(l.itemId, { kind: e.target.value })}
-                            style={{ fontSize: 11, fontWeight: 600, padding: "3px 6px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.card }}>
-                            {PULL_KINDS.map(k => <option key={k.id} value={k.id}>{k.label}</option>)}
-                          </select>
-                        </div>
-                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
-                          {sortSizes(Object.keys(l.shipQtys)).map(sz => (
-                            <label key={sz} style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", minWidth: 40 }}>
-                              <span style={{ fontSize: 9, fontWeight: 700, color: T.faint }}>{sz}</span>
-                              <input inputMode="numeric" value={np.qtys[sz] ?? 0} onChange={e => setNP(l.itemId, sz, e.target.value)} onFocus={e => e.target.select()}
-                                style={{ width: 40, boxSizing: "border-box", textAlign: "center", fontFamily: mono, fontSize: 12, fontWeight: 700, padding: "4px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.card }} />
-                            </label>
-                          ))}
-                        </div>
-                        <input value={np.reason} onChange={e => mutNP(l.itemId, { reason: e.target.value })} placeholder="Action — e.g. Ship to Andrew"
-                          style={{ width: "100%", boxSizing: "border-box", fontSize: 12, padding: "7px 10px", borderRadius: 6, border: `1px solid ${T.border}`, fontFamily: font }} />
-                      </div>
-                    )}
-                    {/* continuing downstream */}
-                    {pulled > 0 && (
-                      <div style={{ fontSize: 11, color: T.muted, marginTop: 8 }}>
-                        {deliveredOf(l)} received − {pulled} pulled → <strong style={{ color: T.green }}>{continuingOf(l)} continuing downstream</strong>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+
+      <div style={{ padding: "14px 22px", display: "flex", flexDirection: "column", gap: 10 }}>
+        {/* cleared items — faded, routed on */}
+        {box.lines.filter(l => cleared.has(l.itemId)).map(l => (
+          <div key={l.itemId} style={{ opacity: 0.45, border: `1px dashed ${T.border}`, borderRadius: 10, padding: "8px 12px", display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 13, color: T.green, fontWeight: 700 }}>✓</span>
+            <span style={{ fontSize: 13, fontWeight: 600 }}>{l.itemName}</span>
+            <span style={{ fontSize: 11, color: T.green }}>received · routed to {l.route === "stage" ? "Fulfillment" : l.route === "drop_ship" ? "client" : "Shipping"}</span>
           </div>
         ))}
 
-        <input value={note} onChange={e => setNote(e.target.value)} placeholder="Note for the box (optional)"
-          style={{ marginTop: 16, width: "100%", boxSizing: "border-box", fontSize: 13, padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, fontFamily: font }} />
+        {remaining.length === 0 && <div style={{ fontSize: 13, color: T.green, fontWeight: 600, textAlign: "center", padding: 12 }}>All items received ✓</div>}
+
+        {/* remaining — receive one at a time */}
+        {remaining.map(l => {
+          const ep = extraPull[l.itemId];
+          const sizes = sortSizes(Object.keys(l.shipQtys));
+          const busy = busyItem === l.itemId;
+          return (
+            <div key={l.itemId} style={{ border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 13px" }}>
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 11 }}>
+                <ItemThumb fileId={l.mockupFileId} name={l.itemName} size={40} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 700 }}>{l.itemName}</div>
+                  <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>{l.client}{l.invoiceNumber ? ` · #${l.invoiceNumber}` : ""}</div>
+                  <div style={{ marginTop: 5 }}><RouteTag route={l.route} /></div>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 5 }}>
+                  <button onClick={() => receiveOne(l)} disabled={!isTest || busy}
+                    style={{ background: (!isTest || busy) ? T.accentDim : T.green, color: (!isTest || busy) ? T.faint : "#fff", border: "none", borderRadius: 7, padding: "7px 18px", fontSize: 13, fontWeight: 700, cursor: (!isTest || busy) ? "not-allowed" : "pointer" }}>{busy ? "…" : "Receive"}</button>
+                  <span onClick={() => setExtraPull(p => ({ ...p, [l.itemId]: p[l.itemId] ? undefined : { qtys: {}, kind: PULL_KINDS[0].id, reason: "" } }))}
+                    style={{ fontSize: 11, fontWeight: 600, color: ep ? T.purple : T.amber, cursor: "pointer" }}>{ep ? "− cancel pull" : "+ Pull"}</span>
+                </div>
+              </div>
+
+              {/* In box / Delivered / Samples grid */}
+              <div style={{ marginTop: 11, display: "grid", gridTemplateColumns: `auto repeat(${sizes.length}, 50px)`, columnGap: 8, rowGap: 4, alignItems: "center", width: "fit-content" }}>
+                <div />{sizes.map(sz => <div key={sz} style={{ fontSize: 10, fontWeight: 800, color: T.faint, textAlign: "center", textTransform: "uppercase" }}>{sz}</div>)}
+                <div style={{ fontSize: 9, fontWeight: 800, color: T.faint, textTransform: "uppercase", letterSpacing: 0.3, paddingRight: 4 }}>In box</div>
+                {sizes.map(sz => <div key={sz} style={{ fontFamily: mono, fontSize: 12, color: T.muted, textAlign: "center" }}>{l.shipQtys[sz] ?? 0}</div>)}
+                <div style={{ fontSize: 9, fontWeight: 800, color: T.faint, textTransform: "uppercase", letterSpacing: 0.3, paddingRight: 4 }}>Delivered</div>
+                {sizes.map(sz => { const got = delivered[l.itemId]?.[sz] ?? 0, want = l.shipQtys[sz] ?? 0; const c = got === want ? T.text : got < want ? "#a87b00" : T.green;
+                  return <input key={sz} inputMode="numeric" value={got} onChange={e => setD(l.itemId, sz, e.target.value)} onFocus={e => e.target.select()}
+                    style={{ width: 50, textAlign: "center", fontFamily: mono, fontSize: 13, fontWeight: 700, padding: "5px 4px", borderRadius: 5, border: `1px solid ${got === want ? T.border : c}`, color: c, background: T.card }} />; })}
+                <div style={{ fontSize: 9, fontWeight: 800, color: T.faint, textTransform: "uppercase", letterSpacing: 0.3, paddingRight: 4 }}>Samples</div>
+                {sizes.map(sz => <input key={sz} inputMode="numeric" value={samples[l.itemId]?.[sz] ?? 0} onChange={e => setS(l.itemId, sz, e.target.value)} onFocus={e => e.target.select()}
+                  style={{ width: 50, textAlign: "center", fontFamily: mono, fontSize: 13, fontWeight: 600, padding: "5px 4px", borderRadius: 5, border: `1px solid ${T.border}`, background: T.surface }} />)}
+              </div>
+
+              {varianceFlag(l) && <div style={{ marginTop: 9, fontSize: 11, fontWeight: 700, color: T.red, background: T.redDim, border: `1px solid ${T.red}`, borderRadius: 7, padding: "6px 9px" }}>⚑ Over on one size and short on another — flag production to resolve with the vendor.</div>}
+
+              {/* production-declared pulls */}
+              {l.pullRequests.length > 0 && (
+                <div style={{ marginTop: 9, padding: "8px 10px", background: T.purpleDim, borderRadius: 8 }}>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: T.purple, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 4 }}>⚑ Production wants pulled</div>
+                  {l.pullRequests.map(p => (
+                    <label key={p.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, cursor: "pointer", padding: "3px 0" }}>
+                      <input type="checkbox" checked={!!fulfil[p.id]} onChange={e => setFulfil(f => ({ ...f, [p.id]: e.target.checked }))} style={{ accentColor: T.purple }} />
+                      <span style={{ fontFamily: mono, fontWeight: 700 }}>{Object.entries(p.qtys).filter(([, n]) => n > 0).map(([s, n]) => `${s}·${n}`).join(" ")}</span>
+                      <span style={{ color: T.muted }}>{PULL_KIND_LABEL(p.kind || "")}</span>
+                      {p.reason && <span style={{ fontWeight: 600, color: T.purple }}>→ {p.reason}</span>}
+                    </label>
+                  ))}
+                </div>
+              )}
+
+              {/* extra actioned pull */}
+              {ep && (
+                <div style={{ marginTop: 9, padding: "8px 10px", background: T.purpleDim, borderRadius: 8 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                    <span style={{ fontSize: 11, fontWeight: 800, color: T.purple, textTransform: "uppercase", letterSpacing: 0.4 }}>Pull back</span>
+                    <select value={ep.kind} onChange={e => mutEP(l.itemId, { kind: e.target.value })} style={{ fontSize: 11, fontWeight: 600, padding: "3px 6px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.card }}>
+                      {PULL_KINDS.map(k => <option key={k.id} value={k.id}>{k.label}</option>)}
+                    </select>
+                  </div>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
+                    {sizes.map(sz => (
+                      <label key={sz} style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", minWidth: 40 }}>
+                        <span style={{ fontSize: 9, fontWeight: 700, color: T.faint }}>{sz}</span>
+                        <input inputMode="numeric" value={ep.qtys[sz] ?? 0} onChange={e => setEPQ(l.itemId, sz, e.target.value)} onFocus={e => e.target.select()}
+                          style={{ width: 40, textAlign: "center", fontFamily: mono, fontSize: 12, fontWeight: 700, padding: "4px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.card }} />
+                      </label>
+                    ))}
+                  </div>
+                  <input value={ep.reason} onChange={e => mutEP(l.itemId, { reason: e.target.value })} placeholder="Action — e.g. Ship to Andrew"
+                    style={{ width: "100%", boxSizing: "border-box", fontSize: 12, padding: "7px 10px", borderRadius: 6, border: `1px solid ${T.border}`, fontFamily: font }} />
+                </div>
+              )}
+
+              {pulledOf(l) > 0 && <div style={{ fontSize: 11, color: T.muted, marginTop: 8 }}>{tQty(delivered[l.itemId] || {})} received − {pulledOf(l)} pulled → <strong style={{ color: T.green }}>{continuingOf(l)} continuing downstream</strong></div>}
+            </div>
+          );
+        })}
       </div>
 
-      <div style={{ padding: "16px 22px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
+      <div style={{ padding: "14px 22px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
         {!isTest ? <span style={{ fontSize: 12, color: T.amber, fontWeight: 600 }}>Receive write is limited to the test job.</span>
           : err ? <span style={{ fontSize: 12, color: T.red, fontWeight: 600 }}>{err}</span>
-            : <span style={{ fontSize: 12, color: T.muted }}>{totDelivered} received{totPulled > 0 ? ` · ${totPulled} pulled → ${totContinuing} continuing` : ""}</span>}
+            : <span style={{ fontSize: 11.5, color: T.muted }}>Receive each item as you count it — it routes on immediately.</span>}
         <div style={{ flex: 1 }} />
-        <button onClick={onClose} disabled={busy} style={{ fontSize: 13, background: "none", border: `1px solid ${T.border}`, borderRadius: 8, padding: "9px 16px", cursor: "pointer", color: T.muted }}>Cancel</button>
-        <button onClick={confirm} disabled={!isTest || busy}
-          style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "9px 20px", border: "none", cursor: (!isTest || busy) ? "not-allowed" : "pointer", background: (!isTest || busy) ? T.accentDim : T.text, color: (!isTest || busy) ? T.faint : "#fff" }}>
-          {busy ? "Receiving…" : "Confirm receipt"}
-        </button>
+        <button onClick={onClose} style={{ fontSize: 13, background: "none", border: `1px solid ${T.border}`, borderRadius: 8, padding: "9px 16px", cursor: "pointer", color: T.muted }}>Close</button>
       </div>
     </ModalShell>
   );
