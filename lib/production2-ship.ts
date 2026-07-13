@@ -9,7 +9,7 @@
 
 import { upsertShipmentForItem } from "./handoff";
 import { recordShip, cleanPositive } from "./inventory-ledger";
-import { logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
+import { logJobActivity } from "@/components/JobActivityPanel";
 
 export type ShipMethod = "tracking" | "bol" | "pickup";
 export type ShipItemInput = {
@@ -22,16 +22,18 @@ export async function shipFromProduction(sb: any, args: {
   method: ShipMethod;
   tracking?: string | null;
   bol?: string | null;
+  carrier?: string | null;        // parcel carrier (tracking) or freight carrier (BOL)
+  packingSlipFileId?: string | null;
   note?: string | null;
   decoratorId: string | null;
   decoratorName: string | null;
   items: ShipItemInput[];
-}): Promise<{ ok: boolean; shipped: number; boxes: number; error?: string }> {
+}): Promise<{ ok: boolean; shipped: number; boxes: number; jobIds: string[]; error?: string }> {
   try {
     const trackingOrBol = args.method === "tracking" ? (args.tracking || "").trim() || null
       : args.method === "bol" ? (args.bol || "").trim() || null : null;
     const pickup = args.method === "pickup";
-    const carrier = args.method === "bol" ? "Freight" : null;
+    const carrier = (args.carrier || "").trim() || (args.method === "bol" ? "Freight" : null);
     const shipDate = new Date().toISOString();
 
     const boxes = new Set<string>();
@@ -49,6 +51,7 @@ export async function shipFromProduction(sb: any, args: {
         decorator_id: args.decoratorId, decorator_name: args.decoratorName,
         pickup_ready: pickup, ship_tracking: trackingOrBol, ship_date: shipDate,
         ship_qtys: qtys, carrier, warehouse_notes: args.note || null,
+        packing_slip_file_id: args.packingSlipFileId || null,
       });
 
       // 2) the ledger — one immutable ship movement; recompute reprojects the cache
@@ -77,19 +80,19 @@ export async function shipFromProduction(sb: any, args: {
       shippedTotal += tot;
     }
 
-    if (shippedTotal === 0) return { ok: false, shipped: 0, boxes: 0, error: "No quantities entered." };
+    if (shippedTotal === 0) return { ok: false, shipped: 0, boxes: 0, jobIds: [], error: "No quantities entered." };
 
-    const how = args.method === "tracking" ? (trackingOrBol ? `tracking ${trackingOrBol}` : "tracking")
-      : args.method === "bol" ? (trackingOrBol ? `BOL ${trackingOrBol}` : "freight") : "pickup";
+    const how = args.method === "tracking" ? [carrier, trackingOrBol].filter(Boolean).join(" ") || "tracking"
+      : args.method === "bol" ? `${carrier || "freight"}${trackingOrBol ? ` BOL ${trackingOrBol}` : ""}` : "pickup";
     for (const jobId of Array.from(jobsTouched)) {
       const n = args.items.filter(i => i.jobId === jobId).length;
       logJobActivity(jobId, `Shipped ${n} item${n > 1 ? "s" : ""} from production — ${how}`);
     }
-    notifyTeam(`Shipment from production — ${shippedTotal} units incoming to warehouse`, "production", undefined, "job");
+    // notify is a deliberate post-ship action (the modal's "Notify warehouse")
 
-    return { ok: true, shipped: shippedTotal, boxes: boxes.size };
+    return { ok: true, shipped: shippedTotal, boxes: boxes.size, jobIds: Array.from(jobsTouched) };
   } catch (e: any) {
     console.error("[production2] shipFromProduction", e);
-    return { ok: false, shipped: 0, boxes: 0, error: e?.message || "Ship failed." };
+    return { ok: false, shipped: 0, boxes: 0, jobIds: [], error: e?.message || "Ship failed." };
   }
 }

@@ -6,6 +6,9 @@ import { createClient } from "@/lib/supabase/client";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 import { DriveThumb } from "@/components/DriveThumb";
 import { shipFromProduction } from "@/lib/production2-ship";
+import { notifyTeam } from "@/components/JobActivityPanel";
+// @ts-ignore — plain JS helper
+import { uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
 import type { BoardStrip, BoardItem } from "@/lib/item-state";
 
 type SelItem = BoardItem & { strip: BoardStrip };
@@ -37,7 +40,7 @@ const METRICS: { key: MetricKey; label: string }[] = [
 ];
 const nf = (n: number) => n.toLocaleString();
 
-export default function Board({ strips }: { strips: BoardStrip[] }) {
+export default function Board({ strips, freightCarriers }: { strips: BoardStrip[]; freightCarriers: string[] }) {
   const router = useRouter();
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [shipOpen, setShipOpen] = useState(false);
@@ -225,7 +228,7 @@ export default function Board({ strips }: { strips: BoardStrip[] }) {
         </div>
       )}
 
-      {shipOpen && <ShipModal items={selectedItems} vendorName={selVendorName} decoratorId={selVendor}
+      {shipOpen && <ShipModal items={selectedItems} vendorName={selVendorName} decoratorId={selVendor} freightCarriers={freightCarriers}
         onClose={() => setShipOpen(false)}
         onDone={() => { setShipOpen(false); setSel(new Set()); router.refresh(); }} />}
       {kpi && <KpiModal metric={kpi} total={agg.total} byVendor={agg.byVendor} byClient={agg.byClient} onClose={() => setKpi(null)} />}
@@ -275,13 +278,19 @@ function KpiModal({ metric, total, byVendor, byClient, onClose }:
   );
 }
 
-// Ship modal — writes the shipment. Per-item qty (default owed) + per-item final
-// flag, one method for the box. Confirm is gated to the test job until verified.
-function ShipModal({ items, vendorName, decoratorId, onClose, onDone }:
-  { items: SelItem[]; vendorName: string; decoratorId: string | null; onClose: () => void; onDone: () => void }) {
+const PARCEL_CARRIERS = ["UPS", "DHL", "FedEx", "USPS"];
+
+// Ship modal — writes the shipment. Per-item qty (default owed) + final flag,
+// carrier + tracking/BOL/pickup, vendor packing slip. Confirm is gated to the
+// test job. On success it flips to a done screen (Notify warehouse / Done).
+function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, onDone }:
+  { items: SelItem[]; vendorName: string; decoratorId: string | null; freightCarriers: string[]; onClose: () => void; onDone: () => void }) {
   const [method, setMethod] = useState<"tracking" | "bol" | "pickup">("tracking");
   const [ref, setRef] = useState("");
+  const [parcelCarrier, setParcelCarrier] = useState(/one\s*stop/i.test(vendorName) ? "DHL" : "UPS");
+  const [freightCarrier, setFreightCarrier] = useState("");
   const [note, setNote] = useState("");
+  const [slipFile, setSlipFile] = useState<File | null>(null);
   const [qtys, setQtys] = useState<Record<string, Record<string, number>>>(() => {
     const init: Record<string, Record<string, number>> = {};
     for (const it of items) init[it.itemId] = { ...(Object.keys(it.owed).length ? it.owed : it.ordered) };
@@ -289,7 +298,10 @@ function ShipModal({ items, vendorName, decoratorId, onClose, onDone }:
   });
   const [final, setFinal] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState(false);
+  const [busyLabel, setBusyLabel] = useState("Shipping…");
   const [err, setErr] = useState<string | null>(null);
+  const [done, setDone] = useState<{ shipped: number; boxes: number; jobIds: string[] } | null>(null);
+  const [notified, setNotified] = useState(false);
 
   const isTest = items.every(it => TEST_JOBS.includes(it.strip.jobNumber) || it.strip.clientName === "Playwright Test Co");
   const itemTotal = (id: string) => Object.values(qtys[id] || {}).reduce((a, n) => a + (Number(n) || 0), 0);
@@ -299,15 +311,66 @@ function ShipModal({ items, vendorName, decoratorId, onClose, onDone }:
 
   async function confirm() {
     setBusy(true); setErr(null);
-    const res = await shipFromProduction(createClient(), {
-      method, tracking: method === "tracking" ? ref : null, bol: method === "bol" ? ref : null, note,
-      decoratorId, decoratorName: vendorName,
-      items: items.map(it => ({ itemId: it.itemId, jobId: it.jobId, itemName: it.name, qtys: qtys[it.itemId] || {}, final: !!final[it.itemId] })),
-    });
-    setBusy(false);
-    if (res.ok) onDone(); else setErr(res.error || "Ship failed.");
+    try {
+      const sb = createClient();
+      // upload the vendor packing slip first (if any)
+      let packingSlipFileId: string | null = null;
+      if (slipFile) {
+        setBusyLabel("Uploading packing slip…");
+        const up = await (uploadToDrive as any)({
+          blob: slipFile, fileName: slipFile.name, mimeType: slipFile.type || "application/octet-stream",
+          clientName: items[0].strip.clientName, projectTitle: items[0].strip.jobTitle, itemName: "Packing Slips",
+        });
+        packingSlipFileId = up.fileId;
+        for (const it of items) {
+          await registerFileInDb({
+            fileId: up.fileId, webViewLink: up.webViewLink, folderLink: up.folderLink,
+            fileName: slipFile.name, mimeType: slipFile.type, fileSize: slipFile.size,
+            itemId: it.itemId, stage: "packing_slip", notes: up.folderLink,
+          });
+        }
+      }
+      setBusyLabel("Shipping…");
+      const carrier = method === "tracking" ? parcelCarrier : method === "bol" ? freightCarrier.trim() || null : null;
+      const res = await shipFromProduction(sb, {
+        method, tracking: method === "tracking" ? ref : null, bol: method === "bol" ? ref : null,
+        carrier, packingSlipFileId, note, decoratorId, decoratorName: vendorName,
+        items: items.map(it => ({ itemId: it.itemId, jobId: it.jobId, itemName: it.name, qtys: qtys[it.itemId] || {}, final: !!final[it.itemId] })),
+      });
+      setBusy(false); setBusyLabel("Shipping…");
+      if (res.ok) setDone({ shipped: res.shipped, boxes: res.boxes, jobIds: res.jobIds });
+      else setErr(res.error || "Ship failed.");
+    } catch (e: any) { setBusy(false); setErr(e?.message || "Ship failed."); }
   }
 
+  function notifyWarehouse() {
+    for (const jobId of done?.jobIds || []) {
+      notifyTeam(`Shipment from production — ${done!.shipped} units incoming to warehouse (${vendorName})`, "production", jobId, "job");
+    }
+    setNotified(true);
+  }
+
+  // ── success screen ──
+  if (done) {
+    return (
+      <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", zIndex: 60, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 20px", overflowY: "auto" }}>
+        <div style={{ background: T.card, borderRadius: 14, maxWidth: 480, width: "100%", fontFamily: font, boxShadow: "0 20px 60px rgba(0,0,0,0.2)", padding: "28px 26px", textAlign: "center" }}>
+          <div style={{ width: 46, height: 46, borderRadius: 999, background: T.greenDim, color: T.green, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24, margin: "0 auto 12px" }}>✓</div>
+          <div style={{ fontSize: 18, fontWeight: 700 }}>Shipped {done.shipped} units</div>
+          <div style={{ fontSize: 13, color: T.muted, marginTop: 3 }}>{vendorName} · {done.boxes} box{done.boxes > 1 ? "es" : ""} → receiving</div>
+          <div style={{ display: "flex", gap: 10, marginTop: 22, justifyContent: "center" }}>
+            <button onClick={notifyWarehouse} disabled={notified}
+              style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "10px 18px", cursor: notified ? "default" : "pointer", border: `1px solid ${T.border}`, background: notified ? T.greenDim : T.card, color: notified ? T.green : T.text }}>
+              {notified ? "✓ Warehouse notified" : "Notify warehouse"}
+            </button>
+            <button onClick={onDone} style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "10px 22px", border: "none", cursor: "pointer", background: T.text, color: "#fff" }}>Done</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── ship form ──
   return (
     <div onClick={busy ? undefined : onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", zIndex: 60, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 20px", overflowY: "auto" }}>
       <div onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 14, maxWidth: 660, width: "100%", fontFamily: font, boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}>
@@ -327,9 +390,26 @@ function ShipModal({ items, vendorName, decoratorId, onClose, onDone }:
                 </button>
               ))}
             </div>
-            {method !== "pickup" && (
-              <input value={ref} onChange={e => setRef(e.target.value)} placeholder={method === "tracking" ? "Tracking number" : "BOL number"}
-                style={{ marginTop: 8, width: "100%", boxSizing: "border-box", fontSize: 13, padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, fontFamily: mono }} />
+            {/* tracking: carrier dropdown + tracking # */}
+            {method === "tracking" && (
+              <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                <select value={parcelCarrier} onChange={e => setParcelCarrier(e.target.value)}
+                  style={{ fontSize: 13, padding: "9px 10px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.card, fontFamily: font, fontWeight: 600, cursor: "pointer" }}>
+                  {PARCEL_CARRIERS.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+                <input value={ref} onChange={e => setRef(e.target.value)} placeholder="Tracking number"
+                  style={{ flex: 1, boxSizing: "border-box", fontSize: 13, padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, fontFamily: mono }} />
+              </div>
+            )}
+            {/* BOL: freight carrier (learning datalist) + BOL # */}
+            {method === "bol" && (
+              <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                <input value={freightCarrier} onChange={e => setFreightCarrier(e.target.value)} list="p2-freight-carriers" placeholder="Freight carrier"
+                  style={{ width: 190, boxSizing: "border-box", fontSize: 13, padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, fontFamily: font }} />
+                <datalist id="p2-freight-carriers">{freightCarriers.map(c => <option key={c} value={c} />)}</datalist>
+                <input value={ref} onChange={e => setRef(e.target.value)} placeholder="BOL number"
+                  style={{ flex: 1, boxSizing: "border-box", fontSize: 13, padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, fontFamily: mono }} />
+              </div>
             )}
           </div>
 
@@ -362,6 +442,13 @@ function ShipModal({ items, vendorName, decoratorId, onClose, onDone }:
             })}
           </div>
 
+          {/* vendor packing slip */}
+          <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13, cursor: "pointer", border: `1px dashed ${T.border}`, borderRadius: 8, padding: "10px 12px", color: slipFile ? T.text : T.muted }}>
+            <span style={{ fontWeight: 600 }}>{slipFile ? "📎 " + slipFile.name : "Attach vendor packing slip"}</span>
+            {slipFile && <span onClick={e => { e.preventDefault(); setSlipFile(null); }} style={{ color: T.red, fontSize: 12, marginLeft: "auto" }}>remove</span>}
+            <input type="file" accept="image/*,application/pdf" onChange={e => setSlipFile(e.target.files?.[0] || null)} style={{ display: "none" }} />
+          </label>
+
           <input value={note} onChange={e => setNote(e.target.value)} placeholder="Note for the warehouse (optional)"
             style={{ width: "100%", boxSizing: "border-box", fontSize: 13, padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, fontFamily: font }} />
         </div>
@@ -373,7 +460,7 @@ function ShipModal({ items, vendorName, decoratorId, onClose, onDone }:
           <button onClick={onClose} disabled={busy} style={{ fontSize: 13, background: "none", border: `1px solid ${T.border}`, borderRadius: 8, padding: "9px 16px", cursor: busy ? "default" : "pointer", color: T.muted }}>Cancel</button>
           <button onClick={confirm} disabled={!isTest || busy || totalUnits === 0}
             style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "9px 20px", border: "none", cursor: (!isTest || busy || totalUnits === 0) ? "not-allowed" : "pointer", background: (!isTest || busy || totalUnits === 0) ? T.accentDim : T.text, color: (!isTest || busy || totalUnits === 0) ? T.faint : "#fff" }}>
-            {busy ? "Shipping…" : `Confirm ship · ${totalUnits}u`}
+            {busy ? busyLabel : `Confirm ship · ${totalUnits}u`}
           </button>
         </div>
       </div>

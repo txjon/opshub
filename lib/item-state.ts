@@ -244,6 +244,20 @@ export async function loadProductionBoard(sb: Sb): Promise<BoardStrip[]> {
     (a.shipDate || "9999").localeCompare(b.shipDate || "9999") || a.jobNumber.localeCompare(b.jobNumber));
 }
 
+// Freight carriers we've used before (the BOL "learning list" — a datalist that
+// grows as new freight carriers get typed and saved on shipments). Excludes the
+// standard parcel carriers, which have their own fixed dropdown.
+const PARCEL_CARRIERS = new Set(["ups", "dhl", "fedex", "usps"]);
+export async function loadFreightCarriers(sb: Sb): Promise<string[]> {
+  const { data } = await sb.from("shipments").select("carrier").not("carrier", "is", null).limit(2000);
+  const seen = new Set<string>();
+  for (const r of data || []) {
+    const c = (r.carrier || "").trim();
+    if (c && c.toLowerCase() !== "freight" && !PARCEL_CARRIERS.has(c.toLowerCase())) seen.add(c);
+  }
+  return Array.from(seen).sort();
+}
+
 // ── a shipment's contents (the by-shipment view — receiving) ───────────────
 // Every item that has a movement in this shipment/box, with its full state.
 export async function loadShipmentItems(sb: Sb, shipmentId: string): Promise<ItemView[]> {
