@@ -159,14 +159,16 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
 
                 {/* items */}
                 <div>
-                  {strip.items.map(it => {
+                  {strip.items.map((it, idx) => {
                     const checked = sel.has(it.itemId);
                     const blocked = selVendor !== null && it.decoratorId !== selVendor && !checked;
+                    const dCol = it.daysInStage == null ? T.faint : it.daysInStage >= 7 ? T.red : it.daysInStage >= 3 ? "#a87b00" : T.faint;
                     return (
                       <label key={it.itemId}
                         style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", borderTop: `1px solid ${T.border}`, cursor: blocked ? "not-allowed" : "pointer", opacity: blocked ? 0.4 : 1, background: checked ? T.blueDim : "transparent" }}>
                         <input type="checkbox" checked={checked} disabled={blocked} onChange={() => toggle(it)}
                           style={{ width: 16, height: 16, accentColor: T.blue, cursor: blocked ? "not-allowed" : "pointer" }} />
+                        <span style={{ width: 22, height: 22, borderRadius: 5, background: T.surface, color: T.muted, fontWeight: 700, fontSize: 11, fontFamily: mono, display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}>{String.fromCharCode(65 + idx)}</span>
                         <ItemThumb fileId={it.mockupFileId} name={it.name} />
                         <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
                           <span style={{ fontSize: 13, fontWeight: 500 }}>{it.name}</span>
@@ -185,6 +187,9 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
                         )}
                         <button onClick={e => { e.preventDefault(); e.stopPropagation(); setPullFor({ ...it, strip }); }}
                           style={{ fontSize: 11, fontWeight: 600, color: T.muted, background: "none", border: `1px solid ${T.border}`, borderRadius: 7, padding: "5px 11px", cursor: "pointer" }}>Pull</button>
+                        {it.daysInStage != null && (
+                          <span style={{ fontFamily: mono, fontSize: 11, fontWeight: 600, color: dCol, minWidth: 26, textAlign: "right" }}>{it.daysInStage}d</span>
+                        )}
                         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", minWidth: 56 }}>
                           <span style={{ fontFamily: mono, fontSize: 14, fontWeight: 700 }}>{it.owedTotal}</span>
                           {it.shippedTotal > 0 && <span style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: 0.3 }}>owed</span>}
@@ -395,6 +400,10 @@ const PARCEL_CARRIERS = ["UPS", "DHL", "FedEx", "USPS"];
 // test job. On success it flips to a done screen (Notify warehouse / Done).
 function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, onDone }:
   { items: SelItem[]; vendorName: string; decoratorId: string | null; freightCarriers: string[]; onClose: () => void; onDone: () => void }) {
+  // The items in the CURRENT wave. After a partial ship, "Ship next wave" narrows
+  // this to whatever still has units owed (computed locally so we don't need a
+  // server round-trip mid-modal — the board refreshes to truth on close).
+  const [activeItems, setActiveItems] = useState<SelItem[]>(items);
   const [method, setMethod] = useState<"tracking" | "bol" | "pickup">("tracking");
   const [ref, setRef] = useState("");
   const [parcelCarrier, setParcelCarrier] = useState(/one\s*stop/i.test(vendorName) ? "DHL" : "UPS");
@@ -423,7 +432,7 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
   // Notify branches on route: drop_ship → the client (the shared contact-picker
   // dialog), ship_through / stage → the warehouse via our own /production2 path
   // (no invoice gate; client → items → qtys + slip links).
-  const primary = items[0];
+  const primary = activeItems[0];
   const shipRoute = (primary?.route as string) || "ship_through";
   const isDrop = shipRoute === "drop_ship";
 
@@ -453,9 +462,22 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
     setNotifyBusy(false);
   }
 
-  const isTest = items.every(it => TEST_JOBS.includes(it.strip.jobNumber) || it.strip.clientName === "Playwright Test Co");
+  const isTest = activeItems.every(it => TEST_JOBS.includes(it.strip.jobNumber) || it.strip.clientName === "Playwright Test Co");
   const itemTotal = (id: string) => Object.values(qtys[id] || {}).reduce((a, n) => a + (Number(n) || 0), 0);
-  const totalUnits = items.reduce((a, it) => a + itemTotal(it.itemId), 0);
+  const totalUnits = activeItems.reduce((a, it) => a + itemTotal(it.itemId), 0);
+
+  // Compute what remains owed after the wave we just shipped (final-flagged items
+  // close to 0). Drives the "N still in production" line + the Ship-next-wave set.
+  function remainingAfterWave(): SelItem[] {
+    return activeItems.map(it => {
+      if (final[it.itemId]) return { ...it, owed: {}, owedTotal: 0 };
+      const base = Object.keys(it.owed).length ? it.owed : it.ordered;
+      const shipped = qtys[it.itemId] || {};
+      const owed: Record<string, number> = {};
+      for (const sz of Object.keys(base)) owed[sz] = Math.max(0, (base[sz] || 0) - (shipped[sz] || 0));
+      return { ...it, owed, owedTotal: Object.values(owed).reduce((a, n) => a + n, 0) };
+    }).filter(it => it.owedTotal > 0);
+  }
   const setQ = (id: string, sz: string, v: string) =>
     setQtys(prev => ({ ...prev, [id]: { ...prev[id], [sz]: Math.max(0, Math.floor(Number(v) || 0)) } }));
 
@@ -469,9 +491,9 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
         setBusyLabel("Uploading packing slip…");
         const up = await (uploadToDrive as any)({
           blob: slipFile, fileName: slipFile.name, mimeType: slipFile.type || "application/octet-stream",
-          clientName: items[0].strip.clientName, projectTitle: items[0].strip.jobTitle, itemName: "Packing Slips",
+          clientName: activeItems[0].strip.clientName, projectTitle: activeItems[0].strip.jobTitle, itemName: "Packing Slips",
         });
-        for (const it of items) {
+        for (const it of activeItems) {
           // registerFileInDb returns the item_files ROW; its .id (a UUID) is what
           // shipments.packing_slip_file_id expects — NOT the Drive file id.
           const reg: any = await registerFileInDb({
@@ -487,7 +509,7 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
       const res = await shipFromProduction(sb, {
         method, tracking: method === "tracking" ? ref : null, bol: method === "bol" ? ref : null,
         carrier, packingSlipFileId, note, decoratorId, decoratorName: vendorName,
-        items: items.map(it => ({ itemId: it.itemId, jobId: it.jobId, itemName: it.name, qtys: qtys[it.itemId] || {}, final: !!final[it.itemId] })),
+        items: activeItems.map(it => ({ itemId: it.itemId, jobId: it.jobId, itemName: it.name, qtys: qtys[it.itemId] || {}, final: !!final[it.itemId] })),
       });
       setBusy(false); setBusyLabel("Shipping…");
       if (res.ok) setDone({ shipped: res.shipped, boxes: res.boxes, boxIds: res.boxIds, jobIds: res.jobIds });
@@ -495,8 +517,21 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
     } catch (e: any) { setBusy(false); setErr(e?.message || "Ship failed."); }
   }
 
+  // Re-scope the modal to whatever still owes units and start a fresh wave.
+  function shipNextWave() {
+    const remaining = remainingAfterWave();
+    if (!remaining.length) { onDone(); return; }
+    const nextQ: Record<string, Record<string, number>> = {};
+    for (const it of remaining) nextQ[it.itemId] = { ...it.owed };
+    setActiveItems(remaining);
+    setQtys(nextQ); setFinal({}); setRef(""); setSlipFile(null);
+    setNotified(false); setNotifyTo(null); setNotifyErr(null); setDone(null);
+  }
+
   // ── success screen ──
   if (done) {
+    const stillOwed = remainingAfterWave();
+    const stillOwedUnits = stillOwed.reduce((a, it) => a + it.owedTotal, 0);
     return (
       <>
       <ModalShell onClose={onDone} maxWidth={480}>
@@ -504,8 +539,19 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
           <div style={{ width: 46, height: 46, borderRadius: 999, background: T.greenDim, color: T.green, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24, margin: "0 auto 12px" }}>✓</div>
           <div style={{ fontSize: 18, fontWeight: 700 }}>Shipped {done.shipped} units</div>
           <div style={{ fontSize: 13, color: T.muted, marginTop: 3 }}>{vendorName} · {done.boxes} box{done.boxes > 1 ? "es" : ""} → receiving</div>
+          <div style={{ fontSize: 13, color: T.muted, marginTop: 8 }}>
+            {stillOwedUnits > 0
+              ? <>This shipment is now in Receiving. <b style={{ color: T.text }}>{stillOwedUnits} still in production</b> for the next wave.</>
+              : <>This shipment is now in Receiving. Everything selected is fully shipped.</>}
+          </div>
           {notifyErr && <div style={{ fontSize: 12, color: T.red, fontWeight: 600, marginTop: 14 }}>{notifyErr}</div>}
-          <div style={{ display: "flex", gap: 10, marginTop: notifyErr ? 10 : 22, justifyContent: "center" }}>
+          <div style={{ display: "flex", gap: 10, marginTop: notifyErr ? 10 : 22, justifyContent: "center", flexWrap: "wrap" }}>
+            {stillOwedUnits > 0 && (
+              <button onClick={shipNextWave}
+                style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "10px 18px", cursor: "pointer", border: `1px solid ${T.border}`, background: T.card, color: T.text }}>
+                Ship next wave
+              </button>
+            )}
             <button onClick={openNotify} disabled={notified || notifyBusy}
               style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "10px 18px", cursor: (notified || notifyBusy) ? "default" : "pointer", border: `1px solid ${T.border}`, background: notified ? T.greenDim : T.card, color: notified ? T.green : T.text }}>
               {notified ? (notifyTo ? `✓ Sent to ${notifyTo}` : isDrop ? "✓ Client notified" : "✓ Warehouse notified") : notifyBusy ? "Sending…" : isDrop ? "Notify client" : "Notify warehouse"}
@@ -529,7 +575,7 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
     <ModalShell onClose={onClose} maxWidth={660} dismissable={false}>
         <div style={{ padding: "18px 22px", borderBottom: `1px solid ${T.border}` }}>
           <div style={{ fontSize: 17, fontWeight: 700 }}>Ship from production</div>
-          <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>{vendorName} · {items.length} item{items.length > 1 ? "s" : ""} · {totalUnits} units → one shipment</div>
+          <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>{vendorName} · {activeItems.length} item{activeItems.length > 1 ? "s" : ""} · {totalUnits} units → one shipment</div>
         </div>
 
         <div style={{ padding: "18px 22px", display: "flex", flexDirection: "column", gap: 14 }}>
@@ -564,12 +610,22 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
                   style={{ flex: 1, boxSizing: "border-box", fontSize: 13, padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, fontFamily: mono }} />
               </div>
             )}
+            {/* pickup: auto-stamp vendor + now (nothing to type) */}
+            {method === "pickup" && (
+              <div style={{ marginTop: 8, fontSize: 12.5, fontWeight: 700, color: T.green, background: T.greenDim, border: `1px solid ${T.green}`, borderRadius: 8, padding: "8px 12px", fontFamily: mono }}>
+                Pickup · {vendorName} · {fmtWhen(new Date().toISOString())}
+              </div>
+            )}
           </div>
 
           {/* per-item qty + final */}
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {items.map(it => {
+            {activeItems.map(it => {
               const sizes = sortSizes(Object.keys(it.owed).length ? Object.keys(it.owed) : Object.keys(it.ordered));
+              const shippedNow = itemTotal(it.itemId);
+              const remainAfter = it.owedTotal - shippedNow;
+              const threshold = Math.max(1, Math.ceil(it.orderedTotal * 0.05));
+              const nudge = !final[it.itemId] && shippedNow > 0 && remainAfter >= 0 && remainAfter <= threshold;
               return (
                 <div key={it.itemId} style={{ border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 12px" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
@@ -590,6 +646,12 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
                       </label>
                     ))}
                   </div>
+                  {nudge && (
+                    <button onClick={() => setFinal(p => ({ ...p, [it.itemId]: true }))}
+                      style={{ marginTop: 9, width: "100%", textAlign: "left", fontSize: 11.5, fontWeight: 600, color: "#a87b00", background: T.amberDim, border: `1px solid ${T.amber}`, borderRadius: 7, padding: "6px 10px", cursor: "pointer" }}>
+                      Looks like this finishes the order — mark as final? {remainAfter > 0 ? `The remaining ${remainAfter} would close it out.` : "This closes it out."}
+                    </button>
+                  )}
                 </div>
               );
             })}

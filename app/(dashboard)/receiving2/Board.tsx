@@ -4,14 +4,31 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 import { BoardFrame, ToggleSearch, KpiStrip, KpiBreakdownModal, ModalShell, Card, CardHeader, VariantChips, RouteTag, ItemThumb, SegmentControl, SliceSortRow } from "@/components/board-kit";
-import { receiveBox as receiveBoxAction, resolvePull } from "@/lib/receiving2-receive";
+import { receiveBox as receiveBoxAction, resolvePull, returnReceivedLine, editReceivedLine } from "@/lib/receiving2-receive";
 import { PULL_KINDS } from "@/lib/handoff";
+import LedgerHistory from "@/components/LedgerHistory";
 import type { ReceivingBox, ReceivingLine, HeldPull } from "@/lib/item-state";
 
 const TEST_CLIENTS = ["Playwright Test Co"];
 
 const tQty = (q: Record<string, number>) => Object.values(q || {}).reduce((a, v) => a + (Number(v) || 0), 0);
 const boxHow = (b: ReceivingBox) => b.pickup ? "Pickup" : [b.carrier, b.tracking].filter(Boolean).join(" · ") || "no tracking";
+const PARCEL = new Set(["ups", "dhl", "fedex", "usps"]);
+// method icon: 📦 parcel · 🚚 freight · 🤝 pickup (mirrors the mockup's row icon)
+const boxIcon = (b: ReceivingBox) => b.pickup ? "🤝" : (b.carrier && PARCEL.has(b.carrier.toLowerCase())) ? "📦" : "🚚";
+// where a received item goes next, by route
+const destOf = (route: string) => route === "stage" ? "Fulfillment" : route === "drop_ship" ? "Client" : "Shipping";
+function fmtDay(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso); if (isNaN(d.getTime())) return "";
+  return `${MONTHS[d.getMonth()]} ${d.getDate()}`;
+}
+function Chip({ children, tone = "muted" }: { children: React.ReactNode; tone?: "muted" | "amber" | "blue" }) {
+  const c = tone === "amber" ? { fg: "#a87b00", bg: T.amberDim } : tone === "blue" ? { fg: T.blue, bg: T.blueDim } : { fg: T.muted, bg: T.surface };
+  return <span style={{ fontSize: 10.5, fontWeight: 700, color: c.fg, background: c.bg, borderRadius: 99, padding: "2px 8px", whiteSpace: "nowrap" }}>{children}</span>;
+}
+// LineActions — received-view row handlers (Edit / Return / History), threaded down.
+type LineActions = { onEdit: (l: ReceivingLine, b: ReceivingBox) => void; onReturn: (l: ReceivingLine, b: ReceivingBox) => void; onHistory: (l: ReceivingLine) => void; busyKey: string | null };
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 function fmtWhen(iso: string | null): string {
   if (!iso) return "";
@@ -40,6 +57,18 @@ export default function Board({ boxes, pulls }: { boxes: ReceivingBox[]; pulls: 
   const [query, setQuery] = useState("");
   const [kpi, setKpi] = useState<MetricKey | null>(null);
   const [receiveBox, setReceiveBox] = useState<ReceivingBox | null>(null);
+  const [editFor, setEditFor] = useState<{ line: ReceivingLine; box: ReceivingBox } | null>(null);
+  const [historyFor, setHistoryFor] = useState<ReceivingLine | null>(null);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+
+  async function returnLine(l: ReceivingLine, b: ReceivingBox) {
+    const key = `${b.id}:${l.itemId}`;
+    setBusyKey(key);
+    const res = await returnReceivedLine(createClient(), { shipmentId: b.id, itemId: l.itemId, jobId: l.jobId, itemName: l.itemName });
+    setBusyKey(null);
+    if (res.ok) router.refresh();
+  }
+  const acts: LineActions = { onEdit: (line, box) => setEditFor({ line, box }), onReturn: returnLine, onHistory: setHistoryFor, busyKey };
 
   const incoming = useMemo(() => boxes.filter(b => !b.allReceived), [boxes]);
   const received = useMemo(() => boxes.filter(b => b.allReceived), [boxes]);
@@ -102,11 +131,11 @@ export default function Board({ boxes, pulls }: { boxes: ReceivingBox[]; pulls: 
 
         {view === "shipment" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            {display.map(box => <BoxCard key={box.id} box={box} status={status} onReceive={() => setReceiveBox(box)} />)}
+            {display.map(box => <BoxCard key={box.id} box={box} status={status} onReceive={() => setReceiveBox(box)} acts={acts} />)}
           </div>
         )}
-        {view === "job" && <JobView boxes={display} status={status} onReceive={setReceiveBox} />}
-        {view === "item" && <ItemView boxes={display} status={status} onReceive={setReceiveBox} />}
+        {view === "job" && <JobView boxes={display} status={status} onReceive={setReceiveBox} acts={acts} />}
+        {view === "item" && <ItemView boxes={display} status={status} onReceive={setReceiveBox} acts={acts} />}
       </>)}
 
       {kpi && <KpiBreakdownModal label={METRICS.find(m => m.key === kpi)!.label} total={agg.total[kpi]} unit={status}
@@ -114,25 +143,54 @@ export default function Board({ boxes, pulls }: { boxes: ReceivingBox[]; pulls: 
         onClose={() => setKpi(null)} />}
       {receiveBox && <ReceiveModal box={receiveBox} onClose={() => setReceiveBox(null)}
         onDone={() => { setReceiveBox(null); router.refresh(); }} />}
+      {editFor && <EditReceivedModal line={editFor.line} box={editFor.box} onClose={() => setEditFor(null)}
+        onDone={() => { setEditFor(null); router.refresh(); }} />}
+      {historyFor && <LedgerHistory itemId={historyFor.itemId} itemName={historyFor.itemName} onClose={() => setHistoryFor(null)} />}
     </BoardFrame>
   );
 }
 
-function LineRow({ l, status, right }: { l: ReceivingLine; status: Status; right?: React.ReactNode }) {
+// Received-view row actions: History (ledger), Edit (fix count), ← Return (one stage back).
+function RowActions({ l, box, acts }: { l: ReceivingLine; box: ReceivingBox; acts: LineActions }) {
+  const busy = acts.busyKey === `${box.id}:${l.itemId}`;
+  const btn: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: T.muted, background: "none", border: `1px solid ${T.border}`, borderRadius: 6, padding: "4px 9px", cursor: "pointer" };
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-      <ItemThumb fileId={l.mockupFileId} name={l.itemName} size={36} />
-      <span style={{ fontSize: 13, fontWeight: 500, minWidth: 150 }}>{l.itemName}</span>
-      <RouteTag route={l.route} />
-      <div style={{ flex: 1 }}><VariantChips qtys={qtyOf(l, status)} /></div>
-      {right}
+    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+      <button style={btn} onClick={() => acts.onHistory(l)}>History</button>
+      <button style={btn} onClick={() => acts.onEdit(l, box)}>Edit</button>
+      <button style={{ ...btn, color: busy ? T.faint : "#a87b00" }} disabled={busy} onClick={() => acts.onReturn(l, box)}>{busy ? "…" : "← Return"}</button>
     </div>
   );
 }
 
-function ClientGroups({ lines, status }: { lines: ReceivingLine[]; status: Status }) {
+// The received tally for a line: X/Y ✓ (green when met, amber when short) → destination.
+function ReceivedTally({ l }: { l: ReceivingLine }) {
+  const rec = tQty(l.receivedQtys), shp = tQty(l.shipQtys);
+  const short = rec < shp;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <span style={{ fontFamily: mono, fontSize: 13, fontWeight: 700, color: short ? "#a87b00" : T.green }}>{rec}/{shp}{short ? "" : " ✓"}</span>
+      <span style={{ fontSize: 11, color: T.muted }}>→ {destOf(l.route)}</span>
+    </div>
+  );
+}
+
+function LineRow({ l, box, status, acts, right }: { l: ReceivingLine; box: ReceivingBox; status: Status; acts?: LineActions; right?: React.ReactNode }) {
+  const received = status === "received";
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+      <ItemThumb fileId={l.mockupFileId} name={l.itemName} size={36} />
+      <span style={{ fontSize: 13, fontWeight: 500, minWidth: 150 }}>{l.itemName}</span>
+      <RouteTag route={l.route} />
+      <div style={{ flex: 1, minWidth: 90 }}><VariantChips qtys={qtyOf(l, status)} /></div>
+      {received ? (<><ReceivedTally l={l} />{acts && <RowActions l={l} box={box} acts={acts} />}</>) : right}
+    </div>
+  );
+}
+
+function ClientGroups({ box, status, acts }: { box: ReceivingBox; status: Status; acts?: LineActions }) {
   const byClient = new Map<string, ReceivingLine[]>();
-  for (const l of lines) { const a = byClient.get(l.client) || []; a.push(l); byClient.set(l.client, a); }
+  for (const l of box.lines) { const a = byClient.get(l.client) || []; a.push(l); byClient.set(l.client, a); }
   return (
     <>
       {Array.from(byClient.entries()).map(([client, ls]) => (
@@ -141,7 +199,7 @@ function ClientGroups({ lines, status }: { lines: ReceivingLine[]; status: Statu
             {client}{ls[0]?.invoiceNumber ? <span style={{ fontFamily: mono, color: T.faint, fontWeight: 500 }}> · #{ls[0].invoiceNumber}</span> : ""}
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {ls.map(l => <LineRow key={l.itemId} l={l} status={status}
+            {ls.map(l => <LineRow key={l.itemId} l={l} box={box} status={status} acts={acts}
               right={<span style={{ fontFamily: mono, fontSize: 13, fontWeight: 700, minWidth: 40, textAlign: "right" }}>{tQty(qtyOf(l, status))}</span>} />)}
           </div>
         </div>
@@ -150,11 +208,26 @@ function ClientGroups({ lines, status }: { lines: ReceivingLine[]; status: Statu
   );
 }
 
-function BoxCard({ box, status, onReceive }: { box: ReceivingBox; status: Status; onReceive: () => void }) {
+// Chips row under the box header (mockup §1): multi-project · partials · ETA.
+function BoxChips({ box, status }: { box: ReceivingBox; status: Status }) {
+  const jobs = new Set(box.lines.map(l => l.jobId)).size;
+  const partials = box.lines.filter(l => l.orderedTotal > 0 && tQty(l.shipQtys) < l.orderedTotal).length;
+  const toReceive = box.lines.filter(l => !l.received).length;
+  const chips: React.ReactNode[] = [];
+  if (jobs > 1) chips.push(<Chip key="mp" tone="blue">Multi-project · {jobs} jobs</Chip>);
+  if (partials > 0 && status !== "received") chips.push(<Chip key="pt" tone="amber">{partials} partial item{partials > 1 ? "s" : ""}</Chip>);
+  if (box.expectedArrival && status !== "received") chips.push(<Chip key="eta">ETA {fmtDay(box.expectedArrival)}</Chip>);
+  chips.push(<Chip key="iu">{box.lines.length} item{box.lines.length > 1 ? "s" : ""} · {boxUnits(box, status)} units</Chip>);
+  if (status === "incoming" && toReceive > 0) chips.push(<Chip key="tr" tone="amber">{toReceive} to receive</Chip>);
+  return <div style={{ display: "flex", gap: 6, flexWrap: "wrap", padding: "8px 16px 2px" }}>{chips}</div>;
+}
+
+function BoxCard({ box, status, onReceive, acts }: { box: ReceivingBox; status: Status; onReceive: () => void; acts?: LineActions }) {
   const received = status === "received";
   return (
     <Card>
       <CardHeader>
+        <span style={{ fontSize: 15 }}>{boxIcon(box)}</span>
         <span style={{ fontSize: 13, fontWeight: 700 }}>{box.vendorName}</span>
         <span style={{ fontSize: 10, fontWeight: 700, color: received ? T.green : box.pickup ? "#a87b00" : T.blue, textTransform: "uppercase", letterSpacing: 0.5 }}>{received ? "Received" : box.pickup ? "Pickup" : "Incoming"}</span>
         <span style={{ fontFamily: mono, fontSize: 12, color: T.muted }}>{boxHow(box)}</span>
@@ -166,12 +239,13 @@ function BoxCard({ box, status, onReceive }: { box: ReceivingBox; status: Status
           ? <span style={{ fontSize: 13, fontWeight: 700, color: T.green }}>✓ received</span>
           : <span onClick={onReceive} style={{ fontSize: 13, fontWeight: 700, color: T.text, cursor: "pointer" }}>Receive →</span>}
       </CardHeader>
-      <ClientGroups lines={box.lines} status={status} />
+      <BoxChips box={box} status={status} />
+      <ClientGroups box={box} status={status} acts={acts} />
     </Card>
   );
 }
 
-function JobView({ boxes, status, onReceive }: { boxes: ReceivingBox[]; status: Status; onReceive: (b: ReceivingBox) => void }) {
+function JobView({ boxes, status, onReceive, acts }: { boxes: ReceivingBox[]; status: Status; onReceive: (b: ReceivingBox) => void; acts?: LineActions }) {
   const groups = useMemo(() => {
     const m = new Map<string, { client: string; invoice: string | null; lines: FlatLine[] }>();
     for (const b of boxes) for (const l of b.lines) {
@@ -192,7 +266,7 @@ function JobView({ boxes, status, onReceive }: { boxes: ReceivingBox[]; status: 
             <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700 }}>{g.lines.reduce((a, l) => a + tQty(qtyOf(l, status)), 0)}u</span>
           </CardHeader>
           <div style={{ padding: "10px 16px", display: "flex", flexDirection: "column", gap: 8 }}>
-            {g.lines.map((l, j) => <FlatRow key={j} l={l} status={status} onReceive={() => onReceive(l.box)} showBox />)}
+            {g.lines.map((l, j) => <FlatRow key={j} l={l} status={status} onReceive={() => onReceive(l.box)} acts={acts} showBox />)}
           </div>
         </Card>
       ))}
@@ -200,33 +274,33 @@ function JobView({ boxes, status, onReceive }: { boxes: ReceivingBox[]; status: 
   );
 }
 
-function ItemView({ boxes, status, onReceive }: { boxes: ReceivingBox[]; status: Status; onReceive: (b: ReceivingBox) => void }) {
+function ItemView({ boxes, status, onReceive, acts }: { boxes: ReceivingBox[]; status: Status; onReceive: (b: ReceivingBox) => void; acts?: LineActions }) {
   const lines = useMemo(() => boxes.flatMap(b => b.lines.map(l => ({ ...l, box: b }))), [boxes]);
   return (
     <Card>
       {lines.map((l, i) => (
         <div key={i} style={{ borderTop: i === 0 ? "none" : `1px solid ${T.border}`, padding: "10px 16px" }}>
-          <FlatRow l={l} status={status} onReceive={() => onReceive(l.box)} showBox showClient />
+          <FlatRow l={l} status={status} onReceive={() => onReceive(l.box)} acts={acts} showBox showClient />
         </div>
       ))}
     </Card>
   );
 }
 
-function FlatRow({ l, status, onReceive, showBox, showClient }: { l: FlatLine; status: Status; onReceive: () => void; showBox?: boolean; showClient?: boolean }) {
+function FlatRow({ l, status, onReceive, acts, showBox, showClient }: { l: FlatLine; status: Status; onReceive: () => void; acts?: LineActions; showBox?: boolean; showClient?: boolean }) {
   const received = status === "received";
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
       <ItemThumb fileId={l.mockupFileId} name={l.itemName} size={36} />
       <div style={{ minWidth: 170 }}>
         <div style={{ fontSize: 13, fontWeight: 500 }}>{l.itemName}</div>
         {showClient && <div style={{ fontSize: 11, color: T.muted }}>{l.client}{l.invoiceNumber ? ` · #${l.invoiceNumber}` : ""}</div>}
-        {showBox && <div style={{ fontSize: 11, color: T.faint }}>{l.box.vendorName} · {boxHow(l.box)}</div>}
+        {showBox && <div style={{ fontSize: 11, color: T.faint }}>{boxIcon(l.box)} {l.box.vendorName} · {boxHow(l.box)}</div>}
       </div>
       <RouteTag route={l.route} />
-      <div style={{ flex: 1 }}><VariantChips qtys={qtyOf(l, status)} /></div>
+      <div style={{ flex: 1, minWidth: 90 }}><VariantChips qtys={qtyOf(l, status)} /></div>
       {received
-        ? <span style={{ fontSize: 11, fontWeight: 700, color: T.green }}>✓ received</span>
+        ? <><ReceivedTally l={l} />{acts && <RowActions l={l} box={l.box} acts={acts} />}</>
         : <span onClick={onReceive} style={{ fontSize: 12, fontWeight: 700, color: T.text, cursor: "pointer" }}>Receive →</span>}
     </div>
   );
@@ -455,6 +529,59 @@ function ReceiveModal({ box, onClose, onDone }: { box: ReceivingBox; onClose: ()
             : <span style={{ fontSize: 11.5, color: T.muted }}>Receive each item as you count it — it routes on immediately.</span>}
         <div style={{ flex: 1 }} />
         <button onClick={onClose} style={{ fontSize: 13, background: "none", border: `1px solid ${T.border}`, borderRadius: 8, padding: "9px 16px", cursor: "pointer", color: T.muted }}>Close</button>
+      </div>
+    </ModalShell>
+  );
+}
+
+// Edit-received modal — fix a received count in place. Defaults to what was
+// counted; saving reverses this box's receipt and re-appends the corrected qty
+// (both stay on the ledger). Gated to the test client, like every other write.
+function EditReceivedModal({ line, box, onClose, onDone }: { line: ReceivingLine; box: ReceivingBox; onClose: () => void; onDone: () => void }) {
+  const sizes = sortSizes(Object.keys(line.shipQtys).length ? Object.keys(line.shipQtys) : Object.keys(line.receivedQtys));
+  const [qtys, setQtys] = useState<Record<string, number>>({ ...line.receivedQtys });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const isTest = TEST_CLIENTS.includes(line.client);
+  const total = tQty(qtys);
+  const setQ = (sz: string, v: string) => setQtys(p => ({ ...p, [sz]: Math.max(0, Math.floor(Number(v) || 0)) }));
+
+  async function save() {
+    setBusy(true); setErr(null);
+    const res = await editReceivedLine(createClient(), { shipmentId: box.id, itemId: line.itemId, jobId: line.jobId, itemName: line.itemName, newReceived: qtys });
+    setBusy(false);
+    if (res.ok) onDone(); else setErr(res.error || "Edit failed.");
+  }
+
+  return (
+    <ModalShell onClose={onClose} maxWidth={520} dismissable={false}>
+      <div style={{ padding: "18px 22px", borderBottom: `1px solid ${T.border}` }}>
+        <div style={{ fontSize: 17, fontWeight: 700 }}>Edit received — {line.itemName}</div>
+        <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>{box.vendorName} · fix the counted quantity in place</div>
+      </div>
+      <div style={{ padding: "18px 22px", display: "flex", flexDirection: "column", gap: 14 }}>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>Received, per size</div>
+          <div style={{ display: "grid", gridTemplateColumns: `auto repeat(${sizes.length}, 50px)`, columnGap: 8, rowGap: 4, alignItems: "center", width: "fit-content" }}>
+            <div />{sizes.map(sz => <div key={sz} style={{ fontSize: 10, fontWeight: 800, color: T.faint, textAlign: "center", textTransform: "uppercase" }}>{sz}</div>)}
+            <div style={{ fontSize: 9, fontWeight: 800, color: T.faint, textTransform: "uppercase", letterSpacing: 0.3, paddingRight: 4 }}>Shipped</div>
+            {sizes.map(sz => <div key={sz} style={{ fontFamily: mono, fontSize: 12, color: T.muted, textAlign: "center" }}>{line.shipQtys[sz] ?? 0}</div>)}
+            <div style={{ fontSize: 9, fontWeight: 800, color: T.faint, textTransform: "uppercase", letterSpacing: 0.3, paddingRight: 4 }}>Received</div>
+            {sizes.map(sz => { const got = qtys[sz] ?? 0, want = line.shipQtys[sz] ?? 0; const c = got === want ? T.text : got < want ? "#a87b00" : T.green;
+              return <input key={sz} inputMode="numeric" value={got} onChange={e => setQ(sz, e.target.value)} onFocus={e => e.target.select()}
+                style={{ width: 50, textAlign: "center", fontFamily: mono, fontSize: 13, fontWeight: 700, padding: "5px 4px", borderRadius: 5, border: `1px solid ${got === want ? T.border : c}`, color: c, background: T.card }} />; })}
+          </div>
+        </div>
+      </div>
+      <div style={{ padding: "14px 22px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
+        {!isTest && <span style={{ fontSize: 12, color: T.amber, fontWeight: 600 }}>Edit is limited to the test job.</span>}
+        {err && <span style={{ fontSize: 12, color: T.red, fontWeight: 600 }}>{err}</span>}
+        <div style={{ flex: 1 }} />
+        <button onClick={onClose} disabled={busy} style={{ fontSize: 13, background: "none", border: `1px solid ${T.border}`, borderRadius: 8, padding: "9px 16px", cursor: "pointer", color: T.muted }}>Cancel</button>
+        <button onClick={save} disabled={!isTest || busy}
+          style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "9px 20px", border: "none", cursor: (!isTest || busy) ? "not-allowed" : "pointer", background: (!isTest || busy) ? T.accentDim : T.green, color: (!isTest || busy) ? T.faint : "#fff" }}>
+          {busy ? "Saving…" : `Save · ${total}u`}
+        </button>
       </div>
     </ModalShell>
   );

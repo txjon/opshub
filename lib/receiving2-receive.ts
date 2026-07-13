@@ -5,7 +5,7 @@
 // movements so the derivation drops them from what forwards downstream (pulls
 // STACK, per H8). Runs client-side, like /production2 + the live /receiving.
 
-import { recordReceive, appendMovement, recomputeItemFromLedger, cleanPositive } from "./inventory-ledger";
+import { recordReceive, appendMovement, recomputeItemFromLedger, cleanPositive, reverseReceiptForShipment } from "./inventory-ledger";
 import { fulfillPullRequest, recordAdHocPull, resolvePulledInventory } from "./handoff";
 import { logJobActivity } from "@/components/JobActivityPanel";
 
@@ -26,6 +26,38 @@ export async function resolvePull(sb: any, row: { id: string; itemId: string; jo
 
 type SizeQtys = Record<string, number>;
 const sum = (q: SizeQtys) => Object.values(q || {}).reduce((a, n) => a + (Number(n) || 0), 0);
+
+// Return a received line back one stage — undoes THIS box's receipt for the item
+// (append-only reversal, other boxes untouched), clears the line, and flips the
+// shipment out of "received" so it re-appears in Incoming. Pulls are left as-is.
+export async function returnReceivedLine(sb: any, args: { shipmentId: string; itemId: string; jobId: string; itemName: string }): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const now = new Date().toISOString();
+    await reverseReceiptForShipment(sb, args.itemId, args.shipmentId, "Returned to receiving");
+    await sb.from("shipment_lines").update({ received: false, received_at: null, received_qtys: {} })
+      .eq("shipment_id", args.shipmentId).eq("item_id", args.itemId);
+    // any un-received line means the box is no longer fully received
+    await sb.from("shipments").update({ status: "expected", received_at: null }).eq("id", args.shipmentId);
+    logJobActivity(args.jobId, `Returned ${args.itemName} to receiving`);
+    return { ok: true };
+  } catch (e: any) { console.error("[receiving2] returnReceivedLine", e); return { ok: false, error: e?.message || "Return failed." }; }
+}
+
+// Edit a received line's count in place — reverse this box's receipt, then append
+// the corrected quantity (both stay on the ledger). Keeps the line received.
+export async function editReceivedLine(sb: any, args: { shipmentId: string; itemId: string; jobId: string; itemName: string; newReceived: SizeQtys }): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const now = new Date().toISOString();
+    const corrected = cleanPositive(args.newReceived);
+    await reverseReceiptForShipment(sb, args.itemId, args.shipmentId, "Edit received count");
+    await appendMovement(sb, { itemId: args.itemId, jobId: args.jobId, type: "receive", qtys: corrected, shipmentId: args.shipmentId, reason: "Corrected received count", description: args.itemName });
+    await recomputeItemFromLedger(sb, args.itemId);
+    await sb.from("shipment_lines").update({ received: true, received_at: now, received_qtys: corrected })
+      .eq("shipment_id", args.shipmentId).eq("item_id", args.itemId);
+    logJobActivity(args.jobId, `Corrected received count for ${args.itemName} → ${sum(corrected)}`);
+    return { ok: true };
+  } catch (e: any) { console.error("[receiving2] editReceivedLine", e); return { ok: false, error: e?.message || "Edit failed." }; }
+}
 const addQtys = (a: SizeQtys, b: SizeQtys): SizeQtys => {
   const out: SizeQtys = { ...(a || {}) };
   for (const [s, n] of Object.entries(b || {})) out[s] = (out[s] || 0) + (Number(n) || 0);

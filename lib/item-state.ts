@@ -115,9 +115,20 @@ export type BoardItem = ItemView & {
   mockupFileId: string | null; // Drive file id of the latest mockup/proof, for the thumbnail
   shipWaves: { tracking: string | null; total: number }[]; // waves already shipped (for partial rows)
   pullRequests: PullReq[];     // production-declared pulls (held back for sample/photo/etc), pending
+  daysInStage: number | null;  // days since the item entered its current pipeline stage (stall signal)
 };
 export type PullReq = { id: string; kind: string | null; qtys: Record<string, number>; reason: string | null };
 const pullTotal = (p: PullReq) => Object.values(p.qtys || {}).reduce((a, n) => a + (Number(n) || 0), 0);
+
+// Days since the item entered its current pipeline stage (mirrors /production's
+// "Xd in stage" stall signal). Falls back to null when we have no timestamp.
+function daysInStageFrom(timestamps: any, stage: string | null): number | null {
+  const iso = stage && timestamps ? timestamps[stage] : null;
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  if (isNaN(t)) return null;
+  return Math.max(0, Math.floor((Date.now() - t) / 86400000));
+}
 
 // Ship waves already sent for an item = each non-reversed ship movement.
 function shipWavesFrom(raw: any[]): { tracking: string | null; total: number }[] {
@@ -169,7 +180,7 @@ export async function loadProductionBoard(sb: Sb): Promise<BoardStrip[]> {
 
   const { data: items } = await sb
     .from("items")
-    .select("id, job_id, name, mockup_color, garment_type, shipping_route, ship_final, sort_order, pipeline_stage, buy_sheet_lines(size, qty_ordered), decorator_assignments(decorator_id, decorators(name, short_code))")
+    .select("id, job_id, name, mockup_color, garment_type, shipping_route, ship_final, sort_order, pipeline_stage, pipeline_timestamps, buy_sheet_lines(size, qty_ordered), decorator_assignments(decorator_id, decorators(name, short_code))")
     .in("job_id", Array.from(jobById.keys()));
   if (!items?.length) return [];
 
@@ -249,6 +260,7 @@ export async function loadProductionBoard(sb: Sb): Promise<BoardStrip[]> {
       mockupFileId: mockupById.get(item.id) || null,
       shipWaves: shipWavesFrom(rawByItem.get(item.id) || []),
       pullRequests: pullsByItem.get(item.id) || [],
+      daysInStage: daysInStageFrom(item.pipeline_timestamps, item.pipeline_stage),
     });
   }
   // sort: soonest ship date first, then job number
@@ -331,6 +343,7 @@ export type ReceivingLine = {
   shipQtys: SizeQtys;         // what this box says was shipped
   receivedQtys: SizeQtys;     // already counted in for this line
   cumReceived: SizeQtys;      // item's running received across ALL boxes (for the ledger target)
+  orderedTotal: number;       // full order qty for the item (to flag a partial wave)
   received: boolean;
   pullRequests: PullReq[];    // production-declared pulls pending on this item (fulfil at receiving)
 };
@@ -352,7 +365,7 @@ export async function loadReceivingBoard(sb: Sb): Promise<ReceivingBox[]> {
   if (!open.length) return [];
   const ids = open.map((s: any) => s.id);
   const { data: lines } = await sb.from("shipment_lines")
-    .select("shipment_id, item_id, job_id, description, ship_qtys, received_qtys, received, items(name, mockup_color, shipping_route, received_qtys, jobs(shipping_route, type_meta, clients(name)))").in("shipment_id", ids);
+    .select("shipment_id, item_id, job_id, description, ship_qtys, received_qtys, received, items(name, mockup_color, shipping_route, received_qtys, buy_sheet_lines(qty_ordered), jobs(shipping_route, type_meta, clients(name)))").in("shipment_id", ids);
   const itemIds = Array.from(new Set((lines || []).map((l: any) => l.item_id).filter(Boolean)));
 
   // pending production-declared pulls per item, to fulfil at receiving
@@ -386,6 +399,7 @@ export async function loadReceivingBoard(sb: Sb): Promise<ReceivingBox[]> {
       client: l.items?.jobs?.clients?.name || "—", invoiceNumber: l.items?.jobs?.type_meta?.qb_invoice_number || null,
       route: resolveRoute(l.items?.shipping_route, l.items?.jobs?.shipping_route),
       shipQtys: l.ship_qtys || {}, receivedQtys: l.received_qtys || {}, cumReceived: l.items?.received_qtys || {},
+      orderedTotal: (l.items?.buy_sheet_lines || []).reduce((a: number, b: any) => a + (Number(b.qty_ordered) || 0), 0),
       received: !!l.received, pullRequests: pullsByItem.get(l.item_id) || [],
     }));
     const slipMap = new Map<string, { name: string; url: string }>();
