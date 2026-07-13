@@ -16,7 +16,7 @@
 
 import { shipProgress, type SizeQtys } from "./ship-progress";
 
-export type MovementType = "ship" | "receive" | "forward" | "stage" | "adjust";
+export type MovementType = "ship" | "receive" | "forward" | "stage" | "pull" | "adjust";
 
 export type Movement = {
   id: string;

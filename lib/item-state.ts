@@ -326,11 +326,13 @@ export async function loadRecentShipments(sb: Sb): Promise<ShippedBox[]> {
 // shipped (the box manifest) + what's already received. A box spans any number of
 // jobs/clients; the receive modal counts each line in and routes it downstream.
 export type ReceivingLine = {
-  itemId: string; itemName: string; mockupFileId: string | null;
+  itemId: string; jobId: string; itemName: string; mockupFileId: string | null;
   client: string; invoiceNumber: string | null; route: Route;
-  shipQtys: SizeQtys;       // what this box says was shipped
-  receivedQtys: SizeQtys;   // already counted in for this line
+  shipQtys: SizeQtys;         // what this box says was shipped
+  receivedQtys: SizeQtys;     // already counted in for this line
+  cumReceived: SizeQtys;      // item's running received across ALL boxes (for the ledger target)
   received: boolean;
+  pullRequests: PullReq[];    // production-declared pulls pending on this item (fulfil at receiving)
 };
 export type ReceivingBox = {
   id: string; vendorName: string; carrier: string | null; tracking: string | null; pickup: boolean;
@@ -350,8 +352,15 @@ export async function loadReceivingBoard(sb: Sb): Promise<ReceivingBox[]> {
   if (!open.length) return [];
   const ids = open.map((s: any) => s.id);
   const { data: lines } = await sb.from("shipment_lines")
-    .select("shipment_id, item_id, description, ship_qtys, received_qtys, received, items(name, mockup_color, shipping_route, jobs(shipping_route, type_meta, clients(name)))").in("shipment_id", ids);
+    .select("shipment_id, item_id, job_id, description, ship_qtys, received_qtys, received, items(name, mockup_color, shipping_route, received_qtys, jobs(shipping_route, type_meta, clients(name)))").in("shipment_id", ids);
   const itemIds = Array.from(new Set((lines || []).map((l: any) => l.item_id).filter(Boolean)));
+
+  // pending production-declared pulls per item, to fulfil at receiving
+  const { data: pulls } = itemIds.length
+    ? await sb.from("pull_requests").select("id, item_id, kind, qtys, reason, status").in("item_id", itemIds).in("status", ["pending", "partial"])
+    : { data: [] as any[] };
+  const pullsByItem = new Map<string, PullReq[]>();
+  for (const p of pulls || []) { const a = pullsByItem.get(p.item_id) || []; a.push({ id: p.id, kind: p.kind, qtys: p.qtys || {}, reason: p.reason }); pullsByItem.set(p.item_id, a); }
 
   const { data: slipFiles } = itemIds.length
     ? await sb.from("item_files").select("item_id, file_name, drive_link").eq("stage", "packing_slip").not("drive_link", "is", null).in("item_id", itemIds)
@@ -373,10 +382,11 @@ export async function loadReceivingBoard(sb: Sb): Promise<ReceivingBox[]> {
     const ls = byShip.get(s.id) || [];
     if (!ls.length) continue;
     const rLines: ReceivingLine[] = ls.map((l: any) => ({
-      itemId: l.item_id, itemName: l.items?.name || l.description || "Item", mockupFileId: mockById.get(l.item_id) || null,
+      itemId: l.item_id, jobId: l.job_id, itemName: l.items?.name || l.description || "Item", mockupFileId: mockById.get(l.item_id) || null,
       client: l.items?.jobs?.clients?.name || "—", invoiceNumber: l.items?.jobs?.type_meta?.qb_invoice_number || null,
       route: resolveRoute(l.items?.shipping_route, l.items?.jobs?.shipping_route),
-      shipQtys: l.ship_qtys || {}, receivedQtys: l.received_qtys || {}, received: !!l.received,
+      shipQtys: l.ship_qtys || {}, receivedQtys: l.received_qtys || {}, cumReceived: l.items?.received_qtys || {},
+      received: !!l.received, pullRequests: pullsByItem.get(l.item_id) || [],
     }));
     const slipMap = new Map<string, { name: string; url: string }>();
     for (const l of ls) for (const sl of slipsByItem.get(l.item_id) || []) slipMap.set(sl.url, sl);
