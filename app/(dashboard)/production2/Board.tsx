@@ -1,9 +1,15 @@
 "use client";
 import { useState, useMemo } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 import { DriveThumb } from "@/components/DriveThumb";
+import { shipFromProduction } from "@/lib/production2-ship";
 import type { BoardStrip, BoardItem } from "@/lib/item-state";
+
+type SelItem = BoardItem & { strip: BoardStrip };
+const TEST_JOBS = ["HPD-2605-054"]; // ship write limited here until Jon signs off
 
 const tQty = (q: Record<string, number>) => Object.values(q || {}).reduce((a, v) => a + v, 0);
 
@@ -32,6 +38,7 @@ const METRICS: { key: MetricKey; label: string }[] = [
 const nf = (n: number) => n.toLocaleString();
 
 export default function Board({ strips }: { strips: BoardStrip[] }) {
+  const router = useRouter();
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [shipOpen, setShipOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -91,7 +98,7 @@ export default function Board({ strips }: { strips: BoardStrip[] }) {
     return next;
   });
 
-  const selectedItems = useMemo(() => Array.from(sel).map(id => allItems.get(id)!).filter(Boolean), [sel, allItems]);
+  const selectedItems = useMemo<SelItem[]>(() => Array.from(sel).map(id => allItems.get(id)!).filter(Boolean), [sel, allItems]);
   const selUnits = selectedItems.reduce((a, it) => a + it.owedTotal, 0);
   const selVendorName = selectedItems[0]?.decoratorName ?? "";
 
@@ -205,7 +212,9 @@ export default function Board({ strips }: { strips: BoardStrip[] }) {
         </div>
       )}
 
-      {shipOpen && <ShipModal items={selectedItems} vendorName={selVendorName} onClose={() => setShipOpen(false)} />}
+      {shipOpen && <ShipModal items={selectedItems} vendorName={selVendorName} decoratorId={selVendor}
+        onClose={() => setShipOpen(false)}
+        onDone={() => { setShipOpen(false); setSel(new Set()); router.refresh(); }} />}
       {kpi && <KpiModal metric={kpi} total={agg.total} byVendor={agg.byVendor} byClient={agg.byClient} onClose={() => setKpi(null)} />}
     </div>
   );
@@ -253,19 +262,49 @@ function KpiModal({ metric, total, byVendor, byClient, onClose }:
   );
 }
 
-// Ship modal — PREVIEW. Layout + per-item qty/final controls are real so the
-// flow can be reviewed; the confirm (write) is wired in the next slice.
-function ShipModal({ items, vendorName, onClose }: { items: BoardItem[]; vendorName: string; onClose: () => void }) {
+// Ship modal — writes the shipment. Per-item qty (default owed) + per-item final
+// flag, one method for the box. Confirm is gated to the test job until verified.
+function ShipModal({ items, vendorName, decoratorId, onClose, onDone }:
+  { items: SelItem[]; vendorName: string; decoratorId: string | null; onClose: () => void; onDone: () => void }) {
   const [method, setMethod] = useState<"tracking" | "bol" | "pickup">("tracking");
-  const totalUnits = items.reduce((a, it) => a + it.owedTotal, 0);
+  const [ref, setRef] = useState("");
+  const [note, setNote] = useState("");
+  const [qtys, setQtys] = useState<Record<string, Record<string, number>>>(() => {
+    const init: Record<string, Record<string, number>> = {};
+    for (const it of items) init[it.itemId] = { ...(Object.keys(it.owed).length ? it.owed : it.ordered) };
+    return init;
+  });
+  const [final, setFinal] = useState<Record<string, boolean>>({});
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const isTest = items.every(it => TEST_JOBS.includes(it.strip.jobNumber) || it.strip.clientName === "Playwright Test Co");
+  const itemTotal = (id: string) => Object.values(qtys[id] || {}).reduce((a, n) => a + (Number(n) || 0), 0);
+  const totalUnits = items.reduce((a, it) => a + itemTotal(it.itemId), 0);
+  const setQ = (id: string, sz: string, v: string) =>
+    setQtys(prev => ({ ...prev, [id]: { ...prev[id], [sz]: Math.max(0, Math.floor(Number(v) || 0)) } }));
+
+  async function confirm() {
+    setBusy(true); setErr(null);
+    const res = await shipFromProduction(createClient(), {
+      method, tracking: method === "tracking" ? ref : null, bol: method === "bol" ? ref : null, note,
+      decoratorId, decoratorName: vendorName,
+      items: items.map(it => ({ itemId: it.itemId, jobId: it.jobId, itemName: it.name, qtys: qtys[it.itemId] || {}, final: !!final[it.itemId] })),
+    });
+    setBusy(false);
+    if (res.ok) onDone(); else setErr(res.error || "Ship failed.");
+  }
+
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", zIndex: 60, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 20px", overflowY: "auto" }}>
-      <div onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 14, maxWidth: 640, width: "100%", fontFamily: font, boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}>
+    <div onClick={busy ? undefined : onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", zIndex: 60, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 20px", overflowY: "auto" }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 14, maxWidth: 660, width: "100%", fontFamily: font, boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}>
         <div style={{ padding: "18px 22px", borderBottom: `1px solid ${T.border}` }}>
           <div style={{ fontSize: 17, fontWeight: 700 }}>Ship from production</div>
-          <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>{vendorName} · {items.length} items · {totalUnits} units → one shipment</div>
+          <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>{vendorName} · {items.length} item{items.length > 1 ? "s" : ""} · {totalUnits} units → one shipment</div>
         </div>
+
         <div style={{ padding: "18px 22px", display: "flex", flexDirection: "column", gap: 14 }}>
+          {/* method */}
           <div>
             <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>How it's leaving</div>
             <div style={{ display: "flex", gap: 8 }}>
@@ -275,35 +314,54 @@ function ShipModal({ items, vendorName, onClose }: { items: BoardItem[]; vendorN
                 </button>
               ))}
             </div>
-            <input placeholder={method === "tracking" ? "Tracking number" : method === "bol" ? "BOL number" : "Pickup date"} style={{ marginTop: 8, width: "100%", boxSizing: "border-box", fontSize: 13, padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, fontFamily: method === "pickup" ? font : mono }} />
+            {method !== "pickup" && (
+              <input value={ref} onChange={e => setRef(e.target.value)} placeholder={method === "tracking" ? "Tracking number" : "BOL number"}
+                style={{ marginTop: 8, width: "100%", boxSizing: "border-box", fontSize: 13, padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, fontFamily: mono }} />
+            )}
           </div>
+
+          {/* per-item qty + final */}
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {items.map(it => (
-              <div key={it.itemId} style={{ border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 12px" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                  <span style={{ fontSize: 13, fontWeight: 600 }}>{it.name}</span>
-                  <div style={{ flex: 1 }} />
-                  <label style={{ fontSize: 11, color: T.muted, display: "flex", alignItems: "center", gap: 5, cursor: "pointer" }}>
-                    <input type="checkbox" style={{ accentColor: T.blue }} /> final shipment
-                  </label>
+            {items.map(it => {
+              const sizes = sortSizes(Object.keys(it.owed).length ? Object.keys(it.owed) : Object.keys(it.ordered));
+              return (
+                <div key={it.itemId} style={{ border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 12px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                    <span style={{ fontSize: 13, fontWeight: 600 }}>{it.name}</span>
+                    <span style={{ fontFamily: mono, fontSize: 12, color: T.muted }}>{itemTotal(it.itemId)}u</span>
+                    <div style={{ flex: 1 }} />
+                    <label style={{ fontSize: 11, color: final[it.itemId] ? T.text : T.muted, fontWeight: final[it.itemId] ? 600 : 400, display: "flex", alignItems: "center", gap: 5, cursor: "pointer" }}>
+                      <input type="checkbox" checked={!!final[it.itemId]} onChange={e => setFinal(p => ({ ...p, [it.itemId]: e.target.checked }))} style={{ accentColor: T.blue }} /> final shipment
+                    </label>
+                  </div>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {sizes.map(sz => (
+                      <label key={sz} style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", minWidth: 46 }}>
+                        <span style={{ fontSize: 9, fontWeight: 700, color: T.faint, marginBottom: 2 }}>{sz}</span>
+                        <input inputMode="numeric" value={qtys[it.itemId]?.[sz] ?? 0} onChange={e => setQ(it.itemId, sz, e.target.value)}
+                          onFocus={e => e.target.select()}
+                          style={{ width: 46, boxSizing: "border-box", textAlign: "center", fontFamily: mono, fontSize: 12, fontWeight: 600, padding: "5px 4px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.card }} />
+                      </label>
+                    ))}
+                  </div>
                 </div>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  {sortSizes(Object.keys(it.owed).length ? Object.keys(it.owed) : Object.keys(it.ordered)).map(sz => (
-                    <span key={sz} style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", minWidth: 40, padding: "3px 6px", borderRadius: 6, background: T.surface, border: `1px solid ${T.border}` }}>
-                      <span style={{ fontSize: 9, fontWeight: 700, color: T.faint }}>{sz}</span>
-                      <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 600 }}>{it.owed[sz] ?? it.ordered[sz] ?? 0}</span>
-                    </span>
-                  ))}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
+
+          <input value={note} onChange={e => setNote(e.target.value)} placeholder="Note for the warehouse (optional)"
+            style={{ width: "100%", boxSizing: "border-box", fontSize: 13, padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, fontFamily: font }} />
         </div>
+
         <div style={{ padding: "16px 22px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
-          <span style={{ fontSize: 12, color: T.muted, fontStyle: "italic" }}>Preview — confirm/write is the next slice</span>
+          {!isTest && <span style={{ fontSize: 12, color: T.amber, fontWeight: 600 }}>Ship write is limited to the test job while we verify.</span>}
+          {err && <span style={{ fontSize: 12, color: T.red, fontWeight: 600 }}>{err}</span>}
           <div style={{ flex: 1 }} />
-          <button onClick={onClose} style={{ fontSize: 13, background: "none", border: `1px solid ${T.border}`, borderRadius: 8, padding: "9px 16px", cursor: "pointer", color: T.muted }}>Close</button>
-          <button disabled style={{ fontSize: 13, fontWeight: 600, background: T.accentDim, color: T.faint, border: "none", borderRadius: 8, padding: "9px 20px", cursor: "not-allowed" }}>Confirm ship</button>
+          <button onClick={onClose} disabled={busy} style={{ fontSize: 13, background: "none", border: `1px solid ${T.border}`, borderRadius: 8, padding: "9px 16px", cursor: busy ? "default" : "pointer", color: T.muted }}>Cancel</button>
+          <button onClick={confirm} disabled={!isTest || busy || totalUnits === 0}
+            style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "9px 20px", border: "none", cursor: (!isTest || busy || totalUnits === 0) ? "not-allowed" : "pointer", background: (!isTest || busy || totalUnits === 0) ? T.accentDim : T.text, color: (!isTest || busy || totalUnits === 0) ? T.faint : "#fff" }}>
+            {busy ? "Shipping…" : `Confirm ship · ${totalUnits}u`}
+          </button>
         </div>
       </div>
     </div>
