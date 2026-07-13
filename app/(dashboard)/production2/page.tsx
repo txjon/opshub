@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { loadProductionBoard, loadFreightCarriers } from "@/lib/item-state";
+import { loadProductionBoard, loadFreightCarriers, loadRecentShipments } from "@/lib/item-state";
 import Board from "./Board";
 
 export const dynamic = "force-dynamic";
@@ -9,6 +9,8 @@ export const dynamic = "force-dynamic";
 // Does NOT touch the live /production board.
 export default async function Production2Page() {
   const sb = await createClient();
-  const [strips, freightCarriers] = await Promise.all([loadProductionBoard(sb), loadFreightCarriers(sb)]);
-  return <Board strips={JSON.parse(JSON.stringify(strips))} freightCarriers={freightCarriers} />;
+  const [strips, freightCarriers, shippedBoxes] = await Promise.all([
+    loadProductionBoard(sb), loadFreightCarriers(sb), loadRecentShipments(sb),
+  ]);
+  return <Board strips={JSON.parse(JSON.stringify(strips))} freightCarriers={freightCarriers} shippedBoxes={JSON.parse(JSON.stringify(shippedBoxes))} />;
 }

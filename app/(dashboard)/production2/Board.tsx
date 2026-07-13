@@ -11,7 +11,7 @@ import { createPullRequest, PULL_KINDS } from "@/lib/handoff";
 import { NotifyShipmentDialog } from "@/components/NotifyShipmentDialog";
 // @ts-ignore — plain JS helper
 import { uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
-import type { BoardStrip, BoardItem } from "@/lib/item-state";
+import type { BoardStrip, BoardItem, ShippedBox } from "@/lib/item-state";
 
 type SelItem = BoardItem & { strip: BoardStrip };
 const TEST_JOBS = ["HPD-2605-054"]; // ship write limited here until Jon signs off
@@ -43,8 +43,9 @@ const METRICS: { key: MetricKey; label: string }[] = [
 ];
 const nf = (n: number) => n.toLocaleString();
 
-export default function Board({ strips, freightCarriers }: { strips: BoardStrip[]; freightCarriers: string[] }) {
+export default function Board({ strips, freightCarriers, shippedBoxes }: { strips: BoardStrip[]; freightCarriers: string[]; shippedBoxes: ShippedBox[] }) {
   const router = useRouter();
+  const [view, setView] = useState<"production" | "shipped">("production");
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [shipOpen, setShipOpen] = useState(false);
   const [pullFor, setPullFor] = useState<SelItem | null>(null);
@@ -122,6 +123,16 @@ export default function Board({ strips, freightCarriers }: { strips: BoardStrip[
           <h1 style={{ fontSize: 26, fontWeight: 700, margin: 0, letterSpacing: -0.3 }}>Production</h1>
           <span style={{ fontSize: 12, color: T.faint }}>v2 · parallel dev</span>
         </div>
+
+        {/* view toggle: what's still in production vs boxes already shipped */}
+        <div style={{ display: "flex", gap: 8, margin: "14px 0 2px" }}>
+          {([["production", `In production${strips.length ? " · " + strips.reduce((a, s) => a + s.items.length, 0) : ""}`], ["shipped", `Shipped${shippedBoxes.length ? " · " + shippedBoxes.length : ""}`]] as ["production" | "shipped", string][]).map(([k, label]) => (
+            <button key={k} onClick={() => setView(k)} style={{ fontSize: 13, fontWeight: 600, padding: "8px 16px", borderRadius: 9, cursor: "pointer", border: `1px solid ${view === k ? T.text : T.border}`, background: view === k ? T.text : T.card, color: view === k ? "#fff" : T.muted }}>{label}</button>
+          ))}
+        </div>
+
+        {view === "shipped" && <ShippedView boxes={shippedBoxes} />}
+        {view === "production" && (<>
         {/* KPIs — click a tile for a by-vendor / by-client breakdown */}
         <div style={{ display: "flex", gap: 12, margin: "16px 0 18px" }}>
           {METRICS.map(m => (
@@ -223,6 +234,7 @@ export default function Board({ strips, freightCarriers }: { strips: BoardStrip[
             );
           })}
         </div>
+        </>)}
       </div>
 
       {/* sticky ship bar */}
@@ -360,6 +372,80 @@ function KpiModal({ metric, total, byVendor, byClient, onClose }:
         <div style={{ padding: "14px 22px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "flex-end" }}>
           <button onClick={onClose} style={{ fontSize: 13, background: "none", border: `1px solid ${T.border}`, borderRadius: 8, padding: "9px 16px", cursor: "pointer", color: T.muted }}>Close</button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// Shipped view — recent boxes shipped from production, still un-received. Lets
+// you notify the warehouse (or see the box) after the ship modal is long gone.
+function ShippedView({ boxes }: { boxes: ShippedBox[] }) {
+  if (!boxes.length) return (
+    <div style={{ color: T.muted, fontSize: 14, padding: 40, textAlign: "center", background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, marginTop: 16 }}>
+      No shipped boxes waiting to be received.
+    </div>
+  );
+  return <div style={{ display: "flex", flexDirection: "column", gap: 14, marginTop: 16 }}>{boxes.map(b => <ShippedBoxCard key={b.id} box={b} />)}</div>;
+}
+
+const shipHow = (box: ShippedBox) => box.pickup ? "Pickup" : [box.carrier, box.tracking].filter(Boolean).join(" · ") || "no tracking";
+const routeLabel = (box: ShippedBox) => box.pickup ? "Pickup" : box.route === "stage" ? "Stage" : box.route === "drop_ship" ? "Drop-ship" : "Ship-through";
+
+function ShippedBoxCard({ box }: { box: ShippedBox }) {
+  const [notified, setNotified] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [to, setTo] = useState<string | null>(null);
+  const isTest = box.clients.every(c => c === "Playwright Test Co");
+  const isDrop = box.route === "drop_ship";
+  const byClient = new Map<string, ShippedBox["lines"]>();
+  for (const l of box.lines) { const a = byClient.get(l.client) || []; a.push(l); byClient.set(l.client, a); }
+
+  async function notify() {
+    setBusy(true); setErr(null);
+    try {
+      const res = await fetch("/api/production2/notify-warehouse", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ shipmentIds: [box.id], test: isTest }) });
+      const d = await res.json();
+      if (d.success) { setNotified(true); setTo(d.to || null); } else setErr(d.error || "Notify failed");
+    } catch (e: any) { setErr(e?.message || "Notify failed"); }
+    setBusy(false);
+  }
+
+  return (
+    <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderBottom: `1px solid ${T.border}`, background: T.surface }}>
+        <span style={{ fontSize: 13, fontWeight: 700 }}>{box.vendorName}</span>
+        <span style={{ fontSize: 10, fontWeight: 700, color: box.pickup ? "#a87b00" : T.blue, textTransform: "uppercase", letterSpacing: 0.5 }}>{routeLabel(box)}</span>
+        <span style={{ fontFamily: mono, fontSize: 12, color: T.muted }}>{shipHow(box)}</span>
+        {box.hasSlip && <span style={{ fontSize: 11, color: T.muted }}>📎 slip</span>}
+        <div style={{ flex: 1 }} />
+        <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700 }}>{box.totalUnits}u</span>
+      </div>
+      <div style={{ padding: "10px 16px" }}>
+        {Array.from(byClient.entries()).map(([client, lines]) => (
+          <div key={client} style={{ marginBottom: 6 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: T.muted, marginBottom: 2 }}>{client}</div>
+            {lines.map((l, i) => (
+              <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "2px 0" }}>
+                <span>{l.itemName} <span style={{ color: T.faint, fontSize: 11 }}>{l.sizes}</span></span>
+                <span style={{ fontFamily: mono, fontWeight: 700 }}>{l.qty}</span>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+      <div style={{ padding: "12px 16px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10 }}>
+        {err && <span style={{ fontSize: 12, color: T.red, fontWeight: 600 }}>{err}</span>}
+        {!isTest && !isDrop && <span style={{ fontSize: 12, color: T.amber }}>Notify limited to the test job for now.</span>}
+        <div style={{ flex: 1 }} />
+        {isDrop ? (
+          <span style={{ fontSize: 12, color: T.faint }}>Drop-ship — notify client from the job page</span>
+        ) : (
+          <button onClick={notify} disabled={!isTest || busy || notified}
+            style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "8px 16px", border: `1px solid ${T.border}`, cursor: (!isTest || busy || notified) ? "default" : "pointer", background: notified ? T.greenDim : T.card, color: notified ? T.green : (!isTest ? T.faint : T.text) }}>
+            {notified ? (to ? `✓ Sent to ${to}` : "✓ Notified") : busy ? "Sending…" : box.pickup ? "Notify warehouse (pickup)" : "Notify warehouse"}
+          </button>
+        )}
       </div>
     </div>
   );

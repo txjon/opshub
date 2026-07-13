@@ -270,6 +270,56 @@ export async function loadFreightCarriers(sb: Sb): Promise<string[]> {
   return Array.from(seen).sort();
 }
 
+// ── recent shipped boxes (the Production "Shipped" view) ───────────────────
+// Boxes shipped from production, not yet received — so you can still notify the
+// warehouse/client after the ship modal is gone (a closed item leaves the board).
+export type ShippedBoxLine = { client: string; itemName: string; qty: number; sizes: string };
+export type ShippedBox = {
+  id: string; vendorName: string; carrier: string | null; tracking: string | null; pickup: boolean;
+  createdAt: string; route: Route; totalUnits: number; clients: string[]; lines: ShippedBoxLine[]; hasSlip: boolean;
+};
+const sumQ = (q: SizeQtys) => Object.values(q || {}).reduce((a, n) => a + (Number(n) || 0), 0);
+const boxSizeStr = (q: SizeQtys) => Object.entries(q || {}).filter(([, n]) => (Number(n) || 0) > 0).map(([s, n]) => `${s} ${n}`).join(" · ");
+
+export async function loadRecentShipments(sb: Sb): Promise<ShippedBox[]> {
+  const cutoff = new Date(Date.now() - 21 * 86400000).toISOString();
+  const { data: ships } = await sb.from("shipments")
+    .select("id, tracking, carrier, pickup, status, created_at, packing_slip_file_id, decorators(name)")
+    .eq("direction", "inbound").gte("created_at", cutoff).order("created_at", { ascending: false }).limit(80);
+  const active = (ships || []).filter((s: any) => s.status !== "received");
+  if (!active.length) return [];
+  const ids = active.map((s: any) => s.id);
+  const { data: lines } = await sb.from("shipment_lines")
+    .select("shipment_id, item_id, description, ship_qtys, items(name, shipping_route, jobs(shipping_route, clients(name)))").in("shipment_id", ids);
+  const itemIds = Array.from(new Set((lines || []).map((l: any) => l.item_id).filter(Boolean)));
+  const { data: slips } = itemIds.length
+    ? await sb.from("item_files").select("item_id").eq("stage", "packing_slip").not("drive_link", "is", null).in("item_id", itemIds)
+    : { data: [] as any[] };
+  const slipItems = new Set((slips || []).map((s: any) => s.item_id));
+  const byShip = new Map<string, any[]>();
+  for (const l of lines || []) { const a = byShip.get(l.shipment_id) || []; a.push(l); byShip.set(l.shipment_id, a); }
+
+  const boxes: ShippedBox[] = [];
+  for (const s of active) {
+    const ls = byShip.get(s.id) || [];
+    if (!ls.length) continue;
+    const boxLines: ShippedBoxLine[] = ls.map((l: any) => ({
+      client: l.items?.jobs?.clients?.name || "—",
+      itemName: l.items?.name || l.description || "Item",
+      qty: sumQ(l.ship_qtys), sizes: boxSizeStr(l.ship_qtys),
+    }));
+    boxes.push({
+      id: s.id, vendorName: (s as any).decorators?.name || "Unassigned vendor",
+      carrier: s.carrier, tracking: s.tracking, pickup: !!s.pickup, createdAt: s.created_at,
+      route: resolveRoute(ls[0]?.items?.shipping_route, ls[0]?.items?.jobs?.shipping_route),
+      totalUnits: boxLines.reduce((a, l) => a + l.qty, 0),
+      clients: Array.from(new Set(boxLines.map(l => l.client))), lines: boxLines,
+      hasSlip: !!s.packing_slip_file_id || ls.some((l: any) => slipItems.has(l.item_id)),
+    });
+  }
+  return boxes;
+}
+
 // ── a shipment's contents (the by-shipment view — receiving) ───────────────
 // Every item that has a movement in this shipment/box, with its full state.
 export async function loadShipmentItems(sb: Sb, shipmentId: string): Promise<ItemView[]> {
