@@ -167,12 +167,14 @@ export async function loadProductionBoard(sb: Sb): Promise<BoardStrip[]> {
   const byItem = new Map<string, Movement[]>();
   for (const m of allMoves || []) { const a = byItem.get(m.item_id) || []; a.push(toMovement(m)); byItem.set(m.item_id, a); }
 
-  // latest mockup/proof per item, for the row thumbnail
+  // latest mockup/proof per item, for the row thumbnail. Prefer a real mockup
+  // (an image) over a proof (often a PDF, which has no thumbnail).
   const { data: mockupFiles } = await sb
-    .from("item_files").select("item_id, drive_file_id, created_at")
+    .from("item_files").select("item_id, drive_file_id, stage, created_at")
     .in("stage", ["mockup", "proof"]).is("superseded_at", null).in("item_id", ids)
     .order("created_at", { ascending: false });
   const mockupById = new Map<string, string>();
+  for (const f of mockupFiles || []) { if (f.stage === "mockup" && f.drive_file_id && !mockupById.has(f.item_id)) mockupById.set(f.item_id, f.drive_file_id); }
   for (const f of mockupFiles || []) { if (f.drive_file_id && !mockupById.has(f.item_id)) mockupById.set(f.item_id, f.drive_file_id); }
 
   const strips = new Map<string, BoardStrip>();

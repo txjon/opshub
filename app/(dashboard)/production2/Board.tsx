@@ -177,7 +177,7 @@ export default function Board({ strips }: { strips: BoardStrip[] }) {
                         style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", borderTop: `1px solid ${T.border}`, cursor: blocked ? "not-allowed" : "pointer", opacity: blocked ? 0.4 : 1, background: checked ? T.blueDim : "transparent" }}>
                         <input type="checkbox" checked={checked} disabled={blocked} onChange={() => toggle(it)}
                           style={{ width: 16, height: 16, accentColor: T.blue, cursor: blocked ? "not-allowed" : "pointer" }} />
-                        <DriveThumb driveFileId={it.mockupFileId} alt={it.name}
+                        <DriveThumb driveFileId={it.mockupFileId} alt="" maxRetries={0}
                           style={{ width: 40, height: 40, borderRadius: 8, objectFit: "cover", flexShrink: 0, border: `1px solid ${T.border}` }}
                           fallback={<span style={{ width: 40, height: 40, borderRadius: 8, background: T.surface, border: `1px solid ${T.border}`, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, fontWeight: 700, color: T.faint }}>{(it.name || "?").charAt(0).toUpperCase()}</span>} />
                         <span style={{ fontSize: 13, fontWeight: 500, flex: 1 }}>{it.name}</span>
