@@ -7,7 +7,8 @@ import { T, font, mono, sortSizes } from "@/lib/theme";
 import { DriveThumb } from "@/components/DriveThumb";
 import { shipFromProduction } from "@/lib/production2-ship";
 import { createPullRequest, PULL_KINDS } from "@/lib/handoff";
-import { notifyTeam } from "@/components/JobActivityPanel";
+// @ts-ignore — plain JS component
+import { NotifyShipmentDialog } from "@/components/NotifyShipmentDialog";
 // @ts-ignore — plain JS helper
 import { uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
 import type { BoardStrip, BoardItem } from "@/lib/item-state";
@@ -390,6 +391,23 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
   const [err, setErr] = useState<string | null>(null);
   const [done, setDone] = useState<{ shipped: number; boxes: number; jobIds: string[] } | null>(null);
   const [notified, setNotified] = useState(false);
+  const [notifyOpen, setNotifyOpen] = useState(false);
+  const [contacts, setContacts] = useState<{ name: string; email: string; role: string }[]>([]);
+
+  // Notify branches on route: drop_ship → the client (confirm contact + note),
+  // ship_through / stage → the warehouse. Uses the shipment's primary item's job.
+  const primary = items[0];
+  const shipRoute = (primary?.route as string) || "ship_through";
+  const isDrop = shipRoute === "drop_ship";
+
+  async function openNotify() {
+    if (isDrop && primary) {
+      const sb = createClient();
+      const { data } = await sb.from("job_contacts").select("role_on_job, contacts(name, email)").eq("job_id", primary.jobId);
+      setContacts(((data as any[]) || []).map(r => ({ name: r.contacts?.name || "Unnamed", email: r.contacts?.email || "", role: r.role_on_job || "" })).filter(c => c.email));
+    }
+    setNotifyOpen(true);
+  }
 
   const isTest = items.every(it => TEST_JOBS.includes(it.strip.jobNumber) || it.strip.clientName === "Playwright Test Co");
   const itemTotal = (id: string) => Object.values(qtys[id] || {}).reduce((a, n) => a + (Number(n) || 0), 0);
@@ -409,13 +427,15 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
           blob: slipFile, fileName: slipFile.name, mimeType: slipFile.type || "application/octet-stream",
           clientName: items[0].strip.clientName, projectTitle: items[0].strip.jobTitle, itemName: "Packing Slips",
         });
-        packingSlipFileId = up.fileId;
         for (const it of items) {
-          await registerFileInDb({
+          // registerFileInDb returns the item_files ROW; its .id (a UUID) is what
+          // shipments.packing_slip_file_id expects — NOT the Drive file id.
+          const reg: any = await registerFileInDb({
             fileId: up.fileId, webViewLink: up.webViewLink, folderLink: up.folderLink,
             fileName: slipFile.name, mimeType: slipFile.type, fileSize: slipFile.size,
             itemId: it.itemId, stage: "packing_slip", notes: up.folderLink,
           });
+          if (!packingSlipFileId && reg?.id) packingSlipFileId = reg.id;
         }
       }
       setBusyLabel("Shipping…");
@@ -431,13 +451,6 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
     } catch (e: any) { setBusy(false); setErr(e?.message || "Ship failed."); }
   }
 
-  function notifyWarehouse() {
-    for (const jobId of done?.jobIds || []) {
-      notifyTeam(`Shipment from production — ${done!.shipped} units incoming to warehouse (${vendorName})`, "production", jobId, "job");
-    }
-    setNotified(true);
-  }
-
   // ── success screen ──
   if (done) {
     return (
@@ -447,13 +460,19 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
           <div style={{ fontSize: 18, fontWeight: 700 }}>Shipped {done.shipped} units</div>
           <div style={{ fontSize: 13, color: T.muted, marginTop: 3 }}>{vendorName} · {done.boxes} box{done.boxes > 1 ? "es" : ""} → receiving</div>
           <div style={{ display: "flex", gap: 10, marginTop: 22, justifyContent: "center" }}>
-            <button onClick={notifyWarehouse} disabled={notified}
+            <button onClick={openNotify} disabled={notified}
               style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "10px 18px", cursor: notified ? "default" : "pointer", border: `1px solid ${T.border}`, background: notified ? T.greenDim : T.card, color: notified ? T.green : T.text }}>
-              {notified ? "✓ Warehouse notified" : "Notify warehouse"}
+              {notified ? "✓ Notified" : isDrop ? "Notify client" : "Notify warehouse"}
             </button>
             <button onClick={onDone} style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "10px 22px", border: "none", cursor: "pointer", background: T.text, color: "#fff" }}>Done</button>
           </div>
         </div>
+        {notifyOpen && primary && (
+          <NotifyShipmentDialog open={notifyOpen} onClose={() => setNotifyOpen(false)} onSent={() => { setNotified(true); setNotifyOpen(false); }}
+            route={shipRoute} jobId={primary.jobId} decoratorId={decoratorId} decoratorName={vendorName}
+            tracking={ref || null} qbInvoiceNumber={primary.strip.invoiceNumber || ""} clientName={primary.strip.clientName}
+            jobTitle={primary.strip.jobTitle} contacts={contacts as any} initialMessage={note} />
+        )}
       </div>
     );
   }
