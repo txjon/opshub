@@ -36,6 +36,7 @@ export const PAGE_CATALOG: CatalogPage[] = [
   // Distro / warehouse
   { key: "/distro", href: "/distro", label: "Dashboard", group: "distro" },
   { key: "/receiving", href: "/receiving", label: "Receiving", group: "distro" },
+  { key: "/receiving2", href: "/receiving2", label: "Receiving v2", group: "distro" },
   { key: "/shipping", href: "/shipping", label: "Shipping", group: "distro" },
   { key: "/fulfillment", href: "/fulfillment", label: "Fulfillment", group: "distro" },
   { key: "/hours", href: "/hours", label: "Log Hours", group: "distro" },
