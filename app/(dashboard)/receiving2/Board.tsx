@@ -4,9 +4,9 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 import { BoardFrame, ToggleSearch, KpiStrip, KpiBreakdownModal, ModalShell, Card, CardHeader, VariantChips, RouteTag, ItemThumb, SegmentControl, SliceSortRow } from "@/components/board-kit";
-import { receiveBox as receiveBoxAction } from "@/lib/receiving2-receive";
+import { receiveBox as receiveBoxAction, resolvePull } from "@/lib/receiving2-receive";
 import { PULL_KINDS } from "@/lib/handoff";
-import type { ReceivingBox, ReceivingLine } from "@/lib/item-state";
+import type { ReceivingBox, ReceivingLine, HeldPull } from "@/lib/item-state";
 
 const TEST_CLIENTS = ["Playwright Test Co"];
 
@@ -23,7 +23,7 @@ function fmtWhen(iso: string | null): string {
 type MetricKey = "boxes" | "units" | "items";
 type Metric = { boxes: number; units: number; items: number };
 const METRICS: { key: MetricKey; label: string }[] = [{ key: "boxes", label: "Boxes" }, { key: "units", label: "Units" }, { key: "items", label: "Items" }];
-type Status = "incoming" | "received";
+type Status = "incoming" | "received" | "pulls";
 type ViewKey = "shipment" | "job" | "item";
 type SortKey = "date" | "vendor" | "client";
 type FlatLine = ReceivingLine & { box: ReceivingBox };
@@ -32,7 +32,7 @@ type FlatLine = ReceivingLine & { box: ReceivingBox };
 const qtyOf = (l: ReceivingLine, status: Status) => status === "received" ? l.receivedQtys : l.shipQtys;
 const boxUnits = (b: ReceivingBox, status: Status) => status === "received" ? b.receivedUnits : b.totalUnits;
 
-export default function Board({ boxes }: { boxes: ReceivingBox[] }) {
+export default function Board({ boxes, pulls }: { boxes: ReceivingBox[]; pulls: HeldPull[] }) {
   const router = useRouter();
   const [status, setStatus] = useState<Status>("incoming");
   const [view, setView] = useState<ViewKey>("shipment");
@@ -43,7 +43,7 @@ export default function Board({ boxes }: { boxes: ReceivingBox[] }) {
 
   const incoming = useMemo(() => boxes.filter(b => !b.allReceived), [boxes]);
   const received = useMemo(() => boxes.filter(b => b.allReceived), [boxes]);
-  const active = status === "incoming" ? incoming : received;
+  const active = status === "incoming" ? incoming : status === "received" ? received : [];
 
   const display = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -82,27 +82,32 @@ export default function Board({ boxes }: { boxes: ReceivingBox[] }) {
 
   return (
     <BoardFrame title="Receiving">
-      <ToggleSearch options={[["incoming", `Incoming · ${incoming.length}`], ["received", `Received · ${received.length}`]]}
+      <ToggleSearch options={[["incoming", `Incoming · ${incoming.length}`], ["received", `Received · ${received.length}`], ["pulls", `Pulls · ${pulls.length}`]]}
         value={status} onChange={setStatus} query={query} setQuery={setQuery} placeholder="Search vendor, client, invoice, item, or tracking…" />
-      <KpiStrip metrics={METRICS} get={k => agg.total[k]} onClick={setKpi} />
-      <SliceSortRow>
-        <SegmentControl options={[["shipment", "By shipment"], ["job", "By job"], ["item", "By item"]]} value={view} onChange={setView} />
-        <SegmentControl label="Sort" options={[["date", status === "received" ? "Received" : "Arrival"], ["vendor", "Vendor"], ["client", "Client"]]} value={sort} onChange={setSort} />
-      </SliceSortRow>
 
-      {display.length === 0 && (
-        <div style={{ color: T.muted, fontSize: 14, padding: 40, textAlign: "center", background: T.card, border: `1px solid ${T.border}`, borderRadius: 12 }}>
-          {query ? "No boxes match your search." : status === "incoming" ? "Nothing incoming to receive." : "Nothing received yet."}
-        </div>
-      )}
+      {status === "pulls" ? (
+        <PullsView pulls={pulls} query={query} onResolved={() => router.refresh()} />
+      ) : (<>
+        <KpiStrip metrics={METRICS} get={k => agg.total[k]} onClick={setKpi} />
+        <SliceSortRow>
+          <SegmentControl options={[["shipment", "By shipment"], ["job", "By job"], ["item", "By item"]]} value={view} onChange={setView} />
+          <SegmentControl label="Sort" options={[["date", status === "received" ? "Received" : "Arrival"], ["vendor", "Vendor"], ["client", "Client"]]} value={sort} onChange={setSort} />
+        </SliceSortRow>
 
-      {view === "shipment" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          {display.map(box => <BoxCard key={box.id} box={box} status={status} onReceive={() => setReceiveBox(box)} />)}
-        </div>
-      )}
-      {view === "job" && <JobView boxes={display} status={status} onReceive={setReceiveBox} />}
-      {view === "item" && <ItemView boxes={display} status={status} onReceive={setReceiveBox} />}
+        {display.length === 0 && (
+          <div style={{ color: T.muted, fontSize: 14, padding: 40, textAlign: "center", background: T.card, border: `1px solid ${T.border}`, borderRadius: 12 }}>
+            {query ? "No boxes match your search." : status === "incoming" ? "Nothing incoming to receive." : "Nothing received yet."}
+          </div>
+        )}
+
+        {view === "shipment" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            {display.map(box => <BoxCard key={box.id} box={box} status={status} onReceive={() => setReceiveBox(box)} />)}
+          </div>
+        )}
+        {view === "job" && <JobView boxes={display} status={status} onReceive={setReceiveBox} />}
+        {view === "item" && <ItemView boxes={display} status={status} onReceive={setReceiveBox} />}
+      </>)}
 
       {kpi && <KpiBreakdownModal label={METRICS.find(m => m.key === kpi)!.label} total={agg.total[kpi]} unit={status}
         cols={[{ title: "By vendor", rows: rows(agg.byVendor, kpi) }, { title: "By client", rows: rows(agg.byClient, kpi) }]}
@@ -230,6 +235,52 @@ function FlatRow({ l, status, onReceive, showBox, showClient }: { l: FlatLine; s
 // Receive modal — counts the box in. Per-item per-variant delivered grid (default
 // = shipped, under=amber/over=green). Production-declared pulls surface here to
 // fulfil; receiving can add its own pull. Confirm writes via receiveBoxAction.
+// Pulls tab — where pulled units land, with their action. Resolve = disposition.
+function PullsView({ pulls, query, onResolved }: { pulls: HeldPull[]; query: string; onResolved: () => void }) {
+  const q = query.trim().toLowerCase();
+  const shown = q ? pulls.filter(p => p.itemName.toLowerCase().includes(q) || p.client.toLowerCase().includes(q) || (p.action || "").toLowerCase().includes(q) || (p.invoiceNumber || "").toLowerCase().includes(q)) : pulls;
+  if (!shown.length) return (
+    <div style={{ color: T.muted, fontSize: 14, padding: 40, textAlign: "center", background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, marginTop: 16 }}>
+      {query ? "No pulls match your search." : "No units held. Pulls from production or receiving land here."}
+    </div>
+  );
+  return <div style={{ display: "flex", flexDirection: "column", gap: 14, marginTop: 16 }}>{shown.map(p => <PullCard key={p.id} p={p} onResolved={onResolved} />)}</div>;
+}
+
+function PullCard({ p, onResolved }: { p: HeldPull; onResolved: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const isTest = TEST_CLIENTS.includes(p.client);
+  async function resolve(status: "shipped_out" | "returned" | "consumed") {
+    setBusy(true); setErr(null);
+    const res = await resolvePull(createClient(), { id: p.id, itemId: p.itemId, jobId: p.jobId, qtys: p.qtys }, status);
+    setBusy(false);
+    if (res.ok) onResolved(); else setErr(res.error || "Resolve failed.");
+  }
+  return (
+    <Card>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px" }}>
+        <div style={{ minWidth: 190 }}>
+          <div style={{ fontSize: 13, fontWeight: 600 }}>{p.itemName}</div>
+          <div style={{ fontSize: 11, color: T.muted }}>{p.client}{p.invoiceNumber ? ` · #${p.invoiceNumber}` : ""}</div>
+        </div>
+        <div style={{ flex: 1 }}><VariantChips qtys={p.qtys} /></div>
+        <span style={{ fontFamily: mono, fontSize: 13, fontWeight: 700 }}>{tQty(p.qtys)}u</span>
+      </div>
+      <div style={{ padding: "10px 16px", borderTop: `1px solid ${T.border}`, background: T.purpleDim, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 11, fontWeight: 800, color: T.purple, textTransform: "uppercase", letterSpacing: 0.4 }}>Action</span>
+        <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{p.action || "—"}</span>
+        {err && <span style={{ fontSize: 12, color: T.red, fontWeight: 600 }}>{err}</span>}
+        <div style={{ flex: 1 }} />
+        {!isTest ? <span style={{ fontSize: 11, color: T.amber, fontWeight: 600 }}>test-job only</span> :
+          ([["shipped_out", "Shipped out"], ["returned", "Return to stock"], ["consumed", "Consumed"]] as ["shipped_out" | "returned" | "consumed", string][]).map(([s, label]) => (
+            <button key={s} onClick={() => resolve(s)} disabled={busy} style={{ fontSize: 12, fontWeight: 600, padding: "6px 12px", borderRadius: 7, cursor: busy ? "default" : "pointer", border: `1px solid ${T.border}`, background: T.card, color: T.text }}>{label}</button>
+          ))}
+      </div>
+    </Card>
+  );
+}
+
 const PULL_KIND_LABEL = (id: string) => PULL_KINDS.find(k => k.id === id)?.label || id;
 
 function ReceiveModal({ box, onClose, onDone }: { box: ReceivingBox; onClose: () => void; onDone: () => void }) {

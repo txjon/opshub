@@ -6,8 +6,23 @@
 // STACK, per H8). Runs client-side, like /production2 + the live /receiving.
 
 import { recordReceive, appendMovement, recomputeItemFromLedger, cleanPositive } from "./inventory-ledger";
-import { fulfillPullRequest, recordAdHocPull } from "./handoff";
+import { fulfillPullRequest, recordAdHocPull, resolvePulledInventory } from "./handoff";
 import { logJobActivity } from "@/components/JobActivityPanel";
+
+// Resolve a held pull. shipped_out / consumed = it's gone (leave the ledger pull
+// in place). returned = it goes BACK to available downstream, so also reverse the
+// ledger pull movement (negative) so the derivation restores it.
+export async function resolvePull(sb: any, row: { id: string; itemId: string; jobId: string; qtys: Record<string, number> }, status: "shipped_out" | "returned" | "consumed"): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await resolvePulledInventory(sb, { id: row.id, item_id: row.itemId, qtys: row.qtys }, status);
+    if (status === "returned") {
+      const neg = Object.fromEntries(Object.entries(row.qtys || {}).map(([s, n]) => [s, -(Number(n) || 0)]));
+      await appendMovement(sb, { itemId: row.itemId, jobId: row.jobId, type: "pull", qtys: neg, reason: "Pull returned to stock" });
+      await recomputeItemFromLedger(sb, row.itemId);
+    }
+    return { ok: true };
+  } catch (e: any) { console.error("[receiving2] resolvePull", e); return { ok: false, error: e?.message || "Resolve failed." }; }
+}
 
 type SizeQtys = Record<string, number>;
 const sum = (q: SizeQtys) => Object.values(q || {}).reduce((a, n) => a + (Number(n) || 0), 0);

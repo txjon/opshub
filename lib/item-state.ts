@@ -404,6 +404,23 @@ export async function loadReceivingBoard(sb: Sb): Promise<ReceivingBox[]> {
   return boxes;
 }
 
+// ── held pulls (the Pulls tab — where pulled units land, with their action) ─
+export type HeldPull = {
+  id: string; itemId: string; jobId: string; itemName: string;
+  client: string; invoiceNumber: string | null;
+  qtys: SizeQtys; action: string; location: string | null; createdAt: string;
+};
+export async function loadPulls(sb: Sb): Promise<HeldPull[]> {
+  const { data } = await sb.from("pulled_inventory")
+    .select("id, item_id, job_id, item_name, qtys, location, notes, created_at, items(name, jobs(type_meta, clients(name)))")
+    .eq("status", "held").order("created_at", { ascending: false }).limit(300);
+  return (data || []).map((r: any) => ({
+    id: r.id, itemId: r.item_id, jobId: r.job_id, itemName: r.items?.name || r.item_name || "Item",
+    client: r.items?.jobs?.clients?.name || "—", invoiceNumber: r.items?.jobs?.type_meta?.qb_invoice_number || null,
+    qtys: r.qtys || {}, action: r.notes || "", location: r.location || null, createdAt: r.created_at,
+  }));
+}
+
 // ── a shipment's contents (the by-shipment view — receiving) ───────────────
 // Every item that has a movement in this shipment/box, with its full state.
 export async function loadShipmentItems(sb: Sb, shipmentId: string): Promise<ItemView[]> {
