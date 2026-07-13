@@ -62,7 +62,18 @@ export type ItemState = {
 
   readyDownstream: boolean;    // closed AND fully received → ready to forward/enter (the "forward once" gate)
   status: ItemStatus;
+  done: boolean;               // reached its route's endpoint — see routeDone()
 };
+
+// An item is DONE when it reaches the endpoint of ITS route:
+//   drop_ship  → shipped (closed); it never touches HPD, so shipping = done
+//   ship_through → forwarded to the client
+//   stage        → entered into Shopify (end of OpsHub's road)
+function routeDone(route: Route, status: ItemStatus, closed: boolean): boolean {
+  if (route === "drop_ship") return closed;
+  if (route === "ship_through") return status === "forwarded";
+  return status === "entered"; // stage
+}
 
 export type ItemStatus =
   | "in_production"      // nothing shipped yet
@@ -162,6 +173,7 @@ export function deriveItem(input: ItemInput): ItemState {
   else status = "in_production";
 
   return {
+    done: routeDone(input.route, status, closed),
     route: input.route,
     ordered, orderedTotal,
     shipped, shippedTotal,

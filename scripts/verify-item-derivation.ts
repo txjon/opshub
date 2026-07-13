@@ -2,6 +2,7 @@
 // hard scenario from the agreed spec + the ten answered holes. Pure, no DB.
 //   run:  npx tsx scripts/verify-item-derivation.ts
 import { deriveItem, type Movement, type SizeQtys, type ItemInput } from "../lib/item-derivation";
+import { shipmentGroupKey } from "../lib/shipment-grouping";
 
 let pass = 0, fail = 0;
 const fails: string[] = [];
@@ -88,6 +89,32 @@ scenario("M · multi-job box — item 1 (job A)",
 scenario("M · multi-job box — item 2 (job B, partial in same box)",
   { ordered: { OSFA: 13 }, route: "stage", shipFinal: true, movements: [mv("ship", { OSFA: 13 }, { shipmentId: "BOX1" }), mv("receive", { OSFA: 13 }, { shipmentId: "BOX1" })] },
   s => { eqN(s.receivedTotal, 13, "item2 received 13"); isT(s.readyDownstream, "item2 ready"); ok(s.route === "stage", "item2 route stage — independent of item1"); });
+
+// N — route-aware DONE
+scenario("N · drop_ship done when shipped (never touches HPD)",
+  { ordered: { OSFA: 100 }, route: "drop_ship", shipFinal: true, movements: [mv("ship", { OSFA: 100 })] },
+  s => { isT(s.done, "drop_ship + closed → done"); });
+scenario("N · ship_through NOT done until forwarded",
+  { ordered: { OSFA: 100 }, route: "ship_through", shipFinal: true, movements: [mv("ship", { OSFA: 100 }), mv("receive", { OSFA: 100 })] },
+  s => { isF(s.done, "received but not forwarded → not done"); });
+scenario("N · ship_through done when forwarded",
+  { ordered: { OSFA: 100 }, route: "ship_through", shipFinal: true, movements: [mv("ship", { OSFA: 100 }), mv("receive", { OSFA: 100 }), mv("forward", { OSFA: 100 })] },
+  s => { isT(s.done, "forwarded → done"); });
+scenario("N · stage done when entered",
+  { ordered: { OSFA: 100 }, route: "stage", shipFinal: true, movements: [mv("ship", { OSFA: 100 }), mv("receive", { OSFA: 100 }), mv("stage", { OSFA: 100 })] },
+  s => { isT(s.done, "entered → done"); });
+
+// O — shipment grouping (a box spans jobs; keyed by how it left the vendor)
+console.log("\n▸ O · shipment grouping");
+const gTrk = (t: string, v = "vendorA") => shipmentGroupKey({ vendorKey: v, method: "tracking", tracking: t });
+ok(gTrk("1Z999") === gTrk("1z999 "), "tracking normalizes case/space → same box");
+ok(gTrk("1Z999", "vA") !== gTrk("1Z999", "vB"), "different vendor → different box");
+const bol = (b: string) => shipmentGroupKey({ vendorKey: "vA", method: "bol", bol: b });
+ok(bol("BOL-7") === bol("bol-7"), "BOL normalizes → one box (spans jobs)");
+const pk = (d: string, v = "vA") => shipmentGroupKey({ vendorKey: v, method: "pickup", shipDate: d });
+ok(pk("2026-07-12T09:00:00Z") === pk("2026-07-12T17:30:00Z"), "same vendor same DAY pickup → one box");
+ok(pk("2026-07-12") !== pk("2026-07-13"), "different day → different pickup box");
+ok(pk("2026-07-12", "vA") !== pk("2026-07-12", "vB"), "different vendor same day → different box");
 
 console.log(`\n${"─".repeat(48)}\n  ${fail === 0 ? "✓ ALL PASS" : "✗ FAILURES"} — ${pass} passed, ${fail} failed`);
 if (fail) { console.log("  failed:\n" + fails.map(f => "   · " + f).join("\n")); process.exit(1); }
