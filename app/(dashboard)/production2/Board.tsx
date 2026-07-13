@@ -1,5 +1,5 @@
 "use client";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
@@ -291,6 +291,8 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
   const [freightCarrier, setFreightCarrier] = useState("");
   const [note, setNote] = useState("");
   const [slipFile, setSlipFile] = useState<File | null>(null);
+  const [slipDrag, setSlipDrag] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
   const [qtys, setQtys] = useState<Record<string, Record<string, number>>>(() => {
     const init: Record<string, Record<string, number>> = {};
     for (const it of items) init[it.itemId] = { ...(Object.keys(it.owed).length ? it.owed : it.ordered) };
@@ -370,10 +372,10 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
     );
   }
 
-  // ── ship form ──
+  // ── ship form ── (backdrop click does NOT close — only Cancel, to avoid losing input)
   return (
-    <div onClick={busy ? undefined : onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", zIndex: 60, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 20px", overflowY: "auto" }}>
-      <div onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 14, maxWidth: 660, width: "100%", fontFamily: font, boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", zIndex: 60, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 20px", overflowY: "auto" }}>
+      <div style={{ background: T.card, borderRadius: 14, maxWidth: 660, width: "100%", fontFamily: font, boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}>
         <div style={{ padding: "18px 22px", borderBottom: `1px solid ${T.border}` }}>
           <div style={{ fontSize: 17, fontWeight: 700 }}>Ship from production</div>
           <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>{vendorName} · {items.length} item{items.length > 1 ? "s" : ""} · {totalUnits} units → one shipment</div>
@@ -442,12 +444,18 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
             })}
           </div>
 
-          {/* vendor packing slip */}
-          <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13, cursor: "pointer", border: `1px dashed ${T.border}`, borderRadius: 8, padding: "10px 12px", color: slipFile ? T.text : T.muted }}>
-            <span style={{ fontWeight: 600 }}>{slipFile ? "📎 " + slipFile.name : "Attach vendor packing slip"}</span>
-            {slipFile && <span onClick={e => { e.preventDefault(); setSlipFile(null); }} style={{ color: T.red, fontSize: 12, marginLeft: "auto" }}>remove</span>}
-            <input type="file" accept="image/*,application/pdf" onChange={e => setSlipFile(e.target.files?.[0] || null)} style={{ display: "none" }} />
-          </label>
+          {/* vendor packing slip — drag & drop or click to browse */}
+          <div
+            onDragOver={e => { e.preventDefault(); e.stopPropagation(); setSlipDrag(true); }}
+            onDragEnter={e => { e.preventDefault(); e.stopPropagation(); setSlipDrag(true); }}
+            onDragLeave={e => { e.preventDefault(); e.stopPropagation(); setSlipDrag(false); }}
+            onDrop={e => { e.preventDefault(); e.stopPropagation(); setSlipDrag(false); const f = Array.from(e.dataTransfer.files || [])[0]; if (f) setSlipFile(f as File); }}
+            onClick={() => fileRef.current?.click()}
+            style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, fontSize: 13, cursor: "pointer", border: `1.5px dashed ${slipDrag ? T.blue : T.border}`, borderRadius: 8, padding: "14px 12px", color: slipFile ? T.text : T.muted, background: slipDrag ? T.blueDim : "transparent", textAlign: "center" }}>
+            <span style={{ fontWeight: 600 }}>{slipFile ? "📎 " + slipFile.name : "Drag vendor packing slip here, or click to browse"}</span>
+            {slipFile && <span onClick={e => { e.stopPropagation(); setSlipFile(null); }} style={{ color: T.red, fontSize: 12 }}>remove</span>}
+            <input ref={fileRef} type="file" accept="image/*,application/pdf" onChange={e => setSlipFile(e.target.files?.[0] || null)} style={{ display: "none" }} />
+          </div>
 
           <input value={note} onChange={e => setNote(e.target.value)} placeholder="Note for the warehouse (optional)"
             style={{ width: "100%", boxSizing: "border-box", fontSize: 13, padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, fontFamily: font }} />
