@@ -389,24 +389,44 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
   const [busy, setBusy] = useState(false);
   const [busyLabel, setBusyLabel] = useState("Shipping…");
   const [err, setErr] = useState<string | null>(null);
-  const [done, setDone] = useState<{ shipped: number; boxes: number; jobIds: string[] } | null>(null);
+  const [done, setDone] = useState<{ shipped: number; boxes: number; boxIds: string[]; jobIds: string[] } | null>(null);
   const [notified, setNotified] = useState(false);
+  const [notifyBusy, setNotifyBusy] = useState(false);
+  const [notifyErr, setNotifyErr] = useState<string | null>(null);
   const [notifyOpen, setNotifyOpen] = useState(false);
   const [contacts, setContacts] = useState<{ name: string; email: string; role: string }[]>([]);
 
-  // Notify branches on route: drop_ship → the client (confirm contact + note),
-  // ship_through / stage → the warehouse. Uses the shipment's primary item's job.
+  // Notify branches on route: drop_ship → the client (the shared contact-picker
+  // dialog), ship_through / stage → the warehouse via our own /production2 path
+  // (no invoice gate; client → items → qtys + slip links).
   const primary = items[0];
   const shipRoute = (primary?.route as string) || "ship_through";
   const isDrop = shipRoute === "drop_ship";
 
   async function openNotify() {
-    if (isDrop && primary) {
-      const sb = createClient();
-      const { data } = await sb.from("job_contacts").select("role_on_job, contacts(name, email)").eq("job_id", primary.jobId);
-      setContacts(((data as any[]) || []).map(r => ({ name: r.contacts?.name || "Unnamed", email: r.contacts?.email || "", role: r.role_on_job || "" })).filter(c => c.email));
+    if (isDrop) {
+      if (primary) {
+        const sb = createClient();
+        const { data } = await sb.from("job_contacts").select("role_on_job, contacts(name, email)").eq("job_id", primary.jobId);
+        setContacts(((data as any[]) || []).map(r => ({ name: r.contacts?.name || "Unnamed", email: r.contacts?.email || "", role: r.role_on_job || "" })).filter(c => c.email));
+      }
+      setNotifyOpen(true);
+    } else {
+      await notifyWarehouse();
     }
-    setNotifyOpen(true);
+  }
+
+  async function notifyWarehouse() {
+    setNotifyBusy(true); setNotifyErr(null);
+    try {
+      const res = await fetch("/api/production2/notify-warehouse", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shipmentIds: done?.boxIds || [], note, test: isTest }),
+      });
+      const data = await res.json();
+      if (data.success) setNotified(true); else setNotifyErr(data.error || "Notify failed");
+    } catch (e: any) { setNotifyErr(e?.message || "Notify failed"); }
+    setNotifyBusy(false);
   }
 
   const isTest = items.every(it => TEST_JOBS.includes(it.strip.jobNumber) || it.strip.clientName === "Playwright Test Co");
@@ -446,7 +466,7 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
         items: items.map(it => ({ itemId: it.itemId, jobId: it.jobId, itemName: it.name, qtys: qtys[it.itemId] || {}, final: !!final[it.itemId] })),
       });
       setBusy(false); setBusyLabel("Shipping…");
-      if (res.ok) setDone({ shipped: res.shipped, boxes: res.boxes, jobIds: res.jobIds });
+      if (res.ok) setDone({ shipped: res.shipped, boxes: res.boxes, boxIds: res.boxIds, jobIds: res.jobIds });
       else setErr(res.error || "Ship failed.");
     } catch (e: any) { setBusy(false); setErr(e?.message || "Ship failed."); }
   }
@@ -459,10 +479,11 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
           <div style={{ width: 46, height: 46, borderRadius: 999, background: T.greenDim, color: T.green, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24, margin: "0 auto 12px" }}>✓</div>
           <div style={{ fontSize: 18, fontWeight: 700 }}>Shipped {done.shipped} units</div>
           <div style={{ fontSize: 13, color: T.muted, marginTop: 3 }}>{vendorName} · {done.boxes} box{done.boxes > 1 ? "es" : ""} → receiving</div>
-          <div style={{ display: "flex", gap: 10, marginTop: 22, justifyContent: "center" }}>
-            <button onClick={openNotify} disabled={notified}
-              style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "10px 18px", cursor: notified ? "default" : "pointer", border: `1px solid ${T.border}`, background: notified ? T.greenDim : T.card, color: notified ? T.green : T.text }}>
-              {notified ? "✓ Notified" : isDrop ? "Notify client" : "Notify warehouse"}
+          {notifyErr && <div style={{ fontSize: 12, color: T.red, fontWeight: 600, marginTop: 14 }}>{notifyErr}</div>}
+          <div style={{ display: "flex", gap: 10, marginTop: notifyErr ? 10 : 22, justifyContent: "center" }}>
+            <button onClick={openNotify} disabled={notified || notifyBusy}
+              style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "10px 18px", cursor: (notified || notifyBusy) ? "default" : "pointer", border: `1px solid ${T.border}`, background: notified ? T.greenDim : T.card, color: notified ? T.green : T.text }}>
+              {notified ? (isDrop ? "✓ Client notified" : "✓ Warehouse notified") : notifyBusy ? "Sending…" : isDrop ? "Notify client" : "Notify warehouse"}
             </button>
             <button onClick={onDone} style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "10px 22px", border: "none", cursor: "pointer", background: T.text, color: "#fff" }}>Done</button>
           </div>
