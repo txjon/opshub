@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 import { DriveThumb } from "@/components/DriveThumb";
-import { BoardFrame, ToggleSearch, KpiStrip, KpiBreakdownModal, ModalShell, Card, CardHeader, VariantChips, RouteTag, ItemThumb } from "@/components/board-kit";
+import { BoardFrame, ToggleSearch, KpiStrip, KpiBreakdownModal, ModalShell, Card, CardHeader, VariantChips, RouteTag, ItemThumb, SegmentControl } from "@/components/board-kit";
 import { shipFromProduction } from "@/lib/production2-ship";
 import { createPullRequest, PULL_KINDS } from "@/lib/handoff";
 // @ts-ignore — plain JS component
@@ -126,19 +126,8 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
         {view === "production" && (<>
         <KpiStrip metrics={METRICS} get={k => agg.total[k]} onClick={setKpi} />
 
-        {/* sort (production strips) */}
-        <div style={{ display: "flex", gap: 12, marginBottom: 18, alignItems: "center", justifyContent: "flex-end" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontSize: 12, color: T.faint }}>Sort</span>
-            <div style={{ display: "flex", border: `1px solid ${T.border}`, borderRadius: 9, overflow: "hidden" }}>
-              {([["ship", "Ship date"], ["client", "Client"], ["vendor", "Vendor"]] as [SortKey, string][]).map(([k, label]) => (
-                <button key={k} onClick={() => setSort(k)}
-                  style={{ fontSize: 12, fontWeight: 600, padding: "9px 14px", border: "none", cursor: "pointer", background: sort === k ? T.text : T.card, color: sort === k ? "#fff" : T.muted }}>
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
+        <div style={{ display: "flex", marginBottom: 18, justifyContent: "flex-end" }}>
+          <SegmentControl label="Sort" options={[["ship", "Ship date"], ["client", "Client"], ["vendor", "Vendor"]]} value={sort} onChange={setSort} />
         </div>
 
         {display.length === 0 && (

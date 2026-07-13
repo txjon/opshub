@@ -42,6 +42,28 @@ export function ToggleSearch<K extends string>({ options, value, onChange, query
   );
 }
 
+// ── segmented control (connected buttons) — sort, 3-view slice, etc. ────────
+export function SegmentControl<K extends string>({ options, value, onChange, label }: {
+  options: [K, string][]; value: K; onChange: (v: K) => void; label?: string;
+}) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      {label && <span style={{ fontSize: 12, color: T.faint }}>{label}</span>}
+      <div style={{ display: "flex", border: `1px solid ${T.border}`, borderRadius: 9, overflow: "hidden" }}>
+        {options.map(([k, l]) => (
+          <button key={k} onClick={() => onChange(k)}
+            style={{ fontSize: 12, fontWeight: 600, padding: "9px 14px", border: "none", cursor: "pointer", background: value === k ? T.text : T.card, color: value === k ? "#fff" : T.muted }}>{l}</button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── row that holds the 3-view slice (left) + sort (right) — receiving/shipping ─
+export function SliceSortRow({ children }: { children: ReactNode }) {
+  return <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 18, flexWrap: "wrap" }}>{children}</div>;
+}
+
 // ── KPI strip: clickable tiles with hover-lift ──────────────────────────────
 export function KpiStrip<K extends string>({ metrics, get, onClick }: {
   metrics: { key: K; label: string }[]; get: (k: K) => number; onClick: (k: K) => void;

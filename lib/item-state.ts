@@ -334,17 +334,19 @@ export type ReceivingLine = {
 };
 export type ReceivingBox = {
   id: string; vendorName: string; carrier: string | null; tracking: string | null; pickup: boolean;
-  createdAt: string; expectedArrival: string | null; status: string;
+  createdAt: string; receivedAt: string | null; expectedArrival: string | null; status: string;
   slips: { name: string; url: string }[];
-  lines: ReceivingLine[]; totalUnits: number; clients: string[]; allReceived: boolean;
+  lines: ReceivingLine[]; totalUnits: number; receivedUnits: number; clients: string[]; allReceived: boolean;
 };
 
+// Returns BOTH incoming and received recent boxes — the UI splits on allReceived
+// (box.allReceived) for the Incoming / Received status toggle.
 export async function loadReceivingBoard(sb: Sb): Promise<ReceivingBox[]> {
   const cutoff = new Date(Date.now() - 45 * 86400000).toISOString();
   const { data: ships } = await sb.from("shipments")
-    .select("id, tracking, carrier, pickup, status, expected_arrival, created_at, decorators(name)")
-    .eq("direction", "inbound").gte("created_at", cutoff).order("created_at", { ascending: false }).limit(120);
-  const open = (ships || []).filter((s: any) => s.status !== "received");
+    .select("id, tracking, carrier, pickup, status, expected_arrival, created_at, received_at, decorators(name)")
+    .eq("direction", "inbound").gte("created_at", cutoff).order("created_at", { ascending: false }).limit(160);
+  const open = ships || [];
   if (!open.length) return [];
   const ids = open.map((s: any) => s.id);
   const { data: lines } = await sb.from("shipment_lines")
@@ -380,11 +382,13 @@ export async function loadReceivingBoard(sb: Sb): Promise<ReceivingBox[]> {
     for (const l of ls) for (const sl of slipsByItem.get(l.item_id) || []) slipMap.set(sl.url, sl);
     boxes.push({
       id: s.id, vendorName: (s as any).decorators?.name || "Unassigned vendor",
-      carrier: s.carrier, tracking: s.tracking, pickup: !!s.pickup, createdAt: s.created_at,
+      carrier: s.carrier, tracking: s.tracking, pickup: !!s.pickup, createdAt: s.created_at, receivedAt: s.received_at || null,
       expectedArrival: s.expected_arrival, status: s.status || "expected",
       slips: Array.from(slipMap.values()),
       lines: rLines, totalUnits: rLines.reduce((a, l) => a + sumQ(l.shipQtys), 0),
-      clients: Array.from(new Set(rLines.map(l => l.client))), allReceived: rLines.every(l => l.received),
+      receivedUnits: rLines.reduce((a, l) => a + sumQ(l.receivedQtys), 0),
+      clients: Array.from(new Set(rLines.map(l => l.client))),
+      allReceived: s.status === "received" || (rLines.length > 0 && rLines.every(l => l.received)),
     });
   }
   return boxes;
