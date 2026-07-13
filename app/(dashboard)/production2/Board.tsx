@@ -94,6 +94,17 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
     return sorted;
   }, [strips, query, sort]);
 
+  // Shipped view honors the same search box.
+  const displayBoxes = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return shippedBoxes;
+    return shippedBoxes.filter(b =>
+      b.vendorName.toLowerCase().includes(q) ||
+      (b.tracking || "").toLowerCase().includes(q) ||
+      b.clients.some(c => c.toLowerCase().includes(q)) ||
+      b.lines.some(l => l.itemName.toLowerCase().includes(q) || (l.invoiceNumber || "").toLowerCase().includes(q)));
+  }, [shippedBoxes, query]);
+
   // A shipment is ONE vendor. Selection locks to the first picked item's vendor.
   const selVendor = useMemo(() => {
     for (const id of Array.from(sel)) { const it = allItems.get(id); if (it) return it.decoratorId; }
@@ -124,14 +135,18 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
           <span style={{ fontSize: 12, color: T.faint }}>v2 · parallel dev</span>
         </div>
 
-        {/* view toggle: what's still in production vs boxes already shipped */}
-        <div style={{ display: "flex", gap: 8, margin: "14px 0 2px" }}>
-          {([["production", `In production${strips.length ? " · " + strips.reduce((a, s) => a + s.items.length, 0) : ""}`], ["shipped", `Shipped${shippedBoxes.length ? " · " + shippedBoxes.length : ""}`]] as ["production" | "shipped", string][]).map(([k, label]) => (
-            <button key={k} onClick={() => setView(k)} style={{ fontSize: 13, fontWeight: 600, padding: "8px 16px", borderRadius: 9, cursor: "pointer", border: `1px solid ${view === k ? T.text : T.border}`, background: view === k ? T.text : T.card, color: view === k ? "#fff" : T.muted }}>{label}</button>
-          ))}
+        {/* view toggle + shared search (works in both views) */}
+        <div style={{ display: "flex", gap: 12, alignItems: "center", margin: "14px 0 2px", flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 8 }}>
+            {([["production", `In production${strips.length ? " · " + strips.reduce((a, s) => a + s.items.length, 0) : ""}`], ["shipped", `Shipped${shippedBoxes.length ? " · " + shippedBoxes.length : ""}`]] as ["production" | "shipped", string][]).map(([k, label]) => (
+              <button key={k} onClick={() => setView(k)} style={{ fontSize: 13, fontWeight: 600, padding: "8px 16px", borderRadius: 9, cursor: "pointer", border: `1px solid ${view === k ? T.text : T.border}`, background: view === k ? T.text : T.card, color: view === k ? "#fff" : T.muted }}>{label}</button>
+            ))}
+          </div>
+          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search client, invoice, vendor, or item…"
+            style={{ flex: 1, minWidth: 220, fontSize: 13, padding: "9px 14px", borderRadius: 9, border: `1px solid ${T.border}`, background: T.card, fontFamily: font, outline: "none" }} />
         </div>
 
-        {view === "shipped" && <ShippedView boxes={shippedBoxes} />}
+        {view === "shipped" && <ShippedView boxes={displayBoxes} />}
         {view === "production" && (<>
         {/* KPIs — click a tile for a by-vendor / by-client breakdown */}
         <div style={{ display: "flex", gap: 12, margin: "16px 0 18px" }}>
@@ -144,12 +159,8 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
           ))}
         </div>
 
-        {/* toolbar: one search + sort */}
-        <div style={{ display: "flex", gap: 12, marginBottom: 18, alignItems: "center", flexWrap: "wrap" }}>
-          <input
-            value={query} onChange={e => setQuery(e.target.value)}
-            placeholder="Search client, invoice, vendor, or item…"
-            style={{ flex: 1, minWidth: 240, fontSize: 13, padding: "10px 14px", borderRadius: 9, border: `1px solid ${T.border}`, background: T.card, fontFamily: font, outline: "none" }} />
+        {/* sort (production strips) */}
+        <div style={{ display: "flex", gap: 12, marginBottom: 18, alignItems: "center", justifyContent: "flex-end" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ fontSize: 12, color: T.faint }}>Sort</span>
             <div style={{ display: "flex", border: `1px solid ${T.border}`, borderRadius: 9, overflow: "hidden" }}>
@@ -390,6 +401,12 @@ function ShippedView({ boxes }: { boxes: ShippedBox[] }) {
 
 const shipHow = (box: ShippedBox) => box.pickup ? "Pickup" : [box.carrier, box.tracking].filter(Boolean).join(" · ") || "no tracking";
 const routeLabel = (box: ShippedBox) => box.pickup ? "Pickup" : box.route === "stage" ? "Stage" : box.route === "drop_ship" ? "Drop-ship" : "Ship-through";
+const WHEN_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function fmtWhen(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  return `${WHEN_MONTHS[d.getMonth()]} ${d.getDate()} · ${d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
+}
 
 function ShippedBoxCard({ box }: { box: ShippedBox }) {
   const [notified, setNotified] = useState(false);
@@ -419,12 +436,15 @@ function ShippedBoxCard({ box }: { box: ShippedBox }) {
         <span style={{ fontFamily: mono, fontSize: 12, color: T.muted }}>{shipHow(box)}</span>
         {box.hasSlip && <span style={{ fontSize: 11, color: T.muted }}>📎 slip</span>}
         <div style={{ flex: 1 }} />
+        <span style={{ fontSize: 12, color: T.faint }}>{fmtWhen(box.createdAt)}</span>
         <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700 }}>{box.totalUnits}u</span>
       </div>
       <div style={{ padding: "10px 16px" }}>
         {Array.from(byClient.entries()).map(([client, lines]) => (
           <div key={client} style={{ marginBottom: 6 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: T.muted, marginBottom: 2 }}>{client}</div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: T.muted, marginBottom: 2 }}>
+              {client}{lines[0]?.invoiceNumber ? <span style={{ fontFamily: mono, color: T.faint, fontWeight: 500 }}> · #{lines[0].invoiceNumber}</span> : ""}
+            </div>
             {lines.map((l, i) => (
               <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "2px 0" }}>
                 <span>{l.itemName} <span style={{ color: T.faint, fontSize: 11 }}>{l.sizes}</span></span>

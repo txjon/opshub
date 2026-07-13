@@ -273,7 +273,7 @@ export async function loadFreightCarriers(sb: Sb): Promise<string[]> {
 // ── recent shipped boxes (the Production "Shipped" view) ───────────────────
 // Boxes shipped from production, not yet received — so you can still notify the
 // warehouse/client after the ship modal is gone (a closed item leaves the board).
-export type ShippedBoxLine = { client: string; itemName: string; qty: number; sizes: string };
+export type ShippedBoxLine = { client: string; invoiceNumber: string | null; itemName: string; qty: number; sizes: string };
 export type ShippedBox = {
   id: string; vendorName: string; carrier: string | null; tracking: string | null; pickup: boolean;
   createdAt: string; route: Route; totalUnits: number; clients: string[]; lines: ShippedBoxLine[]; hasSlip: boolean;
@@ -290,7 +290,7 @@ export async function loadRecentShipments(sb: Sb): Promise<ShippedBox[]> {
   if (!active.length) return [];
   const ids = active.map((s: any) => s.id);
   const { data: lines } = await sb.from("shipment_lines")
-    .select("shipment_id, item_id, description, ship_qtys, items(name, shipping_route, jobs(shipping_route, clients(name)))").in("shipment_id", ids);
+    .select("shipment_id, item_id, description, ship_qtys, items(name, shipping_route, jobs(shipping_route, type_meta, clients(name)))").in("shipment_id", ids);
   const itemIds = Array.from(new Set((lines || []).map((l: any) => l.item_id).filter(Boolean)));
   const { data: slips } = itemIds.length
     ? await sb.from("item_files").select("item_id").eq("stage", "packing_slip").not("drive_link", "is", null).in("item_id", itemIds)
@@ -305,6 +305,7 @@ export async function loadRecentShipments(sb: Sb): Promise<ShippedBox[]> {
     if (!ls.length) continue;
     const boxLines: ShippedBoxLine[] = ls.map((l: any) => ({
       client: l.items?.jobs?.clients?.name || "—",
+      invoiceNumber: l.items?.jobs?.type_meta?.qb_invoice_number || null,
       itemName: l.items?.name || l.description || "Item",
       qty: sumQ(l.ship_qtys), sizes: boxSizeStr(l.ship_qtys),
     }));
