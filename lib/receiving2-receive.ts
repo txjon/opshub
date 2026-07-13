@@ -67,6 +67,30 @@ export async function returnIncomingToProduction(sb: any, args: { shipmentId: st
   } catch (e: any) { console.error("[receiving2] returnIncomingToProduction", e); return { ok: false, error: e?.message || "Return failed." }; }
 }
 
+// Edit an INCOMING line's SHIPPED count — correct what the vendor said they sent.
+// Reverses this box's ship movement(s) for the item, re-appends the corrected
+// shipped qty (both stay on the ledger), and updates the box line's ship_qtys.
+export async function editShippedLine(sb: any, args: { shipmentId: string; itemId: string; jobId: string; itemName: string; newShipped: SizeQtys }): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const corrected = cleanPositive(args.newShipped);
+    const { data: rows } = await sb.from("movements")
+      .select("*").eq("item_id", args.itemId).eq("type", "ship").eq("shipment_id", args.shipmentId)
+      .order("created_at", { ascending: false });
+    const all = (rows || []) as any[];
+    const reversed = new Set(all.filter(m => m.reverses_id).map(m => m.reverses_id));
+    const targets = all.filter(m => !m.reverses_id && !reversed.has(m.id));
+    for (const t of targets) {
+      const neg = Object.fromEntries(Object.entries(t.qtys || {}).map(([s, n]) => [s, -(Number(n) || 0)]));
+      await appendMovement(sb, { itemId: args.itemId, jobId: t.job_id, type: "ship", qtys: neg, shipmentId: args.shipmentId, reason: "Corrected shipped count", reversesId: t.id, description: t.description });
+    }
+    await appendMovement(sb, { itemId: args.itemId, jobId: args.jobId, type: "ship", qtys: corrected, shipmentId: args.shipmentId, reason: "Corrected shipped count", description: args.itemName });
+    await sb.from("shipment_lines").update({ ship_qtys: corrected }).eq("shipment_id", args.shipmentId).eq("item_id", args.itemId);
+    await recomputeItemFromLedger(sb, args.itemId);
+    logJobActivity(args.jobId, `Corrected shipped count for ${args.itemName} → ${sum(corrected)}`);
+    return { ok: true };
+  } catch (e: any) { console.error("[receiving2] editShippedLine", e); return { ok: false, error: e?.message || "Edit failed." }; }
+}
+
 // Edit a received line's count in place — reverse this box's receipt, then append
 // the corrected quantity (both stay on the ledger). Keeps the line received.
 export async function editReceivedLine(sb: any, args: { shipmentId: string; itemId: string; jobId: string; itemName: string; newReceived: SizeQtys }): Promise<{ ok: boolean; error?: string }> {

@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 import { BoardFrame, ToggleSearch, KpiStrip, KpiBreakdownModal, ModalShell, Card, CardHeader, VariantChips, RouteTag, ItemThumb, SegmentControl, SliceSortRow } from "@/components/board-kit";
-import { receiveBox as receiveBoxAction, resolvePull, returnReceivedLine, editReceivedLine, returnIncomingToProduction } from "@/lib/receiving2-receive";
+import { receiveBox as receiveBoxAction, resolvePull, returnReceivedLine, editReceivedLine, editShippedLine, returnIncomingToProduction } from "@/lib/receiving2-receive";
 import { PULL_KINDS } from "@/lib/handoff";
 import LedgerHistory from "@/components/LedgerHistory";
 import type { ReceivingBox, ReceivingLine, HeldPull } from "@/lib/item-state";
@@ -22,7 +22,8 @@ function fmtDay(iso: string | null): string {
 }
 // LineActions — row handlers threaded down. Received: Edit / Return-to-receiving /
 // History. Incoming: Return-to-production / History.
-type LineActions = { onEdit: (l: ReceivingLine, b: ReceivingBox) => void; onReturn: (l: ReceivingLine, b: ReceivingBox) => void; onReturnProd: (l: ReceivingLine, b: ReceivingBox) => void; onHistory: (l: ReceivingLine) => void; busyKey: string | null };
+type EditMode = "received" | "shipped";
+type LineActions = { onEdit: (l: ReceivingLine, b: ReceivingBox) => void; onEditShipped: (l: ReceivingLine, b: ReceivingBox) => void; onReturn: (l: ReceivingLine, b: ReceivingBox) => void; onReturnProd: (l: ReceivingLine, b: ReceivingBox) => void; onHistory: (l: ReceivingLine) => void; busyKey: string | null };
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 function fmtWhen(iso: string | null): string {
   if (!iso) return "";
@@ -51,7 +52,7 @@ export default function Board({ boxes, pulls }: { boxes: ReceivingBox[]; pulls: 
   const [query, setQuery] = useState("");
   const [kpi, setKpi] = useState<MetricKey | null>(null);
   const [receiveBox, setReceiveBox] = useState<ReceivingBox | null>(null);
-  const [editFor, setEditFor] = useState<{ line: ReceivingLine; box: ReceivingBox } | null>(null);
+  const [editFor, setEditFor] = useState<{ line: ReceivingLine; box: ReceivingBox; mode: EditMode } | null>(null);
   const [historyFor, setHistoryFor] = useState<ReceivingLine | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
@@ -67,7 +68,7 @@ export default function Board({ boxes, pulls }: { boxes: ReceivingBox[]; pulls: 
     setBusyKey(null);
     if (res.ok) router.refresh();
   }
-  const acts: LineActions = { onEdit: (line, box) => setEditFor({ line, box }), onReturn: returnLine, onReturnProd: returnToProd, onHistory: setHistoryFor, busyKey };
+  const acts: LineActions = { onEdit: (line, box) => setEditFor({ line, box, mode: "received" }), onEditShipped: (line, box) => setEditFor({ line, box, mode: "shipped" }), onReturn: returnLine, onReturnProd: returnToProd, onHistory: setHistoryFor, busyKey };
 
   const incoming = useMemo(() => boxes.filter(b => !b.allReceived), [boxes]);
   const received = useMemo(() => boxes.filter(b => b.allReceived), [boxes]);
@@ -142,7 +143,7 @@ export default function Board({ boxes, pulls }: { boxes: ReceivingBox[]; pulls: 
         onClose={() => setKpi(null)} />}
       {receiveBox && <ReceiveModal box={receiveBox} onClose={() => setReceiveBox(null)}
         onDone={() => { setReceiveBox(null); router.refresh(); }} />}
-      {editFor && <EditReceivedModal line={editFor.line} box={editFor.box} onClose={() => setEditFor(null)}
+      {editFor && <EditLineModal line={editFor.line} box={editFor.box} mode={editFor.mode} onClose={() => setEditFor(null)}
         onDone={() => { setEditFor(null); router.refresh(); }} />}
       {historyFor && <LedgerHistory itemId={historyFor.itemId} itemName={historyFor.itemName} onClose={() => setHistoryFor(null)} />}
     </BoardFrame>
@@ -163,12 +164,14 @@ function RowActions({ l, box, acts }: { l: ReceivingLine; box: ReceivingBox; act
   );
 }
 
-// Incoming-view row actions: History + ← Return to production (spec: receiving→production).
+// Incoming-view row actions: History + Edit (fix vendor's shipped count) + ← Return
+// to production (spec: receiving→production).
 function IncomingActions({ l, box, acts }: { l: ReceivingLine; box: ReceivingBox; acts: LineActions }) {
   const busy = acts.busyKey === `${box.id}:${l.itemId}`;
   return (
     <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
       <button style={actBtn} onClick={() => acts.onHistory(l)}>History</button>
+      <button style={actBtn} onClick={() => acts.onEditShipped(l, box)}>Edit</button>
       <button style={{ ...actBtn, color: busy ? T.faint : "#a87b00" }} disabled={busy} onClick={() => acts.onReturnProd(l, box)}>{busy ? "…" : "← Return to production"}</button>
     </div>
   );
@@ -552,12 +555,14 @@ function ReceiveModal({ box, onClose, onDone }: { box: ReceivingBox; onClose: ()
   );
 }
 
-// Edit-received modal — fix a received count in place. Defaults to what was
-// counted; saving reverses this box's receipt and re-appends the corrected qty
-// (both stay on the ledger). Gated to the test client, like every other write.
-function EditReceivedModal({ line, box, onClose, onDone }: { line: ReceivingLine; box: ReceivingBox; onClose: () => void; onDone: () => void }) {
+// Edit-line modal — fix a count in place. mode "received" corrects what was
+// counted at receiving (vs shipped, for reference); mode "shipped" corrects what
+// the vendor said they sent. Saving reverses this box's movement of that type and
+// re-appends the corrected qty (both stay on the ledger). Gated to the test client.
+function EditLineModal({ line, box, mode, onClose, onDone }: { line: ReceivingLine; box: ReceivingBox; mode: EditMode; onClose: () => void; onDone: () => void }) {
+  const shipped = mode === "shipped";
   const sizes = sortSizes(Object.keys(line.shipQtys).length ? Object.keys(line.shipQtys) : Object.keys(line.receivedQtys));
-  const [qtys, setQtys] = useState<Record<string, number>>({ ...line.receivedQtys });
+  const [qtys, setQtys] = useState<Record<string, number>>({ ...(shipped ? line.shipQtys : line.receivedQtys) });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const isTest = TEST_CLIENTS.includes(line.client);
@@ -566,7 +571,10 @@ function EditReceivedModal({ line, box, onClose, onDone }: { line: ReceivingLine
 
   async function save() {
     setBusy(true); setErr(null);
-    const res = await editReceivedLine(createClient(), { shipmentId: box.id, itemId: line.itemId, jobId: line.jobId, itemName: line.itemName, newReceived: qtys });
+    const sb = createClient();
+    const res = shipped
+      ? await editShippedLine(sb, { shipmentId: box.id, itemId: line.itemId, jobId: line.jobId, itemName: line.itemName, newShipped: qtys })
+      : await editReceivedLine(sb, { shipmentId: box.id, itemId: line.itemId, jobId: line.jobId, itemName: line.itemName, newReceived: qtys });
     setBusy(false);
     if (res.ok) onDone(); else setErr(res.error || "Edit failed.");
   }
@@ -574,20 +582,22 @@ function EditReceivedModal({ line, box, onClose, onDone }: { line: ReceivingLine
   return (
     <ModalShell onClose={onClose} maxWidth={520} dismissable={false}>
       <div style={{ padding: "18px 22px", borderBottom: `1px solid ${T.border}` }}>
-        <div style={{ fontSize: 17, fontWeight: 700 }}>Edit received — {line.itemName}</div>
-        <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>{box.vendorName} · fix the counted quantity in place</div>
+        <div style={{ fontSize: 17, fontWeight: 700 }}>Edit {shipped ? "shipped" : "received"} — {line.itemName}</div>
+        <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>{box.vendorName} · {shipped ? "correct the count the vendor said they sent" : "fix the counted quantity in place"}</div>
       </div>
       <div style={{ padding: "18px 22px", display: "flex", flexDirection: "column", gap: 14 }}>
         <div>
-          <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>Received, per size</div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>{shipped ? "Shipped" : "Received"}, per size</div>
           <div style={{ display: "grid", gridTemplateColumns: `auto repeat(${sizes.length}, 50px)`, columnGap: 8, rowGap: 4, alignItems: "center", width: "fit-content" }}>
             <div />{sizes.map(sz => <div key={sz} style={{ fontSize: 10, fontWeight: 800, color: T.faint, textAlign: "center", textTransform: "uppercase" }}>{sz}</div>)}
-            <div style={{ fontSize: 9, fontWeight: 800, color: T.faint, textTransform: "uppercase", letterSpacing: 0.3, paddingRight: 4 }}>Shipped</div>
-            {sizes.map(sz => <div key={sz} style={{ fontFamily: mono, fontSize: 12, color: T.muted, textAlign: "center" }}>{line.shipQtys[sz] ?? 0}</div>)}
-            <div style={{ fontSize: 9, fontWeight: 800, color: T.faint, textTransform: "uppercase", letterSpacing: 0.3, paddingRight: 4 }}>Received</div>
-            {sizes.map(sz => { const got = qtys[sz] ?? 0, want = line.shipQtys[sz] ?? 0; const c = got === want ? T.text : got < want ? "#a87b00" : T.green;
+            {!shipped && <>
+              <div style={{ fontSize: 9, fontWeight: 800, color: T.faint, textTransform: "uppercase", letterSpacing: 0.3, paddingRight: 4 }}>Shipped</div>
+              {sizes.map(sz => <div key={sz} style={{ fontFamily: mono, fontSize: 12, color: T.muted, textAlign: "center" }}>{line.shipQtys[sz] ?? 0}</div>)}
+            </>}
+            <div style={{ fontSize: 9, fontWeight: 800, color: T.faint, textTransform: "uppercase", letterSpacing: 0.3, paddingRight: 4 }}>{shipped ? "Shipped" : "Received"}</div>
+            {sizes.map(sz => { const got = qtys[sz] ?? 0, want = line.shipQtys[sz] ?? 0; const c = shipped ? T.text : got === want ? T.text : got < want ? "#a87b00" : T.green;
               return <input key={sz} inputMode="numeric" value={got} onChange={e => setQ(sz, e.target.value)} onFocus={e => e.target.select()}
-                style={{ width: 50, textAlign: "center", fontFamily: mono, fontSize: 13, fontWeight: 700, padding: "5px 4px", borderRadius: 5, border: `1px solid ${got === want ? T.border : c}`, color: c, background: T.card }} />; })}
+                style={{ width: 50, textAlign: "center", fontFamily: mono, fontSize: 13, fontWeight: 700, padding: "5px 4px", borderRadius: 5, border: `1px solid ${(shipped || got === want) ? T.border : c}`, color: c, background: T.card }} />; })}
           </div>
         </div>
       </div>
