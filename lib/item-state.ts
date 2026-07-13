@@ -102,6 +102,84 @@ export async function loadJobState(sb: Sb, jobId: string): Promise<JobState> {
   };
 }
 
+// ── the Production board (job × vendor strips) ─────────────────────────────
+// Items in the shipping window (ordered, not yet done by their route), grouped
+// into strips of one job × one vendor — the unit you ship from. A box is one
+// vendor, so a strip's selected items become one shipment.
+export type BoardItem = ItemView & {
+  decoratorId: string | null;
+  decoratorName: string | null;
+  decoratorCode: string | null;
+  garmentType: string | null;
+};
+export type BoardStrip = {
+  key: string;                 // jobId::decoratorId
+  jobId: string; jobNumber: string; jobTitle: string; clientName: string;
+  jobRoute: Route; phase: string; priority: string | null; shipDate: string | null;
+  decoratorId: string | null; decoratorName: string; decoratorCode: string | null;
+  items: BoardItem[];
+};
+
+const ACTIVE_PHASES = ["ready", "production", "receiving", "shipping", "fulfillment", "on_hold"];
+
+export async function loadProductionBoard(sb: Sb): Promise<BoardStrip[]> {
+  const { data: jobs } = await sb
+    .from("jobs")
+    .select("id, job_number, title, phase, priority, target_ship_date, shipping_route, clients(name)")
+    .in("phase", ACTIVE_PHASES);
+  const jobById = new Map<string, any>((jobs || []).map((j: any) => [j.id, j]));
+  if (!jobById.size) return [];
+
+  const { data: items } = await sb
+    .from("items")
+    .select("id, job_id, name, mockup_color, garment_type, shipping_route, ship_final, sort_order, buy_sheet_lines(size, qty_ordered), decorator_assignments(decorator_id, decorators(name, short_code))")
+    .in("job_id", Array.from(jobById.keys()));
+  if (!items?.length) return [];
+
+  // batch movements
+  const ids = items.map((i: any) => i.id);
+  const { data: allMoves } = await sb
+    .from("movements").select("id, item_id, type, qtys, shipment_id, reverses_id").in("item_id", ids);
+  const byItem = new Map<string, Movement[]>();
+  for (const m of allMoves || []) { const a = byItem.get(m.item_id) || []; a.push(toMovement(m)); byItem.set(m.item_id, a); }
+
+  const strips = new Map<string, BoardStrip>();
+  for (const item of items) {
+    const job = jobById.get(item.job_id); if (!job) continue;
+    const jobRoute = resolveRoute(item.shipping_route, job.shipping_route);
+    const state = deriveItem({
+      ordered: orderedFrom(item.buy_sheet_lines || []),
+      route: jobRoute,
+      shipFinal: !!item.ship_final,
+      movements: byItem.get(item.id) || [],
+    });
+    // Production holds only what still has units to ship FROM production. Once
+    // closed (fully shipped or marked final), it's left production — Receiving
+    // owns it now. in_production / partially_shipped stay (ship the next wave).
+    if (state.closed || state.orderedTotal === 0) continue;
+
+    const assign = (item.decorator_assignments || [])[0] || {};
+    const decoratorId = assign.decorator_id || null;
+    const decoratorName = assign.decorators?.name || "Unassigned vendor";
+    const key = `${item.job_id}::${decoratorId || "none"}`;
+    if (!strips.has(key)) {
+      strips.set(key, {
+        key, jobId: job.id, jobNumber: job.job_number, jobTitle: job.title,
+        clientName: job.clients?.name || "—", jobRoute, phase: job.phase,
+        priority: job.priority, shipDate: job.target_ship_date,
+        decoratorId, decoratorName, decoratorCode: assign.decorators?.short_code || null, items: [],
+      });
+    }
+    strips.get(key)!.items.push({
+      ...state, itemId: item.id, jobId: item.job_id, name: item.name, mockupColor: item.mockup_color,
+      decoratorId, decoratorName, decoratorCode: assign.decorators?.short_code || null, garmentType: item.garment_type,
+    });
+  }
+  // sort: soonest ship date first, then job number
+  return Array.from(strips.values()).sort((a, b) =>
+    (a.shipDate || "9999").localeCompare(b.shipDate || "9999") || a.jobNumber.localeCompare(b.jobNumber));
+}
+
 // ── a shipment's contents (the by-shipment view — receiving) ───────────────
 // Every item that has a movement in this shipment/box, with its full state.
 export async function loadShipmentItems(sb: Sb, shipmentId: string): Promise<ItemView[]> {
