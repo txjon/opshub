@@ -187,8 +187,21 @@ export default function Board({ strips }: { strips: BoardStrip[] }) {
                         <DriveThumb driveFileId={it.mockupFileId} alt="" maxRetries={0} enlargeable title={it.name}
                           style={{ width: 40, height: 40, borderRadius: 8, objectFit: "cover", flexShrink: 0, border: `1px solid ${T.border}`, cursor: "zoom-in" }}
                           fallback={<span style={{ width: 40, height: 40, borderRadius: 8, background: T.surface, border: `1px solid ${T.border}`, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, fontWeight: 700, color: T.faint }}>{(it.name || "?").charAt(0).toUpperCase()}</span>} />
-                        <span style={{ fontSize: 13, fontWeight: 500, flex: 1 }}>{it.name}</span>
-                        <span style={{ fontFamily: mono, fontSize: 14, fontWeight: 700, minWidth: 56, textAlign: "right" }}>{it.owedTotal}</span>
+                        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+                          <span style={{ fontSize: 13, fontWeight: 500 }}>{it.name}</span>
+                          {it.shippedTotal > 0 && (
+                            <span style={{ fontSize: 11, color: T.muted }}>
+                              {it.shippedTotal} of {it.orderedTotal} shipped · {it.shipWaves.length} wave{it.shipWaves.length > 1 ? "s" : ""}
+                              {it.shipWaves.some(w => w.tracking) && (
+                                <span style={{ fontFamily: mono, color: T.faint }}>{"  ·  " + it.shipWaves.map(w => w.tracking).filter(Boolean).join(", ")}</span>
+                              )}
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", minWidth: 56 }}>
+                          <span style={{ fontFamily: mono, fontSize: 14, fontWeight: 700 }}>{it.owedTotal}</span>
+                          {it.shippedTotal > 0 && <span style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: 0.3 }}>owed</span>}
+                        </div>
                       </label>
                     );
                   })}

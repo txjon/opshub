@@ -113,7 +113,17 @@ export type BoardItem = ItemView & {
   garmentType: string | null;
   embellishments: number;      // (active print locations + tag) × units; garments only
   mockupFileId: string | null; // Drive file id of the latest mockup/proof, for the thumbnail
+  shipWaves: { tracking: string | null; total: number }[]; // waves already shipped (for partial rows)
 };
+
+// Ship waves already sent for an item = each non-reversed ship movement.
+function shipWavesFrom(raw: any[]): { tracking: string | null; total: number }[] {
+  const reversed = new Set((raw || []).filter(m => m.reverses_id).map(m => m.reverses_id));
+  return (raw || [])
+    .filter(m => m.type === "ship" && !reversed.has(m.id))
+    .map(m => ({ tracking: (m.tracking || null), total: Object.values(m.qtys || {}).reduce((a: number, n: any) => a + (Number(n) || 0), 0) }))
+    .filter(w => w.total > 0);
+}
 
 // Non-garment items aren't screen-printed/embroidered — excluded from the
 // Embellishments count (still counted in Items + Units). Mirrors /production.
@@ -163,9 +173,13 @@ export async function loadProductionBoard(sb: Sb): Promise<BoardStrip[]> {
   // batch movements
   const ids = items.map((i: any) => i.id);
   const { data: allMoves } = await sb
-    .from("movements").select("id, item_id, type, qtys, shipment_id, reverses_id").in("item_id", ids);
+    .from("movements").select("id, item_id, type, qtys, shipment_id, reverses_id, tracking").in("item_id", ids);
   const byItem = new Map<string, Movement[]>();
-  for (const m of allMoves || []) { const a = byItem.get(m.item_id) || []; a.push(toMovement(m)); byItem.set(m.item_id, a); }
+  const rawByItem = new Map<string, any[]>();
+  for (const m of allMoves || []) {
+    const a = byItem.get(m.item_id) || []; a.push(toMovement(m)); byItem.set(m.item_id, a);
+    const r = rawByItem.get(m.item_id) || []; r.push(m); rawByItem.set(m.item_id, r);
+  }
 
   // latest mockup/proof per item, for the row thumbnail. Prefer a real mockup
   // (an image) over a proof (often a PDF, which has no thumbnail).
@@ -222,6 +236,7 @@ export async function loadProductionBoard(sb: Sb): Promise<BoardStrip[]> {
       decoratorId, decoratorName, decoratorCode: assign.decorators?.short_code || null, garmentType: item.garment_type,
       embellishments: embellishmentsFor(item.garment_type, job.costing_data?.costProds || [], state.orderedTotal),
       mockupFileId: mockupById.get(item.id) || null,
+      shipWaves: shipWavesFrom(rawByItem.get(item.id) || []),
     });
   }
   // sort: soonest ship date first, then job number
