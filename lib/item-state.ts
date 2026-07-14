@@ -450,6 +450,7 @@ export type ShippingItem = {
   itemId: string; jobId: string; name: string; mockupFileId: string | null;
   availableTotal: number; available: SizeQtys;   // ready to forward now
   owedTotal: number;                              // still to ship from production
+  comingTotal: number;                            // still coming to shipping = in-transit (shipped−received) + owed
   pulledTotal: number; forwardedTotal: number; receivedTotal: number;
   readyDownstream: boolean; done: boolean; status: string;
 };
@@ -458,7 +459,7 @@ export type ShippingJob = {
   invoiceNumber: string | null; shipTo: string | null;
   items: ShippingItem[];
   status: "ready" | "awaiting";
-  readyUnits: number; owedUnits: number;
+  readyUnits: number; comingUnits: number;
 };
 
 export async function loadShippingBoard(sb: Sb): Promise<ShippingJob[]> {
@@ -494,11 +495,13 @@ export async function loadShippingBoard(sb: Sb): Promise<ShippingJob[]> {
     // In the shipping window = something has shipped and it's not fully forwarded.
     if (st.shippedTotal === 0 && st.owedTotal === 0) continue;
     if (st.done) continue;
+    const inTransit = Math.max(0, st.shippedTotal - st.receivedTotal);   // shipped, not yet at HPD
     const a = byJob.get(item.job_id) || [];
     a.push({
       itemId: item.id, jobId: item.job_id, name: item.name, mockupFileId: mockById.get(item.id) || null,
       availableTotal: st.availableToForwardTotal, available: st.availableToForward,
-      owedTotal: st.owedTotal, pulledTotal: st.pulledTotal, forwardedTotal: st.forwardedTotal, receivedTotal: st.receivedTotal,
+      owedTotal: st.owedTotal, comingTotal: inTransit + st.owedTotal,
+      pulledTotal: st.pulledTotal, forwardedTotal: st.forwardedTotal, receivedTotal: st.receivedTotal,
       readyDownstream: st.readyDownstream, done: st.done, status: st.status,
     });
     byJob.set(item.job_id, a);
@@ -517,7 +520,7 @@ export async function loadShippingBoard(sb: Sb): Promise<ShippingJob[]> {
       items: its,
       status: awaiting ? "awaiting" : "ready",
       readyUnits: its.reduce((s, it) => s + it.availableTotal, 0),
-      owedUnits: its.reduce((s, it) => s + it.owedTotal, 0),
+      comingUnits: its.reduce((s, it) => s + it.comingTotal, 0),
     });
   }
   return out.sort((a, b) => (a.status === b.status ? 0 : a.status === "ready" ? -1 : 1) || a.jobNumber.localeCompare(b.jobNumber));
