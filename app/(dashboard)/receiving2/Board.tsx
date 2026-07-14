@@ -1,5 +1,6 @@
 "use client";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono, sortSizes } from "@/lib/theme";
@@ -150,31 +151,68 @@ export default function Board({ boxes, pulls }: { boxes: ReceivingBox[]; pulls: 
   );
 }
 
-const actBtn: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: T.muted, background: "none", border: `1px solid ${T.border}`, borderRadius: 6, padding: "4px 9px", cursor: "pointer" };
-
-// Received-view row actions: History (ledger), Edit (fix count), ← Return-to-receiving.
-function RowActions({ l, box, acts }: { l: ReceivingLine; box: ReceivingBox; acts: LineActions }) {
-  const busy = acts.busyKey === `${box.id}:${l.itemId}`;
+// Overflow "⋯" menu — collapses the occasional row actions (History / Edit /
+// Return) behind one control so the primary action can breathe. Portaled to
+// <body> at fixed coords so the card's overflow:hidden can't clip it; closes on
+// outside-click or scroll.
+type MenuItem = { label: string; onClick: () => void; danger?: boolean; disabled?: boolean };
+function RowMenu({ busy, items }: { busy?: boolean; items: MenuItem[] }) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => { window.removeEventListener("scroll", close, true); window.removeEventListener("resize", close); };
+  }, [open]);
+  function toggle() {
+    if (open) return setOpen(false);
+    const r = btnRef.current!.getBoundingClientRect();
+    setPos({ top: r.bottom + 5, right: Math.max(8, window.innerWidth - r.right) });
+    setOpen(true);
+  }
   return (
-    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-      <button style={actBtn} onClick={() => acts.onHistory(l)}>History</button>
-      <button style={actBtn} onClick={() => acts.onEdit(l, box)}>Edit</button>
-      <button style={{ ...actBtn, color: busy ? T.faint : "#a87b00" }} disabled={busy} onClick={() => acts.onReturn(l, box)}>{busy ? "…" : "← Return"}</button>
-    </div>
+    <>
+      <button ref={btnRef} onClick={toggle} aria-label="More actions"
+        style={{ width: 30, height: 26, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 17, lineHeight: 1, color: T.muted, background: open ? T.surface : "none", border: `1px solid ${T.border}`, borderRadius: 7, cursor: "pointer" }}>
+        {busy ? "…" : "⋯"}
+      </button>
+      {open && pos && createPortal(
+        <>
+          <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 1000 }} />
+          <div style={{ position: "fixed", top: pos.top, right: pos.right, zIndex: 1001, background: T.card, border: `1px solid ${T.border}`, borderRadius: 9, boxShadow: "0 10px 30px rgba(0,0,0,0.14)", minWidth: 190, overflow: "hidden" }}>
+            {items.map((it, i) => (
+              <button key={i} disabled={it.disabled} onClick={() => { setOpen(false); it.onClick(); }}
+                style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 13px", fontSize: 12.5, fontWeight: 600, background: "none", border: "none", borderTop: i ? `1px solid ${T.border}` : "none", color: it.disabled ? T.faint : it.danger ? "#a87b00" : T.text, cursor: it.disabled ? "default" : "pointer" }}>
+                {it.label}
+              </button>
+            ))}
+          </div>
+        </>, document.body)}
+    </>
   );
 }
 
-// Incoming-view row actions: History + Edit (fix vendor's shipped count) + ← Return
-// to production (spec: receiving→production).
+// Received-view row actions → overflow menu (History / Edit / ← Return-to-receiving).
+function RowActions({ l, box, acts }: { l: ReceivingLine; box: ReceivingBox; acts: LineActions }) {
+  const busy = acts.busyKey === `${box.id}:${l.itemId}`;
+  return <RowMenu busy={busy} items={[
+    { label: "History", onClick: () => acts.onHistory(l) },
+    { label: "Edit received count", onClick: () => acts.onEdit(l, box) },
+    { label: "← Return to receiving", danger: true, disabled: busy, onClick: () => acts.onReturn(l, box) },
+  ]} />;
+}
+
+// Incoming-view row actions → overflow menu (History / Edit shipped / ← Return-to-production).
 function IncomingActions({ l, box, acts }: { l: ReceivingLine; box: ReceivingBox; acts: LineActions }) {
   const busy = acts.busyKey === `${box.id}:${l.itemId}`;
-  return (
-    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-      <button style={actBtn} onClick={() => acts.onHistory(l)}>History</button>
-      <button style={actBtn} onClick={() => acts.onEditShipped(l, box)}>Edit</button>
-      <button style={{ ...actBtn, color: busy ? T.faint : "#a87b00" }} disabled={busy} onClick={() => acts.onReturnProd(l, box)}>{busy ? "…" : "← Return to production"}</button>
-    </div>
-  );
+  return <RowMenu busy={busy} items={[
+    { label: "History", onClick: () => acts.onHistory(l) },
+    { label: "Edit shipped count", onClick: () => acts.onEditShipped(l, box) },
+    { label: "← Return to production", danger: true, disabled: busy, onClick: () => acts.onReturnProd(l, box) },
+  ]} />;
 }
 
 // The received tally for a line: X/Y ✓ (green when met, amber when short) → destination.
