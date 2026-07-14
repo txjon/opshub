@@ -198,8 +198,10 @@ function ForwardModal({ job, onClose, onDone }: { job: ShippingJob; onClose: () 
           </div>
         </ModalShell>
         {notifyOpen && (
+          // route="drop_ship" selects the dialog's CUSTOMER path (client contacts +
+          // client template) — a forward notifies the client, not the warehouse.
           <NotifyShipmentDialog open={notifyOpen} onClose={() => setNotifyOpen(false)} onSent={() => { setNotified(true); setNotifyOpen(false); }}
-            route="ship_through" jobId={job.jobId} decoratorId={null} decoratorName="" tracking={tracking.trim() || null}
+            route="drop_ship" jobId={job.jobId} decoratorId={null} decoratorName="" tracking={tracking.trim() || null}
             qbInvoiceNumber={job.invoiceNumber || ""} clientName={job.clientName} jobTitle={job.jobTitle} contacts={contacts as any} initialMessage="" />
         )}
       </>
