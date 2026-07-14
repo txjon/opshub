@@ -21,7 +21,6 @@ function fmtWhen(iso: string | null): string {
 }
 
 type Status = "to_forward" | "forwarded";
-type JobView = "job" | "item";
 type FwdView = "shipment" | "job" | "item";
 type MetricKey = "jobs" | "ready" | "coming";
 const METRICS: { key: MetricKey; label: string }[] = [{ key: "jobs", label: "Orders" }, { key: "ready", label: "Ready units" }, { key: "coming", label: "Coming units" }];
@@ -29,7 +28,6 @@ const METRICS: { key: MetricKey; label: string }[] = [{ key: "jobs", label: "Ord
 export default function Board({ jobs, forwarded }: { jobs: ShippingJob[]; forwarded: ForwardedShipment[] }) {
   const router = useRouter();
   const [status, setStatus] = useState<Status>("to_forward");
-  const [jobView, setJobView] = useState<JobView>("job");
   const [fwdView, setFwdView] = useState<FwdView>("shipment");
   const [query, setQuery] = useState("");
   const [kpi, setKpi] = useState<MetricKey | null>(null);
@@ -66,13 +64,8 @@ export default function Board({ jobs, forwarded }: { jobs: ShippingJob[]; forwar
 
       {status === "to_forward" ? (<>
         <KpiStrip metrics={METRICS} get={k => agg[k]} onClick={setKpi} />
-        <SliceSortRow>
-          <SegmentControl options={[["job", "By job"], ["item", "By item"]]} value={jobView} onChange={setJobView} />
-          <span />
-        </SliceSortRow>
         {shownJobs.length === 0 && <Empty>{q ? "No orders match your search." : "Nothing waiting to forward."}</Empty>}
-        {jobView === "job" && <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>{shownJobs.map(j => <JobCard key={j.jobId} job={j} onForward={() => setForwardFor(j)} onHistory={(itemId, itemName) => setHistoryFor({ itemId, itemName })} />)}</div>}
-        {jobView === "item" && <ToForwardItems jobs={shownJobs} onHistory={(itemId, itemName) => setHistoryFor({ itemId, itemName })} />}
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>{shownJobs.map(j => <JobCard key={j.jobId} job={j} onForward={() => setForwardFor(j)} onHistory={(itemId, itemName) => setHistoryFor({ itemId, itemName })} />)}</div>
       </>) : (<>
         <SliceSortRow>
           <SegmentControl options={[["shipment", "By shipment"], ["job", "By job"], ["item", "By item"]]} value={fwdView} onChange={setFwdView} />
@@ -98,11 +91,12 @@ function Empty({ children }: { children: React.ReactNode }) {
   return <div style={{ color: T.muted, fontSize: 14, padding: 40, textAlign: "center", background: T.card, border: `1px solid ${T.border}`, borderRadius: 12 }}>{children}</div>;
 }
 
-// Per-item status label + ⋯ History for the to-forward rows.
+// Per-item status label + ⋯ History for the to-forward rows. Status sits in a
+// FIXED-width span so the ⋯ (and therefore every column) lines up down the card.
 function ToForwardActions({ it, onHistory }: { it: ShippingItem; onHistory: (itemId: string, itemName: string) => void }) {
   return (
     <div style={{ justifySelf: "end", display: "flex", alignItems: "center", gap: 10 }}>
-      <span style={{ fontSize: 11, fontWeight: 700, textAlign: "right" }}>
+      <span style={{ width: 150, textAlign: "right", fontSize: 11, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {it.availableTotal > 0 && <span style={{ color: T.green }}>ready</span>}
         {it.comingTotal > 0 && <span style={{ color: "#a87b00" }}>{it.availableTotal > 0 ? " · " : ""}{it.comingTotal} coming</span>}
         {it.pulledTotal > 0 && <span style={{ color: T.purple, fontWeight: 600 }}> · {it.pulledTotal} pulled</span>}
@@ -118,13 +112,12 @@ function JobCard({ job, onForward, onHistory }: { job: ShippingJob; onForward: (
   const color = ready ? T.green : "#a87b00";
   return (
     <div style={{ background: T.card, border: `1px solid ${T.border}`, borderLeft: `3px solid ${color}`, borderRadius: 11, overflow: "hidden" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 11, padding: "12px 16px", flexWrap: "wrap" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 11, padding: "12px 16px 4px", flexWrap: "wrap" }}>
         <span style={{ fontSize: 10.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.4, color }}>{ready ? "Ready to forward" : "Awaiting more"}</span>
         <span style={{ fontSize: 14, fontWeight: 800 }}>{job.clientName}</span>
         {job.invoiceNumber && <span style={{ fontFamily: mono, fontSize: 12.5, color: T.muted }}>#{job.invoiceNumber}</span>}
-        <div style={{ flex: 1 }} />
-        {job.shipTo && <span style={{ fontSize: 11, color: T.faint, textAlign: "right", maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Ship to: {job.shipTo}</span>}
       </div>
+      {job.shipTo && <div style={{ padding: "0 16px 10px", fontSize: 11.5, color: T.faint }}><span style={{ fontWeight: 700 }}>Ship to:</span> {job.shipTo.replace(/\s*\n\s*/g, " · ")}</div>}
       <div>
         {job.items.map(it => (
           <div key={it.itemId} style={{ padding: "10px 16px", borderTop: `1px solid ${T.border}` }}>
@@ -147,21 +140,6 @@ function JobCard({ job, onForward, onHistory }: { job: ShippingJob; onForward: (
   );
 }
 
-function ToForwardItems({ jobs, onHistory }: { jobs: ShippingJob[]; onHistory: (itemId: string, itemName: string) => void }) {
-  const rows = jobs.flatMap(j => j.items.map(it => ({ it, job: j })));
-  return (
-    <Card>
-      {rows.map(({ it, job }, i) => (
-        <div key={i} style={{ borderTop: i === 0 ? "none" : `1px solid ${T.border}`, padding: "10px 16px" }}>
-          <ItemRow fileId={it.mockupFileId} name={it.name} lead={`${job.clientName}${job.invoiceNumber ? " · #" + job.invoiceNumber : ""}`} route="ship_through"
-            variant={it.availableTotal > 0 ? <VariantChips qtys={it.available} /> : <span style={{ fontSize: 12, color: "#a87b00", fontWeight: 600 }}>{it.comingTotal} coming</span>}
-            qty={it.availableTotal || ""}
-            actions={<ToForwardActions it={it} onHistory={onHistory} />} />
-        </div>
-      ))}
-    </Card>
-  );
-}
 
 // ── Forward modal — build the outbound shipment ──────────────────────────────
 function ForwardModal({ job, onClose, onDone }: { job: ShippingJob; onClose: () => void; onDone: () => void }) {
