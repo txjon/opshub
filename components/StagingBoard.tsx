@@ -8,7 +8,7 @@ import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono, sortSizes } from "@/lib/theme";
-import { BoardFrame, ToggleSearch, KpiStrip, KpiBreakdownModal, ModalShell, Card, ItemRow, RowMenu, VariantChips } from "@/components/board-kit";
+import { BoardFrame, ToggleSearch, KpiStrip, KpiBreakdownModal, ModalShell, Card, CardHeader, ItemRow, RowMenu, VariantChips } from "@/components/board-kit";
 import { enterIntoShopify, returnEntered, editEntered } from "@/lib/staging-enter";
 import LedgerHistory from "@/components/LedgerHistory";
 import type { StagingItem } from "@/lib/item-state";
@@ -62,6 +62,43 @@ export default function StagingBoard({ items, side }: { items: StagingItem[]; si
 
   const otherName = side === "distro" ? "E-Comm" : "Staging";
 
+  // Entered view = per-client buckets (the "end of the road" reference archive),
+  // not a flat feed of every item.
+  const clientBuckets = useMemo(() => {
+    const m = new Map<string, StagingItem[]>();
+    for (const it of shown) { const a = m.get(it.client) || []; a.push(it); m.set(it.client, a); }
+    return Array.from(m.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [shown]);
+
+  const renderRow = (it: StagingItem, i: number, inBucket: boolean) => {
+    const busy = busyKey === it.itemId;
+    const bl = blankLine(it);
+    const isTest = TEST_CLIENTS.includes(it.client);
+    const actions = view === "ready"
+      ? <>
+          <button onClick={() => setEnterFor(it)} disabled={!isTest}
+            style={{ fontSize: 12, fontWeight: 700, color: isTest ? T.text : T.faint, background: "none", border: "none", cursor: isTest ? "pointer" : "default" }}>Enter into Shopify →</button>
+          <RowMenu items={[{ label: "History", onClick: () => setHistoryFor(it) }]} />
+        </>
+      : <>
+          <span style={{ fontSize: 11, fontWeight: 700, color: T.green }}>entered ✓</span>
+          <RowMenu busy={busy} items={[
+            { label: "History", onClick: () => setHistoryFor(it) },
+            { label: "Edit entered count", onClick: () => setEditFor(it) },
+            { label: "← Return to received", danger: true, disabled: busy, onClick: () => doReturn(it) },
+          ]} />
+        </>;
+    // In a client bucket the header already names the client → row lead = invoice/job.
+    const lead = inBucket ? (it.invoiceNumber ? `#${it.invoiceNumber}` : it.jobNumber) : (it.invoiceNumber ? `${it.client} · #${it.invoiceNumber}` : it.client);
+    return (
+      <div key={it.itemId} style={{ borderTop: i === 0 ? "none" : `1px solid ${T.border}`, padding: "10px 16px" }}>
+        <ItemRow fileId={it.mockupFileId} name={it.name} lead={lead}
+          sub={bl ? <div style={{ fontSize: 11, color: T.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{bl}</div> : undefined}
+          variant={<VariantChips qtys={qtyOf(it)} />} qty={totalOf(it)} actions={actions} />
+      </div>
+    );
+  };
+
   return (
     <BoardFrame title="Staging">
       <div style={{ margin: "-6px 0 10px", fontSize: 11.5, color: T.muted }}>
@@ -84,35 +121,23 @@ export default function StagingBoard({ items, side }: { items: StagingItem[]; si
         <div style={{ color: T.muted, fontSize: 14, padding: 40, textAlign: "center", background: T.card, border: `1px solid ${T.border}`, borderRadius: 12 }}>
           {query || client !== "all" ? "No items match." : view === "ready" ? "Nothing staged to enter." : "Nothing entered into Shopify yet."}
         </div>
+      ) : view === "ready" ? (
+        <Card>{shown.map((it, i) => renderRow(it, i, false))}</Card>
       ) : (
-        <Card>
-          {shown.map((it, i) => {
-            const busy = busyKey === it.itemId;
-            const bl = blankLine(it);
-            const isTest = TEST_CLIENTS.includes(it.client);
-            const actions = view === "ready"
-              ? <>
-                  <button onClick={() => setEnterFor(it)} disabled={!isTest}
-                    style={{ fontSize: 12, fontWeight: 700, color: isTest ? T.text : T.faint, background: "none", border: "none", cursor: isTest ? "pointer" : "default" }}>Enter into Shopify →</button>
-                  <RowMenu items={[{ label: "History", onClick: () => setHistoryFor(it) }]} />
-                </>
-              : <>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: T.green }}>entered ✓</span>
-                  <RowMenu busy={busy} items={[
-                    { label: "History", onClick: () => setHistoryFor(it) },
-                    { label: "Edit entered count", onClick: () => setEditFor(it) },
-                    { label: "← Return to received", danger: true, disabled: busy, onClick: () => doReturn(it) },
-                  ]} />
-                </>;
-            return (
-              <div key={it.itemId} style={{ borderTop: i === 0 ? "none" : `1px solid ${T.border}`, padding: "10px 16px" }}>
-                <ItemRow fileId={it.mockupFileId} name={it.name} lead={it.invoiceNumber ? `${it.client} · #${it.invoiceNumber}` : it.client}
-                  sub={bl ? <div style={{ fontSize: 11, color: T.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{bl}</div> : undefined}
-                  variant={<VariantChips qtys={qtyOf(it)} />} qty={totalOf(it)} actions={actions} />
-              </div>
-            );
-          })}
-        </Card>
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {clientBuckets.map(([cl, its]) => (
+            <Card key={cl}>
+              <CardHeader>
+                <span style={{ fontSize: 13, fontWeight: 700 }}>{cl}</span>
+                <span style={{ fontSize: 10, fontWeight: 700, color: T.green, textTransform: "uppercase", letterSpacing: 0.4 }}>Entered</span>
+                <div style={{ flex: 1 }} />
+                <span style={{ fontSize: 12, color: T.muted }}>{its.length} item{its.length > 1 ? "s" : ""}</span>
+                <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700 }}>{its.reduce((a, it) => a + it.enteredTotal, 0)}u</span>
+              </CardHeader>
+              {its.map((it, i) => renderRow(it, i, true))}
+            </Card>
+          ))}
+        </div>
       )}
 
       {kpi && <KpiBreakdownModal label={METRICS.find(m => m.key === kpi)!.label} total={agg[kpi]} unit={view === "ready" ? "ready" : "entered"}
