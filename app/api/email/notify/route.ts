@@ -439,12 +439,13 @@ export async function POST(req: NextRequest) {
       // (the ledger flow doesn't maintain legacy items.received_qtys/sample_qtys).
       // When present it's authoritative for both scope and per-item qtys.
       let outboundLineByItem: Map<string, any> | null = null;
+      let v2OutboundId: string | null = null;
       if (trackingNumber) {
         const { data: obShips } = await sb.from("shipments").select("id").eq("direction", "outbound").eq("tracking", (trackingNumber || "").trim().toUpperCase());
         const obIds = (obShips || []).map((s: any) => s.id);
         if (obIds.length) {
           const { data: obLines } = await sb.from("shipment_lines").select("item_id, ship_qtys").in("shipment_id", obIds);
-          if ((obLines || []).length) outboundLineByItem = new Map((obLines || []).map((l: any) => [l.item_id, l]));
+          if ((obLines || []).length) { outboundLineByItem = new Map((obLines || []).map((l: any) => [l.item_id, l])); v2OutboundId = obIds[0]; }
         }
       }
       const isV2Forward = !!outboundLineByItem;
@@ -587,7 +588,10 @@ export async function POST(req: NextRequest) {
       let pdfBuffer: Buffer | null = null;
       try {
         const params = new URLSearchParams();
-        if (isWaveForward) {
+        if (isV2Forward && v2OutboundId) {
+          // v2 forward: scope the slip to the outbound shipment (frozen manifest).
+          params.set("shipment", v2OutboundId);
+        } else if (isWaveForward) {
           // Scope the slip to this wave's forwarded items.
           params.set("forwardTracking", trackingNumber || "");
         } else if (!isJobOutbound) {

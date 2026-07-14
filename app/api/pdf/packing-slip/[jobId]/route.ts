@@ -78,6 +78,22 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     if (forwardTrackingFilter) {
       vendorScopedItems = vendorScopedItems.filter((it: any) => (it.forward_tracking || "") === forwardTrackingFilter);
     }
+    // v2 forward: the outbound shipment IS the frozen manifest. Its lines give the
+    // exact forwarded qtys (already net of pulls) + the outbound tracking. Reading
+    // it makes the slip immutable — it renders the same in 3 months.
+    const shipmentFilter = req.nextUrl.searchParams.get("shipment");
+    let v2Tracking: string | null = null;
+    let isV2Forward = false;
+    if (shipmentFilter) {
+      const { data: sh } = await supabase.from("shipments").select("id, tracking, direction").eq("id", shipmentFilter).single();
+      if (sh && (sh as any).direction === "outbound") {
+        v2Tracking = (sh as any).tracking || null;
+        const { data: lineRows } = await supabase.from("shipment_lines").select("item_id, ship_qtys").eq("shipment_id", shipmentFilter);
+        boxLineByItem = new Map((lineRows || []).map((l: any) => [l.item_id, l]));
+        vendorScopedItems = vendorScopedItems.filter((it: any) => boxLineByItem!.has(it.id));
+        isV2Forward = true;
+      }
+    }
     const vendorName = decoratorFilter
       ? (vendorScopedItems[0]?.decorator_assignments?.[0]?.decorators?.name || "")
       : "";
@@ -115,8 +131,10 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
         deliveredQtys[l.size] = (fromFirst !== undefined ? fromFirst : (fromSecond !== undefined ? fromSecond : orderedQtys[l.size])) ?? 0;
       }
       // Continuing = delivered − samples pulled at HPD. Drop-ship items don't
-      // have samples (sample_qtys is empty) so this is a no-op for them.
-      const finalQtys = deductSamples(deliveredQtys, item.sample_qtys);
+      // have samples (sample_qtys is empty) so this is a no-op for them. A v2
+      // forward's qtys are ALREADY net of pulls (from the outbound line) — don't
+      // deduct again.
+      const finalQtys = isV2Forward ? deliveredQtys : deductSamples(deliveredQtys, item.sample_qtys);
       const totalQty = Object.values(finalQtys).reduce((a, v) => a + v, 0);
       // Tracking column resolution:
       //  - Drop ship \u2192 decorator tracking on the item.
@@ -125,13 +143,15 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       //    the decorator's inbound tracking number.
       //  - Ship-through OUTBOUND slip (HPD \u2192 customer, no tracking
       //    filter) \u2192 use job.fulfillment_tracking.
-      const tracking = itemIsDropShip(item)
-        ? (item.ship_tracking || "\u2014")
-        : (forwardTrackingFilter
-            ? (item.forward_tracking || forwardTrackingFilter || "\u2014")
-            : (trackingFilter
-                ? (item.ship_tracking || trackingFilter || "\u2014")
-                : (job.fulfillment_tracking || "\u2014")));
+      const tracking = isV2Forward
+        ? (v2Tracking || "\u2014")
+        : (itemIsDropShip(item)
+          ? (item.ship_tracking || "\u2014")
+          : (forwardTrackingFilter
+              ? (item.forward_tracking || forwardTrackingFilter || "\u2014")
+              : (trackingFilter
+                  ? (item.ship_tracking || trackingFilter || "\u2014")
+                  : (job.fulfillment_tracking || "\u2014"))));
 
       // Sort sizes via the canonical theme order (XS, S, M, L, XL, 2XL, …)
       // so the slip reads left-to-right in natural order.
@@ -187,7 +207,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
         for (const l of lines) {
           delivered[l.size] = firstChoice[l.size] !== undefined ? firstChoice[l.size] : (secondChoice[l.size] !== undefined ? secondChoice[l.size] : (l.qty_ordered || 0));
         }
-        const continuing = deductSamples(delivered, it.sample_qtys);
+        const continuing = isV2Forward ? delivered : deductSamples(delivered, it.sample_qtys);
         return a + Object.values(continuing).reduce((b: number, v) => b + (v || 0), 0);
       }, 0);
 

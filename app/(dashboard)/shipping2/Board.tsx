@@ -191,7 +191,7 @@ function ForwardModal({ job, onClose, onDone }: { job: ShippingJob; onClose: () 
             <div style={{ fontSize: 18, fontWeight: 700 }}>Forwarded {done.forwarded} units</div>
             <div style={{ fontSize: 13, color: T.muted, marginTop: 3 }}>{job.clientName} · outbound to client</div>
             <div style={{ display: "flex", gap: 10, marginTop: 20, justifyContent: "center", flexWrap: "wrap" }}>
-              <a href={`/shipping2/slip/${done.shipmentId}`} target="_blank" rel="noreferrer" style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "10px 16px", border: `1px solid ${T.border}`, color: T.text, textDecoration: "none" }}>Packing slip ↗</a>
+              <a href={`/api/pdf/packing-slip/${job.jobId}?shipment=${done.shipmentId}`} target="_blank" rel="noreferrer" style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "10px 16px", border: `1px solid ${T.border}`, color: T.text, textDecoration: "none" }}>Packing slip ↗</a>
               <button onClick={openNotify} disabled={notified} style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "10px 16px", cursor: notified ? "default" : "pointer", border: `1px solid ${T.border}`, background: notified ? T.greenDim : T.card, color: notified ? T.green : T.text }}>{notified ? "✓ Client notified" : "Notify client"}</button>
               <button onClick={onDone} style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "10px 22px", border: "none", cursor: "pointer", background: T.text, color: "#fff" }}>Done</button>
             </div>
@@ -297,7 +297,7 @@ function ForwardedView({ shipments, view, busyKey, onEdit, onReturn, onHistory }
           <Card key={s.id}>
             <BoxHead vendor={`${s.clients.join(", ") || "—"}${s.lines[0]?.invoiceNumber ? " · #" + s.lines[0].invoiceNumber : ""}`} tag="Forwarded" tagColor={T.green}
               method={[s.carrier, s.tracking].filter(Boolean).join(" · ") || "no tracking"}
-              slips={[{ name: "slip", url: `/shipping2/slip/${s.id}` }]} when={fmtWhen(s.createdAt)}
+              slips={[{ name: "slip", url: `/api/pdf/packing-slip/${s.lines[0]?.jobId}?shipment=${s.id}` }]} when={fmtWhen(s.createdAt)}
               meta={[{ text: `${s.lines.length} item${s.lines.length > 1 ? "s" : ""} · ${s.totalUnits} units` }]} />
             {s.lines.map(l => (
               <div key={l.itemId} style={{ padding: "10px 16px", borderTop: `1px solid ${T.border}` }}>
