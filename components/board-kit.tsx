@@ -148,6 +148,69 @@ export function VariantChips({ qtys, sizes }: { qtys: Record<string, number>; si
   );
 }
 
+// ── shared box card leaves (receiving + production Shipped both render these) ─
+// One physical shipment = one box. Header bar, plain-text meta line, client/group
+// label, and the aligned-column item row all live here so the two surfaces can't
+// drift. Callers supply the surface-specific bits (status/route tag, per-row/box
+// action) as props/nodes; the layout is identical everywhere.
+export function BoxHead({ vendor, tag, tagColor, method, slips, when, units, action }: {
+  vendor: string; tag: string; tagColor?: string; method: string;
+  slips?: { name: string; url: string }[]; when?: string | null; units: number; action?: ReactNode;
+}) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderBottom: `1px solid ${T.border}`, background: T.surface, flexWrap: "wrap" }}>
+      <span style={{ fontSize: 13, fontWeight: 700 }}>{vendor}</span>
+      <span style={{ fontSize: 10, fontWeight: 700, color: tagColor || T.blue, textTransform: "uppercase", letterSpacing: 0.5 }}>{tag}</span>
+      <span style={{ fontFamily: mono, fontSize: 12, color: T.muted }}>{method}</span>
+      {(slips || []).map((s, i) => <a key={i} href={s.url} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: T.blue, textDecoration: "none" }}>📎 slip</a>)}
+      <div style={{ flex: 1 }} />
+      {when && <span style={{ fontSize: 12, color: T.faint }}>{when}</span>}
+      <span style={{ fontFamily: mono, fontSize: 12, color: T.muted }}>{units}u</span>
+      {action}
+    </div>
+  );
+}
+
+// Plain-text meta line under the header (no pills). Segments joined by dots.
+export function BoxMeta({ segments }: { segments: { text: string; tone?: string }[] }) {
+  if (!segments.length) return null;
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, padding: "8px 16px 2px", fontSize: 11.5, fontWeight: 600 }}>
+      {segments.map((s, i) => <span key={i}>{i > 0 && <span style={{ color: T.faint, margin: "0 6px" }}>·</span>}<span style={{ color: s.tone || T.muted }}>{s.text}</span></span>)}
+    </div>
+  );
+}
+
+// Client / group sub-header inside a card.
+export function GroupLabel({ label, sub }: { label: string; sub?: string | null }) {
+  return (
+    <div style={{ padding: "8px 16px 6px", borderTop: `1px solid ${T.border}`, fontSize: 12, fontWeight: 600, color: T.muted }}>
+      {label}{sub ? <span style={{ fontFamily: mono, color: T.faint, fontWeight: 500 }}> · {sub}</span> : null}
+    </div>
+  );
+}
+
+// Aligned-column item row: thumb · name(+sub) · route · per-variant · qty · actions.
+// The fixed grid is the single source of column rhythm across every surface.
+export const ITEM_ROW_COLS = "34px minmax(190px, 1.4fr) 108px minmax(130px, 1.3fr) 46px auto";
+export function ItemRow({ fileId, name, sub, route, variant, qty, actions }: {
+  fileId: string | null; name: string; sub?: ReactNode; route?: string; variant?: ReactNode; qty?: ReactNode; actions?: ReactNode;
+}) {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: ITEM_ROW_COLS, alignItems: "center", columnGap: 14 }}>
+      <ItemThumb fileId={fileId} name={name} size={34} />
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</div>
+        {sub}
+      </div>
+      {route ? <RouteTag route={route} /> : <span />}
+      <div style={{ minWidth: 0 }}>{variant}</div>
+      <span style={{ fontFamily: mono, fontSize: 13, fontWeight: 700, textAlign: "right" }}>{qty ?? ""}</span>
+      <div style={{ justifySelf: "end", display: "flex", alignItems: "center", gap: 10 }}>{actions}</div>
+    </div>
+  );
+}
+
 // ── route label (plain text, no pills) ──────────────────────────────────────
 const ROUTE_FG: Record<string, string> = { drop_ship: T.purple, ship_through: T.blue, stage: "#a87b00" };
 const ROUTE_LABEL: Record<string, string> = { drop_ship: "Drop-ship", ship_through: "Ship-through", stage: "Stage" };
