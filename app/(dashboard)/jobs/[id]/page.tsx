@@ -143,6 +143,8 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const [confirmDeletePayment, setConfirmDeletePayment] = useState<string|null>(null);
   const [pdfPreview, setPdfPreview] = useState<{src:string;title:string;downloadHref:string}|null>(null);
   const [showArtFiles, setShowArtFiles] = useState(false);
+  // Frozen forward packing slips = this job's outbound shipments (v2 shipping).
+  const [forwardSlips, setForwardSlips] = useState<{ id: string; tracking: string | null; createdAt: string }[]>([]);
   const [confirmDeleteProject, setConfirmDeleteProject] = useState(false);
   const [confirmCancelVoid, setConfirmCancelVoid] = useState(false);
   const [cancelling, setCancelling] = useState(false);
@@ -325,6 +327,14 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       const ids = itemsRes.data.map((it: any) => it.id);
       if (ids.length > 0) {
         const { data: allFiles } = await supabase.from("item_files").select("item_id, stage, approval").in("item_id", ids).is("superseded_at", null);
+        // Outbound shipments for this job = the frozen forward packing slips.
+        const { data: obLines } = await supabase.from("shipment_lines").select("shipment_id, shipments(id, tracking, created_at, direction)").eq("job_id", params.id);
+        const slipMap = new Map<string, { id: string; tracking: string | null; createdAt: string }>();
+        for (const l of obLines || []) {
+          const s: any = (l as any).shipments;
+          if (s?.direction === "outbound" && !slipMap.has(s.id)) slipMap.set(s.id, { id: s.id, tracking: s.tracking, createdAt: s.created_at });
+        }
+        setForwardSlips(Array.from(slipMap.values()).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || "")));
         const ps: Record<string, { allApproved: boolean }> = {};
         const filesPerItem: Record<string, boolean> = {};
         for (const id of ids) {
@@ -1164,7 +1174,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               const hasShipping = items.some((it:any)=>it.ship_tracking||it.received_at_hpd||it.pipeline_stage==="shipped");
               const docBtn = (label: string, src: string|null, available: boolean, onClickOverride?: () => void) => (
                 <button key={label}
-                  onClick={()=>{ if (onClickOverride) { onClickOverride(); return; } if(available && src) setPdfPreview({src,title:label,downloadHref:src+"?download=1"}); }}
+                  onClick={()=>{ if (onClickOverride) { onClickOverride(); return; } if(available && src) setPdfPreview({src,title:label,downloadHref:src+(src.includes("?")?"&":"?")+"download=1"}); }}
                   disabled={!available}
                   title={available?undefined:"Not available yet"}
                   style={{padding:"7px 14px",borderRadius:6,border:`1px solid ${T.border}`,background:available?T.surface:T.bg,color:available?T.text:T.faint,fontSize:11,fontWeight:600,fontFamily:font,cursor:available?"pointer":"default",whiteSpace:"nowrap"}}
@@ -1177,7 +1187,9 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 <div style={{display:"flex",flexWrap:"wrap",gap:6,alignItems:"center"}}>
                   {docBtn("Quote", `/api/pdf/quote/${job.id}`, hasItems)}
                   {docBtn(qbInvNum?`Invoice #${qbInvNum}`:"Invoice", `/api/pdf/invoice/${job.id}`, hasItems)}
-                  {docBtn("Packing Slip", `/api/pdf/packing-slip/${job.id}`, hasShipping)}
+                  {forwardSlips.length > 0
+                    ? forwardSlips.map((s, i) => docBtn(`Packing Slip · ${s.tracking || (i + 1)}`, `/api/pdf/packing-slip/${job.id}?shipment=${s.id}`, true))
+                    : docBtn("Packing Slip", `/api/pdf/packing-slip/${job.id}`, hasShipping)}
                   {docBtn("Art Files", null, true, () => setShowArtFiles(true))}
                   {docVendors.length === 0 && docBtn("PO", null, false)}
                   {docVendors.map(v => docBtn(`PO — ${v}`, `/api/pdf/po/${job.id}?vendor=${encodeURIComponent(v)}`, hasItems))}
