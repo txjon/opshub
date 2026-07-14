@@ -56,6 +56,14 @@ export type JobPhaseKey = "intake" | "pending" | "cleared" | "in_production" | "
 export type JobPhase = { key: JobPhaseKey; label: string; detail?: string };
 
 export function jobPhase(gate: PhaseGate, items: PhaseItem[]): JobPhase {
+  // Once ANY item has started (PO out / shipped / beyond), the gates are behind us —
+  // a job that's already producing can't be "Pending Payment". Gates only govern the
+  // pre-production phases.
+  const started = items.some(it => itemStage(it) !== "pre_production");
+  if (started) {
+    if (items.length > 0 && items.every(it => it.done)) return { key: "complete", label: "Complete" };
+    return { key: "in_production", label: "In production" };
+  }
   if (!gate.quoteApproved) return { key: "intake", label: "Intake" };
   if (!(gate.paymentReceived && gate.proofsApproved)) {
     // dynamic: name what's actually outstanding
@@ -63,10 +71,7 @@ export function jobPhase(gate: PhaseGate, items: PhaseItem[]): JobPhase {
     if (!gate.paymentReceived) return { key: "pending", label: "Pending Payment", detail: "awaiting payment" };
     return { key: "pending", label: "Pending Approval", detail: "awaiting proofs" };
   }
-  const anyProd = items.some(it => it.poSent);
-  if (!anyProd) return { key: "cleared", label: "Cleared for production" };
-  if (items.length > 0 && items.every(it => it.done)) return { key: "complete", label: "Complete" };
-  return { key: "in_production", label: "In production" };
+  return { key: "cleared", label: "Cleared for production" };
 }
 
 // ── ③ client status (plain + gated) ──────────────────────────────────────
@@ -76,8 +81,8 @@ export const CLIENT_LABEL: Record<ClientStatus, string> = {
 };
 
 export function clientStatus(gate: PhaseGate, items: PhaseItem[], noticeSent: boolean): ClientStatus {
-  if (!gate.quoteApproved) return "none";
-  if (!items.some(it => it.poSent)) return "order_received";
+  const started = items.some(it => itemStage(it) !== "pre_production");
+  if (!started) return gate.quoteApproved ? "order_received" : "none";
   const cust = items.filter(it => it.route !== "stage"); // stage = webstore, no customer
   if (!cust.length) return "none";
   const out = cust.filter(outToClient).length;

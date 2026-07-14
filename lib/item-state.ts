@@ -6,6 +6,8 @@
 // else ship_through (the safe default — comes to HPD).
 
 import { deriveItem, type ItemState, type Movement, type Route, type SizeQtys } from "./item-derivation";
+import { computePhase, paymentGateMet, type PhaseItem, type PhaseGate, type PhaseResult } from "./phase-model";
+import { poSentToItem } from "./item-status";
 
 type Sb = any; // Supabase client (project convention: loose typing at the boundary)
 
@@ -440,6 +442,56 @@ export async function loadReceivingBoard(sb: Sb): Promise<ReceivingBox[]> {
     });
   }
   return boxes;
+}
+
+// ── the phase model loader — feeds the pure engine (lib/phase-model) real data ──
+// Marries the gates (quote / payment-per-terms / proofs / po_sent) with each item's
+// ledger-derived stage, then computes the three views. Parallel to the old
+// calculatePhase; the surfaces swap to this at cutover.
+export type JobPhaseView = { phase: string; detail?: string; clientLabel: string; fulfillment: { out: number; total: number }; result: PhaseResult };
+
+export async function loadJobPhase(sb: Sb, jobId: string): Promise<JobPhaseView | null> {
+  const { data: job } = await sb.from("jobs")
+    .select("id, quote_approved, payment_terms, shipping_route, phase, type_meta, costing_data").eq("id", jobId).single();
+  if (!job) return null;
+  if (job.phase === "on_hold" || job.phase === "cancelled") {
+    return { phase: job.phase, clientLabel: "—", fulfillment: { out: 0, total: 0 }, result: { job: { key: "intake", label: job.phase }, fulfillment: { out: 0, total: 0 }, client: "none", itemStages: [] } };
+  }
+
+  const { data: items } = await sb.from("items")
+    .select("id, name, shipping_route, ship_final, artwork_status, buy_sheet_lines(size, qty_ordered), decorator_assignments(decorators(name, short_code))")
+    .eq("job_id", jobId);
+  if (!items?.length) {
+    return { phase: "Intake", clientLabel: "—", fulfillment: { out: 0, total: 0 }, result: { job: { key: "intake", label: "Intake" }, fulfillment: { out: 0, total: 0 }, client: "none", itemStages: [] } };
+  }
+  const ids = (items as any[]).map(i => i.id);
+  const { data: payments } = await sb.from("payment_records").select("amount, status").eq("job_id", jobId);
+  const { data: moves } = await sb.from("movements").select("id, item_id, type, qtys, shipment_id, reverses_id").in("item_id", ids);
+  const byItem = new Map<string, Movement[]>();
+  for (const m of moves || []) { const a = byItem.get(m.item_id) || []; a.push(toMovement(m)); byItem.set(m.item_id, a); }
+  const { data: proofs } = await sb.from("item_files").select("item_id, approval").eq("stage", "proof").is("superseded_at", null).in("item_id", ids);
+  const proofByItem = new Map<string, { any: boolean; allApproved: boolean }>();
+  for (const p of proofs || []) { const cur = proofByItem.get(p.item_id) || { any: false, allApproved: true }; cur.any = true; if (p.approval !== "approved") cur.allApproved = false; proofByItem.set(p.item_id, cur); }
+
+  const poSentVendors = ((job.type_meta?.po_sent_vendors || []) as string[]);
+  const costProds = (job.costing_data?.costProds || []) as any[];
+  const phaseItems: PhaseItem[] = (items as any[]).map(it => {
+    const route = resolveRoute(it.shipping_route, job.shipping_route);
+    const st = deriveItem({ ordered: orderedFrom(it.buy_sheet_lines || []), route, shipFinal: !!it.ship_final, movements: byItem.get(it.id) || [] });
+    const cp = costProds.find(c => c?.id === it.id) || costProds.find(c => c?.name === it.name);
+    const da = (it.decorator_assignments || [])[0];
+    const poSent = poSentToItem({ printVendor: cp?.printVendor, decoratorName: da?.decorators?.name, decoratorShortCode: da?.decorators?.short_code, poSentVendors });
+    return { route, poSent, shippedTotal: st.shippedTotal, receivedTotal: st.receivedTotal, forwardedTotal: st.forwardedTotal, enteredTotal: st.enteredTotal, done: st.done };
+  });
+  const gate: PhaseGate = {
+    quoteApproved: !!job.quote_approved,
+    paymentReceived: paymentGateMet(job.payment_terms, (payments || []) as any),
+    proofsApproved: (items as any[]).every(it => { const pr = proofByItem.get(it.id); return (pr?.any && pr.allApproved) || it.artwork_status === "approved"; }),
+  };
+  // notice-sent gate = a client-facing shipping notice has been recorded for the job
+  const noticeSent = Array.isArray(job.type_meta?.shipping_notifications) && job.type_meta.shipping_notifications.length > 0;
+  const result = computePhase({ gate, items: phaseItems, noticeSent });
+  return { phase: result.job.label, detail: result.job.detail, clientLabel: result.client, fulfillment: result.fulfillment, result };
 }
 
 // ── the Shipping board (ship_through — forward received goods to the client) ──
