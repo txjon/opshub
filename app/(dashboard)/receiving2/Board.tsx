@@ -4,7 +4,7 @@ import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono, sortSizes } from "@/lib/theme";
-import { BoardFrame, ToggleSearch, KpiStrip, KpiBreakdownModal, ModalShell, Card, CardHeader, BoxHead, BoxMeta, GroupLabel, ItemRow, VariantChips, RouteTag, ItemThumb, SegmentControl, SliceSortRow } from "@/components/board-kit";
+import { BoardFrame, ToggleSearch, KpiStrip, KpiBreakdownModal, ModalShell, Card, CardHeader, BoxHead, ItemRow, VariantChips, RouteTag, ItemThumb, SegmentControl, SliceSortRow } from "@/components/board-kit";
 import { receiveBox as receiveBoxAction, resolvePull, returnReceivedLine, editReceivedLine, editShippedLine, returnIncomingToProduction } from "@/lib/receiving2-receive";
 import { PULL_KINDS } from "@/lib/handoff";
 import LedgerHistory from "@/components/LedgerHistory";
@@ -234,23 +234,18 @@ function LineRow({ l, box, status, acts }: { l: ReceivingLine; box: ReceivingBox
   const actions = received
     ? <><ReceivedTally l={l} />{acts && <RowActions l={l} box={box} acts={acts} />}</>
     : (acts && <IncomingActions l={l} box={box} acts={acts} />);
-  return <ItemRow fileId={l.mockupFileId} name={l.itemName} route={l.route}
+  return <ItemRow fileId={l.mockupFileId} name={l.itemName} lead={l.client} route={l.route}
     variant={<VariantChips qtys={qtyOf(l, status)} />} qty={tQty(qtyOf(l, status))} actions={actions} />;
 }
 
+// Flat item rows (client shown inline on each row — no separate client label strip).
 function ClientGroups({ box, status, acts }: { box: ReceivingBox; status: Status; acts?: LineActions }) {
-  const byClient = new Map<string, ReceivingLine[]>();
-  for (const l of box.lines) { const a = byClient.get(l.client) || []; a.push(l); byClient.set(l.client, a); }
+  const lines = [...box.lines].sort((a, b) => a.client.localeCompare(b.client));
   return (
     <>
-      {Array.from(byClient.entries()).map(([client, ls]) => (
-        <div key={client}>
-          <GroupLabel label={client} sub={ls[0]?.invoiceNumber ? `#${ls[0].invoiceNumber}` : null} />
-          {ls.map(l => (
-            <div key={l.itemId} style={{ padding: "10px 16px", borderTop: `1px solid ${T.border}` }}>
-              <LineRow l={l} box={box} status={status} acts={acts} />
-            </div>
-          ))}
+      {lines.map(l => (
+        <div key={l.itemId} style={{ padding: "10px 16px", borderTop: `1px solid ${T.border}` }}>
+          <LineRow l={l} box={box} status={status} acts={acts} />
         </div>
       ))}
     </>
@@ -259,17 +254,18 @@ function ClientGroups({ box, status, acts }: { box: ReceivingBox; status: Status
 
 // Box meta line under the header (mockup §1) — plain text, no pills.
 // multi-project · partials · ETA · items·units · to-receive.
-function BoxChips({ box, status }: { box: ReceivingBox; status: Status }) {
+// Box summary segments — now shown IN the header (was its own strip).
+function boxMetaSegs(box: ReceivingBox, status: Status): { text: string; tone?: string }[] {
   const jobs = new Set(box.lines.map(l => l.jobId)).size;
   const partials = box.lines.filter(l => l.orderedTotal > 0 && tQty(l.shipQtys) < l.orderedTotal).length;
   const toReceive = box.lines.filter(l => !l.received).length;
   const segs: { text: string; tone?: string }[] = [];
-  if (jobs > 1) segs.push({ text: `Multi-project · ${jobs} jobs`, tone: T.blue });
-  if (partials > 0 && status !== "received") segs.push({ text: `${partials} partial item${partials > 1 ? "s" : ""}`, tone: "#a87b00" });
+  if (jobs > 1) segs.push({ text: `${jobs} jobs`, tone: T.blue });
+  if (partials > 0 && status !== "received") segs.push({ text: `${partials} partial`, tone: "#a87b00" });
   if (box.expectedArrival && status !== "received") segs.push({ text: `ETA ${fmtDay(box.expectedArrival)}` });
   segs.push({ text: `${box.lines.length} item${box.lines.length > 1 ? "s" : ""} · ${boxUnits(box, status)} units` });
   if (status === "incoming" && toReceive > 0) segs.push({ text: `${toReceive} to receive`, tone: "#a87b00" });
-  return <BoxMeta segments={segs} />;
+  return segs;
 }
 
 function BoxCard({ box, status, onReceive, acts }: { box: ReceivingBox; status: Status; onReceive: () => void; acts?: LineActions }) {
@@ -282,9 +278,8 @@ function BoxCard({ box, status, onReceive, acts }: { box: ReceivingBox; status: 
   return (
     <Card>
       <BoxHead vendor={box.vendorName} tag={tag} tagColor={tagColor} method={boxHow(box)} slips={box.slips}
-        when={fmtWhen(received ? box.receivedAt || box.createdAt : box.createdAt)} units={boxUnits(box, status)} action={action} />
-      <BoxChips box={box} status={status} />
-      {box.note && <div style={{ margin: "2px 16px 0", fontSize: 12, color: T.muted }}><span style={{ fontWeight: 700 }}>Note:</span> {box.note}</div>}
+        when={fmtWhen(received ? box.receivedAt || box.createdAt : box.createdAt)} meta={boxMetaSegs(box, status)} action={action} />
+      {box.note && <div style={{ padding: "8px 16px 0", fontSize: 12, color: T.muted }}><span style={{ fontWeight: 700 }}>Note:</span> {box.note}</div>}
       <ClientGroups box={box} status={status} acts={acts} />
     </Card>
   );
@@ -339,14 +334,11 @@ function ItemView({ boxes, status, onReceive, acts }: { boxes: ReceivingBox[]; s
 function FlatRow({ l, status, onReceive, acts, showBox, showClient }: { l: FlatLine; status: Status; onReceive: () => void; acts?: LineActions; showBox?: boolean; showClient?: boolean }) {
   const received = status === "received";
   const ell: React.CSSProperties = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
-  const sub = <>
-    {showClient && <div style={{ fontSize: 11, color: T.muted, ...ell }}>{l.client}{l.invoiceNumber ? ` · #${l.invoiceNumber}` : ""}</div>}
-    {showBox && <div style={{ fontSize: 11, color: T.faint, ...ell }}>{l.box.vendorName} · {boxHow(l.box)}</div>}
-  </>;
+  const sub = showBox ? <div style={{ fontSize: 11, color: T.faint, ...ell }}>{l.box.vendorName} · {boxHow(l.box)}</div> : undefined;
   const actions = received
     ? <><ReceivedTally l={l} />{acts && <RowActions l={l} box={l.box} acts={acts} />}</>
     : <><span onClick={onReceive} style={{ fontSize: 12, fontWeight: 700, color: T.text, cursor: "pointer" }}>Receive →</span>{acts && <IncomingActions l={l} box={l.box} acts={acts} />}</>;
-  return <ItemRow fileId={l.mockupFileId} name={l.itemName} sub={sub} route={l.route}
+  return <ItemRow fileId={l.mockupFileId} name={l.itemName} lead={showClient ? l.client : undefined} sub={sub} route={l.route}
     variant={<VariantChips qtys={qtyOf(l, status)} />} qty={tQty(qtyOf(l, status))} actions={actions} />;
 }
 

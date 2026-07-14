@@ -153,9 +153,9 @@ export function VariantChips({ qtys, sizes }: { qtys: Record<string, number>; si
 // label, and the aligned-column item row all live here so the two surfaces can't
 // drift. Callers supply the surface-specific bits (status/route tag, per-row/box
 // action) as props/nodes; the layout is identical everywhere.
-export function BoxHead({ vendor, tag, tagColor, method, slips, when, units, action }: {
+export function BoxHead({ vendor, tag, tagColor, method, slips, when, meta, action }: {
   vendor: string; tag: string; tagColor?: string; method: string;
-  slips?: { name: string; url: string }[]; when?: string | null; units: number; action?: ReactNode;
+  slips?: { name: string; url: string }[]; when?: string | null; meta?: { text: string; tone?: string }[]; action?: ReactNode;
 }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderBottom: `1px solid ${T.border}`, background: T.surface, flexWrap: "wrap" }}>
@@ -167,13 +167,17 @@ export function BoxHead({ vendor, tag, tagColor, method, slips, when, units, act
         : <span key={i} style={{ fontSize: 11, color: T.muted }}>📎 slip</span>)}
       <div style={{ flex: 1 }} />
       {when && <span style={{ fontSize: 12, color: T.faint }}>{when}</span>}
-      <span style={{ fontFamily: mono, fontSize: 12, color: T.muted }}>{units}u</span>
+      {meta && meta.length > 0 && (
+        <span style={{ display: "inline-flex", alignItems: "baseline", flexWrap: "wrap", fontSize: 11.5, fontWeight: 600 }}>
+          {meta.map((s, i) => <span key={i}>{i > 0 && <span style={{ color: T.faint, margin: "0 6px" }}>·</span>}<span style={{ color: s.tone || T.muted }}>{s.text}</span></span>)}
+        </span>
+      )}
       {action}
     </div>
   );
 }
 
-// Plain-text meta line under the header (no pills). Segments joined by dots.
+// Plain-text meta line under the header (no pills) — kept for note/warning rows.
 export function BoxMeta({ segments }: { segments: { text: string; tone?: string }[] }) {
   if (!segments.length) return null;
   return (
@@ -195,14 +199,17 @@ export function GroupLabel({ label, sub }: { label: string; sub?: string | null 
 // Aligned-column item row: thumb · name(+sub) · route · per-variant · qty · actions.
 // The fixed grid is the single source of column rhythm across every surface.
 export const ITEM_ROW_COLS = "34px minmax(190px, 1.4fr) 108px minmax(130px, 1.3fr) 46px auto";
-export function ItemRow({ fileId, name, sub, route, variant, qty, actions }: {
-  fileId: string | null; name: string; sub?: ReactNode; route?: string; variant?: ReactNode; qty?: ReactNode; actions?: ReactNode;
+export function ItemRow({ fileId, name, lead, sub, route, variant, qty, actions }: {
+  fileId: string | null; name: string; lead?: string | null; sub?: ReactNode; route?: string; variant?: ReactNode; qty?: ReactNode; actions?: ReactNode;
 }) {
   return (
     <div style={{ display: "grid", gridTemplateColumns: ITEM_ROW_COLS, alignItems: "center", columnGap: 14 }}>
       <ItemThumb fileId={fileId} name={name} size={34} />
       <div style={{ minWidth: 0 }}>
-        <div style={{ fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</div>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 8, minWidth: 0 }}>
+          {lead ? <span style={{ fontSize: 11, fontWeight: 600, color: T.muted, whiteSpace: "nowrap", flexShrink: 0, maxWidth: "45%", overflow: "hidden", textOverflow: "ellipsis" }}>{lead}</span> : null}
+          <span style={{ fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</span>
+        </div>
         {sub}
       </div>
       {route ? <RouteTag route={route} /> : <span />}

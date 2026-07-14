@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 import { DriveThumb } from "@/components/DriveThumb";
-import { BoardFrame, ToggleSearch, KpiStrip, KpiBreakdownModal, ModalShell, Card, CardHeader, BoxHead, BoxMeta, GroupLabel, ItemRow, VariantChips, RouteTag, ItemThumb, SegmentControl, SliceSortRow } from "@/components/board-kit";
+import { BoardFrame, ToggleSearch, KpiStrip, KpiBreakdownModal, ModalShell, Card, CardHeader, BoxHead, BoxMeta, ItemRow, VariantChips, RouteTag, ItemThumb, SegmentControl, SliceSortRow } from "@/components/board-kit";
 import { shipFromProduction } from "@/lib/production2-ship";
 import { createPullRequest, PULL_KINDS } from "@/lib/handoff";
 // @ts-ignore — plain JS component
@@ -387,8 +387,6 @@ function ShippedBoxCard({ box }: { box: ShippedBox }) {
   const [to, setTo] = useState<string | null>(null);
   const isTest = box.clients.every(c => c === "Playwright Test Co");
   const isDrop = box.route === "drop_ship";
-  const byClient = new Map<string, ShippedBox["lines"]>();
-  for (const l of box.lines) { const a = byClient.get(l.client) || []; a.push(l); byClient.set(l.client, a); }
 
   async function notify() {
     setBusy(true); setErr(null);
@@ -408,23 +406,20 @@ function ShippedBoxCard({ box }: { box: ShippedBox }) {
         {notified ? (to ? `✓ Sent to ${to}` : "✓ Notified") : busy ? "Sending…" : "Notify warehouse →"}
       </span>;
 
-  const segs: { text: string; tone?: string }[] = [{ text: `${box.lines.length} item${box.lines.length > 1 ? "s" : ""} · ${box.totalUnits} units` }];
-  if (!isTest && !isDrop) segs.push({ text: "Notify limited to the test job", tone: T.amber });
-  if (err) segs.push({ text: err, tone: T.red });
+  const headerMeta = [{ text: `${box.lines.length} item${box.lines.length > 1 ? "s" : ""} · ${box.totalUnits} units` }];
+  const noteSegs: { text: string; tone?: string }[] = [];
+  if (!isTest && !isDrop) noteSegs.push({ text: "Notify limited to the test job", tone: T.amber });
+  if (err) noteSegs.push({ text: err, tone: T.red });
+  const lines = [...box.lines].sort((a, b) => a.client.localeCompare(b.client));
 
   return (
     <Card>
       <BoxHead vendor={box.vendorName} tag={routeLabel(box)} tagColor={box.pickup ? "#a87b00" : T.blue} method={shipHow(box)}
-        slips={box.hasSlip ? [{ name: "slip", url: "" }] : []} when={fmtWhen(box.createdAt)} units={box.totalUnits} action={action} />
-      <BoxMeta segments={segs} />
-      {Array.from(byClient.entries()).map(([client, lines]) => (
-        <div key={client}>
-          <GroupLabel label={client} sub={lines[0]?.invoiceNumber ? `#${lines[0].invoiceNumber}` : null} />
-          {lines.map((l, i) => (
-            <div key={i} style={{ padding: "10px 16px", borderTop: `1px solid ${T.border}` }}>
-              <ItemRow fileId={l.mockupFileId} name={l.itemName} route={box.route} variant={<VariantChips qtys={l.qtys} />} qty={l.qty} />
-            </div>
-          ))}
+        slips={box.hasSlip ? [{ name: "slip", url: "" }] : []} when={fmtWhen(box.createdAt)} meta={headerMeta} action={action} />
+      <BoxMeta segments={noteSegs} />
+      {lines.map((l, i) => (
+        <div key={i} style={{ padding: "10px 16px", borderTop: `1px solid ${T.border}` }}>
+          <ItemRow fileId={l.mockupFileId} name={l.itemName} lead={l.client} route={box.route} variant={<VariantChips qtys={l.qtys} />} qty={l.qty} />
         </div>
       ))}
     </Card>
@@ -470,8 +465,8 @@ function ShippedItemView({ boxes }: { boxes: ShippedBox[] }) {
     <Card>
       {lines.map((l, i) => (
         <div key={i} style={{ borderTop: i === 0 ? "none" : `1px solid ${T.border}`, padding: "10px 16px" }}>
-          <ItemRow fileId={l.mockupFileId} name={l.itemName} route={l.box.route}
-            sub={<div style={{ fontSize: 11, color: T.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.client}{l.invoiceNumber ? ` · #${l.invoiceNumber}` : ""} · {l.box.vendorName}</div>}
+          <ItemRow fileId={l.mockupFileId} name={l.itemName} lead={l.client} route={l.box.route}
+            sub={<div style={{ fontSize: 11, color: T.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.box.vendorName}</div>}
             variant={<VariantChips qtys={l.qtys} />} qty={l.qty} />
         </div>
       ))}
