@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sortSizes } from "@/lib/theme";
-import { resolveItemStatus, type ItemState } from "@/lib/item-status";
+import { resolveItemStatus, clientItemStatus, type ItemState } from "@/lib/item-status";
 // Client Hub per-order detail.
 // Mirrors /api/portal/[token] (the old per-job portal) but auth'd via the
 // client's portal_token + verifies the jobId belongs to that client.
@@ -321,7 +321,7 @@ export async function GET(
           // Per-item canonical status — same vocabulary the Items tab
           // uses, so the client sees a consistent state model across
           // every surface (item card · order detail · history).
-          status: item ? statusForItem(item) : ("setup" as ItemState),
+          status: item ? clientItemStatus(statusForItem(item)) : ("setup" as ItemState),
         });
       }
     }
@@ -369,6 +369,8 @@ export async function GET(
       // eta_tbd flags active items with no ETA set yet so the frontend
       // can render "TBD" instead of an em-dash.
       const status = statusForItem(item);
+      // etaCutOff uses the INTERNAL status (in_stock = at HPD, ETA is moot);
+      // the client only ever sees the collapsed status (locked model).
       const etaCutOff = status === "in_stock" || status === "complete" || status === "archived" || status === "cancelled";
       const etaDate = etaCutOff
         ? null
@@ -378,7 +380,7 @@ export async function GET(
         id: item.id,
         name: item.name,
         qty,
-        status,
+        status: clientItemStatus(status),
         eta: etaDate,
         eta_tbd,
         eta_note: item.client_eta_note || null,

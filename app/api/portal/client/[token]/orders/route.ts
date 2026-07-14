@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
-import { resolveItemStatus } from "@/lib/item-status";
+import { resolveItemStatus, clientItemStatus } from "@/lib/item-status";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -307,7 +307,9 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
             (decName && sentSet.has(decName.toLowerCase())) ||
             (decShort && sentSet.has(decShort.toLowerCase()))
           );
-          const status = resolveItemStatus({
+          // client-facing: collapse the internal vendor→HPD legs to In Production
+          // so the client is only told "shipped" once it left to them (locked model).
+          const status = clientItemStatus(resolveItemStatus({
             archived_at: it.archived_at,
             completed_at: it.completed_at,
             pipeline_stage: it.pipeline_stage,
@@ -320,7 +322,7 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
             item_shipping_route: it.shipping_route || null,
             job_completed_at: ((j as any).phase_timestamps || {}).complete || null,
             forwarded_at: it.forwarded_at || null,
-          });
+          }));
           return {
             id: it.id,
             name: it.name,

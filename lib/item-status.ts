@@ -157,6 +157,18 @@ export function resolveItemStatus(input: ItemStatusInput & { job_completed_at?: 
   return base;
 }
 
+// Client-facing per-item status (locked 3-map model, 2026-07-14). The client is
+// only ever told an item "shipped" once it has left TO THEM — drop_ship decorator
+// ship or ship_through forward, both of which already resolve to "complete". The
+// INTERNAL vendor→HPD legs — "shipped" (in transit to our warehouse) and
+// "in_stock" (received, waiting to forward/enter) — are OURS, not the customer's;
+// collapse them to "in_production" so the portal never shows a client "Shipped" /
+// "In Stock" for goods that haven't actually shipped to them.
+export function clientItemStatus(internal: ItemState): ItemState {
+  if (internal === "shipped" || internal === "in_stock") return "in_production";
+  return internal;
+}
+
 // Labels — one set of words, used everywhere a user sees status.
 // No per-audience translation. If we want different wording per
 // surface later, we can extend; the default policy is consistency.
