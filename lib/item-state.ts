@@ -450,34 +450,26 @@ export async function loadReceivingBoard(sb: Sb): Promise<ReceivingBox[]> {
 // calculatePhase; the surfaces swap to this at cutover.
 export type JobPhaseView = { phase: string; detail?: string; clientLabel: string; fulfillment: { out: number; total: number }; result: PhaseResult };
 
-export async function loadJobPhase(sb: Sb, jobId: string): Promise<JobPhaseView | null> {
-  const { data: job } = await sb.from("jobs")
-    .select("id, quote_approved, payment_terms, shipping_route, phase, type_meta, costing_data").eq("id", jobId).single();
-  if (!job) return null;
+const JOB_PHASE_SELECT = "id, quote_approved, payment_terms, shipping_route, phase, type_meta, costing_data";
+const JOB_PHASE_ITEM_SELECT = "id, job_id, name, shipping_route, ship_final, artwork_status, buy_sheet_lines(size, qty_ordered), decorator_assignments(decorators(name, short_code))";
+
+// Pure assembler — given ONE job's rows (already loaded), compute its phase view.
+// Shared by loadJobPhase (single) and loadJobPhasesBatch (bulk) so the logic lives once.
+function buildJobPhaseView(
+  job: any, items: any[], payments: any[],
+  movesByItem: Map<string, Movement[]>, proofByItem: Map<string, { any: boolean; allApproved: boolean }>,
+): JobPhaseView {
   if (job.phase === "on_hold" || job.phase === "cancelled") {
-    return { phase: job.phase, clientLabel: "—", fulfillment: { out: 0, total: 0 }, result: { job: { key: "intake", label: job.phase }, fulfillment: { out: 0, total: 0 }, client: "none", itemStages: [] } };
+    return { phase: job.phase, clientLabel: "none", fulfillment: { out: 0, total: 0 }, result: { job: { key: "intake", label: job.phase }, fulfillment: { out: 0, total: 0 }, client: "none", itemStages: [] } };
   }
-
-  const { data: items } = await sb.from("items")
-    .select("id, name, shipping_route, ship_final, artwork_status, buy_sheet_lines(size, qty_ordered), decorator_assignments(decorators(name, short_code))")
-    .eq("job_id", jobId);
-  if (!items?.length) {
-    return { phase: "Intake", clientLabel: "—", fulfillment: { out: 0, total: 0 }, result: { job: { key: "intake", label: "Intake" }, fulfillment: { out: 0, total: 0 }, client: "none", itemStages: [] } };
+  if (!items.length) {
+    return { phase: "Intake", clientLabel: "none", fulfillment: { out: 0, total: 0 }, result: { job: { key: "intake", label: "Intake" }, fulfillment: { out: 0, total: 0 }, client: "none", itemStages: [] } };
   }
-  const ids = (items as any[]).map(i => i.id);
-  const { data: payments } = await sb.from("payment_records").select("amount, status").eq("job_id", jobId);
-  const { data: moves } = await sb.from("movements").select("id, item_id, type, qtys, shipment_id, reverses_id").in("item_id", ids);
-  const byItem = new Map<string, Movement[]>();
-  for (const m of moves || []) { const a = byItem.get(m.item_id) || []; a.push(toMovement(m)); byItem.set(m.item_id, a); }
-  const { data: proofs } = await sb.from("item_files").select("item_id, approval").eq("stage", "proof").is("superseded_at", null).in("item_id", ids);
-  const proofByItem = new Map<string, { any: boolean; allApproved: boolean }>();
-  for (const p of proofs || []) { const cur = proofByItem.get(p.item_id) || { any: false, allApproved: true }; cur.any = true; if (p.approval !== "approved") cur.allApproved = false; proofByItem.set(p.item_id, cur); }
-
   const poSentVendors = ((job.type_meta?.po_sent_vendors || []) as string[]);
   const costProds = (job.costing_data?.costProds || []) as any[];
-  const phaseItems: PhaseItem[] = (items as any[]).map(it => {
+  const phaseItems: PhaseItem[] = items.map(it => {
     const route = resolveRoute(it.shipping_route, job.shipping_route);
-    const st = deriveItem({ ordered: orderedFrom(it.buy_sheet_lines || []), route, shipFinal: !!it.ship_final, movements: byItem.get(it.id) || [] });
+    const st = deriveItem({ ordered: orderedFrom(it.buy_sheet_lines || []), route, shipFinal: !!it.ship_final, movements: movesByItem.get(it.id) || [] });
     const cp = costProds.find(c => c?.id === it.id) || costProds.find(c => c?.name === it.name);
     const da = (it.decorator_assignments || [])[0];
     const poSent = poSentToItem({ printVendor: cp?.printVendor, decoratorName: da?.decorators?.name, decoratorShortCode: da?.decorators?.short_code, poSentVendors });
@@ -486,12 +478,53 @@ export async function loadJobPhase(sb: Sb, jobId: string): Promise<JobPhaseView 
   const gate: PhaseGate = {
     quoteApproved: !!job.quote_approved,
     paymentReceived: paymentGateMet(job.payment_terms, (payments || []) as any),
-    proofsApproved: (items as any[]).every(it => { const pr = proofByItem.get(it.id); return (pr?.any && pr.allApproved) || it.artwork_status === "approved"; }),
+    proofsApproved: items.every(it => { const pr = proofByItem.get(it.id); return (pr?.any && pr.allApproved) || it.artwork_status === "approved"; }),
   };
-  // notice-sent gate = a client-facing shipping notice has been recorded for the job
   const noticeSent = Array.isArray(job.type_meta?.shipping_notifications) && job.type_meta.shipping_notifications.length > 0;
   const result = computePhase({ gate, items: phaseItems, noticeSent });
   return { phase: result.job.label, detail: result.job.detail, clientLabel: result.client, fulfillment: result.fulfillment, result };
+}
+
+export async function loadJobPhase(sb: Sb, jobId: string): Promise<JobPhaseView | null> {
+  const { data: job } = await sb.from("jobs").select(JOB_PHASE_SELECT).eq("id", jobId).single();
+  if (!job) return null;
+  const { data: items } = await sb.from("items").select(JOB_PHASE_ITEM_SELECT).eq("job_id", jobId);
+  const ids = ((items || []) as any[]).map(i => i.id);
+  const { data: payments } = await sb.from("payment_records").select("amount, status").eq("job_id", jobId);
+  const { data: moves } = ids.length ? await sb.from("movements").select("id, item_id, type, qtys, shipment_id, reverses_id").in("item_id", ids) : { data: [] };
+  const byItem = new Map<string, Movement[]>();
+  for (const m of moves || []) { const a = byItem.get(m.item_id) || []; a.push(toMovement(m)); byItem.set(m.item_id, a); }
+  const { data: proofs } = ids.length ? await sb.from("item_files").select("item_id, approval").eq("stage", "proof").is("superseded_at", null).in("item_id", ids) : { data: [] };
+  const proofByItem = new Map<string, { any: boolean; allApproved: boolean }>();
+  for (const p of proofs || []) { const cur = proofByItem.get(p.item_id) || { any: false, allApproved: true }; cur.any = true; if (p.approval !== "approved") cur.allApproved = false; proofByItem.set(p.item_id, cur); }
+  return buildJobPhaseView(job, (items || []) as any[], (payments || []) as any[], byItem, proofByItem);
+}
+
+// Bulk phase views for a list of jobs — 5 queries total instead of 5×N. Used by
+// the jobs list, dashboard, and portal so the additive phase model scales.
+export async function loadJobPhasesBatch(sb: Sb, jobIds: string[]): Promise<Map<string, JobPhaseView>> {
+  const out = new Map<string, JobPhaseView>();
+  if (!jobIds.length) return out;
+  const { data: jobs } = await sb.from("jobs").select(JOB_PHASE_SELECT).in("id", jobIds);
+  const { data: items } = await sb.from("items").select(JOB_PHASE_ITEM_SELECT).in("job_id", jobIds);
+  const itemIds = ((items || []) as any[]).map(i => i.id);
+  const { data: payments } = await sb.from("payment_records").select("job_id, amount, status").in("job_id", jobIds);
+  const { data: moves } = itemIds.length ? await sb.from("movements").select("id, item_id, type, qtys, shipment_id, reverses_id").in("item_id", itemIds) : { data: [] };
+  const { data: proofs } = itemIds.length ? await sb.from("item_files").select("item_id, approval").eq("stage", "proof").is("superseded_at", null).in("item_id", itemIds) : { data: [] };
+
+  const itemsByJob = new Map<string, any[]>();
+  for (const it of (items || []) as any[]) { const a = itemsByJob.get(it.job_id) || []; a.push(it); itemsByJob.set(it.job_id, a); }
+  const paysByJob = new Map<string, any[]>();
+  for (const p of (payments || []) as any[]) { const a = paysByJob.get(p.job_id) || []; a.push(p); paysByJob.set(p.job_id, a); }
+  const movesByItem = new Map<string, Movement[]>();
+  for (const m of moves || []) { const a = movesByItem.get(m.item_id) || []; a.push(toMovement(m)); movesByItem.set(m.item_id, a); }
+  const proofByItem = new Map<string, { any: boolean; allApproved: boolean }>();
+  for (const p of proofs || []) { const cur = proofByItem.get(p.item_id) || { any: false, allApproved: true }; cur.any = true; if (p.approval !== "approved") cur.allApproved = false; proofByItem.set(p.item_id, cur); }
+
+  for (const job of (jobs || []) as any[]) {
+    out.set(job.id, buildJobPhaseView(job, itemsByJob.get(job.id) || [], paysByJob.get(job.id) || [], movesByItem, proofByItem));
+  }
+  return out;
 }
 
 // ── the Shipping board (ship_through — forward received goods to the client) ──

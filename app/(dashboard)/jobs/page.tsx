@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { effectiveRevenue } from "@/lib/revenue";
 import { deriveAggregateStatus } from "@/lib/payment-status";
+import { loadJobPhasesBatch, type JobPhaseView } from "@/lib/item-state";
 
 type Job = {
   id: string; title: string; job_type: string; phase: string; priority: string;
@@ -113,6 +114,9 @@ export default function JobsPage() {
   // existing layout.
   const showInvoiceCol = branding.slug !== "ihm";
   const [jobs, setJobs] = useState<Job[]>([]);
+  // NEW phase model per job (additive display) — legacy job.phase still drives
+  // the filters/counts/sort below; this only relabels the phase cell.
+  const [phaseViews, setPhaseViews] = useState<Map<string, JobPhaseView>>(new Map());
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("active");
   const [search, setSearch] = useState("");
@@ -151,6 +155,12 @@ export default function JobsPage() {
       .order("created_at", { ascending: false });
     if (data) setJobs(data as Job[]);
     setLoading(false);
+    // Additive: batch-load the new phase model for the active jobs (one round of
+    // bulk queries). Non-blocking — the list renders on legacy phase immediately.
+    if (data) {
+      const activeIds = (data as Job[]).filter(j => !["complete", "cancelled"].includes(j.phase)).map(j => j.id);
+      loadJobPhasesBatch(supabase, activeIds).then(setPhaseViews).catch(() => {});
+    }
   }
 
   const getJobPct = (job: Job) => {
@@ -419,7 +429,9 @@ export default function JobsPage() {
           </div>
         )}
         {sorted.map(job => {
-          const phaseLabel = PHASE_LABELS[job.phase] || "—";
+          // Additive: prefer the new phase model's label when it's loaded; fall
+          // back to the legacy label. Filters/counts/sort still use job.phase.
+          const phaseLabel = phaseViews.get(job.id)?.phase || PHASE_LABELS[job.phase] || "—";
           const ih = getInHandsDate(job);
           const isAsap = ih === "ASAP";
           // ASAP can't be a count of days — leave daysLeft null so the
