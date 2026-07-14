@@ -189,17 +189,23 @@ function ReceivedTally({ l }: { l: ReceivingLine }) {
   );
 }
 
-function LineRow({ l, box, status, acts, right }: { l: ReceivingLine; box: ReceivingBox; status: Status; acts?: LineActions; right?: React.ReactNode }) {
+// Aligned-column item row: thumb · name · route · per-variant · qty · actions.
+// Every cell sits in a fixed grid track so columns line up straight down the
+// card (kills the mid-row dead space) while the box/client grouping stays.
+const ROW_COLS = "34px minmax(150px, 1.2fr) 112px minmax(140px, 1.6fr) 44px auto";
+function LineRow({ l, box, status, acts }: { l: ReceivingLine; box: ReceivingBox; status: Status; acts?: LineActions }) {
   const received = status === "received";
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-      <ItemThumb fileId={l.mockupFileId} name={l.itemName} size={36} />
-      <span style={{ fontSize: 13, fontWeight: 500, minWidth: 150 }}>{l.itemName}</span>
+    <div style={{ display: "grid", gridTemplateColumns: ROW_COLS, alignItems: "center", columnGap: 14 }}>
+      <ItemThumb fileId={l.mockupFileId} name={l.itemName} size={34} />
+      <span style={{ fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.itemName}</span>
       <RouteTag route={l.route} />
-      <div style={{ flex: 1, minWidth: 90 }}><VariantChips qtys={qtyOf(l, status)} /></div>
-      {received
-        ? (<><ReceivedTally l={l} />{acts && <RowActions l={l} box={box} acts={acts} />}</>)
-        : (<>{right}{acts && <IncomingActions l={l} box={box} acts={acts} />}</>)}
+      <div style={{ minWidth: 0 }}><VariantChips qtys={qtyOf(l, status)} /></div>
+      <span style={{ fontFamily: mono, fontSize: 13, fontWeight: 700, textAlign: "right" }}>{tQty(qtyOf(l, status))}</span>
+      <div style={{ justifySelf: "end", display: "flex", alignItems: "center", gap: 10 }}>
+        {received ? (<><ReceivedTally l={l} />{acts && <RowActions l={l} box={box} acts={acts} />}</>)
+          : (acts && <IncomingActions l={l} box={box} acts={acts} />)}
+      </div>
     </div>
   );
 }
@@ -215,8 +221,7 @@ function ClientGroups({ box, status, acts }: { box: ReceivingBox; status: Status
             {client}{ls[0]?.invoiceNumber ? <span style={{ fontFamily: mono, color: T.faint, fontWeight: 500 }}> · #{ls[0].invoiceNumber}</span> : ""}
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {ls.map(l => <LineRow key={l.itemId} l={l} box={box} status={status} acts={acts}
-              right={<span style={{ fontFamily: mono, fontSize: 13, fontWeight: 700, minWidth: 40, textAlign: "right" }}>{tQty(qtyOf(l, status))}</span>} />)}
+            {ls.map(l => <LineRow key={l.itemId} l={l} box={box} status={status} acts={acts} />)}
           </div>
         </div>
       ))}
