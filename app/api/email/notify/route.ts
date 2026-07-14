@@ -435,6 +435,19 @@ export async function POST(req: NextRequest) {
         .select("id, name, sort_order, ship_qtys, received_qtys, sample_qtys, ship_tracking, forward_tracking, received_at_hpd, pipeline_stage, buy_sheet_lines(size, qty_ordered), decorator_assignments(decorator_id)")
         .eq("job_id", jobId)
         .order("sort_order");
+      // v2 forward: an outbound shipment carrying this tracking IS the manifest
+      // (the ledger flow doesn't maintain legacy items.received_qtys/sample_qtys).
+      // When present it's authoritative for both scope and per-item qtys.
+      let outboundLineByItem: Map<string, any> | null = null;
+      if (trackingNumber) {
+        const { data: obShips } = await sb.from("shipments").select("id").eq("direction", "outbound").eq("tracking", (trackingNumber || "").trim().toUpperCase());
+        const obIds = (obShips || []).map((s: any) => s.id);
+        if (obIds.length) {
+          const { data: obLines } = await sb.from("shipment_lines").select("item_id, ship_qtys").in("shipment_id", obIds);
+          if ((obLines || []).length) outboundLineByItem = new Map((obLines || []).map((l: any) => [l.item_id, l]));
+        }
+      }
+      const isV2Forward = !!outboundLineByItem;
       // Outbound forwards are WAVE-based (migration 097): scope to the items
       // forwarded under THIS tracking. Detected by forward_tracking so it works
       // on a mixed drop_ship job too (job-level route is drop_ship there).
@@ -454,6 +467,7 @@ export async function POST(req: NextRequest) {
         }
       }
       const scopedItems = (allItems || []).filter((it: any) => {
+        if (isV2Forward) return outboundLineByItem!.has(it.id);
         if (isWaveForward) return (it.forward_tracking || "") === (trackingNumber || "");
         if (isJobOutbound) {
           return (it.received_at_hpd === true || it.pipeline_stage === "shipped");
@@ -492,7 +506,9 @@ export async function POST(req: NextRequest) {
         // Samples are deducted on outbound — those units stay at HPD.
         const firstChoice = isJobOutbound ? receivedQtys : shipQtys;
         const secondChoice = isJobOutbound ? shipQtys : receivedQtys;
+        const outQtys = isV2Forward ? ((outboundLineByItem!.get(it.id)?.ship_qtys) || {}) : null;
         const finalForSize = (sz: string) => {
+          if (outQtys) return Math.max(0, Number(outQtys[sz] || 0));   // v2 forward = exactly what was forwarded
           const a = firstChoice[sz];
           const b = secondChoice[sz];
           const delivered = (a !== undefined ? a : (b !== undefined ? b : ordered[sz])) ?? 0;
