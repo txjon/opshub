@@ -5,7 +5,8 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
-import { ledgerState, type Movement } from "@/lib/inventory-ledger";
+import { type Movement } from "@/lib/inventory-ledger";
+import { deriveItem } from "@/lib/item-derivation";
 
 const TYPE_META: Record<string, { label: string; color: string }> = {
   ship: { label: "Shipped from vendor", color: T.green },
@@ -29,20 +30,24 @@ const fmtDate = (iso: string) => {
 export default function LedgerHistory({ itemId, itemName, onClose }: { itemId: string; itemName: string; onClose: () => void }) {
   const [movs, setMovs] = useState<Movement[] | null>(null);
   const [ordered, setOrdered] = useState<Record<string, number>>({});
+  const [meta, setMeta] = useState<{ route: any; shipFinal: boolean }>({ route: "ship_through", shipFinal: false });
 
   useEffect(() => {
     const sb = createClient();
     (async () => {
-      const [{ data: m }, { data: bsl }] = await Promise.all([
+      const [{ data: m }, { data: bsl }, { data: it }] = await Promise.all([
         sb.from("movements").select("*").eq("item_id", itemId).order("created_at", { ascending: true }),
         sb.from("buy_sheet_lines").select("size, qty_ordered").eq("item_id", itemId),
+        sb.from("items").select("ship_final, shipping_route, jobs(shipping_route)").eq("id", itemId).single(),
       ]);
       setOrdered(Object.fromEntries((bsl || []).map((l: any) => [l.size, Number(l.qty_ordered) || 0])));
+      setMeta({ route: ((it as any)?.shipping_route || (it as any)?.jobs?.shipping_route || "ship_through"), shipFinal: !!(it as any)?.ship_final });
       setMovs((m || []) as Movement[]);
     })();
   }, [itemId]);
 
-  const st = movs ? ledgerState(ordered, movs) : null;
+  // Correct model (handles pulls): on-hand = received − pulled − forwarded − entered.
+  const st = movs ? deriveItem({ ordered, route: meta.route, shipFinal: meta.shipFinal, movements: movs as any }) : null;
   const reversedIds = new Set((movs || []).filter(m => m.reverses_id).map(m => m.reverses_id));
 
   const stat = (label: string, value: number, color?: string) => (
@@ -67,12 +72,14 @@ export default function LedgerHistory({ itemId, itemName, onClose }: { itemId: s
         {/* summary strip */}
         {st && (
           <div style={{ padding: "14px 20px", borderBottom: `1px solid ${T.border}`, background: T.surface + "55", display: "flex", gap: 26, flexWrap: "wrap" }}>
-            {stat("Ordered", st.ordered)}
-            {stat("Shipped", st.shipped, st.fullyShipped ? T.green : T.amber)}
-            {stat("Remaining", st.remaining, st.remaining > 0 ? T.amber : T.faint)}
-            {stat("Received", st.received, T.blue)}
-            {stat("On hand", st.onHand)}
-            {st.shipped !== st.ordered && stat("Variance", st.shipped - st.ordered, (st.shipped - st.ordered) < 0 ? "#c2477e" : T.green)}
+            {stat("Ordered", st.orderedTotal)}
+            {stat("Shipped", st.shippedTotal, st.fullyShipped ? T.green : T.amber)}
+            {st.owedTotal > 0 && stat("Owed", st.owedTotal, T.amber)}
+            {stat("Received", st.receivedTotal, T.blue)}
+            {st.pulledTotal > 0 && stat("Pulled", st.pulledTotal, "#7a52c4")}
+            {st.forwardedTotal > 0 && stat("Forwarded", st.forwardedTotal, "#c2477e")}
+            {stat("On hand", st.onHandTotal)}
+            {st.closed && st.shippedTotal > st.receivedTotal && stat("Not received", st.shippedTotal - st.receivedTotal, T.amber)}
           </div>
         )}
 
