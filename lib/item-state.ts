@@ -350,6 +350,7 @@ export type ReceivingLine = {
 export type ReceivingBox = {
   id: string; vendorName: string; carrier: string | null; tracking: string | null; pickup: boolean;
   createdAt: string; receivedAt: string | null; expectedArrival: string | null; status: string;
+  note: string | null;  // warehouse note typed at ship time
   slips: { name: string; url: string }[];
   lines: ReceivingLine[]; totalUnits: number; receivedUnits: number; clients: string[]; allReceived: boolean;
 };
@@ -359,7 +360,7 @@ export type ReceivingBox = {
 export async function loadReceivingBoard(sb: Sb): Promise<ReceivingBox[]> {
   const cutoff = new Date(Date.now() - 45 * 86400000).toISOString();
   const { data: ships } = await sb.from("shipments")
-    .select("id, tracking, carrier, pickup, status, expected_arrival, created_at, received_at, decorators(name)")
+    .select("id, tracking, carrier, pickup, status, expected_arrival, created_at, received_at, warehouse_notes, decorators(name)")
     .eq("direction", "inbound").gte("created_at", cutoff).order("created_at", { ascending: false }).limit(160);
   const open = ships || [];
   if (!open.length) return [];
@@ -407,7 +408,7 @@ export async function loadReceivingBoard(sb: Sb): Promise<ReceivingBox[]> {
     boxes.push({
       id: s.id, vendorName: (s as any).decorators?.name || "Unassigned vendor",
       carrier: s.carrier, tracking: s.tracking, pickup: !!s.pickup, createdAt: s.created_at, receivedAt: s.received_at || null,
-      expectedArrival: s.expected_arrival, status: s.status || "expected",
+      expectedArrival: s.expected_arrival, status: s.status || "expected", note: s.warehouse_notes || null,
       slips: Array.from(slipMap.values()),
       lines: rLines, totalUnits: rLines.reduce((a, l) => a + sumQ(l.shipQtys), 0),
       receivedUnits: rLines.reduce((a, l) => a + sumQ(l.receivedQtys), 0),

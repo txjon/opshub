@@ -261,6 +261,7 @@ function BoxCard({ box, status, onReceive, acts }: { box: ReceivingBox; status: 
           : <span onClick={onReceive} style={{ fontSize: 13, fontWeight: 700, color: T.text, cursor: "pointer" }}>Receive →</span>}
       </CardHeader>
       <BoxChips box={box} status={status} />
+      {box.note && <div style={{ margin: "2px 16px 0", fontSize: 12, color: T.muted }}><span style={{ fontWeight: 700 }}>Note:</span> {box.note}</div>}
       <ClientGroups box={box} status={status} acts={acts} />
     </Card>
   );
@@ -381,14 +382,14 @@ const PULL_KIND_LABEL = (id: string) => PULL_KINDS.find(k => k.id === id)?.label
 // Receive modal — PER ITEM, per the approved mockup. Each item has its own
 // Receive button; hitting it routes that item downstream (ship_through→Shipping,
 // stage→Fulfillment) and CLEARS it from the modal, leaving only what's left.
-// Grid = In box / Delivered / Samples. Over-one-size + short-another → flag.
+// Grid = In box / Delivered. Anything held back (incl. samples) goes through +Pull.
+// Over-one-size + short-another → flag.
 function ReceiveModal({ box, onClose, onDone }: { box: ReceivingBox; onClose: () => void; onDone: () => void }) {
   const [delivered, setDelivered] = useState<Record<string, Record<string, number>>>(() => {
     const init: Record<string, Record<string, number>> = {};
     for (const l of box.lines) init[l.itemId] = { ...l.shipQtys };
     return init;
   });
-  const [samples, setSamples] = useState<Record<string, Record<string, number>>>({});
   const [fulfil, setFulfil] = useState<Record<string, boolean>>(() => {
     const f: Record<string, boolean> = {};
     for (const l of box.lines) for (const p of l.pullRequests) f[p.id] = true;
@@ -404,7 +405,6 @@ function ReceiveModal({ box, onClose, onDone }: { box: ReceivingBox; onClose: ()
   const doneCount = box.lines.length - remaining.length;
 
   const setD = (id: string, sz: string, v: string) => setDelivered(p => ({ ...p, [id]: { ...p[id], [sz]: Math.max(0, Math.floor(Number(v) || 0)) } }));
-  const setS = (id: string, sz: string, v: string) => setSamples(p => ({ ...p, [id]: { ...(p[id] || {}), [sz]: Math.max(0, Math.floor(Number(v) || 0)) } }));
   const mutEP = (id: string, patch: Partial<{ qtys: Record<string, number>; kind: string; reason: string }>) =>
     setExtraPull(p => { const cur = p[id] || { qtys: {}, kind: PULL_KINDS[0].id, reason: "" }; return { ...p, [id]: { ...cur, ...patch } }; });
   const setEPQ = (id: string, sz: string, v: string) =>
@@ -417,13 +417,12 @@ function ReceiveModal({ box, onClose, onDone }: { box: ReceivingBox; onClose: ()
     return over && under;
   };
   const pulledOf = (l: ReceivingLine) =>
-    l.pullRequests.filter(p => fulfil[p.id]).reduce((a, p) => a + tQty(p.qtys), 0) + tQty(samples[l.itemId] || {}) + tQty(extraPull[l.itemId]?.qtys || {});
+    l.pullRequests.filter(p => fulfil[p.id]).reduce((a, p) => a + tQty(p.qtys), 0) + tQty(extraPull[l.itemId]?.qtys || {});
   const continuingOf = (l: ReceivingLine) => Math.max(0, tQty(delivered[l.itemId] || {}) - pulledOf(l));
 
   async function receiveOne(l: ReceivingLine) {
     setBusyItem(l.itemId); setErr(null);
     const newPulls: any[] = [];
-    if (tQty(samples[l.itemId] || {}) > 0) newPulls.push({ itemId: l.itemId, jobId: l.jobId, itemName: l.itemName, qtys: samples[l.itemId], kind: "sample", reason: null });
     const ep = extraPull[l.itemId];
     if (ep && tQty(ep.qtys) > 0) newPulls.push({ itemId: l.itemId, jobId: l.jobId, itemName: l.itemName, qtys: ep.qtys, kind: ep.kind, reason: (ep.reason || "").trim() || null });
     const res = await receiveBoxAction(createClient(), {
@@ -445,6 +444,7 @@ function ReceiveModal({ box, onClose, onDone }: { box: ReceivingBox; onClose: ()
         <div style={{ fontSize: 17, fontWeight: 700 }}>Receive box — {box.vendorName}</div>
         <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>{boxHow(box)} · {box.totalUnits} units expected</div>
         <div style={{ fontSize: 12, color: T.muted, marginTop: 6 }}><b style={{ color: T.text }}>{remaining.length}</b> left to receive{doneCount > 0 ? ` · ${doneCount} received` : ""}</div>
+        {box.note && <div style={{ marginTop: 8, fontSize: 12.5, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 7, padding: "7px 10px" }}><span style={{ fontWeight: 700, color: T.muted }}>Note from production: </span>{box.note}</div>}
         {box.slips.length > 0 && <div style={{ marginTop: 6 }}>{box.slips.map((s, i) => (
           <a key={i} href={s.url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: T.blue, textDecoration: "none", marginRight: 12 }}>📎 {s.name}</a>
         ))}</div>}
@@ -484,7 +484,7 @@ function ReceiveModal({ box, onClose, onDone }: { box: ReceivingBox; onClose: ()
                 </div>
               </div>
 
-              {/* In box / Delivered / Samples grid */}
+              {/* In box / Delivered grid */}
               <div style={{ marginTop: 11, display: "grid", gridTemplateColumns: `auto repeat(${sizes.length}, 50px)`, columnGap: 8, rowGap: 4, alignItems: "center", width: "fit-content" }}>
                 <div />{sizes.map(sz => <div key={sz} style={{ fontSize: 10, fontWeight: 800, color: T.faint, textAlign: "center", textTransform: "uppercase" }}>{sz}</div>)}
                 <div style={{ fontSize: 9, fontWeight: 800, color: T.faint, textTransform: "uppercase", letterSpacing: 0.3, paddingRight: 4 }}>In box</div>
@@ -493,9 +493,6 @@ function ReceiveModal({ box, onClose, onDone }: { box: ReceivingBox; onClose: ()
                 {sizes.map(sz => { const got = delivered[l.itemId]?.[sz] ?? 0, want = l.shipQtys[sz] ?? 0; const c = got === want ? T.text : got < want ? "#a87b00" : T.green;
                   return <input key={sz} inputMode="numeric" value={got} onChange={e => setD(l.itemId, sz, e.target.value)} onFocus={e => e.target.select()}
                     style={{ width: 50, textAlign: "center", fontFamily: mono, fontSize: 13, fontWeight: 700, padding: "5px 4px", borderRadius: 5, border: `1px solid ${got === want ? T.border : c}`, color: c, background: T.card }} />; })}
-                <div style={{ fontSize: 9, fontWeight: 800, color: T.faint, textTransform: "uppercase", letterSpacing: 0.3, paddingRight: 4 }}>Samples</div>
-                {sizes.map(sz => <input key={sz} inputMode="numeric" value={samples[l.itemId]?.[sz] ?? 0} onChange={e => setS(l.itemId, sz, e.target.value)} onFocus={e => e.target.select()}
-                  style={{ width: 50, textAlign: "center", fontFamily: mono, fontSize: 13, fontWeight: 600, padding: "5px 4px", borderRadius: 5, border: `1px solid ${T.border}`, background: T.surface }} />)}
               </div>
 
               {varianceFlag(l) && <div style={{ marginTop: 9, fontSize: 11, fontWeight: 700, color: T.red, background: T.redDim, border: `1px solid ${T.red}`, borderRadius: 7, padding: "6px 9px" }}>⚑ Over on one size and short on another — flag production to resolve with the vendor.</div>}
