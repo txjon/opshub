@@ -8,8 +8,7 @@ import { receiveBox as receiveBoxAction, resolvePull, returnReceivedLine, editRe
 import { PULL_KINDS } from "@/lib/handoff";
 import LedgerHistory from "@/components/LedgerHistory";
 import type { ReceivingBox, ReceivingLine, HeldPull } from "@/lib/item-state";
-
-const TEST_CLIENTS = ["Playwright Test Co"];
+import { v2WriteAllowed } from "@/lib/v2-flags";
 
 const tQty = (q: Record<string, number>) => Object.values(q || {}).reduce((a, v) => a + (Number(v) || 0), 0);
 const boxHow = (b: ReceivingBox) => b.pickup ? "Pickup" : [b.carrier, b.tracking].filter(Boolean).join(" · ") || "no tracking";
@@ -316,7 +315,7 @@ function PullsView({ pulls, query, onResolved }: { pulls: HeldPull[]; query: str
 function PullCard({ p, onResolved }: { p: HeldPull; onResolved: () => void }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const isTest = TEST_CLIENTS.includes(p.client);
+  const isTest = v2WriteAllowed({ clientName: p.client });
   async function resolve(status: "shipped_out" | "returned" | "consumed") {
     setBusy(true); setErr(null);
     const res = await resolvePull(createClient(), { id: p.id, itemId: p.itemId, jobId: p.jobId, qtys: p.qtys }, status);
@@ -370,7 +369,7 @@ function ReceiveModal({ box, onClose, onDone }: { box: ReceivingBox; onClose: ()
   const [busyItem, setBusyItem] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
-  const isTest = box.clients.every(c => TEST_CLIENTS.includes(c));
+  const isTest = box.clients.every(c => v2WriteAllowed({ clientName: c }));
   const remaining = box.lines.filter(l => !cleared.has(l.itemId));
   const doneCount = box.lines.length - remaining.length;
 
@@ -532,7 +531,7 @@ function EditLineModal({ line, box, mode, onClose, onDone }: { line: ReceivingLi
   const [qtys, setQtys] = useState<Record<string, number>>({ ...(shipped ? line.shipQtys : line.receivedQtys) });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const isTest = TEST_CLIENTS.includes(line.client);
+  const isTest = v2WriteAllowed({ clientName: line.client });
   const total = tQty(qtys);
   const setQ = (sz: string, v: string) => setQtys(p => ({ ...p, [sz]: Math.max(0, Math.floor(Number(v) || 0)) }));
 

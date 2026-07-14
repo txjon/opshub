@@ -9,8 +9,8 @@ import LedgerHistory from "@/components/LedgerHistory";
 // @ts-ignore — plain JS component
 import { NotifyShipmentDialog } from "@/components/NotifyShipmentDialog";
 import type { ShippingJob, ShippingItem, ForwardedShipment, ForwardedLine } from "@/lib/item-state";
+import { v2WriteAllowed } from "@/lib/v2-flags";
 
-const TEST_CLIENTS = ["Playwright Test Co"];
 const tQty = (q: Record<string, number>) => Object.values(q || {}).reduce((a, v) => a + (Number(v) || 0), 0);
 const CARRIERS = ["UPS", "DHL", "FedEx", "USPS"];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -160,7 +160,7 @@ function ForwardModal({ job, onClose, onDone }: { job: ShippingJob; onClose: () 
   const [notified, setNotified] = useState(false);
   const [contacts, setContacts] = useState<{ name: string; email: string; role: string }[]>([]);
 
-  const isTest = TEST_CLIENTS.includes(job.clientName);
+  const isTest = v2WriteAllowed({ clientName: job.clientName });
   const setQ = (id: string, sz: string, v: string) => setQtys(p => ({ ...p, [id]: { ...p[id], [sz]: Math.max(0, Math.floor(Number(v) || 0)) } }));
   const itemTotal = (id: string) => tQty(qtys[id] || {});
   const total = items.reduce((a, it) => a + itemTotal(it.itemId), 0);
@@ -350,7 +350,7 @@ function EditForwardedModal({ line, shipmentId, onClose, onDone }: { line: Forwa
   const [qtys, setQtys] = useState<Record<string, number>>({ ...line.qtys });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const isTest = TEST_CLIENTS.includes(line.client);
+  const isTest = v2WriteAllowed({ clientName: line.client });
   const total = tQty(qtys);
   const setQ = (sz: string, v: string) => setQtys(p => ({ ...p, [sz]: Math.max(0, Math.floor(Number(v) || 0)) }));
 

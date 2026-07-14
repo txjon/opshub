@@ -12,8 +12,8 @@ import { BoardFrame, ToggleSearch, KpiStrip, KpiBreakdownModal, ModalShell, Card
 import { enterIntoShopify, returnEntered, editEntered } from "@/lib/staging-enter";
 import LedgerHistory from "@/components/LedgerHistory";
 import type { StagingItem } from "@/lib/item-state";
+import { v2WriteAllowed } from "@/lib/v2-flags";
 
-const TEST_CLIENTS = ["Playwright Test Co"];
 const tQty = (q: Record<string, number>) => Object.values(q || {}).reduce((a, v) => a + (Number(v) || 0), 0);
 const blankLine = (it: StagingItem) => [it.blankVendor, it.blankSku, it.color].filter(Boolean).join(" · ");
 
@@ -73,7 +73,7 @@ export default function StagingBoard({ items, side }: { items: StagingItem[]; si
   const renderRow = (it: StagingItem, i: number, inBucket: boolean) => {
     const busy = busyKey === it.itemId;
     const bl = blankLine(it);
-    const isTest = TEST_CLIENTS.includes(it.client);
+    const isTest = v2WriteAllowed({ clientName: it.client });
     const actions = view === "ready"
       ? <>
           <button onClick={() => setEnterFor(it)} disabled={!isTest}
@@ -156,7 +156,7 @@ function EnterModal({ item, onClose, onDone }: { item: StagingItem; onClose: () 
   const [qtys, setQtys] = useState<Record<string, number>>({ ...item.available });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const isTest = TEST_CLIENTS.includes(item.client);
+  const isTest = v2WriteAllowed({ clientName: item.client });
   const total = tQty(qtys);
   const setQ = (sz: string, v: string) => setQtys(p => ({ ...p, [sz]: Math.max(0, Math.floor(Number(v) || 0)) }));
 
@@ -209,7 +209,7 @@ function EditEnteredModal({ item, onClose, onDone }: { item: StagingItem; onClos
   const [qtys, setQtys] = useState<Record<string, number>>({ ...item.entered });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const isTest = TEST_CLIENTS.includes(item.client);
+  const isTest = v2WriteAllowed({ clientName: item.client });
   const total = tQty(qtys);
   const setQ = (sz: string, v: string) => setQtys(p => ({ ...p, [sz]: Math.max(0, Math.floor(Number(v) || 0)) }));
 

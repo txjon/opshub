@@ -14,8 +14,9 @@ import { NotifyShipmentDialog } from "@/components/NotifyShipmentDialog";
 import { uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
 import type { BoardStrip, BoardItem, ShippedBox } from "@/lib/item-state";
 
+import { v2WriteAllowed } from "@/lib/v2-flags";
+
 type SelItem = BoardItem & { strip: BoardStrip };
-const TEST_JOBS = ["HPD-2605-054"]; // ship write limited here until Jon signs off
 
 const tQty = (q: Record<string, number>) => Object.values(q || {}).reduce((a, v) => a + v, 0);
 const heldQty = (it: BoardItem) => it.pullRequests.reduce((a, p) => a + tQty(p.qtys), 0);
@@ -240,7 +241,7 @@ function PullModal({ item, onClose, onDone }: { item: SelItem; onClose: () => vo
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const isTest = TEST_JOBS.includes(item.strip.jobNumber) || item.strip.clientName === "Playwright Test Co";
+  const isTest = v2WriteAllowed({ jobNumber: item.strip.jobNumber, clientName: item.strip.clientName });
   const total = Object.values(qtys).reduce((a, n) => a + (Number(n) || 0), 0);
   const setQ = (sz: string, v: string) => setQtys(p => ({ ...p, [sz]: Math.max(0, Math.floor(Number(v) || 0)) }));
 
@@ -385,7 +386,7 @@ function ShippedBoxCard({ box }: { box: ShippedBox }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [to, setTo] = useState<string | null>(null);
-  const isTest = box.clients.every(c => c === "Playwright Test Co");
+  const isTest = box.clients.every(c => v2WriteAllowed({ clientName: c }));
   const isDrop = box.route === "drop_ship";
 
   async function notify() {
@@ -543,7 +544,7 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
     setNotifyBusy(false);
   }
 
-  const isTest = activeItems.every(it => TEST_JOBS.includes(it.strip.jobNumber) || it.strip.clientName === "Playwright Test Co");
+  const isTest = activeItems.every(it => v2WriteAllowed({ jobNumber: it.strip.jobNumber, clientName: it.strip.clientName }));
   const itemTotal = (id: string) => Object.values(qtys[id] || {}).reduce((a, n) => a + (Number(n) || 0), 0);
   const totalUnits = activeItems.reduce((a, it) => a + itemTotal(it.itemId), 0);
 
