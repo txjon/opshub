@@ -400,12 +400,13 @@ function ShippedBoxCard({ box }: { box: ShippedBox }) {
     setBusy(false);
   }
 
+  const canNotify = isTest && !busy && !notified;
   const action = isDrop
     ? <span style={{ fontSize: 12, color: T.faint }}>notify on job page</span>
-    : <button onClick={notify} disabled={!isTest || busy || notified}
-        style={{ fontSize: 12.5, fontWeight: 700, borderRadius: 7, padding: "6px 12px", border: `1px solid ${T.border}`, cursor: (!isTest || busy || notified) ? "default" : "pointer", background: notified ? T.greenDim : T.card, color: notified ? T.green : (!isTest ? T.faint : T.text) }}>
-        {notified ? (to ? `✓ Sent to ${to}` : "✓ Notified") : busy ? "Sending…" : box.pickup ? "Notify (pickup)" : "Notify warehouse"}
-      </button>;
+    : <span onClick={canNotify ? notify : undefined}
+        style={{ fontSize: 13, fontWeight: 700, cursor: canNotify ? "pointer" : "default", color: notified ? T.green : (!isTest ? T.faint : T.text) }}>
+        {notified ? (to ? `✓ Sent to ${to}` : "✓ Notified") : busy ? "Sending…" : "Notify warehouse →"}
+      </span>;
 
   const segs: { text: string; tone?: string }[] = [{ text: `${box.lines.length} item${box.lines.length > 1 ? "s" : ""} · ${box.totalUnits} units` }];
   if (!isTest && !isDrop) segs.push({ text: "Notify limited to the test job", tone: T.amber });
