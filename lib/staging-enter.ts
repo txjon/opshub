@@ -5,6 +5,7 @@
 // Mirrors the shipping/receiving write pattern. Runs client-side.
 
 import { appendMovement, recomputeItemFromLedger, cleanPositive } from "./inventory-ledger";
+import { recalcJobPhase } from "./job-phase-recalc";
 import { logJobActivity } from "@/components/JobActivityPanel";
 
 type SizeQtys = Record<string, number>;
@@ -17,6 +18,7 @@ export async function enterIntoShopify(sb: any, args: { itemId: string; jobId: s
     if (sum(q) === 0) return { ok: false, entered: 0, error: "Nothing to enter." };
     await appendMovement(sb, { itemId: args.itemId, jobId: args.jobId, type: "stage", qtys: q, reason: "Entered into Shopify", description: args.itemName });
     await recomputeItemFromLedger(sb, args.itemId);
+    await recalcJobPhase(sb, args.jobId);
     logJobActivity(args.jobId, `Entered ${args.itemName} into Shopify · ${sum(q)} units`);
     return { ok: true, entered: sum(q) };
   } catch (e: any) { console.error("[staging] enterIntoShopify", e); return { ok: false, entered: 0, error: e?.message || "Enter failed." }; }
@@ -40,6 +42,7 @@ export async function returnEntered(sb: any, args: { itemId: string; jobId: stri
     if (!st || st.staged === 0) {
       await sb.from("items").update({ webstore_entered_at: null }).eq("id", args.itemId);
     }
+    await recalcJobPhase(sb, args.jobId);
     logJobActivity(args.jobId, `Returned ${args.itemName} from Shopify to received`);
     return { ok: true };
   } catch (e: any) { console.error("[staging] returnEntered", e); return { ok: false, error: e?.message || "Return failed." }; }
@@ -60,6 +63,7 @@ export async function editEntered(sb: any, args: { itemId: string; jobId: string
     }
     await appendMovement(sb, { itemId: args.itemId, jobId: args.jobId, type: "stage", qtys: corrected, reason: "Corrected entered count", description: args.itemName });
     await recomputeItemFromLedger(sb, args.itemId);
+    await recalcJobPhase(sb, args.jobId);
     logJobActivity(args.jobId, `Corrected entered count for ${args.itemName} → ${sum(corrected)}`);
     return { ok: true };
   } catch (e: any) { console.error("[staging] editEntered", e); return { ok: false, error: e?.message || "Edit failed." }; }

@@ -9,6 +9,7 @@
 
 import { upsertShipmentForItem } from "./handoff";
 import { recordShip, cleanPositive } from "./inventory-ledger";
+import { recalcJobPhase } from "./job-phase-recalc";
 import { logJobActivity } from "@/components/JobActivityPanel";
 
 export type ShipMethod = "tracking" | "bol" | "pickup";
@@ -90,6 +91,9 @@ export async function shipFromProduction(sb: any, args: {
       const n = args.items.filter(i => i.jobId === jobId).length;
       logJobActivity(jobId, `Shipped ${n} item${n > 1 ? "s" : ""} from production — ${how}`);
     }
+    // Advance legacy jobs.phase so the job lands on the receiving/shipping boards
+    // (they filter by phase) and the ~35 phase consumers stay correct.
+    for (const jobId of Array.from(jobsTouched)) await recalcJobPhase(sb, jobId);
     // notify is a deliberate post-ship action (the modal's "Notify warehouse")
 
     return { ok: true, shipped: shippedTotal, boxes: boxes.size, boxIds: Array.from(boxes), jobIds: Array.from(jobsTouched) };

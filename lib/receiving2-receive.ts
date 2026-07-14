@@ -6,6 +6,7 @@
 // STACK, per H8). Runs client-side, like /production2 + the live /receiving.
 
 import { recordReceive, appendMovement, recomputeItemFromLedger, cleanPositive, reverseReceiptForShipment } from "./inventory-ledger";
+import { recalcJobPhase } from "./job-phase-recalc";
 import { fulfillPullRequest, recordAdHocPull, resolvePulledInventory } from "./handoff";
 import { logJobActivity } from "@/components/JobActivityPanel";
 
@@ -20,6 +21,7 @@ export async function resolvePull(sb: any, row: { id: string; itemId: string; jo
       await appendMovement(sb, { itemId: row.itemId, jobId: row.jobId, type: "pull", qtys: neg, reason: "Pull returned to stock" });
       await recomputeItemFromLedger(sb, row.itemId);
     }
+    await recalcJobPhase(sb, row.jobId);
     return { ok: true };
   } catch (e: any) { console.error("[receiving2] resolvePull", e); return { ok: false, error: e?.message || "Resolve failed." }; }
 }
@@ -38,6 +40,7 @@ export async function returnReceivedLine(sb: any, args: { shipmentId: string; it
       .eq("shipment_id", args.shipmentId).eq("item_id", args.itemId);
     // any un-received line means the box is no longer fully received
     await sb.from("shipments").update({ status: "expected", received_at: null }).eq("id", args.shipmentId);
+    await recalcJobPhase(sb, args.jobId);
     logJobActivity(args.jobId, `Returned ${args.itemName} to receiving`);
     return { ok: true };
   } catch (e: any) { console.error("[receiving2] returnReceivedLine", e); return { ok: false, error: e?.message || "Return failed." }; }
@@ -59,9 +62,12 @@ export async function returnIncomingToProduction(sb: any, args: { shipmentId: st
       const neg = Object.fromEntries(Object.entries(t.qtys || {}).map(([s, n]) => [s, -(Number(n) || 0)]));
       await appendMovement(sb, { itemId: args.itemId, jobId: t.job_id, type: "ship", qtys: neg, shipmentId: args.shipmentId, reason: "Returned to production", reversesId: t.id, description: t.description });
     }
-    await sb.from("items").update({ ship_final: false }).eq("id", args.itemId);
+    // back to production: clear the final flag AND regress pipeline_stage so the
+    // item re-appears on the production board and the phase regresses correctly.
+    await sb.from("items").update({ ship_final: false, pipeline_stage: "in_production" }).eq("id", args.itemId);
     await sb.from("shipment_lines").delete().eq("shipment_id", args.shipmentId).eq("item_id", args.itemId);
     await recomputeItemFromLedger(sb, args.itemId);
+    await recalcJobPhase(sb, args.jobId);
     logJobActivity(args.jobId, `Returned ${args.itemName} to production`);
     return { ok: true };
   } catch (e: any) { console.error("[receiving2] returnIncomingToProduction", e); return { ok: false, error: e?.message || "Return failed." }; }
@@ -86,6 +92,7 @@ export async function editShippedLine(sb: any, args: { shipmentId: string; itemI
     await appendMovement(sb, { itemId: args.itemId, jobId: args.jobId, type: "ship", qtys: corrected, shipmentId: args.shipmentId, reason: "Corrected shipped count", description: args.itemName });
     await sb.from("shipment_lines").update({ ship_qtys: corrected }).eq("shipment_id", args.shipmentId).eq("item_id", args.itemId);
     await recomputeItemFromLedger(sb, args.itemId);
+    await recalcJobPhase(sb, args.jobId);
     logJobActivity(args.jobId, `Corrected shipped count for ${args.itemName} → ${sum(corrected)}`);
     return { ok: true };
   } catch (e: any) { console.error("[receiving2] editShippedLine", e); return { ok: false, error: e?.message || "Edit failed." }; }
@@ -102,6 +109,7 @@ export async function editReceivedLine(sb: any, args: { shipmentId: string; item
     await recomputeItemFromLedger(sb, args.itemId);
     await sb.from("shipment_lines").update({ received: true, received_at: now, received_qtys: corrected })
       .eq("shipment_id", args.shipmentId).eq("item_id", args.itemId);
+    await recalcJobPhase(sb, args.jobId);
     logJobActivity(args.jobId, `Corrected received count for ${args.itemName} → ${sum(corrected)}`);
     return { ok: true };
   } catch (e: any) { console.error("[receiving2] editReceivedLine", e); return { ok: false, error: e?.message || "Edit failed." }; }
@@ -206,6 +214,8 @@ export async function receiveBox(sb: any, args: {
       const n = args.items.filter(i => i.jobId === jobId).length;
       logJobActivity(jobId, `Received ${n} item${n === 1 ? "" : "s"} at warehouse${pulledTotal ? ` · ${pulledTotal} pulled` : ""}`);
     }
+    // Advance phase (receiving → shipping when all in, → complete/fulfillment etc.)
+    for (const jobId of Array.from(jobs)) await recalcJobPhase(sb, jobId);
     return { ok: true, received: receivedTotal, pulled: pulledTotal };
   } catch (e: any) {
     console.error("[receiving2] receiveBox", e);

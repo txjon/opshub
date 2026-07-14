@@ -5,6 +5,7 @@
 // /production2 + /receiving2. Edit/Return mirror the receiving pattern.
 
 import { appendMovement, recomputeItemFromLedger, cleanPositive } from "./inventory-ledger";
+import { recalcJobPhase } from "./job-phase-recalc";
 import { logJobActivity } from "@/components/JobActivityPanel";
 
 type SizeQtys = Record<string, number>;
@@ -40,6 +41,7 @@ export async function forwardToClient(sb: any, args: {
       await sb.from("shipment_lines").insert({ shipment_id: ship.id, item_id: it.itemId, job_id: it.jobId, description: it.itemName, ship_qtys: it.qtys });
       forwarded += sum(it.qtys);
     }
+    await recalcJobPhase(sb, args.jobId);
     logJobActivity(args.jobId, `Forwarded ${lines.length} item${lines.length === 1 ? "" : "s"} to client · ${forwarded} units`);
     return { ok: true, shipmentId: ship.id, forwarded };
   } catch (e: any) { console.error("[shipping2] forwardToClient", e); return { ok: false, forwarded: 0, error: e?.message || "Forward failed." }; }
@@ -67,6 +69,7 @@ export async function returnForwardedLine(sb: any, args: { shipmentId: string; i
     if (!st || st.forwarded === 0) {
       await sb.from("items").update({ forwarded_at: null, forward_tracking: null }).eq("id", args.itemId);
     }
+    await recalcJobPhase(sb, args.jobId);
     logJobActivity(args.jobId, `Returned ${args.itemName} to received`);
     return { ok: true };
   } catch (e: any) { console.error("[shipping2] returnForwardedLine", e); return { ok: false, error: e?.message || "Return failed." }; }
@@ -89,6 +92,7 @@ export async function editForwardedLine(sb: any, args: { shipmentId: string; ite
     await appendMovement(sb, { itemId: args.itemId, jobId: args.jobId, type: "forward", qtys: corrected, shipmentId: args.shipmentId, reason: "Corrected forwarded count", description: args.itemName });
     await recomputeItemFromLedger(sb, args.itemId);
     await sb.from("shipment_lines").update({ ship_qtys: corrected }).eq("shipment_id", args.shipmentId).eq("item_id", args.itemId);
+    await recalcJobPhase(sb, args.jobId);
     logJobActivity(args.jobId, `Corrected forwarded count for ${args.itemName} → ${sum(corrected)}`);
     return { ok: true };
   } catch (e: any) { console.error("[shipping2] editForwardedLine", e); return { ok: false, error: e?.message || "Edit failed." }; }
