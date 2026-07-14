@@ -539,7 +539,7 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
     try {
       const res = await fetch("/api/production2/notify-warehouse", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ shipmentIds: done?.boxIds || [], note, test: isTest }),
+        body: JSON.stringify({ shipmentIds: done?.boxIds || [], note, test: isTestOnly }),
       });
       const data = await res.json();
       if (data.success) { setNotified(true); setNotifyTo(data.to || null); } else setNotifyErr(data.error || "Notify failed");
@@ -548,6 +548,7 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
   }
 
   const isTest = activeItems.every(it => v2WriteAllowed({ jobNumber: it.strip.jobNumber, clientName: it.strip.clientName }));
+  const isTestOnly = activeItems.every(it => isV2TestClient(it.strip.clientName));  // sandbox the warehouse email only for the real test client
   const itemTotal = (id: string) => Object.values(qtys[id] || {}).reduce((a, n) => a + (Number(n) || 0), 0);
   const totalUnits = activeItems.reduce((a, it) => a + itemTotal(it.itemId), 0);
 
