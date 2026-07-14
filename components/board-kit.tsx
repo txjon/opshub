@@ -162,7 +162,9 @@ export function BoxHead({ vendor, tag, tagColor, method, slips, when, units, act
       <span style={{ fontSize: 13, fontWeight: 700 }}>{vendor}</span>
       <span style={{ fontSize: 10, fontWeight: 700, color: tagColor || T.blue, textTransform: "uppercase", letterSpacing: 0.5 }}>{tag}</span>
       <span style={{ fontFamily: mono, fontSize: 12, color: T.muted }}>{method}</span>
-      {(slips || []).map((s, i) => <a key={i} href={s.url} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: T.blue, textDecoration: "none" }}>📎 slip</a>)}
+      {(slips || []).map((s, i) => s.url
+        ? <a key={i} href={s.url} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: T.blue, textDecoration: "none" }}>📎 slip</a>
+        : <span key={i} style={{ fontSize: 11, color: T.muted }}>📎 slip</span>)}
       <div style={{ flex: 1 }} />
       {when && <span style={{ fontSize: 12, color: T.faint }}>{when}</span>}
       <span style={{ fontFamily: mono, fontSize: 12, color: T.muted }}>{units}u</span>

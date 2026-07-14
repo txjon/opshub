@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 import { DriveThumb } from "@/components/DriveThumb";
-import { BoardFrame, ToggleSearch, KpiStrip, KpiBreakdownModal, ModalShell, Card, CardHeader, VariantChips, RouteTag, ItemThumb, SegmentControl } from "@/components/board-kit";
+import { BoardFrame, ToggleSearch, KpiStrip, KpiBreakdownModal, ModalShell, Card, CardHeader, BoxHead, BoxMeta, GroupLabel, ItemRow, VariantChips, RouteTag, ItemThumb, SegmentControl, SliceSortRow } from "@/components/board-kit";
 import { shipFromProduction } from "@/lib/production2-ship";
 import { createPullRequest, PULL_KINDS } from "@/lib/handoff";
 // @ts-ignore — plain JS component
@@ -312,15 +312,6 @@ function kpiRows(m: Map<string, Metric>, metric: MetricKey) {
 
 // Shipped view — recent boxes shipped from production, still un-received. Lets
 // you notify the warehouse (or see the box) after the ship modal is long gone.
-function ShippedView({ boxes }: { boxes: ShippedBox[] }) {
-  if (!boxes.length) return (
-    <div style={{ color: T.muted, fontSize: 14, padding: 40, textAlign: "center", background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, marginTop: 16 }}>
-      No shipped boxes waiting to be received.
-    </div>
-  );
-  return <div style={{ display: "flex", flexDirection: "column", gap: 14, marginTop: 16 }}>{boxes.map(b => <ShippedBoxCard key={b.id} box={b} />)}</div>;
-}
-
 const shipHow = (box: ShippedBox) => box.pickup ? "Pickup" : [box.carrier, box.tracking].filter(Boolean).join(" · ") || "no tracking";
 const routeLabel = (box: ShippedBox) => box.pickup ? "Pickup" : box.route === "stage" ? "Stage" : box.route === "drop_ship" ? "Drop-ship" : "Ship-through";
 const WHEN_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -328,6 +319,65 @@ function fmtWhen(iso: string): string {
   const d = new Date(iso);
   if (isNaN(d.getTime())) return "";
   return `${WHEN_MONTHS[d.getMonth()]} ${d.getDate()} · ${d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
+}
+
+// The Shipped view — mirrors receiving: KPIs + 3-view slice + sort, rendering the
+// SAME shared box card / rows. These boxes ARE receiving's incoming shipments.
+type ShippedSlice = "shipment" | "job" | "item";
+type ShipSort = "date" | "vendor" | "client";
+type ShipMetricKey = "boxes" | "units" | "items";
+type ShipMetric = { boxes: number; units: number; items: number };
+const SHIP_METRICS: { key: ShipMetricKey; label: string }[] = [{ key: "boxes", label: "Boxes" }, { key: "units", label: "Units" }, { key: "items", label: "Items" }];
+type ShippedFlatLine = ShippedBox["lines"][number] & { box: ShippedBox };
+
+function ShippedView({ boxes }: { boxes: ShippedBox[] }) {
+  const [slice, setSlice] = useState<ShippedSlice>("shipment");
+  const [sort, setSort] = useState<ShipSort>("date");
+  const [kpi, setKpi] = useState<ShipMetricKey | null>(null);
+
+  const agg = useMemo(() => {
+    const total: ShipMetric = { boxes: boxes.length, units: 0, items: 0 };
+    const byVendor = new Map<string, ShipMetric>(), byClient = new Map<string, ShipMetric>();
+    const bump = (m: Map<string, ShipMetric>, k: string, units: number, isBox: boolean) => {
+      const c = m.get(k) || { boxes: 0, units: 0, items: 0 }; c.units += units; c.items += 1; if (isBox) c.boxes += 1; m.set(k, c);
+    };
+    for (const b of boxes) { let first = true; for (const l of b.lines) { total.units += l.qty; total.items += 1; bump(byVendor, b.vendorName, l.qty, first); first = false; bump(byClient, l.client, l.qty, false); } }
+    return { total, byVendor, byClient };
+  }, [boxes]);
+
+  const sorted = useMemo(() => {
+    const out = [...boxes];
+    const byDate = (a: ShippedBox, b: ShippedBox) => (b.createdAt || "").localeCompare(a.createdAt || "");
+    if (sort === "date") out.sort(byDate);
+    else if (sort === "vendor") out.sort((a, b) => a.vendorName.localeCompare(b.vendorName) || byDate(a, b));
+    else out.sort((a, b) => (a.clients[0] || "").localeCompare(b.clients[0] || "") || byDate(a, b));
+    return out;
+  }, [boxes, sort]);
+
+  const rows = (m: Map<string, ShipMetric>, metric: ShipMetricKey) =>
+    Array.from(m.entries()).map(([name, v]) => ({ name, value: v[metric] })).filter(r => r.value > 0).sort((a, b) => b.value - a.value);
+
+  if (!boxes.length) return (
+    <div style={{ color: T.muted, fontSize: 14, padding: 40, textAlign: "center", background: T.card, border: `1px solid ${T.border}`, borderRadius: 12 }}>
+      No shipped boxes waiting to be received.
+    </div>
+  );
+
+  return (
+    <>
+      <KpiStrip metrics={SHIP_METRICS} get={k => agg.total[k]} onClick={setKpi} />
+      <SliceSortRow>
+        <SegmentControl options={[["shipment", "By shipment"], ["job", "By job"], ["item", "By item"]]} value={slice} onChange={setSlice} />
+        <SegmentControl label="Sort" options={[["date", "Shipped"], ["vendor", "Vendor"], ["client", "Client"]]} value={sort} onChange={setSort} />
+      </SliceSortRow>
+      {slice === "shipment" && <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>{sorted.map(b => <ShippedBoxCard key={b.id} box={b} />)}</div>}
+      {slice === "job" && <ShippedJobView boxes={sorted} />}
+      {slice === "item" && <ShippedItemView boxes={sorted} />}
+      {kpi && <KpiBreakdownModal label={SHIP_METRICS.find(m => m.key === kpi)!.label} total={agg.total[kpi]} unit="shipped"
+        cols={[{ title: "By vendor", rows: rows(agg.byVendor, kpi) }, { title: "By client", rows: rows(agg.byClient, kpi) }]}
+        onClose={() => setKpi(null)} />}
+    </>
+  );
 }
 
 function ShippedBoxCard({ box }: { box: ShippedBox }) {
@@ -350,48 +400,81 @@ function ShippedBoxCard({ box }: { box: ShippedBox }) {
     setBusy(false);
   }
 
+  const action = isDrop
+    ? <span style={{ fontSize: 12, color: T.faint }}>notify on job page</span>
+    : <button onClick={notify} disabled={!isTest || busy || notified}
+        style={{ fontSize: 12.5, fontWeight: 700, borderRadius: 7, padding: "6px 12px", border: `1px solid ${T.border}`, cursor: (!isTest || busy || notified) ? "default" : "pointer", background: notified ? T.greenDim : T.card, color: notified ? T.green : (!isTest ? T.faint : T.text) }}>
+        {notified ? (to ? `✓ Sent to ${to}` : "✓ Notified") : busy ? "Sending…" : box.pickup ? "Notify (pickup)" : "Notify warehouse"}
+      </button>;
+
+  const segs: { text: string; tone?: string }[] = [{ text: `${box.lines.length} item${box.lines.length > 1 ? "s" : ""} · ${box.totalUnits} units` }];
+  if (!isTest && !isDrop) segs.push({ text: "Notify limited to the test job", tone: T.amber });
+  if (err) segs.push({ text: err, tone: T.red });
+
   return (
-    <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, overflow: "hidden" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderBottom: `1px solid ${T.border}`, background: T.surface }}>
-        <span style={{ fontSize: 13, fontWeight: 700 }}>{box.vendorName}</span>
-        <span style={{ fontSize: 10, fontWeight: 700, color: box.pickup ? "#a87b00" : T.blue, textTransform: "uppercase", letterSpacing: 0.5 }}>{routeLabel(box)}</span>
-        <span style={{ fontFamily: mono, fontSize: 12, color: T.muted }}>{shipHow(box)}</span>
-        {box.hasSlip && <span style={{ fontSize: 11, color: T.muted }}>📎 slip</span>}
-        <div style={{ flex: 1 }} />
-        <span style={{ fontSize: 12, color: T.faint }}>{fmtWhen(box.createdAt)}</span>
-        <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700 }}>{box.totalUnits}u</span>
-      </div>
-      <div>
-        {Array.from(byClient.entries()).map(([client, lines]) => (
-          <div key={client}>
-            <div style={{ padding: "8px 16px 6px", borderTop: `1px solid ${T.border}`, fontSize: 12, fontWeight: 600, color: T.muted }}>
-              {client}{lines[0]?.invoiceNumber ? <span style={{ fontFamily: mono, color: T.faint, fontWeight: 500 }}> · #{lines[0].invoiceNumber}</span> : ""}
+    <Card>
+      <BoxHead vendor={box.vendorName} tag={routeLabel(box)} tagColor={box.pickup ? "#a87b00" : T.blue} method={shipHow(box)}
+        slips={box.hasSlip ? [{ name: "slip", url: "" }] : []} when={fmtWhen(box.createdAt)} units={box.totalUnits} action={action} />
+      <BoxMeta segments={segs} />
+      {Array.from(byClient.entries()).map(([client, lines]) => (
+        <div key={client}>
+          <GroupLabel label={client} sub={lines[0]?.invoiceNumber ? `#${lines[0].invoiceNumber}` : null} />
+          {lines.map((l, i) => (
+            <div key={i} style={{ padding: "10px 16px", borderTop: `1px solid ${T.border}` }}>
+              <ItemRow fileId={l.mockupFileId} name={l.itemName} route={box.route} variant={<VariantChips qtys={l.qtys} />} qty={l.qty} />
             </div>
-            {lines.map((l, i) => (
-              <div key={i} style={{ padding: "10px 16px", borderTop: `1px solid ${T.border}`, display: "grid", gridTemplateColumns: "34px minmax(180px, 1.6fr) minmax(110px, 1fr) 48px", alignItems: "center", columnGap: 14 }}>
-                <ItemThumb fileId={l.mockupFileId} name={l.itemName} size={34} />
-                <span style={{ fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.itemName}</span>
-                <span style={{ fontSize: 11, color: T.faint, fontFamily: mono }}>{l.sizes}</span>
-                <span style={{ fontFamily: mono, fontSize: 13, fontWeight: 700, textAlign: "right" }}>{l.qty}</span>
-              </div>
-            ))}
-          </div>
-        ))}
-      </div>
-      <div style={{ padding: "12px 16px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10 }}>
-        {err && <span style={{ fontSize: 12, color: T.red, fontWeight: 600 }}>{err}</span>}
-        {!isTest && !isDrop && <span style={{ fontSize: 12, color: T.amber }}>Notify limited to the test job for now.</span>}
-        <div style={{ flex: 1 }} />
-        {isDrop ? (
-          <span style={{ fontSize: 12, color: T.faint }}>Drop-ship — notify client from the job page</span>
-        ) : (
-          <button onClick={notify} disabled={!isTest || busy || notified}
-            style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "8px 16px", border: `1px solid ${T.border}`, cursor: (!isTest || busy || notified) ? "default" : "pointer", background: notified ? T.greenDim : T.card, color: notified ? T.green : (!isTest ? T.faint : T.text) }}>
-            {notified ? (to ? `✓ Sent to ${to}` : "✓ Notified") : busy ? "Sending…" : box.pickup ? "Notify warehouse (pickup)" : "Notify warehouse"}
-          </button>
-        )}
-      </div>
+          ))}
+        </div>
+      ))}
+    </Card>
+  );
+}
+
+function ShippedJobView({ boxes }: { boxes: ShippedBox[] }) {
+  const groups = useMemo(() => {
+    const m = new Map<string, { client: string; invoice: string | null; lines: ShippedFlatLine[] }>();
+    for (const b of boxes) for (const l of b.lines) {
+      const key = `${l.client}::${l.invoiceNumber || ""}`;
+      const g = m.get(key) || { client: l.client, invoice: l.invoiceNumber, lines: [] };
+      g.lines.push({ ...l, box: b }); m.set(key, g);
+    }
+    return Array.from(m.values());
+  }, [boxes]);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {groups.map((g, i) => (
+        <Card key={i}>
+          <CardHeader>
+            <span style={{ fontSize: 13, fontWeight: 700 }}>{g.client}</span>
+            {g.invoice && <span style={{ fontFamily: mono, fontSize: 12, color: T.muted }}>#{g.invoice}</span>}
+            <div style={{ flex: 1 }} />
+            <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700 }}>{g.lines.reduce((a, l) => a + l.qty, 0)}u</span>
+          </CardHeader>
+          {g.lines.map((l, j) => (
+            <div key={j} style={{ padding: "10px 16px", borderTop: `1px solid ${T.border}` }}>
+              <ItemRow fileId={l.mockupFileId} name={l.itemName} route={l.box.route}
+                sub={<div style={{ fontSize: 11, color: T.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.box.vendorName} · {shipHow(l.box)}</div>}
+                variant={<VariantChips qtys={l.qtys} />} qty={l.qty} />
+            </div>
+          ))}
+        </Card>
+      ))}
     </div>
+  );
+}
+
+function ShippedItemView({ boxes }: { boxes: ShippedBox[] }) {
+  const lines = useMemo(() => boxes.flatMap(b => b.lines.map(l => ({ ...l, box: b }))), [boxes]);
+  return (
+    <Card>
+      {lines.map((l, i) => (
+        <div key={i} style={{ borderTop: i === 0 ? "none" : `1px solid ${T.border}`, padding: "10px 16px" }}>
+          <ItemRow fileId={l.mockupFileId} name={l.itemName} route={l.box.route}
+            sub={<div style={{ fontSize: 11, color: T.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.client}{l.invoiceNumber ? ` · #${l.invoiceNumber}` : ""} · {l.box.vendorName}</div>}
+            variant={<VariantChips qtys={l.qtys} />} qty={l.qty} />
+        </div>
+      ))}
+    </Card>
   );
 }
 

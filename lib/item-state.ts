@@ -285,13 +285,12 @@ export async function loadFreightCarriers(sb: Sb): Promise<string[]> {
 // ── recent shipped boxes (the Production "Shipped" view) ───────────────────
 // Boxes shipped from production, not yet received — so you can still notify the
 // warehouse/client after the ship modal is gone (a closed item leaves the board).
-export type ShippedBoxLine = { client: string; invoiceNumber: string | null; itemName: string; qty: number; sizes: string; mockupFileId: string | null };
+export type ShippedBoxLine = { client: string; invoiceNumber: string | null; itemName: string; qty: number; qtys: SizeQtys; mockupFileId: string | null };
 export type ShippedBox = {
   id: string; vendorName: string; carrier: string | null; tracking: string | null; pickup: boolean;
   createdAt: string; route: Route; totalUnits: number; clients: string[]; lines: ShippedBoxLine[]; hasSlip: boolean;
 };
 const sumQ = (q: SizeQtys) => Object.values(q || {}).reduce((a, n) => a + (Number(n) || 0), 0);
-const boxSizeStr = (q: SizeQtys) => Object.entries(q || {}).filter(([, n]) => (Number(n) || 0) > 0).map(([s, n]) => `${s} ${n}`).join(" · ");
 
 export async function loadRecentShipments(sb: Sb): Promise<ShippedBox[]> {
   const cutoff = new Date(Date.now() - 21 * 86400000).toISOString();
@@ -325,7 +324,7 @@ export async function loadRecentShipments(sb: Sb): Promise<ShippedBox[]> {
       client: l.items?.jobs?.clients?.name || "—",
       invoiceNumber: l.items?.jobs?.type_meta?.qb_invoice_number || null,
       itemName: l.items?.name || l.description || "Item",
-      qty: sumQ(l.ship_qtys), sizes: boxSizeStr(l.ship_qtys), mockupFileId: mockById.get(l.item_id) || null,
+      qty: sumQ(l.ship_qtys), qtys: l.ship_qtys || {}, mockupFileId: mockById.get(l.item_id) || null,
     }));
     boxes.push({
       id: s.id, vendorName: (s as any).decorators?.name || "Unassigned vendor",
