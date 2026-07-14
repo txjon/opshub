@@ -151,6 +151,9 @@ export async function receiveBox(sb: any, args: {
       await sb.from("items").update({
         receiving_data: { condition: args.condition || "good", notes: args.note || "", received_by: user?.id || null, received_by_email: user?.email || null, received_at: now },
       }).eq("id", it.itemId);
+      // NOTE: received_at_hpd + received_qtys are dual-written from the ledger by
+      // recordReceive → recomputeItemFromLedger (only true when fully caught up),
+      // so the legacy readers (phase calc, portal, dashboard) stay correct.
       receivedTotal += tot; jobs.add(it.jobId);
     }
 

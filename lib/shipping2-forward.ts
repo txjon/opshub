@@ -60,7 +60,13 @@ export async function returnForwardedLine(sb: any, args: { shipmentId: string; i
       await appendMovement(sb, { itemId: args.itemId, jobId: t.job_id, type: "forward", qtys: neg, shipmentId: args.shipmentId, reason: "Returned to received", reversesId: t.id, description: t.description });
     }
     await sb.from("shipment_lines").delete().eq("shipment_id", args.shipmentId).eq("item_id", args.itemId);
-    await recomputeItemFromLedger(sb, args.itemId);
+    const st = await recomputeItemFromLedger(sb, args.itemId);
+    // Deliberate un-complete: forwarded_at/forward_tracking are advance-only in
+    // recompute. Clear them only when NOTHING is forwarded anymore — if another
+    // forward wave still covers the item, recompute keeps it done/stamped.
+    if (!st || st.forwarded === 0) {
+      await sb.from("items").update({ forwarded_at: null, forward_tracking: null }).eq("id", args.itemId);
+    }
     logJobActivity(args.jobId, `Returned ${args.itemName} to received`);
     return { ok: true };
   } catch (e: any) { console.error("[shipping2] returnForwardedLine", e); return { ok: false, error: e?.message || "Return failed." }; }

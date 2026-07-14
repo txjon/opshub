@@ -15,6 +15,7 @@
 // those fields except the recompute — one write path, no drift.
 
 import { shipProgress, type SizeQtys } from "./ship-progress";
+import { deriveItem, type Route, type Movement as DerivMovement } from "./item-derivation";
 
 export type MovementType = "ship" | "receive" | "forward" | "stage" | "pull" | "adjust";
 
@@ -178,24 +179,66 @@ export async function appendMovement(supabase: Sb, m: {
 export async function recomputeItemFromLedger(supabase: Sb, itemId: string): Promise<LedgerState | null> {
   const { data: item } = await supabase
     .from("items")
-    .select("id, pipeline_stage, received_at_hpd, received_at_hpd_at, buy_sheet_lines(size, qty_ordered)")
+    .select("id, pipeline_stage, shipping_route, ship_final, received_at_hpd, received_at_hpd_at, forwarded_at, webstore_entered_at, jobs(shipping_route), buy_sheet_lines(size, qty_ordered)")
     .eq("id", itemId).single();
   if (!item) return null;
   const ordered: SizeQtys = Object.fromEntries(
     (item.buy_sheet_lines || []).map((l: any) => [l.size, Number(l.qty_ordered) || 0])
   );
-  const { data: movements } = await supabase.from("movements").select("type, qtys").eq("item_id", itemId);
+  const { data: movements } = await supabase.from("movements").select("id, type, qtys, shipment_id, reverses_id, tracking, created_at").eq("item_id", itemId);
   const st = ledgerState(ordered, movements || [], item.pipeline_stage);
 
-  const nowIso = new Date().toISOString();
-  const receivedAtHpd = st.shipped > 0 && st.fullyReceived;   // caught up to everything shipped so far
+  // Canonical order-state (shortage- + finality-aware) — this is what tells us,
+  // correctly, whether the item is DONE for its route. `receiveFinal` = every
+  // inbound box carrying this item has been counted in, so a short is a real
+  // shortage (proceed) not still-in-transit (wait). Mirrors the loaders.
+  const route: Route = ((item as any).shipping_route || (item as any).jobs?.shipping_route || "ship_through") as Route;
+  const { data: slines } = await supabase.from("shipment_lines").select("received, shipments(direction)").eq("item_id", itemId);
+  let inbound = 0, recvd = 0;
+  for (const l of (slines || []) as any[]) { if (l.shipments?.direction !== "inbound") continue; inbound += 1; if (l.received) recvd += 1; }
+  const receiveFinal = inbound > 0 && recvd === inbound;
+  const derivMoves: DerivMovement[] = (movements || []).map((m: any) => ({ type: m.type, qtys: m.qtys || {}, shipmentId: m.shipment_id, reversesId: m.reverses_id, id: m.id }));
+  const ds = deriveItem({ ordered, route, shipFinal: !!(item as any).ship_final, receiveFinal, movements: derivMoves });
 
-  await supabase.from("items").update({
+  const nowIso = new Date().toISOString();
+  const receivedAtHpd = ds.shippedTotal > 0 && ds.fullyReceived;   // caught up to everything shipped (final-aware)
+
+  // ── legacy-field bridge ──────────────────────────────────────────────────
+  // The rest of the app (phase calc, portal, jobs list, dashboard, PDFs) still
+  // reads these flat item fields. The ledger is the truth; mirror it here — in
+  // ONE place — so every v2 write path (forward/return/edit, enter/return/edit)
+  // keeps the legacy readers correct without scattering writes at each call site.
+  //
+  // MONOTONIC done-flags: forwarded_at / webstore_entered_at / received_at_hpd
+  // are read as "item DONE / at-HPD". We only ever ADVANCE them here — never
+  // clear a flag that's already set. Why: pre-ledger backfilled items carry a
+  // fabricated ship=ordered gap (real received is lower, no finality signal), so
+  // a naive recompute would judge them not-done and REOPEN 22 completed jobs.
+  // Advance-only protects that history; the deliberate un-complete paths
+  // (returnEntered / returnForwardedLine / editReceivedLine-down) clear
+  // explicitly, which is the only place a regression is actually intended.
+  const latestForwardTracking = (movements || [])
+    .filter((m: any) => m.type === "forward" && (m.tracking || "").trim())
+    .sort((a: any, b: any) => String(b.created_at || "").localeCompare(String(a.created_at || "")))[0]?.tracking || null;
+
+  const update: Record<string, any> = {
+    // per-size DATA caches always reflect the current ledger (not monotonic)
     ship_qtys: Object.keys(st.shippedMap).length ? st.shippedMap : null,
     received_qtys: Object.keys(st.receivedMap).length ? st.receivedMap : null,
+    // received_at_hpd tracks the active receiving flow — set AND clear (a
+    // downward receive correction should un-flag it), same as before.
     received_at_hpd: receivedAtHpd,
     received_at_hpd_at: receivedAtHpd ? (item.received_at_hpd_at || nowIso) : null,
-  }).eq("id", itemId);
+  };
+  // forwarded_at / webstore_entered_at are MONOTONIC (advance-only) — see note above.
+  if (route === "ship_through" && ds.done) {
+    update.forwarded_at = (item as any).forwarded_at || nowIso;
+    if (latestForwardTracking) update.forward_tracking = latestForwardTracking;
+  }
+  if (route === "stage" && ds.done) {
+    update.webstore_entered_at = (item as any).webstore_entered_at || nowIso;
+  }
+  await supabase.from("items").update(update).eq("id", itemId);
 
   return st;
 }

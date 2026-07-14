@@ -33,7 +33,13 @@ export async function returnEntered(sb: any, args: { itemId: string; jobId: stri
       const neg = Object.fromEntries(Object.entries(t.qtys || {}).map(([s, n]) => [s, -(Number(n) || 0)]));
       await appendMovement(sb, { itemId: args.itemId, jobId: t.job_id, type: "stage", qtys: neg, reason: "Returned from Shopify to received", reversesId: t.id, description: t.description });
     }
-    await recomputeItemFromLedger(sb, args.itemId);
+    const st = await recomputeItemFromLedger(sb, args.itemId);
+    // Deliberate un-complete: webstore_entered_at is advance-only in recompute.
+    // Clear it only when nothing is entered anymore (a partial return that still
+    // leaves the item fully entered keeps its flag via recompute).
+    if (!st || st.staged === 0) {
+      await sb.from("items").update({ webstore_entered_at: null }).eq("id", args.itemId);
+    }
     logJobActivity(args.jobId, `Returned ${args.itemName} from Shopify to received`);
     return { ok: true };
   } catch (e: any) { console.error("[staging] returnEntered", e); return { ok: false, error: e?.message || "Return failed." }; }
