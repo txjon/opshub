@@ -192,7 +192,7 @@ function ReceivedTally({ l }: { l: ReceivingLine }) {
 // Aligned-column item row: thumb · name · route · per-variant · qty · actions.
 // Every cell sits in a fixed grid track so columns line up straight down the
 // card (kills the mid-row dead space) while the box/client grouping stays.
-const ROW_COLS = "34px minmax(150px, 1.2fr) 112px minmax(140px, 1.6fr) 44px auto";
+const ROW_COLS = "34px minmax(190px, 1.4fr) 108px minmax(130px, 1.3fr) 46px auto";
 function LineRow({ l, box, status, acts }: { l: ReceivingLine; box: ReceivingBox; status: Status; acts?: LineActions }) {
   const received = status === "received";
   return (
@@ -316,19 +316,23 @@ function ItemView({ boxes, status, onReceive, acts }: { boxes: ReceivingBox[]; s
 
 function FlatRow({ l, status, onReceive, acts, showBox, showClient }: { l: FlatLine; status: Status; onReceive: () => void; acts?: LineActions; showBox?: boolean; showClient?: boolean }) {
   const received = status === "received";
+  const ell: React.CSSProperties = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-      <ItemThumb fileId={l.mockupFileId} name={l.itemName} size={36} />
-      <div style={{ minWidth: 170 }}>
-        <div style={{ fontSize: 13, fontWeight: 500 }}>{l.itemName}</div>
-        {showClient && <div style={{ fontSize: 11, color: T.muted }}>{l.client}{l.invoiceNumber ? ` · #${l.invoiceNumber}` : ""}</div>}
-        {showBox && <div style={{ fontSize: 11, color: T.faint }}>{l.box.vendorName} · {boxHow(l.box)}</div>}
+    <div style={{ display: "grid", gridTemplateColumns: ROW_COLS, alignItems: "center", columnGap: 14 }}>
+      <ItemThumb fileId={l.mockupFileId} name={l.itemName} size={34} />
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 500, ...ell }}>{l.itemName}</div>
+        {showClient && <div style={{ fontSize: 11, color: T.muted, ...ell }}>{l.client}{l.invoiceNumber ? ` · #${l.invoiceNumber}` : ""}</div>}
+        {showBox && <div style={{ fontSize: 11, color: T.faint, ...ell }}>{l.box.vendorName} · {boxHow(l.box)}</div>}
       </div>
       <RouteTag route={l.route} />
-      <div style={{ flex: 1, minWidth: 90 }}><VariantChips qtys={qtyOf(l, status)} /></div>
-      {received
-        ? <><ReceivedTally l={l} />{acts && <RowActions l={l} box={l.box} acts={acts} />}</>
-        : <><span onClick={onReceive} style={{ fontSize: 12, fontWeight: 700, color: T.text, cursor: "pointer" }}>Receive →</span>{acts && <IncomingActions l={l} box={l.box} acts={acts} />}</>}
+      <div style={{ minWidth: 0 }}><VariantChips qtys={qtyOf(l, status)} /></div>
+      <span style={{ fontFamily: mono, fontSize: 13, fontWeight: 700, textAlign: "right" }}>{tQty(qtyOf(l, status))}</span>
+      <div style={{ justifySelf: "end", display: "flex", alignItems: "center", gap: 10 }}>
+        {received
+          ? (<><ReceivedTally l={l} />{acts && <RowActions l={l} box={l.box} acts={acts} />}</>)
+          : (<><span onClick={onReceive} style={{ fontSize: 12, fontWeight: 700, color: T.text, cursor: "pointer" }}>Receive →</span>{acts && <IncomingActions l={l} box={l.box} acts={acts} />}</>)}
+      </div>
     </div>
   );
 }
