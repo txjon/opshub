@@ -133,14 +133,15 @@ export function CardHeader({ children }: { children: ReactNode }) {
 }
 
 // ── per-variant qty chips (used on every item everywhere) ────────────────────
-export function VariantChips({ qtys, sizes, min = 34 }: { qtys: Record<string, number>; sizes?: string[]; min?: number }) {
+// Per-variant qty as light inline text (no filled boxes) — "M 8  L 21  XL 20".
+export function VariantChips({ qtys, sizes }: { qtys: Record<string, number>; sizes?: string[]; min?: number }) {
   const list = sizes || sortSizes(Object.keys(qtys));
   return (
-    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+    <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "baseline" }}>
       {list.map(sz => (
-        <span key={sz} style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", minWidth: min, padding: "3px 6px", borderRadius: 6, background: T.surface, border: `1px solid ${T.border}` }}>
-          <span style={{ fontSize: 9, fontWeight: 700, color: T.faint, letterSpacing: 0.3 }}>{sz}</span>
-          <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 600 }}>{qtys[sz] ?? 0}</span>
+        <span key={sz} style={{ display: "inline-flex", alignItems: "baseline", gap: 4 }}>
+          <span style={{ fontSize: 9.5, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: 0.3 }}>{sz}</span>
+          <span style={{ fontFamily: mono, fontSize: 13, fontWeight: 700 }}>{qtys[sz] ?? 0}</span>
         </span>
       ))}
     </div>
