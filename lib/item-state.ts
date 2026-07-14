@@ -585,6 +585,66 @@ export async function loadForwardedShipments(sb: Sb): Promise<ForwardedShipment[
   return out;
 }
 
+// ── the Staging board (stage route — stage received goods for Shopify entry) ──
+// The distro "Staging" surface (mirrored with front-office "E-Comm"). stage-route
+// items land here the moment they're received; the action is "Enter into Shopify"
+// which is the END of OpsHub's road. Two views: ready-to-enter vs entered.
+export type StagingItem = {
+  itemId: string; jobId: string; jobNumber: string; name: string; mockupFileId: string | null;
+  client: string; invoiceNumber: string | null;
+  blankVendor: string | null; blankSku: string | null; color: string | null;  // blank info
+  available: SizeQtys; availableTotal: number;   // ready to enter = received − pulled − entered
+  entered: SizeQtys; enteredTotal: number;
+  status: string;
+};
+
+export async function loadStagingBoard(sb: Sb): Promise<StagingItem[]> {
+  const { data: jobs } = await sb.from("jobs")
+    .select("id, job_number, phase, shipping_route, type_meta, costing_data, clients(name)")
+    .in("phase", ["receiving", "shipping", "fulfillment"]);
+  if (!jobs?.length) return [];
+  const jobById = new Map<string, any>((jobs as any[]).map(j => [j.id, j]));
+
+  const { data: items } = await sb.from("items")
+    .select("id, job_id, name, mockup_color, shipping_route, ship_final, blank_vendor, blank_sku, buy_sheet_lines(size, qty_ordered)")
+    .in("job_id", Array.from(jobById.keys()));
+  if (!items?.length) return [];
+  const ids = (items as any[]).map(i => i.id);
+
+  const { data: allMoves } = await sb.from("movements").select("id, item_id, type, qtys, shipment_id, reverses_id").in("item_id", ids);
+  const byItem = new Map<string, Movement[]>();
+  for (const m of allMoves || []) { const a = byItem.get(m.item_id) || []; a.push(toMovement(m)); byItem.set(m.item_id, a); }
+
+  const { data: mockupFiles } = await sb.from("item_files")
+    .select("item_id, drive_file_id, stage, created_at").in("stage", ["mockup", "proof"]).is("superseded_at", null).in("item_id", ids)
+    .order("created_at", { ascending: false });
+  const mockById = new Map<string, string>();
+  for (const f of mockupFiles || []) { if (f.stage === "mockup" && f.drive_file_id && !mockById.has(f.item_id)) mockById.set(f.item_id, f.drive_file_id); }
+  for (const f of mockupFiles || []) { if (f.drive_file_id && !mockById.has(f.item_id)) mockById.set(f.item_id, f.drive_file_id); }
+
+  const out: StagingItem[] = [];
+  for (const item of items as any[]) {
+    const job = jobById.get(item.job_id); if (!job) continue;
+    const route = resolveRoute(item.shipping_route, job.shipping_route);
+    if (route !== "stage") continue;
+    const st = deriveItem({ ordered: orderedFrom(item.buy_sheet_lines || []), route, shipFinal: !!item.ship_final, movements: byItem.get(item.id) || [] });
+    if (st.availableToEnterTotal === 0 && st.enteredTotal === 0) continue;   // not yet in the staging window
+    // color: costing cp.color (by id/name), else mockup_color
+    const cps = (job.costing_data?.costProds || []) as any[];
+    const cp = cps.find(c => c?.id === item.id) || cps.find(c => c?.name === item.name);
+    let color = (cp?.color || item.mockup_color || "").trim() || null;
+    if (color && color.startsWith("#")) color = null;   // a raw hex mockup color isn't a real blank color name
+    out.push({
+      itemId: item.id, jobId: item.job_id, jobNumber: job.job_number, name: item.name, mockupFileId: mockById.get(item.id) || null,
+      client: job.clients?.name || "—", invoiceNumber: job.type_meta?.qb_invoice_number || null,
+      blankVendor: (item.blank_vendor || "").trim() || null, blankSku: (item.blank_sku || "").trim() || null, color,
+      available: st.availableToEnter, availableTotal: st.availableToEnterTotal,
+      entered: st.entered, enteredTotal: st.enteredTotal, status: st.status,
+    });
+  }
+  return out.sort((a, b) => a.client.localeCompare(b.client) || a.name.localeCompare(b.name));
+}
+
 // ── held pulls (the Pulls tab — where pulled units land, with their action) ─
 export type HeldPull = {
   id: string; itemId: string; jobId: string; itemName: string;

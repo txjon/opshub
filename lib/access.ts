@@ -40,9 +40,11 @@ export const PAGE_CATALOG: CatalogPage[] = [
   { key: "/shipping", href: "/shipping", label: "Shipping", group: "distro" },
   { key: "/shipping2", href: "/shipping2", label: "Shipping v2", group: "distro" },
   { key: "/fulfillment", href: "/fulfillment", label: "Fulfillment", group: "distro" },
+  { key: "/staging2", href: "/staging2", label: "Staging v2", group: "distro" },
   { key: "/hours", href: "/hours", label: "Log Hours", group: "distro" },
   // Ecomm
   { key: "/ecomm", href: "/ecomm", label: "Dashboard", group: "ecomm" },
+  { key: "/ecomm/staging", href: "/ecomm/staging", label: "Staging", group: "ecomm" },
   // Contacts
   { key: "/intake", href: "/intake", label: "Intake", group: "contacts" },
   { key: "/clients", href: "/clients", label: "Clients", group: "contacts" },
