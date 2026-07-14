@@ -285,7 +285,7 @@ export async function loadFreightCarriers(sb: Sb): Promise<string[]> {
 // ── recent shipped boxes (the Production "Shipped" view) ───────────────────
 // Boxes shipped from production, not yet received — so you can still notify the
 // warehouse/client after the ship modal is gone (a closed item leaves the board).
-export type ShippedBoxLine = { client: string; invoiceNumber: string | null; itemName: string; qty: number; sizes: string };
+export type ShippedBoxLine = { client: string; invoiceNumber: string | null; itemName: string; qty: number; sizes: string; mockupFileId: string | null };
 export type ShippedBox = {
   id: string; vendorName: string; carrier: string | null; tracking: string | null; pickup: boolean;
   createdAt: string; route: Route; totalUnits: number; clients: string[]; lines: ShippedBoxLine[]; hasSlip: boolean;
@@ -308,6 +308,12 @@ export async function loadRecentShipments(sb: Sb): Promise<ShippedBox[]> {
     ? await sb.from("item_files").select("item_id").eq("stage", "packing_slip").not("drive_link", "is", null).in("item_id", itemIds)
     : { data: [] as any[] };
   const slipItems = new Set((slips || []).map((s: any) => s.item_id));
+  const { data: mockups } = itemIds.length
+    ? await sb.from("item_files").select("item_id, drive_file_id, stage, created_at").in("stage", ["mockup", "proof"]).is("superseded_at", null).in("item_id", itemIds).order("created_at", { ascending: false })
+    : { data: [] as any[] };
+  const mockById = new Map<string, string>();
+  for (const f of mockups || []) { if (f.stage === "mockup" && f.drive_file_id && !mockById.has(f.item_id)) mockById.set(f.item_id, f.drive_file_id); }
+  for (const f of mockups || []) { if (f.drive_file_id && !mockById.has(f.item_id)) mockById.set(f.item_id, f.drive_file_id); }
   const byShip = new Map<string, any[]>();
   for (const l of lines || []) { const a = byShip.get(l.shipment_id) || []; a.push(l); byShip.set(l.shipment_id, a); }
 
@@ -319,7 +325,7 @@ export async function loadRecentShipments(sb: Sb): Promise<ShippedBox[]> {
       client: l.items?.jobs?.clients?.name || "—",
       invoiceNumber: l.items?.jobs?.type_meta?.qb_invoice_number || null,
       itemName: l.items?.name || l.description || "Item",
-      qty: sumQ(l.ship_qtys), sizes: boxSizeStr(l.ship_qtys),
+      qty: sumQ(l.ship_qtys), sizes: boxSizeStr(l.ship_qtys), mockupFileId: mockById.get(l.item_id) || null,
     }));
     boxes.push({
       id: s.id, vendorName: (s as any).decorators?.name || "Unassigned vendor",

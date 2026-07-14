@@ -361,16 +361,18 @@ function ShippedBoxCard({ box }: { box: ShippedBox }) {
         <span style={{ fontSize: 12, color: T.faint }}>{fmtWhen(box.createdAt)}</span>
         <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700 }}>{box.totalUnits}u</span>
       </div>
-      <div style={{ padding: "10px 16px" }}>
+      <div>
         {Array.from(byClient.entries()).map(([client, lines]) => (
-          <div key={client} style={{ marginBottom: 6 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: T.muted, marginBottom: 2 }}>
+          <div key={client}>
+            <div style={{ padding: "8px 16px 6px", borderTop: `1px solid ${T.border}`, fontSize: 12, fontWeight: 600, color: T.muted }}>
               {client}{lines[0]?.invoiceNumber ? <span style={{ fontFamily: mono, color: T.faint, fontWeight: 500 }}> · #{lines[0].invoiceNumber}</span> : ""}
             </div>
             {lines.map((l, i) => (
-              <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "2px 0" }}>
-                <span>{l.itemName} <span style={{ color: T.faint, fontSize: 11 }}>{l.sizes}</span></span>
-                <span style={{ fontFamily: mono, fontWeight: 700 }}>{l.qty}</span>
+              <div key={i} style={{ padding: "10px 16px", borderTop: `1px solid ${T.border}`, display: "grid", gridTemplateColumns: "34px minmax(180px, 1.6fr) minmax(110px, 1fr) 48px", alignItems: "center", columnGap: 14 }}>
+                <ItemThumb fileId={l.mockupFileId} name={l.itemName} size={34} />
+                <span style={{ fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.itemName}</span>
+                <span style={{ fontSize: 11, color: T.faint, fontFamily: mono }}>{l.sizes}</span>
+                <span style={{ fontFamily: mono, fontSize: 13, fontWeight: 700, textAlign: "right" }}>{l.qty}</span>
               </div>
             ))}
           </div>
