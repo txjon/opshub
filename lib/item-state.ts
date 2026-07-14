@@ -442,6 +442,131 @@ export async function loadReceivingBoard(sb: Sb): Promise<ReceivingBox[]> {
   return boxes;
 }
 
+// ── the Shipping board (ship_through — forward received goods to the client) ──
+// Ship_through jobs with items in the shipping window (shipped, not yet fully
+// forwarded). Per item: available-to-forward (received − pulled − forwarded) vs
+// still-owed (more coming from production). Job is "ready" when everything's in.
+export type ShippingItem = {
+  itemId: string; jobId: string; name: string; mockupFileId: string | null;
+  availableTotal: number; available: SizeQtys;   // ready to forward now
+  owedTotal: number;                              // still to ship from production
+  pulledTotal: number; forwardedTotal: number; receivedTotal: number;
+  readyDownstream: boolean; done: boolean; status: string;
+};
+export type ShippingJob = {
+  jobId: string; jobNumber: string; jobTitle: string; clientName: string;
+  invoiceNumber: string | null; shipTo: string | null;
+  items: ShippingItem[];
+  status: "ready" | "awaiting";
+  readyUnits: number; owedUnits: number;
+};
+
+export async function loadShippingBoard(sb: Sb): Promise<ShippingJob[]> {
+  const { data: jobs } = await sb.from("jobs")
+    .select("id, job_number, title, phase, shipping_route, type_meta, clients(name, shipping_address)")
+    .in("phase", ["receiving", "shipping", "fulfillment"]);
+  if (!jobs?.length) return [];
+  const jobById = new Map<string, any>((jobs as any[]).map(j => [j.id, j]));
+
+  const { data: items } = await sb.from("items")
+    .select("id, job_id, name, mockup_color, shipping_route, ship_final, buy_sheet_lines(size, qty_ordered)")
+    .in("job_id", Array.from(jobById.keys()));
+  if (!items?.length) return [];
+  const ids = (items as any[]).map(i => i.id);
+
+  const { data: allMoves } = await sb.from("movements").select("id, item_id, type, qtys, shipment_id, reverses_id").in("item_id", ids);
+  const byItem = new Map<string, Movement[]>();
+  for (const m of allMoves || []) { const a = byItem.get(m.item_id) || []; a.push(toMovement(m)); byItem.set(m.item_id, a); }
+
+  const { data: mockupFiles } = await sb.from("item_files")
+    .select("item_id, drive_file_id, stage, created_at").in("stage", ["mockup", "proof"]).is("superseded_at", null).in("item_id", ids)
+    .order("created_at", { ascending: false });
+  const mockById = new Map<string, string>();
+  for (const f of mockupFiles || []) { if (f.stage === "mockup" && f.drive_file_id && !mockById.has(f.item_id)) mockById.set(f.item_id, f.drive_file_id); }
+  for (const f of mockupFiles || []) { if (f.drive_file_id && !mockById.has(f.item_id)) mockById.set(f.item_id, f.drive_file_id); }
+
+  const byJob = new Map<string, ShippingItem[]>();
+  for (const item of items as any[]) {
+    const job = jobById.get(item.job_id); if (!job) continue;
+    const route = resolveRoute(item.shipping_route, job.shipping_route);
+    if (route !== "ship_through") continue;
+    const st = deriveItem({ ordered: orderedFrom(item.buy_sheet_lines || []), route, shipFinal: !!item.ship_final, movements: byItem.get(item.id) || [] });
+    // In the shipping window = something has shipped and it's not fully forwarded.
+    if (st.shippedTotal === 0 && st.owedTotal === 0) continue;
+    if (st.done) continue;
+    const a = byJob.get(item.job_id) || [];
+    a.push({
+      itemId: item.id, jobId: item.job_id, name: item.name, mockupFileId: mockById.get(item.id) || null,
+      availableTotal: st.availableToForwardTotal, available: st.availableToForward,
+      owedTotal: st.owedTotal, pulledTotal: st.pulledTotal, forwardedTotal: st.forwardedTotal, receivedTotal: st.receivedTotal,
+      readyDownstream: st.readyDownstream, done: st.done, status: st.status,
+    });
+    byJob.set(item.job_id, a);
+  }
+
+  const out: ShippingJob[] = [];
+  for (const [jobId, its] of Array.from(byJob.entries())) {
+    if (!its.length) continue;
+    const job = jobById.get(jobId);
+    // awaiting = any item still coming (not ready and not done); else ready.
+    const awaiting = its.some(it => !it.readyDownstream && !it.done);
+    out.push({
+      jobId, jobNumber: job.job_number, jobTitle: job.title,
+      clientName: job.clients?.name || "—", invoiceNumber: job.type_meta?.qb_invoice_number || null,
+      shipTo: job.clients?.shipping_address || null,
+      items: its,
+      status: awaiting ? "awaiting" : "ready",
+      readyUnits: its.reduce((s, it) => s + it.availableTotal, 0),
+      owedUnits: its.reduce((s, it) => s + it.owedTotal, 0),
+    });
+  }
+  return out.sort((a, b) => (a.status === b.status ? 0 : a.status === "ready" ? -1 : 1) || a.jobNumber.localeCompare(b.jobNumber));
+}
+
+// ── forwarded outbound shipments (the Shipping "Forwarded" view) ───────────
+export type ForwardedLine = { itemId: string; jobId: string; itemName: string; mockupFileId: string | null; client: string; invoiceNumber: string | null; route: Route; qtys: SizeQtys };
+export type ForwardedShipment = {
+  id: string; carrier: string | null; tracking: string | null; createdAt: string;
+  clients: string[]; jobNumbers: string[]; totalUnits: number; lines: ForwardedLine[];
+};
+export async function loadForwardedShipments(sb: Sb): Promise<ForwardedShipment[]> {
+  const cutoff = new Date(Date.now() - 45 * 86400000).toISOString();
+  const { data: ships } = await sb.from("shipments")
+    .select("id, carrier, tracking, created_at").eq("direction", "outbound").gte("created_at", cutoff)
+    .order("created_at", { ascending: false }).limit(160);
+  if (!ships?.length) return [];
+  const ids = (ships as any[]).map(s => s.id);
+  const { data: lines } = await sb.from("shipment_lines")
+    .select("shipment_id, item_id, job_id, description, ship_qtys, items(name, mockup_color, shipping_route, jobs(job_number, shipping_route, type_meta, clients(name)))").in("shipment_id", ids);
+  const itemIds = Array.from(new Set((lines || []).map((l: any) => l.item_id).filter(Boolean)));
+  const { data: mockups } = itemIds.length
+    ? await sb.from("item_files").select("item_id, drive_file_id, stage, created_at").in("stage", ["mockup", "proof"]).is("superseded_at", null).in("item_id", itemIds).order("created_at", { ascending: false })
+    : { data: [] as any[] };
+  const mockById = new Map<string, string>();
+  for (const f of mockups || []) { if (f.stage === "mockup" && f.drive_file_id && !mockById.has(f.item_id)) mockById.set(f.item_id, f.drive_file_id); }
+  for (const f of mockups || []) { if (f.drive_file_id && !mockById.has(f.item_id)) mockById.set(f.item_id, f.drive_file_id); }
+  const byShip = new Map<string, any[]>();
+  for (const l of lines || []) { const a = byShip.get(l.shipment_id) || []; a.push(l); byShip.set(l.shipment_id, a); }
+
+  const out: ForwardedShipment[] = [];
+  for (const s of ships as any[]) {
+    const ls = byShip.get(s.id) || [];
+    if (!ls.length) continue;
+    const fLines: ForwardedLine[] = ls.map((l: any) => ({
+      itemId: l.item_id, jobId: l.job_id, itemName: l.items?.name || l.description || "Item", mockupFileId: mockById.get(l.item_id) || null,
+      client: l.items?.jobs?.clients?.name || "—", invoiceNumber: l.items?.jobs?.type_meta?.qb_invoice_number || null,
+      route: resolveRoute(l.items?.shipping_route, l.items?.jobs?.shipping_route), qtys: l.ship_qtys || {},
+    }));
+    out.push({
+      id: s.id, carrier: s.carrier, tracking: s.tracking, createdAt: s.created_at,
+      clients: Array.from(new Set(fLines.map(l => l.client))),
+      jobNumbers: Array.from(new Set(ls.map((l: any) => l.items?.jobs?.job_number).filter(Boolean))),
+      totalUnits: fLines.reduce((a, l) => a + sumQ(l.qtys), 0), lines: fLines,
+    });
+  }
+  return out;
+}
+
 // ── held pulls (the Pulls tab — where pulled units land, with their action) ─
 export type HeldPull = {
   id: string; itemId: string; jobId: string; itemName: string;

@@ -1,10 +1,9 @@
 "use client";
-import { useState, useMemo, useRef, useEffect } from "react";
-import { createPortal } from "react-dom";
+import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono, sortSizes } from "@/lib/theme";
-import { BoardFrame, ToggleSearch, KpiStrip, KpiBreakdownModal, ModalShell, Card, CardHeader, BoxHead, ItemRow, VariantChips, RouteTag, ItemThumb, SegmentControl, SliceSortRow } from "@/components/board-kit";
+import { BoardFrame, ToggleSearch, KpiStrip, KpiBreakdownModal, ModalShell, Card, CardHeader, BoxHead, ItemRow, RowMenu, VariantChips, RouteTag, ItemThumb, SegmentControl, SliceSortRow } from "@/components/board-kit";
 import { receiveBox as receiveBoxAction, resolvePull, returnReceivedLine, editReceivedLine, editShippedLine, returnIncomingToProduction } from "@/lib/receiving2-receive";
 import { PULL_KINDS } from "@/lib/handoff";
 import LedgerHistory from "@/components/LedgerHistory";
@@ -151,49 +150,6 @@ export default function Board({ boxes, pulls }: { boxes: ReceivingBox[]; pulls: 
   );
 }
 
-// Overflow "⋯" menu — collapses the occasional row actions (History / Edit /
-// Return) behind one control so the primary action can breathe. Portaled to
-// <body> at fixed coords so the card's overflow:hidden can't clip it; closes on
-// outside-click or scroll.
-type MenuItem = { label: string; onClick: () => void; danger?: boolean; disabled?: boolean };
-function RowMenu({ busy, items }: { busy?: boolean; items: MenuItem[] }) {
-  const [open, setOpen] = useState(false);
-  const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
-  const btnRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const close = () => setOpen(false);
-    window.addEventListener("scroll", close, true);
-    window.addEventListener("resize", close);
-    return () => { window.removeEventListener("scroll", close, true); window.removeEventListener("resize", close); };
-  }, [open]);
-  function toggle() {
-    if (open) return setOpen(false);
-    const r = btnRef.current!.getBoundingClientRect();
-    setPos({ top: r.bottom + 5, right: Math.max(8, window.innerWidth - r.right) });
-    setOpen(true);
-  }
-  return (
-    <>
-      <button ref={btnRef} onClick={toggle} aria-label="More actions"
-        style={{ width: 30, height: 26, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 17, lineHeight: 1, color: T.muted, background: open ? T.surface : "none", border: `1px solid ${T.border}`, borderRadius: 7, cursor: "pointer" }}>
-        {busy ? "…" : "⋯"}
-      </button>
-      {open && pos && createPortal(
-        <>
-          <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 1000 }} />
-          <div style={{ position: "fixed", top: pos.top, right: pos.right, zIndex: 1001, background: T.card, border: `1px solid ${T.border}`, borderRadius: 9, boxShadow: "0 10px 30px rgba(0,0,0,0.14)", minWidth: 190, overflow: "hidden" }}>
-            {items.map((it, i) => (
-              <button key={i} disabled={it.disabled} onClick={() => { setOpen(false); it.onClick(); }}
-                style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 13px", fontSize: 12.5, fontWeight: 600, background: "none", border: "none", borderTop: i ? `1px solid ${T.border}` : "none", color: it.disabled ? T.faint : it.danger ? "#a87b00" : T.text, cursor: it.disabled ? "default" : "pointer" }}>
-                {it.label}
-              </button>
-            ))}
-          </div>
-        </>, document.body)}
-    </>
-  );
-}
 
 // Received-view row actions → overflow menu (History / Edit / ← Return-to-receiving).
 function RowActions({ l, box, acts }: { l: ReceivingLine; box: ReceivingBox; acts: LineActions }) {

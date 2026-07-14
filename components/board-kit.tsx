@@ -3,9 +3,53 @@
 // (production2, receiving2, shipping2, fulfillment2) renders from THESE components
 // so they are the same app by construction, not by copy-paste. Change it here and
 // every surface changes together.
-import { type ReactNode } from "react";
+import { type ReactNode, useState, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 import { DriveThumb } from "@/components/DriveThumb";
+
+// ── overflow "⋯" row menu — collapses occasional row actions behind one control.
+// Portaled to <body> at fixed coords so a card's overflow:hidden can't clip it;
+// closes on outside-click or scroll. Touch-safe (no hover). Shared by all surfaces.
+export type RowMenuItem = { label: string; onClick: () => void; danger?: boolean; disabled?: boolean };
+export function RowMenu({ busy, items }: { busy?: boolean; items: RowMenuItem[] }) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => { window.removeEventListener("scroll", close, true); window.removeEventListener("resize", close); };
+  }, [open]);
+  function toggle() {
+    if (open) return setOpen(false);
+    const r = btnRef.current!.getBoundingClientRect();
+    setPos({ top: r.bottom + 5, right: Math.max(8, window.innerWidth - r.right) });
+    setOpen(true);
+  }
+  return (
+    <>
+      <button ref={btnRef} onClick={toggle} aria-label="More actions"
+        style={{ width: 30, height: 26, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 17, lineHeight: 1, color: T.muted, background: open ? T.surface : "none", border: `1px solid ${T.border}`, borderRadius: 7, cursor: "pointer" }}>
+        {busy ? "…" : "⋯"}
+      </button>
+      {open && pos && createPortal(
+        <>
+          <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 1000 }} />
+          <div style={{ position: "fixed", top: pos.top, right: pos.right, zIndex: 1001, background: T.card, border: `1px solid ${T.border}`, borderRadius: 9, boxShadow: "0 10px 30px rgba(0,0,0,0.14)", minWidth: 190, overflow: "hidden" }}>
+            {items.map((it, i) => (
+              <button key={i} disabled={it.disabled} onClick={() => { setOpen(false); it.onClick(); }}
+                style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 13px", fontSize: 12.5, fontWeight: 600, background: "none", border: "none", borderTop: i ? `1px solid ${T.border}` : "none", color: it.disabled ? T.faint : it.danger ? "#a87b00" : T.text, cursor: it.disabled ? "default" : "pointer" }}>
+                {it.label}
+              </button>
+            ))}
+          </div>
+        </>, document.body)}
+    </>
+  );
+}
 
 // ── page frame: dev header + kpi hover CSS + max-width container ────────────
 export function BoardFrame({ title, children }: { title: string; children: ReactNode }) {
