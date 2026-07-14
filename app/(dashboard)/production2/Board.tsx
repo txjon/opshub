@@ -419,7 +419,7 @@ function ShippedBoxCard({ box }: { box: ShippedBox }) {
       <BoxMeta segments={noteSegs} />
       {lines.map((l, i) => (
         <div key={i} style={{ padding: "10px 16px", borderTop: `1px solid ${T.border}` }}>
-          <ItemRow fileId={l.mockupFileId} name={l.itemName} lead={l.client} route={box.route} variant={<VariantChips qtys={l.qtys} />} qty={l.qty} />
+          <ItemRow fileId={l.mockupFileId} name={l.itemName} lead={l.invoiceNumber ? `${l.client} · #${l.invoiceNumber}` : l.client} route={box.route} variant={<VariantChips qtys={l.qtys} />} qty={l.qty} />
         </div>
       ))}
     </Card>
@@ -465,7 +465,7 @@ function ShippedItemView({ boxes }: { boxes: ShippedBox[] }) {
     <Card>
       {lines.map((l, i) => (
         <div key={i} style={{ borderTop: i === 0 ? "none" : `1px solid ${T.border}`, padding: "10px 16px" }}>
-          <ItemRow fileId={l.mockupFileId} name={l.itemName} lead={l.client} route={l.box.route}
+          <ItemRow fileId={l.mockupFileId} name={l.itemName} lead={l.invoiceNumber ? `${l.client} · #${l.invoiceNumber}` : l.client} route={l.box.route}
             sub={<div style={{ fontSize: 11, color: T.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.box.vendorName}</div>}
             variant={<VariantChips qtys={l.qtys} />} qty={l.qty} />
         </div>
