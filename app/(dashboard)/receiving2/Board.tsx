@@ -254,12 +254,16 @@ function ClientGroups({ box, status, acts }: { box: ReceivingBox; status: Status
   return (
     <>
       {Array.from(byClient.entries()).map(([client, ls]) => (
-        <div key={client} style={{ padding: "10px 16px", borderTop: `1px solid ${T.border}` }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: T.muted, marginBottom: 8 }}>
+        <div key={client}>
+          <div style={{ padding: "8px 16px 6px", borderTop: `1px solid ${T.border}`, fontSize: 12, fontWeight: 600, color: T.muted }}>
             {client}{ls[0]?.invoiceNumber ? <span style={{ fontFamily: mono, color: T.faint, fontWeight: 500 }}> · #{ls[0].invoiceNumber}</span> : ""}
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {ls.map(l => <LineRow key={l.itemId} l={l} box={box} status={status} acts={acts} />)}
+          <div>
+            {ls.map(l => (
+              <div key={l.itemId} style={{ padding: "10px 16px", borderTop: `1px solid ${T.border}` }}>
+                <LineRow l={l} box={box} status={status} acts={acts} />
+              </div>
+            ))}
           </div>
         </div>
       ))}
@@ -330,8 +334,12 @@ function JobView({ boxes, status, onReceive, acts }: { boxes: ReceivingBox[]; st
             <div style={{ flex: 1 }} />
             <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 700 }}>{g.lines.reduce((a, l) => a + tQty(qtyOf(l, status)), 0)}u</span>
           </CardHeader>
-          <div style={{ padding: "10px 16px", display: "flex", flexDirection: "column", gap: 8 }}>
-            {g.lines.map((l, j) => <FlatRow key={j} l={l} status={status} onReceive={() => onReceive(l.box)} acts={acts} showBox />)}
+          <div>
+            {g.lines.map((l, j) => (
+              <div key={j} style={{ padding: "10px 16px", borderTop: `1px solid ${T.border}` }}>
+                <FlatRow l={l} status={status} onReceive={() => onReceive(l.box)} acts={acts} showBox />
+              </div>
+            ))}
           </div>
         </Card>
       ))}
