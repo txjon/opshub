@@ -23,3 +23,12 @@ export function v2WriteAllowed(opts: { clientName?: string | null; jobNumber?: s
   if (opts.jobNumber && V2_TEST_JOBS.includes(opts.jobNumber)) return true;
   return false;
 }
+
+// Is this an ACTUAL test client (the Playwright account), independent of the
+// live flag? Use this for side effects that must stay sandboxed even after
+// cutover — e.g. routing a warehouse-notify email to the caller instead of the
+// real warehouse. (v2WriteAllowed is the wrong gate for that: it goes true for
+// every real job once live, which would misroute real notifications.)
+export function isV2TestClient(clientName?: string | null): boolean {
+  return !!clientName && V2_TEST_CLIENTS.includes(clientName);
+}

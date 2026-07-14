@@ -14,7 +14,7 @@ import { NotifyShipmentDialog } from "@/components/NotifyShipmentDialog";
 import { uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
 import type { BoardStrip, BoardItem, ShippedBox } from "@/lib/item-state";
 
-import { v2WriteAllowed } from "@/lib/v2-flags";
+import { v2WriteAllowed, isV2TestClient } from "@/lib/v2-flags";
 
 type SelItem = BoardItem & { strip: BoardStrip };
 
@@ -386,13 +386,16 @@ function ShippedBoxCard({ box }: { box: ShippedBox }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [to, setTo] = useState<string | null>(null);
-  const isTest = box.clients.every(c => v2WriteAllowed({ clientName: c }));
+  const isTest = box.clients.every(c => v2WriteAllowed({ clientName: c }));    // notify allowed?
+  const isTestOnly = box.clients.every(c => isV2TestClient(c));               // sandbox the email? (Playwright only)
   const isDrop = box.route === "drop_ship";
 
   async function notify() {
     setBusy(true); setErr(null);
     try {
-      const res = await fetch("/api/production2/notify-warehouse", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ shipmentIds: [box.id], test: isTest }) });
+      // `test` routes the email to the caller instead of the real warehouse —
+      // ONLY for the actual test client, never for real jobs once live.
+      const res = await fetch("/api/production2/notify-warehouse", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ shipmentIds: [box.id], test: isTestOnly }) });
       const d = await res.json();
       if (d.success) { setNotified(true); setTo(d.to || null); } else setErr(d.error || "Notify failed");
     } catch (e: any) { setErr(e?.message || "Notify failed"); }
