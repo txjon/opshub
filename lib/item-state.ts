@@ -391,6 +391,24 @@ export async function loadReceivingBoard(sb: Sb): Promise<ReceivingBox[]> {
   const byShip = new Map<string, any[]>();
   for (const l of lines || []) { const a = byShip.get(l.shipment_id) || []; a.push(l); byShip.set(l.shipment_id, a); }
 
+  // "First wave carries it": a production-declared pull belongs to ONE shipment —
+  // the EARLIEST un-received box that holds the item (falls back to the earliest
+  // box if all are received). So the pull shows on that box's receive modal only,
+  // not duplicated across every wave of a multi-wave item.
+  const pullBoxByItem = new Map<string, string>();
+  for (const itemId of Array.from(pullsByItem.keys())) {
+    let unrecv: { id: string; created: string } | null = null;
+    let earliest: { id: string; created: string } | null = null;
+    for (const s of open) {
+      const line = (byShip.get(s.id) || []).find((l: any) => l.item_id === itemId);
+      if (!line) continue;
+      if (!earliest || s.created_at < earliest.created) earliest = { id: s.id, created: s.created_at };
+      if (!line.received && (!unrecv || s.created_at < unrecv.created)) unrecv = { id: s.id, created: s.created_at };
+    }
+    const pick = unrecv || earliest;
+    if (pick) pullBoxByItem.set(itemId, pick.id);
+  }
+
   const boxes: ReceivingBox[] = [];
   for (const s of open) {
     const ls = byShip.get(s.id) || [];
@@ -401,7 +419,7 @@ export async function loadReceivingBoard(sb: Sb): Promise<ReceivingBox[]> {
       route: resolveRoute(l.items?.shipping_route, l.items?.jobs?.shipping_route),
       shipQtys: l.ship_qtys || {}, receivedQtys: l.received_qtys || {}, cumReceived: l.items?.received_qtys || {},
       orderedTotal: (l.items?.buy_sheet_lines || []).reduce((a: number, b: any) => a + (Number(b.qty_ordered) || 0), 0),
-      received: !!l.received, pullRequests: pullsByItem.get(l.item_id) || [],
+      received: !!l.received, pullRequests: pullBoxByItem.get(l.item_id) === s.id ? (pullsByItem.get(l.item_id) || []) : [],
     }));
     const slipMap = new Map<string, { name: string; url: string }>();
     for (const l of ls) for (const sl of slipsByItem.get(l.item_id) || []) slipMap.set(sl.url, sl);
