@@ -11,7 +11,8 @@ const TYPE_META: Record<string, { label: string; color: string }> = {
   ship: { label: "Shipped from vendor", color: T.green },
   receive: { label: "Received at HPD", color: T.blue },
   forward: { label: "Forwarded to client", color: "#c2477e" },
-  stage: { label: "Staged to webstore", color: "#b5892a" },
+  stage: { label: "Entered into Shopify", color: "#b5892a" },
+  pull: { label: "Pulled / held back", color: "#7a52c4" },
   adjust: { label: "Adjustment", color: T.faint },
 };
 const SOURCE_LABEL: Record<string, string> = {

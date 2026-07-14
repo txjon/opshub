@@ -450,7 +450,8 @@ export type ShippingItem = {
   itemId: string; jobId: string; name: string; mockupFileId: string | null;
   availableTotal: number; available: SizeQtys;   // ready to forward now
   owedTotal: number;                              // still to ship from production
-  comingTotal: number;                            // still coming to shipping = in-transit (shipped−received) + owed
+  comingTotal: number;                            // genuinely still coming = in-transit (unreceived box) + owed
+  shortTotal: number;                             // received short + all boxes in = a real shortage (NOT coming)
   pulledTotal: number; forwardedTotal: number; receivedTotal: number;
   readyDownstream: boolean; done: boolean; status: string;
 };
@@ -479,6 +480,17 @@ export async function loadShippingBoard(sb: Sb): Promise<ShippingJob[]> {
   const byItem = new Map<string, Movement[]>();
   for (const m of allMoves || []) { const a = byItem.get(m.item_id) || []; a.push(toMovement(m)); byItem.set(m.item_id, a); }
 
+  // receiveFinal per item = it has inbound shipment lines and ALL are counted in.
+  // (A short then is a real shortage, not still-in-transit.)
+  const { data: slines } = await sb.from("shipment_lines").select("item_id, received, shipments(direction)").in("item_id", ids);
+  const recvByItem = new Map<string, { inbound: number; received: number }>();
+  for (const l of slines || []) {
+    if ((l as any).shipments?.direction !== "inbound") continue;
+    const cur = recvByItem.get(l.item_id) || { inbound: 0, received: 0 };
+    cur.inbound += 1; if (l.received) cur.received += 1;
+    recvByItem.set(l.item_id, cur);
+  }
+
   const { data: mockupFiles } = await sb.from("item_files")
     .select("item_id, drive_file_id, stage, created_at").in("stage", ["mockup", "proof"]).is("superseded_at", null).in("item_id", ids)
     .order("created_at", { ascending: false });
@@ -491,16 +503,19 @@ export async function loadShippingBoard(sb: Sb): Promise<ShippingJob[]> {
     const job = jobById.get(item.job_id); if (!job) continue;
     const route = resolveRoute(item.shipping_route, job.shipping_route);
     if (route !== "ship_through") continue;
-    const st = deriveItem({ ordered: orderedFrom(item.buy_sheet_lines || []), route, shipFinal: !!item.ship_final, movements: byItem.get(item.id) || [] });
+    const rc = recvByItem.get(item.id);
+    const receiveFinal = !!rc && rc.inbound > 0 && rc.received === rc.inbound;
+    const st = deriveItem({ ordered: orderedFrom(item.buy_sheet_lines || []), route, shipFinal: !!item.ship_final, receiveFinal, movements: byItem.get(item.id) || [] });
     // In the shipping window = something has shipped and it's not fully forwarded.
     if (st.shippedTotal === 0 && st.owedTotal === 0) continue;
     if (st.done) continue;
-    const inTransit = Math.max(0, st.shippedTotal - st.receivedTotal);   // shipped, not yet at HPD
+    // shipped − received: still in-transit if a box is unreceived; a real shortage if all boxes are in.
+    const gap = Math.max(0, st.shippedTotal - st.receivedTotal);
     const a = byJob.get(item.job_id) || [];
     a.push({
       itemId: item.id, jobId: item.job_id, name: item.name, mockupFileId: mockById.get(item.id) || null,
       availableTotal: st.availableToForwardTotal, available: st.availableToForward,
-      owedTotal: st.owedTotal, comingTotal: inTransit + st.owedTotal,
+      owedTotal: st.owedTotal, comingTotal: st.owedTotal + (receiveFinal ? 0 : gap), shortTotal: receiveFinal ? gap : 0,
       pulledTotal: st.pulledTotal, forwardedTotal: st.forwardedTotal, receivedTotal: st.receivedTotal,
       readyDownstream: st.readyDownstream, done: st.done, status: st.status,
     });

@@ -96,9 +96,10 @@ function Empty({ children }: { children: React.ReactNode }) {
 function ToForwardActions({ it, onHistory }: { it: ShippingItem; onHistory: (itemId: string, itemName: string) => void }) {
   return (
     <div style={{ justifySelf: "end", display: "flex", alignItems: "center", gap: 10 }}>
-      <span style={{ width: 150, textAlign: "right", fontSize: 11, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+      <span style={{ width: 168, textAlign: "right", fontSize: 11, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {it.availableTotal > 0 && <span style={{ color: T.green }}>ready</span>}
         {it.comingTotal > 0 && <span style={{ color: "#a87b00" }}>{it.availableTotal > 0 ? " · " : ""}{it.comingTotal} coming</span>}
+        {it.shortTotal > 0 && <span style={{ color: T.red }}>{(it.availableTotal > 0 || it.comingTotal > 0) ? " · " : ""}{it.shortTotal} short</span>}
         {it.pulledTotal > 0 && <span style={{ color: T.purple, fontWeight: 600 }}> · {it.pulledTotal} pulled</span>}
       </span>
       <RowMenu items={[{ label: "History", onClick: () => onHistory(it.itemId, it.name) }]} />
@@ -122,7 +123,7 @@ function JobCard({ job, onForward, onHistory }: { job: ShippingJob; onForward: (
         {job.items.map(it => (
           <div key={it.itemId} style={{ padding: "10px 16px", borderTop: `1px solid ${T.border}` }}>
             <ItemRow fileId={it.mockupFileId} name={it.name} route="ship_through"
-              variant={it.availableTotal > 0 ? <VariantChips qtys={it.available} /> : <span style={{ fontSize: 12, color: "#a87b00", fontWeight: 600 }}>{it.comingTotal > 0 ? `${it.comingTotal} coming` : "—"}</span>}
+              variant={it.availableTotal > 0 ? <VariantChips qtys={it.available} /> : <span style={{ fontSize: 12, color: it.shortTotal > 0 ? T.red : "#a87b00", fontWeight: 600 }}>{it.comingTotal > 0 ? `${it.comingTotal} coming` : it.shortTotal > 0 ? `${it.shortTotal} short` : "—"}</span>}
               qty={it.availableTotal || ""}
               actions={<ToForwardActions it={it} onHistory={onHistory} />} />
           </div>

@@ -32,6 +32,11 @@ export type ItemInput = {
   ordered: SizeQtys;
   route: Route;
   shipFinal?: boolean;         // "no more shipping coming" — set at the final wave
+  receiveFinal?: boolean;      // "no more arriving" — every shipment carrying this item
+                               // has been counted in. A short then = a real receive
+                               // shortage (logged), NOT still-in-transit. Mirror of
+                               // shipFinal on the receive side (spec R6). Set by the
+                               // loader from shipment_lines.received.
   movements: Movement[];
 };
 
@@ -149,7 +154,10 @@ export function deriveItem(input: ItemInput): ItemState {
   // split wrong; production must resolve it with the vendor.
   const sizeMismatchFlag = closed && Object.keys(overReceived).length > 0 && Object.keys(underReceived).length > 0;
 
-  const fullyReceived = shippedTotal > 0 && sum(received) >= shippedTotal;
+  // Fully received = caught up to what shipped, OR the receipt is final (all boxes
+  // counted — what's here is what's coming; any gap is a logged shortage, not
+  // in-transit). Without the final signal a short receipt hangs forever.
+  const fullyReceived = shippedTotal > 0 && (sum(received) >= shippedTotal || !!input.receiveFinal);
 
   // downstream availability = received − pulled − already-sent
   const afterPull = subClamp(received, pulled);
