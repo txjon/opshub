@@ -87,8 +87,13 @@ export default function ShippingPage() {
   // 5 more items coming from other vendors, and might forward a partial box that
   // should have waited to consolidate. Keyed by job_id → [{name, vendor}].
   const [stillInProd, setStillInProd] = useState<Record<string, { name: string; vendor: string | null }[]>>({});
+  // Depend on a STABLE key, not the raw refs: `shipThrough` is re-derived
+  // (jobs.filter) every render and `supabase` is a fresh client every render, so
+  // depending on either made this effect fire every render → setStillInProd →
+  // re-render → infinite loop ("Maximum update depth" — froze the whole page).
+  const shipThroughKey = shipThrough.map(j => j.id).sort().join(",");
   useEffect(() => {
-    const ids = shipThrough.map(j => j.id);
+    const ids = shipThroughKey ? shipThroughKey.split(",") : [];
     if (ids.length === 0) { setStillInProd({}); return; }
     (async () => {
       const routeByJob: Record<string, string> = {};
@@ -107,7 +112,8 @@ export default function ShippingPage() {
       }
       setStillInProd(map);
     })();
-  }, [shipThrough, supabase]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shipThroughKey]);
 
   useEffect(() => {
     if (!modalJobId) return;
