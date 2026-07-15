@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { createClient as createAuthClient } from "@/lib/supabase/server";
 import { generatePDF } from "@/lib/pdf/browser";
+import { contentDisposition } from "@/lib/pdf/filename";
 import { sortSizes } from "@/lib/theme";
 import { deductSamples } from "@/lib/qty";
 import { getPdfBranding } from "@/lib/branding";
@@ -57,11 +58,42 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     let vendorScopedItems = decoratorFilter
       ? (items || []).filter((it: any) => (it.decorator_assignments || []).some((da: any) => da.decorator_id === decoratorFilter))
       : (items || []);
+    // Per-WAVE inbound slip: scope to the persisted box with this tracking and
+    // use that box's line qtys — NOT the item's cumulative ship_qtys, which
+    // would over-count when the item shipped in multiple waves. Falls back to
+    // the legacy item-level ship_tracking match when no box exists (pre-117).
+    let boxLineByItem: Map<string, any> | null = null;
     if (trackingFilter) {
-      vendorScopedItems = vendorScopedItems.filter((it: any) => (it.ship_tracking || "") === trackingFilter);
+      const norm = trackingFilter.trim().toUpperCase();
+      const { data: shipRows } = await supabase.from("shipments").select("id").eq("tracking", norm);
+      const shipIds = (shipRows || []).map((s: any) => s.id);
+      if (shipIds.length) {
+        const { data: lineRows } = await supabase.from("shipment_lines")
+          .select("item_id, ship_qtys, received, received_qtys").in("shipment_id", shipIds);
+        boxLineByItem = new Map((lineRows || []).map((l: any) => [l.item_id, l]));
+        vendorScopedItems = vendorScopedItems.filter((it: any) => boxLineByItem!.has(it.id));
+      } else {
+        vendorScopedItems = vendorScopedItems.filter((it: any) => (it.ship_tracking || "") === trackingFilter);
+      }
     }
     if (forwardTrackingFilter) {
       vendorScopedItems = vendorScopedItems.filter((it: any) => (it.forward_tracking || "") === forwardTrackingFilter);
+    }
+    // v2 forward: the outbound shipment IS the frozen manifest. Its lines give the
+    // exact forwarded qtys (already net of pulls) + the outbound tracking. Reading
+    // it makes the slip immutable — it renders the same in 3 months.
+    const shipmentFilter = req.nextUrl.searchParams.get("shipment");
+    let v2Tracking: string | null = null;
+    let isV2Forward = false;
+    if (shipmentFilter) {
+      const { data: sh } = await supabase.from("shipments").select("id, tracking, direction").eq("id", shipmentFilter).single();
+      if (sh && (sh as any).direction === "outbound") {
+        v2Tracking = (sh as any).tracking || null;
+        const { data: lineRows } = await supabase.from("shipment_lines").select("item_id, ship_qtys").eq("shipment_id", shipmentFilter);
+        boxLineByItem = new Map((lineRows || []).map((l: any) => [l.item_id, l]));
+        vendorScopedItems = vendorScopedItems.filter((it: any) => boxLineByItem!.has(it.id));
+        isV2Forward = true;
+      }
     }
     const vendorName = decoratorFilter
       ? (vendorScopedItems[0]?.decorator_assignments?.[0]?.decorators?.name || "")
@@ -78,14 +110,18 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       if (cp?.name && cp?.color) colorByItemName[cp.name] = cp.color;
     }
 
-    const itemRows = vendorScopedItems.filter((it: any) => it.pipeline_stage === "shipped" || it.received_at_hpd || it.ship_tracking).map((item: any, i: number) => {
+    const slipIncludes = (it: any) => boxLineByItem?.has(it.id) || it.pipeline_stage === "shipped" || it.received_at_hpd || it.ship_tracking;
+    const itemRows = vendorScopedItems.filter(slipIncludes).map((item: any, i: number) => {
       const lines = item.buy_sheet_lines || [];
       const itemColor = colorByItemId[item.id] || colorByItemName[item.name] || "";
       // Priority: best available qty source. Drop-ship prefers decorator-reported
       // ship_qtys; ship-through/stage prefers HPD-confirmed received_qtys. Either
       // way, fall through to the other source if primary is empty, then to ordered.
-      const received = (item.received_qtys || {}) as Record<string, number>;
-      const shipped = (item.ship_qtys || {}) as Record<string, number>;
+      // On a per-wave slip, these come from the BOX's line (that wave), not the
+      // item's cumulative.
+      const boxLine = boxLineByItem?.get(item.id);
+      const received = (boxLine ? (boxLine.received_qtys || {}) : (item.received_qtys || {})) as Record<string, number>;
+      const shipped = (boxLine ? (boxLine.ship_qtys || {}) : (item.ship_qtys || {})) as Record<string, number>;
       const firstChoice = itemIsDropShip(item) ? shipped : received;
       const secondChoice = itemIsDropShip(item) ? received : shipped;
       const orderedQtys = Object.fromEntries(lines.map((l: any) => [l.size, l.qty_ordered]));
@@ -96,8 +132,10 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
         deliveredQtys[l.size] = (fromFirst !== undefined ? fromFirst : (fromSecond !== undefined ? fromSecond : orderedQtys[l.size])) ?? 0;
       }
       // Continuing = delivered − samples pulled at HPD. Drop-ship items don't
-      // have samples (sample_qtys is empty) so this is a no-op for them.
-      const finalQtys = deductSamples(deliveredQtys, item.sample_qtys);
+      // have samples (sample_qtys is empty) so this is a no-op for them. A v2
+      // forward's qtys are ALREADY net of pulls (from the outbound line) — don't
+      // deduct again.
+      const finalQtys = isV2Forward ? deliveredQtys : deductSamples(deliveredQtys, item.sample_qtys);
       const totalQty = Object.values(finalQtys).reduce((a, v) => a + v, 0);
       // Tracking column resolution:
       //  - Drop ship \u2192 decorator tracking on the item.
@@ -106,13 +144,15 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       //    the decorator's inbound tracking number.
       //  - Ship-through OUTBOUND slip (HPD \u2192 customer, no tracking
       //    filter) \u2192 use job.fulfillment_tracking.
-      const tracking = itemIsDropShip(item)
-        ? (item.ship_tracking || "\u2014")
-        : (forwardTrackingFilter
-            ? (item.forward_tracking || forwardTrackingFilter || "\u2014")
-            : (trackingFilter
-                ? (item.ship_tracking || trackingFilter || "\u2014")
-                : (job.fulfillment_tracking || "\u2014")));
+      const tracking = isV2Forward
+        ? (v2Tracking || "\u2014")
+        : (itemIsDropShip(item)
+          ? (item.ship_tracking || "\u2014")
+          : (forwardTrackingFilter
+              ? (item.forward_tracking || forwardTrackingFilter || "\u2014")
+              : (trackingFilter
+                  ? (item.ship_tracking || trackingFilter || "\u2014")
+                  : (job.fulfillment_tracking || "\u2014"))));
 
       // Sort sizes via the canonical theme order (XS, S, M, L, XL, 2XL, …)
       // so the slip reads left-to-right in natural order.
@@ -156,18 +196,19 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       </tr>`;
     }).join("");
 
-    const totalUnits = vendorScopedItems.filter((it: any) => it.pipeline_stage === "shipped" || it.received_at_hpd || it.ship_tracking)
+    const totalUnits = vendorScopedItems.filter(slipIncludes)
       .reduce((a: number, it: any) => {
         const lines = it.buy_sheet_lines || [];
-        const received = (it.received_qtys || {}) as Record<string, number>;
-        const shipped = (it.ship_qtys || {}) as Record<string, number>;
+        const boxLine = boxLineByItem?.get(it.id);
+        const received = (boxLine ? (boxLine.received_qtys || {}) : (it.received_qtys || {})) as Record<string, number>;
+        const shipped = (boxLine ? (boxLine.ship_qtys || {}) : (it.ship_qtys || {})) as Record<string, number>;
         const firstChoice = itemIsDropShip(it) ? shipped : received;
         const secondChoice = itemIsDropShip(it) ? received : shipped;
         const delivered: Record<string, number> = {};
         for (const l of lines) {
           delivered[l.size] = firstChoice[l.size] !== undefined ? firstChoice[l.size] : (secondChoice[l.size] !== undefined ? secondChoice[l.size] : (l.qty_ordered || 0));
         }
-        const continuing = deductSamples(delivered, it.sample_qtys);
+        const continuing = isV2Forward ? delivered : deductSamples(delivered, it.sample_qtys);
         return a + Object.values(continuing).reduce((b: number, v) => b + (v || 0), 0);
       }, 0);
 
@@ -264,7 +305,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     return new NextResponse(pdfBuffer, {
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `inline; filename="${filename}"`,
+        "Content-Disposition": contentDisposition(filename, false),
       },
     });
   } catch (e: any) {

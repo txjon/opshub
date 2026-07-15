@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
-import { resolveItemStatus } from "@/lib/item-status";
+import { resolveItemStatus, clientItemStatus } from "@/lib/item-status";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -180,7 +180,8 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
             (decName && sentSet.has(decName.toLowerCase())) ||
             (decShort && sentSet.has(decShort.toLowerCase()))
           );
-          return resolveItemStatus({
+          // client-facing: internal vendor→HPD legs collapse to In Production
+          return clientItemStatus(resolveItemStatus({
             archived_at: it.archived_at,
             completed_at: it.completed_at,
             pipeline_stage: it.pipeline_stage,
@@ -193,7 +194,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
             item_shipping_route: it.shipping_route || null,
             job_completed_at: (job.phase_timestamps as any)?.complete || null,
             forwarded_at: it.forwarded_at || null,
-          });
+          }));
         })(),
         thumb_id: thumbByItem[it.id] || null,
         created_at: it.created_at,

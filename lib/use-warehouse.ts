@@ -10,6 +10,20 @@ import {
   fulfillPullRequest, recordAdHocPull, updatePullRequest,
   type PullRequestRow,
 } from "@/lib/handoff";
+import { recordReceive, recordOutbound, recomputeItemFromLedger, reverseLastMovement, reverseReceiptForShipment, appendMovement } from "@/lib/inventory-ledger";
+import { addQtys, subtractQtys } from "@/lib/ship-progress";
+
+// forwarded/staged qty = what's on hand to send = received (fallback shipped)
+// minus any units pulled as samples.
+const outboundQtys = (base: Record<string, number>, samples: Record<string, number> | null | undefined) => {
+  const out: Record<string, number> = {};
+  for (const [s, n] of Object.entries(base || {})) {
+    const v = (Number(n) || 0) - (Number(samples?.[s]) || 0);
+    if (v > 0) out[s] = v;
+  }
+  return out;
+};
+const negate = (q: Record<string, number>) => Object.fromEntries(Object.entries(q || {}).map(([s, n]) => [s, -(Number(n) || 0)]));
 
 export const tQty = (q: Record<string, number>) => Object.values(q || {}).reduce((a, v) => a + v, 0);
 
@@ -73,6 +87,16 @@ export type WarehouseItem = {
   // Costing). Loaded here so /receiving can finally display them.
   production_notes_po: string | null;
   packing_notes: string | null;
+  // ── Box-scoped fields (set only when this item view belongs to a persisted
+  //    shipment box). ship_qtys/received_qtys/received_at_hpd above are then the
+  //    BOX's numbers; these carry the box identity + the item's CUMULATIVE state
+  //    (for the item-level forward/fulfillment handoff, which stays whole-order).
+  _shipmentId?: string;
+  _lineId?: string;
+  _boxReceived?: boolean;
+  _itemFullyReceived?: boolean;   // item's cumulative received_at_hpd (all boxes in)
+  _cumReceivedQtys?: Record<string, number>;
+  _cumShippedQtys?: Record<string, number>;   // item cumulative shipped across all waves
 };
 
 export type WarehouseJob = {
@@ -98,6 +122,9 @@ export function useWarehouse() {
   const supabase = createClient();
   const [loading, setLoading] = useState(true);
   const [jobs, setJobs] = useState<WarehouseJob[]>([]);
+  // Persisted shipment boxes (migration 117) — the box-centric source for
+  // /receiving. Multiple boxes per item are real, separate shipments.
+  const [boxes, setBoxes] = useState<{ shipments: any[]; lines: any[] }>({ shipments: [], lines: [] });
   const saveTimers = useRef<Record<string, any>>({});
 
   useEffect(() => { loadData(); }, []);
@@ -202,7 +229,10 @@ export function useWarehouse() {
       const relevant = jobItems.filter((it: any) => {
         const effectiveRoute = it.shipping_route || jobRoute;
         if (effectiveRoute === "drop_ship") return false;
-        return it.pipeline_stage === "shipped" || it.received_at_hpd;
+        // Include anything with shipped units (even partial waves where the item
+        // is still in_production for the balance), plus already-received items.
+        const shippedUnits = tQty(it.ship_qtys || {});
+        return it.pipeline_stage === "shipped" || it.received_at_hpd || shippedUnits > 0;
       });
       if (relevant.length === 0) continue;
 
@@ -268,6 +298,26 @@ export function useWarehouse() {
       });
     }
     setJobs(mapped);
+
+    // Persisted shipment boxes + their per-item lines — the box-centric source
+    // for /receiving. Each shipments row is a real box (one tracking / one
+    // vendor drop); its lines carry that box's per-item qtys + receive state.
+    const allItemIds = (allItems || []).map((it: any) => it.id);
+    if (allItemIds.length) {
+      const { data: lineRows } = await supabase.from("shipment_lines")
+        .select("id, shipment_id, item_id, job_id, ship_qtys, received, received_qtys, received_at, condition, notes, created_at")
+        .in("item_id", allItemIds);
+      const shipmentIds = Array.from(new Set((lineRows || []).map((l: any) => l.shipment_id)));
+      const boxRows = shipmentIds.length
+        ? (await supabase.from("shipments")
+            .select("id, tracking, pickup, status, created_at, received_at, expected_arrival, warehouse_notes, decorator_id")
+            .in("id", shipmentIds)).data || []
+        : [];
+      setBoxes({ shipments: boxRows, lines: lineRows || [] });
+    } else {
+      setBoxes({ shipments: [], lines: [] });
+    }
+
     setLoading(false);
   }
 
@@ -357,6 +407,7 @@ export function useWarehouse() {
       kind: kind || "sample", qtys: clean, reason,
       currentSampleQtys: item.sample_qtys || {},
     });
+    if (!nextSamples) return;   // pull_request insert failed — don't wipe sample_qtys
     setJobs(prev => prev.map(j => ({
       ...j, items: j.items.map(it => it.id === item.id ? { ...it, sample_qtys: nextSamples } : it),
     })));
@@ -383,6 +434,16 @@ export function useWarehouse() {
   async function forwardItems(jobId: string, itemIds: string[], tracking: string | null) {
     const now = new Date().toISOString();
     await supabase.from("items").update({ forwarded_at: now, forward_tracking: (tracking || "").trim() || null }).in("id", itemIds);
+    // Ledger: one forward movement per item (the auditable "forwarded qty").
+    const { data: fwdItems } = await supabase.from("items")
+      .select("id, name, received_qtys, ship_qtys, sample_qtys").in("id", itemIds);
+    for (const it of fwdItems || []) {
+      const base = (it.received_qtys && Object.keys(it.received_qtys).length) ? it.received_qtys : (it.ship_qtys || {});
+      await recordOutbound(supabase, {
+        itemId: it.id, jobId, type: "forward", qtys: outboundQtys(base, it.sample_qtys),
+        tracking, description: it.name,
+      });
+    }
     setJobs(prev => prev.map(j => j.id === jobId
       ? { ...j, items: j.items.map(it => itemIds.includes(it.id) ? { ...it, forwarded_at: now, forward_tracking: (tracking || "").trim() || null } : it) }
       : j));
@@ -407,7 +468,7 @@ export function useWarehouse() {
     return allDelivered;
   }
 
-  async function markReceived(item: WarehouseItem, opts?: { condition?: string; notes?: string; skipSideEffects?: boolean; skipClientEmail?: boolean }) {
+  async function markReceived(item: WarehouseItem, opts?: { condition?: string; notes?: string; skipSideEffects?: boolean; skipClientEmail?: boolean; deliveredQtys?: Record<string, number> }) {
     const now = new Date().toISOString();
 
     // Flush any in-flight qty debounces — receive must commit the latest
@@ -431,48 +492,98 @@ export function useWarehouse() {
       received_at: now,
     };
 
-    // Bundle pending qty edits with the receive flag so a single update
-    // lands. Empty objects are skipped — downstream readers fall back to
-    // ship_qtys when received_qtys is missing.
-    const updates: any = {
-      received_at_hpd: true,
-      received_at_hpd_at: now,
-      receiving_data: receivingData,
-    };
-    if (item.received_qtys && Object.keys(item.received_qtys).length > 0) {
-      updates.received_qtys = item.received_qtys;
-    }
-    if (item.sample_qtys && Object.keys(item.sample_qtys).length > 0) {
-      updates.sample_qtys = item.sample_qtys;
-    }
-    await supabase.from("items").update(updates).eq("id", item.id);
+    // Wave-aware "fully received": an item is only done receiving when the
+    // received total catches up to the shipped total — OR the item is fully
+    // shipped (all waves out), in which case a short receive is a final
+    // variance, not "more coming". A partial item still awaiting later waves
+    // stays received_at_hpd=false so it remains in the pending list.
+    // "Received" = caught up to everything shipped so far. A fully-shipped item
+    // whose later waves are still in transit stays pending until they land
+    // (Jon's decision: hold until all units arrive, forward once). A deliberate
+    // short receipt also stays pending as a variance to resolve.
+    // Box-centric receive: the receiver confirms what arrived in THIS receipt
+    // (opts.deliveredQtys), which defaults to the OUTSTANDING balance — what's
+    // shipped so far minus what's already been received in earlier boxes. New
+    // cumulative received = prior + this receipt. This is why a second wave's
+    // box shows "13 to receive" (its own contents), not the item's cumulative
+    // 25 — and receiving it adds 13, landing at 25, instead of double-counting.
+    // A box-scoped item view (from a persisted shipment box): ship_qtys /
+    // received_qtys are THIS box's numbers, and _cumReceivedQtys is the item's
+    // running cumulative across all boxes. A legacy item view carries the
+    // cumulative directly in received_qtys.
+    const isBox = !!item._shipmentId;
+    const priorCumulative = isBox ? (item._cumReceivedQtys || {}) : (item.received_qtys || {});
+    // Outstanding for THIS box (or item) = what it shipped minus what it already
+    // has received (box: line qtys; legacy: cumulative).
+    const outstanding = subtractQtys(item.ship_qtys || {}, item.received_qtys || {});
+    const deliveredThis = (opts?.deliveredQtys && Object.keys(opts.deliveredQtys).length > 0)
+      ? opts.deliveredQtys
+      : outstanding;
+    const targetReceived = addQtys(priorCumulative, deliveredThis);
 
-    // Handoff spine (mig 117): mirror the receive onto the item's shipment
-    // line + flip the shipment to received when its last line lands. No-op
-    // for legacy items shipped before the shipments table existed.
-    await receiveShipmentLineForItem(supabase, item.id, {
-      received_qtys: item.received_qtys,
-      condition: opts?.condition || "good",
-      notes: opts?.notes || null,
+    // Non-quantity audit fields + samples are a direct write; the ledger owns
+    // received_qtys / received_at_hpd (recompute reprojects them).
+    const auxUpdates: any = { receiving_data: receivingData };
+    if (item.sample_qtys && Object.keys(item.sample_qtys).length > 0) {
+      auxUpdates.sample_qtys = item.sample_qtys;
+    }
+    await supabase.from("items").update(auxUpdates).eq("id", item.id);
+
+    // Ledger: append this receipt (delta vs the ledger's prior receive total)
+    // and recompute — sets received_qtys + received_at_hpd. received_at_hpd goes
+    // true only when received catches up to everything shipped (holds a
+    // partially-arrived wave item pending, per Jon's "forward once" rule).
+    await recordReceive(supabase, {
+      itemId: item.id, jobId: item.job_id, targetReceived,
+      shipmentId: item._shipmentId || null,   // link the receipt to its box
+      reason: opts?.notes || null, description: item.name,
     });
+
+    // Handoff spine (mig 117): mark THIS box's line received (box-scoped view),
+    // else fall back to the item's open lines (legacy). Flip the shipment to
+    // received once its last line lands.
+    if (isBox && item._lineId && item._shipmentId) {
+      await supabase.from("shipment_lines").update({
+        received: true, received_at: now, received_qtys: deliveredThis,
+        condition: opts?.condition || "good", notes: (opts?.notes || "").trim() || null,
+      }).eq("id", item._lineId);
+      const { count } = await supabase.from("shipment_lines")
+        .select("id", { count: "exact", head: true })
+        .eq("shipment_id", item._shipmentId).eq("received", false);
+      if ((count ?? 0) === 0) {
+        await supabase.from("shipments").update({ status: "received", received_at: now, received_by: user?.id || null }).eq("id", item._shipmentId);
+      }
+      // Optimistic: flip the box's line locally so it moves to the Received tab.
+      setBoxes(prev => ({
+        shipments: prev.shipments.map(s => s.id === item._shipmentId ? { ...s, received_at: s.received_at || now } : s),
+        lines: prev.lines.map(l => l.id === item._lineId ? { ...l, received: true, received_at: now, received_qtys: deliveredThis } : l),
+      }));
+    } else {
+      await receiveShipmentLineForItem(supabase, item.id, {
+        received_qtys: deliveredThis,
+        condition: opts?.condition || "good",
+        notes: opts?.notes || null,
+      });
+    }
 
     // Activity log — capture per-size totals for the audit trail.
     // "Atomic Tee received at warehouse — 76/76 delivered, 2 samples pulled
     //  (74 continuing) (damaged) — minor scuffing on neckline"
     const sumPerSize = (q: Record<string, number> | null | undefined) =>
       Object.values(q || {}).reduce((a, v) => a + (Number(v) || 0), 0);
-    const sizes = Object.keys(item.qtys || {});
-    const rq = item.received_qtys || {};
-    const sq = item.ship_qtys || {};
-    const oq = item.qtys || {};
-    const shippedTotal = sumPerSize(item.ship_qtys) || sumPerSize(item.qtys);
-    let deliveredTotal = 0;
-    for (const sz of sizes) deliveredTotal += rq[sz] ?? sq[sz] ?? oq[sz] ?? 0;
+    // CUMULATIVE shipped across all waves (a box-scoped item's ship_qtys is only
+    // THIS box, so read the carried cumulative). Keeps the log + caught-up check
+    // on one basis: cumulative received vs cumulative shipped.
+    const cumShipped = sumPerSize(
+      item._cumShippedQtys && Object.keys(item._cumShippedQtys).length ? item._cumShippedQtys : item.ship_qtys
+    ) || sumPerSize(item.qtys);
+    const deliveredTotal = sumPerSize(targetReceived);   // cumulative received
+    const thisReceiptTotal = sumPerSize(deliveredThis);
     const samplesTotal = sumPerSize(item.sample_qtys);
     const continuingTotal = Math.max(0, deliveredTotal - samplesTotal);
-    const variance = deliveredTotal - shippedTotal;
+    const variance = deliveredTotal - cumShipped;
 
-    const parts: string[] = [`${deliveredTotal}/${shippedTotal} delivered`];
+    const parts: string[] = [`${thisReceiptTotal} received (${deliveredTotal}/${cumShipped} total)`];
     if (samplesTotal > 0) {
       parts.push(`${samplesTotal} sample${samplesTotal === 1 ? "" : "s"} pulled (${continuingTotal} continuing)`);
     }
@@ -486,8 +597,12 @@ export function useWarehouse() {
     // (Pull destinations are logged per-pull by fulfillPull/addPull — the
     // old sample_pulls destination trail that lived here is retired.)
 
+    // Caught up = cumulative received ≥ cumulative shipped (NOT this box's qty),
+    // so receiving one box of a multi-wave item doesn't prematurely flip the
+    // item to fully-received and let it forward early.
+    const caughtUp = deliveredTotal >= cumShipped;
     setJobs(prev => prev.map(j => ({
-      ...j, items: j.items.map(it => it.id === item.id ? { ...it, received_at_hpd: true, received_at_hpd_at: now, receiving_data: receivingData as any } : it),
+      ...j, items: j.items.map(it => it.id === item.id ? { ...it, received_qtys: targetReceived, received_at_hpd: caughtUp, received_at_hpd_at: caughtUp ? now : null, receiving_data: receivingData as any } : it),
     })));
 
     // Side effects (production_complete email + phase recalc) intentionally
@@ -512,8 +627,8 @@ export function useWarehouse() {
   async function bulkMarkReceived(
     items: WarehouseItem[],
     opts?:
-      | { condition?: string; notes?: string }
-      | ((it: WarehouseItem) => { condition?: string; notes?: string }),
+      | { condition?: string; notes?: string; deliveredQtys?: Record<string, number> }
+      | ((it: WarehouseItem) => { condition?: string; notes?: string; deliveredQtys?: Record<string, number> }),
     sideEffectOpts?: { skipClientEmail?: boolean },
   ) {
     const resolveOpts = (it: WarehouseItem) =>
@@ -576,6 +691,14 @@ export function useWarehouse() {
         webstore_entered_by: userId,
       }).eq("id", it.id)
     ));
+    // Ledger: one stage movement per item (the auditable "staged qty").
+    for (const it of items) {
+      const base = (it.received_qtys && Object.keys(it.received_qtys).length) ? it.received_qtys : (it.ship_qtys || {});
+      await recordOutbound(supabase, {
+        itemId: it.id, jobId: it.job_id, type: "stage",
+        qtys: outboundQtys(base, (it as any).sample_qtys), description: it.name,
+      });
+    }
     setJobs(prev => prev.map(j => ({
       ...j,
       items: j.items.map(it => {
@@ -601,6 +724,7 @@ export function useWarehouse() {
       webstore_entered_at: null,
       webstore_entered_by: null,
     }).eq("id", item.id);
+    await reverseLastMovement(supabase, item.id, "stage", "Shopify entry undone");
     setJobs(prev => prev.map(j => ({
       ...j, items: j.items.map(it => it.id === item.id ? { ...it, webstore_entered_at: null } : it),
     })));
@@ -609,8 +733,26 @@ export function useWarehouse() {
   }
 
   async function undoReceived(item: WarehouseItem) {
-    await supabase.from("items").update({ received_at_hpd: false, received_at_hpd_at: null }).eq("id", item.id);
-    await unreceiveShipmentLineForItem(supabase, item.id);
+    // Box-scoped undo: reverse ONLY this box's receipt and un-receive ONLY this
+    // box's line — the item's other received boxes are untouched. (Legacy items
+    // with no box fall back to reversing the last receipt.)
+    if (item._shipmentId) {
+      await reverseReceiptForShipment(supabase, item.id, item._shipmentId, "Receipt undone");
+      if (item._lineId) {
+        await supabase.from("shipment_lines").update({ received: false, received_at: null, received_qtys: null }).eq("id", item._lineId);
+      }
+      const { count } = await supabase.from("shipment_lines").select("id", { count: "exact", head: true }).eq("shipment_id", item._shipmentId).eq("received", true);
+      if ((count ?? 0) === 0) {
+        await supabase.from("shipments").update({ status: "expected", received_at: null, received_by: null }).eq("id", item._shipmentId);
+      }
+      setBoxes(prev => ({
+        shipments: prev.shipments.map(s => s.id === item._shipmentId ? { ...s, status: (count ?? 0) === 0 ? "expected" : s.status, received_at: (count ?? 0) === 0 ? null : s.received_at } : s),
+        lines: prev.lines.map(l => l.id === item._lineId ? { ...l, received: false, received_at: null, received_qtys: null } : l),
+      }));
+    } else {
+      await reverseLastMovement(supabase, item.id, "receive", "Receipt undone");
+      await unreceiveShipmentLineForItem(supabase, item.id);
+    }
     setJobs(prev => prev.map(j => ({
       ...j, items: j.items.map(it => it.id === item.id ? { ...it, received_at_hpd: false, received_at_hpd_at: null } : it),
     })));
@@ -618,6 +760,14 @@ export function useWarehouse() {
   }
 
   async function returnToProduction(item: WarehouseItem) {
+    // Item goes back to the decorator — reverse everything shipped/received on
+    // the ledger so it reads 0 shipped, 0 received (append-only reversals).
+    const st = await recomputeItemFromLedger(supabase, item.id);
+    if (st) {
+      if (st.shipped > 0) await appendMovement(supabase, { itemId: item.id, jobId: item.job_id, type: "ship", qtys: negate(st.shippedMap), reason: "Returned to production" });
+      if (st.received > 0) await appendMovement(supabase, { itemId: item.id, jobId: item.job_id, type: "receive", qtys: negate(st.receivedMap), reason: "Returned to production" });
+      await recomputeItemFromLedger(supabase, item.id);
+    }
     await supabase.from("items").update({
       pipeline_stage: "in_production",
       received_at_hpd: false,
@@ -682,7 +832,7 @@ export function useWarehouse() {
   const fulfillment = jobs.filter(j => j.fulfillment_status !== "shipped" && j.items.length > 0 && j.items.every(it => it.received_at_hpd) && j.items.some(it => effRoute(j, it) === "stage"));
 
   return {
-    loading, jobs, setJobs, incoming, shipThrough, fulfillment,
+    loading, jobs, setJobs, boxes, incoming, shipThrough, fulfillment,
     updateReceivedQty, updateSampleQty, forwardItems, markReceived, bulkMarkReceived, undoReceived, returnToProduction,
     fulfillPull, addPull, cancelPull,
     bulkMarkWebstoreEntered, undoWebstoreEntered,

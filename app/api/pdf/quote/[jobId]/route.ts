@@ -8,6 +8,7 @@ import { createClient as createAuthClient } from "@/lib/supabase/server";
 import { generatePDF } from "@/lib/pdf/browser";
 import { getPdfBranding, type PdfBranding } from "@/lib/branding";
 import { parseSizeMatrix, sizeMatrixHtml } from "@/lib/size-grid";
+import { contentDisposition } from "@/lib/pdf/filename";
 
 // Pricing source of truth: items.sell_per_unit (set by CostingTab, rounded to cent)
 
@@ -360,14 +361,14 @@ export async function GET(_req: NextRequest, { params }: { params: { jobId: stri
     const pdfBuffer = await generatePDF(html);
     const slug = (job.title || jobId).replace(/\s+/g, "-");
     const qNum = orderInfo.invoiceNum || job.job_number || jobId.slice(0, 8);
-    const filename = `HPD-Quote-${qNum}-${slug}.pdf`;
+    const rawName = `HPD-Quote-${qNum}-${slug}.pdf`;
     const isDownload = _req.nextUrl.searchParams.get("download");
 
     return new NextResponse(pdfBuffer, {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `${isDownload ? "attachment" : "inline"}; filename="${filename}"`,
+        "Content-Disposition": contentDisposition(rawName, isDownload),
         "Content-Length": pdfBuffer.byteLength.toString(),
       },
     });

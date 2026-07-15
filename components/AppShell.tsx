@@ -6,8 +6,27 @@ import { LogOut, FlaskConical, Truck, Store, Users, Cog, ChartColumn, Lightbulb,
 import { GlobalSearch } from "@/components/GlobalSearch";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { grantedPages, pathToGroup } from "@/lib/access";
+import { V2_WRITES_LIVE } from "@/lib/v2-flags";
 
 type Department = "owner" | "labs" | "distro" | "ecomm" | "contacts" | "settings" | "billing";
+
+// v2 warehouse cutover nav swap. When live: relabel the v2 pages to the primary
+// department names and drop the legacy twins if they're also present. For the
+// legacy-only fallback nav (DEPT_NAV), redirect the legacy href to its v2 page.
+const V2_RELABEL: Record<string, string> = { "/production2": "Production", "/receiving2": "Receiving", "/shipping2": "Shipping", "/staging2": "Staging" };
+const V2_REDIRECT: Record<string, string> = { "/production": "/production2", "/receiving": "/receiving2", "/shipping": "/shipping2", "/fulfillment": "/staging2" };
+function swapV2Nav(items: { href: string; label: string }[]): { href: string; label: string }[] {
+  if (!V2_WRITES_LIVE) return items;
+  const hrefs = new Set(items.map(i => i.href));
+  return items
+    // drop a legacy entry only when its v2 twin is already in the list
+    .filter(i => !(V2_REDIRECT[i.href] && hrefs.has(V2_REDIRECT[i.href])))
+    .map(i => {
+      if (V2_RELABEL[i.href]) return { ...i, label: V2_RELABEL[i.href] };      // v2 → primary name
+      if (V2_REDIRECT[i.href]) return { href: V2_REDIRECT[i.href], label: i.label }; // legacy-only fallback → point at v2
+      return i;
+    });
+}
 
 const DEPT_NAV: Record<Department, { href: string; label: string }[]> = {
   owner: [
@@ -161,9 +180,13 @@ export function AppShell({
   // active group — this is also what moves Log Hours into Distro, God Mode into
   // Owner, etc. Legacy mode: the static DEPT_NAV with Jon's Overview prepend.
   const baseNavItems = usePerUser ? (navByGroup[activeDept] || []) : (DEPT_NAV[activeDept] || []);
-  const navItems = !usePerUser && activeDept === "owner" && email === "jon@housepartydistro.com"
+  const navItemsRaw = !usePerUser && activeDept === "owner" && email === "jon@housepartydistro.com"
     ? [{ href: "/god-mode", label: "Overview" }, ...baseNavItems]
     : baseNavItems;
+  // v2 warehouse cutover: when live, show the v2 surfaces under the primary
+  // names and drop the legacy twins from the nav (legacy pages stay reachable by
+  // URL for rollback). Flag off → nav is exactly as before.
+  const navItems = swapV2Nav(navItemsRaw);
   // Tenant override for the "Labs" department label. IHM doesn't think
   // of itself as a "Labs" production shop — it's just the IHM brand —
   // so show "IHM" in the sidebar + cross-link instead. HPD keeps Labs.

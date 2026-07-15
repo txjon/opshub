@@ -20,6 +20,8 @@ import { ProjectProgress } from "@/components/ProjectProgress";
 import { PdfPreviewModal } from "@/components/PdfPreviewModal";
 import { JobActivityPanel, logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
 import { calculatePhase } from "@/lib/lifecycle";
+import { loadJobPhase, type JobPhaseView } from "@/lib/item-state";
+import { CLIENT_LABEL, LEGACY_TO_NEW_PHASE } from "@/lib/phase-model";
 import { poSentToItem } from "@/lib/item-status";
 import { calculatePriority, businessDaysFromNow } from "@/lib/dates";
 import { appBaseUrlSync } from "@/lib/public-url";
@@ -139,10 +141,15 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const [ovSection, setOvSection] = useState<null|"details"|"billing"|"items"|"activity">(null);
   const [ovItemsVendor, setOvItemsVendor] = useState<string|null>(null);
   const [loading, setLoading] = useState(true);
+  // NEW phase model (additive display) — computed from the ledger by loadJobPhase.
+  // Shown alongside; the legacy jobs.phase write path (recalcPhase) is untouched.
+  const [phaseView, setPhaseView] = useState<JobPhaseView|null>(null);
   const initialLoadDone = useRef(false);
   const [confirmDeletePayment, setConfirmDeletePayment] = useState<string|null>(null);
   const [pdfPreview, setPdfPreview] = useState<{src:string;title:string;downloadHref:string}|null>(null);
   const [showArtFiles, setShowArtFiles] = useState(false);
+  // Frozen forward packing slips = this job's outbound shipments (v2 shipping).
+  const [forwardSlips, setForwardSlips] = useState<{ id: string; tracking: string | null; createdAt: string }[]>([]);
   const [confirmDeleteProject, setConfirmDeleteProject] = useState(false);
   const [confirmCancelVoid, setConfirmCancelVoid] = useState(false);
   const [cancelling, setCancelling] = useState(false);
@@ -325,6 +332,14 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       const ids = itemsRes.data.map((it: any) => it.id);
       if (ids.length > 0) {
         const { data: allFiles } = await supabase.from("item_files").select("item_id, stage, approval").in("item_id", ids).is("superseded_at", null);
+        // Outbound shipments for this job = the frozen forward packing slips.
+        const { data: obLines } = await supabase.from("shipment_lines").select("shipment_id, shipments(id, tracking, created_at, direction)").eq("job_id", params.id);
+        const slipMap = new Map<string, { id: string; tracking: string | null; createdAt: string }>();
+        for (const l of obLines || []) {
+          const s: any = (l as any).shipments;
+          if (s?.direction === "outbound" && !slipMap.has(s.id)) slipMap.set(s.id, { id: s.id, tracking: s.tracking, createdAt: s.created_at });
+        }
+        setForwardSlips(Array.from(slipMap.values()).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || "")));
         const ps: Record<string, { allApproved: boolean }> = {};
         const filesPerItem: Record<string, boolean> = {};
         for (const id of ids) {
@@ -600,6 +615,16 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
     }
   }, [job?.quote_approved, items.length, payments.length, proofStatus, recalcPhase]);
 
+  // Load the NEW phase model (additive) — ledger-derived, read-only. Same triggers
+  // as the legacy recalc so it stays in step without touching jobs.phase.
+  useEffect(() => {
+    if (!job || items.length === 0) { setPhaseView(null); return; }
+    let cancelled = false;
+    loadJobPhase(supabase, job.id).then(v => { if (!cancelled) setPhaseView(v); }).catch(() => {});
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [job?.id, (job as any)?.quote_approved, job?.phase, items.length, payments.length, proofStatus]);
+
   // Client search
   const clientResults = clientQuery.trim().length > 0 ? allClients.filter(c => c.name.toLowerCase().includes(clientQuery.trim().toLowerCase())) : [];
   useEffect(() => {
@@ -796,35 +821,30 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           )}
           <span>{totalUnits.toLocaleString()} units</span>
           {(() => {
+            const label = {fontSize:10,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase" as const};
             const isTerminal = ["complete","cancelled","on_hold"].includes(job.phase);
-            if (isTerminal || items.length === 0) {
-              return <span style={{fontSize:10,fontWeight:700,color:phaseColor.text,letterSpacing:"0.06em",textTransform:"uppercase"}}>{job.phase.replace(/_/g," ")}</span>;
+            // NEW phase model (additive). Falls back to legacy job.phase until it loads
+            // or for terminal states. Does NOT drive jobs.phase — display only.
+            if (isTerminal || items.length === 0 || !phaseView) {
+              const shown = phaseView?.phase || LEGACY_TO_NEW_PHASE[job.phase] || job.phase.replace(/_/g," ");
+              return <span style={{...label,color:phaseColor.text}}>{shown}</span>;
             }
-            const costProds = ((job as any).costing_data?.costProds || []) as any[];
-            const cpById: Record<string, any> = {};
-            for (const cp of costProds) cpById[cp.id] = cp;
-            const poSent = new Set<string>((job as any).type_meta?.po_sent_vendors || []);
-            const counts = { needs_po: 0, production: 0, receiving: 0, at_hpd: 0 };
-            for (const it of items as any[]) {
-              if (it.received_at_hpd === true) { counts.at_hpd++; continue; }
-              if (it.pipeline_stage === "shipped") { counts.receiving++; continue; }
-              if (it.pipeline_stage === "in_production") { counts.production++; continue; }
-              const vendor = cpById[it.id]?.printVendor;
-              if (vendor && !poSent.has(vendor)) counts.needs_po++;
-            }
-            const buckets: { label: string; color: string; count: number }[] = [];
-            if (counts.needs_po) buckets.push({ label: "Needs PO", color: T.amber, count: counts.needs_po });
-            if (counts.production) buckets.push({ label: "Production", color: T.accent, count: counts.production });
-            if (counts.receiving) buckets.push({ label: "Receiving", color: T.blue, count: counts.receiving });
-            if (counts.at_hpd) buckets.push({ label: "At HPD", color: T.purple, count: counts.at_hpd });
-            if (buckets.length === 0) {
-              return <span style={{fontSize:10,fontWeight:700,color:phaseColor.text,letterSpacing:"0.06em",textTransform:"uppercase"}}>{job.phase.replace(/_/g," ")}</span>;
-            }
-            return buckets.map((b, i) => (
-              <span key={i} style={{fontSize:10,fontWeight:700,color:b.color,letterSpacing:"0.06em",textTransform:"uppercase",whiteSpace:"nowrap"}}>
-                {b.label} <span style={{fontFamily:mono,fontWeight:600}}>· {b.count}</span>
+            const pv = phaseView;
+            const { out, total } = pv.fulfillment;
+            const partial = out > 0 && out < total;
+            const clientKey = pv.result.client;
+            return <>
+              <span style={{...label,color:phaseColor.text}}>
+                {pv.phase}
+                {pv.detail && <span style={{fontWeight:600,color:T.muted,textTransform:"none",letterSpacing:0}}> · {pv.detail}</span>}
               </span>
-            ));
+              {partial && (
+                <span style={{...label,color:T.blue,whiteSpace:"nowrap"}}>Out the door <span style={{fontFamily:mono,fontWeight:600}}>· {out}/{total}</span></span>
+              )}
+              {clientKey !== "none" && (
+                <span style={{fontSize:10,color:T.faint,letterSpacing:"0.04em",textTransform:"uppercase"}}>Client: {CLIENT_LABEL[clientKey]}</span>
+              )}
+            </>;
           })()}
           {job.priority==="rush" && <span style={{fontSize:10,fontWeight:700,color:T.amber,letterSpacing:"0.06em",textTransform:"uppercase"}}>Rush</span>}
           {job.priority==="hot" && <span style={{fontSize:10,fontWeight:700,color:T.red,letterSpacing:"0.06em",textTransform:"uppercase"}}>Hot</span>}
@@ -1164,7 +1184,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               const hasShipping = items.some((it:any)=>it.ship_tracking||it.received_at_hpd||it.pipeline_stage==="shipped");
               const docBtn = (label: string, src: string|null, available: boolean, onClickOverride?: () => void) => (
                 <button key={label}
-                  onClick={()=>{ if (onClickOverride) { onClickOverride(); return; } if(available && src) setPdfPreview({src,title:label,downloadHref:src+"?download=1"}); }}
+                  onClick={()=>{ if (onClickOverride) { onClickOverride(); return; } if(available && src) setPdfPreview({src,title:label,downloadHref:src+(src.includes("?")?"&":"?")+"download=1"}); }}
                   disabled={!available}
                   title={available?undefined:"Not available yet"}
                   style={{padding:"7px 14px",borderRadius:6,border:`1px solid ${T.border}`,background:available?T.surface:T.bg,color:available?T.text:T.faint,fontSize:11,fontWeight:600,fontFamily:font,cursor:available?"pointer":"default",whiteSpace:"nowrap"}}
@@ -1177,7 +1197,9 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 <div style={{display:"flex",flexWrap:"wrap",gap:6,alignItems:"center"}}>
                   {docBtn("Quote", `/api/pdf/quote/${job.id}`, hasItems)}
                   {docBtn(qbInvNum?`Invoice #${qbInvNum}`:"Invoice", `/api/pdf/invoice/${job.id}`, hasItems)}
-                  {docBtn("Packing Slip", `/api/pdf/packing-slip/${job.id}`, hasShipping)}
+                  {forwardSlips.length > 0
+                    ? forwardSlips.map((s, i) => docBtn(`Packing Slip · ${s.tracking || (i + 1)}`, `/api/pdf/packing-slip/${job.id}?shipment=${s.id}`, true))
+                    : docBtn("Packing Slip", `/api/pdf/packing-slip/${job.id}`, hasShipping)}
                   {docBtn("Art Files", null, true, () => setShowArtFiles(true))}
                   {docVendors.length === 0 && docBtn("PO", null, false)}
                   {docVendors.map(v => docBtn(`PO — ${v}`, `/api/pdf/po/${job.id}?vendor=${encodeURIComponent(v)}`, hasItems))}

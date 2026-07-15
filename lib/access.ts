@@ -9,6 +9,8 @@
 //     fallback is vestigial.
 // The middleware enforces this server-side (the real lock); AppShell uses it to render nav.
 
+import { V2_WRITES_LIVE } from "./v2-flags";
+
 export type PageGroup = "owner" | "labs" | "distro" | "ecomm" | "contacts" | "settings" | "billing" | "side";
 
 export type CatalogPage = {
@@ -32,14 +34,19 @@ export const PAGE_CATALOG: CatalogPage[] = [
   { key: "/jobs", href: "/jobs", label: "Projects", group: "labs" },
   { key: "/art-studio", href: "/art-studio", label: "Art Studio", group: "labs" },
   { key: "/production", href: "/production", label: "Production", group: "labs" },
+  { key: "/production2", href: "/production2", label: "Production v2", group: "labs" },
   // Distro / warehouse
   { key: "/distro", href: "/distro", label: "Dashboard", group: "distro" },
   { key: "/receiving", href: "/receiving", label: "Receiving", group: "distro" },
+  { key: "/receiving2", href: "/receiving2", label: "Receiving v2", group: "distro" },
   { key: "/shipping", href: "/shipping", label: "Shipping", group: "distro" },
+  { key: "/shipping2", href: "/shipping2", label: "Shipping v2", group: "distro" },
   { key: "/fulfillment", href: "/fulfillment", label: "Fulfillment", group: "distro" },
+  { key: "/staging2", href: "/staging2", label: "Staging v2", group: "distro" },
   { key: "/hours", href: "/hours", label: "Log Hours", group: "distro" },
   // Ecomm
   { key: "/ecomm", href: "/ecomm", label: "Dashboard", group: "ecomm" },
+  { key: "/ecomm/staging", href: "/ecomm/staging", label: "Staging", group: "ecomm" },
   // Contacts
   { key: "/intake", href: "/intake", label: "Intake", group: "contacts" },
   { key: "/clients", href: "/clients", label: "Clients", group: "contacts" },
@@ -75,6 +82,19 @@ export type AccessUser = {
   pageAccess?: string[] | null;
 };
 
+// ── v2 warehouse cutover twins ─────────────────────────────────────────────
+// Each v2 surface and its legacy twin. When V2_WRITES_LIVE, a grant of EITHER
+// covers BOTH — so the flip needs no re-seeding of page_access, and rollback
+// (flag off) keeps legacy grants working exactly as before. See lib/v2-flags.
+const V2_TWIN_PAIRS: [string, string][] = [
+  ["/production2", "/production"],
+  ["/receiving2", "/receiving"],
+  ["/shipping2", "/shipping"],
+  ["/staging2", "/fulfillment"],
+];
+const V2_TWIN_OF: Record<string, string> = {};
+for (const [v2, legacy] of V2_TWIN_PAIRS) { V2_TWIN_OF[v2] = legacy; V2_TWIN_OF[legacy] = v2; }
+
 /** Map a request pathname to the catalog page key it belongs to, or null if uncatalogued. */
 export function pathToPageKey(pathname: string): string | null {
   const clean = pathname.split("?")[0];
@@ -93,7 +113,12 @@ export function canAccessKey(key: string, user: AccessUser): boolean {
   if (user.isGod) return true;
   const cat = CATALOG_BY_KEY[key];
   if (!cat) return true; // uncatalogued → don't block (fail-open)
-  if (hasExplicit(user)) return user.pageAccess!.includes(key);
+  if (hasExplicit(user)) {
+    if (user.pageAccess!.includes(key)) return true;
+    // When the v2 cutover is live, a grant of a page's twin covers it too.
+    if (V2_WRITES_LIVE && V2_TWIN_OF[key] && user.pageAccess!.includes(V2_TWIN_OF[key])) return true;
+    return false;
+  }
   // Fallback: legacy role→group rule
   const groups = ROLE_GROUPS[user.role || "viewer"] || [];
   return groups.includes(cat.group);
@@ -115,7 +140,13 @@ export function pathToGroup(pathname: string): PageGroup | null {
 /** The catalog pages this user may see — drives the sidebar. */
 export function grantedPages(user: AccessUser): CatalogPage[] {
   if (user.isGod) return PAGE_CATALOG;
-  if (hasExplicit(user)) return PAGE_CATALOG.filter(p => user.pageAccess!.includes(p.key));
+  if (hasExplicit(user)) {
+    const set = new Set(user.pageAccess!);
+    // When live, surface the v2 twin of any granted legacy page (and vice versa)
+    // so the swapped nav has the v2 entries to show. AppShell then hides legacy.
+    if (V2_WRITES_LIVE) for (const k of user.pageAccess!) if (V2_TWIN_OF[k]) set.add(V2_TWIN_OF[k]);
+    return PAGE_CATALOG.filter(p => set.has(p.key));
+  }
   const groups = ROLE_GROUPS[user.role || "viewer"] || [];
   return PAGE_CATALOG.filter(p => groups.includes(p.group));
 }

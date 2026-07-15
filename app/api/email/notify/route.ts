@@ -435,19 +435,47 @@ export async function POST(req: NextRequest) {
         .select("id, name, sort_order, ship_qtys, received_qtys, sample_qtys, ship_tracking, forward_tracking, received_at_hpd, pipeline_stage, buy_sheet_lines(size, qty_ordered), decorator_assignments(decorator_id)")
         .eq("job_id", jobId)
         .order("sort_order");
+      // v2 forward: an outbound shipment carrying this tracking IS the manifest
+      // (the ledger flow doesn't maintain legacy items.received_qtys/sample_qtys).
+      // When present it's authoritative for both scope and per-item qtys.
+      let outboundLineByItem: Map<string, any> | null = null;
+      let v2OutboundId: string | null = null;
+      if (trackingNumber) {
+        const { data: obShips } = await sb.from("shipments").select("id").eq("direction", "outbound").eq("tracking", (trackingNumber || "").trim().toUpperCase());
+        const obIds = (obShips || []).map((s: any) => s.id);
+        if (obIds.length) {
+          const { data: obLines } = await sb.from("shipment_lines").select("item_id, ship_qtys").in("shipment_id", obIds);
+          if ((obLines || []).length) { outboundLineByItem = new Map((obLines || []).map((l: any) => [l.item_id, l])); v2OutboundId = obIds[0]; }
+        }
+      }
+      const isV2Forward = !!outboundLineByItem;
       // Outbound forwards are WAVE-based (migration 097): scope to the items
       // forwarded under THIS tracking. Detected by forward_tracking so it works
       // on a mixed drop_ship job too (job-level route is drop_ship there).
       const waveMatched = (allItems || []).filter((it: any) => (it.forward_tracking || "") === (trackingNumber || ""));
       const isWaveForward = waveMatched.length > 0;
       isJobOutbound = isJobOutbound || isWaveForward;
+      // Inbound decorator→HPD notify for a specific tracking = a specific BOX.
+      // Resolve its line qtys so the email lists THAT wave's contents, not the
+      // item's cumulative ship_qtys (which over-counts a multi-wave item).
+      let boxLineByItem: Map<string, any> | null = null;
+      if (!isJobOutbound && trackingNumber) {
+        const { data: shipRows } = await sb.from("shipments").select("id").eq("tracking", (trackingNumber || "").trim().toUpperCase());
+        const shipIds = (shipRows || []).map((s: any) => s.id);
+        if (shipIds.length) {
+          const { data: lineRows } = await sb.from("shipment_lines").select("item_id, ship_qtys, received_qtys").in("shipment_id", shipIds);
+          boxLineByItem = new Map((lineRows || []).map((l: any) => [l.item_id, l]));
+        }
+      }
       const scopedItems = (allItems || []).filter((it: any) => {
+        if (isV2Forward) return outboundLineByItem!.has(it.id);
         if (isWaveForward) return (it.forward_tracking || "") === (trackingNumber || "");
         if (isJobOutbound) {
           return (it.received_at_hpd === true || it.pipeline_stage === "shipped");
         }
         const itDecId = (it.decorator_assignments?.[0] as any)?.decorator_id || null;
         const matchDec = !decoratorId || itDecId === decoratorId;
+        if (boxLineByItem) return matchDec && boxLineByItem.has(it.id);
         const matchTrack = (it.ship_tracking || "") === (trackingNumber || "");
         return matchDec && matchTrack;
       });
@@ -468,8 +496,9 @@ export async function POST(req: NextRequest) {
       const itemListHtml = scopedItems.map((it: any) => {
         const lines = (it.buy_sheet_lines || []) as any[];
         const sizes = Array.from(new Set(lines.map((l: any) => l.size as string))).sort(sortSizes);
-        const shipQtys = it.ship_qtys || {};
-        const receivedQtys = it.received_qtys || {};
+        const boxLine = boxLineByItem?.get(it.id);
+        const shipQtys = (boxLine ? (boxLine.ship_qtys || {}) : (it.ship_qtys || {}));
+        const receivedQtys = (boxLine ? (boxLine.received_qtys || {}) : (it.received_qtys || {}));
         const sampleQtys = it.sample_qtys || {};
         const ordered = Object.fromEntries(lines.map((l: any) => [l.size, l.qty_ordered]));
         // Mirror the packing-slip qty fallback: drop-ship prefers
@@ -478,7 +507,9 @@ export async function POST(req: NextRequest) {
         // Samples are deducted on outbound — those units stay at HPD.
         const firstChoice = isJobOutbound ? receivedQtys : shipQtys;
         const secondChoice = isJobOutbound ? shipQtys : receivedQtys;
+        const outQtys = isV2Forward ? ((outboundLineByItem!.get(it.id)?.ship_qtys) || {}) : null;
         const finalForSize = (sz: string) => {
+          if (outQtys) return Math.max(0, Number(outQtys[sz] || 0));   // v2 forward = exactly what was forwarded
           const a = firstChoice[sz];
           const b = secondChoice[sz];
           const delivered = (a !== undefined ? a : (b !== undefined ? b : ordered[sz])) ?? 0;
@@ -557,7 +588,10 @@ export async function POST(req: NextRequest) {
       let pdfBuffer: Buffer | null = null;
       try {
         const params = new URLSearchParams();
-        if (isWaveForward) {
+        if (isV2Forward && v2OutboundId) {
+          // v2 forward: scope the slip to the outbound shipment (frozen manifest).
+          params.set("shipment", v2OutboundId);
+        } else if (isWaveForward) {
           // Scope the slip to this wave's forwarded items.
           params.set("forwardTracking", trackingNumber || "");
         } else if (!isJobOutbound) {

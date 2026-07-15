@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { createClient as createAuthClient } from "@/lib/supabase/server";
 import { generatePDF } from "@/lib/pdf/browser";
+import { contentDisposition } from "@/lib/pdf/filename";
 import { getPdfBranding } from "@/lib/branding";
 
 // Decorator price-sheet PDF — same house style as Quote/PO. Renders the
@@ -152,7 +153,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `${isDownload ? "attachment" : "inline"}; filename="${filename}"`,
+        "Content-Disposition": contentDisposition(filename, isDownload),
         "Content-Length": pdfBuffer.byteLength.toString(),
       },
     });

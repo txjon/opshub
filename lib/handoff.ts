@@ -46,7 +46,7 @@ export type ShipmentSeed = {
 export async function upsertShipmentForItem(supabase: Sb, seed: ShipmentSeed): Promise<string | null> {
   try {
     const shipDate = seed.ship_date || new Date().toISOString();
-    const groupKey = shipmentGroupKey({
+    let groupKey = shipmentGroupKey({
       decorator_id: seed.decorator_id,
       decorator_name: seed.decorator_name,
       pickup_ready: seed.pickup_ready,
@@ -56,9 +56,19 @@ export async function upsertShipmentForItem(supabase: Sb, seed: ShipmentSeed): P
     });
     const trk = normalizeTracking(seed.ship_tracking);
     let shipmentId: string | null = null;
-    const { data: existing } = await supabase
+    let existing = (await supabase
       .from("shipments").select("id, warehouse_notes, status")
-      .eq("group_key", groupKey).maybeSingle();
+      .eq("group_key", groupKey).maybeSingle()).data;
+    // A second WAVE of the same item to the same box identity must become its
+    // OWN box — otherwise its line overwrites the earlier wave's (one line per
+    // item per box) and that wave's units vanish. Detect an existing line for
+    // this item and fork to a unique box keyed by this wave's timestamp.
+    if (existing) {
+      const { data: dupLine } = await supabase
+        .from("shipment_lines").select("id")
+        .eq("shipment_id", existing.id).eq("item_id", seed.item_id).maybeSingle();
+      if (dupLine) { groupKey = `${groupKey}::wave:${shipDate}`; existing = null; }
+    }
     if (existing) {
       shipmentId = existing.id;
       const patch: any = {};
@@ -207,6 +217,7 @@ export type PullRequestRow = {
 };
 
 export const PULL_KINDS = [
+  { id: "damaged", label: "Damaged" },
   { id: "sample", label: "Sample" },
   { id: "photo", label: "Photo shoot" },
   { id: "catalog", label: "Catalog" },
@@ -298,9 +309,13 @@ export async function recordAdHocPull(supabase: Sb, req: {
   qtys: Record<string, number>;
   reason?: string | null;
   currentSampleQtys: Record<string, number>;
-}): Promise<Record<string, number>> {
+}): Promise<Record<string, number> | null> {
   const created = await createPullRequest(supabase, req);
-  if (!created) return req.currentSampleQtys || {};
+  // null = the pull_request insert failed (e.g. an invalid kind vs the CHECK
+  // constraint). Signal it so the caller does NOT append an orphaned ledger pull
+  // movement with no held bucket behind it (which drops forwardable qty but never
+  // surfaces in the Pulls tab).
+  if (!created) return null;
   return fulfillPullRequest(supabase, created, {
     itemName: req.item_name, currentSampleQtys: req.currentSampleQtys,
   });

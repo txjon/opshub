@@ -7,6 +7,7 @@ import { logJobActivity } from "@/components/JobActivityPanel";
 import { createClient } from "@/lib/supabase/client";
 import { deductSamples } from "@/lib/qty";
 import { NotifyShipmentDialog } from "@/components/NotifyShipmentDialog";
+import { shipProgress } from "@/lib/ship-progress";
 
 type ShippedHistoryEntry = {
   id: string;
@@ -66,7 +67,13 @@ export default function ShippingPage() {
   const [pullReason, setPullReason] = useState("");
   // Ship-through items only (a mixed job's stage items go to Fulfillment).
   const stItemsOf = (job: WarehouseJob) => job.items.filter(it => (it.shipping_route || job.shipping_route) === "ship_through");
-  const bucketOf = (it: WarehouseItem) => it.forwarded_at ? "forwarded" : (it.received_at_hpd ? "ready" : "awaiting");
+  // Ready to forward only when the item is FULLY shipped (all waves out) AND
+  // received — hold a partial (more waves coming) as 'awaiting' so we forward
+  // the whole order once, not wave-by-wave (Jon's decision).
+  const bucketOf = (it: WarehouseItem) =>
+    it.forwarded_at ? "forwarded"
+    : (it.received_at_hpd && it.pipeline_stage === "shipped") ? "ready"
+    : "awaiting";
   useEffect(() => {
     // Default-select the READY (received, unforwarded) ship-through items — the
     // common "forward what's landed" flow needs no clicks.
@@ -80,8 +87,13 @@ export default function ShippingPage() {
   // 5 more items coming from other vendors, and might forward a partial box that
   // should have waited to consolidate. Keyed by job_id → [{name, vendor}].
   const [stillInProd, setStillInProd] = useState<Record<string, { name: string; vendor: string | null }[]>>({});
+  // Depend on a STABLE key, not the raw refs: `shipThrough` is re-derived
+  // (jobs.filter) every render and `supabase` is a fresh client every render, so
+  // depending on either made this effect fire every render → setStillInProd →
+  // re-render → infinite loop ("Maximum update depth" — froze the whole page).
+  const shipThroughKey = shipThrough.map(j => j.id).sort().join(",");
   useEffect(() => {
-    const ids = shipThrough.map(j => j.id);
+    const ids = shipThroughKey ? shipThroughKey.split(",") : [];
     if (ids.length === 0) { setStillInProd({}); return; }
     (async () => {
       const routeByJob: Record<string, string> = {};
@@ -100,7 +112,8 @@ export default function ShippingPage() {
       }
       setStillInProd(map);
     })();
-  }, [shipThrough, supabase]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shipThroughKey]);
 
   useEffect(() => {
     if (!modalJobId) return;
@@ -804,6 +817,11 @@ export default function ShippingPage() {
                               <span style={{ fontSize: 11, fontWeight: 800, color: T.muted, fontFamily: mono, flexShrink: 0 }}>{item.letter}</span>
                               <div style={{ flex: 1, minWidth: 0 }}>
                                 <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{item.name}</div>
+                                {(() => {
+                                  const p = shipProgress(item.qtys, item.ship_qtys, item.received_qtys);
+                                  if (p.ordered === 0) return null;
+                                  return <div style={{ fontSize: 10.5, color: T.faint, fontFamily: mono, marginTop: 1 }}>{p.received} received of {p.shipped} shipped · {p.ordered} ordered</div>;
+                                })()}
                                 <div style={{ fontSize: 11, color: T.muted, marginTop: 2, display: "flex", gap: 8, flexWrap: "wrap" }}>
                                   {sampleTotal > 0 && <span style={{ color: T.amber }}>{sampleTotal} pulled</span>}
                                   <button onClick={() => { setPullFor(pullFor === item.id ? null : item.id); setPullQtys({}); setPullReason(""); }}

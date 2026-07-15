@@ -6,11 +6,13 @@ import { T, font, mono, SIZE_ORDER } from "@/lib/theme";
 import { useWarehouse, tQty, type WarehouseJob, type WarehouseItem } from "@/lib/use-warehouse";
 import { useShipments, isRealTracking, type Shipment } from "@/lib/use-shipments";
 import { resolvePulledInventory, resolvePostShopifyPull } from "@/lib/handoff";
+import { shipProgress, subtractQtys } from "@/lib/ship-progress";
 import { computeArrivalEta } from "@/lib/arrival-eta";
 import { uploadToReceiving, uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
 import { DriveFileLink } from "@/components/DriveFileLink";
 import { DriveThumb } from "@/components/DriveThumb";
 import { MockupPeek } from "@/components/MockupPeek";
+import LedgerHistory from "@/components/LedgerHistory";
 
 // ── Pull requests + delivery ETA ──────────────────────────────────────────
 // Pull requests (migration 117) are created on Production (or ad-hoc here)
@@ -180,7 +182,7 @@ type DecoratorGroup = {
 type FileRec = { file_name: string; drive_link: string; drive_file_id: string | null; mime_type: string | null };
 
 export default function ReceivingPage() {
-  const { loading, jobs, updateReceivedQty, updateSampleQty, markReceived, bulkMarkReceived, undoReceived, returnToProduction, fulfillPull, addPull, cancelPull, logJobActivity } = useWarehouse();
+  const { loading, jobs, setJobs, boxes, updateReceivedQty, updateSampleQty, markReceived, bulkMarkReceived, undoReceived, returnToProduction, fulfillPull, addPull, cancelPull, logJobActivity } = useWarehouse();
   const supabase = createClient();
 
   // Pulled inventory (migration 117): units held back from shipments — the
@@ -272,6 +274,13 @@ export default function ReceivingPage() {
 
   // Filters / tabs
   const [search, setSearch] = useState("");
+  const [historyItem, setHistoryItem] = useState<WarehouseItem | null>(null);
+  // Per-item "delivered in THIS receipt" draft (keyed by item id → per-size),
+  // seeded to the OUTSTANDING balance (shipped − already received) when a box
+  // opens. Receiving adds this to the cumulative — so a wave-2 box shows/receives
+  // its own 13, not the item's cumulative 25.
+  const [deliveredDraft, setDeliveredDraft] = useState<Record<string, Record<string, number>>>({});
+  const outstandingOf = (it: WarehouseItem): Record<string, number> => subtractQtys(it.ship_qtys || {}, it.received_qtys || {});
   const [filterDecorator, setFilterDecorator] = useState("");
   const [tab, setTab] = useState<"pending" | "received" | "outside">("pending");
   // Silent mode — suppresses the production_complete client email for
@@ -369,6 +378,24 @@ export default function ReceivingPage() {
       setSelectedItemIds(new Set());
     }
   }, [modalShipmentKey]);
+
+  // On open: seed each PENDING item's Delivered draft to the OUTSTANDING balance
+  // — what's shipped so far minus what earlier boxes already received. So a
+  // wave-2 box shows "receive 13" (its own contents), not the item's cumulative
+  // 25. Receiver adjusts down for a shortage. Receiving ADDS this to the
+  // cumulative; nothing is persisted until Receive.
+  useEffect(() => {
+    if (!modalShipmentKey) return;
+    const shp = shipments.find(s => s.key === modalShipmentKey);
+    if (!shp) return;
+    const pending = shp.items.filter(it => !it.received_at_hpd);
+    if (pending.length === 0) return;
+    setDeliveredDraft(prev => {
+      const next = { ...prev };
+      for (const it of pending) next[it.id] = outstandingOf(it);
+      return next;
+    });
+  }, [modalShipmentKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function toggleItemSelected(itemId: string) {
     setSelectedItemIds(prev => {
@@ -690,7 +717,7 @@ export default function ReceivingPage() {
   // (decorator, tracking) so 3 items shipped today + 4 next week from
   // the same vendor are two rows, not one chip. Falls back to date
   // when tracking is missing.
-  const shipments = useShipments(jobs);
+  const shipments = useShipments(jobs, boxes);
 
   const filteredShipments = useMemo(() => {
     let arr = shipments;
@@ -732,20 +759,27 @@ export default function ReceivingPage() {
     if (s.variance_units !== 0) {
       return s.variance_units > 0 ? "Over-receive" : "Short";
     }
+    // Forwarding/staging is ITEM-level (the whole order forwards once, after
+    // every box is in) — so nudges read the item's CUMULATIVE received state
+    // (_itemFullyReceived), not this one box's.
+    const itemReceived = (it: WarehouseItem) => it._itemFullyReceived ?? it.received_at_hpd;
     const isStage = s.jobs.some(j => j.shipping_route === "stage");
     const isShipThrough = s.jobs.some(j => j.shipping_route === "ship_through");
     if (isStage && s.received_count > 0) {
-      const receivedItems = s.items.filter(it => it.received_at_hpd);
+      const receivedItems = s.items.filter(itemReceived);
       if (receivedItems.length > 0 && receivedItems.some(it => !it.webstore_entered_at)) {
         // Front-office action — warehouse just needs visibility.
         return "Pending front office";
       }
     }
-    if (isShipThrough && s.received_count > 0 && s.all_received) {
-      // ship_through that's fully received but hasn't been forwarded
-      // out yet. The Mark Shipped outbound action lives on /shipping;
-      // surface here as a nudge so the dispatcher knows.
-      return "Forward to client";
+    if (isShipThrough && s.received_count > 0) {
+      // ship_through box received — nudge to forward only once every box of the
+      // item is in AND the item is fully shipped (no more waves). Forward once.
+      const allItemsReceived = s.items.every(itemReceived);
+      const allFullyShipped = s.items.every(it => it.pipeline_stage === "shipped");
+      if (allItemsReceived && allFullyShipped) return "Forward to client";
+      if (!allFullyShipped) return "More waves coming";
+      return null;
     }
     return null;
   }
@@ -793,12 +827,22 @@ export default function ReceivingPage() {
       const bTs = b.received_at ? new Date(b.received_at).getTime() : 0;
       return bTs - aTs;
     });
+    // "Forward to client" is a once-per-JOB action (forwardItems forwards all of
+    // a job's ready items together), but it's evaluated per-box — so a 2-box
+    // item would raise it twice. Show it on only the first (newest) box per job;
+    // the item's other received boxes fall through to the time buckets.
+    const forwardJobsShown = new Set<string>();
     for (const s of sorted) {
       // Live-in-Shopify is a terminal bucket — takes priority over
       // everything else so a fresh-from-Shopify shipment doesn't also
       // show in Today or Needs Attention.
       if (isLiveInShopify(s)) { liveInShopify.push(s); continue; }
-      const reason = actionReasonFor(s);
+      let reason = actionReasonFor(s);
+      if (reason === "Forward to client") {
+        const jid = s.jobs[0]?.id;
+        if (jid && forwardJobsShown.has(jid)) reason = null;
+        else if (jid) forwardJobsShown.add(jid);
+      }
       if (reason) { actionRequired.push({ shipment: s, reason }); continue; }
       const ts = s.received_at ? new Date(s.received_at).getTime() : 0;
       if (ts >= todayStart.getTime()) today.push(s);
@@ -1375,7 +1419,7 @@ export default function ReceivingPage() {
           <div onClick={() => setModalShipmentKey(null)}
             style={{ position: "fixed", inset: 0, background: "rgba(10,12,20,0.5)", backdropFilter: "blur(2px)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "clamp(12px, 4vh, 44px)", fontFamily: font, color: T.text }}>
             <div onClick={e => e.stopPropagation()}
-              style={{ background: T.bg, width: "100%", maxWidth: 980, maxHeight: "90vh", borderRadius: 16, overflow: "hidden", boxShadow: "0 24px 70px rgba(0,0,0,0.45)", border: `1px solid ${T.border}`, display: "flex", flexDirection: "column" }}>
+              style={{ background: T.card, width: "100%", maxWidth: 1000, maxHeight: "90vh", borderRadius: 16, overflow: "hidden", boxShadow: "0 24px 70px rgba(0,0,0,0.45)", border: `1px solid ${T.border}`, display: "flex", flexDirection: "column" }}>
               {/* Header — vendor + tracking primary; project context secondary */}
               <div style={{ padding: "14px 22px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexShrink: 0, background: T.card }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -1437,7 +1481,15 @@ export default function ReceivingPage() {
                         <span style={{ color: T.faint, margin: "0 8px" }}>·</span>
                         <strong style={{ color: T.text, fontWeight: 700 }}>{shipment.received_count}</strong> received
                         <span style={{ color: T.faint, margin: "0 8px" }}>·</span>
-                        <strong style={{ color: T.text, fontWeight: 700 }}>{shipment.total_units.toLocaleString()}</strong> units
+                        {(() => {
+                          // Units in THIS box = sum of the pending items' outstanding
+                          // balances (not the items' cumulative order) — so a wave-2
+                          // box reads "26 to receive", not 50.
+                          const pendingUnits = shipment.items.filter(it => !it.received_at_hpd).reduce((a, it) => a + tQty(outstandingOf(it)), 0);
+                          return shipment.pending_count > 0
+                            ? <><strong style={{ color: T.text, fontWeight: 700 }}>{pendingUnits.toLocaleString()}</strong> to receive</>
+                            : <><strong style={{ color: T.text, fontWeight: 700 }}>{shipment.total_units.toLocaleString()}</strong> units</>;
+                        })()}
                       </div>
                     </div>
                   </div>
@@ -1474,6 +1526,7 @@ export default function ReceivingPage() {
                       await bulkMarkReceived(eligible, (it) => ({
                         condition: "good",
                         notes: conditionNote[it.id] || "",
+                        deliveredQtys: deliveredDraft[it.id] || outstandingOf(it),
                       }), { skipClientEmail: silentMode });
                       setSelectedItemIds(prev => {
                         const next = new Set(prev);
@@ -1553,8 +1606,8 @@ export default function ReceivingPage() {
                                     const hasVariance = isReceived && receivedTotal > 0 && receivedTotal !== (shippedQty || totalQty);
                                     return (
                                       <div key={item.id} style={{
-                                        padding: "12px 14px", borderRadius: 6, marginBottom: 6,
-                                        background: isReceived ? T.greenDim + "44" : "transparent",
+                                        padding: "12px 14px", borderRadius: 8, marginBottom: 8, minHeight: 150,
+                                        background: isReceived ? T.greenDim + "44" : T.card,
                                         border: `1px solid ${isReceived ? T.green + "33" : T.border}`,
                                       }}>
                                         <div style={{ display: "flex", alignItems: "flex-start", gap: 14 }}>
@@ -1569,7 +1622,7 @@ export default function ReceivingPage() {
 
                                           {/* Mockup thumbnail — visual confirmation
                                               for the receiver. Click enlarges. */}
-                                          <div style={{ width: 72, height: 72, flexShrink: 0, borderRadius: 6, overflow: "hidden", background: T.surface, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                                          <div style={{ width: 88, alignSelf: "stretch", minHeight: 72, flexShrink: 0, borderRadius: 6, overflow: "hidden", background: T.surface, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
                                             {mockupMap[item.id]?.driveFileId ? (
                                               <DriveThumb
                                                 driveFileId={mockupMap[item.id].driveFileId}
@@ -1608,6 +1661,31 @@ export default function ReceivingPage() {
                                             )}
                                             {fmtEta(item.client_eta) && (
                                               <div style={{ fontSize: 11, fontWeight: 600, color: T.accent, marginTop: 3 }}>ETA {fmtEta(item.client_eta)}</div>
+                                            )}
+                                            {/* Wave progress — ordered / shipped / remaining. Shows a
+                                                'Partial shipment' badge when the vendor still owes units.
+                                                Only meaningful on the legacy item-level view — a real box
+                                                is a complete shipment in itself (its qty shows in the grid),
+                                                so the item-level "still to ship" is skipped here. */}
+                                            {!item._shipmentId && (() => {
+                                              const p = shipProgress(item.qtys, item.ship_qtys, item.received_qtys);
+                                              if (p.ordered === 0) return null;
+                                              const partial = p.remaining > 0;
+                                              return (
+                                                <div style={{ marginTop: 4, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", fontSize: 11, fontFamily: mono }}>
+                                                  {partial && <span style={{ fontSize: 9, fontWeight: 800, color: T.amber, background: T.amberDim, border: `1px solid ${T.amber}55`, borderRadius: 4, padding: "1px 6px", letterSpacing: "0.04em", textTransform: "uppercase", fontFamily: font }}>Partial shipment</span>}
+                                                  <span style={{ color: T.muted }}>{p.shipped}/{p.ordered} shipped</span>
+                                                  {p.remaining > 0 && <span style={{ color: T.amber }}>· {p.remaining} still to ship</span>}
+                                                </div>
+                                              );
+                                            })()}
+                                            {/* Box view: flag a partial shipment — this box is only part
+                                                of the order, with more waves still coming to the warehouse. */}
+                                            {item._shipmentId && item.pipeline_stage !== "shipped" && tQty(item.qtys) > 0 && (
+                                              <div style={{ marginTop: 4, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", fontSize: 11, fontFamily: mono }}>
+                                                <span style={{ fontSize: 9, fontWeight: 800, color: T.amber, background: T.amberDim, border: `1px solid ${T.amber}55`, borderRadius: 4, padding: "1px 6px", letterSpacing: "0.04em", textTransform: "uppercase", fontFamily: font }}>Partial shipment</span>
+                                                <span style={{ color: T.muted }}>{tQty(item.ship_qtys)} in this box · {tQty((item as any)._cumShippedQtys || item.ship_qtys)} of {tQty(item.qtys)} shipped so far · more coming</span>
+                                              </div>
                                             )}
 
                                             {/* Photos */}
@@ -1660,30 +1738,36 @@ export default function ReceivingPage() {
                                                 <span key={`hdr-${sz}`} style={{ fontSize: 11, color: T.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", textAlign: "center" }}>{sz}</span>
                                               ))}
 
-                                              {/* Row 2 — shipped qty (read-only) */}
-                                              <span />
+                                              {/* Row 2 — expected in THIS box = outstanding
+                                                  (shipped so far − already received). For a fully
+                                                  received item it falls back to the shipped qty. */}
+                                              <span style={{ fontSize: 8, color: T.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", paddingRight: 4, fontFamily: font }}>In box</span>
                                               {item.sizes.map(sz => {
-                                                const shipped = item.ship_qtys?.[sz] ?? item.qtys?.[sz] ?? 0;
+                                                const expected = item.received_at_hpd
+                                                  ? (item.ship_qtys?.[sz] ?? item.qtys?.[sz] ?? 0)
+                                                  : Math.max(0, (item.ship_qtys?.[sz] ?? item.qtys?.[sz] ?? 0) - (item.received_qtys?.[sz] ?? 0));
                                                 return (
-                                                  <span key={`shp-${sz}`} style={{ fontSize: 11, color: T.muted, fontWeight: 600, textAlign: "center" }}>{shipped}</span>
+                                                  <span key={`shp-${sz}`} style={{ fontSize: 11, color: T.muted, fontWeight: 600, textAlign: "center" }}>{expected}</span>
                                                 );
                                               })}
 
-                                              {/* Row 3 — received qty (input). Live variance flag
-                                                  matches Production: under = amber, over = green,
-                                                  equal = neutral. Persists after Receive too so
-                                                  the row keeps showing where the gaps were. */}
+                                              {/* Row 3 — delivered THIS receipt (input), seeded to the
+                                                  outstanding. Under = amber, over = green. Receiving
+                                                  ADDS this to the cumulative received. */}
                                               <span style={{ fontSize: 8, color: T.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", paddingRight: 4, fontFamily: font }}>Delivered</span>
                                               {item.sizes.map(sz => {
-                                                const shipped = item.ship_qtys?.[sz] ?? item.qtys?.[sz] ?? 0;
-                                                const received = item.received_qtys?.[sz] ?? shipped;
-                                                const diffColor = received < shipped ? T.amber : received > shipped ? T.green : null;
+                                                const done = item.received_at_hpd;
+                                                // Received box: show what was received (read-only). Pending
+                                                // box: editable draft, seeded to the outstanding.
+                                                const expected = Math.max(0, (item.ship_qtys?.[sz] ?? item.qtys?.[sz] ?? 0) - (done ? 0 : (item.received_qtys?.[sz] ?? 0)));
+                                                const received = done ? (item.received_qtys?.[sz] ?? 0) : (deliveredDraft[item.id]?.[sz] ?? expected);
+                                                const diffColor = received < expected ? T.amber : received > expected ? T.green : null;
                                                 return (
-                                                  <input key={`rcv-${sz}`} type="number" min="0" value={received}
-                                                    onChange={e => updateReceivedQty(item, sz, parseInt(e.target.value) || 0)}
+                                                  <input key={`rcv-${sz}`} type="number" min="0" value={received} disabled={done}
+                                                    onChange={e => { const v = parseInt(e.target.value) || 0; setDeliveredDraft(prev => ({ ...prev, [item.id]: { ...(prev[item.id] || {}), [sz]: v } })); }}
                                                     onFocus={e => e.target.select()}
-                                                    title="Received"
-                                                    style={{ width: 56, textAlign: "center", padding: "6px 4px", border: `1px solid ${diffColor || T.border}`, borderRadius: 5, background: T.surface, color: diffColor || T.text, fontSize: 13, fontWeight: 600, fontFamily: mono, outline: "none" }} />
+                                                    title={done ? "Received" : "Delivered in this receipt"}
+                                                    style={{ width: 56, textAlign: "center", padding: "6px 4px", border: `1px solid ${diffColor || T.border}`, borderRadius: 5, background: done ? "transparent" : T.surface, color: diffColor || (done ? T.muted : T.text), fontSize: 13, fontWeight: 600, fontFamily: mono, outline: "none", opacity: done ? 0.8 : 1 }} />
                                                 );
                                               })}
 
@@ -1721,9 +1805,10 @@ export default function ReceivingPage() {
                                                     {(item.receiving_data as any).notes}
                                                   </div>
                                                 )}
-                                                <div style={{ display: "flex", gap: 4, marginTop: 2 }}>
-                                                  <button onClick={() => undoReceived(item)} style={{ fontSize: 10, color: T.faint, background: "none", border: `1px solid ${T.border}`, borderRadius: 4, padding: "3px 10px", cursor: "pointer" }}>Undo</button>
-                                                  <button onClick={() => returnToProduction(item)} style={{ fontSize: 10, color: T.amber, background: "none", border: `1px solid ${T.amber}44`, borderRadius: 4, padding: "3px 10px", cursor: "pointer" }} title="Send back to decorator">← Production</button>
+                                                <div style={{ display: "flex", gap: 10, marginTop: 2 }}>
+                                                  <button onClick={() => undoReceived(item)} style={{ fontSize: 11, color: T.faint, background: "none", border: "none", cursor: "pointer", textDecoration: "underline", fontFamily: font }}>Undo</button>
+                                                  <button onClick={() => returnToProduction(item)} style={{ fontSize: 11, color: T.amber, background: "none", border: "none", cursor: "pointer", textDecoration: "underline", fontFamily: font, whiteSpace: "nowrap" }} title="Send back to decorator">← Production</button>
+                                                  <button onClick={() => setHistoryItem(item)} style={{ fontSize: 11, color: T.faint, background: "none", border: "none", cursor: "pointer", textDecoration: "underline", fontFamily: font }}>History</button>
                                                 </div>
                                               </>
                                             ) : (
@@ -1749,14 +1834,21 @@ export default function ReceivingPage() {
                                                     ⚑ Flag issue
                                                   </button>
                                                 )}
-                                                <div style={{ display: "flex", gap: 4, marginTop: 2 }}>
-                                                  <button onClick={() => returnToProduction(item)} style={{ fontSize: 10, color: T.faint, background: "none", border: `1px solid ${T.border}`, borderRadius: 4, padding: "3px 10px", cursor: "pointer" }} title="Send back to decorator">← Production</button>
+                                                {/* Primary green action on top, secondary link
+                                                    below — mirrors production's Ship + Undo stack. */}
+                                                <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 2, alignItems: "flex-end" }}>
                                                   <button onClick={() => markReceived(item, {
                                                     // condition removed from this view — note only.
                                                     condition: "good",
                                                     notes: conditionNote[item.id] || "",
                                                     skipClientEmail: silentMode,
-                                                  })} style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: T.green, border: "none", borderRadius: 4, padding: "5px 14px", cursor: "pointer" }}>Receive</button>
+                                                    deliveredQtys: deliveredDraft[item.id] || outstandingOf(item),
+                                                  })} style={{ fontSize: 13, fontWeight: 700, color: "#fff", background: T.green, border: "none", borderRadius: 4, padding: "8px 18px", cursor: "pointer", fontFamily: font }}>Receive</button>
+                                                  <button onClick={() => returnToProduction(item)} style={{ fontSize: 11, color: T.faint, background: "none", border: "none", cursor: "pointer", textDecoration: "underline", fontFamily: font, whiteSpace: "nowrap" }} title="Send back to decorator">← Production</button>
+                                                  <button onClick={() => setHistoryItem(item)} style={{ fontSize: 11, color: T.faint, background: "none", border: "none", cursor: "pointer", textDecoration: "underline", fontFamily: font, whiteSpace: "nowrap" }}>History</button>
+                                                  {!isReceived && adhocPullFor !== item.id && (
+                                                    <button onClick={() => setAdhocPullFor(item.id)} style={{ fontSize: 11, color: T.amber, background: "none", border: "none", cursor: "pointer", textDecoration: "underline", fontFamily: font, whiteSpace: "nowrap" }}>+ Pull from this box</button>
+                                                  )}
                                                 </div>
                                               </>
                                             )}
@@ -1790,12 +1882,7 @@ export default function ReceivingPage() {
                                             <button onClick={() => { setAdhocPullFor(null); setAdhocQtys({}); setAdhocReason(""); }}
                                               style={{ fontSize: 12, background: "none", border: "none", color: T.faint, cursor: "pointer" }}>×</button>
                                           </div>
-                                        ) : (
-                                          <button onClick={() => setAdhocPullFor(item.id)}
-                                            style={{ marginTop: 6, fontSize: 10, fontWeight: 600, color: T.amber, background: "none", border: `1px dashed ${T.amber}55`, borderRadius: 5, padding: "3px 10px", cursor: "pointer", fontFamily: font, alignSelf: "flex-start" }}>
-                                            + Pull from this box
-                                          </button>
-                                        ))}
+                                        ) : null)}
 
                                         {/* Variance / samples summary */}
                                         {(hasVariance || sampleTotal > 0) && (
@@ -2176,6 +2263,10 @@ export default function ReceivingPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {historyItem && (
+        <LedgerHistory itemId={historyItem.id} itemName={historyItem.name} onClose={() => setHistoryItem(null)} />
       )}
     </div>
   );

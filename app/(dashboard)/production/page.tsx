@@ -6,12 +6,15 @@ import Link from "next/link";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 import { logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
 import { uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
-import { shipItemFromDecorator } from "@/lib/po-actions";
-import { removeShipmentLineForItem, createPullRequest, updatePullRequest, PULL_KINDS, type PullRequestRow } from "@/lib/handoff";
+import { shipItemWave, unshipLastWave } from "@/lib/po-actions";
+import { shipProgress, remainingToShip } from "@/lib/ship-progress";
+import { createPullRequest, updatePullRequest, PULL_KINDS, type PullRequestRow } from "@/lib/handoff";
+import { pickupTrackingStamp } from "@/lib/use-shipments";
 import { computeArrivalEta } from "@/lib/arrival-eta";
 import { NotifyShipmentDialog } from "@/components/NotifyShipmentDialog";
 import { MockupPeek } from "@/components/MockupPeek";
 import { DriveThumb } from "@/components/DriveThumb";
+import LedgerHistory from "@/components/LedgerHistory";
 
 const tQty = (q: Record<string, number>) => Object.values(q || {}).reduce((a, v) => a + v, 0);
 
@@ -84,6 +87,7 @@ export default function ProductionPage() {
   const router = useRouter();
   const [projects, setProjects] = useState<ProjectGroup[]>([]);
   const [loading, setLoading] = useState(true);
+  const loadedOnceRef = useRef(false);
   const [search, setSearch] = useState("");
   const [filterDecorator, setFilterDecorator] = useState("");
   const [filterClient, setFilterClient] = useState("");
@@ -100,6 +104,12 @@ export default function ProductionPage() {
   // tracking + notes inputs + confirm. Inline row no longer carries
   // those inputs, so the row stays compact.
   const [shipDetailItem, setShipDetailItem] = useState<ProdItem | null>(null);
+  const [historyItem, setHistoryItem] = useState<ProdItem | null>(null);
+  // Ship modal has two phases: composing a wave (Cancel + Ship) → after a ship
+  // this session, the confirm phase (Notify warehouse + Done). Resets whenever
+  // a different item's modal opens.
+  const [justShipped, setJustShipped] = useState(false);
+  useEffect(() => { setJustShipped(false); }, [shipDetailItem?.id]);
   // Batch ship sub-modal. Click "Ship Selected · N" → opens with one
   // tracking + notes input + packing slip upload that get applied to
   // every selected item. Vendors typically ship one box with a single
@@ -150,6 +160,23 @@ export default function ProductionPage() {
   const [pullReqsByItem, setPullReqsByItem] = useState<Record<string, PullRequestRow[]>>({});
   // Draft pull row per item — local until the user commits it with "Add".
   const [pullDrafts, setPullDrafts] = useState<Record<string, { qtys: Record<string, number>; kind: string; reason: string }>>({});
+  // "This wave" per-size qtys per item — transient, defaults to the remaining
+  // balance (ordered − already shipped). Shipping accumulates it onto the item's
+  // cumulative ship_qtys via shipItemWave. Not persisted until Ship.
+  const [waveQtys, setWaveQtys] = useState<Record<string, Record<string, number>>>({});
+  // The wave qty to ship for an item, per size: the user's edit if any, else the
+  // remaining balance.
+  const waveQtyFor = (item: ProdItem, sz: string): number => {
+    const edited = waveQtys[item.id];
+    if (edited && sz in edited) return edited[sz];
+    const rem = remainingToShip(item.qtys, item.ship_qtys);
+    return rem[sz] ?? 0;
+  };
+  const waveMapFor = (item: ProdItem): Record<string, number> => {
+    const out: Record<string, number> = {};
+    for (const sz of item.sizes) { const n = waveQtyFor(item, sz); if (n > 0) out[sz] = n; }
+    return out;
+  };
   const now = new Date();
 
   useEffect(() => { loadAll(); }, []);
@@ -261,7 +288,10 @@ export default function ProductionPage() {
   }
 
   async function loadAll() {
-    setLoading(true);
+    // Full-screen spinner only on the FIRST load — a reload after an action
+    // (e.g. Mark Shipped) must NOT unmount the page/modal, which read as a
+    // "white flash + the modal reopening". Subsequent reloads refresh in place.
+    if (!loadedOnceRef.current) setLoading(true);
     // Active jobs + recently completed (last 30 days)
     const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString();
     const [activeRes, completedRes] = await Promise.all([
@@ -270,7 +300,7 @@ export default function ProductionPage() {
     ]);
     const jobs = [...(activeRes.data || []), ...(completedRes.data || [])];
 
-    if (!jobs?.length) { setProjects([]); setLoading(false); return; }
+    if (!jobs?.length) { setProjects([]); setLoading(false); loadedOnceRef.current = true; return; }
 
     const jobIds = jobs.map(j => j.id);
     const jobMap: Record<string, any> = {};
@@ -281,6 +311,25 @@ export default function ProductionPage() {
       .select("*, buy_sheet_lines(size, qty_ordered), decorator_assignments(id, pipeline_stage, decoration_type, decorator_id, decorators(id, name, short_code, contacts_list, transit_days))")
       .in("job_id", jobIds)
       .order("sort_order");
+
+    // Per-item shipment boxes (waves) — each persisted box that carried this
+    // item, with its own tracking + units + date. Powers the "shipped in N
+    // waves" breakdown on the Shipped row.
+    const itemIdsForWaves = (allItems || []).map((it: any) => it.id);
+    const wavesByItem: Record<string, { tracking: string | null; units: number; date: string | null; pickup: boolean }[]> = {};
+    if (itemIdsForWaves.length) {
+      const { data: slines } = await supabase
+        .from("shipment_lines")
+        .select("item_id, ship_qtys, shipments(tracking, created_at, pickup)")
+        .in("item_id", itemIdsForWaves);
+      for (const l of slines || []) {
+        const s = (l as any).shipments || {};
+        const units = Object.values((l as any).ship_qtys || {}).reduce((a: number, n: any) => a + (Number(n) || 0), 0);
+        (wavesByItem[(l as any).item_id] ||= []).push({ tracking: s.tracking || null, units, date: s.created_at || null, pickup: !!s.pickup });
+      }
+      for (const k of Object.keys(wavesByItem)) wavesByItem[k].sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+    }
+    setShipmentsByItem(wavesByItem);
 
     // Group items by job, then by decorator within each job
     const projectMap: Record<string, ProjectGroup> = {};
@@ -305,11 +354,14 @@ export default function ProductionPage() {
         .filter(Boolean).map((s: string) => s.toLowerCase().trim());
       const poSentToVendor = _vendorKeys.some(v => _poSentVendors.has(v));
       if (it.pipeline_stage !== "in_production" && it.pipeline_stage !== "shipped" && !poSentToVendor) continue;
-      // Once an item has been received at HPD, it has moved past the
-      // production stage from this vendor's POV (it's in receiving /
-      // fulfillment / outbound now). Drop it so the decorator chip
-      // clears when all of that vendor's items are received.
-      if (it.received_at_hpd) continue;
+      // Once an item is received AND fully shipped, it has moved past production
+      // (it's in receiving / fulfillment now). But a PARTIAL wave item — some
+      // shipped & received, more still to ship — must STAY on the board so the
+      // next wave can go out. Keep it whenever units remain to ship.
+      const _ordered = (it.buy_sheet_lines || []).reduce((s: number, l: any) => s + (Number(l.qty_ordered) || 0), 0);
+      const _shipped = Object.values(it.ship_qtys || {}).reduce((s: number, n: any) => s + (Number(n) || 0), 0);
+      const _remainingToShip = Math.max(0, _ordered - _shipped);
+      if (it.received_at_hpd && _remainingToShip === 0) continue;
 
       const assignment = it.decorator_assignments?.[0];
       const decName = assignment?.decorators?.name || "Unassigned";
@@ -509,6 +561,7 @@ export default function ProductionPage() {
     }
 
     setLoading(false);
+    loadedOnceRef.current = true;
   }
 
   // ── Item actions ──
@@ -523,10 +576,37 @@ export default function ProductionPage() {
       clearTimeout(saveTimers.current[key]);
       delete saveTimers.current[key];
     }
-    // Canonical ship effect lives in lib/po-actions — the ONLY ship path.
-    // It also persists the shipments row + line (handoff spine, mig 117);
+    // Ship a WAVE: accumulate this wave's qtys onto the item's cumulative
+    // shipped; the item stays in production until the waves sum to ordered.
+    // Local pickup keeps the legacy path (no tracking, vendor-grouped, pickup
+    // email). shipItemWave persists the shipments row + line (mig 117);
     // warehouseNotes rides along to shipments.warehouse_notes.
-    await shipItemFromDecorator(supabase, item, { warehouseNotes: opts?.warehouseNotes || null });
+    if (item.pickup_ready) {
+      // Local pickup: no carrier tracking, so stamp it "Pickup · Vendor · Date"
+      // for a referenceable box identity. Routes through the SAME wave flow as
+      // everything else so partial pickups work too. Then ping Goose/Dante.
+      const stamp = pickupTrackingStamp(item.decorator_short_code || item.decorator_name, new Date().toISOString());
+      await shipItemWave(supabase, {
+        itemId: item.id,
+        waveQtys: waveMapFor(item),
+        tracking: stamp,
+        pickup: true,
+        warehouseNotes: opts?.warehouseNotes || null,
+      });
+      setWaveQtys(prev => { const n = { ...prev }; delete n[item.id]; return n; });
+      if (typeof fetch !== "undefined") {
+        fetch("/api/email/pickup-ready", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: item.id }) }).catch(() => {});
+      }
+    } else {
+      await shipItemWave(supabase, {
+        itemId: item.id,
+        waveQtys: waveMapFor(item),
+        tracking: item.ship_tracking || null,
+        warehouseNotes: opts?.warehouseNotes || null,
+      });
+      // Clear the transient wave draft so it re-defaults to the new remaining.
+      setWaveQtys(prev => { const n = { ...prev }; delete n[item.id]; return n; });
+    }
     if (!opts?.skipReload) loadAll();
   }
 
@@ -570,19 +650,10 @@ export default function ProductionPage() {
     return;
   }
 
+  // Per-wave undo: backs out only the LAST wave (a multi-wave item drops from
+  // 500/500 to 300/500, not to 0). Legacy items with no wave rows fully revert.
   async function undoShipped(item: ProdItem) {
-    const timestamps = { ...(item.pipeline_timestamps || {}) };
-    delete timestamps.shipped;
-    await supabase.from("items").update({
-      pipeline_stage: "in_production", pipeline_timestamps: timestamps,
-      received_at_hpd: false, received_at_hpd_at: null, received_qtys: null,
-    }).eq("id", item.id);
-    if (item.decorator_assignment_id) {
-      await supabase.from("decorator_assignments").update({ pipeline_stage: "in_production" }).eq("id", item.decorator_assignment_id);
-    }
-    // Handoff spine: drop the item's line from its un-received shipment
-    // (and the shipment itself if this was its last line).
-    await removeShipmentLineForItem(supabase, item.id);
+    await unshipLastWave(supabase, item.id);
     loadAll();
   }
 
@@ -733,8 +804,11 @@ export default function ProductionPage() {
         onChange={e => onChange(e.target.value)} onBlur={onBlur}
         style={{ ...ic, ...cell, width: 34, textAlign: "center", fontFamily: mono, color: v ? T.amber : T.faint, borderColor: v ? T.amber : T.border }} />
     );
+    // Nothing to show until a pull exists or the user opens a draft (via the
+    // "+ Request pull" link in the row's action column).
+    if (pulls.length === 0 && !draft) return null;
     return (
-      <div onClick={e => e.stopPropagation()} style={{ display: "flex", flexDirection: "column", gap: 5, width: "100%", maxWidth: 540, overflowX: "auto" }}>
+      <div onClick={e => e.stopPropagation()} style={{ display: "flex", flexDirection: "column", gap: 5, width: "100%", maxWidth: 640, overflowX: "auto" }}>
         <span style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em" }}>Pulls (warehouse holds these back)</span>
         {(pulls.length > 0 || draft) && (
           <div style={{ display: "grid", gridTemplateColumns: cols, gap: 4, alignItems: "center" }}>
@@ -785,24 +859,19 @@ export default function ProductionPage() {
             )}
           </div>
         )}
-        {!draft && (
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            <button onClick={() => setDraft({})}
-              style={{ fontSize: 11, fontWeight: 600, color: T.accent, background: "none", border: `1px dashed ${T.border}`, borderRadius: 5, padding: "3px 10px", cursor: "pointer", fontFamily: font }}>
-              + Request pull
-            </button>
-            {item.sizes.length > 1 && (
-              <button onClick={() => setDraft({ qtys: Object.fromEntries(item.sizes.map(sz => [sz, 1])) })}
-                title="Starts a request with one of every size"
-                style={{ fontSize: 11, fontWeight: 600, color: T.muted, background: "none", border: `1px dashed ${T.border}`, borderRadius: 5, padding: "3px 10px", cursor: "pointer", fontFamily: font }}>
-                + Size run
-              </button>
-            )}
-          </div>
+        {draft && item.sizes.length > 1 && Object.keys(draft.qtys || {}).length === 0 && (
+          <button onClick={() => setDraft({ qtys: Object.fromEntries(item.sizes.map(sz => [sz, 1])) })}
+            title="Fill one of every size"
+            style={{ fontSize: 11, fontWeight: 600, color: T.muted, background: "none", border: `1px dashed ${T.border}`, borderRadius: 5, padding: "3px 10px", cursor: "pointer", fontFamily: font, alignSelf: "flex-start" }}>
+            + Size run
+          </button>
         )}
       </div>
     );
   }
+  // Open a fresh pull draft for an item — called from the row's action column.
+  const openPullDraft = (item: ProdItem) =>
+    setPullDrafts(prev => prev[item.id] ? prev : ({ ...prev, [item.id]: { qtys: {}, kind: "sample", reason: "" } }));
 
   async function handlePackingSlipUpload(input: File | File[] | FileList, project: ProjectGroup, dgItems: ProdItem[]) {
     const files: File[] = input instanceof File ? [input] : Array.from(input as any);
@@ -928,6 +997,8 @@ export default function ProductionPage() {
   const [viewMode, setViewMode] = useState<"grouped" | "list">("grouped");
   const [buildPickerOpen, setBuildPickerOpen] = useState(false); // "+ Build shipment" vendor picker
   const [mockupMap, setMockupMap] = useState<Record<string, { driveFileId: string | null; driveLink: string | null }>>({});
+  // Per-item shipment boxes (waves) for the "shipped in N waves" breakdown.
+  const [shipmentsByItem, setShipmentsByItem] = useState<Record<string, { tracking: string | null; units: number; date: string | null; pickup: boolean }[]>>({});
   const [mockupPeek, setMockupPeek] = useState<{ driveFileId: string | null; name: string } | null>(null);
   // List-view sorting is driven by clicking column headers (asc/desc toggle),
   // independent of the grouped board's sort dropdown.
@@ -1175,31 +1246,27 @@ export default function ProductionPage() {
   // state immediately, so Mark Shipped persists exactly what's shown. The
   // grouped view has its own inline copy of this grid (left untouched on
   // purpose) — this helper only serves the two list-flow modals.
+  // Per-size "shipping this wave" inputs. Value defaults to the REMAINING
+  // balance (ordered − already shipped); the small number below each is the
+  // remaining. Editing sets a transient wave qty; Ship accumulates it. Shipping
+  // fewer than remaining leaves the item open for the next wave.
   function shipQtyInputs(item: ProdItem) {
+    const rem = remainingToShip(item.qtys, item.ship_qtys);
     return item.sizes.map(sz => {
-      const ordered = item.qtys[sz] || 0;
-      const shipped = (item.ship_qtys || {})[sz] ?? ordered;
-      const diffColor = shipped < ordered ? T.amber : shipped > ordered ? T.green : null;
+      const remaining = rem[sz] ?? 0;
+      const val = waveQtyFor(item, sz);
+      const over = val > remaining;
       return (
         <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
           <span style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>{sz}</span>
-          <input type="text" inputMode="numeric" value={shipped}
+          <input type="text" inputMode="numeric" value={val}
             onClick={e => { e.stopPropagation(); (e.target as HTMLInputElement).select(); }}
             onChange={e => {
-              const val = parseInt(e.target.value) || 0;
-              const newQtys = { ...(item.ship_qtys || {}), [sz]: val };
-              setProjects(prev => prev.map(p => ({
-                ...p, decoratorGroups: p.decoratorGroups.map(dg2 => ({
-                  ...dg2, items: dg2.items.map(it => it.id === item.id ? { ...it, ship_qtys: newQtys } : it)
-                }))
-              })));
-              if (saveTimers.current[`sqty_${item.id}`]) clearTimeout(saveTimers.current[`sqty_${item.id}`]);
-              saveTimers.current[`sqty_${item.id}`] = setTimeout(() => {
-                (supabase.from("items") as any).update({ ship_qtys: newQtys }).eq("id", item.id);
-              }, 800);
+              const v = parseInt(e.target.value) || 0;
+              setWaveQtys(prev => ({ ...prev, [item.id]: { ...(prev[item.id] || {}), [sz]: v } }));
             }}
-            style={{ ...ic, width: 52, padding: "8px 6px", textAlign: "center", fontSize: 13, fontFamily: mono, border: `1px solid ${diffColor || T.border}`, color: T.text }} />
-          <span style={{ fontSize: 10, color: T.faint, fontFamily: mono }}>{ordered}</span>
+            style={{ ...ic, width: 52, padding: "8px 6px", textAlign: "center", fontSize: 13, fontFamily: mono, border: `1px solid ${over ? T.amber : T.border}`, color: T.text }} />
+          <span style={{ fontSize: 10, color: T.faint, fontFamily: mono }}>/ {remaining}</span>
         </div>
       );
     });
@@ -1482,7 +1549,19 @@ export default function ProductionPage() {
                 <div style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{dg.shortCode || dg.decoratorName}</div>
                 <div style={{ fontSize: 10.5, color: T.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                   {dg.items.length} item{dg.items.length !== 1 ? "s" : ""} · {strip.units.toLocaleString()}u
-                  {dg.shipped > 0 && <span style={{ color: T.green }}> · {dg.shipped} shipped</span>}
+                  {(() => {
+                    // Only show unit-level partial progress while SOME items are still
+                    // in production (a wave item mid-ship). A fully-shipped strip shows
+                    // its 'shipped' badge, not a fraction from stale legacy ship_qtys.
+                    const anyInProd = dg.items.some((it: ProdItem) => it.pipeline_stage !== "shipped");
+                    const shippedUnits = dg.items.reduce((a: number, it: ProdItem) => a + Object.values(it.ship_qtys || {}).reduce((x: number, n) => x + (Number(n) || 0), 0), 0);
+                    const orderedUnits = dg.items.reduce((a: number, it: ProdItem) => a + (it.total_units || 0), 0);
+                    if (anyInProd && shippedUnits > 0 && shippedUnits < orderedUnits) {
+                      return <span style={{ color: T.amber, fontWeight: 700 }}> · {shippedUnits}/{orderedUnits} shipped</span>;
+                    }
+                    if (dg.shipped > 0) return <span style={{ color: T.green }}> · {dg.shipped} shipped</span>;
+                    return null;
+                  })()}
                 </div>
               </div>
               {/* Route → destination */}
@@ -1524,7 +1603,7 @@ export default function ProductionPage() {
               <div onClick={closeModalRespectReturn}
                 style={{ position: "fixed", inset: 0, background: "rgba(10,12,20,0.5)", backdropFilter: "blur(2px)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "clamp(12px, 4vh, 44px)", fontFamily: font, color: T.text }}>
                 <div onClick={e => e.stopPropagation()}
-                  style={{ background: T.bg, width: "100%", maxWidth: 1000, maxHeight: "90vh", borderRadius: 16, overflow: "hidden", boxShadow: "0 24px 70px rgba(0,0,0,0.45)", border: `1px solid ${T.border}`, display: "flex", flexDirection: "column" }}>
+                  style={{ background: T.card, width: "100%", maxWidth: 1000, maxHeight: "90vh", borderRadius: 16, overflow: "hidden", boxShadow: "0 24px 70px rgba(0,0,0,0.45)", border: `1px solid ${T.border}`, display: "flex", flexDirection: "column" }}>
                   {/* Header */}
                   <div style={{ padding: "14px 22px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexShrink: 0, background: T.card }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -1609,12 +1688,12 @@ export default function ProductionPage() {
                             // Units shipped = sum of ship_qtys per shipped
                             // item, falling back to total_units if the item
                             // has no per-size breakdown.
-                            const unitsShipped = dg.items.reduce((acc, it) => {
-                              if (it.pipeline_stage !== "shipped") return acc;
-                              const sq = it.ship_qtys || {};
-                              const sqSum = Object.values(sq).reduce((a, b) => a + (b || 0), 0);
-                              return acc + (sqSum > 0 ? sqSum : (it.total_units || 0));
-                            }, 0);
+                            // ACTUAL recorded shipped units — never fabricate 'ordered'.
+                            // For legacy items the old flow rarely recorded ship_qtys, so
+                            // this honestly reads low/zero (the audit gap) rather than
+                            // claiming a full ship that never happened.
+                            const unitsShipped = dg.items.reduce((acc, it) =>
+                              acc + Object.values(it.ship_qtys || {}).reduce((a, b) => a + (b || 0), 0), 0);
                             return (
                               <div style={{ fontSize: 13, color: T.muted, marginTop: 6 }}>
                                 <strong style={{ color: T.text, fontWeight: 700 }}>{dg.inProduction}</strong> in production
@@ -1712,29 +1791,30 @@ export default function ProductionPage() {
                         const isShipped = item.pipeline_stage === "shipped";
                         return (
                           <div key={item.id} style={{
-                            padding: "10px 12px", borderRadius: 6, marginBottom: 6,
+                            padding: "12px 14px", borderRadius: 8, marginBottom: 8, minHeight: 150,
                             background: isShipped ? T.greenDim + "44" : T.card,
                             border: `1px solid ${isShipped ? T.green + "33" : T.border}`,
                           }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                            <div style={{ display: "flex", alignItems: "flex-start", gap: 14 }}>
                               <input
                                 type="checkbox"
                                 checked={selectedItemIds.has(item.id)}
                                 onChange={() => toggleItemSelected(item.id)}
                                 onClick={e => e.stopPropagation()}
-                                style={{ width: 16, height: 16, cursor: "pointer", accentColor: T.accent, flexShrink: 0 }}
+                                style={{ width: 16, height: 16, cursor: "pointer", accentColor: T.accent, flexShrink: 0, marginTop: 4 }}
                               />
-                              <span style={{ fontSize: 13, fontWeight: 800, color: T.muted, fontFamily: mono, flexShrink: 0 }}>{item.letter}</span>
+                              <span style={{ fontSize: 13, fontWeight: 800, color: T.muted, fontFamily: mono, flexShrink: 0, marginTop: 2 }}>{item.letter}</span>
                               {/* Art thumbnail (mockup, else proof) — click to enlarge.
                                   Always renders the slot: a neutral placeholder when the
                                   item has no art yet, so rows scan consistently. */}
-                              {mockupMap[item.id]?.driveFileId ? (
-                                <DriveThumb driveFileId={mockupMap[item.id].driveFileId} alt={item.name} enlargeable
-                                  style={{ width: 88, alignSelf: "stretch", height: "auto", minHeight: 64, borderRadius: 6, objectFit: "cover", flexShrink: 0, border: `1px solid ${T.border}` }} />
-                              ) : (
-                                <div title="No mockup/proof uploaded yet"
-                                  style={{ width: 88, alignSelf: "stretch", minHeight: 64, borderRadius: 6, flexShrink: 0, border: `1px dashed ${T.border}`, background: T.surface, display: "flex", alignItems: "center", justifyContent: "center", color: T.faint, fontSize: 18 }}>🖼</div>
-                              )}
+                              <div style={{ width: 88, alignSelf: "stretch", minHeight: 72, flexShrink: 0, borderRadius: 6, overflow: "hidden", background: T.surface, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                                {mockupMap[item.id]?.driveFileId ? (
+                                  <DriveThumb driveFileId={mockupMap[item.id].driveFileId} alt={item.name} enlargeable
+                                    style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                                ) : (
+                                  <span style={{ fontSize: 9, color: T.faint }}>no mockup</span>
+                                )}
+                              </div>
                               {/* Title + specs stack */}
                               <div style={{ flex: 1, minWidth: 0 }}>
                                 <div style={{ fontSize: 13, fontWeight: 600, color: T.text, display: "flex", alignItems: "center", gap: 8 }}>
@@ -1744,21 +1824,33 @@ export default function ProductionPage() {
                                 <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
                                   {item.blank_vendor || "—"} · {item.total_units} units
                                 </div>
-                                {/* Two-column edit row: ETA + TRK stacked
-                                    on the left, the (taller) note textarea
-                                    parallel on the right. Wraps below on
-                                    very narrow widths. */}
-                                <div style={{ display: "flex", gap: 14, marginTop: 6, flexWrap: "wrap", alignItems: "stretch" }}>
-                                  {/* Left sub-col: TRK + ETA (tracking sits
-                                      above the ETA — tracking is the more
-                                      action-oriented field; ETA is the
-                                      follow-up client-facing detail). */}
-                                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                {/* Ordered / shipped / remaining — visible once anything's
+                                    shipped so multi-wave items read at a glance. */}
+                                {(() => {
+                                  // Wave progress only applies to items actively shipping in
+                                  // waves (in_production). A fully-shipped item is done — its
+                                  // 'Shipped' badge covers it, and legacy items have stale
+                                  // ship_qtys (last batch only) that must not read as 'X to ship'.
+                                  if (isShipped) return null;
+                                  const p = shipProgress(item.qtys, item.ship_qtys);
+                                  if (p.shipped === 0 || p.ordered === 0) return null;
+                                  return (
+                                    <div style={{ fontSize: 11, marginTop: 3, fontFamily: mono, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                                      <span style={{ color: T.amber, fontWeight: 700 }}>
+                                        {p.shipped}/{p.ordered} shipped
+                                      </span>
+                                      {p.remaining > 0 && <span style={{ color: T.amber }}>· {p.remaining} to ship</span>}
+                                    </div>
+                                  );
+                                })()}
+                                {/* Ship fields — horizontal (pickup · TRK · ETA) so the
+                                    row uses the width and stays short instead of stacking. */}
+                                <div style={{ display: "flex", gap: 12, marginTop: 8, flexWrap: "wrap", alignItems: "center" }}>
                                     {/* Ready for pickup — local pickup vendors. Pre-checks
                                         when the PO ship method is "Pick Up". Replaces the
                                         tracking field; groups by vendor on Receiving. */}
                                     {!isShipped && (
-                                      <label onClick={e => e.stopPropagation()} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", width: 212, background: item.pickup_ready ? T.greenDim : "transparent", border: `1px solid ${item.pickup_ready ? T.green : T.border}`, borderRadius: 5, padding: "3px 7px" }}>
+                                      <label onClick={e => e.stopPropagation()} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", background: item.pickup_ready ? T.greenDim : "transparent", border: `1px solid ${item.pickup_ready ? T.green : T.border}`, borderRadius: 5, padding: "5px 9px", whiteSpace: "nowrap" }}>
                                         <input type="checkbox" checked={!!item.pickup_ready} onChange={e => { e.stopPropagation(); setPickupReady(item.id, e.target.checked); }} style={{ cursor: "pointer" }} />
                                         <span style={{ fontSize: 11, fontWeight: item.pickup_ready ? 700 : 600, color: item.pickup_ready ? T.green : T.muted }}>Ready for pickup</span>
                                       </label>
@@ -1772,7 +1864,7 @@ export default function ProductionPage() {
                                           onClick={e => e.stopPropagation()}
                                           onChange={e => { e.stopPropagation(); updateField(item.id, "ship_tracking", e.target.value); }}
                                           onBlur={e => flushField(item.id, "ship_tracking", e.target.value)}
-                                          style={{ ...ic, width: 180, padding: "3px 6px", fontSize: 11, fontFamily: mono, flexShrink: 0 }} />
+                                          style={{ ...ic, width: 160, padding: "3px 6px", fontSize: 11, fontFamily: mono, flexShrink: 0 }} />
                                       </div>
                                     )}
                                     {/* Arrival-at-HPD ETA (the ASN) override. Blank =
@@ -1786,57 +1878,43 @@ export default function ProductionPage() {
                                         onClick={e => e.stopPropagation()}
                                         onChange={e => { e.stopPropagation(); updateField(item.id, "expected_arrival", e.target.value); }}
                                         onBlur={e => flushField(item.id, "expected_arrival", e.target.value)}
-                                        style={{ ...ic, width: 180, padding: "3px 6px", fontSize: 11, fontFamily: mono, flexShrink: 0 }} />
+                                        style={{ ...ic, width: 160, padding: "3px 6px", fontSize: 11, fontFamily: mono, flexShrink: 0 }} />
                                     </div>
-                                  </div>
-                                  {/* Right sub-col: sample-pulls editor. The
-                                      warehouse reads these on Receiving along
-                                      with the ETA — which samples to pull, for
-                                      who, and where they go. Add as needed. */}
-                                  {samplePullsEditor(item)}
                                 </div>
                               </div>
                               {/* Per-size ship qty grid — inline with title */}
+                              {/* Wave-to-ship qtys — the SAME wave-aware inputs the ship
+                                  modal uses (default = remaining, edits the transient wave,
+                                  '/remaining' below). Was a stale grid bound to cumulative
+                                  ship_qtys, which showed the wrong number on wave 2. */}
                               {!isShipped && item.sizes.length > 0 && (
-                                <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                                  {item.sizes.map(sz => {
-                                    const ordered = item.qtys[sz] || 0;
-                                    const shipped = (item.ship_qtys || {})[sz] ?? ordered;
-                                    const diffColor = shipped < ordered ? T.amber : shipped > ordered ? T.green : null;
-                                    return (
-                                      <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
-                                        <span style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>{sz}</span>
-                                        <input
-                                          type="text" inputMode="numeric" value={shipped}
-                                          onClick={e => { e.stopPropagation(); (e.target as HTMLInputElement).select(); }}
-                                          onChange={e => {
-                                            const val = parseInt(e.target.value) || 0;
-                                            const newQtys = { ...(item.ship_qtys || {}), [sz]: val };
-                                            setProjects(prev => prev.map(p => ({
-                                              ...p, decoratorGroups: p.decoratorGroups.map(dg2 => ({
-                                                ...dg2, items: dg2.items.map(it => it.id === item.id ? { ...it, ship_qtys: newQtys } : it)
-                                              }))
-                                            })));
-                                            if (saveTimers.current[`sqty_${item.id}`]) clearTimeout(saveTimers.current[`sqty_${item.id}`]);
-                                            saveTimers.current[`sqty_${item.id}`] = setTimeout(() => {
-                                              supabase.from("items").update({ ship_qtys: newQtys }).eq("id", item.id);
-                                            }, 800);
-                                          }}
-                                          style={{ ...ic, width: 52, padding: "8px 6px", textAlign: "center", fontSize: 13, fontFamily: mono, border: `1px solid ${diffColor || T.border}`, color: T.text }}
-                                        />
-                                        <span style={{ fontSize: 10, color: T.faint, fontFamily: mono }}>{ordered}</span>
-                                      </div>
-                                    );
-                                  })}
+                                <div style={{ display: "flex", gap: 6, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+                                  {shipQtyInputs(item)}
                                 </div>
                               )}
                               {/* Ship button (or shipped status) */}
                               <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
                                 {isShipped ? (
                                   <>
-                                    <span style={{ fontSize: 10, color: T.green, fontWeight: 600 }}>
-                                      {item.ship_tracking || "Shipped"}
-                                    </span>
+                                    {(() => {
+                                      const waves = shipmentsByItem[item.id] || [];
+                                      if (waves.length > 1) {
+                                        // Multi-wave: show the count + each wave's units and its
+                                        // OWN tracking (the row's single ship_tracking is only the
+                                        // latest wave). Full detail is in the History modal.
+                                        return (
+                                          <div style={{ display: "flex", flexDirection: "column", gap: 1, alignItems: "flex-end" }}>
+                                            <span style={{ fontSize: 10, color: T.green, fontWeight: 700 }}>Shipped · {waves.length} waves</span>
+                                            {waves.map((w, wi) => (
+                                              <span key={wi} style={{ fontSize: 9, color: T.muted, fontFamily: mono, whiteSpace: "nowrap" }}>
+                                                {w.units}u · {w.tracking || "no tracking"}
+                                              </span>
+                                            ))}
+                                          </div>
+                                        );
+                                      }
+                                      return <span style={{ fontSize: 10, color: T.green, fontWeight: 600 }}>{item.ship_tracking || "Shipped"}</span>;
+                                    })()}
                                     {(() => {
                                       // Match either the legacy `drop_ship_vendor` records (still
                                       // written by the existing inline button on shipped rows
@@ -1878,15 +1956,41 @@ export default function ProductionPage() {
                                       style={{ fontSize: 10, color: T.faint, background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>
                                       Undo
                                     </button>
+                                    <button onClick={(e) => { e.stopPropagation(); setHistoryItem(item); }}
+                                      style={{ fontSize: 10, color: T.faint, background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>
+                                      History
+                                    </button>
                                   </>
                                 ) : (
-                                  <button onClick={(e) => { e.stopPropagation(); setShipDetailItem(item); }}
-                                    style={{ padding: "8px 18px", borderRadius: 4, border: "none", background: T.green, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", fontFamily: font }}>
-                                    Ship
-                                  </button>
+                                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+                                    <button onClick={(e) => { e.stopPropagation(); setShipDetailItem(item); }}
+                                      style={{ padding: "8px 18px", borderRadius: 4, border: "none", background: T.green, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", fontFamily: font }}>
+                                      {shipProgress(item.qtys, item.ship_qtys).shipped > 0 ? "Ship next wave" : "Ship"}
+                                    </button>
+                                    <button onClick={(e) => { e.stopPropagation(); openPullDraft(item); }}
+                                      style={{ fontSize: 10, color: T.amber, background: "none", border: "none", cursor: "pointer", textDecoration: "underline", fontFamily: font, whiteSpace: "nowrap" }}>
+                                      + Request pull
+                                    </button>
+                                    {/* Undo the last wave on a partially-shipped item. */}
+                                    {shipProgress(item.qtys, item.ship_qtys).shipped > 0 && (
+                                      <button onClick={(e) => { e.stopPropagation(); undoShipped(item); }}
+                                        style={{ fontSize: 10, color: T.faint, background: "none", border: "none", cursor: "pointer", textDecoration: "underline", fontFamily: font }}>
+                                        Undo last wave
+                                      </button>
+                                    )}
+                                    {shipProgress(item.qtys, item.ship_qtys).shipped > 0 && (
+                                      <button onClick={(e) => { e.stopPropagation(); setHistoryItem(item); }}
+                                        style={{ fontSize: 10, color: T.faint, background: "none", border: "none", cursor: "pointer", textDecoration: "underline", fontFamily: font }}>
+                                        History
+                                      </button>
+                                    )}
+                                  </div>
                                 )}
                               </div>
                             </div>
+                            {/* Pulls editor — expands below the row (full width) when
+                                requested, so the main row stays uncrammed. */}
+                            {samplePullsEditor(item)}
                           </div>
                         );
                       })}
@@ -1917,7 +2021,10 @@ export default function ProductionPage() {
                 <button key={g.decKey} onClick={() => openBuildVendor(g.decKey)} style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", textAlign: "left", padding: "12px 20px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}33`, cursor: "pointer", fontFamily: font }}
                   onMouseEnter={e => e.currentTarget.style.background = T.surface} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                   <span style={{ fontSize: 13.5, fontWeight: 700, color: T.text, flex: 1 }}>{g.name}</span>
-                  <span style={{ fontSize: 11.5, color: T.muted }}>{g.items.length} item{g.items.length !== 1 ? "s" : ""} · {g.units.toLocaleString()}u</span>
+                  {(() => {
+                    const shp = g.items.reduce((a: number, it: any) => a + Object.values(it.ship_qtys || {}).reduce((x: number, n: any) => x + (Number(n) || 0), 0), 0);
+                    return <span style={{ fontSize: 11.5, color: T.muted }}>{g.items.length} item{g.items.length !== 1 ? "s" : ""} · {g.units.toLocaleString()}u{shp > 0 && shp < g.units && <span style={{ color: T.amber, fontWeight: 700 }}> · {shp}/{g.units} shipped</span>}</span>;
+                  })()}
                   <span style={{ color: T.faint }}>›</span>
                 </button>
               ))}
@@ -1979,6 +2086,10 @@ export default function ProductionPage() {
 
       {/* Ship sub-modal — opens from row-level "Ship" button. Tracking
           and notes only; per-size qtys are edited inline on the row. */}
+      {historyItem && (
+        <LedgerHistory itemId={historyItem.id} itemName={historyItem.name} onClose={() => setHistoryItem(null)} />
+      )}
+
       {shipDetailItem && (() => {
         // Re-find latest version of the item + parent project from state
         // so any inline edits made before opening this modal are reflected.
@@ -2040,21 +2151,40 @@ export default function ProductionPage() {
                 );
               })()}
               <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                {/* Shipped quantities — per-size, list-flow only. Grouped sets
-                    these inline on the item row, so the grid is gated to the
-                    list view here to leave the grouped Ship modal unchanged. */}
-                {viewMode === "list" && item.pipeline_stage !== "shipped" && item.sizes.length > 0 && (
-                  <div>
-                    <label style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: 0.6, display: "block", marginBottom: 6 }}>Shipped quantities</label>
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>{shipQtyInputs(item)}</div>
-                    <div style={{ fontSize: 10, color: T.faint, marginTop: 4 }}>Ordered shown below each — adjust if the vendor shipped a different count.</div>
-                  </div>
-                )}
+                {/* Shipping this wave — per-size. Defaults to the remaining
+                    balance; ship fewer to leave the item open for the next wave. */}
+                {item.pipeline_stage !== "shipped" && item.sizes.length > 0 && (() => {
+                  const p = shipProgress(item.qtys, item.ship_qtys);
+                  return (
+                    <div>
+                      <label style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: 0.6, display: "block", marginBottom: 6 }}>
+                        Shipping this wave
+                        {p.shipped > 0 && <span style={{ color: T.amber, marginLeft: 8, fontWeight: 700 }}>{p.shipped}/{p.ordered} already shipped · {p.remaining} remaining</span>}
+                      </label>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>{shipQtyInputs(item)}</div>
+                      <div style={{ fontSize: 10, color: T.faint, marginTop: 4 }}>Remaining shown below each. Ship fewer to leave the rest for a later wave.</div>
+                    </div>
+                  );
+                })()}
                 <div>
-                  <label style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: 0.6, display: "block", marginBottom: 6 }}>Tracking #</label>
-                  <input value={item.ship_tracking || ""} placeholder="e.g. 1Z999AA10123456784"
-                    onChange={e => updateField(item.id, "ship_tracking", e.target.value)}
-                    style={{ ...ic, fontSize: 13, padding: "8px 10px" }} />
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6, gap: 8 }}>
+                    <label style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: 0.6 }}>
+                      {item.pickup_ready ? "Pickup" : "Tracking #"}
+                    </label>
+                    <label onClick={e => e.stopPropagation()} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 11, fontWeight: 600, color: item.pickup_ready ? T.green : T.muted }}>
+                      <input type="checkbox" checked={!!item.pickup_ready} onChange={e => setPickupReady(item.id, e.target.checked)} style={{ cursor: "pointer" }} />
+                      Local pickup — no tracking
+                    </label>
+                  </div>
+                  {item.pickup_ready ? (
+                    <div style={{ ...ic, fontSize: 13, padding: "8px 10px", color: T.green, background: T.greenDim, border: `1px solid ${T.green}55`, display: "flex", alignItems: "center" }}>
+                      Stamped: {pickupTrackingStamp(item.decorator_short_code || item.decorator_name, new Date().toISOString())}
+                    </div>
+                  ) : (
+                    <input value={item.ship_tracking || ""} placeholder="e.g. 1Z999AA10123456784"
+                      onChange={e => updateField(item.id, "ship_tracking", e.target.value)}
+                      style={{ ...ic, fontSize: 13, padding: "8px 10px" }} />
+                  )}
                 </div>
                 <div>
                   <label style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: 0.6, display: "block", marginBottom: 6 }}>Note to warehouse</label>
@@ -2105,20 +2235,22 @@ export default function ProductionPage() {
                 </div>
               </div>
               <div style={{ marginTop: 24, display: "flex", justifyContent: "flex-end", gap: 8, alignItems: "center" }}>
-                <button onClick={() => setShipDetailItem(null)}
-                  style={{ padding: "8px 16px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
-                  Cancel
-                </button>
-                {/* Notify Recipient — only shown after Mark Shipped flipped
-                    the item, gated by tracking + QB invoice. Surfaces
-                    "Notified ✓" once a record exists for this (decorator
-                    + tracking); clicking still opens the dialog → backend
-                    dedups → "Already sent — Resend?" confirm. */}
-                {item.pipeline_stage === "shipped" && (() => {
+                {(() => { const postShip = justShipped || item.pipeline_stage === "shipped"; return (<>
+                {!postShip && (
+                  <button onClick={() => setShipDetailItem(null)}
+                    style={{ padding: "8px 16px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
+                    Cancel
+                  </button>
+                )}
+                {/* Notify Recipient — CONFIRM phase only (after a ship this session
+                    or a fully-shipped item), gated by tracking + QB invoice. */}
+                {postShip && (() => {
                   const itemRoute = resolveRoute(item.shipping_route, project.shippingRoute);
                   // Customer notify (drop_ship) references the client invoice, so it
                   // needs one. Warehouse notify (ship_through/stage) is an internal
                   // incoming-goods alert to the warehouse — no invoice required.
+                  // Shows on ANY shipped units (a partial wave IS incoming to HPD),
+                  // not just a fully-shipped item.
                   const canNotify = !!item.ship_tracking && (itemRoute === "drop_ship" ? !!project.invoiceNumber : true);
                   const notified = project.shippingNotifications.some(r =>
                     (r.type === "drop_ship_vendor" || r.type === "decorator_to_warehouse") &&
@@ -2151,18 +2283,19 @@ export default function ProductionPage() {
                     </button>
                   );
                 })()}
-                {item.pipeline_stage !== "shipped" && (
-                  <button onClick={async () => { await markShipped(item, { warehouseNotes: item.ship_notes || "" }); }}
+                {!postShip && (
+                  <button onClick={async () => { await markShipped(item, { warehouseNotes: item.ship_notes || "" }); setJustShipped(true); }}
                     style={{ padding: "8px 18px", borderRadius: 6, border: "none", background: T.green, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>
-                    Mark Shipped
+                    {shipProgress(item.qtys, item.ship_qtys).shipped > 0 ? "Ship next wave" : "Mark Shipped"}
                   </button>
                 )}
-                {item.pipeline_stage === "shipped" && (
+                {postShip && (
                   <button onClick={() => setShipDetailItem(null)}
                     style={{ padding: "8px 18px", borderRadius: 6, border: `1px solid ${T.green}`, background: T.greenDim, color: T.green, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>
                     Done
                   </button>
                 )}
+                </>); })()}
               </div>
             </div>
           </div>
@@ -2200,6 +2333,9 @@ export default function ProductionPage() {
         const allSlips = liveItems.flatMap(it => packingSlips[it.id] || []);
         const uniqueSlips = allSlips.filter((s, i, arr) => arr.findIndex(x => x.file_name === s.file_name) === i);
         const totalUnits = liveItems.reduce((a, it) => a + (it.total_units || 0), 0);
+        // Units actually shipping in this wave (sum of each item's wave qty).
+        const waveUnits = liveItems.reduce((a, it) => a + Object.values(waveMapFor(it)).reduce((x, n) => x + n, 0), 0);
+        const anyPartial = liveItems.some(it => { const p = shipProgress(it.qtys, it.ship_qtys); return p.shipped > 0 && p.remaining > 0; });
         return (
           <div onClick={() => setBatchShipState(null)}
             style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 10001, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -2209,7 +2345,9 @@ export default function ProductionPage() {
                 Ship {liveItems.length} {liveItems.length === 1 ? "item" : "items"} · {dg.decoratorName}
               </h3>
               <div style={{ fontSize: 12, color: T.muted, marginBottom: 12 }}>
-                {totalUnits.toLocaleString()} total units
+                {anyPartial
+                  ? <><span style={{ color: T.amber, fontWeight: 700 }}>{waveUnits.toLocaleString()} units this wave</span> · {totalUnits.toLocaleString()} ordered</>
+                  : <>{totalUnits.toLocaleString()} total units</>}
               </div>
               {/* Route badge — same intent as the single-item Ship modal:
                   surface the route up front so drop-ship items aren't shipped
@@ -2261,7 +2399,14 @@ export default function ProductionPage() {
                       <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12 }}>
                         <span style={{ fontFamily: mono, color: T.muted, fontWeight: 700 }}>{it.letter}</span>
                         <span style={{ flex: 1, color: T.text }}>{it.name}</span>
-                        <span style={{ color: T.faint, fontFamily: mono }}>{it.total_units} units</span>
+                        {(() => {
+                          const p = shipProgress(it.qtys, it.ship_qtys);
+                          const wave = Object.values(waveMapFor(it)).reduce((a, n) => a + n, 0);
+                          if (p.shipped > 0 && p.remaining > 0) {
+                            return <span style={{ fontFamily: mono, fontSize: 11 }}><span style={{ color: T.text, fontWeight: 700 }}>{wave} to ship</span><span style={{ color: T.amber }}> · {p.shipped}/{p.ordered} shipped</span></span>;
+                          }
+                          return <span style={{ color: T.faint, fontFamily: mono }}>{it.total_units} units</span>;
+                        })()}
                       </div>
                       {it.sizes.length > 0 && (
                         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>{shipQtyInputs(it)}</div>
