@@ -203,6 +203,9 @@ export async function receiveBox(sb: any, args: {
         job_id: p.jobId, item_id: p.itemId, item_name: p.itemName, kind: p.kind, qtys: q,
         reason: p.reason || null, currentSampleQtys: sampleMap.get(p.itemId) || {},
       });
+      // If the pull bucket couldn't be created, do NOT append the ledger movement
+      // (that would drop forwardable qty with no bucket to disposition). Fail loud.
+      if (next === null) return { ok: false, received: receivedTotal, pulled: pulledTotal, error: `Couldn't record the ${p.kind || "pull"} pull for ${p.itemName} — check the pull kind.` };
       sampleMap.set(p.itemId, next);
       await appendMovement(sb, { itemId: p.itemId, jobId: p.jobId, type: "pull", qtys: q, shipmentId: args.shipmentId, reason: [p.kind, p.reason].filter(Boolean).join(" — ") || "pull" });
       await recomputeItemFromLedger(sb, p.itemId);

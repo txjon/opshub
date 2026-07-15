@@ -309,9 +309,13 @@ export async function recordAdHocPull(supabase: Sb, req: {
   qtys: Record<string, number>;
   reason?: string | null;
   currentSampleQtys: Record<string, number>;
-}): Promise<Record<string, number>> {
+}): Promise<Record<string, number> | null> {
   const created = await createPullRequest(supabase, req);
-  if (!created) return req.currentSampleQtys || {};
+  // null = the pull_request insert failed (e.g. an invalid kind vs the CHECK
+  // constraint). Signal it so the caller does NOT append an orphaned ledger pull
+  // movement with no held bucket behind it (which drops forwardable qty but never
+  // surfaces in the Pulls tab).
+  if (!created) return null;
   return fulfillPullRequest(supabase, created, {
     itemName: req.item_name, currentSampleQtys: req.currentSampleQtys,
   });

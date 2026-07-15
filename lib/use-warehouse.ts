@@ -407,6 +407,7 @@ export function useWarehouse() {
       kind: kind || "sample", qtys: clean, reason,
       currentSampleQtys: item.sample_qtys || {},
     });
+    if (!nextSamples) return;   // pull_request insert failed — don't wipe sample_qtys
     setJobs(prev => prev.map(j => ({
       ...j, items: j.items.map(it => it.id === item.id ? { ...it, sample_qtys: nextSamples } : it),
     })));
