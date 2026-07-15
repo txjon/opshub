@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { createClient as createAuthClient } from "@/lib/supabase/server";
 import { generatePDF } from "@/lib/pdf/browser";
+import { contentDisposition } from "@/lib/pdf/filename";
 import { getPdfBranding, type PdfBranding } from "@/lib/branding";
 import { parseSizeMatrix, sizeMatrixHtml } from "@/lib/size-grid";
 
@@ -364,7 +365,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `${isDownload ? "attachment" : "inline"}; filename="${filename}"`,
+        "Content-Disposition": contentDisposition(filename, isDownload),
         "Content-Length": pdfBuffer.byteLength.toString(),
       },
     });
