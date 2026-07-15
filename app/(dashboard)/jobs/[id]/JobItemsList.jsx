@@ -5,6 +5,7 @@ import { T, font, mono } from "@/lib/theme";
 import { resolveItemStatus, STATE_LABELS } from "@/lib/item-status";
 import { shipProgress } from "@/lib/ship-progress";
 import { etaCountdown } from "@/lib/eta";
+import LedgerHistory from "@/components/LedgerHistory";
 
 // Map the eta countdown semantic band onto the internal T palette.
 // Mirrors the portal's color mapping (which uses C) so the urgency
@@ -41,6 +42,18 @@ const tQty = (q) => Object.values(q || {}).reduce((a, v) => a + v, 0);
 export function JobItemsList({ items, job, isMobile, onChange, vendorFilter, onClearVendor }) {
   const supabase = createClient();
   const [localEta, setLocalEta] = useState({});
+  // Per-item inventory history (the movement ledger — what actually shipped /
+  // received / forwarded / entered by size, permanent). Reachable for every item
+  // on every job, including complete ones.
+  const [historyFor, setHistoryFor] = useState(null);
+  const histBtn = (item) => (
+    <button
+      onClick={(e) => { e.stopPropagation(); setHistoryFor({ itemId: item.id, itemName: item.name || "Item" }); }}
+      title="Inventory history — what shipped / received / forwarded, by size"
+      style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 24, height: 24, flexShrink: 0, border: `1px solid ${T.border}`, background: T.card, color: T.muted, cursor: "pointer", borderRadius: 5 }}>
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 7.5V12l3 1.8" /></svg>
+    </button>
+  );
   const saveTimers = useRef({});
   const pendingSaves = useRef({});
   // Shipping moved to the /production board (Phase 2) — the project page is
@@ -229,13 +242,16 @@ export function JobItemsList({ items, job, isMobile, onChange, vendorFilter, onC
                 display: "flex", flexDirection: "column", gap: 10,
                 padding: "12px 14px", background: T.surface, borderRadius: 8,
               }}>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: T.text, lineHeight: 1.25, wordBreak: "break-word" }}>
-                    {item.name}
+                <div style={{ minWidth: 0, display: "flex", alignItems: "flex-start", gap: 10 }}>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: T.text, lineHeight: 1.25, wordBreak: "break-word" }}>
+                      {item.name}
+                    </div>
+                    <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
+                      {[item.blank_vendor, item.blank_sku].filter(Boolean).join(" · ") || "—"}
+                    </div>
                   </div>
-                  <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>
-                    {[item.blank_vendor, item.blank_sku].filter(Boolean).join(" · ") || "—"}
-                  </div>
+                  {histBtn(item)}
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
                   <span style={{ fontSize: 12, fontFamily: mono, color: T.text }}>
@@ -284,13 +300,16 @@ export function JobItemsList({ items, job, isMobile, onChange, vendorFilter, onC
               display: "grid", gridTemplateColumns: cols, gap: 10,
               padding: "8px 10px", background: T.surface, borderRadius: 6, alignItems: "center",
             }}>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {item.name}
+              <div style={{ minWidth: 0, display: "flex", alignItems: "flex-start", gap: 8 }}>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {item.name}
+                  </div>
+                  <div style={{ fontSize: 10, color: T.muted, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {[item.blank_vendor, item.blank_sku].filter(Boolean).join(" ") || "—"}
+                  </div>
                 </div>
-                <div style={{ fontSize: 10, color: T.muted, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {[item.blank_vendor, item.blank_sku].filter(Boolean).join(" ") || "—"}
-                </div>
+                {histBtn(item)}
               </div>
               <div style={{ fontSize: 12, fontFamily: mono, color: T.text, textAlign: "right" }}>
                 {qty > 0 ? qty.toLocaleString() : "—"}
@@ -348,6 +367,9 @@ export function JobItemsList({ items, job, isMobile, onChange, vendorFilter, onC
         );
       })}
 
+      {historyFor && (
+        <LedgerHistory itemId={historyFor.itemId} itemName={historyFor.itemName} onClose={() => setHistoryFor(null)} />
+      )}
     </div>
   );
 }
