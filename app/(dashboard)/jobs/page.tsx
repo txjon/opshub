@@ -709,13 +709,15 @@ export default function JobsPage() {
                           it.pipeline_stage === "shipped" ? "Shipped" :
                           (it.pipeline_stage === "in_production" || poDone) ? "In Production" :
                           it.pipeline_stage === "blanks_ordered" ? "Blanks Ordered" :
-                          "—";
+                          vendor ? "Needs PO" :                  // costed + vendor assigned, PO not sent (e.g. un-marked)
+                          "—";                                   // truly pre-setup (no vendor yet)
                         const stageColor =
                           it.forwarded_at ? T.blue :
                           it.received_at_hpd ? T.purple :
                           it.pipeline_stage === "shipped" ? T.blue :
                           (it.pipeline_stage === "in_production" || poDone) ? T.accent :
                           it.pipeline_stage === "blanks_ordered" ? T.amber :
+                          vendor ? T.amber :
                           T.muted;
                         return (
                           <div key={it.id} style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline" }}>
