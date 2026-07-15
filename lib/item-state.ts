@@ -351,6 +351,8 @@ export type ReceivingLine = {
   receivedQtys: SizeQtys;     // already counted in for this line
   cumReceived: SizeQtys;      // item's running received across ALL boxes (for the ledger target)
   orderedTotal: number;       // full order qty for the item (to flag a partial wave)
+  shipFinal: boolean;         // item closed at ship (final flag OR fully shipped) → a
+                              // gap vs ordered is a SHORTAGE, not "more coming"
   received: boolean;
   pullRequests: PullReq[];    // production-declared pulls pending on this item (fulfil at receiving)
 };
@@ -373,7 +375,7 @@ export async function loadReceivingBoard(sb: Sb): Promise<ReceivingBox[]> {
   if (!open.length) return [];
   const ids = open.map((s: any) => s.id);
   const { data: lines } = await sb.from("shipment_lines")
-    .select("shipment_id, item_id, job_id, description, ship_qtys, received_qtys, received, items(name, mockup_color, shipping_route, received_qtys, buy_sheet_lines(qty_ordered), jobs(shipping_route, type_meta, clients(name)))").in("shipment_id", ids);
+    .select("shipment_id, item_id, job_id, description, ship_qtys, received_qtys, received, items(name, mockup_color, shipping_route, ship_final, received_qtys, buy_sheet_lines(qty_ordered), jobs(shipping_route, type_meta, clients(name)))").in("shipment_id", ids);
   const itemIds = Array.from(new Set((lines || []).map((l: any) => l.item_id).filter(Boolean)));
 
   // pending production-declared pulls per item, to fulfil at receiving
@@ -426,6 +428,7 @@ export async function loadReceivingBoard(sb: Sb): Promise<ReceivingBox[]> {
       route: resolveRoute(l.items?.shipping_route, l.items?.jobs?.shipping_route),
       shipQtys: l.ship_qtys || {}, receivedQtys: l.received_qtys || {}, cumReceived: l.items?.received_qtys || {},
       orderedTotal: (l.items?.buy_sheet_lines || []).reduce((a: number, b: any) => a + (Number(b.qty_ordered) || 0), 0),
+      shipFinal: !!l.items?.ship_final,
       received: !!l.received, pullRequests: pullBoxByItem.get(l.item_id) === s.id ? (pullsByItem.get(l.item_id) || []) : [],
     }))
       // drop_ship goes vendor→client and never touches HPD — it must not appear in

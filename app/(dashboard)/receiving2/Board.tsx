@@ -212,11 +212,16 @@ function ClientGroups({ box, status, acts }: { box: ReceivingBox; status: Status
 // Box summary segments — now shown IN the header (was its own strip).
 function boxMetaSegs(box: ReceivingBox, status: Status): { text: string; tone?: string }[] {
   const jobs = new Set(box.lines.map(l => l.jobId)).size;
-  const partials = box.lines.filter(l => l.orderedTotal > 0 && tQty(l.shipQtys) < l.orderedTotal).length;
+  // shipped < ordered splits by the final flag: NOT final = a real partial wave
+  // (more coming), final = closed short → the gap is a SHORTAGE, not "more coming".
+  const under = box.lines.filter(l => l.orderedTotal > 0 && tQty(l.shipQtys) < l.orderedTotal);
+  const partials = under.filter(l => !l.shipFinal).length;
+  const shorts = under.filter(l => l.shipFinal).length;
   const toReceive = box.lines.filter(l => !l.received).length;
   const segs: { text: string; tone?: string }[] = [];
   if (jobs > 1) segs.push({ text: `${jobs} jobs`, tone: T.blue });
   if (partials > 0 && status !== "received") segs.push({ text: `${partials} partial`, tone: "#a87b00" });
+  if (shorts > 0) segs.push({ text: `${shorts} short`, tone: "#a87b00" });
   if (box.expectedArrival && status !== "received") segs.push({ text: `ETA ${fmtDay(box.expectedArrival)}` });
   segs.push({ text: `${box.lines.length} item${box.lines.length > 1 ? "s" : ""} · ${boxUnits(box, status)} units` });
   if (status === "incoming" && toReceive > 0) segs.push({ text: `${toReceive} to receive`, tone: "#a87b00" });
