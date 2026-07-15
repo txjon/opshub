@@ -2,6 +2,17 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { resolveSlugFromHost } from "@/lib/tenants";
 import { canAccessPath, firstGrantedHref } from "@/lib/access";
+import { V2_WRITES_LIVE } from "@/lib/v2-flags";
+
+// v2 cutover: once live, legacy warehouse URLs bounce to their v2 surface. Closes
+// the drift hole (a legacy page writes the old fields, NOT the ledger) and catches
+// stale bookmarks. Flag off (rollback) → no redirect, legacy reachable again.
+const V2_LEGACY_REDIRECT: Record<string, string> = {
+  "/production": "/production2",
+  "/receiving": "/receiving2",
+  "/shipping": "/shipping2",
+  "/fulfillment": "/staging2",
+};
 
 export async function updateSession(request: NextRequest) {
   // Clone the request headers so we can add x-company-slug. The slug is
@@ -79,6 +90,14 @@ export async function updateSession(request: NextRequest) {
   // uncatalogued paths, god users, missing/empty page_access (legacy role
   // fallback handled in canAccessPath), or any profile-read error all pass
   // through — we never hard-lock someone out on a transient hiccup.
+  // Legacy warehouse URL → v2 surface (only while the cutover is live).
+  if (user && V2_WRITES_LIVE && V2_LEGACY_REDIRECT[pathname]) {
+    const url = request.nextUrl.clone();
+    url.pathname = V2_LEGACY_REDIRECT[pathname];
+    url.search = "";
+    return NextResponse.redirect(url);
+  }
+
   if (user && !isApiRoute && !isPublicRoute && !isAuthRoute) {
     try {
       const { data: prof } = await supabase
