@@ -108,6 +108,24 @@ export function computePhase(input: { gate: PhaseGate; items: PhaseItem[]; notic
   };
 }
 
+// Legacy jobs.phase → new-model wording. Used as the first-paint fallback on
+// surfaces that load the full model async (job page, jobs list) so the label
+// doesn't flash the legacy word ("Ready") then flip to the new one ("Cleared for
+// production"). Same underlying state — just the new vocabulary.
+export const LEGACY_TO_NEW_PHASE: Record<string, string> = {
+  intake: "Intake",
+  pending: "Pending",            // async load refines to Pending Payment/Approval/Client
+  ready: "Cleared for production",
+  production: "In production",
+  receiving: "In production",
+  shipping: "In production",
+  fulfillment: "In production",
+  fulfillment_invoice: "In production",
+  complete: "Complete",
+  cancelled: "Cancelled",
+  on_hold: "On Hold",
+};
+
 // ── helper: resolve the payment gate from terms + payments (mirrors the old engine)
 export function paymentGateMet(terms: string | null, payments: { amount: number; status: string }[]): boolean {
   const t = terms || "";

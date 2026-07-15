@@ -21,7 +21,7 @@ import { PdfPreviewModal } from "@/components/PdfPreviewModal";
 import { JobActivityPanel, logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
 import { calculatePhase } from "@/lib/lifecycle";
 import { loadJobPhase, type JobPhaseView } from "@/lib/item-state";
-import { CLIENT_LABEL } from "@/lib/phase-model";
+import { CLIENT_LABEL, LEGACY_TO_NEW_PHASE } from "@/lib/phase-model";
 import { poSentToItem } from "@/lib/item-status";
 import { calculatePriority, businessDaysFromNow } from "@/lib/dates";
 import { appBaseUrlSync } from "@/lib/public-url";
@@ -826,7 +826,8 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             // NEW phase model (additive). Falls back to legacy job.phase until it loads
             // or for terminal states. Does NOT drive jobs.phase — display only.
             if (isTerminal || items.length === 0 || !phaseView) {
-              return <span style={{...label,color:phaseColor.text}}>{(phaseView?.phase || job.phase).replace(/_/g," ")}</span>;
+              const shown = phaseView?.phase || LEGACY_TO_NEW_PHASE[job.phase] || job.phase.replace(/_/g," ");
+              return <span style={{...label,color:phaseColor.text}}>{shown}</span>;
             }
             const pv = phaseView;
             const { out, total } = pv.fulfillment;

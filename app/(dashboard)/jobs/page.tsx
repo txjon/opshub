@@ -6,6 +6,7 @@ import { useIsMobile } from "@/lib/useIsMobile";
 import { effectiveRevenue } from "@/lib/revenue";
 import { deriveAggregateStatus } from "@/lib/payment-status";
 import { loadJobPhasesBatch, type JobPhaseView } from "@/lib/item-state";
+import { LEGACY_TO_NEW_PHASE } from "@/lib/phase-model";
 
 type Job = {
   id: string; title: string; job_type: string; phase: string; priority: string;
@@ -430,8 +431,10 @@ export default function JobsPage() {
         )}
         {sorted.map(job => {
           // Additive: prefer the new phase model's label when it's loaded; fall
-          // back to the legacy label. Filters/counts/sort still use job.phase.
-          const phaseLabel = phaseViews.get(job.id)?.phase || PHASE_LABELS[job.phase] || "—";
+          // back to the new-model WORDING (not the legacy word) so the row doesn't
+          // flash "Ready" then flip to "Cleared for production". Filters/counts/
+          // sort still use job.phase.
+          const phaseLabel = phaseViews.get(job.id)?.phase || LEGACY_TO_NEW_PHASE[job.phase] || PHASE_LABELS[job.phase] || "—";
           const ih = getInHandsDate(job);
           const isAsap = ih === "ASAP";
           // ASAP can't be a count of days — leave daysLeft null so the
