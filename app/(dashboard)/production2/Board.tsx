@@ -8,6 +8,7 @@ import { DriveThumb } from "@/components/DriveThumb";
 import { BoardFrame, ToggleSearch, KpiStrip, KpiBreakdownModal, ModalShell, Card, CardHeader, BoxHead, BoxMeta, ItemRow, VariantChips, RouteTag, ItemThumb, SegmentControl, SliceSortRow } from "@/components/board-kit";
 import { shipFromProduction } from "@/lib/production2-ship";
 import { createPullRequest, PULL_KINDS } from "@/lib/handoff";
+import { closeShort } from "@/lib/production2-close";
 // @ts-ignore — plain JS component
 import { NotifyShipmentDialog } from "@/components/NotifyShipmentDialog";
 // @ts-ignore — plain JS helper
@@ -45,6 +46,7 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [shipOpen, setShipOpen] = useState(false);
   const [pullFor, setPullFor] = useState<SelItem | null>(null);
+  const [closeFor, setCloseFor] = useState<SelItem | null>(null);
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortKey>("ship");
   const [kpi, setKpi] = useState<MetricKey | null>(null);
@@ -188,6 +190,13 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
                         )}
                         <button onClick={e => { e.preventDefault(); e.stopPropagation(); setPullFor({ ...it, strip }); }}
                           style={{ fontSize: 11, fontWeight: 600, color: T.muted, background: "none", border: `1px solid ${T.border}`, borderRadius: 7, padding: "5px 11px", cursor: "pointer" }}>Pull</button>
+                        {/* Close-short — only for a partially-shipped item (some out, some owed):
+                            "this is all that's coming." Books the owed as a shortage. */}
+                        {it.shippedTotal > 0 && it.owedTotal > 0 && (
+                          <button onClick={e => { e.preventDefault(); e.stopPropagation(); setCloseFor({ ...it, strip }); }}
+                            title={`Close short — book the ${it.owedTotal} owed as a shortage`}
+                            style={{ fontSize: 11, fontWeight: 600, color: "#a87b00", background: "none", border: `1px solid ${T.border}`, borderRadius: 7, padding: "5px 11px", cursor: "pointer" }}>Close short</button>
+                        )}
                         {it.daysInStage != null && (
                           <span style={{ fontFamily: mono, fontSize: 11, fontWeight: 600, color: dCol, minWidth: 26, textAlign: "right" }}>{it.daysInStage}d</span>
                         )}
@@ -223,6 +232,8 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
         onDone={() => { setShipOpen(false); setSel(new Set()); router.refresh(); }} />}
       {pullFor && <PullModal item={pullFor} onClose={() => setPullFor(null)}
         onDone={() => { setPullFor(null); router.refresh(); }} />}
+      {closeFor && <CloseShortModal item={closeFor} onClose={() => setCloseFor(null)}
+        onDone={() => { setCloseFor(null); router.refresh(); }} />}
       {kpi && <KpiBreakdownModal label={METRICS.find(m => m.key === kpi)!.label} total={agg.total[kpi]} unit="total in production"
         cols={[{ title: "By vendor", rows: kpiRows(agg.byVendor, kpi) }, { title: "By client", rows: kpiRows(agg.byClient, kpi) }]}
         onClose={() => setKpi(null)} />}
@@ -302,6 +313,42 @@ function PullModal({ item, onClose, onDone }: { item: SelItem; onClose: () => vo
             {busy ? "Holding…" : total === 0 ? "Hold back" : !note.trim() ? "Add an action" : `Hold ${total} back`}
           </button>
         </div>
+    </ModalShell>
+  );
+}
+
+// Close-short confirm — books the owed balance as a shortage (ship_final). A
+// deliberate prompt so it's never an accidental tap on the production board.
+function CloseShortModal({ item, onClose, onDone }: { item: SelItem; onClose: () => void; onDone: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const isTest = v2WriteAllowed({ jobNumber: item.strip.jobNumber, clientName: item.strip.clientName });
+  const owed = item.owedTotal;
+  async function confirm() {
+    setBusy(true); setErr(null);
+    const res = await closeShort(createClient(), { itemId: item.itemId, jobId: item.jobId, itemName: item.name, shortUnits: owed });
+    setBusy(false);
+    if (res.ok) onDone(); else setErr(res.error || "Close failed.");
+  }
+  return (
+    <ModalShell onClose={onClose} maxWidth={460} dismissable={false}>
+      <div style={{ padding: "18px 22px", borderBottom: `1px solid ${T.border}` }}>
+        <div style={{ fontSize: 17, fontWeight: 700 }}>Close {item.name} short?</div>
+      </div>
+      <div style={{ padding: "18px 22px", fontSize: 13, color: T.text, lineHeight: 1.5 }}>
+        <b>{owed} un-shipped unit{owed === 1 ? "" : "s"}</b> will be booked as a <b>shortage</b> (not owed) — you're saying nothing more is coming. {item.name} closes and drops off the production board; its shipped units keep moving downstream.
+        <div style={{ marginTop: 10, fontSize: 12, color: T.muted }}>If they turn up later, the receiver just counts them in as an overage — no reopen needed.</div>
+      </div>
+      <div style={{ padding: "16px 22px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
+        {!isTest && <span style={{ fontSize: 12, color: T.amber, fontWeight: 600 }}>Limited to the test job while we verify.</span>}
+        {err && <span style={{ fontSize: 12, color: T.red, fontWeight: 600 }}>{err}</span>}
+        <div style={{ flex: 1 }} />
+        <button onClick={onClose} disabled={busy} style={{ fontSize: 13, background: "none", border: `1px solid ${T.border}`, borderRadius: 8, padding: "9px 16px", cursor: "pointer", color: T.muted }}>Cancel</button>
+        <button onClick={confirm} disabled={!isTest || busy}
+          style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "9px 20px", border: "none", cursor: (!isTest || busy) ? "not-allowed" : "pointer", background: (!isTest || busy) ? T.accentDim : "#a87b00", color: (!isTest || busy) ? T.faint : "#fff" }}>
+          {busy ? "Closing…" : `Close short · ${owed}`}
+        </button>
+      </div>
     </ModalShell>
   );
 }
@@ -503,6 +550,9 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
     return init;
   });
   const [final, setFinal] = useState<Record<string, boolean>>({});
+  // A wave that leaves an item ≤5% short forces an explicit call: final (book the
+  // short) or more-coming (another wave). moreComing = the operator said "more".
+  const [moreComing, setMoreComing] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState(false);
   const [busyLabel, setBusyLabel] = useState("Shipping…");
   const [err, setErr] = useState<string | null>(null);
@@ -551,6 +601,13 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
   const isTestOnly = activeItems.every(it => isV2TestClient(it.strip.clientName));  // sandbox the warehouse email only for the real test client
   const itemTotal = (id: string) => Object.values(qtys[id] || {}).reduce((a, n) => a + (Number(n) || 0), 0);
   const totalUnits = activeItems.reduce((a, it) => a + itemTotal(it.itemId), 0);
+  // Gate: any item shipped ≤5% short with no explicit final/more-coming call yet.
+  const gateBlocked = activeItems.some(it => {
+    const shippedNow = itemTotal(it.itemId);
+    const remainAfter = it.owedTotal - shippedNow;
+    const threshold = Math.max(1, Math.ceil(it.orderedTotal * 0.05));
+    return shippedNow > 0 && remainAfter > 0 && remainAfter <= threshold && !final[it.itemId] && !moreComing[it.itemId];
+  });
 
   // Compute what remains owed after the wave we just shipped (final-flagged items
   // close to 0). Drives the "N still in production" line + the Ship-next-wave set.
@@ -610,7 +667,7 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
     const nextQ: Record<string, Record<string, number>> = {};
     for (const it of remaining) nextQ[it.itemId] = { ...it.owed };
     setActiveItems(remaining);
-    setQtys(nextQ); setFinal({}); setRef(""); setSlipFile(null);
+    setQtys(nextQ); setFinal({}); setMoreComing({}); setRef(""); setSlipFile(null);
     setNotified(false); setNotifyTo(null); setNotifyErr(null); setDone(null);
   }
 
@@ -716,7 +773,8 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
               const shippedNow = itemTotal(it.itemId);
               const remainAfter = it.owedTotal - shippedNow;
               const threshold = Math.max(1, Math.ceil(it.orderedTotal * 0.05));
-              const nudge = !final[it.itemId] && shippedNow > 0 && remainAfter >= 0 && remainAfter <= threshold;
+              // Leaves a small (≤5%) short → force the final/more-coming call.
+              const nearShort = shippedNow > 0 && remainAfter > 0 && remainAfter <= threshold;
               return (
                 <div key={it.itemId} style={{ border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 12px" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
@@ -737,11 +795,22 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
                       </label>
                     ))}
                   </div>
-                  {nudge && (
-                    <button onClick={() => setFinal(p => ({ ...p, [it.itemId]: true }))}
-                      style={{ marginTop: 9, width: "100%", textAlign: "left", fontSize: 11.5, fontWeight: 600, color: "#a87b00", background: T.amberDim, border: `1px solid ${T.amber}`, borderRadius: 7, padding: "6px 10px", cursor: "pointer" }}>
-                      Looks like this finishes the order — mark as final? {remainAfter > 0 ? `The remaining ${remainAfter} would close it out.` : "This closes it out."}
-                    </button>
+                  {nearShort && !final[it.itemId] && (
+                    moreComing[it.itemId] ? (
+                      <div style={{ marginTop: 9, fontSize: 11.5, fontWeight: 600, color: T.muted }}>
+                        ↺ {remainAfter} more coming in a later wave · <button onClick={() => setMoreComing(p => ({ ...p, [it.itemId]: false }))} style={{ background: "none", border: "none", color: T.blue, cursor: "pointer", fontSize: 11.5, fontWeight: 600, padding: 0 }}>change</button>
+                      </div>
+                    ) : (
+                      <div style={{ marginTop: 9, background: T.amberDim, border: `1px solid ${T.amber}`, borderRadius: 7, padding: "8px 10px" }}>
+                        <div style={{ fontSize: 11.5, fontWeight: 600, color: "#a87b00", marginBottom: 6 }}>Leaves {remainAfter} short of the order — is the rest coming, or is this the final shipment?</div>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <button onClick={() => setFinal(p => ({ ...p, [it.itemId]: true }))}
+                            style={{ fontSize: 11.5, fontWeight: 600, padding: "6px 12px", borderRadius: 7, border: `1px solid ${T.amber}`, background: T.card, color: "#a87b00", cursor: "pointer" }}>Final — book {remainAfter} short</button>
+                          <button onClick={() => setMoreComing(p => ({ ...p, [it.itemId]: true }))}
+                            style={{ fontSize: 11.5, fontWeight: 600, padding: "6px 12px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.card, color: T.muted, cursor: "pointer" }}>More coming</button>
+                        </div>
+                      </div>
+                    )
                   )}
                 </div>
               );
@@ -768,12 +837,14 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
         <div style={{ padding: "16px 22px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
           {!isTest && <span style={{ fontSize: 12, color: T.amber, fontWeight: 600 }}>Ship write is limited to the test job while we verify.</span>}
           {err && <span style={{ fontSize: 12, color: T.red, fontWeight: 600 }}>{err}</span>}
+          {gateBlocked && !err && <span style={{ fontSize: 12, color: "#a87b00", fontWeight: 600 }}>Choose final or more-coming on the short item first.</span>}
           <div style={{ flex: 1 }} />
           <button onClick={onClose} disabled={busy} style={{ fontSize: 13, background: "none", border: `1px solid ${T.border}`, borderRadius: 8, padding: "9px 16px", cursor: busy ? "default" : "pointer", color: T.muted }}>Cancel</button>
-          <button onClick={confirm} disabled={!isTest || busy || totalUnits === 0}
-            style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "9px 20px", border: "none", cursor: (!isTest || busy || totalUnits === 0) ? "not-allowed" : "pointer", background: (!isTest || busy || totalUnits === 0) ? T.accentDim : T.text, color: (!isTest || busy || totalUnits === 0) ? T.faint : "#fff" }}>
+          {(() => { const off = !isTest || busy || totalUnits === 0 || gateBlocked; return (
+          <button onClick={confirm} disabled={off}
+            style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "9px 20px", border: "none", cursor: off ? "not-allowed" : "pointer", background: off ? T.accentDim : T.text, color: off ? T.faint : "#fff" }}>
             {busy ? busyLabel : `Confirm ship · ${totalUnits}u`}
-          </button>
+          </button>); })()}
         </div>
     </ModalShell>
   );
