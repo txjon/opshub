@@ -9,7 +9,7 @@
 // ledger lib fns — so this flag (read by the Board components' isTest checks) is
 // the whole gate. Keep it the sole source; do not reintroduce per-file constants.
 
-export const V2_WRITES_LIVE = false;
+export const V2_WRITES_LIVE = true;
 
 // While not live, these are the only jobs/clients v2 writes are allowed on.
 export const V2_TEST_CLIENTS = ["Playwright Test Co"];
