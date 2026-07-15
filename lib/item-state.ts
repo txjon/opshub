@@ -427,7 +427,12 @@ export async function loadReceivingBoard(sb: Sb): Promise<ReceivingBox[]> {
       shipQtys: l.ship_qtys || {}, receivedQtys: l.received_qtys || {}, cumReceived: l.items?.received_qtys || {},
       orderedTotal: (l.items?.buy_sheet_lines || []).reduce((a: number, b: any) => a + (Number(b.qty_ordered) || 0), 0),
       received: !!l.received, pullRequests: pullBoxByItem.get(l.item_id) === s.id ? (pullsByItem.get(l.item_id) || []) : [],
-    }));
+    }))
+      // drop_ship goes vendor→client and never touches HPD — it must not appear in
+      // Receiving (the ship still shows in production2's Shipped view). A box with
+      // ONLY drop_ship lines drops out entirely.
+      .filter((l) => l.route !== "drop_ship");
+    if (!rLines.length) continue;
     const slipMap = new Map<string, { name: string; url: string }>();
     for (const l of ls) for (const sl of slipsByItem.get(l.item_id) || []) slipMap.set(sl.url, sl);
     boxes.push({

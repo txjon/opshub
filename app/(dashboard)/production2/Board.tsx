@@ -624,11 +624,16 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
         <div style={{ padding: "28px 26px", textAlign: "center" }}>
           <div style={{ width: 46, height: 46, borderRadius: 999, background: T.greenDim, color: T.green, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24, margin: "0 auto 12px" }}>✓</div>
           <div style={{ fontSize: 18, fontWeight: 700 }}>Shipped {done.shipped} units</div>
-          <div style={{ fontSize: 13, color: T.muted, marginTop: 3 }}>{vendorName} · {done.boxes} box{done.boxes > 1 ? "es" : ""} → receiving</div>
+          <div style={{ fontSize: 13, color: T.muted, marginTop: 3 }}>{vendorName} · {done.boxes} box{done.boxes > 1 ? "es" : ""} → {isDrop ? "client" : "receiving"}</div>
           <div style={{ fontSize: 13, color: T.muted, marginTop: 8 }}>
-            {stillOwedUnits > 0
-              ? <>This shipment is now in Receiving. <b style={{ color: T.text }}>{stillOwedUnits} still in production</b> for the next wave.</>
-              : <>This shipment is now in Receiving. Everything selected is fully shipped.</>}
+            {isDrop
+              // drop_ship goes vendor→client — it never comes to HPD/Receiving.
+              ? (stillOwedUnits > 0
+                  ? <>Headed <b style={{ color: T.text }}>direct to the client</b>. <b style={{ color: T.text }}>{stillOwedUnits} still in production</b> for the next wave.</>
+                  : <>Headed <b style={{ color: T.text }}>direct to the client</b>. Everything selected is fully shipped.</>)
+              : (stillOwedUnits > 0
+                  ? <>This shipment is now in Receiving. <b style={{ color: T.text }}>{stillOwedUnits} still in production</b> for the next wave.</>
+                  : <>This shipment is now in Receiving. Everything selected is fully shipped.</>)}
           </div>
           {notifyErr && <div style={{ fontSize: 12, color: T.red, fontWeight: 600, marginTop: 14 }}>{notifyErr}</div>}
           <div style={{ display: "flex", gap: 10, marginTop: notifyErr ? 10 : 22, justifyContent: "center", flexWrap: "wrap" }}>
