@@ -1,5 +1,5 @@
 "use client";
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, type CSSProperties } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
@@ -9,6 +9,7 @@ import { BoardFrame, ToggleSearch, KpiStrip, KpiBreakdownModal, ModalShell, Card
 import { shipFromProduction } from "@/lib/production2-ship";
 import { createPullRequest, PULL_KINDS } from "@/lib/handoff";
 import { closeShort } from "@/lib/production2-close";
+import { parseSizeMatrix } from "@/lib/size-grid";
 // @ts-ignore — plain JS component
 import { NotifyShipmentDialog } from "@/components/NotifyShipmentDialog";
 // @ts-ignore — plain JS helper
@@ -314,6 +315,60 @@ function PullModal({ item, onClose, onDone }: { item: SelItem; onClose: () => vo
           </button>
         </div>
     </ModalShell>
+  );
+}
+
+// Editable qty grid. High-variant dimensional items (pants: Fit / Waist / Inseam)
+// pivot into the apparel-standard cut-ticket matrix — one small table per fit,
+// waist down the side, inseam across the top — instead of a 50-box wrapping wall.
+// 1-D sizes (S/M/L) keep the inline row. Cells map back to the exact size label
+// (reconstructed by re-joining on " / ", the same separator the parser split on),
+// so reads/writes hit the same qtys[label] keys as the flat list.
+function VariantGrid({ sizes, itemId, value, setQ }: { sizes: string[]; itemId: string; value: Record<string, number>; setQ: (itemId: string, sz: string, v: string) => void }) {
+  const matrix = parseSizeMatrix(sizes, null);
+  const input = (label: string, w = 44) => (
+    <input inputMode="numeric" value={value[label] ?? 0} onChange={e => setQ(itemId, label, e.target.value)} onFocus={e => e.target.select()}
+      style={{ width: w, boxSizing: "border-box", textAlign: "center", fontFamily: mono, fontSize: 12, fontWeight: 600, padding: "4px 3px", borderRadius: 5, border: `1px solid ${T.border}`, background: T.card }} />
+  );
+  if (!matrix) {
+    return (
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        {sizes.map(sz => (
+          <label key={sz} style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", minWidth: 46 }}>
+            <span style={{ fontSize: 9, fontWeight: 700, color: T.faint, marginBottom: 2 }}>{sz}</span>
+            {input(sz, 46)}
+          </label>
+        ))}
+      </div>
+    );
+  }
+  const th: CSSProperties = { fontSize: 9, fontWeight: 700, color: T.faint, padding: "2px 4px", textAlign: "center", whiteSpace: "nowrap" };
+  const rh: CSSProperties = { fontSize: 10, fontWeight: 700, color: T.muted, padding: "2px 8px 2px 2px", textAlign: "right", whiteSpace: "nowrap" };
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {matrix.groups.map((g, gi) => (
+        <div key={g.name || gi} style={{ overflowX: "auto" }}>
+          {g.name && <div style={{ fontSize: 10, fontWeight: 700, color: T.text, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 3 }}>{g.name}</div>}
+          <table style={{ borderCollapse: "collapse" }}>
+            <thead>
+              <tr><th style={th} />{g.cols.map(c => <th key={c} style={th}>{c}</th>)}</tr>
+            </thead>
+            <tbody>
+              {g.rows.map(row => (
+                <tr key={row.label}>
+                  <td style={rh}>{row.label}</td>
+                  {g.cols.map((c, ci) => {
+                    if (row.cells[ci] == null) return <td key={c} style={{ padding: 2 }}><div style={{ width: 44, height: 26 }} /></td>;
+                    const label = [g.name, row.label, c].filter(Boolean).join(" / ");
+                    return <td key={c} style={{ padding: 2 }}>{input(label)}</td>;
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -785,16 +840,7 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
                       <input type="checkbox" checked={!!final[it.itemId]} onChange={e => setFinal(p => ({ ...p, [it.itemId]: e.target.checked }))} style={{ accentColor: T.blue }} /> final shipment
                     </label>
                   </div>
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                    {sizes.map(sz => (
-                      <label key={sz} style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", minWidth: 46 }}>
-                        <span style={{ fontSize: 9, fontWeight: 700, color: T.faint, marginBottom: 2 }}>{sz}</span>
-                        <input inputMode="numeric" value={qtys[it.itemId]?.[sz] ?? 0} onChange={e => setQ(it.itemId, sz, e.target.value)}
-                          onFocus={e => e.target.select()}
-                          style={{ width: 46, boxSizing: "border-box", textAlign: "center", fontFamily: mono, fontSize: 12, fontWeight: 600, padding: "5px 4px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.card }} />
-                      </label>
-                    ))}
-                  </div>
+                  <VariantGrid sizes={sizes} itemId={it.itemId} value={qtys[it.itemId] || {}} setQ={setQ} />
                   {nearShort && !final[it.itemId] && (
                     moreComing[it.itemId] ? (
                       <div style={{ marginTop: 9, fontSize: 11.5, fontWeight: 600, color: T.muted }}>
