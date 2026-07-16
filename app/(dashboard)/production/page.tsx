@@ -2128,8 +2128,8 @@ export default function ProductionPage() {
                 const routeLabel = route === "drop_ship" ? "DROP SHIP · direct to customer"
                   : route === "stage" ? "STAGE · fulfill from HPD"
                   : "SHIP-THROUGH · forward from HPD";
-                const routeColor = T.green;   // signal table: green = where it lands (all routes)
-                const routeBg = T.greenDim;
+                const routeColor = route === "stage" ? T.green : route === "drop_ship" ? T.muted : T.blue; // stage lands (green) · through passes (blue) · drop never here (muted)
+                const routeBg = route === "stage" ? T.greenDim : route === "drop_ship" ? T.surface : T.blueDim;
                 return (
                   <div style={{
                     marginBottom: 18,
@@ -2367,8 +2367,8 @@ export default function ProductionPage() {
                   : route === "drop_ship" ? "DROP SHIP · direct to customer"
                   : route === "stage" ? "STAGE · fulfill from HPD"
                   : "SHIP-THROUGH · forward from HPD";
-                const routeColor = mixed ? T.amber : T.green; // mixed routes = needs attention
-                const routeBg = mixed ? T.amberDim : T.greenDim;
+                const routeColor = mixed ? T.amber : route === "stage" ? T.green : route === "drop_ship" ? T.muted : T.blue; // mixed = attention
+                const routeBg = mixed ? T.amberDim : route === "stage" ? T.greenDim : route === "drop_ship" ? T.surface : T.blueDim;
                 return (
                   <div style={{
                     marginBottom: 16,
