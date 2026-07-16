@@ -264,8 +264,6 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
                           <span title={it.pullRequests.map(p => `${tQty(p.qtys)} ${p.kind || "pull"}`).join(", ")}
                             style={{ fontSize: 11, fontWeight: 600, color: T.purple }}>{heldQty(it)} held</span>
                         )}
-                        <button onClick={e => { e.preventDefault(); e.stopPropagation(); setPullFor({ ...it, strip }); }}
-                          style={{ fontSize: 11, fontWeight: 600, color: T.muted, background: "none", border: `1px solid ${T.border}`, borderRadius: 7, padding: "5px 11px", cursor: "pointer" }}>Pull</button>
                         {/* Close-short — only for a partially-shipped item (some out, some owed):
                             "this is all that's coming." Books the owed as a shortage. */}
                         {it.shippedTotal > 0 && it.owedTotal > 0 && (
@@ -280,10 +278,12 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
                           <span style={{ fontFamily: mono, fontSize: 14, fontWeight: 700 }}>{it.owedTotal}</span>
                           {it.shippedTotal > 0 && <span style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: 0.3 }}>owed</span>}
                         </div>
-                        {/* ⋯ row menu — same pattern as /receiving2. "Adjust date" =
-                            the in-production per-item delay edit (R3). */}
+                        {/* ⋯ row menu — same pattern as /receiving2. Per-item actions
+                            while in production: Pull (hold units back) + Adjust date
+                            (the R3 per-item delay edit). */}
                         <span onClick={e => { e.preventDefault(); e.stopPropagation(); }}>
                           <RowMenu items={[
+                            { label: "Pull", onClick: () => setPullFor({ ...it, strip }) },
                             {
                               label: it.expectedArrival ? "Adjust date (overridden)" : "Adjust date",
                               disabled: it.route === "drop_ship",
