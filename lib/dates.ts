@@ -55,6 +55,16 @@ export function daysUntilDay(iso: string | null | undefined): number | null {
   return Math.round((target.getTime() - today.getTime()) / 86400000);
 }
 
+/** Add N CALENDAR days to a date-only string (vendor leads and transit are
+ *  quoted in calendar days — "6 weeks", "35 days on the water"). Use
+ *  addBusinessDays below only for business-day offsets (PO quick buttons). */
+export function addDays(iso: string, days: number): string {
+  const d = parseDay(iso);
+  if (!d) return iso;
+  d.setDate(d.getDate() + days);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 function isWeekend(d: Date): boolean {
   const day = d.getDay();
   return day === 0 || day === 6;
