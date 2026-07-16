@@ -15,14 +15,35 @@
 
 import { calculatePhase } from "./lifecycle";
 import { poSentToItem } from "./item-status";
+import { deriveItem } from "./item-derivation";
 
 export async function recalcJobPhase(sb: any, jobId: string): Promise<void> {
   const { data: jobData } = await sb.from("jobs").select("*, clients(name)").eq("id", jobId).single();
   if (!jobData || jobData.phase === "on_hold" || jobData.phase === "cancelled") return;
   const { data: jobItems } = await sb.from("items")
-    .select("id, pipeline_stage, blanks_order_number, blanks_order_cost, ship_tracking, received_at_hpd, artwork_status, garment_type, shipping_route, webstore_entered_at, forwarded_at")
+    .select("id, pipeline_stage, blanks_order_number, blanks_order_cost, ship_tracking, received_at_hpd, artwork_status, garment_type, shipping_route, webstore_entered_at, forwarded_at, decorator_assignments(decorators(name, short_code))")
     .eq("job_id", jobId);
   const { data: payments } = await sb.from("payment_records").select("amount, status").eq("job_id", jobId);
+  // Ledger-derived open-wave signal per item (see lifecycle.ts ledger_open):
+  // shipped something, not closed, units still owed at the decorator.
+  const { data: allMoves } = await sb.from("movements")
+    .select("item_id, type, qtys, reverses_id, id").in("item_id", (jobItems || []).map((it: any) => it.id));
+  const { data: bsl } = await sb.from("buy_sheet_lines")
+    .select("item_id, size, qty_ordered").in("item_id", (jobItems || []).map((it: any) => it.id));
+  const { data: finals } = await sb.from("items").select("id, ship_final").in("id", (jobItems || []).map((it: any) => it.id));
+  const finalById = new Map<string, boolean>((finals || []).map((f: any) => [f.id, !!f.ship_final]));
+  const ledgerOpen: Record<string, boolean> = {};
+  for (const it of (jobItems || [])) {
+    const ordered: Record<string, number> = {};
+    for (const l of (bsl || []).filter((b: any) => b.item_id === it.id)) ordered[l.size] = (ordered[l.size] || 0) + (Number(l.qty_ordered) || 0);
+    const st = deriveItem({
+      ordered,
+      route: (it.shipping_route || jobData.shipping_route || "ship_through") as any,
+      shipFinal: finalById.get(it.id) || false,
+      movements: (allMoves || []).filter((m: any) => m.item_id === it.id).map((m: any) => ({ type: m.type, qtys: m.qtys || {}, reversesId: m.reverses_id, id: m.id })),
+    });
+    ledgerOpen[it.id] = st.shippedTotal > 0 && !st.closed && st.owedTotal > 0;
+  }
   const { data: proofFiles } = await sb.from("item_files").select("item_id, approval")
     .eq("stage", "proof").is("superseded_at", null).in("item_id", (jobItems || []).map((it: any) => it.id));
   const proofStatus: Record<string, { allApproved: boolean }> = {};
@@ -38,7 +59,15 @@ export async function recalcJobPhase(sb: any, jobId: string): Promise<void> {
     items: (jobItems || []).map((it: any) => ({
       id: it.id,
       pipeline_stage: it.pipeline_stage,
-      po_sent: poSentToItem({ printVendor: costProds.find(cp => cp.id === it.id)?.printVendor, poSentVendors }),
+      // match by costing label AND decorator name/short_code — the PO tab keys
+      // po_sent_vendors by short code ("1 STOP"), costing may hold the long
+      // name; matching on one alone silently missed items (Eagle Patch bug).
+      po_sent: poSentToItem({
+        printVendor: costProds.find(cp => cp.id === it.id)?.printVendor,
+        decoratorName: it.decorator_assignments?.[0]?.decorators?.name || null,
+        decoratorShortCode: it.decorator_assignments?.[0]?.decorators?.short_code || null,
+        poSentVendors,
+      }),
       blanks_order_number: it.blanks_order_number,
       blanks_order_cost: it.blanks_order_cost ?? null,
       ship_tracking: it.ship_tracking,
@@ -48,6 +77,7 @@ export async function recalcJobPhase(sb: any, jobId: string): Promise<void> {
       shipping_route: it.shipping_route || null,
       webstore_entered_at: it.webstore_entered_at || null,
       forwarded_at: it.forwarded_at || null,
+      ledger_open: ledgerOpen[it.id] || false,
     })),
     payments: (payments || []).map((p: any) => ({ amount: p.amount, status: p.status })),
     proofStatus,
