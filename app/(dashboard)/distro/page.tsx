@@ -1,396 +1,103 @@
 import { createClient } from "@/lib/supabase/server";
-import { T, font, mono } from "@/lib/theme";
-import Link from "next/link";
-import { deductSamples } from "@/lib/qty";
-import { poSentToItem, isItemInProduction } from "@/lib/item-status";
+import { loadReceivingBoard, loadProductionBoard } from "@/lib/item-state";
+import { transitDaysFor } from "@/lib/date-chain";
+import { addDays } from "@/lib/dates";
+import Board, { type ArrivalRow, type DropRow } from "./Board";
 
 export const dynamic = "force-dynamic";
 
-type Job = any;
-type Item = any;
+// /distro — the arrival radar (rebuilt 2026-07-16, locked mockup).
+// The half-step between production and receiving: what's landing at the dock
+// and when, plus the drop schedule. READ-ONLY — rows open a details modal;
+// all actions live on /production2 and /receiving2.
+//
+// Two row kinds, both chain-derived:
+//   in transit — an inbound box (receiving's data, incl. its ETA + overrides)
+//   at vendor  — a production strip's owed units; arrival projected as
+//                ship-by + vendor transit (method-aware)
 
 export default async function DistroDashboard() {
-  const supabase = await createClient();
+  const sb = await createClient();
 
-  // Active warehouse-relevant jobs (not complete/cancelled/on_hold). We fetch
-  // ALL routes — including drop_ship jobs — because an item can be overridden
-  // to ship_through/stage on a drop_ship job (migration 076). Items whose
-  // EFFECTIVE route is drop_ship are filtered out per-item below.
-  const { data: jobs } = await supabase
-    .from("jobs")
-    .select("id, title, job_number, phase, shipping_route, fulfillment_status, fulfillment_tracking, target_ship_date, type_meta, clients(name), items(id, name, shipping_route, pipeline_stage, pipeline_timestamps, received_at_hpd, received_at_hpd_at, ship_tracking, ship_qtys, received_qtys, sample_qtys, receiving_data, decorator_assignments(decorators(short_code, name)), buy_sheet_lines(qty_ordered))")
-    .not("phase", "in", '("complete","cancelled","on_hold")')
-    .order("target_ship_date", { ascending: true, nullsFirst: false });
+  const [boxes, strips, dropsRaw] = await Promise.all([
+    loadReceivingBoard(sb),
+    loadProductionBoard(sb),
+    sb.from("fulfillment_projects")
+      .select("id, name, preorder_status, open_date, close_date, target_ship_date, platform, total_units, clients(name)")
+      .eq("mode", "preorder")
+      .in("preorder_status", ["planning", "building", "open", "closed"])
+      .order("open_date", { ascending: true, nullsFirst: false })
+      .then((r: any) => r.data || []),
+  ]);
 
-  const allJobs: Job[] = jobs || [];
-  const allItems: Item[] = allJobs.flatMap(j => j.items || []);
+  // vendor transit profiles + ship methods for the at-vendor projection
+  const decoratorIds = Array.from(new Set(strips.map(s => s.decoratorId).filter(Boolean))) as string[];
+  const { data: decorators } = decoratorIds.length
+    ? await sb.from("decorators").select("id, transit_defaults").in("id", decoratorIds)
+    : { data: [] as any[] };
+  const transitById = new Map<string, any>((decorators || []).map((d: any) => [d.id, d.transit_defaults]));
+  const jobIds = Array.from(new Set(strips.map(s => s.jobId)));
+  const { data: jobMeta } = jobIds.length
+    ? await sb.from("jobs").select("id, type_meta").in("id", jobIds)
+    : { data: [] as any[] };
+  const metaByJob = new Map<string, any>((jobMeta || []).map((j: any) => [j.id, j.type_meta || {}]));
 
-  // Per-item effective shipping route (migration 076): the item override wins,
-  // else the job route, else the app default. drop_ship items never come to HPD.
-  const effRoute = (j: Job, it: Item) => (it as any).shipping_route || j.shipping_route || "ship_through";
+  const rows: ArrivalRow[] = [];
 
-  // Active fulfillment projects (separate from jobs — standalone stage projects)
-  const { data: fulfillmentProjects } = await supabase
-    .from("fulfillment_projects")
-    .select("id, name, status, source_job_id, fulfillment_daily_logs(log_date, orders_shipped, remaining_orders, created_at)")
-    .in("status", ["staging", "active"])
-    .order("created_at", { ascending: false });
-
-  // Scheduled drops — pre-orders not yet pushed to production. The floor's
-  // forward radar: what's coming and roughly when, so a big drop isn't a
-  // surprise at the dock. Once pushed (status 'producing') a drop leaves
-  // this list and appears under "In production → HPD" below.
-  const { data: scheduledDropsRaw } = await supabase
-    .from("fulfillment_projects")
-    .select("id, name, preorder_status, open_date, close_date, target_ship_date, clients(name), preorder_products(id, sizes)")
-    .eq("mode", "preorder")
-    .in("preorder_status", ["planning", "building", "open", "closed"])
-    .order("close_date", { ascending: true, nullsFirst: false });
-  // Only dated drops are "on the schedule" — an undated shell isn't.
-  const scheduledDrops = (scheduledDropsRaw || []).filter((d: any) => d.close_date || d.open_date);
-
-  const now = new Date();
-  const today = now.toISOString().slice(0, 10);
-  const startOfDay = new Date(now); startOfDay.setHours(0, 0, 0, 0);
-  const endOfWeek = new Date(startOfDay.getTime() + 7 * 86400000);
-  const msPerDay = 86400000;
-  const daysBetween = (a: Date | string, b: Date | string) =>
-    Math.round((new Date(b).getTime() - new Date(a).getTime()) / msPerDay);
-
-  // ── Incoming (in transit from decorator to HPD)
-  const incomingByJob: { job: Job; items: Item[] }[] = [];
-  for (const j of allJobs) {
-    const items = (j.items || []).filter((it: Item) => effRoute(j, it) !== "drop_ship" && it.pipeline_stage === "shipped" && !it.received_at_hpd);
-    if (items.length > 0) incomingByJob.push({ job: j, items });
+  // in-transit boxes (not yet fully received)
+  for (const b of boxes.filter(b => !b.allReceived)) {
+    const outstanding = b.totalUnits - b.receivedUnits;
+    if (outstanding <= 0) continue;
+    rows.push({
+      kind: "box", id: b.id,
+      client: b.clients.length > 1 ? `${b.clients.length} clients` : (b.clients[0] || b.vendorName),
+      vendor: b.vendorName,
+      itemsLabel: b.lines.length === 1 ? b.lines[0].itemName : `${b.lines.length} items`,
+      units: outstanding,
+      eta: b.expectedArrival, etaDerived: b.etaDerived,
+      shippedAt: b.createdAt, carrier: b.carrier, tracking: b.tracking, pickup: b.pickup,
+      note: b.note, slips: b.slips,
+      lines: b.lines.map(l => ({
+        name: l.itemName, client: l.client, route: l.route,
+        qtys: l.shipQtys, receivedQtys: l.receivedQtys,
+      })),
+    });
   }
-  // Today vs this week vs overdue
-  const incomingToday = incomingByJob.filter(g => g.items.some((it: Item) =>
-    it.pipeline_timestamps?.shipped && daysBetween(it.pipeline_timestamps.shipped, now) <= 3
-  )).length;
 
-  // ── In production → heading to HPD (at the decorator, pre-shipment).
-  // The wave forming behind "incoming". drop_ship items never come to HPD.
-  const inProductionByJob: { job: Job; items: Item[] }[] = [];
-  for (const j of allJobs) {
-    const poSentVendors = (j as any).type_meta?.po_sent_vendors;
-    const items = (j.items || []).filter((it: Item) => effRoute(j, it) !== "drop_ship" && isItemInProduction({
-      pipeline_stage: it.pipeline_stage,
-      received_at_hpd: it.received_at_hpd,
-      poSent: poSentToItem({
-        decoratorName: (it.decorator_assignments || [])[0]?.decorators?.name,
-        decoratorShortCode: (it.decorator_assignments || [])[0]?.decorators?.short_code,
-        poSentVendors,
-      }),
+  // at-vendor strips (owed units still in production)
+  for (const s of strips) {
+    const owed = s.items.reduce((a, i) => a + i.owedTotal, 0);
+    if (owed <= 0) continue;
+    const tm = metaByJob.get(s.jobId) || {};
+    const methodKey = s.poShipKey && tm.po_ship_methods
+      ? Object.keys(tm.po_ship_methods).find(k => k.toLowerCase().trim() === s.poShipKey!.toLowerCase().trim())
+      : null;
+    const method = methodKey ? tm.po_ship_methods[methodKey] : null;
+    const transit = transitDaysFor(s.decoratorId ? transitById.get(s.decoratorId) : null, method);
+    const shipBy = s.shipDate && s.shipDate !== "ASAP" ? s.shipDate : null;
+    rows.push({
+      kind: "strip", id: s.key,
+      client: s.clientName, vendor: s.decoratorName,
+      itemsLabel: s.items.length === 1 ? s.items[0].name : `${s.items.length} items`,
+      units: owed,
+      shipBy: s.shipDate,
+      eta: shipBy && transit != null ? addDays(shipBy, transit) : null,
+      etaDerived: true,
+      lines: s.items.map(i => ({
+        name: i.name, route: i.route,
+        qtys: i.owed, orderedTotal: i.orderedTotal, shippedTotal: i.shippedTotal,
+      })),
+    });
+  }
+
+  const drops: DropRow[] = (dropsRaw as any[])
+    .filter(d => d.open_date || d.close_date)
+    .map(d => ({
+      id: d.id, name: d.name, client: (d.clients as any)?.name || null,
+      status: d.preorder_status, platform: d.platform || null,
+      openDate: d.open_date || null, closeDate: d.close_date || null,
+      targetShipDate: d.target_ship_date || null, totalUnits: d.total_units || null,
     }));
-    if (items.length > 0) inProductionByJob.push({ job: j, items });
-  }
 
-  // ── Ready to ship out (ship_through, all items received, not yet shipped)
-  // Gate only on the ship-through-effective items being received — drop_ship
-  // items on the same job never get received, so they must not block "ready".
-  const readyToShip: Job[] = allJobs.filter(j => {
-    const stItems = (j.items || []).filter((it: Item) => effRoute(j, it) === "ship_through");
-    return stItems.length > 0 && stItems.every((it: Item) => it.received_at_hpd) && j.fulfillment_status !== "shipped";
-  });
-
-  // ── Fulfillment: stage-route jobs with all items received (inventory parked at HPD)
-  const stagedJobs: Job[] = allJobs.filter(j => {
-    const stItems = (j.items || []).filter((it: Item) => effRoute(j, it) === "stage");
-    return stItems.length > 0 && stItems.every((it: Item) => it.received_at_hpd) && j.fulfillment_status !== "shipped";
-  });
-
-  const activeFulfillmentCount = (fulfillmentProjects || []).length + stagedJobs.length;
-
-  // ── Staged inventory total (units) — continuing qty (delivered − samples)
-  // is what's actually available to pack and ship.
-  const stagedUnits = stagedJobs.reduce((a, j) =>
-    a + (j.items || []).filter((it: Item) => effRoute(j, it) === "stage").reduce((b: number, it: Item) => {
-      const continuing = deductSamples(it.received_qtys, it.sample_qtys);
-      const total = Object.values(continuing).reduce((x: number, q: any) => x + (Number(q) || 0), 0);
-      return b + total;
-    }, 0), 0
-  );
-
-  // ── Outgoing today (items in ship_through or stage with a ship date today or earlier that haven't shipped)
-  const outgoingToday = readyToShip.filter(j => {
-    if (!j.target_ship_date) return false;
-    return new Date(j.target_ship_date) <= endOfWeek;
-  }).length;
-
-  // ── Format helpers
-  const fmtDate = (d: string | null) => {
-    if (!d) return "no date";
-    const date = new Date(d);
-    const dd = Math.ceil((date.getTime() - now.getTime()) / msPerDay);
-    if (dd < 0) return `${Math.abs(dd)}d overdue`;
-    if (dd === 0) return "today";
-    if (dd === 1) return "tomorrow";
-    if (dd <= 7) return `${dd}d`;
-    return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  };
-  const fmtDateColor = (d: string | null) => {
-    if (!d) return T.muted;
-    const dd = Math.ceil((new Date(d).getTime() - now.getTime()) / msPerDay);
-    if (dd < 0) return T.red;
-    if (dd <= 3) return T.amber;
-    return T.muted;
-  };
-
-  // ── Render ──
-  const card: any = { background: T.card, border: `1px solid ${T.border}`, borderRadius: 10 };
-  const kpiCard: any = { ...card, padding: "14px 16px", textAlign: "center" };
-
-  const kpis = [
-    { label: "Incoming this week", value: incomingToday, color: T.amber, href: "/receiving" },
-    { label: "Outgoing this week", value: outgoingToday, color: T.green, href: "/shipping" },
-    { label: "Staged Units", value: stagedUnits.toLocaleString(), color: T.purple, href: "/fulfillment" },
-    { label: "Fulfillment Active", value: activeFulfillmentCount, color: T.accent, href: "/fulfillment" },
-  ];
-
-  return (
-    <div style={{ fontFamily: font, color: T.text, padding: "20px 24px", maxWidth: 1280, margin: "0 auto" }}>
-      {/* Header */}
-      <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 20, fontWeight: 800 }}>Distro Dashboard</div>
-        <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>
-          {now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })} · Warehouse operations
-        </div>
-      </div>
-
-      {/* KPI strip */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 20 }}>
-        {kpis.map(kpi => {
-          const inner = (
-            <div style={{ ...kpiCard, cursor: kpi.href ? "pointer" : "default" }}>
-              <div style={{ fontSize: 26, fontWeight: 800, color: kpi.color, fontFamily: mono }}>{kpi.value}</div>
-              <div style={{ fontSize: 9, color: T.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginTop: 4 }}>{kpi.label}</div>
-            </div>
-          );
-          return kpi.href
-            ? <Link key={kpi.label} href={kpi.href} style={{ textDecoration: "none" }}>{inner}</Link>
-            : <div key={kpi.label}>{inner}</div>;
-        })}
-      </div>
-
-      {/* 3-column work board */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 20 }}>
-
-        {/* ── Incoming ── */}
-        <div style={{ ...card, padding: 14 }}>
-          <Link href="/receiving" style={{ textDecoration: "none", color: T.text }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, paddingBottom: 8, borderBottom: `1px solid ${T.border}` }}>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: T.amber }}>Receiving</div>
-                <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>Confirm incoming shipments</div>
-              </div>
-              <div style={{ fontSize: 18, fontWeight: 800, fontFamily: mono, color: incomingByJob.length > 0 ? T.amber : T.faint }}>{incomingByJob.length}</div>
-            </div>
-          </Link>
-          {incomingByJob.length === 0 ? (
-            <div style={{ fontSize: 11, color: T.faint, padding: "12px 4px", textAlign: "center" }}>Nothing expected</div>
-          ) : incomingByJob.slice(0, 8).map(({ job, items }) => {
-            const decorators = [...new Set(items.flatMap((it: Item) =>
-              (it.decorator_assignments || []).map((da: any) => da.decorators?.short_code || da.decorators?.name)
-            ).filter(Boolean))];
-            const shipped = items.find((it: Item) => it.pipeline_timestamps?.shipped);
-            const shippedDaysAgo = shipped ? daysBetween(shipped.pipeline_timestamps.shipped, now) : null;
-            return (
-              <Link key={job.id} href={`/receiving`} style={{ textDecoration: "none", color: T.text }}>
-                <div style={{ padding: "8px 10px", marginBottom: 6, background: T.surface, borderRadius: 6, border: `1px solid ${T.border}` }}>
-                  <div style={{ fontSize: 11, fontWeight: 600 }}>
-                    {(job.clients as any)?.name || "—"} · {job.title}
-                  </div>
-                  <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>
-                    {items.length} item{items.length !== 1 ? "s" : ""}
-                    {decorators.length > 0 && ` · from ${decorators.join(", ")}`}
-                    {shippedDaysAgo !== null && ` · shipped ${shippedDaysAgo}d ago`}
-                  </div>
-                </div>
-              </Link>
-            );
-          })}
-          {incomingByJob.length > 8 && (
-            <Link href="/receiving" style={{ display: "block", textAlign: "center", fontSize: 10, color: T.muted, padding: "6px 0" }}>+{incomingByJob.length - 8} more</Link>
-          )}
-        </div>
-
-        {/* ── Ready to Ship ── */}
-        <div style={{ ...card, padding: 14 }}>
-          <Link href="/shipping" style={{ textDecoration: "none", color: T.text }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, paddingBottom: 8, borderBottom: `1px solid ${T.border}` }}>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: T.green }}>Shipping</div>
-                <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>Ship-through orders</div>
-              </div>
-              <div style={{ fontSize: 18, fontWeight: 800, fontFamily: mono, color: readyToShip.length > 0 ? T.green : T.faint }}>{readyToShip.length}</div>
-            </div>
-          </Link>
-          {readyToShip.length === 0 ? (
-            <div style={{ fontSize: 11, color: T.faint, padding: "12px 4px", textAlign: "center" }}>Nothing ready</div>
-          ) : readyToShip.slice(0, 8).map(j => {
-            const stItems = (j.items || []).filter((it: Item) => effRoute(j, it) === "ship_through");
-            const itemCount = stItems.length;
-            const totalUnits = stItems.reduce((a: number, it: Item) => {
-              const continuing = deductSamples(it.received_qtys, it.sample_qtys);
-              return a + Object.values(continuing).reduce((x: number, q: any) => x + (Number(q) || 0), 0);
-            }, 0);
-            return (
-              <Link key={j.id} href="/shipping" style={{ textDecoration: "none", color: T.text }}>
-                <div style={{ padding: "8px 10px", marginBottom: 6, background: T.surface, borderRadius: 6, border: `1px solid ${T.border}` }}>
-                  <div style={{ fontSize: 11, fontWeight: 600 }}>
-                    {(j.clients as any)?.name || "—"} · {j.title}
-                  </div>
-                  <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>
-                    {itemCount} item{itemCount !== 1 ? "s" : ""} · {totalUnits.toLocaleString()}u
-                    <span style={{ color: fmtDateColor(j.target_ship_date), marginLeft: 6 }}>· ship {fmtDate(j.target_ship_date)}</span>
-                  </div>
-                </div>
-              </Link>
-            );
-          })}
-          {readyToShip.length > 8 && (
-            <Link href="/shipping" style={{ display: "block", textAlign: "center", fontSize: 10, color: T.muted, padding: "6px 0" }}>+{readyToShip.length - 8} more</Link>
-          )}
-        </div>
-
-        {/* ── Fulfillment ── */}
-        <div style={{ ...card, padding: 14 }}>
-          <Link href="/fulfillment" style={{ textDecoration: "none", color: T.text }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, paddingBottom: 8, borderBottom: `1px solid ${T.border}` }}>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: T.purple }}>Fulfillment</div>
-                <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>Ongoing pack + ship</div>
-              </div>
-              <div style={{ fontSize: 18, fontWeight: 800, fontFamily: mono, color: activeFulfillmentCount > 0 ? T.purple : T.faint }}>{activeFulfillmentCount}</div>
-            </div>
-          </Link>
-          {activeFulfillmentCount === 0 ? (
-            <div style={{ fontSize: 11, color: T.faint, padding: "12px 4px", textAlign: "center" }}>No active projects</div>
-          ) : (
-            <>
-              {(fulfillmentProjects || []).slice(0, 5).map((p: any) => {
-                const logs = (p.fulfillment_daily_logs || []).sort((a: any, b: any) => new Date(b.log_date).getTime() - new Date(a.log_date).getTime());
-                const latest = logs[0];
-                const hasLogToday = latest?.log_date === today;
-                return (
-                  <Link key={p.id} href="/fulfillment" style={{ textDecoration: "none", color: T.text }}>
-                    <div style={{ padding: "8px 10px", marginBottom: 6, background: T.surface, borderRadius: 6, border: `1px solid ${hasLogToday ? T.border : T.amber}` }}>
-                      <div style={{ fontSize: 11, fontWeight: 600 }}>{p.name}</div>
-                      <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>
-                        {latest ? `${latest.remaining_orders} orders remaining` : "no log yet"}
-                        {!hasLogToday && <span style={{ color: T.amber, marginLeft: 6 }}>· no log today</span>}
-                      </div>
-                    </div>
-                  </Link>
-                );
-              })}
-              {stagedJobs.slice(0, 3).map(j => {
-                const units = (j.items || []).filter((it: Item) => effRoute(j, it) === "stage").reduce((a: number, it: Item) => {
-                  const continuing = deductSamples(it.received_qtys, it.sample_qtys);
-                  return a + Object.values(continuing).reduce((x: number, q: any) => x + (Number(q) || 0), 0);
-                }, 0);
-                return (
-                  <Link key={j.id} href="/fulfillment" style={{ textDecoration: "none", color: T.text }}>
-                    <div style={{ padding: "8px 10px", marginBottom: 6, background: T.surface, borderRadius: 6, border: `1px solid ${T.border}` }}>
-                      <div style={{ fontSize: 11, fontWeight: 600 }}>
-                        {(j.clients as any)?.name || "—"} · {j.title}
-                      </div>
-                      <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>
-                        Staged · {units.toLocaleString()}u ready
-                      </div>
-                    </div>
-                  </Link>
-                );
-              })}
-            </>
-          )}
-        </div>
-
-      </div>
-
-      {/* ── Forward radar: what's coming. Subordinate to the act-now board
-            above — muted headers, placed below — so it informs without
-            burying the work that needs doing now. ── */}
-      <div style={{ marginTop: 4, marginBottom: 10 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>On the schedule</div>
-        <div style={{ fontSize: 10, color: T.faint, marginTop: 2 }}>Forming upstream — not on the floor yet. Plan capacity from here.</div>
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
-
-        {/* ── Drops scheduled (pre-orders, pre-production) ── */}
-        <div style={{ ...card, padding: 14 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, paddingBottom: 8, borderBottom: `1px solid ${T.border}` }}>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: T.muted }}>Drops scheduled</div>
-              <div style={{ fontSize: 10, color: T.faint, marginTop: 2 }}>Pre-orders heading toward production</div>
-            </div>
-            <div style={{ fontSize: 18, fontWeight: 800, fontFamily: mono, color: scheduledDrops.length > 0 ? T.text : T.faint }}>{scheduledDrops.length}</div>
-          </div>
-          {scheduledDrops.length === 0 ? (
-            <div style={{ fontSize: 11, color: T.faint, padding: "12px 4px", textAlign: "center" }}>No drops scheduled</div>
-          ) : scheduledDrops.slice(0, 6).map((d: any) => {
-            const products = (d.preorder_products || []).length;
-            const variants = (d.preorder_products || []).reduce((a: number, p: any) => a + (Array.isArray(p.sizes) ? p.sizes.length : 0), 0);
-            return (
-              <Link key={d.id} href={`/ecomm/${d.id}`} style={{ textDecoration: "none", color: T.text }}>
-                <div style={{ padding: "8px 10px", marginBottom: 6, background: T.surface, borderRadius: 6, border: `1px solid ${T.border}` }}>
-                  <div style={{ fontSize: 11, fontWeight: 600 }}>
-                    {(d.clients as any)?.name || "—"} · {d.name}
-                  </div>
-                  <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>
-                    {products} product{products !== 1 ? "s" : ""}{variants > 0 ? ` · ${variants} variants` : ""}
-                  </div>
-                  <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>
-                    {d.open_date ? <>opens <span style={{ color: fmtDateColor(d.open_date) }}>{fmtDate(d.open_date)}</span></> : null}
-                    {d.close_date ? <> · closes <span style={{ color: fmtDateColor(d.close_date) }}>{fmtDate(d.close_date)}</span></> : null}
-                    {d.target_ship_date ? <> · ship-by {fmtDate(d.target_ship_date)}</> : null}
-                  </div>
-                </div>
-              </Link>
-            );
-          })}
-          {scheduledDrops.length > 6 && (
-            <Link href="/ecomm" style={{ display: "block", textAlign: "center", fontSize: 10, color: T.muted, padding: "6px 0" }}>+{scheduledDrops.length - 6} more</Link>
-          )}
-        </div>
-
-        {/* ── In production → heading to HPD ── */}
-        <div style={{ ...card, padding: 14 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, paddingBottom: 8, borderBottom: `1px solid ${T.border}` }}>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: T.muted }}>In production → HPD</div>
-              <div style={{ fontSize: 10, color: T.faint, marginTop: 2 }}>At the decorator, not shipped yet</div>
-            </div>
-            <div style={{ fontSize: 18, fontWeight: 800, fontFamily: mono, color: inProductionByJob.length > 0 ? T.text : T.faint }}>{inProductionByJob.length}</div>
-          </div>
-          {inProductionByJob.length === 0 ? (
-            <div style={{ fontSize: 11, color: T.faint, padding: "12px 4px", textAlign: "center" }}>Nothing in production</div>
-          ) : inProductionByJob.slice(0, 6).map(({ job, items }) => {
-            const decorators = Array.from(new Set(items.flatMap((it: Item) =>
-              (it.decorator_assignments || []).map((da: any) => da.decorators?.short_code || da.decorators?.name)
-            ).filter(Boolean)));
-            return (
-              <Link key={job.id} href="/production" style={{ textDecoration: "none", color: T.text }}>
-                <div style={{ padding: "8px 10px", marginBottom: 6, background: T.surface, borderRadius: 6, border: `1px solid ${T.border}` }}>
-                  <div style={{ fontSize: 11, fontWeight: 600 }}>
-                    {(job.clients as any)?.name || "—"} · {job.title}
-                  </div>
-                  <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>
-                    {items.length} item{items.length !== 1 ? "s" : ""}
-                    {decorators.length > 0 ? ` · at ${decorators.join(", ")}` : ""}
-                    <span style={{ color: fmtDateColor(job.target_ship_date), marginLeft: 6 }}>· ship {fmtDate(job.target_ship_date)}</span>
-                  </div>
-                </div>
-              </Link>
-            );
-          })}
-          {inProductionByJob.length > 6 && (
-            <Link href="/production" style={{ display: "block", textAlign: "center", fontSize: 10, color: T.muted, padding: "6px 0" }}>+{inProductionByJob.length - 6} more</Link>
-          )}
-        </div>
-
-      </div>
-
-    </div>
-  );
+  return <Board rows={rows} drops={drops} />;
 }
