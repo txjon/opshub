@@ -334,11 +334,14 @@ function BoxCard({ box, status, onReceive, onAdjustEta, acts }: { box: Receiving
   return (
     <div onClick={clickable ? onReceive : undefined}
       onMouseEnter={() => clickable && setHover(true)} onMouseLeave={() => setHover(false)}
-      style={clickable ? { cursor: "pointer", borderRadius: 12, outline: hover ? `2px solid ${T.blueDim}` : "none", outlineOffset: -1 } : undefined}>
+      style={clickable ? { cursor: "pointer", position: "relative" } : undefined}>
+    {clickable && hover && (
+      <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 3, background: T.green, borderRadius: "12px 0 0 12px", zIndex: 1, pointerEvents: "none" }} />
+    )}
     <Card>
       {/* two columns, vertically centered: left = client line + detail line
           (tight); right = ETA + Receive cue. No dead vertical space. */}
-      <div style={{ padding: "9px 16px", background: clickable && hover ? T.blueDim : T.surface, borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
+      <div style={{ padding: "9px 16px", background: T.surface, borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
             <span style={{ fontSize: 14, fontWeight: 800 }}>{headline}</span>
