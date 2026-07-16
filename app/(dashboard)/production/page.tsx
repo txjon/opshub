@@ -803,7 +803,7 @@ export default function ProductionPage() {
     const qtyInput = (v: number | undefined, onChange: (val: string) => void, onBlur?: () => void) => (
       <input value={v ? String(v) : ""} placeholder="·" inputMode="numeric"
         onChange={e => onChange(e.target.value)} onBlur={onBlur}
-        style={{ ...ic, ...cell, width: 34, textAlign: "center", fontFamily: mono, color: v ? T.amber : T.faint, borderColor: v ? T.amber : T.border }} />
+        style={{ ...ic, ...cell, width: 34, textAlign: "center", fontFamily: mono, color: v ? T.purple : T.faint, borderColor: v ? T.purple : T.border }} />
     );
     // Nothing to show until a pull exists or the user opens a draft (via the
     // "+ Request pull" link in the row's action column).
@@ -824,7 +824,7 @@ export default function ProductionPage() {
                   <Fragment key={sz}>{qtyInput(pr.qtys?.[sz], v => setExistingQty(pr, sz, v), () => commitExisting(pr.id))}</Fragment>
                 ))}
                 <div style={{ display: "flex", gap: 4, minWidth: 0, alignItems: "center" }}>
-                  <span style={{ fontSize: 10, fontWeight: 700, color: T.amber, flexShrink: 0, textTransform: "capitalize" }}>{pr.kind}</span>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: T.purple, flexShrink: 0, textTransform: "capitalize" }}>{pr.kind}</span>
                   <input value={pr.reason || ""} placeholder="reason / where to"
                     onChange={e => setRows(pulls.map(p => p.id === pr.id ? { ...p, reason: e.target.value } : p))}
                     onBlur={() => commitExisting(pr.id)}
@@ -1180,7 +1180,7 @@ export default function ProductionPage() {
   const shipDatePill = (d: string | null) => {
     // ASAP sentinel — no calendar date, treat as urgent. Set on the
     // PO tab when the team wants the decorator to ship immediately.
-    if (d === "ASAP") return { color: T.red, bg: T.redDim, label: "ASAP", dateStr: "ASAP" };
+    if (d === "ASAP") return { color: T.amber, bg: T.amberDim, label: "ASAP", dateStr: "ASAP" };
     const days = getDaysToShip(d);
     if (days === null) return null;
     // Healthy/comfortable ship dates render as plain T.text — color is
@@ -2128,8 +2128,8 @@ export default function ProductionPage() {
                 const routeLabel = route === "drop_ship" ? "DROP SHIP · direct to customer"
                   : route === "stage" ? "STAGE · fulfill from HPD"
                   : "SHIP-THROUGH · forward from HPD";
-                const routeColor = route === "drop_ship" ? T.amber : route === "stage" ? T.purple : T.accent;
-                const routeBg = route === "drop_ship" ? T.amberDim : route === "stage" ? T.purpleDim : T.accentDim;
+                const routeColor = T.green;   // signal table: green = where it lands (all routes)
+                const routeBg = T.greenDim;
                 return (
                   <div style={{
                     marginBottom: 18,
@@ -2367,8 +2367,8 @@ export default function ProductionPage() {
                   : route === "drop_ship" ? "DROP SHIP · direct to customer"
                   : route === "stage" ? "STAGE · fulfill from HPD"
                   : "SHIP-THROUGH · forward from HPD";
-                const routeColor = mixed || route === "drop_ship" ? T.amber : route === "stage" ? T.purple : T.accent;
-                const routeBg = mixed || route === "drop_ship" ? T.amberDim : route === "stage" ? T.purpleDim : T.accentDim;
+                const routeColor = mixed ? T.amber : T.green; // mixed routes = needs attention
+                const routeBg = mixed ? T.amberDim : T.greenDim;
                 return (
                   <div style={{
                     marginBottom: 16,
