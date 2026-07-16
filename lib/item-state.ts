@@ -367,10 +367,14 @@ export type ReceivingBox = {
 // Returns BOTH incoming and received recent boxes — the UI splits on allReceived
 // (box.allReceived) for the Incoming / Received status toggle.
 export async function loadReceivingBoard(sb: Sb): Promise<ReceivingBox[]> {
+  // Un-received boxes load regardless of age — a box must never silently fall
+  // off Incoming just because it sat 45+ days (slow freight, stalled receiving).
+  // The date window only prunes RECEIVED boxes, to keep the Received tab bounded.
   const cutoff = new Date(Date.now() - 45 * 86400000).toISOString();
   const { data: ships } = await sb.from("shipments")
     .select("id, tracking, carrier, pickup, status, expected_arrival, created_at, received_at, warehouse_notes, decorators(name)")
-    .eq("direction", "inbound").gte("created_at", cutoff).order("created_at", { ascending: false }).limit(160);
+    .eq("direction", "inbound").or(`status.neq.received,created_at.gte.${cutoff}`)
+    .order("created_at", { ascending: false }).limit(160);
   const open = ships || [];
   if (!open.length) return [];
   const ids = open.map((s: any) => s.id);
