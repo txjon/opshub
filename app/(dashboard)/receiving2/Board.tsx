@@ -33,7 +33,6 @@ type Metric = { boxes: number; units: number; items: number };
 const METRICS: { key: MetricKey; label: string }[] = [{ key: "boxes", label: "Boxes" }, { key: "units", label: "Units" }, { key: "items", label: "Items" }];
 type Status = "incoming" | "received" | "pulls";
 type ViewKey = "shipment" | "job" | "item";
-type SortKey = "date" | "vendor" | "client";
 type FlatLine = ReceivingLine & { box: ReceivingBox };
 
 // The qty a line shows depends on the tab: what to receive (shipped) vs what came in (received).
@@ -44,7 +43,8 @@ export default function Board({ boxes, pulls }: { boxes: ReceivingBox[]; pulls: 
   const router = useRouter();
   const [status, setStatus] = useState<Status>("incoming");
   const [view, setView] = useState<ViewKey>("shipment");
-  const [sort, setSort] = useState<SortKey>("date");
+  const [filterVendor, setFilterVendor] = useState("");
+  const [filterClient, setFilterClient] = useState("");
   const [query, setQuery] = useState("");
   const [kpi, setKpi] = useState<MetricKey | null>(null);
   const [receiveBox, setReceiveBox] = useState<ReceivingBox | null>(null);
@@ -71,19 +71,27 @@ export default function Board({ boxes, pulls }: { boxes: ReceivingBox[]; pulls: 
   const received = useMemo(() => boxes.filter(b => b.allReceived), [boxes]);
   const active = status === "incoming" ? incoming : status === "received" ? received : [];
 
+  const vendorOptions = useMemo(() => Array.from(new Set(active.map(b => b.vendorName))).sort(), [active]);
+  const clientOptions = useMemo(() => Array.from(new Set(active.flatMap(b => b.clients))).sort(), [active]);
+
   const display = useMemo(() => {
     const q = query.trim().toLowerCase();
-    let out = q ? active.filter(b =>
+    let out = active;
+    if (filterVendor) out = out.filter(b => b.vendorName === filterVendor);
+    if (filterClient) out = out.filter(b => b.clients.includes(filterClient));
+    if (q) out = out.filter(b =>
       b.vendorName.toLowerCase().includes(q) || (b.tracking || "").toLowerCase().includes(q) ||
       b.clients.some(c => c.toLowerCase().includes(q)) ||
-      b.lines.some(l => l.itemName.toLowerCase().includes(q) || (l.invoiceNumber || "").toLowerCase().includes(q))) : active;
-    const dateOf = (b: ReceivingBox) => (status === "received" ? b.receivedAt || b.createdAt : b.createdAt) || "";
+      b.lines.some(l => l.itemName.toLowerCase().includes(q) || (l.invoiceNumber || "").toLowerCase().includes(q)));
     out = [...out];
-    if (sort === "date") out.sort((a, b) => dateOf(b).localeCompare(dateOf(a)));
-    else if (sort === "vendor") out.sort((a, b) => a.vendorName.localeCompare(b.vendorName) || dateOf(b).localeCompare(dateOf(a)));
-    else out.sort((a, b) => (a.clients[0] || "").localeCompare(b.clients[0] || "") || dateOf(b).localeCompare(dateOf(a)));
+    // fixed sort: incoming = soonest ETA first (no ETA sinks, tie-break oldest
+    // ship first); received = latest received first.
+    if (status === "received") out.sort((a, b) => (b.receivedAt || b.createdAt || "").localeCompare(a.receivedAt || a.createdAt || ""));
+    else out.sort((a, b) =>
+      (a.expectedArrival || "9999").localeCompare(b.expectedArrival || "9999") ||
+      (a.createdAt || "").localeCompare(b.createdAt || ""));
     return out;
-  }, [active, query, sort, status]);
+  }, [active, query, filterVendor, filterClient, status]);
 
   const agg = useMemo(() => {
     const total: Metric = { boxes: active.length, units: 0, items: 0 };
@@ -117,7 +125,18 @@ export default function Board({ boxes, pulls }: { boxes: ReceivingBox[]; pulls: 
         <KpiStrip metrics={METRICS} get={k => agg.total[k]} onClick={setKpi} />
         <SliceSortRow>
           <SegmentControl options={[["shipment", "By shipment"], ["job", "By job"], ["item", "By item"]]} value={view} onChange={setView} />
-          <SegmentControl label="Sort" options={[["date", status === "received" ? "Received" : "Arrival"], ["vendor", "Vendor"], ["client", "Client"]]} value={sort} onChange={setSort} />
+          <div style={{ display: "flex", gap: 8 }}>
+            <select value={filterVendor} onChange={e => setFilterVendor(e.target.value)}
+              style={{ padding: "7px 10px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: filterVendor ? T.text : T.muted, fontSize: 12, fontFamily: font, outline: "none" }}>
+              <option value="">All vendors</option>
+              {vendorOptions.map(v => <option key={v} value={v}>{v}</option>)}
+            </select>
+            <select value={filterClient} onChange={e => setFilterClient(e.target.value)}
+              style={{ padding: "7px 10px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: filterClient ? T.text : T.muted, fontSize: 12, fontFamily: font, outline: "none" }}>
+              <option value="">All clients</option>
+              {clientOptions.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
         </SliceSortRow>
 
         {display.length === 0 && (
