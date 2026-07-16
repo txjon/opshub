@@ -23,7 +23,7 @@ import { calculatePhase } from "@/lib/lifecycle";
 import { loadJobPhase, type JobPhaseView } from "@/lib/item-state";
 import { CLIENT_LABEL, LEGACY_TO_NEW_PHASE } from "@/lib/phase-model";
 import { poSentToItem } from "@/lib/item-status";
-import { calculatePriority, businessDaysFromNow } from "@/lib/dates";
+import { calculatePriority, businessDaysFromNow, fmtDay, daysUntilDay } from "@/lib/dates";
 import { appBaseUrlSync } from "@/lib/public-url";
 
 function JobSkeleton() {
@@ -661,7 +661,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const totalPaid = payments.filter(p=>p.status==="paid").reduce((a,p)=>a+p.amount,0);
   const totalDue = payments.filter(p=>p.status!=="paid"&&p.status!=="void").reduce((a,p)=>a+p.amount,0);
   const phaseColor = PHASE_COLORS[job.phase]||PHASE_COLORS.intake;
-  const daysLeft = job.target_ship_date ? Math.ceil((new Date(job.target_ship_date).getTime()-Date.now())/(1000*60*60*24)) : null;
+  const daysLeft = job.target_ship_date ? daysUntilDay(job.target_ship_date) : null;
 
   const ic = {width:"100%",padding:"6px 10px",border:`1px solid ${T.border}`,borderRadius:6,background:T.surface,color:T.text,fontSize:"13px",fontFamily:font,boxSizing:"border-box" as const};
   const lc = {fontSize:"12px",color:T.muted,marginBottom:"4px",display:"block"};
@@ -699,7 +699,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         {(() => {
           const isComplete = job.phase === "complete";
           const isCancelled = job.phase === "cancelled";
-          const fmt = (iso: string) => new Date(iso).toLocaleDateString("en-US",{month:"short",day:"numeric"});
+          const fmt = (iso: string) => fmtDay(iso);
           const render = (primary: string, date: string | null, color: string) => (
             <span style={{display:"inline-flex",alignItems:"baseline",gap:6,fontFamily:font}}>
               <span style={{fontSize:13,fontWeight:700,color,letterSpacing:"-0.01em"}}>{primary}</span>
@@ -1026,7 +1026,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             if (job.phase==="complete"){shipLabel="Complete";shipColor=T.green;}
             else if (job.phase==="cancelled"){shipLabel="Cancelled";shipColor=T.red;}
             else if (["fulfillment","shipping","receiving"].includes(job.phase)){shipLabel="At HPD";shipColor=T.green;}
-            else if (shipRaw){const d=new Date(shipRaw);const days=Math.ceil((d.getTime()-Date.now())/86400000);shipSub=d.toLocaleDateString("en-US",{month:"short",day:"numeric"});shipLabel=days<0?`${Math.abs(days)}d over`:days===0?"Today":`In ${days}d`;shipColor=days<0?T.red:days<=3?T.amber:T.text;}
+            else if (shipRaw){const days=daysUntilDay(shipRaw) ?? 0;shipSub=fmtDay(shipRaw);shipLabel=days<0?`${Math.abs(days)}d over`:days===0?"Today":`In ${days}d`;shipColor=days<0?T.red:days<=3?T.amber:T.text;}
             const invoiceTotal=Number(tm.qb_total_with_tax)||(Number((job as any)?.costing_summary?.grossRev)+Number((job as any)?.costing_summary?.passthruTotal||0))||0;
             const paidSum=(payments||[]).filter((p:any)=>p.status==="paid"||p.status==="partial").reduce((a:number,p:any)=>a+(Number(p.amount)||0),0);
             const balance=Math.max(0,invoiceTotal-paidSum);

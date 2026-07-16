@@ -3,6 +3,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
+import { daysUntilDay } from "@/lib/dates";
 import { ProjectPicker } from "@/components/ProjectPicker";
 import { appBaseUrlSync } from "@/lib/public-url";
 import {
@@ -257,8 +258,8 @@ function BriefTile({
 // Days-until helper — matches the portal's daysUntil so HPD tiles use
 // the same red/amber/muted treatment for deadlines.
 function daysUntil(iso: string | null): { text: string; color: string } | null {
-  if (!iso) return null;
-  const diff = Math.ceil((new Date(iso).getTime() - Date.now()) / 86400000);
+  const diff = daysUntilDay(iso);
+  if (diff === null) return null;
   if (diff < 0) return { text: `${Math.abs(diff)}d overdue`, color: T.red };
   if (diff === 0) return { text: "today", color: T.red };
   if (diff <= 3) return { text: `${diff}d`, color: T.amber };

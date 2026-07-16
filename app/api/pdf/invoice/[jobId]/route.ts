@@ -250,7 +250,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     const resolvedDate = dateOverride
       ? new Date(`${dateOverride}T12:00:00`)
       : (invoiceSentAt ? new Date(invoiceSentAt) : new Date());
-    const today = resolvedDate.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+    const today = resolvedDate.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "America/Los_Angeles" });
     const clientName = (job.clients as any)?.name || "—";
     const termsRaw = job.payment_terms || "";
     const terms = TERMS_LABELS[termsRaw] || termsRaw.replace(/_/g, " ") || "—";
@@ -352,7 +352,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     const paidDate = req.nextUrl.searchParams.get("paidDate");
     let finalHtml = html;
     if (paidParam === "true") {
-      const stamp = paidDate || new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+      const stamp = paidDate || new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "America/Los_Angeles" });
       finalHtml = html.replace("</body>", `<div style="position:fixed;top:40%;left:50%;transform:translate(-50%,-50%) rotate(-25deg);font-size:72px;font-weight:900;color:rgba(26,140,92,0.15);letter-spacing:8px;font-family:system-ui;pointer-events:none;z-index:9999">PAID</div><div style="position:fixed;top:52%;left:50%;transform:translate(-50%,-50%) rotate(-25deg);font-size:18px;font-weight:700;color:rgba(26,140,92,0.25);font-family:system-ui;pointer-events:none;z-index:9999">${stamp}</div></body>`);
     }
     const pdfBuffer = await generatePDF(finalHtml);

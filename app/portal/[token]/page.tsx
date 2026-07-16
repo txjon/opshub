@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { getLogoSvgForSlug } from "@/lib/branding-client";
+import { parseDay, daysUntilDay } from "@/lib/dates";
 
 // ── Document-style theme — matches invoice/quote PDF aesthetic ──
 const C = {
@@ -31,12 +32,16 @@ const C = {
 
 const fmtD = (n: number) =>
   "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+// Date-only values (est. ship date) split-parse as local; timestamps go
+// through new Date(). Bare-parsing YYYY-MM-DD showed the previous day.
+const asLocalDate = (iso: string) => (iso.includes("T") ? new Date(iso) : parseDay(iso));
 const fmtDate = (iso: string) => {
-  const d = new Date(iso);
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  const d = asLocalDate(iso);
+  return d && !isNaN(d.getTime()) ? d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "";
 };
 const daysUntil = (iso: string) => {
-  const diff = Math.ceil((new Date(iso).getTime() - Date.now()) / 86400000);
+  const diff = daysUntilDay(iso);
+  if (diff === null) return { text: "", color: C.muted };
   if (diff < 0) return { text: `${Math.abs(diff)}d overdue`, color: C.red };
   if (diff <= 3) return { text: `${diff}d`, color: C.amber };
   return { text: `${diff}d`, color: C.green };

@@ -3,6 +3,7 @@ import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono, sortSizes } from "@/lib/theme";
+import { parseDay } from "@/lib/dates";
 import { BoardFrame, ToggleSearch, KpiStrip, KpiBreakdownModal, ModalShell, Card, CardHeader, BoxHead, ItemRow, RowMenu, VariantChips, RouteTag, ItemThumb, SegmentControl, SliceSortRow } from "@/components/board-kit";
 import { receiveBox as receiveBoxAction, resolvePull, returnReceivedLine, editReceivedLine, editShippedLine, returnIncomingToProduction } from "@/lib/receiving2-receive";
 import { PULL_KINDS } from "@/lib/handoff";
@@ -14,9 +15,11 @@ const tQty = (q: Record<string, number>) => Object.values(q || {}).reduce((a, v)
 const boxHow = (b: ReceivingBox) => b.pickup ? "Pickup" : [b.carrier, b.tracking].filter(Boolean).join(" · ") || "no tracking";
 // where a received item goes next, by route
 const destOf = (route: string) => route === "stage" ? "Fulfillment" : route === "drop_ship" ? "Client" : "Shipping";
+// expected_arrival is a DATE column — bare new Date() parsed it as UTC
+// midnight and showed the previous day (and disagreed with receiving v1).
 function fmtDay(iso: string | null): string {
-  if (!iso) return "";
-  const d = new Date(iso); if (isNaN(d.getTime())) return "";
+  const d = iso ? parseDay(iso) : null;
+  if (!d || isNaN(d.getTime())) return "";
   return `${MONTHS[d.getMonth()]} ${d.getDate()}`;
 }
 // LineActions — row handlers threaded down. Received: Edit / Return-to-receiving /

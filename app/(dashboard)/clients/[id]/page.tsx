@@ -9,8 +9,13 @@ import { QBCustomerChooser, type QBCurrent } from "@/components/QBCustomerChoose
 import Link from "next/link";
 import { ChevronDown, ChevronRight, Pencil } from "lucide-react";
 import { effectiveRevenue, pnlJobs } from "@/lib/revenue";
+import { fmtDay, daysUntilDay, parseDay } from "@/lib/dates";
 import { logJobActivity } from "@/components/JobActivityPanel";
 import { resolveItemStatus, STATE_LABELS, jobPhaseToItemState, type ItemState } from "@/lib/item-status";
+
+// jobDate mixes date-only (target_ship_date) and timestamps (created_at) — parse
+// date-only as LOCAL (bare new Date shows the previous day in Vegas).
+const asLocalD = (iso: string) => (iso.includes("T") ? new Date(iso) : (parseDay(iso) as Date));
 
 type Client = { id:string; name:string; client_type:string|null; default_terms:string|null; notes:string|null; website:string|null; billing_address:string|null; shipping_address:string|null; tax_exempt:boolean; allow_cc?:boolean; allow_ach?:boolean; qb_customer_id?:string|null; client_hub_enabled?:boolean; portal_token?:string|null; company_id?:string|null; };
 type Contact = { id:string; name:string; email:string|null; phone:string|null; role_label:string|null; is_primary:boolean; };
@@ -361,7 +366,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const totalPaid = allPayments.filter((p: any) => p.status === "paid").reduce((a: number, p: any) => a + (p.amount || 0), 0);
   const totalOutstanding = allPayments.filter((p: any) => !["paid","void"].includes(p.status)).reduce((a: number, p: any) => a + (p.amount || 0), 0);
   const now = new Date();
-  const overdue = allPayments.filter((p: any) => p.due_date && new Date(p.due_date) < now && !["paid","void"].includes(p.status));
+  const overdue = allPayments.filter((p: any) => p.due_date && (daysUntilDay(p.due_date) ?? 1) < 0 && !["paid","void"].includes(p.status));
   const totalOverdue = overdue.reduce((a: number, p: any) => a + (p.amount || 0), 0);
 
   // ShipStation/fulfillment invoices. Billed amount mirrors the report
@@ -1189,7 +1194,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                           <div style={{fontSize:10,color:T.muted,marginTop:1}}>{(j as any).type_meta?.qb_invoice_number || j.job_number} {units>0&&`· ${units.toLocaleString()} units`} {projectItems.length>0&&<>· {projectItems.length} item{projectItems.length!==1?"s":""}</>} {rev>0&&`· $${Math.round(rev).toLocaleString()}`}</div>
                         </div>
                         <span style={{fontSize:10,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:stateColor,whiteSpace:"nowrap",flexShrink:0}}>{stateLabel}</span>
-                        {j.target_ship_date&&<span style={{fontSize:10,color:T.muted,fontFamily:mono,flexShrink:0}}>{new Date(j.target_ship_date).toLocaleDateString("en-US",{month:"short",day:"numeric"})}</span>}
+                        {j.target_ship_date&&<span style={{fontSize:10,color:T.muted,fontFamily:mono,flexShrink:0}}>{fmtDay(j.target_ship_date)}</span>}
                       </Link>
                       {/* Hover popover — shows each item on the order
                           with its canonical status, so a glance at a
@@ -1251,7 +1256,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                       </div>
                       <span style={{fontSize:11,fontFamily:mono,color:T.muted,flexShrink:0}}>{inst.totalQty.toLocaleString()} units</span>
                       <span style={{fontSize:10,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:stg.color.text,whiteSpace:"nowrap",flexShrink:0}}>{stg.label}</span>
-                      <span style={{fontSize:10,color:T.muted,fontFamily:mono,flexShrink:0,minWidth:62,textAlign:"right"}}>{inst.jobDate?new Date(inst.jobDate).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"2-digit"}):""}</span>
+                      <span style={{fontSize:10,color:T.muted,fontFamily:mono,flexShrink:0,minWidth:62,textAlign:"right"}}>{inst.jobDate?asLocalD(inst.jobDate).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"2-digit"}):""}</span>
                     </Link>
                   );
                 })}
@@ -1310,7 +1315,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                                 <span>{inst.jobTitle}</span>
                                 <span style={{fontFamily:mono}}>{inst.totalQty} units</span>
                                 <span style={{fontSize:9,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:stg.color.text,whiteSpace:"nowrap"}}>{stg.label}</span>
-                                <span style={{marginLeft:"auto"}}>{new Date(inst.jobDate).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}</span>
+                                <span style={{marginLeft:"auto"}}>{asLocalD(inst.jobDate).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}</span>
                               </Link>
                             );
                           })}
@@ -1813,7 +1818,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                             {stateLabel}
                           </div>
                           <div style={{fontSize:11,fontFamily:mono,color:T.muted}}>
-                            {it.client_eta ? new Date(it.client_eta).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"2-digit"}) : "—"}
+                            {it.client_eta ? asLocalD(it.client_eta).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"2-digit"}) : "—"}
                           </div>
                           <div style={{textAlign:"center",fontSize:14,color:isPaid ? T.green : T.faint}}>
                             {isPaid ? "✓" : "—"}

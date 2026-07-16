@@ -3,6 +3,7 @@ import { useState, useMemo, useRef, type CSSProperties } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { daysUntilDay } from "@/lib/dates";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 import { DriveThumb } from "@/components/DriveThumb";
 import { BoardFrame, ToggleSearch, KpiStrip, KpiBreakdownModal, ModalShell, Card, CardHeader, BoxHead, BoxMeta, ItemRow, VariantChips, RouteTag, ItemThumb, SegmentControl, SliceSortRow } from "@/components/board-kit";
@@ -26,11 +27,8 @@ const heldQty = (it: BoardItem) => it.pullRequests.reduce((a, p) => a + tQty(p.q
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 function fmtShip(iso: string | null): { text: string; days: number | null } {
   if (!iso) return { text: "No ship date", days: null };
-  const [y, m, d] = iso.slice(0, 10).split("-").map(Number);
-  const today = new Date(); const t0 = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  const t1 = new Date(y, (m || 1) - 1, d || 1);
-  const days = Math.round((t1.getTime() - t0.getTime()) / 86400000);
-  return { text: `${MONTHS[(m || 1) - 1]} ${d}`, days };
+  const [, m, d] = iso.slice(0, 10).split("-").map(Number);
+  return { text: `${MONTHS[(m || 1) - 1]} ${d}`, days: daysUntilDay(iso) };
 }
 
 type SortKey = "ship" | "client" | "vendor";

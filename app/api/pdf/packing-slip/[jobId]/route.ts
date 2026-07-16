@@ -41,7 +41,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     const clientName = (job.clients as any)?.name || "Client";
     const jobNumber = job.job_number || "";
     const invoiceNum = (job.type_meta as any)?.qb_invoice_number || jobNumber;
-    const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+    const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "America/Los_Angeles" });
 
     const route = job.shipping_route || "ship_through";
     // Drop-ship vs to-HPD qty basis is resolved PER ITEM (migration 076): an
@@ -215,7 +215,12 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     const shipTo = (job.type_meta as any)?.venue_address || (job.type_meta as any)?.po_ship_to?.default || "";
 
     const fnt = `'Helvetica Neue', Arial, sans-serif`;
-    const shipDate = job.target_ship_date || (job.type_meta as any)?.ship_date || "";
+    // format the date-only value (was printed as raw "YYYY-MM-DD" text);
+    // +T12:00:00 anchors local so the day can't shift
+    const shipDateRaw = job.target_ship_date || (job.type_meta as any)?.ship_date || "";
+    const shipDate = shipDateRaw
+      ? new Date(shipDateRaw + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
+      : "";
     const branding = await getPdfBranding();
 
     const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/>

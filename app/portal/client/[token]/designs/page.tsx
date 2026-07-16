@@ -4,6 +4,7 @@ import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { uploadFileToDriveSession } from "@/lib/upload-drive-client";
 import { DriveFileLink } from "@/components/DriveFileLink";
 import { useClientPortal } from "../_shared/context";
+import { parseDay } from "@/lib/dates";
 import { C, daysUntil, thumbUrl } from "../_shared/theme";
 import { clientStateFor } from "../_shared/state-labels";
 import { formatFileLabel, unreadHighlightFor } from "@/lib/art-activity-text";
@@ -619,7 +620,7 @@ function BriefDetailModal({ token, brief, meta, onClose, autoApprove }: {
             </div>
             <div style={{ fontSize: 11, color: C.muted, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {brief.job_title && <>{brief.job_title}</>}
-              {brief.deadline && <> · Due {new Date(brief.deadline).toLocaleDateString("en-US", { month: "long", day: "numeric" })}</>}
+              {brief.deadline && <> · Due {parseDay(brief.deadline)?.toLocaleDateString("en-US", { month: "long", day: "numeric" })}</>}
             </div>
           </div>
           <button onClick={confirmAbort} disabled={!!actionPending}

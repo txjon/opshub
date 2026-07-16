@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { T, font, mono } from "@/lib/theme";
+import { fmtDay } from "@/lib/dates";
 import { ArtBriefMessages } from "@/components/ArtBriefMessages";
 import { DriveFileLink } from "@/components/DriveFileLink";
 
@@ -96,7 +97,7 @@ export function ArtBriefPanel({ itemId, jobId, onClose }) {
                         )}
                       </div>
                       <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>
-                        {b.deadline ? `Due ${new Date(b.deadline).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : "No deadline"}
+                        {b.deadline ? `Due ${fmtDay(b.deadline)}` : "No deadline"}
                         {b.version_count > 0 && ` · v${b.version_count}`}
                       </div>
                     </div>

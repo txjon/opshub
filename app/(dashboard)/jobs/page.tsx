@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { effectiveRevenue } from "@/lib/revenue";
+import { fmtDay, daysUntilDay } from "@/lib/dates";
 import { deriveAggregateStatus } from "@/lib/payment-status";
 import { loadJobPhasesBatch, type JobPhaseView } from "@/lib/item-state";
 import { LEGACY_TO_NEW_PHASE } from "@/lib/phase-model";
@@ -440,7 +441,7 @@ export default function JobsPage() {
           // ASAP can't be a count of days — leave daysLeft null so the
           // numeric branches below skip it and the render special-cases
           // the ASAP label/color instead.
-          const daysLeft = ih && !isAsap ? Math.ceil((new Date(ih).getTime() - now.getTime()) / (1000*60*60*24)) : null;
+          const daysLeft = ih && !isAsap ? daysUntilDay(ih) : null;
           const totalUnits = (job.items||[]).reduce((a:number,it:any) =>
             a + (it.buy_sheet_lines||[]).reduce((b:number,l:any) => b+(l.qty_ordered||0), 0), 0);
 
@@ -540,7 +541,7 @@ export default function JobsPage() {
                         : daysLeft+"d to ship"}
                     </span>
                     <span style={{ fontSize:10, color:T.faint }}>
-                      {isAsap ? "—" : ih ? new Date(ih).toLocaleDateString("en-US",{month:"short",day:"numeric"}) : ""}
+                      {isAsap ? "—" : ih ? fmtDay(ih) : ""}
                     </span>
                   </div>
                 )}
@@ -654,7 +655,7 @@ export default function JobsPage() {
                       </div>
                     )}
                     <div style={{ fontSize:isClosed?12:10, fontWeight:isClosed?600:400, color:isClosed?T.muted:T.faint, whiteSpace:"nowrap", fontFamily:isClosed?mono:undefined }}>
-                      {isAsap ? "—" : ih ? new Date(ih).toLocaleDateString("en-US",{month:"short",day:"numeric"}) : ""}
+                      {isAsap ? "—" : ih ? fmtDay(ih) : ""}
                     </div>
                   </>
                 ) : !pri && <span style={{ fontSize:10, color:T.faint }}>No date</span>}
