@@ -127,12 +127,12 @@ export default function Board({ boxes, pulls }: { boxes: ReceivingBox[]; pulls: 
           <SegmentControl options={[["shipment", "By shipment"], ["job", "By job"], ["item", "By item"]]} value={view} onChange={setView} />
           <div style={{ display: "flex", gap: 8 }}>
             <select value={filterVendor} onChange={e => setFilterVendor(e.target.value)}
-              style={{ padding: "7px 10px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: filterVendor ? T.text : T.muted, fontSize: 12, fontFamily: font, outline: "none" }}>
+              style={{ padding: "9px 14px", borderRadius: 12, border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 13, fontWeight: 700, fontFamily: font, outline: "none", cursor: "pointer" }}>
               <option value="">All vendors</option>
               {vendorOptions.map(v => <option key={v} value={v}>{v}</option>)}
             </select>
             <select value={filterClient} onChange={e => setFilterClient(e.target.value)}
-              style={{ padding: "7px 10px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: filterClient ? T.text : T.muted, fontSize: 12, fontFamily: font, outline: "none" }}>
+              style={{ padding: "9px 14px", borderRadius: 12, border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 13, fontWeight: 700, fontFamily: font, outline: "none", cursor: "pointer" }}>
               <option value="">All clients</option>
               {clientOptions.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
