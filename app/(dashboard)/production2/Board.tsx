@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { daysUntilDay } from "@/lib/dates";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 import { DriveThumb } from "@/components/DriveThumb";
-import { BoardFrame, ToggleSearch, KpiStrip, KpiBreakdownModal, ModalShell, Card, CardHeader, BoxHead, BoxMeta, ItemRow, VariantChips, RouteTag, ItemThumb, SegmentControl, SliceSortRow } from "@/components/board-kit";
+import { BoardFrame, ToggleSearch, KpiStrip, KpiBreakdownModal, ModalShell, Card, CardHeader, BoxHead, BoxMeta, ItemRow, RowMenu, VariantChips, RouteTag, ItemThumb, SegmentControl, SliceSortRow } from "@/components/board-kit";
 import { shipFromProduction } from "@/lib/production2-ship";
 import { createPullRequest, PULL_KINDS } from "@/lib/handoff";
 import { closeShort } from "@/lib/production2-close";
@@ -32,30 +32,45 @@ function fmtShip(iso: string | null): { text: string; days: number | null; asap?
   return { text: `${MONTHS[(m || 1) - 1]} ${d}`, days: daysUntilDay(iso) };
 }
 
-// Per-ITEM delay edit (R3) — "this one item is delayed, the rest are on
-// track." Writes items.expected_arrival (the item-level arrival override the
-// chain honors), pushing that item's arrival + client ETA without touching
-// the strip's ship-by or its sibling items. Hidden for drop_ship (no HPD leg).
-function ItemDelayEdit({ it, onSaved }: { it: BoardItem; onSaved: () => void }) {
+// Per-ITEM "Adjust date" (R3) — "this one item is delayed, the rest are on
+// track." Opened from the row's ⋯ menu (same pattern as /receiving2). Writes
+// items.expected_arrival (the item-level arrival override the chain honors):
+// that item's arrival + client ETA re-derive; the strip's ship-by and its
+// sibling items are untouched.
+function AdjustDateModal({ it, onClose, onDone }: { it: BoardItem; onClose: () => void; onDone: () => void }) {
+  const [date, setDate] = useState(it.expectedArrival || "");
   const [busy, setBusy] = useState(false);
-  if (it.route === "drop_ship") return null;
-  async function save(date: string) {
-    if (!date || busy) return;
-    setBusy(true);
-    const { error } = await (createClient().from("items") as any).update({ expected_arrival: date }).eq("id", it.itemId);
+  const [err, setErr] = useState<string | null>(null);
+  async function save(value: string | null) {
+    setBusy(true); setErr(null);
+    const { error } = await (createClient().from("items") as any).update({ expected_arrival: value }).eq("id", it.itemId);
     setBusy(false);
-    if (!error) onSaved();
+    if (error) setErr(error.message); else onDone();
   }
   return (
-    <label onClick={e => e.stopPropagation()}
-      title={it.expectedArrival
-        ? `This item's expected arrival at HPD (override) — click to change`
-        : "Item delayed? Set ITS expected arrival at HPD — siblings and the strip ship-by stay untouched"}
-      style={{ position: "relative", fontSize: 11, fontWeight: 600, fontFamily: mono, cursor: "pointer", opacity: busy ? 0.5 : 1, color: it.expectedArrival ? "#a87b00" : T.faint, whiteSpace: "nowrap" }}>
-      {busy ? "…" : it.expectedArrival ? `→HPD ${fmtShip(it.expectedArrival).text}` : "→HPD auto"}
-      <input type="date" value={it.expectedArrival || ""} onChange={e => save(e.target.value)}
-        style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer", width: "100%" }} />
-    </label>
+    <ModalShell onClose={onClose} maxWidth={440}>
+      <div style={{ padding: "18px 22px", borderBottom: `1px solid ${T.border}` }}>
+        <div style={{ fontSize: 16, fontWeight: 700 }}>Adjust date — {it.name}</div>
+        <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>Expected arrival at HPD for THIS item only — siblings and the strip ship-by stay untouched. Its client ETA re-derives from here.</div>
+      </div>
+      <div style={{ padding: "16px 22px", display: "flex", flexDirection: "column", gap: 10 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: 0.4 }}>Expected at HPD</div>
+        <input type="date" value={date} onChange={e => setDate(e.target.value)}
+          style={{ fontFamily: mono, fontSize: 13, fontWeight: 700, padding: "8px 10px", border: `1px solid ${T.border}`, borderRadius: 7, background: T.surface, color: T.text, width: 180 }} />
+        <div style={{ fontSize: 11, color: T.muted }}>{it.expectedArrival ? "Currently overridden — clear to fall back to the derived schedule (ship-by + transit)." : "Currently auto — derived from the strip's ship-by + the vendor's transit default."}</div>
+        {err && <div style={{ fontSize: 12, color: T.red, fontWeight: 600 }}>{err}</div>}
+      </div>
+      <div style={{ padding: "14px 22px", borderTop: `1px solid ${T.border}`, display: "flex", gap: 10, justifyContent: "flex-end" }}>
+        {it.expectedArrival && (
+          <button onClick={() => save(null)} disabled={busy}
+            style={{ fontSize: 12, fontWeight: 600, background: "none", border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 14px", cursor: "pointer", color: T.muted, marginRight: "auto" }}>Clear — back to auto</button>
+        )}
+        <button onClick={onClose} disabled={busy}
+          style={{ fontSize: 13, background: "none", border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 16px", cursor: "pointer", color: T.muted }}>Cancel</button>
+        <button onClick={() => date && save(date)} disabled={busy || !date}
+          style={{ fontSize: 13, fontWeight: 700, border: "none", borderRadius: 8, padding: "8px 18px", cursor: busy || !date ? "not-allowed" : "pointer", background: busy || !date ? T.accentDim : T.blue, color: busy || !date ? T.faint : "#fff" }}>{busy ? "Saving…" : "Save"}</button>
+      </div>
+    </ModalShell>
   );
 }
 
@@ -111,6 +126,7 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
   const [shipOpen, setShipOpen] = useState(false);
   const [pullFor, setPullFor] = useState<SelItem | null>(null);
   const [closeFor, setCloseFor] = useState<SelItem | null>(null);
+  const [adjustFor, setAdjustFor] = useState<SelItem | null>(null);
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortKey>("ship");
   const [kpi, setKpi] = useState<MetricKey | null>(null);
@@ -244,7 +260,6 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
                             </span>
                           )}
                         </div>
-                        <ItemDelayEdit it={it} onSaved={() => router.refresh()} />
                         {heldQty(it) > 0 && (
                           <span title={it.pullRequests.map(p => `${tQty(p.qtys)} ${p.kind || "pull"}`).join(", ")}
                             style={{ fontSize: 11, fontWeight: 600, color: T.purple }}>{heldQty(it)} held</span>
@@ -265,6 +280,17 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
                           <span style={{ fontFamily: mono, fontSize: 14, fontWeight: 700 }}>{it.owedTotal}</span>
                           {it.shippedTotal > 0 && <span style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: 0.3 }}>owed</span>}
                         </div>
+                        {/* ⋯ row menu — same pattern as /receiving2. "Adjust date" =
+                            the in-production per-item delay edit (R3). */}
+                        <span onClick={e => { e.preventDefault(); e.stopPropagation(); }}>
+                          <RowMenu items={[
+                            {
+                              label: it.expectedArrival ? "Adjust date (overridden)" : "Adjust date",
+                              disabled: it.route === "drop_ship",
+                              onClick: () => setAdjustFor({ ...it, strip }),
+                            },
+                          ]} />
+                        </span>
                       </label>
                     );
                   })}
@@ -293,6 +319,8 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
         onDone={() => { setShipOpen(false); setSel(new Set()); router.refresh(); }} />}
       {pullFor && <PullModal item={pullFor} onClose={() => setPullFor(null)}
         onDone={() => { setPullFor(null); router.refresh(); }} />}
+      {adjustFor && <AdjustDateModal it={adjustFor} onClose={() => setAdjustFor(null)}
+        onDone={() => { setAdjustFor(null); router.refresh(); }} />}
       {closeFor && <CloseShortModal item={closeFor} onClose={() => setCloseFor(null)}
         onDone={() => { setCloseFor(null); router.refresh(); }} />}
       {kpi && <KpiBreakdownModal label={METRICS.find(m => m.key === kpi)!.label} total={agg.total[kpi]} unit="total in production"
