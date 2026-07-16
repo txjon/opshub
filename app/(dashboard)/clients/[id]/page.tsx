@@ -72,8 +72,18 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   // existing save-error / state-sync paths still cover it.
   const [selectedWsIds, setSelectedWsIds] = useState<Set<string>>(new Set());
   const [bulkRetail, setBulkRetail] = useState<string>("");
-  const [bulkEta, setBulkEta] = useState<string>("");
   const [bulkBusy, setBulkBusy] = useState<null | "retail" | "eta" | "archive">(null);
+  // Chain-resolved ETAs for the worksheet column (read-only, locked
+  // 2026-07-15) — same value the Client Hub shows. ✎ = manual override.
+  const [chainEtas, setChainEtas] = useState<Record<string, { eta: string | null; source: string | null }>>({});
+  useEffect(() => {
+    let dead = false;
+    fetch(`/api/item-etas?clientId=${params.id}`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (!dead && d?.etas) setChainEtas(d.etas); })
+      .catch(() => {});
+    return () => { dead = true; };
+  }, [params.id]);
   const [hoveredProjectId, setHoveredProjectId] = useState<string | null>(null);
   // Direction the project-row hover popover should open. Flipped to
   // "up" when the row sits near the bottom of the viewport so the
@@ -131,7 +141,6 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   useEffect(() => {
     setSelectedWsIds(new Set());
     setBulkRetail("");
-    setBulkEta("");
   }, [workingTab, worksheetOpen]);
 
   useEffect(() => {
@@ -638,33 +647,8 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     }
   }
 
-  async function applyBulkEta() {
-    const v = bulkEta || null;
-    const targets = selectedWorksheetItems();
-    if (targets.length === 0) return;
-    setBulkBusy("eta");
-    try {
-      setJobs(prev => prev.map(j => ({
-        ...j,
-        items: (j.items || []).map((it: any) =>
-          selectedWsIds.has(it.id) ? { ...it, client_eta: v } : it),
-      } as Job)));
-      const label = v == null ? "—" : new Date(v + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-      await Promise.all(targets.map(t => persistItemField(t.id, "client_eta", v)));
-      const byJob = new Map<string, string[]>();
-      for (const t of targets) {
-        if (!byJob.has(t.jobId)) byJob.set(t.jobId, []);
-        byJob.get(t.jobId)!.push(t.name);
-      }
-      for (const [jobId, names] of Array.from(byJob.entries())) {
-        logWorksheet(jobId, `ETA set to ${label} on ${names.length} item${names.length === 1 ? "" : "s"} (${names.join(", ")}) (bulk)`);
-      }
-      setBulkEta("");
-      setSelectedWsIds(new Set());
-    } finally {
-      setBulkBusy(null);
-    }
-  }
+  // applyBulkEta removed 2026-07-15 — worksheet ETAs are read-only
+  // (chain-resolved); the deliberate override lives in the item detail modal.
 
   async function applyBulkArchive(archive: boolean) {
     const targets = selectedWorksheetItems();
@@ -1641,28 +1625,6 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                         {bulkBusy === "retail" ? "..." : "Apply"}
                       </button>
                     </div>
-                    {/* ETA bulk apply */}
-                    <div style={{display:"flex", alignItems:"center", gap:6}}>
-                      <span style={{fontSize:10, fontWeight:700, color:T.faint, textTransform:"uppercase", letterSpacing:"0.06em"}}>ETA</span>
-                      <input
-                        type="date"
-                        value={bulkEta}
-                        onChange={e => setBulkEta(e.target.value)}
-                        style={{...ic, width:140, padding:"5px 8px", fontFamily:mono}}/>
-                      <button
-                        type="button"
-                        onClick={applyBulkEta}
-                        disabled={bulkBusy != null || bulkEta === ""}
-                        style={{
-                          fontSize:11, fontWeight:700, padding:"5px 10px", borderRadius:5,
-                          background:bulkEta === "" ? T.surface : T.accent,
-                          color:bulkEta === "" ? T.faint : "#fff",
-                          border:"none", cursor:bulkBusy != null || bulkEta === "" ? "not-allowed" : "pointer",
-                          fontFamily:font, opacity: bulkBusy === "eta" ? 0.6 : 1,
-                        }}>
-                        {bulkBusy === "eta" ? "..." : "Apply"}
-                      </button>
-                    </div>
                     {/* Archive bulk apply */}
                     <button
                       type="button"
@@ -1818,7 +1780,11 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                             {stateLabel}
                           </div>
                           <div style={{fontSize:11,fontFamily:mono,color:T.muted}}>
-                            {it.client_eta ? asLocalD(it.client_eta).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"2-digit"}) : "—"}
+                            {(() => {
+                              const ce = chainEtas[it.id];
+                              if (!ce?.eta) return "TBD";
+                              return `${asLocalD(ce.eta).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"2-digit"})}${ce.source === "override" ? " ✎" : ""}`;
+                            })()}
                           </div>
                           <div style={{textAlign:"center",fontSize:14,color:isPaid ? T.green : T.faint}}>
                             {isPaid ? "✓" : "—"}
@@ -2016,14 +1982,15 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                             </div>
                           </div>
                           <div style={{gridColumn:"span 2"}}>
-                            <label style={{fontSize:10,color:T.faint,marginBottom:3,display:"block",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>ETA</label>
+                            <label style={{fontSize:10,color:T.faint,marginBottom:3,display:"block",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>ETA override</label>
                             <input
                               type="date"
                               value={it.client_eta || ""}
                               onChange={e => saveItemField(it.id, "client_eta", e.target.value || null)}
                               style={{...ic,fontFamily:mono}}/>
                             <div style={{fontSize:9,color:T.faint,marginTop:4,lineHeight:1.4}}>
-                              Shown to the client. Falls back to the job's target ship date when empty.
+                              Deliberate override only — blank lets the ETA derive from the date
+                              chain (PO ship-by · transit · route buffer) automatically.
                             </div>
                           </div>
                           <div style={{gridColumn:"span 4"}}>
