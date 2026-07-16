@@ -3,6 +3,7 @@ import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono, sortSizes } from "@/lib/theme";
+import { parseDay } from "@/lib/dates";
 import { BoardFrame, ToggleSearch, KpiStrip, KpiBreakdownModal, ModalShell, Card, CardHeader, BoxHead, ItemRow, RowMenu, VariantChips, RouteTag, ItemThumb, SegmentControl, SliceSortRow } from "@/components/board-kit";
 import { receiveBox as receiveBoxAction, resolvePull, returnReceivedLine, editReceivedLine, editShippedLine, returnIncomingToProduction } from "@/lib/receiving2-receive";
 import { PULL_KINDS } from "@/lib/handoff";
@@ -14,9 +15,11 @@ const tQty = (q: Record<string, number>) => Object.values(q || {}).reduce((a, v)
 const boxHow = (b: ReceivingBox) => b.pickup ? "Pickup" : [b.carrier, b.tracking].filter(Boolean).join(" · ") || "no tracking";
 // where a received item goes next, by route
 const destOf = (route: string) => route === "stage" ? "Fulfillment" : route === "drop_ship" ? "Client" : "Shipping";
+// expected_arrival is a DATE column — bare new Date() parsed it as UTC
+// midnight and showed the previous day (and disagreed with receiving v1).
 function fmtDay(iso: string | null): string {
-  if (!iso) return "";
-  const d = new Date(iso); if (isNaN(d.getTime())) return "";
+  const d = iso ? parseDay(iso) : null;
+  if (!d || isNaN(d.getTime())) return "";
   return `${MONTHS[d.getMonth()]} ${d.getDate()}`;
 }
 // LineActions — row handlers threaded down. Received: Edit / Return-to-receiving /
@@ -222,10 +225,41 @@ function boxMetaSegs(box: ReceivingBox, status: Status): { text: string; tone?: 
   if (jobs > 1) segs.push({ text: `${jobs} jobs`, tone: T.blue });
   if (partials > 0 && status !== "received") segs.push({ text: `${partials} partial`, tone: "#a87b00" });
   if (shorts > 0) segs.push({ text: `${shorts} short`, tone: "#a87b00" });
-  if (box.expectedArrival && status !== "received") segs.push({ text: `ETA ${fmtDay(box.expectedArrival)}` });
+  // ETA moved out of the meta segs — it's now the in-line editable row on the
+  // card (ArrivalEtaEdit), the receiving-side edit point of the date chain (R3).
   segs.push({ text: `${box.lines.length} item${box.lines.length > 1 ? "s" : ""} · ${boxUnits(box, status)} units` });
   if (status === "incoming" && toReceive > 0) segs.push({ text: `${toReceive} to receive`, tone: "#a87b00" });
   return segs;
+}
+
+// In-line arrival edit (R3, locked 2026-07-15) — THE receiving-side edit point
+// of the date chain. A transit delay is recorded HERE, on the box: writes
+// shipments.expected_arrival; the vendor ship-by upstream never moves; the
+// client ETA downstream re-derives on read. "~" marks a derived ETA (box
+// shipped without one → ship day + vendor transit default).
+function ArrivalEtaEdit({ box }: { box: ReceivingBox }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  if (box.allReceived) return null;
+  async function save(date: string) {
+    if (!date || busy) return;
+    setBusy(true);
+    const { error } = await (createClient().from("shipments") as any).update({ expected_arrival: date }).eq("id", box.id);
+    setBusy(false);
+    if (!error) router.refresh();
+  }
+  return (
+    <div style={{ padding: "6px 16px 0", display: "flex", gap: 8, alignItems: "center" }}>
+      <span style={{ fontSize: 10, fontWeight: 800, color: T.faint, textTransform: "uppercase", letterSpacing: 0.4 }}>ETA</span>
+      <label title="Expected arrival — click to edit (a transit delay lands here; ship-by upstream is untouched)"
+        style={{ position: "relative", fontSize: 12, fontWeight: 700, color: box.etaDerived ? T.muted : T.text, cursor: "pointer", opacity: busy ? 0.5 : 1 }}>
+        {busy ? "…" : box.expectedArrival ? `${box.etaDerived ? "~" : ""}${fmtDay(box.expectedArrival)}` : "set date"}
+        <input type="date" value={box.expectedArrival || ""} onChange={e => save(e.target.value)}
+          style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer", width: "100%" }} />
+      </label>
+      {box.etaDerived && <span style={{ fontSize: 10, color: T.faint }}>derived from ship day + transit — click to set the real date</span>}
+    </div>
+  );
 }
 
 function BoxCard({ box, status, onReceive, acts }: { box: ReceivingBox; status: Status; onReceive: () => void; acts?: LineActions }) {
@@ -239,6 +273,7 @@ function BoxCard({ box, status, onReceive, acts }: { box: ReceivingBox; status: 
     <Card>
       <BoxHead vendor={box.vendorName} tag={tag} tagColor={tagColor} method={boxHow(box)} slips={box.slips}
         when={fmtWhen(received ? box.receivedAt || box.createdAt : box.createdAt)} meta={boxMetaSegs(box, status)} action={action} />
+      {status === "incoming" && <ArrivalEtaEdit box={box} />}
       {box.note && <div style={{ padding: "8px 16px 0", fontSize: 12, color: T.muted }}><span style={{ fontWeight: 700 }}>Note:</span> {box.note}</div>}
       <ClientGroups box={box} status={status} acts={acts} />
     </Card>

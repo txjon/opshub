@@ -5,6 +5,7 @@ import { T, font, mono } from "@/lib/theme";
 import { resolveItemStatus, STATE_LABELS } from "@/lib/item-status";
 import { shipProgress } from "@/lib/ship-progress";
 import { etaCountdown } from "@/lib/eta";
+import { fmtDay } from "@/lib/dates";
 import LedgerHistory from "@/components/LedgerHistory";
 
 // Map the eta countdown semantic band onto the internal T palette.
@@ -18,13 +19,12 @@ const ETA_BAND_COLORS = {
 };
 
 // Job Overview items list — worksheet-style row layout.
-// Mirrors the per-item working sheet on /clients/[id]: both EDIT the same
-// items.client_eta column, which the client portal + quote/invoice PDFs READ.
 // (Production shipping is read-only here — see the "Ship in Production →" link.)
 //
 // Columns: name (+ vendor / sku) · qty · status · ETA
 // Status: canonical resolveItemStatus from lib/item-status.
-// ETA edit: debounced save (600ms) + flush on blur to prevent loss.
+// ETA: READ-ONLY chain-resolved chip (/api/item-etas) since 2026-07-15 — the
+// same value the Client Hub shows. ✎ marks a manual client_eta override.
 
 const ITEM_STATE_COLORS = {
   setup: T.muted,
@@ -41,7 +41,20 @@ const tQty = (q) => Object.values(q || {}).reduce((a, v) => a + v, 0);
 
 export function JobItemsList({ items, job, isMobile, onChange, vendorFilter, onClearVendor }) {
   const supabase = createClient();
-  const [localEta, setLocalEta] = useState({});
+  // Chain-resolved ETAs (read-only, locked 2026-07-15): dates are SET at the
+  // workflow surfaces — PO tab ship-by, production2 slip edits, receiving2
+  // arrival edits — and this chip just reads the resolved result (same value
+  // the Client Hub shows). { [itemId]: { eta, source } }
+  const [chainEtas, setChainEtas] = useState({});
+  useEffect(() => {
+    if (!job?.id) return;
+    let dead = false;
+    fetch(`/api/item-etas?jobId=${job.id}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (!dead && d?.etas) setChainEtas(d.etas); })
+      .catch(() => {});
+    return () => { dead = true; };
+  }, [job?.id, items]);
   // Per-item inventory history (the movement ledger — what actually shipped /
   // received / forwarded / entered by size, permanent). Reachable for every item
   // on every job, including complete ones.
@@ -54,71 +67,10 @@ export function JobItemsList({ items, job, isMobile, onChange, vendorFilter, onC
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 7.5V12l3 1.8" /></svg>
     </button>
   );
-  const saveTimers = useRef({});
-  const pendingSaves = useRef({});
-  // Shipping moved to the /production board (Phase 2) — the project page is
-  // read-only for production status. Client ETA editing stays (client comms).
-
-  // Seed local ETA state for any new item. Existing entries are
-  // preserved so an in-flight edit doesn't get clobbered by a parent
-  // re-render that re-passes items.
-  useEffect(() => {
-    setLocalEta(prev => {
-      const next = { ...prev };
-      let changed = false;
-      items.forEach(it => {
-        if (next[it.id] === undefined) {
-          next[it.id] = it.client_eta || "";
-          changed = true;
-        }
-      });
-      return changed ? next : prev;
-    });
-  }, [items]);
-
-  // Flush pending saves on unmount so a quick edit + tab switch
-  // doesn't drop the write.
-  useEffect(() => {
-    return () => {
-      Object.values(pendingSaves.current).forEach(fn => { if (typeof fn === "function") fn(); });
-    };
-  }, []);
-
-  async function persistEta(itemId, value) {
-    const dbValue = value || null;
-    const payload = {
-      client_eta: dbValue,
-      client_eta_set_at: dbValue ? new Date().toISOString() : null,
-    };
-    const { error } = await supabase.from("items").update(payload).eq("id", itemId);
-    if (error) {
-      console.error(`[job-items-list] failed to save client_eta on item ${itemId}:`, error);
-    }
-    if (onChange) onChange();
-  }
-
-  function updateEta(itemId, value) {
-    setLocalEta(p => ({ ...p, [itemId]: value }));
-    const key = itemId + "_client_eta";
-    if (saveTimers.current[key]) clearTimeout(saveTimers.current[key]);
-    const doSave = async () => {
-      delete pendingSaves.current[key];
-      delete saveTimers.current[key];
-      await persistEta(itemId, value);
-    };
-    pendingSaves.current[key] = doSave;
-    saveTimers.current[key] = setTimeout(doSave, 600);
-  }
-
-  function flushEta(itemId) {
-    const key = itemId + "_client_eta";
-    if (saveTimers.current[key]) {
-      clearTimeout(saveTimers.current[key]);
-      delete saveTimers.current[key];
-    }
-    const fn = pendingSaves.current[key];
-    if (typeof fn === "function") return fn();
-  }
+  // ETA writes were removed from this surface (read-only chip since
+  // 2026-07-15) — client_eta overrides, when needed, are set via the
+  // worksheet-era paths that remain in /production; day-to-day dates flow
+  // from the chain automatically.
 
   // Resolve the same po_sent signal the worksheet uses, so an item
   // whose decorator has had a PO sent shows In Production here even
@@ -222,7 +174,9 @@ export function JobItemsList({ items, job, isMobile, onChange, vendorFilter, onC
           const state = stateOf(item);
           const stateLabel = STATE_LABELS[state] || "—";
           const stateColor = ITEM_STATE_COLORS[state] || T.muted;
-          const etaValue = localEta[item.id] !== undefined ? localEta[item.id] : (item.client_eta || "");
+          const chainEta = chainEtas[item.id] || {};
+          const etaValue = chainEta.eta || "";
+          const etaIsOverride = chainEta.source === "override";
           // Countdown — only shown while an ETA is actually set. Once
           // an item lands (in_stock / complete / archived / cancelled)
           // the prediction has been satisfied so hide the chip; matches
@@ -266,18 +220,11 @@ export function JobItemsList({ items, job, isMobile, onChange, vendorFilter, onC
                   <span style={{ fontSize: 10, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em" }}>
                     Client ETA
                   </span>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, flex: "1 1 0" }}>
-                    <input type="date"
-                      value={etaValue}
-                      onChange={e => updateEta(item.id, e.target.value)}
-                      onBlur={() => flushEta(item.id)}
-                      style={{
-                        padding: "8px 10px", border: `1px solid ${T.border}`, borderRadius: 6,
-                        background: T.card, color: T.text, fontSize: 13, fontFamily: mono,
-                        outline: "none", minHeight: 36, flex: "1 1 0",
-                        display: "block", WebkitAppearance: "none",
-                        MozAppearance: "none", appearance: "none",
-                      }} />
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flex: "1 1 0", justifyContent: "flex-end" }}
+                    title="Read-only — flows from the date chain (PO ship-by · production slips · receiving arrivals)">
+                    <span style={{ fontSize: 13, fontFamily: mono, fontWeight: 700, color: etaValue ? T.text : T.faint }}>
+                      {etaValue ? fmtDay(etaValue) : "TBD"}{etaIsOverride ? " ✎" : ""}
+                    </span>
                     {cd && (
                       <span style={{ fontSize: 10, fontWeight: 700, color: cdColor, textTransform: "uppercase", letterSpacing: "0.05em", whiteSpace: "nowrap" }}>
                         {cd.text}
@@ -318,16 +265,11 @@ export function JobItemsList({ items, job, isMobile, onChange, vendorFilter, onC
                 fontSize: 10, fontWeight: 700, color: stateColor,
                 textTransform: "uppercase", letterSpacing: "0.06em",
               }}>{stateLabel}</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                <input type="date"
-                  value={etaValue}
-                  onChange={e => updateEta(item.id, e.target.value)}
-                  onBlur={() => flushEta(item.id)}
-                  style={{
-                    padding: "4px 8px", border: `1px solid ${T.border}`, borderRadius: 4,
-                    background: T.card, color: T.text, fontSize: 11, fontFamily: mono,
-                    outline: "none", width: "100%", boxSizing: "border-box",
-                  }} />
+              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}
+                title="Read-only — flows from the date chain (PO ship-by · production slips · receiving arrivals)">
+                <span style={{ fontSize: 11, fontFamily: mono, fontWeight: 700, color: etaValue ? T.text : T.faint }}>
+                  {etaValue ? fmtDay(etaValue) : "TBD"}{etaIsOverride ? " ✎" : ""}
+                </span>
                 {cd && (
                   <span style={{ fontSize: 9, fontWeight: 700, color: cdColor, textTransform: "uppercase", letterSpacing: "0.05em" }}>
                     {cd.text}

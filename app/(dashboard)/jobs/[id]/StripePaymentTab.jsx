@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
+import { fmtDay } from "@/lib/dates";
 import { logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
 import { SendEmailDialog } from "@/components/SendEmailDialog";
 import { useIsMobile } from "@/lib/useIsMobile";
@@ -351,7 +352,7 @@ export function StripePaymentTab({ job, items = [], contacts, payments, onReload
                     <td style={{ padding: "6px", fontFamily: mono, color: T.muted }}>{p.invoice_number || "—"}</td>
                     <td style={{ padding: "6px", textTransform: "capitalize" }}>{p.type.replace(/_/g, " ")}</td>
                     <td style={{ padding: "6px", fontWeight: 600 }}>${p.amount.toLocaleString()}</td>
-                    <td style={{ padding: "6px", color: T.muted }}>{p.due_date ? new Date(p.due_date).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}</td>
+                    <td style={{ padding: "6px", color: T.muted }}>{p.due_date ? fmtDay(p.due_date) : "—"}</td>
                     <td style={{ padding: "6px" }}>
                       <button onClick={async () => {
                         const ns = nextStatus();

@@ -356,8 +356,8 @@ function renderPOHTML(data: any): string {
   // Date cell = original PO sent date when known, otherwise today's
   // render time (first print of a PO that was never officially sent).
   const dateLabel = data.po_sent_date
-    ? new Date(data.po_sent_date).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
-    : new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+    ? new Date(data.po_sent_date).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "America/Los_Angeles" })
+    : new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "America/Los_Angeles" });
   const shipDate = data.target_ship_date
     ? (data.target_ship_date === "ASAP"
         ? "ASAP"

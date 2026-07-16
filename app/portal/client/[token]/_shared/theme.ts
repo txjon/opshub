@@ -1,3 +1,5 @@
+import { parseDay, daysUntilDay } from "@/lib/dates";
+
 // Shared theme + formatting helpers for the client portal shell and tabs.
 // Mirrors OpsHub's T palette from lib/theme.ts so portals look like
 // extensions of the dashboard, not their own brand. Borders are derived
@@ -31,15 +33,25 @@ export const C = {
   mono: "'IBM Plex Mono', 'Courier New', monospace",
 };
 
-export const fmtDate = (iso: string) =>
-  new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+// Date-only values (client_eta, target_ship_date, paid_date, target_date,
+// deadline) MUST NOT go through bare new Date() — that parses UTC midnight
+// and renders the previous day in US timezones. parseDay split-parses them
+// as local; full timestamps still go through new Date().
+const asLocalDate = (iso: string) => (iso.includes("T") ? new Date(iso) : parseDay(iso));
 
-export const fmtDateYear = (iso: string) =>
-  new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+export const fmtDate = (iso: string) => {
+  const d = asLocalDate(iso);
+  return d && !isNaN(d.getTime()) ? d.toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
+};
+
+export const fmtDateYear = (iso: string) => {
+  const d = asLocalDate(iso);
+  return d && !isNaN(d.getTime()) ? d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "";
+};
 
 export const daysUntil = (iso: string | null) => {
-  if (!iso) return null;
-  const diff = Math.ceil((new Date(iso).getTime() - Date.now()) / 86400000);
+  const diff = daysUntilDay(iso);
+  if (diff === null) return null;
   if (diff < 0) return { text: `${Math.abs(diff)}d overdue`, color: C.red };
   if (diff === 0) return { text: "today", color: C.red };
   if (diff <= 3) return { text: `${diff}d`, color: C.amber };

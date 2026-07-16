@@ -9,8 +9,13 @@ import { QBCustomerChooser, type QBCurrent } from "@/components/QBCustomerChoose
 import Link from "next/link";
 import { ChevronDown, ChevronRight, Pencil } from "lucide-react";
 import { effectiveRevenue, pnlJobs } from "@/lib/revenue";
+import { fmtDay, daysUntilDay, parseDay } from "@/lib/dates";
 import { logJobActivity } from "@/components/JobActivityPanel";
 import { resolveItemStatus, STATE_LABELS, jobPhaseToItemState, type ItemState } from "@/lib/item-status";
+
+// jobDate mixes date-only (target_ship_date) and timestamps (created_at) — parse
+// date-only as LOCAL (bare new Date shows the previous day in Vegas).
+const asLocalD = (iso: string) => (iso.includes("T") ? new Date(iso) : (parseDay(iso) as Date));
 
 type Client = { id:string; name:string; client_type:string|null; default_terms:string|null; notes:string|null; website:string|null; billing_address:string|null; shipping_address:string|null; tax_exempt:boolean; allow_cc?:boolean; allow_ach?:boolean; qb_customer_id?:string|null; client_hub_enabled?:boolean; portal_token?:string|null; company_id?:string|null; };
 type Contact = { id:string; name:string; email:string|null; phone:string|null; role_label:string|null; is_primary:boolean; };
@@ -67,8 +72,18 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   // existing save-error / state-sync paths still cover it.
   const [selectedWsIds, setSelectedWsIds] = useState<Set<string>>(new Set());
   const [bulkRetail, setBulkRetail] = useState<string>("");
-  const [bulkEta, setBulkEta] = useState<string>("");
   const [bulkBusy, setBulkBusy] = useState<null | "retail" | "eta" | "archive">(null);
+  // Chain-resolved ETAs for the worksheet column (read-only, locked
+  // 2026-07-15) — same value the Client Hub shows. ✎ = manual override.
+  const [chainEtas, setChainEtas] = useState<Record<string, { eta: string | null; source: string | null }>>({});
+  useEffect(() => {
+    let dead = false;
+    fetch(`/api/item-etas?clientId=${params.id}`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (!dead && d?.etas) setChainEtas(d.etas); })
+      .catch(() => {});
+    return () => { dead = true; };
+  }, [params.id]);
   const [hoveredProjectId, setHoveredProjectId] = useState<string | null>(null);
   // Direction the project-row hover popover should open. Flipped to
   // "up" when the row sits near the bottom of the viewport so the
@@ -126,7 +141,6 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   useEffect(() => {
     setSelectedWsIds(new Set());
     setBulkRetail("");
-    setBulkEta("");
   }, [workingTab, worksheetOpen]);
 
   useEffect(() => {
@@ -361,7 +375,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
   const totalPaid = allPayments.filter((p: any) => p.status === "paid").reduce((a: number, p: any) => a + (p.amount || 0), 0);
   const totalOutstanding = allPayments.filter((p: any) => !["paid","void"].includes(p.status)).reduce((a: number, p: any) => a + (p.amount || 0), 0);
   const now = new Date();
-  const overdue = allPayments.filter((p: any) => p.due_date && new Date(p.due_date) < now && !["paid","void"].includes(p.status));
+  const overdue = allPayments.filter((p: any) => p.due_date && (daysUntilDay(p.due_date) ?? 1) < 0 && !["paid","void"].includes(p.status));
   const totalOverdue = overdue.reduce((a: number, p: any) => a + (p.amount || 0), 0);
 
   // ShipStation/fulfillment invoices. Billed amount mirrors the report
@@ -633,33 +647,8 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     }
   }
 
-  async function applyBulkEta() {
-    const v = bulkEta || null;
-    const targets = selectedWorksheetItems();
-    if (targets.length === 0) return;
-    setBulkBusy("eta");
-    try {
-      setJobs(prev => prev.map(j => ({
-        ...j,
-        items: (j.items || []).map((it: any) =>
-          selectedWsIds.has(it.id) ? { ...it, client_eta: v } : it),
-      } as Job)));
-      const label = v == null ? "—" : new Date(v + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-      await Promise.all(targets.map(t => persistItemField(t.id, "client_eta", v)));
-      const byJob = new Map<string, string[]>();
-      for (const t of targets) {
-        if (!byJob.has(t.jobId)) byJob.set(t.jobId, []);
-        byJob.get(t.jobId)!.push(t.name);
-      }
-      for (const [jobId, names] of Array.from(byJob.entries())) {
-        logWorksheet(jobId, `ETA set to ${label} on ${names.length} item${names.length === 1 ? "" : "s"} (${names.join(", ")}) (bulk)`);
-      }
-      setBulkEta("");
-      setSelectedWsIds(new Set());
-    } finally {
-      setBulkBusy(null);
-    }
-  }
+  // applyBulkEta removed 2026-07-15 — worksheet ETAs are read-only
+  // (chain-resolved); the deliberate override lives in the item detail modal.
 
   async function applyBulkArchive(archive: boolean) {
     const targets = selectedWorksheetItems();
@@ -1189,7 +1178,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                           <div style={{fontSize:10,color:T.muted,marginTop:1}}>{(j as any).type_meta?.qb_invoice_number || j.job_number} {units>0&&`· ${units.toLocaleString()} units`} {projectItems.length>0&&<>· {projectItems.length} item{projectItems.length!==1?"s":""}</>} {rev>0&&`· $${Math.round(rev).toLocaleString()}`}</div>
                         </div>
                         <span style={{fontSize:10,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:stateColor,whiteSpace:"nowrap",flexShrink:0}}>{stateLabel}</span>
-                        {j.target_ship_date&&<span style={{fontSize:10,color:T.muted,fontFamily:mono,flexShrink:0}}>{new Date(j.target_ship_date).toLocaleDateString("en-US",{month:"short",day:"numeric"})}</span>}
+                        {j.target_ship_date&&<span style={{fontSize:10,color:T.muted,fontFamily:mono,flexShrink:0}}>{fmtDay(j.target_ship_date)}</span>}
                       </Link>
                       {/* Hover popover — shows each item on the order
                           with its canonical status, so a glance at a
@@ -1251,7 +1240,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                       </div>
                       <span style={{fontSize:11,fontFamily:mono,color:T.muted,flexShrink:0}}>{inst.totalQty.toLocaleString()} units</span>
                       <span style={{fontSize:10,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:stg.color.text,whiteSpace:"nowrap",flexShrink:0}}>{stg.label}</span>
-                      <span style={{fontSize:10,color:T.muted,fontFamily:mono,flexShrink:0,minWidth:62,textAlign:"right"}}>{inst.jobDate?new Date(inst.jobDate).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"2-digit"}):""}</span>
+                      <span style={{fontSize:10,color:T.muted,fontFamily:mono,flexShrink:0,minWidth:62,textAlign:"right"}}>{inst.jobDate?asLocalD(inst.jobDate).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"2-digit"}):""}</span>
                     </Link>
                   );
                 })}
@@ -1310,7 +1299,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                                 <span>{inst.jobTitle}</span>
                                 <span style={{fontFamily:mono}}>{inst.totalQty} units</span>
                                 <span style={{fontSize:9,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:stg.color.text,whiteSpace:"nowrap"}}>{stg.label}</span>
-                                <span style={{marginLeft:"auto"}}>{new Date(inst.jobDate).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}</span>
+                                <span style={{marginLeft:"auto"}}>{asLocalD(inst.jobDate).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}</span>
                               </Link>
                             );
                           })}
@@ -1636,28 +1625,6 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                         {bulkBusy === "retail" ? "..." : "Apply"}
                       </button>
                     </div>
-                    {/* ETA bulk apply */}
-                    <div style={{display:"flex", alignItems:"center", gap:6}}>
-                      <span style={{fontSize:10, fontWeight:700, color:T.faint, textTransform:"uppercase", letterSpacing:"0.06em"}}>ETA</span>
-                      <input
-                        type="date"
-                        value={bulkEta}
-                        onChange={e => setBulkEta(e.target.value)}
-                        style={{...ic, width:140, padding:"5px 8px", fontFamily:mono}}/>
-                      <button
-                        type="button"
-                        onClick={applyBulkEta}
-                        disabled={bulkBusy != null || bulkEta === ""}
-                        style={{
-                          fontSize:11, fontWeight:700, padding:"5px 10px", borderRadius:5,
-                          background:bulkEta === "" ? T.surface : T.accent,
-                          color:bulkEta === "" ? T.faint : "#fff",
-                          border:"none", cursor:bulkBusy != null || bulkEta === "" ? "not-allowed" : "pointer",
-                          fontFamily:font, opacity: bulkBusy === "eta" ? 0.6 : 1,
-                        }}>
-                        {bulkBusy === "eta" ? "..." : "Apply"}
-                      </button>
-                    </div>
                     {/* Archive bulk apply */}
                     <button
                       type="button"
@@ -1813,7 +1780,11 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                             {stateLabel}
                           </div>
                           <div style={{fontSize:11,fontFamily:mono,color:T.muted}}>
-                            {it.client_eta ? new Date(it.client_eta).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"2-digit"}) : "—"}
+                            {(() => {
+                              const ce = chainEtas[it.id];
+                              if (!ce?.eta) return "TBD";
+                              return `${asLocalD(ce.eta).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"2-digit"})}${ce.source === "override" ? " ✎" : ""}`;
+                            })()}
                           </div>
                           <div style={{textAlign:"center",fontSize:14,color:isPaid ? T.green : T.faint}}>
                             {isPaid ? "✓" : "—"}
@@ -2011,14 +1982,15 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                             </div>
                           </div>
                           <div style={{gridColumn:"span 2"}}>
-                            <label style={{fontSize:10,color:T.faint,marginBottom:3,display:"block",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>ETA</label>
+                            <label style={{fontSize:10,color:T.faint,marginBottom:3,display:"block",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.06em"}}>ETA override</label>
                             <input
                               type="date"
                               value={it.client_eta || ""}
                               onChange={e => saveItemField(it.id, "client_eta", e.target.value || null)}
                               style={{...ic,fontFamily:mono}}/>
                             <div style={{fontSize:9,color:T.faint,marginTop:4,lineHeight:1.4}}>
-                              Shown to the client. Falls back to the job's target ship date when empty.
+                              Deliberate override only — blank lets the ETA derive from the date
+                              chain (PO ship-by · transit · route buffer) automatically.
                             </div>
                           </div>
                           <div style={{gridColumn:"span 4"}}>

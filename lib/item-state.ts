@@ -8,6 +8,8 @@
 import { deriveItem, type ItemState, type Movement, type Route, type SizeQtys } from "./item-derivation";
 import { computePhase, paymentGateMet, type PhaseItem, type PhaseGate, type PhaseResult } from "./phase-model";
 import { poSentToItem } from "./item-status";
+import { transitDaysFor } from "./date-chain";
+import { addDays } from "./dates";
 
 type Sb = any; // Supabase client (project convention: loose typing at the boundary)
 
@@ -163,7 +165,15 @@ export type BoardStrip = {
   key: string;                 // jobId::decoratorId
   jobId: string; jobNumber: string; jobTitle: string; clientName: string;
   invoiceNumber: string | null; // QB invoice # (client-facing id, from type_meta)
-  jobRoute: Route; phase: string; priority: string | null; shipDate: string | null;
+  jobRoute: Route; phase: string; priority: string | null;
+  // The date-chain ship-by for THIS job×vendor strip (locked 2026-07-15):
+  // shipDate = live (mid-flight slip, type_meta.po_ship_live[vendor]) else the
+  // PO's agreed po_ship_dates[vendor] (may be "ASAP") else null = TBD.
+  // shipDateAgreed = the PO plan, kept for the slip badge. poShipKey = the
+  // exact vendor key in those type_meta maps (what the in-line edit writes to).
+  shipDate: string | null;
+  shipDateAgreed: string | null;
+  poShipKey: string | null;
   decoratorId: string | null; decoratorName: string; decoratorCode: string | null;
   items: BoardItem[];
 };
@@ -247,11 +257,27 @@ export async function loadProductionBoard(sb: Sb): Promise<BoardStrip[]> {
     const decoratorName = assign.decorators?.name || "Unassigned vendor";
     const key = `${item.job_id}::${decoratorId || "none"}`;
     if (!strips.has(key)) {
+      // chain ship-by for this job×vendor: live slip > agreed PO date > TBD.
+      // Vendor keys in type_meta maps come from the PO tab (printVendor label);
+      // match case-insensitively against every alias we know for the vendor.
+      const tm = job.type_meta || {};
+      const findVendorKey = (map: Record<string, any> | null | undefined): string | null => {
+        if (!map) return null;
+        for (const k of Object.keys(map)) if (vendorKeys.includes(k.toLowerCase().trim())) return k;
+        return null;
+      };
+      const agreedKey = findVendorKey(tm.po_ship_dates);
+      const liveKey = findVendorKey(tm.po_ship_live);
+      const agreed: string | null = agreedKey ? tm.po_ship_dates[agreedKey] || null : null;
+      const live: string | null = liveKey ? tm.po_ship_live[liveKey]?.date || null : null;
       strips.set(key, {
         key, jobId: job.id, jobNumber: job.job_number, jobTitle: job.title,
         clientName: job.clients?.name || "—", invoiceNumber: job.type_meta?.qb_invoice_number || null,
         jobRoute, phase: job.phase,
-        priority: job.priority, shipDate: job.target_ship_date,
+        priority: job.priority,
+        shipDate: (live && live !== "ASAP") ? live : agreed,
+        shipDateAgreed: agreed,
+        poShipKey: agreedKey || cp?.printVendor || assign.decorators?.name || null,
         decoratorId, decoratorName, decoratorCode: assign.decorators?.short_code || null, items: [],
       });
     }
@@ -358,7 +384,12 @@ export type ReceivingLine = {
 };
 export type ReceivingBox = {
   id: string; vendorName: string; carrier: string | null; tracking: string | null; pickup: boolean;
-  createdAt: string; receivedAt: string | null; expectedArrival: string | null; status: string;
+  createdAt: string; receivedAt: string | null;
+  // expectedArrival: the box's own date (set at ship or edited in-line in
+  // receiving — writes shipments.expected_arrival) OR, when the box shipped
+  // without one, derived = ship day + vendor transit(carrier) (etaDerived).
+  expectedArrival: string | null; etaDerived: boolean;
+  status: string;
   note: string | null;  // warehouse note typed at ship time
   slips: { name: string; url: string }[];
   lines: ReceivingLine[]; totalUnits: number; receivedUnits: number; clients: string[]; allReceived: boolean;
@@ -372,7 +403,7 @@ export async function loadReceivingBoard(sb: Sb): Promise<ReceivingBox[]> {
   // The date window only prunes RECEIVED boxes, to keep the Received tab bounded.
   const cutoff = new Date(Date.now() - 45 * 86400000).toISOString();
   const { data: ships } = await sb.from("shipments")
-    .select("id, tracking, carrier, pickup, status, expected_arrival, created_at, received_at, warehouse_notes, decorators(name)")
+    .select("id, tracking, carrier, pickup, status, expected_arrival, created_at, received_at, warehouse_notes, decorators(name, transit_defaults)")
     .eq("direction", "inbound").or(`status.neq.received,created_at.gte.${cutoff}`)
     .order("created_at", { ascending: false }).limit(160);
   const open = ships || [];
@@ -442,10 +473,20 @@ export async function loadReceivingBoard(sb: Sb): Promise<ReceivingBox[]> {
     if (!rLines.length) continue;
     const slipMap = new Map<string, { name: string; url: string }>();
     for (const l of ls) for (const sl of slipsByItem.get(l.item_id) || []) slipMap.set(sl.url, sl);
+    // Fallback ETA when the box shipped without one: ship day + the vendor's
+    // transit default for how it's moving (carrier text → ground/freight/ocean;
+    // pickup = 0). Chain rule R5: derived-or-TBD, never a guess beyond that.
+    const derivedEta = (() => {
+      if (s.expected_arrival) return null;
+      const td = (s as any).decorators?.transit_defaults;
+      const transit = transitDaysFor(td, s.pickup ? "Pick Up" : s.carrier);
+      return transit != null ? addDays(String(s.created_at).slice(0, 10), transit) : null;
+    })();
     boxes.push({
       id: s.id, vendorName: (s as any).decorators?.name || "Unassigned vendor",
       carrier: s.carrier, tracking: s.tracking, pickup: !!s.pickup, createdAt: s.created_at, receivedAt: s.received_at || null,
-      expectedArrival: s.expected_arrival, status: s.status || "expected", note: s.warehouse_notes || null,
+      expectedArrival: s.expected_arrival || derivedEta, etaDerived: !s.expected_arrival && !!derivedEta,
+      status: s.status || "expected", note: s.warehouse_notes || null,
       slips: Array.from(slipMap.values()),
       lines: rLines, totalUnits: rLines.reduce((a, l) => a + sumQ(l.shipQtys), 0),
       receivedUnits: rLines.reduce((a, l) => a + sumQ(l.receivedQtys), 0),

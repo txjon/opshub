@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useMemo } from "react";
 import { sortSizes } from "@/lib/theme";
+import { daysUntilDay } from "@/lib/dates";
 import SizeGrid from "@/components/SizeGrid";
 import { C, fmtDate, fmtDateLong, fmtMoney, daysUntil } from "./_shared/theme";
 import { MobileSheet } from "./_shared/MobileSheet";
@@ -150,8 +151,6 @@ export default function VendorPortalPage({ params }: { params: { token: string }
   const kpi = useMemo(() => {
     if (!data) return { poReceived: 0, inProduction: 0, shippingThisWeek: 0, late: 0 };
     let poReceived = 0, inProduction = 0, shippingThisWeek = 0, late = 0;
-    const oneWeek = 7 * 86400000;
-    const now = Date.now();
     for (const o of data.orders) {
       for (const it of o.items) {
         const s = vendorStageFor(it.pipelineStage);
@@ -163,9 +162,11 @@ export default function VendorPortalPage({ params }: { params: { token: string }
             // urgent bucket; not "late" since it has no calendar miss.
             shippingThisWeek++;
           } else {
-            const ms = new Date(o.shipDate).getTime();
-            if (ms < now) late++;
-            else if (ms - now <= oneWeek) shippingThisWeek++;
+            // calendar-day bucketing — a date-only ship date parsed bare is UTC
+            // midnight (= "late" from 5 PM the prior Vegas evening)
+            const d = daysUntilDay(o.shipDate);
+            if (d !== null && d < 0) late++;
+            else if (d !== null && d <= 7) shippingThisWeek++;
           }
         }
       }

@@ -11,6 +11,7 @@ import { shipProgress, remainingToShip } from "@/lib/ship-progress";
 import { createPullRequest, updatePullRequest, PULL_KINDS, type PullRequestRow } from "@/lib/handoff";
 import { pickupTrackingStamp } from "@/lib/use-shipments";
 import { computeArrivalEta } from "@/lib/arrival-eta";
+import { fmtDay, daysUntilDay } from "@/lib/dates";
 import { NotifyShipmentDialog } from "@/components/NotifyShipmentDialog";
 import { MockupPeek } from "@/components/MockupPeek";
 import { DriveThumb } from "@/components/DriveThumb";
@@ -1033,7 +1034,7 @@ export default function ProductionPage() {
               if (oldestInProdTs === null || t < oldestInProdTs) oldestInProdTs = t;
             }
             // target_ship_date is the vendor-specific PO ship date now
-            if (it.target_ship_date && new Date(it.target_ship_date).getTime() < now.getTime()) {
+            if (it.target_ship_date && (daysUntilDay(it.target_ship_date) ?? 0) < 0) {
               isOverdue = true;
             }
           } else if (it.pipeline_stage !== "shipped") {
@@ -1080,7 +1081,7 @@ export default function ProductionPage() {
             anyInProduction = true; allShipped = false;
             const ipAt = it.pipeline_timestamps?.in_production;
             if (ipAt) { const t = new Date(ipAt).getTime(); if (oldestInProdTs === null || t < oldestInProdTs) oldestInProdTs = t; }
-            if (it.target_ship_date && it.target_ship_date !== "ASAP" && new Date(it.target_ship_date).getTime() < now.getTime()) isOverdue = true;
+            if (it.target_ship_date && it.target_ship_date !== "ASAP" && (daysUntilDay(it.target_ship_date) ?? 0) < 0) isOverdue = true;
           } else if (it.pipeline_stage !== "shipped") {
             allShipped = false;
           }
@@ -1167,7 +1168,7 @@ export default function ProductionPage() {
 
   const getDaysToShip = (d: string | null) => {
     if (!d || d === "ASAP") return null;
-    return Math.ceil((new Date(d).getTime() - now.getTime()) / 86400000);
+    return daysUntilDay(d);
   };
 
   const getDaysInStage = (item: ProdItem) => {
@@ -1187,7 +1188,7 @@ export default function ProductionPage() {
     const color = days < 0 ? T.red : days <= 3 ? T.amber : T.text;
     const bg = days < 0 ? T.redDim : days <= 3 ? T.amberDim : T.surface;
     const label = days < 0 ? `${Math.abs(days)}d overdue` : days === 0 ? "Today" : `${days}d`;
-    return { color, bg, label, dateStr: new Date(d!).toLocaleDateString("en-US", { month: "short", day: "numeric" }) };
+    return { color, bg, label, dateStr: fmtDay(d!) };
   };
 
   // Flat one-row-per-item list for the "List" view. Same tab + decorator +
@@ -1202,7 +1203,7 @@ export default function ProductionPage() {
           const inProd = it.pipeline_stage === "in_production";
           const shipped = it.pipeline_stage === "shipped";
           const overdue = inProd && !!it.target_ship_date && it.target_ship_date !== "ASAP"
-            && new Date(it.target_ship_date).getTime() < now.getTime();
+            && (daysUntilDay(it.target_ship_date) ?? 0) < 0;
           const dInStage = getDaysInStage(it) ?? 0;
           const stalled = inProd && dInStage >= STALL_DAYS;
           const matchesTab = tab === "active" ? inProd : tab === "overdue" ? overdue : tab === "stalled" ? stalled : shipped;

@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { T } from "@/lib/theme";
 import { CommandCenterBuckets, type BucketCard, type BucketPayload, type BucketSection, type Urgency } from "@/components/CommandCenterBuckets";
 import { attachUnreadStatus } from "@/lib/art-brief-activity";
+import { daysUntilDay } from "@/lib/dates";
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -148,10 +149,10 @@ export default async function DashboardPage() {
     // ═══════════ SALES ALERTS ═══════════
 
     // 1. Overdue — only for pre-fulfillment phases (handoff-to-warehouse = no longer Labs concern)
-    if (j.target_ship_date && new Date(j.target_ship_date) < now) {
+    if (j.target_ship_date && (daysUntilDay(j.target_ship_date) ?? 1) < 0) {
       const postProduction = j.phase === "fulfillment" || j.phase === "shipping" || j.phase === "receiving";
       if (!postProduction) {
-        const days = Math.abs(Math.ceil((new Date(j.target_ship_date).getTime() - now.getTime()) / 86400000));
+        const days = Math.abs(daysUntilDay(j.target_ship_date) ?? 0);
         alerts.push({ ...base, priority: 0, type: "overdue", color: T.red,
           action: `${days} days past ship date`,
           href: `/jobs/${j.id}`, column: "sales" });
@@ -222,8 +223,10 @@ export default async function DashboardPage() {
       if (invoiceSentAt && daysSinceInvoiceSent >= 2) {
         // Net terms: only follow up when due date is ≤1 day away
         if (isNet) {
-          const earliestDue = payments.filter((p: any) => p.due_date).map((p: any) => new Date(p.due_date).getTime()).sort()[0];
-          const daysToDue = earliestDue ? Math.ceil((earliestDue - now.getTime()) / 86400000) : null;
+          // due_date is date-only — sort the ISO strings (lexicographic = chronological)
+          // and count calendar days; the old epoch math flagged "due" a day early.
+          const earliestDue = payments.filter((p: any) => p.due_date).map((p: any) => p.due_date as string).sort()[0];
+          const daysToDue = earliestDue ? daysUntilDay(earliestDue) : null;
           if (daysToDue !== null && daysToDue <= 1) {
             alerts.push({ ...base, priority: 1, type: "follow_up_payment", color: T.amber,
               action: `Payment due ${daysToDue <= 0 ? "today" : "tomorrow"} — follow up`,
@@ -252,8 +255,8 @@ export default async function DashboardPage() {
 
     // 5b. Overdue payments — past due date, not paid
     for (const p of payments) {
-      if (p.due_date && new Date(p.due_date) < now && p.status !== "paid" && p.status !== "void") {
-        const days = Math.ceil((now.getTime() - new Date(p.due_date).getTime()) / 86400000);
+      if (p.due_date && (daysUntilDay(p.due_date) ?? 1) < 0 && p.status !== "paid" && p.status !== "void") {
+        const days = Math.abs(daysUntilDay(p.due_date) ?? 0);
         alerts.push({ ...base, priority: 1, type: "overdue_payment", color: T.red,
           paymentId: p.id,
           action: `Payment ${days}d overdue${p.amount ? ` · $${Number(p.amount).toLocaleString()}` : ""}`,
@@ -379,7 +382,7 @@ export default async function DashboardPage() {
           alerts.push({ ...base, priority: 2, type: "shipping_soon", color: T.amber,
             action: `Ships ASAP — verify status`, href: `/jobs/${j.id}`, column: "production" });
         } else {
-          const daysToShip = Math.ceil((new Date(earliestShipDate).getTime() - now.getTime()) / 86400000);
+          const daysToShip = daysUntilDay(earliestShipDate) ?? 99;
           if (daysToShip >= 0 && daysToShip <= 3) {
             alerts.push({ ...base, priority: 2, type: "shipping_soon", color: T.amber,
               action: `Ships in ${daysToShip}d — verify status`, href: `/jobs/${j.id}`, column: "production" });

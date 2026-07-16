@@ -250,7 +250,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     const resolvedDate = dateOverride
       ? new Date(`${dateOverride}T12:00:00`)
       : (invoiceSentAt ? new Date(invoiceSentAt) : new Date());
-    const today = resolvedDate.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+    const today = resolvedDate.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "America/Los_Angeles" });
     const clientName = (job.clients as any)?.name || "—";
     const termsRaw = job.payment_terms || "";
     const terms = TERMS_LABELS[termsRaw] || termsRaw.replace(/_/g, " ") || "—";
@@ -323,11 +323,10 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     // Est ship date = latest per-item client_eta. The old
     // jobs.target_ship_date is now Drake's internal "requested
     // in-hands date" and stays off client-facing surfaces. Client
-    // expects to receive everything by the latest ETA, so MAX is
-    // the conservative single date for the invoice header.
-    const itemEtas = (items || []).map((it: any) => it.client_eta).filter(Boolean) as string[];
-    itemEtas.sort();
-    const latestEta = itemEtas.length ? itemEtas[itemEtas.length - 1] : null;
+    // D4 (locked 2026-07-15, same rule as the quote PDF): the Est-ship line
+    // exists ONLY when the requested in-hands date was deliberately set, and
+    // shows that date. Blank in-hands = no line (no invented promise).
+    const latestEta = job.target_ship_date || null;
 
     const branding = await getPdfBranding();
     const html = renderInvoiceHTML({
@@ -352,7 +351,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     const paidDate = req.nextUrl.searchParams.get("paidDate");
     let finalHtml = html;
     if (paidParam === "true") {
-      const stamp = paidDate || new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+      const stamp = paidDate || new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "America/Los_Angeles" });
       finalHtml = html.replace("</body>", `<div style="position:fixed;top:40%;left:50%;transform:translate(-50%,-50%) rotate(-25deg);font-size:72px;font-weight:900;color:rgba(26,140,92,0.15);letter-spacing:8px;font-family:system-ui;pointer-events:none;z-index:9999">PAID</div><div style="position:fixed;top:52%;left:50%;transform:translate(-50%,-50%) rotate(-25deg);font-size:18px;font-weight:700;color:rgba(26,140,92,0.25);font-family:system-ui;pointer-events:none;z-index:9999">${stamp}</div></body>`);
     }
     const pdfBuffer = await generatePDF(finalHtml);

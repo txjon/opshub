@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
+import { parseDay } from "@/lib/dates";
 import { effectiveRevenue, effectiveCost, pnlJobs } from "@/lib/revenue";
 import { ssRevCost, ssReportLabel, isInvoicedReport, ssShipments, RANGE_OPTIONS, resolveRange, inRange, type RangePreset } from "@/lib/analytics";
 
@@ -10,7 +11,7 @@ const fmtD = (n: number) => "$" + Math.round(n || 0).toLocaleString();
 const ratio = (rev: number, cost: number) => rev > 0 ? (rev - cost) / rev : 0;
 const fmtPct = (r: number) => (r * 100).toFixed(1) + "%";
 const marginColor = (r: number) => r >= 0.3 ? T.green : r >= 0.15 ? T.amber : T.red;
-const fmtDate = (s: string | null | undefined) => s ? new Date(s).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" }) : "—";
+const fmtDate = (s: string | null | undefined) => s ? (s.includes("T") ? new Date(s) : (parseDay(s) as Date)).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" }) : "—";
 const jobUnits = (j: any) => (j.items || []).reduce((a: number, it: any) => a + (it.buy_sheet_lines || []).reduce((b: number, l: any) => b + (l.qty_ordered || 0), 0), 0);
 // What the job was actually billed (tax-inclusive when QB has it, else
 // pre-tax grossRev). Used to cap "paid" so duplicate/misallocated payment

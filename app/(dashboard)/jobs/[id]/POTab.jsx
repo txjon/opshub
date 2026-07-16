@@ -9,7 +9,8 @@ import { useClientBranding } from "@/lib/branding-client";
 import { shippingRoutesForSlug } from "@/lib/tenants";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { PdfCanvasPreview } from "@/components/PdfCanvasPreview";
-import { addBusinessDays } from "@/lib/dates";
+import { addBusinessDays, addDays, fmtDay } from "@/lib/dates";
+import { poSendAllowed } from "@/lib/date-chain";
 // dates — milestones removed, ship date is set manually
 
 function fmtD(n) {
@@ -135,7 +136,7 @@ function buildLineItems(cp, allProds) {
   return { printLines, finLines, specLines, setupLines };
 }
 
-const SHIP_METHODS = ["UPS Ground","UPS 2-Day","UPS Next Day","UPS Next Day Air Saver","Freight / LTL","Pick Up","Vendor's Choice"];
+const SHIP_METHODS = ["UPS Ground","UPS 2-Day","UPS Next Day","UPS Next Day Air Saver","Freight / LTL","Ocean","Pick Up","Vendor's Choice"];
 
 export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selectedItemId}) {
   const supabase = createClient();
@@ -289,6 +290,10 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
   }
 
   const ready = !!active;
+  // R1 — the one gate (locked 2026-07-15): a PO needs a ship-by date or a
+  // deliberate ASAP before it can send. Blank used to sail through.
+  const shipBySet = poSendAllowed(poShipDates[active]);
+  const canSend = ready && shipBySet;
   const allFilled = vItems.every(it=>itemFields[it.id]?.packing_notes?.trim());
 
   // Blanks gate: check if all items for current vendor have blanks ordered
@@ -453,10 +458,12 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
                     days). Hidden once the date is set so it stops
                     nagging. */}
                 {!poShipDates[active] && activeLeadDays > 0 && (() => {
-                  const suggested = addBusinessDays(todayIso, activeLeadDays);
+                  // lead times are CALENDAR days (vendors quote "6 weeks"),
+                  // matching the date-chain derivation — not business days
+                  const suggested = addDays(todayIso, activeLeadDays);
                   return (
-                    <button onClick={()=>applyDateOffset(activeLeadDays)}
-                      title={`${active}'s saved lead time is ${activeLeadDays} business days`}
+                    <button onClick={()=>setShipDateForVendor(suggested)}
+                      title={`${active}'s saved lead time is ${activeLeadDays} days`}
                       style={{alignSelf:"flex-start",background:T.accentDim,border:`1px solid ${T.accent}66`,borderRadius:5,color:T.accent,fontFamily:font,fontSize:10,fontWeight:600,padding:"3px 8px",cursor:"pointer",marginTop:2}}>
                       Use {active} default · +{activeLeadDays}d → {fmtShortDate(suggested)}
                     </button>
@@ -478,6 +485,20 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
                 )}
                 </>
               )}
+              {/* Mid-flight slip (edited in-line on /production2). The PO's
+                  agreed date above is never rewritten — the live date rides
+                  on the chain (type_meta.po_ship_live, locked R3). */}
+              {(() => {
+                const live = project?.type_meta?.po_ship_live?.[active]?.date;
+                const agreed = poShipDates[active];
+                if (!live || !agreed || agreed === "ASAP" || live === agreed) return null;
+                const slip = Math.round((new Date(live + "T12:00:00").getTime() - new Date(agreed + "T12:00:00").getTime()) / 86400000);
+                return (
+                  <div style={{fontSize:10,fontWeight:700,color:T.amber,marginTop:2}}>
+                    now {fmtDay(live)} ({slip > 0 ? "+" : ""}{slip}d vs plan)
+                  </div>
+                );
+              })()}
             </div>
             <div style={{display:"flex",flexDirection:"column",gap:4}}>
               <div style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Ship method</div>
@@ -534,9 +555,9 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
               </div>
             )}
             <div style={{display:"flex",flexDirection:"column",gap:6,width:isMobile?"100%":170}}>
-              <button onClick={()=>setShowSendEmail(!showSendEmail)} disabled={!ready}
-                title={!ready ? "Fill in packing notes on all vendor items first" : (isRevised ? "Send a revised PO that supersedes the original" : "Preview + send to decorator in one screen")}
-                style={{background:ready?(isRevised?T.amber:T.blue):T.surface,border:"1px solid "+(ready?(isRevised?T.amber:T.blue):T.border),borderRadius:8,color:ready?"#fff":T.faint,fontFamily:font,fontSize:13,fontWeight:700,padding:"10px 16px",cursor:ready?"pointer":"default",opacity:ready?1:0.5,width:"100%"}}>
+              <button onClick={()=>setShowSendEmail(!showSendEmail)} disabled={!canSend}
+                title={!ready ? "Fill in packing notes on all vendor items first" : !shipBySet ? "Set the vendor ship-by date (or ASAP) first — the PO can't send without one" : (isRevised ? "Send a revised PO that supersedes the original" : "Preview + send to decorator in one screen")}
+                style={{background:canSend?(isRevised?T.amber:T.blue):T.surface,border:"1px solid "+(canSend?(isRevised?T.amber:T.blue):T.border),borderRadius:8,color:canSend?"#fff":T.faint,fontFamily:font,fontSize:13,fontWeight:700,padding:"10px 16px",cursor:canSend?"pointer":"default",opacity:canSend?1:0.5,width:"100%"}}>
                 {isRevised ? "Send Revised PO" : "Send to Decorator"}
               </button>
             </div>

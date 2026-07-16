@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { effectiveRevenue } from "@/lib/revenue";
+import { fmtDay, daysUntilDay } from "@/lib/dates";
 import { deriveAggregateStatus } from "@/lib/payment-status";
 import { loadJobPhasesBatch, type JobPhaseView } from "@/lib/item-state";
 import { LEGACY_TO_NEW_PHASE } from "@/lib/phase-model";
@@ -170,13 +171,20 @@ export default function JobsPage() {
     return pcts[phase] || 0;
   };
 
-  // Project ship date = earliest PO ship date among vendors that still
-  // have UNSHIPPED items. A vendor whose items all shipped already has
-  // no remaining commitment, so their date doesn't drive the project's
-  // next deadline. Falls back to legacy in_hands_date / show_date when
-  // no PO ship dates are set yet.
+  // Project date chip (locked 2026-07-15): the requested in-hands date when
+  // deliberately set (it's a promise), else the earliest LIVE ship-by among
+  // vendors that still have UNSHIPPED items (po_ship_live slip wins over the
+  // agreed PO date). A vendor whose items all shipped has no remaining
+  // commitment. Legacy in_hands_date / show_date remain the last fallback.
   const getInHandsDate = (job: Job) => {
-    const poDates = (job.type_meta?.po_ship_dates || {}) as Record<string, string>;
+    if ((job as any).target_ship_date) return (job as any).target_ship_date as string;
+    const agreed = (job.type_meta?.po_ship_dates || {}) as Record<string, string>;
+    const liveMap = ((job.type_meta as any)?.po_ship_live || {}) as Record<string, { date?: string }>;
+    const poDates: Record<string, string> = { ...agreed };
+    for (const [v, d] of Object.entries(agreed)) {
+      const live = liveMap[v]?.date;
+      if (d !== "ASAP" && live) poDates[v] = live;
+    }
     const items = (job as any).items || [];
     const costProds = (job as any).costing_data?.costProds || [];
     const cpById: Record<string, any> = {};
@@ -440,7 +448,7 @@ export default function JobsPage() {
           // ASAP can't be a count of days — leave daysLeft null so the
           // numeric branches below skip it and the render special-cases
           // the ASAP label/color instead.
-          const daysLeft = ih && !isAsap ? Math.ceil((new Date(ih).getTime() - now.getTime()) / (1000*60*60*24)) : null;
+          const daysLeft = ih && !isAsap ? daysUntilDay(ih) : null;
           const totalUnits = (job.items||[]).reduce((a:number,it:any) =>
             a + (it.buy_sheet_lines||[]).reduce((b:number,l:any) => b+(l.qty_ordered||0), 0), 0);
 
@@ -540,7 +548,7 @@ export default function JobsPage() {
                         : daysLeft+"d to ship"}
                     </span>
                     <span style={{ fontSize:10, color:T.faint }}>
-                      {isAsap ? "—" : ih ? new Date(ih).toLocaleDateString("en-US",{month:"short",day:"numeric"}) : ""}
+                      {isAsap ? "—" : ih ? fmtDay(ih) : ""}
                     </span>
                   </div>
                 )}
@@ -654,7 +662,7 @@ export default function JobsPage() {
                       </div>
                     )}
                     <div style={{ fontSize:isClosed?12:10, fontWeight:isClosed?600:400, color:isClosed?T.muted:T.faint, whiteSpace:"nowrap", fontFamily:isClosed?mono:undefined }}>
-                      {isAsap ? "—" : ih ? new Date(ih).toLocaleDateString("en-US",{month:"short",day:"numeric"}) : ""}
+                      {isAsap ? "—" : ih ? fmtDay(ih) : ""}
                     </div>
                   </>
                 ) : !pri && <span style={{ fontSize:10, color:T.faint }}>No date</span>}

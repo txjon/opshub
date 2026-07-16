@@ -251,7 +251,8 @@ export async function GET(_req: NextRequest, { params }: { params: { jobId: stri
     // the quote hasn't been sent yet (HPD-side preview / draft view).
     const quoteSentAt = (job.type_meta as any)?.quote_sent_at;
     const today = (quoteSentAt ? new Date(quoteSentAt) : new Date())
-      .toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+      // Vercel renders in UTC — pin to Vegas so an evening send doesn't print tomorrow's date
+      .toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "America/Los_Angeles" });
     const clientName = (job.clients as any)?.name || orderInfo.clientName || "—";
 
     // Build product list — use costing_data if available, fall back to items table
@@ -331,17 +332,13 @@ export async function GET(_req: NextRequest, { params }: { params: { jobId: stri
     // Round each line item's grossRev to 2 decimals before summing — total matches what client sees
     const quoteTotal = prods.reduce((a, p) => a + p.grossRev, 0) + extraTotal;
 
-    // Est ship date = latest per-item client_eta (same rule as the
-    // invoice PDF). jobs.target_ship_date is now Drake's internal
-    // "requested in-hands date" and orderInfo.shipDate is a legacy
-    // costing-side override — neither belongs on a client-facing
-    // quote anymore. MAX is conservative: client expects everything
-    // by the latest item ETA.
-    const itemEtas = (items || []).map((it: any) => it.client_eta).filter(Boolean) as string[];
-    itemEtas.sort();
-    const latestEta = itemEtas.length ? itemEtas[itemEtas.length - 1] : null;
-    const shipDateLong = latestEta
-      ? new Date(latestEta + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
+    // D4 (locked 2026-07-15): the quote's Est-ship line exists ONLY when the
+    // requested in-hands date was deliberately set — and it shows that date.
+    // In-hands blank (the normal case: standard turnaround, case-by-case
+    // approvals) = no line. The old latest-client_eta fallback printed a date
+    // nobody promised.
+    const shipDateLong = job.target_ship_date
+      ? new Date(job.target_ship_date + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
       : "";
 
     const branding = await getPdfBranding();

@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useIsMobile } from "@/lib/useIsMobile";
+import { parseDay, daysUntilDay } from "@/lib/dates";
 import { StatusPill } from "../../_shared/StatusPill";
 
 // Per-order detail view inside the Client Hub. Clone of /portal/[token]
@@ -36,20 +37,26 @@ const C = {
 
 const fmtD = (n: number) =>
   "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+// Date-only values (item ETAs) split-parse as local via parseDay; full
+// timestamps (quote/proof approved_at) go through new Date(). Bare
+// new Date("YYYY-MM-DD") rendered the previous day in US timezones.
+const asLocalDate = (iso: string) => (iso.includes("T") ? new Date(iso) : parseDay(iso));
 const fmtDate = (iso: string) => {
-  const d = new Date(iso);
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  const d = asLocalDate(iso);
+  return d && !isNaN(d.getTime()) ? d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "";
 };
 // Short date for per-item ETAs in the Items list — drops the year so
 // the chip stays compact (most ETAs are near-term).
-const fmtDateShort = (iso: string) =>
-  new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+const fmtDateShort = (iso: string) => {
+  const d = asLocalDate(iso);
+  return d && !isNaN(d.getTime()) ? d.toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
+};
 // Countdown for per-item ETAs. Returns the color-tinted countdown text
-// (e.g. "5d", "today", "2d overdue") or null if no date. Mirrors the
-// daysUntil helper used elsewhere in the portal.
+// (e.g. "5d", "today", "2d overdue") or null if no date. Same calendar-day
+// math as the shared portal daysUntil.
 function etaCountdown(iso: string | null): { text: string; color: string } | null {
-  if (!iso) return null;
-  const diff = Math.ceil((new Date(iso).getTime() - Date.now()) / 86400000);
+  const diff = daysUntilDay(iso);
+  if (diff === null) return null;
   if (diff < 0) return { text: `${Math.abs(diff)}d overdue`, color: C.red };
   if (diff === 0) return { text: "today", color: C.red };
   if (diff <= 3) return { text: `${diff}d`, color: C.amber };

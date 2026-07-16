@@ -7,6 +7,8 @@
 //   2. jobs.target_ship_date — fallback hint when no per-item override.
 //   3. null — nothing to show.
 
+import { daysUntilDay } from "./dates";
+
 export type EtaSource = "manual" | "job_ship";
 
 export interface EtaInput {
@@ -26,15 +28,11 @@ export function resolveEta(input: EtaInput): ResolvedEta | null {
 }
 
 // Days until an ISO date string. Negative = past. Null = no date.
-// Date-only inputs (YYYY-MM-DD) are interpreted at local midnight so
-// the math matches what a human would say when looking at a calendar.
+// Pure calendar-day difference via lib/dates parseDay — the old version
+// parsed date-only strings as UTC midnight and leaned on Math.ceil to mask
+// the shift (Pacific-only luck). Now the timezone can't enter the math.
 export function daysUntil(iso: string | null | undefined): number | null {
-  if (!iso) return null;
-  const target = new Date(iso).getTime();
-  if (!Number.isFinite(target)) return null;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return Math.ceil((target - today.getTime()) / 86400000);
+  return daysUntilDay(iso);
 }
 
 // Render the countdown text + a semantic color band for callers to map
