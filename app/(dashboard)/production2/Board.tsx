@@ -88,9 +88,9 @@ function ShipByEdit({ strip, onSaved }: { strip: BoardStrip; onSaved: () => void
   // item already has a known new date (Jon's call, 2026-07-15).
   const allRescheduled = strip.items.length > 0 && strip.items.every(i => i.expectedArrival);
   const isLate = ship.days != null && ship.days < 0;
-  const color = ship.asap ? "#a87b00" : ship.days == null ? T.faint
-    : isLate ? (allRescheduled ? "#a87b00" : T.red)
-    : ship.days <= 3 ? "#a87b00" : T.text;
+  const color = ship.asap ? T.amber : ship.days == null ? T.faint
+    : isLate ? (allRescheduled ? T.amber : T.red)
+    : ship.days <= 3 ? T.amber : T.text;
   async function save(date: string) {
     if (!date || !strip.poShipKey || busy) return;
     setBusy(true);
@@ -104,7 +104,7 @@ function ShipByEdit({ strip, onSaved }: { strip: BoardStrip; onSaved: () => void
   }
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 6, minWidth: 78, justifyContent: "flex-end", position: "relative" }}>
-      {slipped && <span style={{ fontSize: 10, fontWeight: 800, color: "#a87b00" }} title={`PO plan: ${strip.shipDateAgreed}`}>slipped</span>}
+      {slipped && <span style={{ fontSize: 10, fontWeight: 800, color: T.amber }} title={`PO plan: ${strip.shipDateAgreed}`}>slipped</span>}
       <label title={strip.poShipKey ? "Ship-by — click to edit (vendor delay lands here; the PO keeps its original date)" : "No PO vendor to attach a date to"}
         style={{ fontSize: 13, fontWeight: 700, color, cursor: strip.poShipKey ? "pointer" : "default", opacity: busy ? 0.5 : 1 }}>
         {busy ? "…" : ship.text}{isLate ? (allRescheduled ? " · rescheduled" : " · late") : ""}
@@ -257,7 +257,7 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
                   {strip.items.map((it, idx) => {
                     const checked = sel.has(it.itemId);
                     const blocked = selVendor !== null && it.decoratorId !== selVendor && !checked;
-                    const dCol = it.daysInStage == null ? T.faint : it.daysInStage >= 7 ? T.red : it.daysInStage >= 3 ? "#a87b00" : T.faint;
+                    const dCol = it.daysInStage == null ? T.faint : it.daysInStage >= 7 ? T.red : it.daysInStage >= 3 ? T.amber : T.faint;
                     return (
                       <label key={it.itemId}
                         style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", borderTop: `1px solid ${T.border}`, cursor: blocked ? "not-allowed" : "pointer", opacity: blocked ? 0.4 : 1, background: checked ? T.blueDim : "transparent" }}>
@@ -280,7 +280,7 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
                             date. Amber = this item runs on its own arrival, not the strip's. */}
                         {it.expectedArrival && (
                           <span title={`This item's expected arrival at HPD is overridden (⋯ → Adjust date to change or clear)`}
-                            style={{ fontSize: 11, fontWeight: 800, fontFamily: mono, color: "#a87b00", whiteSpace: "nowrap" }}>
+                            style={{ fontSize: 11, fontWeight: 800, fontFamily: mono, color: T.amber, whiteSpace: "nowrap" }}>
                             → HPD {fmtShip(it.expectedArrival).text}
                           </span>
                         )}
@@ -293,7 +293,7 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
                         {it.shippedTotal > 0 && it.owedTotal > 0 && (
                           <button onClick={e => { e.preventDefault(); e.stopPropagation(); setCloseFor({ ...it, strip }); }}
                             title={`Close short — book the ${it.owedTotal} owed as a shortage`}
-                            style={{ fontSize: 11, fontWeight: 600, color: "#a87b00", background: "none", border: `1px solid ${T.border}`, borderRadius: 7, padding: "5px 11px", cursor: "pointer" }}>Close short</button>
+                            style={{ fontSize: 11, fontWeight: 600, color: T.red, background: "none", border: `1px solid ${T.border}`, borderRadius: 7, padding: "5px 11px", cursor: "pointer" }}>Close short</button>
                         )}
                         {it.daysInStage != null && (
                           <span style={{ fontFamily: mono, fontSize: 11, fontWeight: 600, color: dCol, minWidth: 26, textAlign: "right" }}>{it.daysInStage}d</span>
@@ -632,7 +632,7 @@ function ShippedBoxCard({ box }: { box: ShippedBox }) {
 
   return (
     <Card>
-      <BoxHead vendor={box.vendorName} tag={routeLabel(box)} tagColor={box.pickup ? "#a87b00" : T.blue} method={shipHow(box)}
+      <BoxHead vendor={box.vendorName} tag={routeLabel(box)} tagColor={T.blue} method={shipHow(box)}
         slips={box.hasSlip ? [{ name: "slip", url: "" }] : []} when={fmtWhen(box.createdAt)} meta={headerMeta} action={action} />
       <BoxMeta segments={noteSegs} />
       {lines.map((l, i) => (
@@ -960,10 +960,10 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
                       </div>
                     ) : (
                       <div style={{ marginTop: 9, background: T.amberDim, border: `1px solid ${T.amber}`, borderRadius: 7, padding: "8px 10px" }}>
-                        <div style={{ fontSize: 11.5, fontWeight: 600, color: "#a87b00", marginBottom: 6 }}>Leaves {remainAfter} short of the order — is the rest coming, or is this the final shipment?</div>
+                        <div style={{ fontSize: 11.5, fontWeight: 600, color: T.amber, marginBottom: 6 }}>Leaves {remainAfter} short of the order — is the rest coming, or is this the final shipment?</div>
                         <div style={{ display: "flex", gap: 6 }}>
                           <button onClick={() => setFinal(p => ({ ...p, [it.itemId]: true }))}
-                            style={{ fontSize: 11.5, fontWeight: 600, padding: "6px 12px", borderRadius: 7, border: `1px solid ${T.amber}`, background: T.card, color: "#a87b00", cursor: "pointer" }}>Final — book {remainAfter} short</button>
+                            style={{ fontSize: 11.5, fontWeight: 600, padding: "6px 12px", borderRadius: 7, border: `1px solid ${T.red}`, background: T.card, color: T.red, cursor: "pointer" }}>Final — book {remainAfter} short</button>
                           <button onClick={() => setMoreComing(p => ({ ...p, [it.itemId]: true }))}
                             style={{ fontSize: 11.5, fontWeight: 600, padding: "6px 12px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.card, color: T.muted, cursor: "pointer" }}>More coming</button>
                         </div>
@@ -995,7 +995,7 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
         <div style={{ padding: "16px 22px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
           {!isTest && <span style={{ fontSize: 12, color: T.amber, fontWeight: 600 }}>Ship write is limited to the test job while we verify.</span>}
           {err && <span style={{ fontSize: 12, color: T.red, fontWeight: 600 }}>{err}</span>}
-          {gateBlocked && !err && <span style={{ fontSize: 12, color: "#a87b00", fontWeight: 600 }}>Choose final or more-coming on the short item first.</span>}
+          {gateBlocked && !err && <span style={{ fontSize: 12, color: T.amber, fontWeight: 600 }}>Choose final or more-coming on the short item first.</span>}
           <div style={{ flex: 1 }} />
           <button onClick={onClose} disabled={busy} style={{ fontSize: 13, background: "none", border: `1px solid ${T.border}`, borderRadius: 8, padding: "9px 16px", cursor: busy ? "default" : "pointer", color: T.muted }}>Cancel</button>
           {(() => { const off = !isTest || busy || totalUnits === 0 || gateBlocked; return (

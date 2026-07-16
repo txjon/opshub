@@ -3,7 +3,7 @@ import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono, sortSizes } from "@/lib/theme";
-import { parseDay } from "@/lib/dates";
+import { parseDay, daysUntilDay } from "@/lib/dates";
 import { BoardFrame, ToggleSearch, KpiStrip, KpiBreakdownModal, ModalShell, Card, CardHeader, ItemRow, RowMenu, VariantChips, RouteTag, ItemThumb, SegmentControl, SliceSortRow } from "@/components/board-kit";
 import { receiveBox as receiveBoxAction, resolvePull, returnReceivedLine, editReceivedLine, editShippedLine, returnIncomingToProduction } from "@/lib/receiving2-receive";
 import { PULL_KINDS } from "@/lib/handoff";
@@ -196,7 +196,7 @@ function ReceivedTally({ l }: { l: ReceivingLine }) {
   const short = rec < shp;
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-      <span style={{ fontFamily: mono, fontSize: 13, fontWeight: 700, color: short ? "#a87b00" : T.green }}>{rec}/{shp}{short ? "" : " ✓"}</span>
+      <span style={{ fontFamily: mono, fontSize: 13, fontWeight: 700, color: short ? T.red : T.green }}>{rec}/{shp}{short ? "" : " ✓"}</span>
       <span style={{ fontSize: 11, color: T.muted }}>→ {destOf(l.route)}</span>
     </div>
   );
@@ -220,7 +220,7 @@ function LineRow({ l, box, status, acts, showClient }: { l: ReceivingLine; box: 
     </span>
   );
   return <ItemRow fileId={l.mockupFileId} name={l.itemName} lead={showClient ? l.client : undefined} route={l.route}
-    variant={partial ? <div style={{ textAlign: "right", fontSize: 10, fontWeight: 800, letterSpacing: 0.4, textTransform: "uppercase", color: "#a87b00" }} title={`${tQty(l.shipQtys)} of ${l.orderedTotal} ordered in this box — more coming`}>partial</div> : undefined}
+    variant={partial ? <div style={{ textAlign: "right", fontSize: 10, fontWeight: 800, letterSpacing: 0.4, textTransform: "uppercase", color: T.amber }} title={`${tQty(l.shipQtys)} of ${l.orderedTotal} ordered in this box — more coming`}>partial</div> : undefined}
     qty={tQty(qtyOf(l, status))} actions={actions} />;
 }
 
@@ -251,7 +251,7 @@ function boxMetaSegs(box: ReceivingBox, status: Status): { text: string; tone?: 
   const toReceive = box.lines.filter(l => !l.received).length;
   const segs: { text: string; tone?: string }[] = [];
   if (jobs > 1) segs.push({ text: `${jobs} jobs`, tone: T.blue });
-  if (shorts > 0) segs.push({ text: `${shorts} short`, tone: "#a87b00" });
+  if (shorts > 0) segs.push({ text: `${shorts} short`, tone: T.red });
   // ETA lives in the header chip; counts + to-receive left the header (locked
   // layout 2026-07-15 — "obvious when you look at the shipment"). Only the
   // flags above survive, as accents at the end of the detail line.
@@ -326,10 +326,10 @@ function BoxCard({ box, status, onReceive, onAdjustEta, acts }: { box: Receiving
   const [hover, setHover] = useState(false);
   const clickable = !received;
   const tag = received ? "Received" : box.pickup ? "Pickup" : "Incoming";
-  const tagColor = received ? T.green : box.pickup ? "#a87b00" : T.blue;
+  const tagColor = received ? T.green : T.blue; // blue = movement (incoming AND pickup)
   const multiClient = box.clients.length > 1;
   const headline = multiClient ? `${box.clients.length} clients` : (box.clients[0] || box.vendorName);
-  const flags = boxMetaSegs(box, status).filter(s => s.tone === "#a87b00" || s.tone === T.blue);
+  const flags = boxMetaSegs(box, status).filter(s => s.tone === T.red || s.tone === T.blue);
   const sep = <span style={{ opacity: 0.6 }}>·</span>;
   return (
     <div onClick={clickable ? onReceive : undefined}
@@ -363,17 +363,28 @@ function BoxCard({ box, status, onReceive, onAdjustEta, acts }: { box: Receiving
           ) : (<>
             {/* editable-value convention: dotted underline = "click to edit",
                 visible on touch too. Eats the click — adjusts the date, not receive. */}
-            <span onClick={e => { e.stopPropagation(); onAdjustEta && onAdjustEta(box); }}
-              title="Expected arrival — click to adjust (~ = derived estimate)"
-              style={{ fontSize: 12.5, fontWeight: 800, cursor: "pointer", color: box.expectedArrival ? (box.etaDerived ? T.muted : "#a87b00") : T.faint, borderBottom: "1px dotted currentColor", paddingBottom: 1 }}>
-              {box.expectedArrival ? `ETA ${box.etaDerived ? "~" : ""}${fmtDay(box.expectedArrival)}` : "set ETA"}
-            </span>
+            {(() => {
+              // urgency-coded (signal table): gray = calm, amber = inside 3 days,
+              // red = past due. Derived estimates keep the ~ marker.
+              const d = box.expectedArrival ? daysUntilDay(box.expectedArrival) : null;
+              const col = !box.expectedArrival ? T.faint : d != null && d < 0 ? T.red : d != null && d <= 3 ? T.amber : T.muted;
+              const label = box.expectedArrival
+                ? `ETA ${box.etaDerived ? "~" : ""}${fmtDay(box.expectedArrival)}${d != null && d < 0 ? " · late" : ""}`
+                : "set ETA";
+              return (
+                <span onClick={e => { e.stopPropagation(); onAdjustEta && onAdjustEta(box); }}
+                  title="Expected arrival — click to adjust (~ = derived estimate)"
+                  style={{ fontSize: 12.5, fontWeight: 800, cursor: "pointer", color: col, borderBottom: "1px dotted currentColor", paddingBottom: 1 }}>
+                  {label}
+                </span>
+              );
+            })()}
           </>)}
         </div>
       </div>
       {box.note && (
-        <div style={{ display: "flex", gap: 8, alignItems: "baseline", padding: "8px 16px", borderLeft: `3px solid #a87b00`, borderBottom: `1px solid ${T.border}`, fontSize: 12, color: T.text, lineHeight: 1.45 }}>
-          <span style={{ fontWeight: 800, color: "#a87b00", fontSize: 10, letterSpacing: 0.5, textTransform: "uppercase", flexShrink: 0 }}>Note</span>
+        <div style={{ display: "flex", gap: 8, alignItems: "baseline", padding: "8px 16px", borderLeft: `3px solid ${T.purple}`, borderBottom: `1px solid ${T.border}`, fontSize: 12, color: T.text, lineHeight: 1.45 }}>
+          <span style={{ fontWeight: 800, color: T.purple, fontSize: 10, letterSpacing: 0.5, textTransform: "uppercase", flexShrink: 0 }}>Note</span>
           <span>{box.note}</span>
         </div>
       )}
@@ -605,7 +616,7 @@ function ReceiveModal({ box, onClose, onDone }: { box: ReceivingBox; onClose: ()
                   <div style={{ fontSize: 9, fontWeight: 800, color: T.faint, textTransform: "uppercase", letterSpacing: 0.3, paddingRight: 4 }}>In box</div>
                   {szs.map(sz => <div key={sz} style={{ fontFamily: mono, fontSize: 12, color: T.muted, textAlign: "center" }}>{l.shipQtys[sz] ?? 0}</div>)}
                   <div style={{ fontSize: 9, fontWeight: 800, color: T.faint, textTransform: "uppercase", letterSpacing: 0.3, paddingRight: 4 }}>Delivered</div>
-                  {szs.map(sz => { const got = delivered[l.itemId]?.[sz] ?? 0, want = l.shipQtys[sz] ?? 0; const c = got === want ? T.text : got < want ? "#a87b00" : T.green;
+                  {szs.map(sz => { const got = delivered[l.itemId]?.[sz] ?? 0, want = l.shipQtys[sz] ?? 0; const c = got === want ? T.text : got < want ? T.amber : T.green;
                     return <input key={sz} inputMode="numeric" value={got} onChange={e => setD(l.itemId, sz, e.target.value)} onFocus={e => e.target.select()}
                       style={{ width: 50, textAlign: "center", fontFamily: mono, fontSize: 13, fontWeight: 700, padding: "5px 4px", borderRadius: 5, border: `1px solid ${got === want ? T.border : c}`, color: c, background: T.card }} />; })}
                 </div>
@@ -709,7 +720,7 @@ function EditLineModal({ line, box, mode, onClose, onDone }: { line: ReceivingLi
                 {szs.map(sz => <div key={sz} style={{ fontFamily: mono, fontSize: 12, color: T.muted, textAlign: "center" }}>{line.shipQtys[sz] ?? 0}</div>)}
               </>}
               <div style={{ fontSize: 9, fontWeight: 800, color: T.faint, textTransform: "uppercase", letterSpacing: 0.3, paddingRight: 4 }}>{shipped ? "Shipped" : "Received"}</div>
-              {szs.map(sz => { const got = qtys[sz] ?? 0, want = line.shipQtys[sz] ?? 0; const c = shipped ? T.text : got === want ? T.text : got < want ? "#a87b00" : T.green;
+              {szs.map(sz => { const got = qtys[sz] ?? 0, want = line.shipQtys[sz] ?? 0; const c = shipped ? T.text : got === want ? T.text : got < want ? T.amber : T.green;
                 return <input key={sz} inputMode="numeric" value={got} onChange={e => setQ(sz, e.target.value)} onFocus={e => e.target.select()}
                   style={{ width: 50, textAlign: "center", fontFamily: mono, fontSize: 13, fontWeight: 700, padding: "5px 4px", borderRadius: 5, border: `1px solid ${(shipped || got === want) ? T.border : c}`, color: c, background: T.card }} />; })}
             </div>

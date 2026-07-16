@@ -41,7 +41,7 @@ export function RowMenu({ busy, items }: { busy?: boolean; items: RowMenuItem[] 
           <div style={{ position: "fixed", top: pos.top, right: pos.right, zIndex: 1001, background: T.card, border: `1px solid ${T.border}`, borderRadius: 9, boxShadow: "0 10px 30px rgba(0,0,0,0.14)", minWidth: 190, overflow: "hidden" }}>
             {items.map((it, i) => (
               <button key={i} disabled={it.disabled} onClick={() => { setOpen(false); it.onClick(); }}
-                style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 13px", fontSize: 12.5, fontWeight: 600, background: "none", border: "none", borderTop: i ? `1px solid ${T.border}` : "none", color: it.disabled ? T.faint : it.danger ? "#a87b00" : T.text, cursor: it.disabled ? "default" : "pointer" }}>
+                style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 13px", fontSize: 12.5, fontWeight: 600, background: "none", border: "none", borderTop: i ? `1px solid ${T.border}` : "none", color: it.disabled ? T.faint : it.danger ? T.red : T.text, cursor: it.disabled ? "default" : "pointer" }}>
                 {it.label}
               </button>
             ))}
@@ -279,7 +279,8 @@ export function ItemRow({ fileId, name, lead, sub, route, variant, qty, actions 
 }
 
 // ── route label (plain text, no pills) ──────────────────────────────────────
-const ROUTE_FG: Record<string, string> = { drop_ship: T.purple, ship_through: T.blue, stage: "#a87b00" };
+// signal table (locked 2026-07-16): green = where it lands — all routes
+const ROUTE_FG: Record<string, string> = { drop_ship: T.green, ship_through: T.green, stage: T.green };
 const ROUTE_LABEL: Record<string, string> = { drop_ship: "Drop-ship", ship_through: "Ship-through", stage: "Stage" };
 export function RouteTag({ route }: { route: string }) {
   return <span style={{ fontSize: 10, fontWeight: 700, color: ROUTE_FG[route] || T.blue, textTransform: "uppercase", letterSpacing: 0.5 }}>{ROUTE_LABEL[route] || "Ship-through"}</span>;
