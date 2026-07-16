@@ -297,37 +297,41 @@ function BoxCard({ box, status, onReceive, onAdjustEta, acts }: { box: Receiving
   const sep = <span style={{ opacity: 0.6 }}>·</span>;
   return (
     <Card>
-      <div style={{ padding: "12px 16px", background: T.surface, borderBottom: `1px solid ${T.border}` }}>
-        <div style={{ display: "flex", alignItems: "flex-start", gap: 10, flexWrap: "wrap" }}>
-          <span style={{ fontSize: 14, fontWeight: 800 }}>{headline}</span>
-          {/* flat uppercase color-text — Jon's standing rule: NO pill chips anywhere */}
-          <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: 0.5, textTransform: "uppercase", color: tagColor, marginTop: 4 }}>{tag}</span>
-          <div style={{ marginLeft: "auto", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
-            {received ? (
-              <span style={{ fontSize: 13, fontWeight: 700, color: T.green }}>✓ received</span>
-            ) : (<>
-              <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span onClick={() => onAdjustEta && onAdjustEta(box)} title="Expected arrival — click to adjust (~ = derived estimate)"
-                  style={{ fontSize: 12.5, fontWeight: 800, cursor: "pointer", color: box.expectedArrival ? (box.etaDerived ? T.muted : "#a87b00") : T.faint }}>
-                  {box.expectedArrival ? `ETA ${box.etaDerived ? "~" : ""}${fmtDay(box.expectedArrival)}` : "no ETA"}
-                </span>
-                {onAdjustEta && <RowMenu items={[{ label: "Adjust ETA", onClick: () => onAdjustEta(box) }]} />}
+      {/* two columns, vertically centered: left = client line + detail line
+          (tight); right = [ETA + ⋯] over Receive. No dead vertical space. */}
+      <div style={{ padding: "9px 16px", background: T.surface, borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 14, fontWeight: 800 }}>{headline}</span>
+            {/* flat uppercase color-text — Jon's standing rule: NO pill chips anywhere */}
+            <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: 0.5, textTransform: "uppercase", color: tagColor }}>{tag}</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 3, fontSize: 11.5, color: T.faint, flexWrap: "wrap" }}>
+            <span>from <span style={{ color: T.muted, fontWeight: 700 }}>{box.vendorName}</span></span>
+            {sep}<span>{received ? `received ${dayOf(box.receivedAt || box.createdAt)}` : `shipped ${dayOf(box.createdAt)}`}</span>
+            {!box.pickup && (box.carrier || box.tracking) && <>{sep}<span style={{ fontFamily: mono }}>{[box.carrier, box.tracking].filter(Boolean).join(" · ")}</span></>}
+            {box.slips.map((s, i) => (
+              <span key={i} style={{ display: "inline-flex", gap: 7 }}>{sep}
+                <a href={s.url} target="_blank" rel="noreferrer" style={{ color: T.blue, fontWeight: 600, textDecoration: "none" }}>📎 slip</a>
               </span>
-              <button onClick={onReceive}
-                style={{ fontSize: 11.5, fontWeight: 700, color: "#fff", background: T.blue, border: "none", borderRadius: 7, padding: "5px 14px", cursor: "pointer", fontFamily: font }}>Receive →</button>
-            </>)}
+            ))}
+            {flags.map((f, i) => <span key={`f${i}`} style={{ display: "inline-flex", gap: 7 }}>{sep}<span style={{ color: f.tone, fontWeight: 800 }}>{f.text}</span></span>)}
           </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 6, fontSize: 11.5, color: T.faint, flexWrap: "wrap" }}>
-          <span>from <span style={{ color: T.muted, fontWeight: 700 }}>{box.vendorName}</span></span>
-          {sep}<span>{received ? `received ${dayOf(box.receivedAt || box.createdAt)}` : `shipped ${dayOf(box.createdAt)}`}</span>
-          {!box.pickup && (box.carrier || box.tracking) && <>{sep}<span style={{ fontFamily: mono }}>{[box.carrier, box.tracking].filter(Boolean).join(" · ")}</span></>}
-          {box.slips.map((s, i) => (
-            <span key={i} style={{ display: "inline-flex", gap: 7 }}>{sep}
-              <a href={s.url} target="_blank" rel="noreferrer" style={{ color: T.blue, fontWeight: 600, textDecoration: "none" }}>📎 slip</a>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0 }}>
+          {received ? (
+            <span style={{ fontSize: 13, fontWeight: 700, color: T.green }}>✓ received</span>
+          ) : (<>
+            <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span onClick={() => onAdjustEta && onAdjustEta(box)} title="Expected arrival — click to adjust (~ = derived estimate)"
+                style={{ fontSize: 12.5, fontWeight: 800, cursor: "pointer", color: box.expectedArrival ? (box.etaDerived ? T.muted : "#a87b00") : T.faint }}>
+                {box.expectedArrival ? `ETA ${box.etaDerived ? "~" : ""}${fmtDay(box.expectedArrival)}` : "no ETA"}
+              </span>
+              {onAdjustEta && <RowMenu items={[{ label: "Adjust ETA", onClick: () => onAdjustEta(box) }]} />}
             </span>
-          ))}
-          {flags.map((f, i) => <span key={`f${i}`} style={{ display: "inline-flex", gap: 7 }}>{sep}<span style={{ color: f.tone, fontWeight: 800 }}>{f.text}</span></span>)}
+            <button onClick={onReceive}
+              style={{ fontSize: 11.5, fontWeight: 700, color: "#fff", background: T.blue, border: "none", borderRadius: 7, padding: "4px 13px", cursor: "pointer", fontFamily: font }}>Receive →</button>
+          </>)}
         </div>
       </div>
       {box.note && (
