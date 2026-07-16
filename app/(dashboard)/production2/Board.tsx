@@ -241,16 +241,24 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
           {display.map(strip => {
             return (
               <Card key={strip.key}>
-                <CardHeader>
-                  <span style={{ fontSize: 13, fontWeight: 700 }}>{strip.clientName}</span>
-                  {strip.invoiceNumber
-                    ? <Link href={`/jobs/${strip.jobId}`} style={{ fontFamily: mono, fontSize: 12, color: T.blue, textDecoration: "none", fontWeight: 600 }}>#{strip.invoiceNumber}</Link>
-                    : <Link href={`/jobs/${strip.jobId}`} style={{ fontFamily: mono, fontSize: 12, color: T.faint, textDecoration: "none" }}>no invoice</Link>}
-                  <RouteTag route={strip.jobRoute} />
-                  <div style={{ flex: 1 }} />
-                  <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{strip.decoratorName}</span>
+                {/* header matches receiving2's format: client headline + tags on
+                    line 1, "from <vendor>" on the quiet detail line, ship-by
+                    vertically centered at right. */}
+                <div style={{ padding: "9px 16px", background: T.surface, borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 14, fontWeight: 800 }}>{strip.clientName}</span>
+                      {strip.invoiceNumber
+                        ? <Link href={`/jobs/${strip.jobId}`} style={{ fontFamily: mono, fontSize: 12, color: T.blue, textDecoration: "none", fontWeight: 600 }}>#{strip.invoiceNumber}</Link>
+                        : <Link href={`/jobs/${strip.jobId}`} style={{ fontFamily: mono, fontSize: 12, color: T.faint, textDecoration: "none" }}>no invoice</Link>}
+                      <RouteTag route={strip.jobRoute} />
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 3, fontSize: 11.5, color: T.faint, flexWrap: "wrap" }}>
+                      <span>from <span style={{ color: T.muted, fontWeight: 700 }}>{strip.decoratorName}</span></span>
+                    </div>
+                  </div>
                   <ShipByEdit strip={strip} onSaved={() => router.refresh()} />
-                </CardHeader>
+                </div>
 
                 {/* items */}
                 <div>
