@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 import { parseDay } from "@/lib/dates";
-import { BoardFrame, ToggleSearch, KpiStrip, KpiBreakdownModal, ModalShell, Card, CardHeader, BoxHead, ItemRow, RowMenu, VariantChips, RouteTag, ItemThumb, SegmentControl, SliceSortRow } from "@/components/board-kit";
+import { BoardFrame, ToggleSearch, KpiStrip, KpiBreakdownModal, ModalShell, Card, CardHeader, ItemRow, RowMenu, VariantChips, RouteTag, ItemThumb, SegmentControl, SliceSortRow } from "@/components/board-kit";
 import { receiveBox as receiveBoxAction, resolvePull, returnReceivedLine, editReceivedLine, editShippedLine, returnIncomingToProduction } from "@/lib/receiving2-receive";
 import { PULL_KINDS } from "@/lib/handoff";
 import LedgerHistory from "@/components/LedgerHistory";
@@ -27,12 +27,6 @@ function fmtDay(iso: string | null): string {
 type EditMode = "received" | "shipped";
 type LineActions = { onEdit: (l: ReceivingLine, b: ReceivingBox) => void; onEditShipped: (l: ReceivingLine, b: ReceivingBox) => void; onReturn: (l: ReceivingLine, b: ReceivingBox) => void; onReturnProd: (l: ReceivingLine, b: ReceivingBox) => void; onHistory: (l: ReceivingLine) => void; busyKey: string | null };
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-function fmtWhen(iso: string | null): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return "";
-  return `${MONTHS[d.getMonth()]} ${d.getDate()} · ${d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
-}
 
 type MetricKey = "boxes" | "units" | "items";
 type Metric = { boxes: number; units: number; items: number };
@@ -190,23 +184,24 @@ function ReceivedTally({ l }: { l: ReceivingLine }) {
 
 // Receiving row → shared ItemRow. Actions differ by status (received: tally +
 // menu; incoming: box-level Receive→, so just the ⋯ menu here).
-function LineRow({ l, box, status, acts }: { l: ReceivingLine; box: ReceivingBox; status: Status; acts?: LineActions }) {
+function LineRow({ l, box, status, acts, showClient }: { l: ReceivingLine; box: ReceivingBox; status: Status; acts?: LineActions; showClient?: boolean }) {
   const received = status === "received";
   const actions = received
     ? <><ReceivedTally l={l} />{acts && <RowActions l={l} box={box} acts={acts} />}</>
     : (acts && <IncomingActions l={l} box={box} acts={acts} />);
-  return <ItemRow fileId={l.mockupFileId} name={l.itemName} lead={l.client} route={l.route}
+  return <ItemRow fileId={l.mockupFileId} name={l.itemName} lead={showClient ? l.client : undefined} route={l.route}
     variant={<VariantChips qtys={qtyOf(l, status)} />} qty={tQty(qtyOf(l, status))} actions={actions} />;
 }
 
-// Flat item rows (client shown inline on each row — no separate client label strip).
-function ClientGroups({ box, status, acts }: { box: ReceivingBox; status: Status; acts?: LineActions }) {
+// Flat item rows. Item name leads; the client repeats on rows ONLY for a
+// multi-client box (single-client boxes headline the client in the card).
+function ClientGroups({ box, status, acts, multiClient }: { box: ReceivingBox; status: Status; acts?: LineActions; multiClient?: boolean }) {
   const lines = [...box.lines].sort((a, b) => a.client.localeCompare(b.client));
   return (
     <>
       {lines.map(l => (
         <div key={l.itemId} style={{ padding: "10px 16px", borderTop: `1px solid ${T.border}` }}>
-          <LineRow l={l} box={box} status={status} acts={acts} />
+          <LineRow l={l} box={box} status={status} acts={acts} showClient={multiClient} />
         </div>
       ))}
     </>
@@ -228,11 +223,10 @@ function boxMetaSegs(box: ReceivingBox, status: Status): { text: string; tone?: 
   if (jobs > 1) segs.push({ text: `${jobs} jobs`, tone: T.blue });
   if (partials > 0 && status !== "received") segs.push({ text: `${partials} partial`, tone: "#a87b00" });
   if (shorts > 0) segs.push({ text: `${shorts} short`, tone: "#a87b00" });
-  // ETA in the header meta: real date plain, derived (ship day + vendor
-  // transit) marked with ~. Adjusted via the card's ⋯ menu (R3 edit point).
-  if (box.expectedArrival && status !== "received") segs.push({ text: `ETA ${box.etaDerived ? "~" : ""}${fmtDay(box.expectedArrival)}`, tone: box.etaDerived ? undefined : "#a87b00" });
-  segs.push({ text: `${box.lines.length} item${box.lines.length > 1 ? "s" : ""} · ${boxUnits(box, status)} units` });
-  if (status === "incoming" && toReceive > 0) segs.push({ text: `${toReceive} to receive`, tone: "#a87b00" });
+  // ETA lives in the header chip; counts + to-receive left the header (locked
+  // layout 2026-07-15 — "obvious when you look at the shipment"). Only the
+  // flags above survive, as accents at the end of the detail line.
+  void toReceive; void boxUnits;
   return segs;
 }
 
@@ -282,22 +276,68 @@ function AdjustEtaModal({ box, onClose, onDone }: { box: ReceivingBox; onClose: 
   );
 }
 
+// Box card, laid out per Jon's mockup (locked 2026-07-15, layout artifact v3):
+// CLIENT is the headline; "from <vendor> · shipped <day> · tracking · slips"
+// is the quiet detail line; the right side stacks [ETA chip + ⋯] over a small
+// Receive button; the warehouse note is an amber bar. Counts left the header —
+// the rows say it. Operational flags (multi-job / partial / short) keep an
+// amber accent at the end of the detail line.
+const dayOf = (iso: string | null) => {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? "" : d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+};
 function BoxCard({ box, status, onReceive, onAdjustEta, acts }: { box: ReceivingBox; status: Status; onReceive: () => void; onAdjustEta?: (b: ReceivingBox) => void; acts?: LineActions }) {
   const received = status === "received";
   const tag = received ? "Received" : box.pickup ? "Pickup" : "Incoming";
   const tagColor = received ? T.green : box.pickup ? "#a87b00" : T.blue;
-  const action = received
-    ? <span style={{ fontSize: 13, fontWeight: 700, color: T.green }}>✓ received</span>
-    : <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
-        <span onClick={onReceive} style={{ fontSize: 13, fontWeight: 700, color: T.text, cursor: "pointer" }}>Receive →</span>
-        {onAdjustEta && <RowMenu items={[{ label: "Adjust ETA", onClick: () => onAdjustEta(box) }]} />}
-      </span>;
+  const multiClient = box.clients.length > 1;
+  const headline = multiClient ? `${box.clients.length} clients` : (box.clients[0] || box.vendorName);
+  const flags = boxMetaSegs(box, status).filter(s => s.tone === "#a87b00" || s.tone === T.blue);
+  const sep = <span style={{ opacity: 0.6 }}>·</span>;
   return (
     <Card>
-      <BoxHead vendor={box.vendorName} tag={tag} tagColor={tagColor} method={boxHow(box)} slips={box.slips}
-        when={fmtWhen(received ? box.receivedAt || box.createdAt : box.createdAt)} meta={boxMetaSegs(box, status)} action={action} />
-      {box.note && <div style={{ padding: "8px 16px 0", fontSize: 12, color: T.muted }}><span style={{ fontWeight: 700 }}>Note:</span> {box.note}</div>}
-      <ClientGroups box={box} status={status} acts={acts} />
+      <div style={{ padding: "12px 16px", background: T.surface, borderBottom: `1px solid ${T.border}` }}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 10, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 14, fontWeight: 800 }}>{headline}</span>
+          <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: 0.5, textTransform: "uppercase", padding: "2px 8px", borderRadius: 99, color: tagColor, background: received ? T.greenDim : box.pickup ? T.amberDim : T.blueDim, marginTop: 2 }}>{tag}</span>
+          <div style={{ marginLeft: "auto", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+            {received ? (
+              <span style={{ fontSize: 13, fontWeight: 700, color: T.green }}>✓ received</span>
+            ) : (<>
+              <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span onClick={() => onAdjustEta && onAdjustEta(box)} title="Expected arrival — ⋯ → Adjust ETA (or click)"
+                  style={box.expectedArrival && !box.etaDerived
+                    ? { fontSize: 12.5, fontWeight: 800, padding: "3px 10px", borderRadius: 7, color: "#a87b00", background: T.amberDim, cursor: "pointer" }
+                    : { fontSize: 12.5, fontWeight: 800, padding: "3px 10px", borderRadius: 7, color: box.expectedArrival ? T.muted : T.faint, background: T.surface, border: `1px dashed ${T.border}`, cursor: "pointer" }}>
+                  {box.expectedArrival ? `ETA ${box.etaDerived ? "~" : ""}${fmtDay(box.expectedArrival)}` : "no ETA"}
+                </span>
+                {onAdjustEta && <RowMenu items={[{ label: "Adjust ETA", onClick: () => onAdjustEta(box) }]} />}
+              </span>
+              <button onClick={onReceive}
+                style={{ fontSize: 11.5, fontWeight: 700, color: "#fff", background: T.blue, border: "none", borderRadius: 7, padding: "5px 14px", cursor: "pointer", fontFamily: font }}>Receive →</button>
+            </>)}
+          </div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 6, fontSize: 11.5, color: T.faint, flexWrap: "wrap" }}>
+          <span>from <span style={{ color: T.muted, fontWeight: 700 }}>{box.vendorName}</span></span>
+          {sep}<span>{received ? `received ${dayOf(box.receivedAt || box.createdAt)}` : `shipped ${dayOf(box.createdAt)}`}</span>
+          {!box.pickup && (box.carrier || box.tracking) && <>{sep}<span style={{ fontFamily: mono }}>{[box.carrier, box.tracking].filter(Boolean).join(" · ")}</span></>}
+          {box.slips.map((s, i) => (
+            <span key={i} style={{ display: "inline-flex", gap: 7 }}>{sep}
+              <a href={s.url} target="_blank" rel="noreferrer" style={{ color: T.blue, fontWeight: 600, textDecoration: "none" }}>📎 slip</a>
+            </span>
+          ))}
+          {flags.map((f, i) => <span key={`f${i}`} style={{ display: "inline-flex", gap: 7 }}>{sep}<span style={{ color: f.tone, fontWeight: 800 }}>{f.text}</span></span>)}
+        </div>
+      </div>
+      {box.note && (
+        <div style={{ display: "flex", gap: 8, alignItems: "baseline", padding: "8px 16px", background: T.amberDim, borderBottom: `1px solid ${T.border}`, fontSize: 12, color: T.text, lineHeight: 1.45 }}>
+          <span style={{ fontWeight: 800, color: "#a87b00", fontSize: 10, letterSpacing: 0.5, textTransform: "uppercase", flexShrink: 0 }}>Note</span>
+          <span>{box.note}</span>
+        </div>
+      )}
+      <ClientGroups box={box} status={status} acts={acts} multiClient={multiClient} />
     </Card>
   );
 }
