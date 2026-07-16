@@ -205,9 +205,15 @@ function ReceivedTally({ l }: { l: ReceivingLine }) {
 // menu; incoming: box-level Receive→, so just the ⋯ menu here).
 function LineRow({ l, box, status, acts, showClient }: { l: ReceivingLine; box: ReceivingBox; status: Status; acts?: LineActions; showClient?: boolean }) {
   const received = status === "received";
-  const actions = received
-    ? <><ReceivedTally l={l} />{acts && <RowActions l={l} box={box} acts={acts} />}</>
-    : (acts && <IncomingActions l={l} box={box} acts={acts} />);
+  // stopPropagation: the whole incoming card is click-to-receive — the row's
+  // ⋯ menu and its actions must not also fire the card click.
+  const actions = (
+    <span onClick={e => e.stopPropagation()} style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+      {received
+        ? <><ReceivedTally l={l} />{acts && <RowActions l={l} box={box} acts={acts} />}</>
+        : (acts && <IncomingActions l={l} box={box} acts={acts} />)}
+    </span>
+  );
   return <ItemRow fileId={l.mockupFileId} name={l.itemName} lead={showClient ? l.client : undefined} route={l.route}
     variant={<VariantChips qtys={qtyOf(l, status)} />} qty={tQty(qtyOf(l, status))} actions={actions} />;
 }
@@ -308,6 +314,13 @@ const dayOf = (iso: string | null) => {
 };
 function BoxCard({ box, status, onReceive, onAdjustEta, acts }: { box: ReceivingBox; status: Status; onReceive: () => void; onAdjustEta?: (b: ReceivingBox) => void; acts?: LineActions }) {
   const received = status === "received";
+  // Button-less card (locked mockup v4): the WHOLE incoming card is the tap
+  // target — production's act-on-what-you-click gesture. ETA, slip links and
+  // the line ⋯ menus eat their own clicks; everything else opens the receive
+  // modal. Hover tints the card and brightens the flat "Receive →" cue (the
+  // cue stays faintly visible for touch, where hover doesn't exist).
+  const [hover, setHover] = useState(false);
+  const clickable = !received;
   const tag = received ? "Received" : box.pickup ? "Pickup" : "Incoming";
   const tagColor = received ? T.green : box.pickup ? "#a87b00" : T.blue;
   const multiClient = box.clients.length > 1;
@@ -315,10 +328,13 @@ function BoxCard({ box, status, onReceive, onAdjustEta, acts }: { box: Receiving
   const flags = boxMetaSegs(box, status).filter(s => s.tone === "#a87b00" || s.tone === T.blue);
   const sep = <span style={{ opacity: 0.6 }}>·</span>;
   return (
+    <div onClick={clickable ? onReceive : undefined}
+      onMouseEnter={() => clickable && setHover(true)} onMouseLeave={() => setHover(false)}
+      style={clickable ? { cursor: "pointer", borderRadius: 12, outline: hover ? `2px solid ${T.blueDim}` : "none", outlineOffset: -1 } : undefined}>
     <Card>
       {/* two columns, vertically centered: left = client line + detail line
-          (tight); right = [ETA + ⋯] over Receive. No dead vertical space. */}
-      <div style={{ padding: "9px 16px", background: T.surface, borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
+          (tight); right = ETA + Receive cue. No dead vertical space. */}
+      <div style={{ padding: "9px 16px", background: clickable && hover ? T.blueDim : T.surface, borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
             <span style={{ fontSize: 14, fontWeight: 800 }}>{headline}</span>
@@ -331,26 +347,24 @@ function BoxCard({ box, status, onReceive, onAdjustEta, acts }: { box: Receiving
             {!box.pickup && (box.carrier || box.tracking) && <>{sep}<span style={{ fontFamily: mono }}>{[box.carrier, box.tracking].filter(Boolean).join(" · ")}</span></>}
             {box.slips.map((s, i) => (
               <span key={i} style={{ display: "inline-flex", gap: 7 }}>{sep}
-                <a href={s.url} target="_blank" rel="noreferrer" style={{ color: T.blue, fontWeight: 600, textDecoration: "none" }}>📎 slip</a>
+                <a href={s.url} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} style={{ color: T.blue, fontWeight: 600, textDecoration: "none" }}>📎 slip</a>
               </span>
             ))}
             {flags.map((f, i) => <span key={`f${i}`} style={{ display: "inline-flex", gap: 7 }}>{sep}<span style={{ color: f.tone, fontWeight: 800 }}>{f.text}</span></span>)}
           </div>
         </div>
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
           {received ? (
             <span style={{ fontSize: 13, fontWeight: 700, color: T.green }}>✓ received</span>
           ) : (<>
             {/* editable-value convention: dotted underline = "click to edit",
-                visible on touch too (warehouse tablets have no hover). The ⋯
-                menu is gone — one action doesn't earn a menu. */}
-            <span onClick={() => onAdjustEta && onAdjustEta(box)}
+                visible on touch too. Eats the click — adjusts the date, not receive. */}
+            <span onClick={e => { e.stopPropagation(); onAdjustEta && onAdjustEta(box); }}
               title="Expected arrival — click to adjust (~ = derived estimate)"
               style={{ fontSize: 12.5, fontWeight: 800, cursor: "pointer", color: box.expectedArrival ? (box.etaDerived ? T.muted : "#a87b00") : T.faint, borderBottom: "1px dotted currentColor", paddingBottom: 1 }}>
               {box.expectedArrival ? `ETA ${box.etaDerived ? "~" : ""}${fmtDay(box.expectedArrival)}` : "set ETA"}
             </span>
-            <button onClick={onReceive}
-              style={{ fontSize: 11.5, fontWeight: 700, color: "#fff", background: T.blue, border: "none", borderRadius: 7, padding: "4px 13px", cursor: "pointer", fontFamily: font }}>Receive →</button>
+            <span style={{ fontSize: 12.5, fontWeight: 800, color: T.blue, whiteSpace: "nowrap", opacity: hover ? 1 : 0.45 }}>Receive →</span>
           </>)}
         </div>
       </div>
@@ -362,6 +376,7 @@ function BoxCard({ box, status, onReceive, onAdjustEta, acts }: { box: Receiving
       )}
       <ClientGroups box={box} status={status} acts={acts} multiClient={multiClient} />
     </Card>
+    </div>
   );
 }
 
