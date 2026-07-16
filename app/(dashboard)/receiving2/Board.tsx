@@ -334,10 +334,7 @@ function BoxCard({ box, status, onReceive, onAdjustEta, acts }: { box: Receiving
   return (
     <div onClick={clickable ? onReceive : undefined}
       onMouseEnter={() => clickable && setHover(true)} onMouseLeave={() => setHover(false)}
-      style={clickable ? { cursor: "pointer", position: "relative" } : undefined}>
-    {clickable && hover && (
-      <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 3, background: T.green, borderRadius: "12px 0 0 12px", zIndex: 1, pointerEvents: "none" }} />
-    )}
+      style={clickable ? { cursor: "pointer", borderRadius: 12, outline: hover ? `1.5px solid ${T.text}` : "none", outlineOffset: -1 } : undefined}>
     <Card>
       {/* two columns, vertically centered: left = client line + detail line
           (tight); right = ETA + Receive cue. No dead vertical space. */}
