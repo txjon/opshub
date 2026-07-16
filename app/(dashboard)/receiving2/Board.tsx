@@ -300,16 +300,15 @@ function BoxCard({ box, status, onReceive, onAdjustEta, acts }: { box: Receiving
       <div style={{ padding: "12px 16px", background: T.surface, borderBottom: `1px solid ${T.border}` }}>
         <div style={{ display: "flex", alignItems: "flex-start", gap: 10, flexWrap: "wrap" }}>
           <span style={{ fontSize: 14, fontWeight: 800 }}>{headline}</span>
-          <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: 0.5, textTransform: "uppercase", padding: "2px 8px", borderRadius: 99, color: tagColor, background: received ? T.greenDim : box.pickup ? T.amberDim : T.blueDim, marginTop: 2 }}>{tag}</span>
+          {/* flat uppercase color-text — Jon's standing rule: NO pill chips anywhere */}
+          <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: 0.5, textTransform: "uppercase", color: tagColor, marginTop: 4 }}>{tag}</span>
           <div style={{ marginLeft: "auto", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
             {received ? (
               <span style={{ fontSize: 13, fontWeight: 700, color: T.green }}>✓ received</span>
             ) : (<>
               <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span onClick={() => onAdjustEta && onAdjustEta(box)} title="Expected arrival — ⋯ → Adjust ETA (or click)"
-                  style={box.expectedArrival && !box.etaDerived
-                    ? { fontSize: 12.5, fontWeight: 800, padding: "3px 10px", borderRadius: 7, color: "#a87b00", background: T.amberDim, cursor: "pointer" }
-                    : { fontSize: 12.5, fontWeight: 800, padding: "3px 10px", borderRadius: 7, color: box.expectedArrival ? T.muted : T.faint, background: T.surface, border: `1px dashed ${T.border}`, cursor: "pointer" }}>
+                <span onClick={() => onAdjustEta && onAdjustEta(box)} title="Expected arrival — click to adjust (~ = derived estimate)"
+                  style={{ fontSize: 12.5, fontWeight: 800, cursor: "pointer", color: box.expectedArrival ? (box.etaDerived ? T.muted : "#a87b00") : T.faint }}>
                   {box.expectedArrival ? `ETA ${box.etaDerived ? "~" : ""}${fmtDay(box.expectedArrival)}` : "no ETA"}
                 </span>
                 {onAdjustEta && <RowMenu items={[{ label: "Adjust ETA", onClick: () => onAdjustEta(box) }]} />}
@@ -332,7 +331,7 @@ function BoxCard({ box, status, onReceive, onAdjustEta, acts }: { box: Receiving
         </div>
       </div>
       {box.note && (
-        <div style={{ display: "flex", gap: 8, alignItems: "baseline", padding: "8px 16px", background: T.amberDim, borderBottom: `1px solid ${T.border}`, fontSize: 12, color: T.text, lineHeight: 1.45 }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "baseline", padding: "8px 16px", borderLeft: `3px solid #a87b00`, borderBottom: `1px solid ${T.border}`, fontSize: 12, color: T.text, lineHeight: 1.45 }}>
           <span style={{ fontWeight: 800, color: "#a87b00", fontSize: 10, letterSpacing: 0.5, textTransform: "uppercase", flexShrink: 0 }}>Note</span>
           <span>{box.note}</span>
         </div>
