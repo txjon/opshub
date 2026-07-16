@@ -178,16 +178,30 @@ export function CardHeader({ children }: { children: ReactNode }) {
 
 // ── per-variant qty chips (used on every item everywhere) ────────────────────
 // Per-variant qty as light inline text (no filled boxes) — "M 8  L 21  XL 20".
-export function VariantChips({ qtys, sizes }: { qtys: Record<string, number>; sizes?: string[]; min?: number }) {
+// max: cap the chips shown on dense variant matrices (FOG pants carry 15+
+// width/inseam combos and turned board rows into walls). Click the "+N more"
+// to expand in place; collapse again from the "less" affordance.
+export function VariantChips({ qtys, sizes, max }: { qtys: Record<string, number>; sizes?: string[]; min?: number; max?: number }) {
+  const [expanded, setExpanded] = useState(false);
   const list = sizes || sortSizes(Object.keys(qtys));
+  const capped = max != null && !expanded && list.length > max;
+  const shown = capped ? list.slice(0, max) : list;
   return (
     <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "baseline" }}>
-      {list.map(sz => (
+      {shown.map(sz => (
         <span key={sz} style={{ display: "inline-flex", alignItems: "baseline", gap: 4 }}>
           <span style={{ fontSize: 9.5, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: 0.3 }}>{sz}</span>
           <span style={{ fontFamily: mono, fontSize: 13, fontWeight: 700 }}>{qtys[sz] ?? 0}</span>
         </span>
       ))}
+      {capped && (
+        <span onClick={e => { e.stopPropagation(); setExpanded(true); }}
+          style={{ fontSize: 10.5, fontWeight: 800, color: T.blue, cursor: "pointer", whiteSpace: "nowrap" }}>+{list.length - max!} more</span>
+      )}
+      {max != null && expanded && list.length > max && (
+        <span onClick={e => { e.stopPropagation(); setExpanded(false); }}
+          style={{ fontSize: 10.5, fontWeight: 800, color: T.faint, cursor: "pointer" }}>less</span>
+      )}
     </div>
   );
 }

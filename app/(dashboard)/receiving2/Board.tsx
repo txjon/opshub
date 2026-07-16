@@ -12,6 +12,7 @@ import type { ReceivingBox, ReceivingLine, HeldPull } from "@/lib/item-state";
 import { v2WriteAllowed } from "@/lib/v2-flags";
 
 const tQty = (q: Record<string, number>) => Object.values(q || {}).reduce((a, v) => a + (Number(v) || 0), 0);
+const chunk = <T,>(arr: T[], n: number): T[][] => Array.from({ length: Math.ceil(arr.length / n) }, (_, i) => arr.slice(i * n, i * n + n));
 const boxHow = (b: ReceivingBox) => b.pickup ? "Pickup" : [b.carrier, b.tracking].filter(Boolean).join(" · ") || "no tracking";
 // where a received item goes next, by route
 const destOf = (route: string) => route === "stage" ? "Fulfillment" : route === "drop_ship" ? "Client" : "Shipping";
@@ -215,7 +216,7 @@ function LineRow({ l, box, status, acts, showClient }: { l: ReceivingLine; box: 
     </span>
   );
   return <ItemRow fileId={l.mockupFileId} name={l.itemName} lead={showClient ? l.client : undefined} route={l.route}
-    variant={<VariantChips qtys={qtyOf(l, status)} />} qty={tQty(qtyOf(l, status))} actions={actions} />;
+    variant={<VariantChips qtys={qtyOf(l, status)} max={8} />} qty={tQty(qtyOf(l, status))} actions={actions} />;
 }
 
 // Flat item rows. Item name leads; the client repeats on rows ONLY for a
@@ -434,7 +435,7 @@ function FlatRow({ l, status, onReceive, acts, showBox, showClient }: { l: FlatL
     ? <><ReceivedTally l={l} />{acts && <RowActions l={l} box={l.box} acts={acts} />}</>
     : <><span onClick={onReceive} style={{ fontSize: 12, fontWeight: 700, color: T.text, cursor: "pointer" }}>Receive →</span>{acts && <IncomingActions l={l} box={l.box} acts={acts} />}</>;
   return <ItemRow fileId={l.mockupFileId} name={l.itemName} lead={showClient ? l.client : undefined} sub={sub} route={l.route}
-    variant={<VariantChips qtys={qtyOf(l, status)} />} qty={tQty(qtyOf(l, status))} actions={actions} />;
+    variant={<VariantChips qtys={qtyOf(l, status)} max={8} />} qty={tQty(qtyOf(l, status))} actions={actions} />;
 }
 
 // Receive modal — counts the box in. Per-item per-variant delivered grid (default
@@ -593,16 +594,20 @@ function ReceiveModal({ box, onClose, onDone }: { box: ReceivingBox; onClose: ()
                 </div>
               </div>
 
-              {/* In box / Delivered grid */}
-              <div style={{ marginTop: 11, display: "grid", gridTemplateColumns: `auto repeat(${sizes.length}, 50px)`, columnGap: 8, rowGap: 4, alignItems: "center", width: "fit-content" }}>
-                <div />{sizes.map(sz => <div key={sz} style={{ fontSize: 10, fontWeight: 800, color: T.faint, textAlign: "center", textTransform: "uppercase" }}>{sz}</div>)}
-                <div style={{ fontSize: 9, fontWeight: 800, color: T.faint, textTransform: "uppercase", letterSpacing: 0.3, paddingRight: 4 }}>In box</div>
-                {sizes.map(sz => <div key={sz} style={{ fontFamily: mono, fontSize: 12, color: T.muted, textAlign: "center" }}>{l.shipQtys[sz] ?? 0}</div>)}
-                <div style={{ fontSize: 9, fontWeight: 800, color: T.faint, textTransform: "uppercase", letterSpacing: 0.3, paddingRight: 4 }}>Delivered</div>
-                {sizes.map(sz => { const got = delivered[l.itemId]?.[sz] ?? 0, want = l.shipQtys[sz] ?? 0; const c = got === want ? T.text : got < want ? "#a87b00" : T.green;
-                  return <input key={sz} inputMode="numeric" value={got} onChange={e => setD(l.itemId, sz, e.target.value)} onFocus={e => e.target.select()}
-                    style={{ width: 50, textAlign: "center", fontFamily: mono, fontSize: 13, fontWeight: 700, padding: "5px 4px", borderRadius: 5, border: `1px solid ${got === want ? T.border : c}`, color: c, background: T.card }} />; })}
-              </div>
+              {/* In box / Delivered grid — CHUNKED into rows of 8 sizes so a
+                  dense variant matrix (FOG pants: 17 combos) wraps instead of
+                  overflowing the modal. Each chunk repeats the row labels. */}
+              {chunk(sizes, 8).map((szs, ci) => (
+                <div key={ci} style={{ marginTop: ci === 0 ? 11 : 8, display: "grid", gridTemplateColumns: `auto repeat(${szs.length}, 50px)`, columnGap: 8, rowGap: 4, alignItems: "center", width: "fit-content" }}>
+                  <div />{szs.map(sz => <div key={sz} style={{ fontSize: 10, fontWeight: 800, color: T.faint, textAlign: "center", textTransform: "uppercase" }}>{sz}</div>)}
+                  <div style={{ fontSize: 9, fontWeight: 800, color: T.faint, textTransform: "uppercase", letterSpacing: 0.3, paddingRight: 4 }}>In box</div>
+                  {szs.map(sz => <div key={sz} style={{ fontFamily: mono, fontSize: 12, color: T.muted, textAlign: "center" }}>{l.shipQtys[sz] ?? 0}</div>)}
+                  <div style={{ fontSize: 9, fontWeight: 800, color: T.faint, textTransform: "uppercase", letterSpacing: 0.3, paddingRight: 4 }}>Delivered</div>
+                  {szs.map(sz => { const got = delivered[l.itemId]?.[sz] ?? 0, want = l.shipQtys[sz] ?? 0; const c = got === want ? T.text : got < want ? "#a87b00" : T.green;
+                    return <input key={sz} inputMode="numeric" value={got} onChange={e => setD(l.itemId, sz, e.target.value)} onFocus={e => e.target.select()}
+                      style={{ width: 50, textAlign: "center", fontFamily: mono, fontSize: 13, fontWeight: 700, padding: "5px 4px", borderRadius: 5, border: `1px solid ${got === want ? T.border : c}`, color: c, background: T.card }} />; })}
+                </div>
+              ))}
 
               {varianceFlag(l) && <div style={{ marginTop: 9, fontSize: 11, fontWeight: 700, color: T.red, background: T.redDim, border: `1px solid ${T.red}`, borderRadius: 7, padding: "6px 9px" }}>⚑ Over on one size and short on another — flag production to resolve with the vendor.</div>}
 
@@ -694,17 +699,19 @@ function EditLineModal({ line, box, mode, onClose, onDone }: { line: ReceivingLi
       <div style={{ padding: "18px 22px", display: "flex", flexDirection: "column", gap: 14 }}>
         <div>
           <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>{shipped ? "Shipped" : "Received"}, per size</div>
-          <div style={{ display: "grid", gridTemplateColumns: `auto repeat(${sizes.length}, 50px)`, columnGap: 8, rowGap: 4, alignItems: "center", width: "fit-content" }}>
-            <div />{sizes.map(sz => <div key={sz} style={{ fontSize: 10, fontWeight: 800, color: T.faint, textAlign: "center", textTransform: "uppercase" }}>{sz}</div>)}
-            {!shipped && <>
-              <div style={{ fontSize: 9, fontWeight: 800, color: T.faint, textTransform: "uppercase", letterSpacing: 0.3, paddingRight: 4 }}>Shipped</div>
-              {sizes.map(sz => <div key={sz} style={{ fontFamily: mono, fontSize: 12, color: T.muted, textAlign: "center" }}>{line.shipQtys[sz] ?? 0}</div>)}
-            </>}
-            <div style={{ fontSize: 9, fontWeight: 800, color: T.faint, textTransform: "uppercase", letterSpacing: 0.3, paddingRight: 4 }}>{shipped ? "Shipped" : "Received"}</div>
-            {sizes.map(sz => { const got = qtys[sz] ?? 0, want = line.shipQtys[sz] ?? 0; const c = shipped ? T.text : got === want ? T.text : got < want ? "#a87b00" : T.green;
-              return <input key={sz} inputMode="numeric" value={got} onChange={e => setQ(sz, e.target.value)} onFocus={e => e.target.select()}
-                style={{ width: 50, textAlign: "center", fontFamily: mono, fontSize: 13, fontWeight: 700, padding: "5px 4px", borderRadius: 5, border: `1px solid ${(shipped || got === want) ? T.border : c}`, color: c, background: T.card }} />; })}
-          </div>
+          {chunk(sizes, 8).map((szs, ci) => (
+            <div key={ci} style={{ marginTop: ci === 0 ? 0 : 8, display: "grid", gridTemplateColumns: `auto repeat(${szs.length}, 50px)`, columnGap: 8, rowGap: 4, alignItems: "center", width: "fit-content" }}>
+              <div />{szs.map(sz => <div key={sz} style={{ fontSize: 10, fontWeight: 800, color: T.faint, textAlign: "center", textTransform: "uppercase" }}>{sz}</div>)}
+              {!shipped && <>
+                <div style={{ fontSize: 9, fontWeight: 800, color: T.faint, textTransform: "uppercase", letterSpacing: 0.3, paddingRight: 4 }}>Shipped</div>
+                {szs.map(sz => <div key={sz} style={{ fontFamily: mono, fontSize: 12, color: T.muted, textAlign: "center" }}>{line.shipQtys[sz] ?? 0}</div>)}
+              </>}
+              <div style={{ fontSize: 9, fontWeight: 800, color: T.faint, textTransform: "uppercase", letterSpacing: 0.3, paddingRight: 4 }}>{shipped ? "Shipped" : "Received"}</div>
+              {szs.map(sz => { const got = qtys[sz] ?? 0, want = line.shipQtys[sz] ?? 0; const c = shipped ? T.text : got === want ? T.text : got < want ? "#a87b00" : T.green;
+                return <input key={sz} inputMode="numeric" value={got} onChange={e => setQ(sz, e.target.value)} onFocus={e => e.target.select()}
+                  style={{ width: 50, textAlign: "center", fontFamily: mono, fontSize: 13, fontWeight: 700, padding: "5px 4px", borderRadius: 5, border: `1px solid ${(shipped || got === want) ? T.border : c}`, color: c, background: T.card }} />; })}
+            </div>
+          ))}
         </div>
       </div>
       <div style={{ padding: "14px 22px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
