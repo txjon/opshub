@@ -39,6 +39,14 @@ export type LifecycleInput = {
     // Outbound HPD → client forward (migration 097). Set = this ship_through
     // item has been forwarded to the client (its completion event).
     forwarded_at?: string | null;
+    // Ledger truth (optional; job-phase-recalc supplies it): this item still
+    // has OWED units at the decorator — an open partial wave. The flat
+    // mirrors can't represent "1900 received, 100 still producing"
+    // (received_at_hpd=true means caught-up-to-shipped, and pipeline_stage
+    // stays in_production), so without this signal a wave item falls through
+    // every physical branch and the job wrongly drops to a gate phase
+    // (Eagle Patch bug, 2026-07-16).
+    ledger_open?: boolean;
   }[];
   payments: {
     amount: number;
@@ -84,7 +92,7 @@ export function calculatePhase(input: LifecycleInput): LifecycleResult {
   // Count item states. "At decorator" counts items whose pipeline_stage says
   // in_production OR whose vendor got a PO (po_sent) but the stage advance was
   // missed — so a PO-sent item never silently falls out of the production count.
-  const atDecorator = items.filter(it => isItemInProduction({ pipeline_stage: it.pipeline_stage, received_at_hpd: it.received_at_hpd, poSent: !!it.po_sent })).length;
+  const atDecorator = items.filter(it => it.ledger_open || isItemInProduction({ pipeline_stage: it.pipeline_stage, received_at_hpd: it.received_at_hpd, poSent: !!it.po_sent })).length;
   const shippedFromDecorator = items.filter(it => it.pipeline_stage === "shipped").length;
   // For receive checks, only "to-HPD" items can satisfy the gate —
   // drop-ship items leave the HPD-side accounting once they ship.
