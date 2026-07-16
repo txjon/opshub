@@ -322,12 +322,13 @@ function BoxCard({ box, status, onReceive, onAdjustEta, acts }: { box: Receiving
           {received ? (
             <span style={{ fontSize: 13, fontWeight: 700, color: T.green }}>✓ received</span>
           ) : (<>
-            <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span onClick={() => onAdjustEta && onAdjustEta(box)} title="Expected arrival — click to adjust (~ = derived estimate)"
-                style={{ fontSize: 12.5, fontWeight: 800, cursor: "pointer", color: box.expectedArrival ? (box.etaDerived ? T.muted : "#a87b00") : T.faint }}>
-                {box.expectedArrival ? `ETA ${box.etaDerived ? "~" : ""}${fmtDay(box.expectedArrival)}` : "no ETA"}
-              </span>
-              {onAdjustEta && <RowMenu items={[{ label: "Adjust ETA", onClick: () => onAdjustEta(box) }]} />}
+            {/* editable-value convention: dotted underline = "click to edit",
+                visible on touch too (warehouse tablets have no hover). The ⋯
+                menu is gone — one action doesn't earn a menu. */}
+            <span onClick={() => onAdjustEta && onAdjustEta(box)}
+              title="Expected arrival — click to adjust (~ = derived estimate)"
+              style={{ fontSize: 12.5, fontWeight: 800, cursor: "pointer", color: box.expectedArrival ? (box.etaDerived ? T.muted : "#a87b00") : T.faint, borderBottom: "1px dotted currentColor", paddingBottom: 1 }}>
+              {box.expectedArrival ? `ETA ${box.etaDerived ? "~" : ""}${fmtDay(box.expectedArrival)}` : "set ETA"}
             </span>
             <button onClick={onReceive}
               style={{ fontSize: 11.5, fontWeight: 700, color: "#fff", background: T.blue, border: "none", borderRadius: 7, padding: "4px 13px", cursor: "pointer", fontFamily: font }}>Receive →</button>
