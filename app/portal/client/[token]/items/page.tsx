@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { useClientPortal } from "../_shared/context";
 import { C, fmtDate, fmtDateYear, daysUntil } from "../_shared/theme";
-import { ItemState, STATE_LABELS } from "@/lib/item-status";
+import { ItemState, CLIENT_STATE_LABELS } from "@/lib/item-status";
 import { StatusPill } from "../_shared/StatusPill";
 import { MobileSheet } from "../_shared/MobileSheet";
 import { ImageLightbox } from "@/components/DriveThumb";
@@ -124,17 +124,17 @@ function isEtaTbd(it: Item): boolean {
   return true;
 }
 
-// Status display — same labels (STATE_LABELS) the internal worksheet
-// uses; colors mapped onto the portal's C palette.
+// Status display — client-facing labels (CLIENT_STATE_LABELS: internal
+// vocabulary except shipped → "In Transit"); colors on the portal's C palette.
 const STATUS_META: Record<ItemState, { label: string; color: string; bg: string }> = {
-  setup:         { label: STATE_LABELS.setup,         color: C.muted,   bg: C.surface },
-  in_production: { label: STATE_LABELS.in_production, color: C.blue,    bg: C.blueBg },
-  shipped:       { label: STATE_LABELS.shipped,       color: C.purple,  bg: C.purpleBg },
-  in_stock:      { label: STATE_LABELS.in_stock,      color: "#14b8a6", bg: "rgba(20,184,166,0.15)" },
-  complete:      { label: STATE_LABELS.complete,      color: C.green,   bg: C.greenBg },
-  archived:      { label: STATE_LABELS.archived,      color: C.faint,   bg: C.surface },
-  on_hold:       { label: STATE_LABELS.on_hold,       color: C.amber,   bg: C.amberBg },
-  cancelled:     { label: STATE_LABELS.cancelled,     color: C.red,     bg: C.redBg },
+  setup:         { label: CLIENT_STATE_LABELS.setup,         color: C.muted,   bg: C.surface },
+  in_production: { label: CLIENT_STATE_LABELS.in_production, color: C.blue,    bg: C.blueBg },
+  shipped:       { label: CLIENT_STATE_LABELS.shipped,       color: C.purple,  bg: C.purpleBg },
+  in_stock:      { label: CLIENT_STATE_LABELS.in_stock,      color: "#14b8a6", bg: "rgba(20,184,166,0.15)" },
+  complete:      { label: CLIENT_STATE_LABELS.complete,      color: C.green,   bg: C.greenBg },
+  archived:      { label: CLIENT_STATE_LABELS.archived,      color: C.faint,   bg: C.surface },
+  on_hold:       { label: CLIENT_STATE_LABELS.on_hold,       color: C.amber,   bg: C.amberBg },
+  cancelled:     { label: CLIENT_STATE_LABELS.cancelled,     color: C.red,     bg: C.redBg },
 };
 
 // Filters mirror the internal Working Sheet — 4 active stage buckets,
@@ -144,7 +144,7 @@ const STATUS_META: Record<ItemState, { label: string; color: string; bg: string 
 const FILTERS: Array<{ key: string; label: string; matches: (s: ItemState) => boolean }> = [
   { key: "setup", label: "Setup", matches: s => s === "setup" },
   { key: "in_production", label: "In Production", matches: s => s === "in_production" },
-  { key: "shipped", label: "Shipped", matches: s => s === "shipped" },
+  { key: "shipped", label: "In Transit", matches: s => s === "shipped" },
   { key: "in_stock", label: "In Stock", matches: s => s === "in_stock" },
 ];
 
@@ -306,7 +306,7 @@ export default function ItemsPage() {
                   const r = rollups[key];
                   return (
                     <tr key={key}>
-                      <td style={{ padding: "6px 10px", fontSize: 11, fontWeight: 700, color, textTransform: "uppercase", letterSpacing: "0.07em" }}>{STATE_LABELS[key]}</td>
+                      <td style={{ padding: "6px 10px", fontSize: 11, fontWeight: 700, color, textTransform: "uppercase", letterSpacing: "0.07em" }}>{CLIENT_STATE_LABELS[key]}</td>
                       <td style={{ padding: "6px 10px", fontSize: 12, fontFamily: C.mono, color: C.muted, textAlign: "right" }}>{r.count}</td>
                       <td style={{ padding: "6px 10px", fontSize: 12, fontFamily: C.mono, color: C.text, textAlign: "right" }}>{r.qty.toLocaleString()}</td>
                       <td style={{ padding: "6px 10px", fontSize: 12, fontFamily: C.mono, color: C.text, textAlign: "right" }}>{fmtMoneyShort(r.cost)}</td>
@@ -361,7 +361,7 @@ export default function ItemsPage() {
                         gap: 10, fontSize: 12,
                       }}>
                         <span style={{ minWidth: 0, display: "flex", alignItems: "baseline", gap: 6 }}>
-                          <span style={{ fontSize: 10, fontWeight: 700, color, textTransform: "uppercase", letterSpacing: "0.06em", whiteSpace: "nowrap" }}>{STATE_LABELS[key]}</span>
+                          <span style={{ fontSize: 10, fontWeight: 700, color, textTransform: "uppercase", letterSpacing: "0.06em", whiteSpace: "nowrap" }}>{CLIENT_STATE_LABELS[key]}</span>
                           <span style={{ fontSize: 10, color: C.faint, fontFamily: C.mono }}>{r.count}</span>
                         </span>
                         <span style={{ display: "flex", alignItems: "baseline", gap: 6, fontFamily: C.mono, whiteSpace: "nowrap" }}>

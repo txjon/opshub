@@ -180,7 +180,9 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
             (decName && sentSet.has(decName.toLowerCase())) ||
             (decShort && sentSet.has(decShort.toLowerCase()))
           );
-          // client-facing: internal vendor→HPD legs collapse to In Production
+          // client-facing: internal vendor→HPD legs collapse to In Production —
+          // EXCEPT stage-route items (fulfillment clients), which pass the true
+          // In Transit / In Stock phase through (route arg below).
           return clientItemStatus(resolveItemStatus({
             archived_at: it.archived_at,
             completed_at: it.completed_at,
@@ -194,7 +196,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
             item_shipping_route: it.shipping_route || null,
             job_completed_at: (job.phase_timestamps as any)?.complete || null,
             forwarded_at: it.forwarded_at || null,
-          }));
+          }), it.shipping_route || job.shipping_route || null);
         })(),
         thumb_id: thumbByItem[it.id] || null,
         created_at: it.created_at,

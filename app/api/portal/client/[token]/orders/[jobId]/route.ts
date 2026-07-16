@@ -321,7 +321,7 @@ export async function GET(
           // Per-item canonical status — same vocabulary the Items tab
           // uses, so the client sees a consistent state model across
           // every surface (item card · order detail · history).
-          status: item ? clientItemStatus(statusForItem(item)) : ("setup" as ItemState),
+          status: item ? clientItemStatus(statusForItem(item), item.shipping_route || (job as any).shipping_route || null) : ("setup" as ItemState),
         });
       }
     }
@@ -380,7 +380,7 @@ export async function GET(
         id: item.id,
         name: item.name,
         qty,
-        status: clientItemStatus(status),
+        status: clientItemStatus(status, item.shipping_route || (job as any).shipping_route || null),
         eta: etaDate,
         eta_tbd,
         eta_note: item.client_eta_note || null,
