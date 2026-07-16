@@ -279,8 +279,10 @@ export function ItemRow({ fileId, name, lead, sub, route, variant, qty, actions 
 }
 
 // ── route label (plain text, no pills) ──────────────────────────────────────
-// signal table (locked 2026-07-16): green = where it lands — all routes
-const ROUTE_FG: Record<string, string> = { drop_ship: T.green, ship_through: T.green, stage: T.green };
+// signal table (amended 2026-07-16): routes colored by warehouse involvement —
+// stage lands & stays (green), ship_through passes through (blue movement),
+// drop_ship never touches HPD (muted — ignorable at the dock).
+const ROUTE_FG: Record<string, string> = { drop_ship: T.muted, ship_through: T.blue, stage: T.green };
 const ROUTE_LABEL: Record<string, string> = { drop_ship: "Drop-ship", ship_through: "Ship-through", stage: "Stage" };
 export function RouteTag({ route }: { route: string }) {
   return <span style={{ fontSize: 10, fontWeight: 700, color: ROUTE_FG[route] || T.blue, textTransform: "uppercase", letterSpacing: 0.5 }}>{ROUTE_LABEL[route] || "Ship-through"}</span>;
