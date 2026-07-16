@@ -413,7 +413,7 @@ export async function loadReceivingBoard(sb: Sb): Promise<ReceivingBox[]> {
   if (!open.length) return [];
   const ids = open.map((s: any) => s.id);
   const { data: lines } = await sb.from("shipment_lines")
-    .select("shipment_id, item_id, job_id, description, ship_qtys, received_qtys, received, items(name, mockup_color, shipping_route, ship_final, received_qtys, buy_sheet_lines(qty_ordered), jobs(shipping_route, type_meta, clients(name)))").in("shipment_id", ids);
+    .select("shipment_id, item_id, job_id, description, ship_qtys, received_qtys, received, items(name, mockup_color, shipping_route, ship_final, received_qtys, expected_arrival, buy_sheet_lines(qty_ordered), jobs(shipping_route, type_meta, clients(name)))").in("shipment_id", ids);
   const itemIds = Array.from(new Set((lines || []).map((l: any) => l.item_id).filter(Boolean)));
 
   // pending production-declared pulls per item, to fulfil at receiving
@@ -481,6 +481,11 @@ export async function loadReceivingBoard(sb: Sb): Promise<ReceivingBox[]> {
     // pickup = 0). Chain rule R5: derived-or-TBD, never a guess beyond that.
     const derivedEta = (() => {
       if (s.expected_arrival) return null;
+      // per-ITEM arrival overrides win (recorded via production2's Adjust date
+      // — a known item delay governs when the box is really complete): the
+      // LATEST line override is the box's honest ETA. Else ship day + transit.
+      const lineOverrides = ls.map((l: any) => l.items?.expected_arrival).filter(Boolean) as string[];
+      if (lineOverrides.length) return lineOverrides.sort()[lineOverrides.length - 1];
       const td = (s as any).decorators?.transit_defaults;
       const transit = transitDaysFor(td, s.pickup ? "Pick Up" : s.carrier);
       return transit != null ? addDays(String(s.created_at).slice(0, 10), transit) : null;
