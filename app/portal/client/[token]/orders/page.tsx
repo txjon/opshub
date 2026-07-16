@@ -4,7 +4,7 @@ import { useSearchParams } from "next/navigation";
 import { useClientPortal } from "../_shared/context";
 import { C, fmtDate } from "../_shared/theme";
 import { OrderDetailView } from "./[jobId]/page";
-import { STATE_LABELS, type ItemState } from "@/lib/item-status";
+import { CLIENT_STATE_LABELS, type ItemState } from "@/lib/item-status";
 
 
 type OrderItem = {
@@ -457,7 +457,7 @@ function OrderRow({ order, expanded, onToggle, onOpenModal, token }: {
                   whiteSpace: "nowrap", flexShrink: 0,
                   minWidth: 92, textAlign: "right",
                 }}>
-                  {STATE_LABELS[it.status]}
+                  {CLIENT_STATE_LABELS[it.status]}
                 </span>
               </div>
             ))}

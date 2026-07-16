@@ -1,10 +1,11 @@
 "use client";
 import { C } from "./theme";
-import { STATE_LABELS, type ItemState } from "@/lib/item-status";
+import { CLIENT_STATE_LABELS, type ItemState } from "@/lib/item-status";
 
 // Uppercase color-text status label. NOT a pill — Jon's standing rule
-// across OpsHub is no pill-style chips anywhere. Same vocabulary
-// (lib/item-status STATE_LABELS) the worksheet and items tab use.
+// across OpsHub is no pill-style chips anywhere. Client vocabulary
+// (CLIENT_STATE_LABELS: same words as internal except shipped → "In
+// Transit" — the vendor→HPD leg, shown to stage-route clients only).
 // Component name kept as `StatusPill` so existing imports still work,
 // but the visual is a flat uppercase label with the state's color.
 //
@@ -34,7 +35,7 @@ export function StatusPill({ status, size = "md" }: { status: ItemState; size?: 
       letterSpacing: "0.06em", textTransform: "uppercase",
       whiteSpace: "nowrap", fontFamily: C.font,
     }}>
-      {STATE_LABELS[status]}
+      {CLIENT_STATE_LABELS[status]}
     </span>
   );
 }

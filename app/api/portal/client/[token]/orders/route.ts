@@ -308,7 +308,9 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
             (decShort && sentSet.has(decShort.toLowerCase()))
           );
           // client-facing: collapse the internal vendor→HPD legs to In Production
-          // so the client is only told "shipped" once it left to them (locked model).
+          // so the client is only told "shipped" once it left to them (locked
+          // model) — EXCEPT stage-route items, which show In Transit / In Stock
+          // (fulfillment clients; route arg below).
           const status = clientItemStatus(resolveItemStatus({
             archived_at: it.archived_at,
             completed_at: it.completed_at,
@@ -322,7 +324,7 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
             item_shipping_route: it.shipping_route || null,
             job_completed_at: ((j as any).phase_timestamps || {}).complete || null,
             forwarded_at: it.forwarded_at || null,
-          }));
+          }), it.shipping_route || (j as any).shipping_route || null);
           return {
             id: it.id,
             name: it.name,
