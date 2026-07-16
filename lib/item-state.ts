@@ -8,6 +8,8 @@
 import { deriveItem, type ItemState, type Movement, type Route, type SizeQtys } from "./item-derivation";
 import { computePhase, paymentGateMet, type PhaseItem, type PhaseGate, type PhaseResult } from "./phase-model";
 import { poSentToItem } from "./item-status";
+import { transitDaysFor } from "./date-chain";
+import { addDays } from "./dates";
 
 type Sb = any; // Supabase client (project convention: loose typing at the boundary)
 
@@ -382,7 +384,12 @@ export type ReceivingLine = {
 };
 export type ReceivingBox = {
   id: string; vendorName: string; carrier: string | null; tracking: string | null; pickup: boolean;
-  createdAt: string; receivedAt: string | null; expectedArrival: string | null; status: string;
+  createdAt: string; receivedAt: string | null;
+  // expectedArrival: the box's own date (set at ship or edited in-line in
+  // receiving — writes shipments.expected_arrival) OR, when the box shipped
+  // without one, derived = ship day + vendor transit(carrier) (etaDerived).
+  expectedArrival: string | null; etaDerived: boolean;
+  status: string;
   note: string | null;  // warehouse note typed at ship time
   slips: { name: string; url: string }[];
   lines: ReceivingLine[]; totalUnits: number; receivedUnits: number; clients: string[]; allReceived: boolean;
@@ -396,7 +403,7 @@ export async function loadReceivingBoard(sb: Sb): Promise<ReceivingBox[]> {
   // The date window only prunes RECEIVED boxes, to keep the Received tab bounded.
   const cutoff = new Date(Date.now() - 45 * 86400000).toISOString();
   const { data: ships } = await sb.from("shipments")
-    .select("id, tracking, carrier, pickup, status, expected_arrival, created_at, received_at, warehouse_notes, decorators(name)")
+    .select("id, tracking, carrier, pickup, status, expected_arrival, created_at, received_at, warehouse_notes, decorators(name, transit_defaults)")
     .eq("direction", "inbound").or(`status.neq.received,created_at.gte.${cutoff}`)
     .order("created_at", { ascending: false }).limit(160);
   const open = ships || [];
@@ -466,10 +473,20 @@ export async function loadReceivingBoard(sb: Sb): Promise<ReceivingBox[]> {
     if (!rLines.length) continue;
     const slipMap = new Map<string, { name: string; url: string }>();
     for (const l of ls) for (const sl of slipsByItem.get(l.item_id) || []) slipMap.set(sl.url, sl);
+    // Fallback ETA when the box shipped without one: ship day + the vendor's
+    // transit default for how it's moving (carrier text → ground/freight/ocean;
+    // pickup = 0). Chain rule R5: derived-or-TBD, never a guess beyond that.
+    const derivedEta = (() => {
+      if (s.expected_arrival) return null;
+      const td = (s as any).decorators?.transit_defaults;
+      const transit = transitDaysFor(td, s.pickup ? "Pick Up" : s.carrier);
+      return transit != null ? addDays(String(s.created_at).slice(0, 10), transit) : null;
+    })();
     boxes.push({
       id: s.id, vendorName: (s as any).decorators?.name || "Unassigned vendor",
       carrier: s.carrier, tracking: s.tracking, pickup: !!s.pickup, createdAt: s.created_at, receivedAt: s.received_at || null,
-      expectedArrival: s.expected_arrival, status: s.status || "expected", note: s.warehouse_notes || null,
+      expectedArrival: s.expected_arrival || derivedEta, etaDerived: !s.expected_arrival && !!derivedEta,
+      status: s.status || "expected", note: s.warehouse_notes || null,
       slips: Array.from(slipMap.values()),
       lines: rLines, totalUnits: rLines.reduce((a, l) => a + sumQ(l.shipQtys), 0),
       receivedUnits: rLines.reduce((a, l) => a + sumQ(l.receivedQtys), 0),
