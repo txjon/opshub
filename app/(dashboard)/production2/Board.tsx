@@ -107,7 +107,9 @@ function ShipByEdit({ strip, onSaved }: { strip: BoardStrip; onSaved: () => void
       {slipped && <span style={{ fontSize: 10, fontWeight: 800, color: T.amber }} title={`PO plan: ${strip.shipDateAgreed}`}>slipped</span>}
       <label title={strip.poShipKey ? "Ship-by — click to edit (vendor delay lands here; the PO keeps its original date)" : "No PO vendor to attach a date to"}
         style={{ fontSize: 13, fontWeight: 700, color, cursor: strip.poShipKey ? "pointer" : "default", opacity: busy ? 0.5 : 1 }}>
-        {busy ? "…" : ship.text}{isLate ? (allRescheduled ? " · rescheduled" : " · late") : ""}
+        {busy ? "…" : (isLate && allRescheduled)
+          ? <><span style={{ textDecoration: "line-through", color: T.faint, fontWeight: 600 }}>{ship.text}</span> · rescheduled</>
+          : <>{ship.text}{isLate ? " · late" : ""}</>}
         {strip.poShipKey && (
           <input type="date" value={strip.shipDate && strip.shipDate !== "ASAP" ? strip.shipDate : ""}
             onChange={e => save(e.target.value)}
@@ -287,8 +289,9 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
                             date. Amber = this item runs on its own arrival, not the strip's. */}
                         {it.expectedArrival && (
                           <span title={`This item's expected arrival at HPD is overridden (⋯ → Adjust date to change or clear)`}
-                            style={{ fontSize: 11, fontWeight: 800, fontFamily: mono, color: T.amber, whiteSpace: "nowrap" }}>
-                            → HPD {fmtShip(it.expectedArrival).text}
+                            style={{ display: "inline-flex", alignItems: "baseline", gap: 5, whiteSpace: "nowrap" }}>
+                            <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: 0.4, textTransform: "uppercase", color: T.faint }}>at HPD</span>
+                            <span style={{ fontSize: 11.5, fontWeight: 800, fontFamily: mono, color: T.amber }}>{fmtShip(it.expectedArrival).text}</span>
                           </span>
                         )}
                         {heldQty(it) > 0 && (
