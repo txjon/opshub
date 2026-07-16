@@ -216,7 +216,7 @@ function LineRow({ l, box, status, acts, showClient }: { l: ReceivingLine; box: 
     </span>
   );
   return <ItemRow fileId={l.mockupFileId} name={l.itemName} lead={showClient ? l.client : undefined} route={l.route}
-    variant={<VariantChips qtys={qtyOf(l, status)} max={8} />} qty={tQty(qtyOf(l, status))} actions={actions} />;
+    qty={tQty(qtyOf(l, status))} actions={actions} />;
 }
 
 // Flat item rows. Item name leads; the client repeats on rows ONLY for a
@@ -435,7 +435,7 @@ function FlatRow({ l, status, onReceive, acts, showBox, showClient }: { l: FlatL
     ? <><ReceivedTally l={l} />{acts && <RowActions l={l} box={l.box} acts={acts} />}</>
     : <><span onClick={onReceive} style={{ fontSize: 12, fontWeight: 700, color: T.text, cursor: "pointer" }}>Receive →</span>{acts && <IncomingActions l={l} box={l.box} acts={acts} />}</>;
   return <ItemRow fileId={l.mockupFileId} name={l.itemName} lead={showClient ? l.client : undefined} sub={sub} route={l.route}
-    variant={<VariantChips qtys={qtyOf(l, status)} max={8} />} qty={tQty(qtyOf(l, status))} actions={actions} />;
+    qty={tQty(qtyOf(l, status))} actions={actions} />;
 }
 
 // Receive modal — counts the box in. Per-item per-variant delivered grid (default
