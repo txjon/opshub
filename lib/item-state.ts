@@ -180,15 +180,19 @@ export type BoardStrip = {
   items: BoardItem[];
 };
 
-// Only jobs actually past the ordering gate. NOT "ready" (POs not sent yet) and
-// NOT "on_hold" — those items haven't been pushed to a decorator.
-const ACTIVE_PHASES = ["production", "receiving", "shipping", "fulfillment"];
-
+// The board is gated by ITEM-level truth, not the job's summary phase (locked
+// principle from the phase-model session; bug 2026-07-16: an early-released
+// item on a mixed job — Eagle Patch, 1 of 5 items PO'd — vanished because the
+// stored legacy jobs.phase said "pending"). Prefilter = any PO sent
+// (type_meta.po_sent_vendors non-empty); terminal/held jobs stay excluded.
+// The per-item filters below (PO-sent-to-vendor, ledger not-closed) do the
+// real work.
 export async function loadProductionBoard(sb: Sb): Promise<BoardStrip[]> {
-  const { data: jobs } = await sb
+  const { data: allJobs } = await sb
     .from("jobs")
     .select("id, job_number, title, phase, priority, target_ship_date, shipping_route, type_meta, costing_data, clients(name)")
-    .in("phase", ACTIVE_PHASES);
+    .not("phase", "in", '("complete","cancelled","on_hold")');
+  const jobs = (allJobs || []).filter((j: any) => ((j.type_meta?.po_sent_vendors || []) as string[]).length > 0);
   const jobById = new Map<string, any>((jobs || []).map((j: any) => [j.id, j]));
   if (!jobById.size) return [];
 
