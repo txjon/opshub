@@ -75,14 +75,23 @@ export default async function DistroDashboard() {
     const method = methodKey ? tm.po_ship_methods[methodKey] : null;
     const transit = transitDaysFor(s.decoratorId ? transitById.get(s.decoratorId) : null, method);
     const shipBy = s.shipDate && s.shipDate !== "ASAP" ? s.shipDate : null;
+    // Per-item arrival OVERRIDES win over the projection (chain rule — same
+    // as production2's rescheduled display): each item's arrival = its
+    // recorded override, else ship-by + transit; the strip lands when its
+    // slowest item does. An override-driven ETA is a real date, not a ~.
+    const perItem = s.items.map(i => i.expectedArrival || (shipBy && transit != null ? addDays(shipBy, transit) : null));
+    const known = (perItem.filter(Boolean) as string[]).sort();
+    const eta = known.length ? known[known.length - 1] : null;
+    const etaFromOverride = !!eta && s.items.some(i => i.expectedArrival === eta);
+    const allOverridden = s.items.length > 0 && s.items.every(i => i.expectedArrival);
     rows.push({
       kind: "strip", id: s.key,
       client: s.clientName, vendor: s.decoratorName,
       itemsLabel: s.items.length === 1 ? s.items[0].name : `${s.items.length} items`,
       units: owed,
-      shipBy: s.shipDate,
-      eta: shipBy && transit != null ? addDays(shipBy, transit) : null,
-      etaDerived: true,
+      shipBy: allOverridden ? null : s.shipDate, // dead ship-by drops off the line once fully rescheduled
+      eta,
+      etaDerived: !etaFromOverride,
       lines: s.items.map(i => ({
         name: i.name, route: i.route,
         qtys: i.owed, orderedTotal: i.orderedTotal, shippedTotal: i.shippedTotal,
