@@ -239,7 +239,6 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
 
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {display.map(strip => {
-            const stripUnits = strip.items.reduce((a, i) => a + i.owedTotal, 0);
             return (
               <Card key={strip.key}>
                 <CardHeader>
@@ -250,7 +249,6 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
                   <RouteTag route={strip.jobRoute} />
                   <div style={{ flex: 1 }} />
                   <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{strip.decoratorName}</span>
-                  <span style={{ fontFamily: mono, fontSize: 12, color: T.muted }}>{stripUnits}u</span>
                   <ShipByEdit strip={strip} onSaved={() => router.refresh()} />
                 </CardHeader>
 
@@ -282,7 +280,7 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
                             date. Amber = this item runs on its own arrival, not the strip's. */}
                         {it.expectedArrival && (
                           <span title={`This item's expected arrival at HPD is overridden (⋯ → Adjust date to change or clear)`}
-                            style={{ fontSize: 11, fontWeight: 700, fontFamily: mono, color: "#a87b00", background: T.amberDim, border: `1px solid #a87b0055`, borderRadius: 6, padding: "3px 8px", whiteSpace: "nowrap" }}>
+                            style={{ fontSize: 11, fontWeight: 800, fontFamily: mono, color: "#a87b00", whiteSpace: "nowrap" }}>
                             → HPD {fmtShip(it.expectedArrival).text}
                           </span>
                         )}
