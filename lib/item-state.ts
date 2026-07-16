@@ -120,6 +120,8 @@ export type BoardItem = ItemView & {
   shipWaves: { tracking: string | null; total: number }[]; // waves already shipped (for partial rows)
   pullRequests: PullReq[];     // production-declared pulls (held back for sample/photo/etc), pending
   daysInStage: number | null;  // days since the item entered its current pipeline stage (stall signal)
+  expectedArrival: string | null; // per-ITEM arrival override (items.expected_arrival) — the
+                                  // "just this item is delayed" edit point on the board (R3)
 };
 export type PullReq = { id: string; kind: string | null; qtys: Record<string, number>; reason: string | null };
 const pullTotal = (p: PullReq) => Object.values(p.qtys || {}).reduce((a, n) => a + (Number(n) || 0), 0);
@@ -192,7 +194,7 @@ export async function loadProductionBoard(sb: Sb): Promise<BoardStrip[]> {
 
   const { data: items } = await sb
     .from("items")
-    .select("id, job_id, name, mockup_color, garment_type, shipping_route, ship_final, sort_order, pipeline_stage, pipeline_timestamps, buy_sheet_lines(size, qty_ordered), decorator_assignments(decorator_id, decorators(name, short_code))")
+    .select("id, job_id, name, mockup_color, garment_type, shipping_route, ship_final, sort_order, pipeline_stage, pipeline_timestamps, expected_arrival, buy_sheet_lines(size, qty_ordered), decorator_assignments(decorator_id, decorators(name, short_code))")
     .in("job_id", Array.from(jobById.keys()));
   if (!items?.length) return [];
 
@@ -289,6 +291,7 @@ export async function loadProductionBoard(sb: Sb): Promise<BoardStrip[]> {
       shipWaves: shipWavesFrom(rawByItem.get(item.id) || []),
       pullRequests: pullsByItem.get(item.id) || [],
       daysInStage: daysInStageFrom(item.pipeline_timestamps, item.pipeline_stage),
+      expectedArrival: item.expected_arrival || null,
     });
   }
   // sort: soonest ship date first, then job number

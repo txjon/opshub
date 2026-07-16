@@ -32,6 +32,33 @@ function fmtShip(iso: string | null): { text: string; days: number | null; asap?
   return { text: `${MONTHS[(m || 1) - 1]} ${d}`, days: daysUntilDay(iso) };
 }
 
+// Per-ITEM delay edit (R3) — "this one item is delayed, the rest are on
+// track." Writes items.expected_arrival (the item-level arrival override the
+// chain honors), pushing that item's arrival + client ETA without touching
+// the strip's ship-by or its sibling items. Hidden for drop_ship (no HPD leg).
+function ItemDelayEdit({ it, onSaved }: { it: BoardItem; onSaved: () => void }) {
+  const [busy, setBusy] = useState(false);
+  if (it.route === "drop_ship") return null;
+  async function save(date: string) {
+    if (!date || busy) return;
+    setBusy(true);
+    const { error } = await (createClient().from("items") as any).update({ expected_arrival: date }).eq("id", it.itemId);
+    setBusy(false);
+    if (!error) onSaved();
+  }
+  return (
+    <label onClick={e => e.stopPropagation()}
+      title={it.expectedArrival
+        ? `This item's expected arrival at HPD (override) — click to change`
+        : "Item delayed? Set ITS expected arrival at HPD — siblings and the strip ship-by stay untouched"}
+      style={{ position: "relative", fontSize: 11, fontWeight: 600, fontFamily: mono, cursor: "pointer", opacity: busy ? 0.5 : 1, color: it.expectedArrival ? "#a87b00" : T.faint, whiteSpace: "nowrap" }}>
+      {busy ? "…" : it.expectedArrival ? `→HPD ${fmtShip(it.expectedArrival).text}` : "→HPD auto"}
+      <input type="date" value={it.expectedArrival || ""} onChange={e => save(e.target.value)}
+        style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer", width: "100%" }} />
+    </label>
+  );
+}
+
 // In-line ship-by edit (R3, locked 2026-07-15) — THE place a vendor delay is
 // recorded. Writes type_meta.po_ship_live[vendor] = {date, edited_at}; the
 // PO's agreed po_ship_dates is NEVER rewritten (PO keeps the plan). For a
@@ -217,6 +244,7 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
                             </span>
                           )}
                         </div>
+                        <ItemDelayEdit it={it} onSaved={() => router.refresh()} />
                         {heldQty(it) > 0 && (
                           <span title={it.pullRequests.map(p => `${tQty(p.qtys)} ${p.kind || "pull"}`).join(", ")}
                             style={{ fontSize: 11, fontWeight: 600, color: T.purple }}>{heldQty(it)} held</span>
