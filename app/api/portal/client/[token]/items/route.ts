@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { resolveItemStatus, clientItemStatus } from "@/lib/item-status";
+import { deriveDateChain } from "@/lib/date-chain";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -52,10 +53,25 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     //    this item's decorator? Used by the canonical status compute).
     const { data: items } = await db
       .from("items")
-      .select("id, job_id, name, garment_type, mockup_color, blank_vendor, blank_sku, pipeline_stage, received_at_hpd, blanks_order_cost, sell_per_unit, client_retail_per_unit, notes, design_id, created_at, sort_order, client_eta, client_eta_note, archived_at, completed_at, shipping_route, forwarded_at, decorator_assignments(decorators(name, short_code)), buy_sheet_lines(size, qty_ordered)")
+      .select("id, job_id, name, garment_type, mockup_color, blank_vendor, blank_sku, pipeline_stage, received_at_hpd, blanks_order_cost, sell_per_unit, client_retail_per_unit, notes, design_id, created_at, sort_order, client_eta, client_eta_note, archived_at, completed_at, shipping_route, forwarded_at, expected_arrival, decorator_assignments(decorators(name, short_code, lead_time_days, transit_defaults)), buy_sheet_lines(size, qty_ordered)")
       .in("job_id", jobIds)
       .order("created_at", { ascending: false });
     const itemIds = (items || []).map((i: any) => i.id);
+
+    // 3b. Live box arrivals — the receiving-side chain override. For each item
+    //     with an un-received box, the latest box ETA wins over derivation.
+    const boxArrivalByItem: Record<string, string> = {};
+    if (itemIds.length > 0) {
+      const { data: openLines } = await db
+        .from("shipment_lines")
+        .select("item_id, received, shipments(expected_arrival, status)")
+        .in("item_id", itemIds).eq("received", false);
+      for (const l of (openLines || [])) {
+        const ea = (l as any).shipments?.expected_arrival;
+        if (!ea) continue;
+        if (!boxArrivalByItem[l.item_id] || ea > boxArrivalByItem[l.item_id]) boxArrivalByItem[l.item_id] = ea;
+      }
+    }
 
     // Pre-compute the lower-cased po_sent_vendors set per job so the
     // per-item check stays cheap inside the map() below.
@@ -201,6 +217,34 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         thumb_id: thumbByItem[it.id] || null,
         created_at: it.created_at,
         client_eta: it.client_eta || null,
+        // The chain-resolved ETA (locked 2026-07-15): manual client_eta wins,
+        // else derives PO ship-by (+ live slips) + vendor transit + route
+        // buffer, with un-received box ETAs as the arrival override. Null =
+        // TBD — the portal never shows a guessed date (R5).
+        ...(() => {
+          const assignment = it.decorator_assignments?.[0];
+          const dec = assignment?.decorators || null;
+          const tm = (job.type_meta || {}) as any;
+          const keys = [dec?.name, dec?.short_code].filter(Boolean).map((s: string) => s.toLowerCase().trim());
+          const findKey = (map: any): string | null => {
+            if (!map) return null;
+            for (const k of Object.keys(map)) if (keys.includes(k.toLowerCase().trim())) return k;
+            return null;
+          };
+          const agreedKey = findKey(tm.po_ship_dates), liveKey = findKey(tm.po_ship_live), methodKey = findKey(tm.po_ship_methods), sentKey = findKey(tm.po_sent_dates);
+          const chain = deriveDateChain({
+            route: (it.shipping_route || job.shipping_route || "ship_through") as any,
+            lead: dec?.lead_time_days ?? null,
+            transitDefaults: dec?.transit_defaults || null,
+            shipMethod: methodKey ? tm.po_ship_methods[methodKey] : null,
+            poSentDate: sentKey ? tm.po_sent_dates[sentKey] : null,
+            shipByAgreed: agreedKey ? tm.po_ship_dates[agreedKey] : null,
+            shipByLive: liveKey ? tm.po_ship_live[liveKey]?.date : null,
+            arrivalOverride: boxArrivalByItem[it.id] || it.expected_arrival || null,
+            clientEtaOverride: it.client_eta || null,
+          });
+          return { eta: chain.clientEta, eta_source: chain.etaSource };
+        })(),
         client_eta_note: it.client_eta_note || null,
         archived_at: it.archived_at || null,
         // Financial fields — same as the internal worksheet. Cost is

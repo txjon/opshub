@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sortSizes } from "@/lib/theme";
 import { resolveItemStatus, clientItemStatus, type ItemState } from "@/lib/item-status";
+import { deriveDateChain } from "@/lib/date-chain";
 // Client Hub per-order detail.
 // Mirrors /api/portal/[token] (the old per-job portal) but auth'd via the
 // client's portal_token + verifies the jobId belongs to that client.
@@ -86,10 +87,28 @@ export async function GET(
     const { data: items } = await sb
       .from("items")
       .select(
-        "id, name, sell_per_unit, pipeline_stage, sort_order, artwork_status, ship_qtys, received_qtys, blank_vendor, blank_sku, ship_tracking, forward_tracking, archived_at, completed_at, received_at_hpd, blanks_order_cost, shipping_route, forwarded_at, client_eta, client_eta_note, decorator_assignments(decorators(name, short_code)), buy_sheet_lines(qty_ordered)"
+        "id, name, sell_per_unit, pipeline_stage, sort_order, artwork_status, ship_qtys, received_qtys, blank_vendor, blank_sku, ship_tracking, forward_tracking, archived_at, completed_at, received_at_hpd, blanks_order_cost, shipping_route, forwarded_at, client_eta, client_eta_note, expected_arrival, decorator_assignments(decorators(name, short_code, lead_time_days, transit_defaults)), buy_sheet_lines(qty_ordered)"
       )
       .eq("job_id", job.id)
       .order("sort_order");
+
+    // Live box arrivals — receiving-side chain override for the per-item ETA
+    // (mirrors the items endpoint).
+    const boxArrivalByItem: Record<string, string> = {};
+    {
+      const ids = (items || []).map((i: any) => i.id);
+      if (ids.length > 0) {
+        const { data: openLines } = await sb
+          .from("shipment_lines")
+          .select("item_id, received, shipments(expected_arrival)")
+          .in("item_id", ids).eq("received", false);
+        for (const l of (openLines || [])) {
+          const ea = (l as any).shipments?.expected_arrival;
+          if (!ea) continue;
+          if (!boxArrivalByItem[l.item_id] || ea > boxArrivalByItem[l.item_id]) boxArrivalByItem[l.item_id] = ea;
+        }
+      }
+    }
 
     // Pre-compute po_sent_vendors as a lowercased set so the per-item
     // canonical status resolver knows whether a PO has been sent for
@@ -372,9 +391,31 @@ export async function GET(
       // etaCutOff uses the INTERNAL status (in_stock = at HPD, ETA is moot);
       // the client only ever sees the collapsed status (locked model).
       const etaCutOff = status === "in_stock" || status === "complete" || status === "archived" || status === "cancelled";
-      const etaDate = etaCutOff
-        ? null
-        : (item.client_eta || job.target_ship_date || null);
+      // Chain-resolved ETA (locked 2026-07-15): client_eta override > derived
+      // (PO ship-by + live slips + vendor transit + route buffer, box ETA as
+      // arrival override) > null=TBD. in-hands is a note, not an ETA source.
+      const etaDate = etaCutOff ? null : (() => {
+        const dec = item.decorator_assignments?.[0]?.decorators || null;
+        const tm = (job.type_meta || {}) as any;
+        const keys = [dec?.name, dec?.short_code].filter(Boolean).map((s: string) => s.toLowerCase().trim());
+        const findKey = (map: any): string | null => {
+          if (!map) return null;
+          for (const k of Object.keys(map)) if (keys.includes(k.toLowerCase().trim())) return k;
+          return null;
+        };
+        const aK = findKey(tm.po_ship_dates), lK = findKey(tm.po_ship_live), mK = findKey(tm.po_ship_methods), sK = findKey(tm.po_sent_dates);
+        return deriveDateChain({
+          route: (item.shipping_route || job.shipping_route || "ship_through") as any,
+          lead: dec?.lead_time_days ?? null,
+          transitDefaults: dec?.transit_defaults || null,
+          shipMethod: mK ? tm.po_ship_methods[mK] : null,
+          poSentDate: sK ? tm.po_sent_dates[sK] : null,
+          shipByAgreed: aK ? tm.po_ship_dates[aK] : null,
+          shipByLive: lK ? tm.po_ship_live[lK]?.date : null,
+          arrivalOverride: boxArrivalByItem[item.id] || item.expected_arrival || null,
+          clientEtaOverride: item.client_eta || null,
+        }).clientEta;
+      })();
       const eta_tbd = !etaCutOff && !etaDate;
       return {
         id: item.id,

@@ -171,13 +171,20 @@ export default function JobsPage() {
     return pcts[phase] || 0;
   };
 
-  // Project ship date = earliest PO ship date among vendors that still
-  // have UNSHIPPED items. A vendor whose items all shipped already has
-  // no remaining commitment, so their date doesn't drive the project's
-  // next deadline. Falls back to legacy in_hands_date / show_date when
-  // no PO ship dates are set yet.
+  // Project date chip (locked 2026-07-15): the requested in-hands date when
+  // deliberately set (it's a promise), else the earliest LIVE ship-by among
+  // vendors that still have UNSHIPPED items (po_ship_live slip wins over the
+  // agreed PO date). A vendor whose items all shipped has no remaining
+  // commitment. Legacy in_hands_date / show_date remain the last fallback.
   const getInHandsDate = (job: Job) => {
-    const poDates = (job.type_meta?.po_ship_dates || {}) as Record<string, string>;
+    if ((job as any).target_ship_date) return (job as any).target_ship_date as string;
+    const agreed = (job.type_meta?.po_ship_dates || {}) as Record<string, string>;
+    const liveMap = ((job.type_meta as any)?.po_ship_live || {}) as Record<string, { date?: string }>;
+    const poDates: Record<string, string> = { ...agreed };
+    for (const [v, d] of Object.entries(agreed)) {
+      const live = liveMap[v]?.date;
+      if (d !== "ASAP" && live) poDates[v] = live;
+    }
     const items = (job as any).items || [];
     const costProds = (job as any).costing_data?.costProds || [];
     const cpById: Record<string, any> = {};

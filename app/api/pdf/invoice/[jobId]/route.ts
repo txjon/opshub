@@ -323,11 +323,10 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     // Est ship date = latest per-item client_eta. The old
     // jobs.target_ship_date is now Drake's internal "requested
     // in-hands date" and stays off client-facing surfaces. Client
-    // expects to receive everything by the latest ETA, so MAX is
-    // the conservative single date for the invoice header.
-    const itemEtas = (items || []).map((it: any) => it.client_eta).filter(Boolean) as string[];
-    itemEtas.sort();
-    const latestEta = itemEtas.length ? itemEtas[itemEtas.length - 1] : null;
+    // D4 (locked 2026-07-15, same rule as the quote PDF): the Est-ship line
+    // exists ONLY when the requested in-hands date was deliberately set, and
+    // shows that date. Blank in-hands = no line (no invented promise).
+    const latestEta = job.target_ship_date || null;
 
     const branding = await getPdfBranding();
     const html = renderInvoiceHTML({

@@ -21,6 +21,8 @@ type Item = {
   thumb_id: string | null;
   created_at: string;
   client_eta: string | null;
+  eta: string | null;                       // chain-resolved (override or derived); null = TBD
+  eta_source: "override" | "derived" | null;
   client_eta_note: string | null;
   archived_at: string | null;
   cost: number | null;
@@ -109,8 +111,10 @@ function resolveItemEta(it: Item): { date: string; isOverride: boolean } | null 
   if (it.status === "in_stock" || it.status === "complete" || it.status === "archived" || it.status === "cancelled") {
     return null;
   }
-  if (it.client_eta) return { date: it.client_eta, isOverride: true };
-  if (it.job.target_ship_date) return { date: it.job.target_ship_date, isOverride: false };
+  // The API resolves the chain (client_eta override > derived from PO ship-by
+  // + vendor transit + route buffer > null=TBD). in-hands (target_ship_date)
+  // is an internal note and no longer an ETA source (locked 2026-07-15).
+  if (it.eta) return { date: it.eta, isOverride: it.eta_source === "override" };
   return null;
 }
 
