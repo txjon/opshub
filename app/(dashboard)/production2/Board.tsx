@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { daysUntilDay } from "@/lib/dates";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 import { DriveThumb } from "@/components/DriveThumb";
-import { BoardFrame, ToggleSearch, KpiStrip, KpiBreakdownModal, ModalShell, Card, CardHeader, BoxHead, BoxMeta, ItemRow, RowMenu, VariantChips, RouteTag, ItemThumb, SegmentControl, SliceSortRow } from "@/components/board-kit";
+import { BoardFrame, ToggleSearch, KpiStrip, KpiBreakdownModal, ModalShell, Card, CardHeader, BoxHead, BoxMeta, ItemRow, RowMenu, RouteTag, ItemThumb, SegmentControl, SliceSortRow } from "@/components/board-kit";
 import { shipFromProduction } from "@/lib/production2-ship";
 import { createPullRequest, PULL_KINDS } from "@/lib/handoff";
 import { closeShort } from "@/lib/production2-close";
@@ -637,7 +637,7 @@ function ShippedBoxCard({ box }: { box: ShippedBox }) {
       <BoxMeta segments={noteSegs} />
       {lines.map((l, i) => (
         <div key={i} style={{ padding: "10px 16px", borderTop: `1px solid ${T.border}` }}>
-          <ItemRow fileId={l.mockupFileId} name={l.itemName} lead={l.invoiceNumber ? `${l.client} · #${l.invoiceNumber}` : l.client} route={box.route} variant={<VariantChips qtys={l.qtys} />} qty={l.qty} />
+          <ItemRow fileId={l.mockupFileId} name={l.itemName} lead={l.invoiceNumber ? `${l.client} · #${l.invoiceNumber}` : l.client} route={box.route} qty={l.qty} />
         </div>
       ))}
     </Card>
@@ -668,7 +668,7 @@ function ShippedJobView({ boxes }: { boxes: ShippedBox[] }) {
             <div key={j} style={{ padding: "10px 16px", borderTop: `1px solid ${T.border}` }}>
               <ItemRow fileId={l.mockupFileId} name={l.itemName} route={l.box.route}
                 sub={<div style={{ fontSize: 11, color: T.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.box.vendorName} · {shipHow(l.box)}</div>}
-                variant={<VariantChips qtys={l.qtys} />} qty={l.qty} />
+                qty={l.qty} />
             </div>
           ))}
         </Card>
@@ -685,7 +685,7 @@ function ShippedItemView({ boxes }: { boxes: ShippedBox[] }) {
         <div key={i} style={{ borderTop: i === 0 ? "none" : `1px solid ${T.border}`, padding: "10px 16px" }}>
           <ItemRow fileId={l.mockupFileId} name={l.itemName} lead={l.invoiceNumber ? `${l.client} · #${l.invoiceNumber}` : l.client} route={l.box.route}
             sub={<div style={{ fontSize: 11, color: T.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.box.vendorName}</div>}
-            variant={<VariantChips qtys={l.qtys} />} qty={l.qty} />
+            qty={l.qty} />
         </div>
       ))}
     </Card>
