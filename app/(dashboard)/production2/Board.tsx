@@ -257,7 +257,6 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
                   {strip.items.map((it, idx) => {
                     const checked = sel.has(it.itemId);
                     const blocked = selVendor !== null && it.decoratorId !== selVendor && !checked;
-                    const dCol = it.daysInStage == null ? T.faint : it.daysInStage >= 7 ? T.red : it.daysInStage >= 3 ? T.amber : T.faint;
                     return (
                       <label key={it.itemId}
                         style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", borderTop: `1px solid ${T.border}`, cursor: blocked ? "not-allowed" : "pointer", opacity: blocked ? 0.4 : 1, background: "transparent", boxShadow: checked ? `inset 3px 0 0 0 ${T.text}` : "none" }}>
@@ -294,9 +293,6 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
                           <button onClick={e => { e.preventDefault(); e.stopPropagation(); setCloseFor({ ...it, strip }); }}
                             title={`Close short — book the ${it.owedTotal} owed as a shortage`}
                             style={{ fontSize: 11, fontWeight: 600, color: T.red, background: "none", border: `1px solid ${T.border}`, borderRadius: 7, padding: "5px 11px", cursor: "pointer" }}>Close short</button>
-                        )}
-                        {it.daysInStage != null && (
-                          <span style={{ fontFamily: mono, fontSize: 11, fontWeight: 600, color: dCol, minWidth: 26, textAlign: "right" }}>{it.daysInStage}d</span>
                         )}
                         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", minWidth: 56 }}>
                           <span style={{ fontFamily: mono, fontSize: 14, fontWeight: 700 }}>{it.owedTotal}</span>
