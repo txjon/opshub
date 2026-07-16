@@ -87,6 +87,11 @@ function ShipByEdit({ strip, onSaved }: { strip: BoardStrip; onSaved: () => void
   // override — the old ship-by being past isn't actionable anymore, each
   // item already has a known new date (Jon's call, 2026-07-15).
   const allRescheduled = strip.items.length > 0 && strip.items.every(i => i.expectedArrival);
+  // the strip's true rescheduled date = the latest recorded item arrival —
+  // the box isn't done until its slowest item (Jon, 2026-07-16)
+  const rescheduledTo = allRescheduled
+    ? strip.items.map(i => i.expectedArrival as string).sort()[strip.items.length - 1]
+    : null;
   const isLate = ship.days != null && ship.days < 0;
   const color = ship.asap ? T.amber : ship.days == null ? T.faint
     : isLate ? (allRescheduled ? T.amber : T.red)
@@ -107,8 +112,8 @@ function ShipByEdit({ strip, onSaved }: { strip: BoardStrip; onSaved: () => void
       {slipped && <span style={{ fontSize: 10, fontWeight: 800, color: T.amber }} title={`PO plan: ${strip.shipDateAgreed}`}>slipped</span>}
       <label title={strip.poShipKey ? "Ship-by — click to edit (vendor delay lands here; the PO keeps its original date)" : "No PO vendor to attach a date to"}
         style={{ fontSize: 13, fontWeight: 700, color, cursor: strip.poShipKey ? "pointer" : "default", opacity: busy ? 0.5 : 1 }}>
-        {busy ? "…" : (isLate && allRescheduled)
-          ? <><span style={{ textDecoration: "line-through", color: T.faint, fontWeight: 600 }}>{ship.text}</span> · rescheduled</>
+        {busy ? "…" : (isLate && rescheduledTo)
+          ? <><span style={{ textDecoration: "line-through", color: T.faint, fontWeight: 600 }}>{ship.text}</span> · {fmtShip(rescheduledTo).text}</>
           : <>{ship.text}{isLate ? " · late" : ""}</>}
         {strip.poShipKey && (
           <input type="date" value={strip.shipDate && strip.shipDate !== "ASAP" ? strip.shipDate : ""}
