@@ -54,6 +54,7 @@ export default function Board({ boxes, pulls }: { boxes: ReceivingBox[]; pulls: 
   const [query, setQuery] = useState("");
   const [kpi, setKpi] = useState<MetricKey | null>(null);
   const [receiveBox, setReceiveBox] = useState<ReceivingBox | null>(null);
+  const [etaFor, setEtaFor] = useState<ReceivingBox | null>(null);
   const [editFor, setEditFor] = useState<{ line: ReceivingLine; box: ReceivingBox; mode: EditMode } | null>(null);
   const [historyFor, setHistoryFor] = useState<ReceivingLine | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
@@ -133,7 +134,7 @@ export default function Board({ boxes, pulls }: { boxes: ReceivingBox[]; pulls: 
 
         {view === "shipment" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            {display.map(box => <BoxCard key={box.id} box={box} status={status} onReceive={() => setReceiveBox(box)} acts={acts} />)}
+            {display.map(box => <BoxCard key={box.id} box={box} status={status} onReceive={() => setReceiveBox(box)} onAdjustEta={setEtaFor} acts={acts} />)}
           </div>
         )}
         {view === "job" && <JobView boxes={display} status={status} onReceive={setReceiveBox} acts={acts} />}
@@ -145,6 +146,8 @@ export default function Board({ boxes, pulls }: { boxes: ReceivingBox[]; pulls: 
         onClose={() => setKpi(null)} />}
       {receiveBox && <ReceiveModal box={receiveBox} onClose={() => setReceiveBox(null)}
         onDone={() => { setReceiveBox(null); router.refresh(); }} />}
+      {etaFor && <AdjustEtaModal box={etaFor} onClose={() => setEtaFor(null)}
+        onDone={() => { setEtaFor(null); router.refresh(); }} />}
       {editFor && <EditLineModal line={editFor.line} box={editFor.box} mode={editFor.mode} onClose={() => setEditFor(null)}
         onDone={() => { setEditFor(null); router.refresh(); }} />}
       {historyFor && <LedgerHistory itemId={historyFor.itemId} itemName={historyFor.itemName} onClose={() => setHistoryFor(null)} />}
@@ -225,55 +228,74 @@ function boxMetaSegs(box: ReceivingBox, status: Status): { text: string; tone?: 
   if (jobs > 1) segs.push({ text: `${jobs} jobs`, tone: T.blue });
   if (partials > 0 && status !== "received") segs.push({ text: `${partials} partial`, tone: "#a87b00" });
   if (shorts > 0) segs.push({ text: `${shorts} short`, tone: "#a87b00" });
-  // ETA moved out of the meta segs — it's now the in-line editable row on the
-  // card (ArrivalEtaEdit), the receiving-side edit point of the date chain (R3).
+  // ETA in the header meta: real date plain, derived (ship day + vendor
+  // transit) marked with ~. Adjusted via the card's ⋯ menu (R3 edit point).
+  if (box.expectedArrival && status !== "received") segs.push({ text: `ETA ${box.etaDerived ? "~" : ""}${fmtDay(box.expectedArrival)}`, tone: box.etaDerived ? undefined : "#a87b00" });
   segs.push({ text: `${box.lines.length} item${box.lines.length > 1 ? "s" : ""} · ${boxUnits(box, status)} units` });
   if (status === "incoming" && toReceive > 0) segs.push({ text: `${toReceive} to receive`, tone: "#a87b00" });
   return segs;
 }
 
-// In-line arrival edit (R3, locked 2026-07-15) — THE receiving-side edit point
-// of the date chain. A transit delay is recorded HERE, on the box: writes
-// shipments.expected_arrival; the vendor ship-by upstream never moves; the
-// client ETA downstream re-derives on read. "~" marks a derived ETA (box
-// shipped without one → ship day + vendor transit default).
-function ArrivalEtaEdit({ box }: { box: ReceivingBox }) {
-  const router = useRouter();
+// "Adjust ETA" modal (R3, locked 2026-07-15) — THE receiving-side edit point
+// of the date chain, opened from the box card's ⋯ menu (same pattern as
+// production2's Adjust date). Writes shipments.expected_arrival: a transit
+// delay lands here; the vendor ship-by upstream never moves; client ETAs
+// downstream re-derive. Clearing falls back to the derived schedule.
+function AdjustEtaModal({ box, onClose, onDone }: { box: ReceivingBox; onClose: () => void; onDone: () => void }) {
+  const [date, setDate] = useState(box.expectedArrival && !box.etaDerived ? box.expectedArrival : "");
   const [busy, setBusy] = useState(false);
-  if (box.allReceived) return null;
-  async function save(date: string) {
-    if (!date || busy) return;
-    setBusy(true);
-    const { error } = await (createClient().from("shipments") as any).update({ expected_arrival: date }).eq("id", box.id);
+  const [err, setErr] = useState<string | null>(null);
+  async function save(value: string | null) {
+    setBusy(true); setErr(null);
+    const { error } = await (createClient().from("shipments") as any).update({ expected_arrival: value }).eq("id", box.id);
     setBusy(false);
-    if (!error) router.refresh();
+    if (error) setErr(error.message); else onDone();
   }
   return (
-    <div style={{ padding: "6px 16px 0", display: "flex", gap: 8, alignItems: "center" }}>
-      <span style={{ fontSize: 10, fontWeight: 800, color: T.faint, textTransform: "uppercase", letterSpacing: 0.4 }}>ETA</span>
-      <label title="Expected arrival — click to edit (a transit delay lands here; ship-by upstream is untouched)"
-        style={{ position: "relative", fontSize: 12, fontWeight: 700, color: box.etaDerived ? T.muted : T.text, cursor: "pointer", opacity: busy ? 0.5 : 1 }}>
-        {busy ? "…" : box.expectedArrival ? `${box.etaDerived ? "~" : ""}${fmtDay(box.expectedArrival)}` : "set date"}
-        <input type="date" value={box.expectedArrival || ""} onChange={e => save(e.target.value)}
-          style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer", width: "100%" }} />
-      </label>
-      {box.etaDerived && <span style={{ fontSize: 10, color: T.faint }}>derived from ship day + transit — click to set the real date</span>}
-    </div>
+    <ModalShell onClose={onClose} maxWidth={440}>
+      <div style={{ padding: "18px 22px", borderBottom: `1px solid ${T.border}` }}>
+        <div style={{ fontSize: 16, fontWeight: 700 }}>Adjust ETA — {box.vendorName}</div>
+        <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>Expected arrival for this box. The vendor ship-by upstream stays untouched; client ETAs downstream re-derive from here.</div>
+      </div>
+      <div style={{ padding: "16px 22px", display: "flex", flexDirection: "column", gap: 10 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: 0.4 }}>Expected arrival</div>
+        <input type="date" value={date} onChange={e => setDate(e.target.value)}
+          style={{ fontFamily: mono, fontSize: 13, fontWeight: 700, padding: "8px 10px", border: `1px solid ${T.border}`, borderRadius: 7, background: T.surface, color: T.text, width: 180 }} />
+        <div style={{ fontSize: 11, color: T.muted }}>
+          {box.etaDerived
+            ? `Currently ~${fmtDay(box.expectedArrival)} — derived from ship day + the vendor's transit default.`
+            : box.expectedArrival ? `Currently ${fmtDay(box.expectedArrival)} (set on this box).` : "No ETA on this box yet."}
+        </div>
+        {err && <span style={{ fontSize: 12, color: T.red, fontWeight: 600 }}>{err}</span>}
+      </div>
+      <div style={{ padding: "14px 22px", borderTop: `1px solid ${T.border}`, display: "flex", gap: 10, justifyContent: "flex-end" }}>
+        {box.expectedArrival && !box.etaDerived && (
+          <button onClick={() => save(null)} disabled={busy}
+            style={{ fontSize: 12, fontWeight: 600, background: "none", border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 14px", cursor: "pointer", color: T.muted, marginRight: "auto" }}>Clear — back to derived</button>
+        )}
+        <button onClick={onClose} disabled={busy}
+          style={{ fontSize: 13, background: "none", border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 16px", cursor: "pointer", color: T.muted }}>Cancel</button>
+        <button onClick={() => date && save(date)} disabled={busy || !date}
+          style={{ fontSize: 13, fontWeight: 700, border: "none", borderRadius: 8, padding: "8px 18px", cursor: busy || !date ? "not-allowed" : "pointer", background: busy || !date ? T.accentDim : T.blue, color: busy || !date ? T.faint : "#fff" }}>{busy ? "Saving…" : "Save"}</button>
+      </div>
+    </ModalShell>
   );
 }
 
-function BoxCard({ box, status, onReceive, acts }: { box: ReceivingBox; status: Status; onReceive: () => void; acts?: LineActions }) {
+function BoxCard({ box, status, onReceive, onAdjustEta, acts }: { box: ReceivingBox; status: Status; onReceive: () => void; onAdjustEta?: (b: ReceivingBox) => void; acts?: LineActions }) {
   const received = status === "received";
   const tag = received ? "Received" : box.pickup ? "Pickup" : "Incoming";
   const tagColor = received ? T.green : box.pickup ? "#a87b00" : T.blue;
   const action = received
     ? <span style={{ fontSize: 13, fontWeight: 700, color: T.green }}>✓ received</span>
-    : <span onClick={onReceive} style={{ fontSize: 13, fontWeight: 700, color: T.text, cursor: "pointer" }}>Receive →</span>;
+    : <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+        <span onClick={onReceive} style={{ fontSize: 13, fontWeight: 700, color: T.text, cursor: "pointer" }}>Receive →</span>
+        {onAdjustEta && <RowMenu items={[{ label: "Adjust ETA", onClick: () => onAdjustEta(box) }]} />}
+      </span>;
   return (
     <Card>
       <BoxHead vendor={box.vendorName} tag={tag} tagColor={tagColor} method={boxHow(box)} slips={box.slips}
         when={fmtWhen(received ? box.receivedAt || box.createdAt : box.createdAt)} meta={boxMetaSegs(box, status)} action={action} />
-      {status === "incoming" && <ArrivalEtaEdit box={box} />}
       {box.note && <div style={{ padding: "8px 16px 0", fontSize: 12, color: T.muted }}><span style={{ fontWeight: 700 }}>Note:</span> {box.note}</div>}
       <ClientGroups box={box} status={status} acts={acts} />
     </Card>
