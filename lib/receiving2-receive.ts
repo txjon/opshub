@@ -124,6 +124,13 @@ export type ReceiveItemInput = {
   itemId: string; jobId: string; itemName: string;
   cumReceived: SizeQtys;    // item's prior cumulative received across boxes
   deliveredQtys: SizeQtys;  // what actually arrived in THIS box
+  // Partial receive (mirrors production's more-coming/final choice, Jon
+  // 2026-07-16): keepOpen = "rest of this item's cartons are still coming in
+  // THIS box" — the count books on the ledger but the line stays open so the
+  // box remains on Incoming. lineReceived = what this line already counted
+  // (prior partials), so the line's received_qtys accumulates.
+  keepOpen?: boolean;
+  lineReceived?: SizeQtys;
 };
 export type FulfillPullInput = { pullId: string; itemId: string; jobId: string; itemName: string; qtys: SizeQtys };
 export type NewPullInput = { itemId: string; jobId: string; itemName: string; qtys: SizeQtys; kind: string; reason: string | null };
@@ -152,10 +159,19 @@ export async function receiveBox(sb: any, args: {
         itemId: it.itemId, jobId: it.jobId, targetReceived: target,
         shipmentId: args.shipmentId, reason: args.note || null, description: it.itemName,
       });
-      await sb.from("shipment_lines").update({
-        received: true, received_at: now, received_qtys: delivered,
-        condition: args.condition || "good", notes: (args.note || "").trim() || null,
-      }).eq("shipment_id", args.shipmentId).eq("item_id", it.itemId);
+      const lineQtys = addQtys(it.lineReceived || {}, delivered);
+      if (it.keepOpen) {
+        // more coming: book the count, keep the line (and box) open
+        await sb.from("shipment_lines").update({
+          received: false, received_at: null, received_qtys: lineQtys,
+          condition: args.condition || "good", notes: (args.note || "").trim() || null,
+        }).eq("shipment_id", args.shipmentId).eq("item_id", it.itemId);
+      } else {
+        await sb.from("shipment_lines").update({
+          received: true, received_at: now, received_qtys: lineQtys,
+          condition: args.condition || "good", notes: (args.note || "").trim() || null,
+        }).eq("shipment_id", args.shipmentId).eq("item_id", it.itemId);
+      }
       await sb.from("items").update({
         receiving_data: { condition: args.condition || "good", notes: args.note || "", received_by: user?.id || null, received_by_email: user?.email || null, received_at: now },
       }).eq("id", it.itemId);

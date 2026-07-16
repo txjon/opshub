@@ -12,6 +12,14 @@ import type { ReceivingBox, ReceivingLine, HeldPull } from "@/lib/item-state";
 import { v2WriteAllowed } from "@/lib/v2-flags";
 
 const tQty = (q: Record<string, number>) => Object.values(q || {}).reduce((a, v) => a + (Number(v) || 0), 0);
+const subQtys = (a: Record<string, number>, b: Record<string, number>): Record<string, number> => {
+  const out: Record<string, number> = {};
+  for (const k of Array.from(new Set([...Object.keys(a || {}), ...Object.keys(b || {})]))) {
+    const v = (Number(a?.[k]) || 0) - (Number(b?.[k]) || 0);
+    if (v > 0) out[k] = v;
+  }
+  return out;
+};
 const chunk = <T,>(arr: T[], n: number): T[][] => Array.from({ length: Math.ceil(arr.length / n) }, (_, i) => arr.slice(i * n, i * n + n));
 const boxHow = (b: ReceivingBox) => b.pickup ? "Pickup" : [b.carrier, b.tracking].filter(Boolean).join(" · ") || "no tracking";
 // where a received item goes next, by route
@@ -210,6 +218,7 @@ function LineRow({ l, box, status, acts, showClient }: { l: ReceivingLine; box: 
   // ship isn't final — more is coming. Shown per line (left of the qty)
   // instead of an aggregate "N partial" in the header.
   const partial = !received && l.orderedTotal > 0 && tQty(l.shipQtys) < l.orderedTotal && !l.shipFinal;
+  const countedIn = !received ? tQty(l.receivedQtys) : 0; // partial receive in progress on this open line
   // stopPropagation: the whole incoming card is click-to-receive — the row's
   // ⋯ menu and its actions must not also fire the card click.
   const actions = (
@@ -220,7 +229,12 @@ function LineRow({ l, box, status, acts, showClient }: { l: ReceivingLine; box: 
     </span>
   );
   return <ItemRow fileId={l.mockupFileId} name={l.itemName} lead={showClient ? l.client : undefined} route={l.route}
-    variant={partial ? <div style={{ textAlign: "right", fontSize: 10, fontWeight: 800, letterSpacing: 0.4, textTransform: "uppercase", color: T.amber }} title={`${tQty(l.shipQtys)} of ${l.orderedTotal} ordered in this box — more coming`}>partial</div> : undefined}
+    variant={(partial || countedIn > 0) ? (
+      <div style={{ textAlign: "right", display: "flex", gap: 12, justifyContent: "flex-end", alignItems: "baseline" }}>
+        {countedIn > 0 && <span style={{ fontSize: 10, fontWeight: 800, fontFamily: mono, color: T.amber }} title="Counted in so far — the rest of this item is still coming in this box">{countedIn}/{tQty(l.shipQtys)} in</span>}
+        {partial && <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: 0.4, textTransform: "uppercase", color: T.amber }} title={`${tQty(l.shipQtys)} of ${l.orderedTotal} ordered in this box — more coming`}>partial</span>}
+      </div>
+    ) : undefined}
     qty={tQty(qtyOf(l, status))} actions={actions} />;
 }
 
@@ -510,7 +524,9 @@ const PULL_KIND_LABEL = (id: string) => PULL_KINDS.find(k => k.id === id)?.label
 function ReceiveModal({ box, onClose, onDone }: { box: ReceivingBox; onClose: () => void; onDone: () => void }) {
   const [delivered, setDelivered] = useState<Record<string, Record<string, number>>>(() => {
     const init: Record<string, Record<string, number>> = {};
-    for (const l of box.lines) init[l.itemId] = { ...l.shipQtys };
+    // default = what's still OUTSTANDING on this line (a prior partial receive
+    // leaves the line open with receivedQtys already counted)
+    for (const l of box.lines) init[l.itemId] = subQtys(l.shipQtys, l.receivedQtys);
     return init;
   });
   const [fulfil, setFulfil] = useState<Record<string, boolean>>(() => {
@@ -543,19 +559,20 @@ function ReceiveModal({ box, onClose, onDone }: { box: ReceivingBox; onClose: ()
     l.pullRequests.filter(p => fulfil[p.id]).reduce((a, p) => a + tQty(p.qtys), 0) + tQty(extraPull[l.itemId]?.qtys || {});
   const continuingOf = (l: ReceivingLine) => Math.max(0, tQty(delivered[l.itemId] || {}) - pulledOf(l));
 
-  async function receiveOne(l: ReceivingLine) {
+  async function receiveOne(l: ReceivingLine, keepOpen = false) {
     setBusyItem(l.itemId); setErr(null);
     const newPulls: any[] = [];
     const ep = extraPull[l.itemId];
     if (ep && tQty(ep.qtys) > 0) newPulls.push({ itemId: l.itemId, jobId: l.jobId, itemName: l.itemName, qtys: ep.qtys, kind: ep.kind, reason: (ep.reason || "").trim() || null });
     const res = await receiveBoxAction(createClient(), {
       shipmentId: box.id,
-      items: [{ itemId: l.itemId, jobId: l.jobId, itemName: l.itemName, cumReceived: l.cumReceived, deliveredQtys: delivered[l.itemId] || {} }],
+      items: [{ itemId: l.itemId, jobId: l.jobId, itemName: l.itemName, cumReceived: l.cumReceived, deliveredQtys: delivered[l.itemId] || {}, keepOpen, lineReceived: l.receivedQtys }],
       fulfillPulls: l.pullRequests.filter(p => fulfil[p.id]).map(p => ({ pullId: p.id, itemId: l.itemId, jobId: l.jobId, itemName: l.itemName, qtys: p.qtys })),
       newPulls,
     });
     setBusyItem(null);
     if (res.ok) {
+      if (keepOpen) { onDone(); return; } // count booked, line stays open — refresh the board
       const n = new Set(cleared); n.add(l.itemId); setCleared(n);
       if (box.lines.every(x => n.has(x.itemId))) onDone();
     } else setErr(res.error || "Receive failed.");
@@ -590,6 +607,11 @@ function ReceiveModal({ box, onClose, onDone }: { box: ReceivingBox; onClose: ()
           const ep = extraPull[l.itemId];
           const sizes = sortSizes(Object.keys(l.shipQtys));
           const busy = busyItem === l.itemId;
+          // outstanding = this line's shipped minus what a prior partial
+          // receive already counted (line left open via "more coming")
+          const outstanding = subQtys(l.shipQtys, l.receivedQtys);
+          const alreadyIn = tQty(l.receivedQtys);
+          const shortNow = tQty(delivered[l.itemId] || {}) < tQty(outstanding);
           return (
             <div key={l.itemId} style={{ border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 13px" }}>
               <div style={{ display: "flex", alignItems: "flex-start", gap: 11 }}>
@@ -597,11 +619,26 @@ function ReceiveModal({ box, onClose, onDone }: { box: ReceivingBox; onClose: ()
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13.5, fontWeight: 700 }}>{l.itemName}</div>
                   <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>{l.client}{l.invoiceNumber ? ` · #${l.invoiceNumber}` : ""}</div>
+                  {alreadyIn > 0 && <div style={{ fontSize: 11, fontWeight: 700, color: T.amber, marginTop: 2 }}>{alreadyIn} already counted — {tQty(outstanding)} still due in this box</div>}
                   <div style={{ marginTop: 5 }}><RouteTag route={l.route} /></div>
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 5 }}>
-                  <button onClick={() => receiveOne(l)} disabled={!isTest || busy}
-                    style={{ background: (!isTest || busy) ? T.accentDim : T.green, color: (!isTest || busy) ? T.faint : "#fff", border: "none", borderRadius: 7, padding: "7px 18px", fontSize: 13, fontWeight: 700, cursor: (!isTest || busy) ? "not-allowed" : "pointer" }}>{busy ? "…" : "Receive"}</button>
+                  {!shortNow ? (
+                    <button onClick={() => receiveOne(l)} disabled={!isTest || busy}
+                      style={{ background: (!isTest || busy) ? T.accentDim : T.green, color: (!isTest || busy) ? T.faint : "#fff", border: "none", borderRadius: 7, padding: "7px 18px", fontSize: 13, fontWeight: 700, cursor: (!isTest || busy) ? "not-allowed" : "pointer" }}>{busy ? "…" : "Receive"}</button>
+                  ) : (
+                    // counting short — mirror production's choice: is the rest
+                    // still coming (line stays open, box stays Incoming) or is
+                    // this everything (close short)?
+                    <>
+                      <button onClick={() => receiveOne(l, true)} disabled={!isTest || busy}
+                        title="Book this count; the rest of this item is still coming in this box — it stays on Incoming"
+                        style={{ background: T.card, color: T.amber, border: `1px solid ${T.amber}`, borderRadius: 7, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: (!isTest || busy) ? "not-allowed" : "pointer", whiteSpace: "nowrap" }}>{busy ? "…" : "Count in · more coming"}</button>
+                      <button onClick={() => receiveOne(l)} disabled={!isTest || busy}
+                        title="Book this count and close the line — the gap becomes a logged short"
+                        style={{ background: T.card, color: T.red, border: `1px solid ${T.red}`, borderRadius: 7, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: (!isTest || busy) ? "not-allowed" : "pointer", whiteSpace: "nowrap" }}>{busy ? "…" : "Count in · close short"}</button>
+                    </>
+                  )}
                   <span onClick={() => setExtraPull(p => ({ ...p, [l.itemId]: p[l.itemId] ? undefined : { qtys: {}, kind: PULL_KINDS[0].id, reason: "" } }))}
                     style={{ fontSize: 11, fontWeight: 600, color: ep ? T.purple : T.amber, cursor: "pointer" }}>{ep ? "− cancel pull" : "+ Pull"}</span>
                 </div>
@@ -614,9 +651,9 @@ function ReceiveModal({ box, onClose, onDone }: { box: ReceivingBox; onClose: ()
                 <div key={ci} style={{ marginTop: ci === 0 ? 11 : 8, display: "grid", gridTemplateColumns: `auto repeat(${szs.length}, 50px)`, columnGap: 8, rowGap: 4, alignItems: "center", width: "fit-content" }}>
                   <div />{szs.map(sz => <div key={sz} style={{ fontSize: 10, fontWeight: 800, color: T.faint, textAlign: "center", textTransform: "uppercase" }}>{sz}</div>)}
                   <div style={{ fontSize: 9, fontWeight: 800, color: T.faint, textTransform: "uppercase", letterSpacing: 0.3, paddingRight: 4 }}>In box</div>
-                  {szs.map(sz => <div key={sz} style={{ fontFamily: mono, fontSize: 12, color: T.muted, textAlign: "center" }}>{l.shipQtys[sz] ?? 0}</div>)}
+                  {szs.map(sz => <div key={sz} style={{ fontFamily: mono, fontSize: 12, color: T.muted, textAlign: "center" }}>{outstanding[sz] ?? 0}</div>)}
                   <div style={{ fontSize: 9, fontWeight: 800, color: T.faint, textTransform: "uppercase", letterSpacing: 0.3, paddingRight: 4 }}>Delivered</div>
-                  {szs.map(sz => { const got = delivered[l.itemId]?.[sz] ?? 0, want = l.shipQtys[sz] ?? 0; const c = got === want ? T.text : got < want ? T.amber : T.green;
+                  {szs.map(sz => { const got = delivered[l.itemId]?.[sz] ?? 0, want = outstanding[sz] ?? 0; const c = got === want ? T.text : got < want ? T.amber : T.green;
                     return <input key={sz} inputMode="numeric" value={got} onChange={e => setD(l.itemId, sz, e.target.value)} onFocus={e => e.target.select()}
                       style={{ width: 50, textAlign: "center", fontFamily: mono, fontSize: 13, fontWeight: 700, padding: "5px 4px", borderRadius: 5, border: `1px solid ${got === want ? T.border : c}`, color: c, background: T.card }} />; })}
                 </div>
