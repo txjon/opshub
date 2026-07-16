@@ -163,7 +163,15 @@ export type BoardStrip = {
   key: string;                 // jobId::decoratorId
   jobId: string; jobNumber: string; jobTitle: string; clientName: string;
   invoiceNumber: string | null; // QB invoice # (client-facing id, from type_meta)
-  jobRoute: Route; phase: string; priority: string | null; shipDate: string | null;
+  jobRoute: Route; phase: string; priority: string | null;
+  // The date-chain ship-by for THIS job×vendor strip (locked 2026-07-15):
+  // shipDate = live (mid-flight slip, type_meta.po_ship_live[vendor]) else the
+  // PO's agreed po_ship_dates[vendor] (may be "ASAP") else null = TBD.
+  // shipDateAgreed = the PO plan, kept for the slip badge. poShipKey = the
+  // exact vendor key in those type_meta maps (what the in-line edit writes to).
+  shipDate: string | null;
+  shipDateAgreed: string | null;
+  poShipKey: string | null;
   decoratorId: string | null; decoratorName: string; decoratorCode: string | null;
   items: BoardItem[];
 };
@@ -247,11 +255,27 @@ export async function loadProductionBoard(sb: Sb): Promise<BoardStrip[]> {
     const decoratorName = assign.decorators?.name || "Unassigned vendor";
     const key = `${item.job_id}::${decoratorId || "none"}`;
     if (!strips.has(key)) {
+      // chain ship-by for this job×vendor: live slip > agreed PO date > TBD.
+      // Vendor keys in type_meta maps come from the PO tab (printVendor label);
+      // match case-insensitively against every alias we know for the vendor.
+      const tm = job.type_meta || {};
+      const findVendorKey = (map: Record<string, any> | null | undefined): string | null => {
+        if (!map) return null;
+        for (const k of Object.keys(map)) if (vendorKeys.includes(k.toLowerCase().trim())) return k;
+        return null;
+      };
+      const agreedKey = findVendorKey(tm.po_ship_dates);
+      const liveKey = findVendorKey(tm.po_ship_live);
+      const agreed: string | null = agreedKey ? tm.po_ship_dates[agreedKey] || null : null;
+      const live: string | null = liveKey ? tm.po_ship_live[liveKey]?.date || null : null;
       strips.set(key, {
         key, jobId: job.id, jobNumber: job.job_number, jobTitle: job.title,
         clientName: job.clients?.name || "—", invoiceNumber: job.type_meta?.qb_invoice_number || null,
         jobRoute, phase: job.phase,
-        priority: job.priority, shipDate: job.target_ship_date,
+        priority: job.priority,
+        shipDate: (live && live !== "ASAP") ? live : agreed,
+        shipDateAgreed: agreed,
+        poShipKey: agreedKey || cp?.printVendor || assign.decorators?.name || null,
         decoratorId, decoratorName, decoratorCode: assign.decorators?.short_code || null, items: [],
       });
     }

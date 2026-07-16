@@ -25,10 +25,48 @@ const tQty = (q: Record<string, number>) => Object.values(q || {}).reduce((a, v)
 const heldQty = (it: BoardItem) => it.pullRequests.reduce((a, p) => a + tQty(p.qtys), 0);
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-function fmtShip(iso: string | null): { text: string; days: number | null } {
-  if (!iso) return { text: "No ship date", days: null };
+function fmtShip(iso: string | null): { text: string; days: number | null; asap?: boolean } {
+  if (!iso) return { text: "Set ship-by", days: null };
+  if (iso === "ASAP") return { text: "ASAP", days: null, asap: true };
   const [, m, d] = iso.slice(0, 10).split("-").map(Number);
   return { text: `${MONTHS[(m || 1) - 1]} ${d}`, days: daysUntilDay(iso) };
+}
+
+// In-line ship-by edit (R3, locked 2026-07-15) — THE place a vendor delay is
+// recorded. Writes type_meta.po_ship_live[vendor] = {date, edited_at}; the
+// PO's agreed po_ship_dates is NEVER rewritten (PO keeps the plan). For a
+// strip with no PO date at all (pre-cutover) or an ASAP strip, this same edit
+// is where the real date lands and the chain derives forward from it.
+function ShipByEdit({ strip, onSaved }: { strip: BoardStrip; onSaved: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const ship = fmtShip(strip.shipDate);
+  const slipped = strip.shipDate && strip.shipDateAgreed && strip.shipDateAgreed !== "ASAP" && strip.shipDate !== strip.shipDateAgreed;
+  const color = ship.asap ? "#a87b00" : ship.days == null ? T.faint : ship.days < 0 ? T.red : ship.days <= 3 ? "#a87b00" : T.text;
+  async function save(date: string) {
+    if (!date || !strip.poShipKey || busy) return;
+    setBusy(true);
+    const sb = createClient();
+    const { data: job } = await sb.from("jobs").select("type_meta").eq("id", strip.jobId).single();
+    const tm: any = { ...((job as any)?.type_meta || {}) };
+    tm.po_ship_live = { ...(tm.po_ship_live || {}), [strip.poShipKey]: { date, edited_at: new Date().toISOString() } };
+    const { error } = await (sb.from("jobs") as any).update({ type_meta: tm }).eq("id", strip.jobId);
+    setBusy(false);
+    if (!error) onSaved();
+  }
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, minWidth: 78, justifyContent: "flex-end", position: "relative" }}>
+      {slipped && <span style={{ fontSize: 10, fontWeight: 800, color: "#a87b00" }} title={`PO plan: ${strip.shipDateAgreed}`}>slipped</span>}
+      <label title={strip.poShipKey ? "Ship-by — click to edit (vendor delay lands here; the PO keeps its original date)" : "No PO vendor to attach a date to"}
+        style={{ fontSize: 13, fontWeight: 700, color, cursor: strip.poShipKey ? "pointer" : "default", opacity: busy ? 0.5 : 1 }}>
+        {busy ? "…" : ship.text}{ship.days != null && ship.days < 0 ? " · late" : ""}
+        {strip.poShipKey && (
+          <input type="date" value={strip.shipDate && strip.shipDate !== "ASAP" ? strip.shipDate : ""}
+            onChange={e => save(e.target.value)}
+            style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer", width: "100%" }} />
+        )}
+      </label>
+    </span>
+  );
 }
 
 type SortKey = "ship" | "client" | "vendor";
@@ -141,8 +179,6 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {display.map(strip => {
             const stripUnits = strip.items.reduce((a, i) => a + i.owedTotal, 0);
-            const ship = fmtShip(strip.shipDate);
-            const shipColor = ship.days == null ? T.faint : ship.days < 0 ? T.red : ship.days <= 3 ? "#a87b00" : T.text;
             return (
               <Card key={strip.key}>
                 <CardHeader>
@@ -154,9 +190,7 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
                   <div style={{ flex: 1 }} />
                   <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{strip.decoratorName}</span>
                   <span style={{ fontFamily: mono, fontSize: 12, color: T.muted }}>{stripUnits}u</span>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: shipColor, minWidth: 78, textAlign: "right" }}>
-                    {ship.text}{ship.days != null && ship.days < 0 ? " · late" : ""}
-                  </span>
+                  <ShipByEdit strip={strip} onSaved={() => router.refresh()} />
                 </CardHeader>
 
                 {/* items */}
