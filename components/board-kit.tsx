@@ -59,7 +59,6 @@ export function BoardFrame({ title, children }: { title: string; children: React
       <div style={{ maxWidth: 1180, margin: "0 auto", padding: "28px 24px" }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 4 }}>
           <h1 style={{ fontSize: 26, fontWeight: 700, margin: 0, letterSpacing: -0.3 }}>{title}</h1>
-          <span style={{ fontSize: 12, color: T.faint }}>v2 · parallel dev</span>
         </div>
         {children}
       </div>
