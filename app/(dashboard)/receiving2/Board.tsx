@@ -206,6 +206,10 @@ function ReceivedTally({ l }: { l: ReceivingLine }) {
 // menu; incoming: box-level Receive→, so just the ⋯ menu here).
 function LineRow({ l, box, status, acts, showClient }: { l: ReceivingLine; box: ReceivingBox; status: Status; acts?: LineActions; showClient?: boolean }) {
   const received = status === "received";
+  // partial wave: this box carries less than the item's full order and the
+  // ship isn't final — more is coming. Shown per line (left of the qty)
+  // instead of an aggregate "N partial" in the header.
+  const partial = !received && l.orderedTotal > 0 && tQty(l.shipQtys) < l.orderedTotal && !l.shipFinal;
   // stopPropagation: the whole incoming card is click-to-receive — the row's
   // ⋯ menu and its actions must not also fire the card click.
   const actions = (
@@ -216,6 +220,7 @@ function LineRow({ l, box, status, acts, showClient }: { l: ReceivingLine; box: 
     </span>
   );
   return <ItemRow fileId={l.mockupFileId} name={l.itemName} lead={showClient ? l.client : undefined} route={l.route}
+    variant={partial ? <div style={{ textAlign: "right", fontSize: 10, fontWeight: 800, letterSpacing: 0.4, textTransform: "uppercase", color: "#a87b00" }} title={`${tQty(l.shipQtys)} of ${l.orderedTotal} ordered in this box — more coming`}>partial</div> : undefined}
     qty={tQty(qtyOf(l, status))} actions={actions} />;
 }
 
@@ -242,12 +247,10 @@ function boxMetaSegs(box: ReceivingBox, status: Status): { text: string; tone?: 
   // shipped < ordered splits by the final flag: NOT final = a real partial wave
   // (more coming), final = closed short → the gap is a SHORTAGE, not "more coming".
   const under = box.lines.filter(l => l.orderedTotal > 0 && tQty(l.shipQtys) < l.orderedTotal);
-  const partials = under.filter(l => !l.shipFinal).length;
   const shorts = under.filter(l => l.shipFinal).length;
   const toReceive = box.lines.filter(l => !l.received).length;
   const segs: { text: string; tone?: string }[] = [];
   if (jobs > 1) segs.push({ text: `${jobs} jobs`, tone: T.blue });
-  if (partials > 0 && status !== "received") segs.push({ text: `${partials} partial`, tone: "#a87b00" });
   if (shorts > 0) segs.push({ text: `${shorts} short`, tone: "#a87b00" });
   // ETA lives in the header chip; counts + to-receive left the header (locked
   // layout 2026-07-15 — "obvious when you look at the shipment"). Only the
