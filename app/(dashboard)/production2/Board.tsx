@@ -260,6 +260,14 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
                             </span>
                           )}
                         </div>
+                        {/* per-item date override chip — the visible result of ⋯ → Adjust
+                            date. Amber = this item runs on its own arrival, not the strip's. */}
+                        {it.expectedArrival && (
+                          <span title={`This item's expected arrival at HPD is overridden (⋯ → Adjust date to change or clear)`}
+                            style={{ fontSize: 11, fontWeight: 700, fontFamily: mono, color: "#a87b00", background: T.amberDim, border: `1px solid #a87b0055`, borderRadius: 6, padding: "3px 8px", whiteSpace: "nowrap" }}>
+                            → HPD {fmtShip(it.expectedArrival).text}
+                          </span>
+                        )}
                         {heldQty(it) > 0 && (
                           <span title={it.pullRequests.map(p => `${tQty(p.qtys)} ${p.kind || "pull"}`).join(", ")}
                             style={{ fontSize: 11, fontWeight: 600, color: T.purple }}>{heldQty(it)} held</span>
