@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 import { parseDay } from "@/lib/dates";
-import { BoardFrame, ToggleSearch, KpiStrip, KpiBreakdownModal, ModalShell, Card, CardHeader, BoxHead, ItemRow, RowMenu, VariantChips, RouteTag, ItemThumb, SegmentControl, SliceSortRow } from "@/components/board-kit";
+import { BoardFrame, ToggleSearch, KpiStrip, KpiBreakdownModal, ModalShell, Card, CardHeader, ItemRow, RowMenu, VariantChips, RouteTag, ItemThumb, SegmentControl, SliceSortRow } from "@/components/board-kit";
 import { receiveBox as receiveBoxAction, resolvePull, returnReceivedLine, editReceivedLine, editShippedLine, returnIncomingToProduction } from "@/lib/receiving2-receive";
 import { PULL_KINDS } from "@/lib/handoff";
 import LedgerHistory from "@/components/LedgerHistory";
@@ -27,19 +27,12 @@ function fmtDay(iso: string | null): string {
 type EditMode = "received" | "shipped";
 type LineActions = { onEdit: (l: ReceivingLine, b: ReceivingBox) => void; onEditShipped: (l: ReceivingLine, b: ReceivingBox) => void; onReturn: (l: ReceivingLine, b: ReceivingBox) => void; onReturnProd: (l: ReceivingLine, b: ReceivingBox) => void; onHistory: (l: ReceivingLine) => void; busyKey: string | null };
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-function fmtWhen(iso: string | null): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return "";
-  return `${MONTHS[d.getMonth()]} ${d.getDate()} · ${d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
-}
 
 type MetricKey = "boxes" | "units" | "items";
 type Metric = { boxes: number; units: number; items: number };
 const METRICS: { key: MetricKey; label: string }[] = [{ key: "boxes", label: "Boxes" }, { key: "units", label: "Units" }, { key: "items", label: "Items" }];
 type Status = "incoming" | "received" | "pulls";
 type ViewKey = "shipment" | "job" | "item";
-type SortKey = "date" | "vendor" | "client";
 type FlatLine = ReceivingLine & { box: ReceivingBox };
 
 // The qty a line shows depends on the tab: what to receive (shipped) vs what came in (received).
@@ -50,7 +43,8 @@ export default function Board({ boxes, pulls }: { boxes: ReceivingBox[]; pulls: 
   const router = useRouter();
   const [status, setStatus] = useState<Status>("incoming");
   const [view, setView] = useState<ViewKey>("shipment");
-  const [sort, setSort] = useState<SortKey>("date");
+  const [filterVendor, setFilterVendor] = useState("");
+  const [filterClient, setFilterClient] = useState("");
   const [query, setQuery] = useState("");
   const [kpi, setKpi] = useState<MetricKey | null>(null);
   const [receiveBox, setReceiveBox] = useState<ReceivingBox | null>(null);
@@ -77,19 +71,27 @@ export default function Board({ boxes, pulls }: { boxes: ReceivingBox[]; pulls: 
   const received = useMemo(() => boxes.filter(b => b.allReceived), [boxes]);
   const active = status === "incoming" ? incoming : status === "received" ? received : [];
 
+  const vendorOptions = useMemo(() => Array.from(new Set(active.map(b => b.vendorName))).sort(), [active]);
+  const clientOptions = useMemo(() => Array.from(new Set(active.flatMap(b => b.clients))).sort(), [active]);
+
   const display = useMemo(() => {
     const q = query.trim().toLowerCase();
-    let out = q ? active.filter(b =>
+    let out = active;
+    if (filterVendor) out = out.filter(b => b.vendorName === filterVendor);
+    if (filterClient) out = out.filter(b => b.clients.includes(filterClient));
+    if (q) out = out.filter(b =>
       b.vendorName.toLowerCase().includes(q) || (b.tracking || "").toLowerCase().includes(q) ||
       b.clients.some(c => c.toLowerCase().includes(q)) ||
-      b.lines.some(l => l.itemName.toLowerCase().includes(q) || (l.invoiceNumber || "").toLowerCase().includes(q))) : active;
-    const dateOf = (b: ReceivingBox) => (status === "received" ? b.receivedAt || b.createdAt : b.createdAt) || "";
+      b.lines.some(l => l.itemName.toLowerCase().includes(q) || (l.invoiceNumber || "").toLowerCase().includes(q)));
     out = [...out];
-    if (sort === "date") out.sort((a, b) => dateOf(b).localeCompare(dateOf(a)));
-    else if (sort === "vendor") out.sort((a, b) => a.vendorName.localeCompare(b.vendorName) || dateOf(b).localeCompare(dateOf(a)));
-    else out.sort((a, b) => (a.clients[0] || "").localeCompare(b.clients[0] || "") || dateOf(b).localeCompare(dateOf(a)));
+    // fixed sort: incoming = soonest ETA first (no ETA sinks, tie-break oldest
+    // ship first); received = latest received first.
+    if (status === "received") out.sort((a, b) => (b.receivedAt || b.createdAt || "").localeCompare(a.receivedAt || a.createdAt || ""));
+    else out.sort((a, b) =>
+      (a.expectedArrival || "9999").localeCompare(b.expectedArrival || "9999") ||
+      (a.createdAt || "").localeCompare(b.createdAt || ""));
     return out;
-  }, [active, query, sort, status]);
+  }, [active, query, filterVendor, filterClient, status]);
 
   const agg = useMemo(() => {
     const total: Metric = { boxes: active.length, units: 0, items: 0 };
@@ -123,7 +125,18 @@ export default function Board({ boxes, pulls }: { boxes: ReceivingBox[]; pulls: 
         <KpiStrip metrics={METRICS} get={k => agg.total[k]} onClick={setKpi} />
         <SliceSortRow>
           <SegmentControl options={[["shipment", "By shipment"], ["job", "By job"], ["item", "By item"]]} value={view} onChange={setView} />
-          <SegmentControl label="Sort" options={[["date", status === "received" ? "Received" : "Arrival"], ["vendor", "Vendor"], ["client", "Client"]]} value={sort} onChange={setSort} />
+          <div style={{ display: "flex", gap: 8 }}>
+            <select value={filterVendor} onChange={e => setFilterVendor(e.target.value)}
+              style={{ padding: "9px 14px", borderRadius: 12, border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 13, fontWeight: 700, fontFamily: font, outline: "none", cursor: "pointer" }}>
+              <option value="">All vendors</option>
+              {vendorOptions.map(v => <option key={v} value={v}>{v}</option>)}
+            </select>
+            <select value={filterClient} onChange={e => setFilterClient(e.target.value)}
+              style={{ padding: "9px 14px", borderRadius: 12, border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 13, fontWeight: 700, fontFamily: font, outline: "none", cursor: "pointer" }}>
+              <option value="">All clients</option>
+              {clientOptions.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
         </SliceSortRow>
 
         {display.length === 0 && (
@@ -190,23 +203,30 @@ function ReceivedTally({ l }: { l: ReceivingLine }) {
 
 // Receiving row → shared ItemRow. Actions differ by status (received: tally +
 // menu; incoming: box-level Receive→, so just the ⋯ menu here).
-function LineRow({ l, box, status, acts }: { l: ReceivingLine; box: ReceivingBox; status: Status; acts?: LineActions }) {
+function LineRow({ l, box, status, acts, showClient }: { l: ReceivingLine; box: ReceivingBox; status: Status; acts?: LineActions; showClient?: boolean }) {
   const received = status === "received";
-  const actions = received
-    ? <><ReceivedTally l={l} />{acts && <RowActions l={l} box={box} acts={acts} />}</>
-    : (acts && <IncomingActions l={l} box={box} acts={acts} />);
-  return <ItemRow fileId={l.mockupFileId} name={l.itemName} lead={l.client} route={l.route}
+  // stopPropagation: the whole incoming card is click-to-receive — the row's
+  // ⋯ menu and its actions must not also fire the card click.
+  const actions = (
+    <span onClick={e => e.stopPropagation()} style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+      {received
+        ? <><ReceivedTally l={l} />{acts && <RowActions l={l} box={box} acts={acts} />}</>
+        : (acts && <IncomingActions l={l} box={box} acts={acts} />)}
+    </span>
+  );
+  return <ItemRow fileId={l.mockupFileId} name={l.itemName} lead={showClient ? l.client : undefined} route={l.route}
     variant={<VariantChips qtys={qtyOf(l, status)} />} qty={tQty(qtyOf(l, status))} actions={actions} />;
 }
 
-// Flat item rows (client shown inline on each row — no separate client label strip).
-function ClientGroups({ box, status, acts }: { box: ReceivingBox; status: Status; acts?: LineActions }) {
+// Flat item rows. Item name leads; the client repeats on rows ONLY for a
+// multi-client box (single-client boxes headline the client in the card).
+function ClientGroups({ box, status, acts, multiClient }: { box: ReceivingBox; status: Status; acts?: LineActions; multiClient?: boolean }) {
   const lines = [...box.lines].sort((a, b) => a.client.localeCompare(b.client));
   return (
     <>
       {lines.map(l => (
         <div key={l.itemId} style={{ padding: "10px 16px", borderTop: `1px solid ${T.border}` }}>
-          <LineRow l={l} box={box} status={status} acts={acts} />
+          <LineRow l={l} box={box} status={status} acts={acts} showClient={multiClient} />
         </div>
       ))}
     </>
@@ -228,11 +248,10 @@ function boxMetaSegs(box: ReceivingBox, status: Status): { text: string; tone?: 
   if (jobs > 1) segs.push({ text: `${jobs} jobs`, tone: T.blue });
   if (partials > 0 && status !== "received") segs.push({ text: `${partials} partial`, tone: "#a87b00" });
   if (shorts > 0) segs.push({ text: `${shorts} short`, tone: "#a87b00" });
-  // ETA in the header meta: real date plain, derived (ship day + vendor
-  // transit) marked with ~. Adjusted via the card's ⋯ menu (R3 edit point).
-  if (box.expectedArrival && status !== "received") segs.push({ text: `ETA ${box.etaDerived ? "~" : ""}${fmtDay(box.expectedArrival)}`, tone: box.etaDerived ? undefined : "#a87b00" });
-  segs.push({ text: `${box.lines.length} item${box.lines.length > 1 ? "s" : ""} · ${boxUnits(box, status)} units` });
-  if (status === "incoming" && toReceive > 0) segs.push({ text: `${toReceive} to receive`, tone: "#a87b00" });
+  // ETA lives in the header chip; counts + to-receive left the header (locked
+  // layout 2026-07-15 — "obvious when you look at the shipment"). Only the
+  // flags above survive, as accents at the end of the detail line.
+  void toReceive; void boxUnits;
   return segs;
 }
 
@@ -282,23 +301,82 @@ function AdjustEtaModal({ box, onClose, onDone }: { box: ReceivingBox; onClose: 
   );
 }
 
+// Box card, laid out per Jon's mockup (locked 2026-07-15, layout artifact v3):
+// CLIENT is the headline; "from <vendor> · shipped <day> · tracking · slips"
+// is the quiet detail line; the right side stacks [ETA chip + ⋯] over a small
+// Receive button; the warehouse note is an amber bar. Counts left the header —
+// the rows say it. Operational flags (multi-job / partial / short) keep an
+// amber accent at the end of the detail line.
+const dayOf = (iso: string | null) => {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? "" : d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+};
 function BoxCard({ box, status, onReceive, onAdjustEta, acts }: { box: ReceivingBox; status: Status; onReceive: () => void; onAdjustEta?: (b: ReceivingBox) => void; acts?: LineActions }) {
   const received = status === "received";
+  // Button-less card (locked mockup v4): the WHOLE incoming card is the tap
+  // target — production's act-on-what-you-click gesture. ETA, slip links and
+  // the line ⋯ menus eat their own clicks; everything else opens the receive
+  // modal. Hover tints the card and brightens the flat "Receive →" cue (the
+  // cue stays faintly visible for touch, where hover doesn't exist).
+  const [hover, setHover] = useState(false);
+  const clickable = !received;
   const tag = received ? "Received" : box.pickup ? "Pickup" : "Incoming";
   const tagColor = received ? T.green : box.pickup ? "#a87b00" : T.blue;
-  const action = received
-    ? <span style={{ fontSize: 13, fontWeight: 700, color: T.green }}>✓ received</span>
-    : <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
-        <span onClick={onReceive} style={{ fontSize: 13, fontWeight: 700, color: T.text, cursor: "pointer" }}>Receive →</span>
-        {onAdjustEta && <RowMenu items={[{ label: "Adjust ETA", onClick: () => onAdjustEta(box) }]} />}
-      </span>;
+  const multiClient = box.clients.length > 1;
+  const headline = multiClient ? `${box.clients.length} clients` : (box.clients[0] || box.vendorName);
+  const flags = boxMetaSegs(box, status).filter(s => s.tone === "#a87b00" || s.tone === T.blue);
+  const sep = <span style={{ opacity: 0.6 }}>·</span>;
   return (
+    <div onClick={clickable ? onReceive : undefined}
+      onMouseEnter={() => clickable && setHover(true)} onMouseLeave={() => setHover(false)}
+      style={clickable ? { cursor: "pointer", borderRadius: 12, outline: hover ? `2px solid ${T.blueDim}` : "none", outlineOffset: -1 } : undefined}>
     <Card>
-      <BoxHead vendor={box.vendorName} tag={tag} tagColor={tagColor} method={boxHow(box)} slips={box.slips}
-        when={fmtWhen(received ? box.receivedAt || box.createdAt : box.createdAt)} meta={boxMetaSegs(box, status)} action={action} />
-      {box.note && <div style={{ padding: "8px 16px 0", fontSize: 12, color: T.muted }}><span style={{ fontWeight: 700 }}>Note:</span> {box.note}</div>}
-      <ClientGroups box={box} status={status} acts={acts} />
+      {/* two columns, vertically centered: left = client line + detail line
+          (tight); right = ETA + Receive cue. No dead vertical space. */}
+      <div style={{ padding: "9px 16px", background: clickable && hover ? T.blueDim : T.surface, borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 14, fontWeight: 800 }}>{headline}</span>
+            {/* flat uppercase color-text — Jon's standing rule: NO pill chips anywhere */}
+            <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: 0.5, textTransform: "uppercase", color: tagColor }}>{tag}</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 3, fontSize: 11.5, color: T.faint, flexWrap: "wrap" }}>
+            <span>from <span style={{ color: T.muted, fontWeight: 700 }}>{box.vendorName}</span></span>
+            {sep}<span>{received ? `received ${dayOf(box.receivedAt || box.createdAt)}` : `shipped ${dayOf(box.createdAt)}`}</span>
+            {!box.pickup && (box.carrier || box.tracking) && <>{sep}<span style={{ fontFamily: mono }}>{[box.carrier, box.tracking].filter(Boolean).join(" · ")}</span></>}
+            {box.slips.map((s, i) => (
+              <span key={i} style={{ display: "inline-flex", gap: 7 }}>{sep}
+                <a href={s.url} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} style={{ color: T.blue, fontWeight: 600, textDecoration: "none" }}>📎 slip</a>
+              </span>
+            ))}
+            {flags.map((f, i) => <span key={`f${i}`} style={{ display: "inline-flex", gap: 7 }}>{sep}<span style={{ color: f.tone, fontWeight: 800 }}>{f.text}</span></span>)}
+          </div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+          {received ? (
+            <span style={{ fontSize: 13, fontWeight: 700, color: T.green }}>✓ received</span>
+          ) : (<>
+            {/* editable-value convention: dotted underline = "click to edit",
+                visible on touch too. Eats the click — adjusts the date, not receive. */}
+            <span onClick={e => { e.stopPropagation(); onAdjustEta && onAdjustEta(box); }}
+              title="Expected arrival — click to adjust (~ = derived estimate)"
+              style={{ fontSize: 12.5, fontWeight: 800, cursor: "pointer", color: box.expectedArrival ? (box.etaDerived ? T.muted : "#a87b00") : T.faint, borderBottom: "1px dotted currentColor", paddingBottom: 1 }}>
+              {box.expectedArrival ? `ETA ${box.etaDerived ? "~" : ""}${fmtDay(box.expectedArrival)}` : "set ETA"}
+            </span>
+            <span style={{ fontSize: 12.5, fontWeight: 800, color: T.blue, whiteSpace: "nowrap", opacity: hover ? 1 : 0.45 }}>Receive →</span>
+          </>)}
+        </div>
+      </div>
+      {box.note && (
+        <div style={{ display: "flex", gap: 8, alignItems: "baseline", padding: "8px 16px", borderLeft: `3px solid #a87b00`, borderBottom: `1px solid ${T.border}`, fontSize: 12, color: T.text, lineHeight: 1.45 }}>
+          <span style={{ fontWeight: 800, color: "#a87b00", fontSize: 10, letterSpacing: 0.5, textTransform: "uppercase", flexShrink: 0 }}>Note</span>
+          <span>{box.note}</span>
+        </div>
+      )}
+      <ClientGroups box={box} status={status} acts={acts} multiClient={multiClient} />
     </Card>
+    </div>
   );
 }
 

@@ -118,7 +118,6 @@ function ShipByEdit({ strip, onSaved }: { strip: BoardStrip; onSaved: () => void
   );
 }
 
-type SortKey = "ship" | "client" | "vendor";
 type MetricKey = "items" | "units" | "embellishments";
 type Metric = { items: number; units: number; embellishments: number };
 const METRICS: { key: MetricKey; label: string }[] = [
@@ -135,7 +134,8 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
   const [closeFor, setCloseFor] = useState<SelItem | null>(null);
   const [adjustFor, setAdjustFor] = useState<SelItem | null>(null);
   const [query, setQuery] = useState("");
-  const [sort, setSort] = useState<SortKey>("ship");
+  const [filterVendor, setFilterVendor] = useState("");
+  const [filterClient, setFilterClient] = useState("");
   const [kpi, setKpi] = useState<MetricKey | null>(null);
 
   // KPI aggregates over the whole board (independent of the search filter).
@@ -161,23 +161,25 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
     return m;
   }, [strips]);
 
+  // Active vendor/client filter options — only names actually on the board.
+  const vendorOptions = useMemo(() => Array.from(new Set(strips.map(s => s.decoratorName))).sort(), [strips]);
+  const clientOptions = useMemo(() => Array.from(new Set(strips.map(s => s.clientName))).sort(), [strips]);
+
   const display = useMemo(() => {
     const q = query.trim().toLowerCase();
     let out = strips;
-    if (q) out = strips.filter(s =>
+    if (filterVendor) out = out.filter(s => s.decoratorName === filterVendor);
+    if (filterClient) out = out.filter(s => s.clientName === filterClient);
+    if (q) out = out.filter(s =>
       s.clientName.toLowerCase().includes(q) ||
       (s.invoiceNumber || "").toLowerCase().includes(q) ||
       s.jobNumber.toLowerCase().includes(q) ||
       s.decoratorName.toLowerCase().includes(q) ||
       s.items.some(it => it.name.toLowerCase().includes(q)));
-    const byShip = (a: BoardStrip, b: BoardStrip) =>
-      (a.shipDate || "9999").localeCompare(b.shipDate || "9999") || a.jobNumber.localeCompare(b.jobNumber);
-    const sorted = [...out];
-    if (sort === "ship") sorted.sort(byShip);
-    else if (sort === "client") sorted.sort((a, b) => a.clientName.localeCompare(b.clientName) || byShip(a, b));
-    else sorted.sort((a, b) => a.decoratorName.localeCompare(b.decoratorName) || byShip(a, b));
-    return sorted;
-  }, [strips, query, sort]);
+    // fixed sort: soonest ship-by first ("9999" = no date sinks to the bottom)
+    return [...out].sort((a, b) =>
+      (a.shipDate || "9999").localeCompare(b.shipDate || "9999") || a.jobNumber.localeCompare(b.jobNumber));
+  }, [strips, query, filterVendor, filterClient]);
 
   // Shipped view honors the same search box.
   const displayBoxes = useMemo(() => {
@@ -216,8 +218,17 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
         {view === "production" && (<>
         <KpiStrip metrics={METRICS} get={k => agg.total[k]} onClick={setKpi} />
 
-        <div style={{ display: "flex", marginBottom: 18, justifyContent: "flex-end" }}>
-          <SegmentControl label="Sort" options={[["ship", "Ship date"], ["client", "Client"], ["vendor", "Vendor"]]} value={sort} onChange={setSort} />
+        <div style={{ display: "flex", marginBottom: 18, justifyContent: "flex-end", gap: 8 }}>
+          <select value={filterVendor} onChange={e => setFilterVendor(e.target.value)}
+            style={{ padding: "9px 14px", borderRadius: 12, border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 13, fontWeight: 700, fontFamily: font, outline: "none", cursor: "pointer" }}>
+            <option value="">All vendors</option>
+            {vendorOptions.map(v => <option key={v} value={v}>{v}</option>)}
+          </select>
+          <select value={filterClient} onChange={e => setFilterClient(e.target.value)}
+            style={{ padding: "9px 14px", borderRadius: 12, border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 13, fontWeight: 700, fontFamily: font, outline: "none", cursor: "pointer" }}>
+            <option value="">All clients</option>
+            {clientOptions.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
         </div>
 
         {display.length === 0 && (
@@ -228,7 +239,6 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
 
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {display.map(strip => {
-            const stripUnits = strip.items.reduce((a, i) => a + i.owedTotal, 0);
             return (
               <Card key={strip.key}>
                 <CardHeader>
@@ -239,7 +249,6 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
                   <RouteTag route={strip.jobRoute} />
                   <div style={{ flex: 1 }} />
                   <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{strip.decoratorName}</span>
-                  <span style={{ fontFamily: mono, fontSize: 12, color: T.muted }}>{stripUnits}u</span>
                   <ShipByEdit strip={strip} onSaved={() => router.refresh()} />
                 </CardHeader>
 
@@ -271,7 +280,7 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
                             date. Amber = this item runs on its own arrival, not the strip's. */}
                         {it.expectedArrival && (
                           <span title={`This item's expected arrival at HPD is overridden (⋯ → Adjust date to change or clear)`}
-                            style={{ fontSize: 11, fontWeight: 700, fontFamily: mono, color: "#a87b00", background: T.amberDim, border: `1px solid #a87b0055`, borderRadius: 6, padding: "3px 8px", whiteSpace: "nowrap" }}>
+                            style={{ fontSize: 11, fontWeight: 800, fontFamily: mono, color: "#a87b00", whiteSpace: "nowrap" }}>
                             → HPD {fmtShip(it.expectedArrival).text}
                           </span>
                         )}
