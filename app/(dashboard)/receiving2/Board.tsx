@@ -365,7 +365,6 @@ function BoxCard({ box, status, onReceive, onAdjustEta, acts }: { box: Receiving
               style={{ fontSize: 12.5, fontWeight: 800, cursor: "pointer", color: box.expectedArrival ? (box.etaDerived ? T.muted : "#a87b00") : T.faint, borderBottom: "1px dotted currentColor", paddingBottom: 1 }}>
               {box.expectedArrival ? `ETA ${box.etaDerived ? "~" : ""}${fmtDay(box.expectedArrival)}` : "set ETA"}
             </span>
-            <span style={{ fontSize: 12.5, fontWeight: 800, color: T.blue, whiteSpace: "nowrap", opacity: hover ? 1 : 0.45 }}>Receive →</span>
           </>)}
         </div>
       </div>
