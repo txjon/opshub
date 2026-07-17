@@ -396,6 +396,10 @@ export type ReceivingBox = {
   // receiving — writes shipments.expected_arrival) OR, when the box shipped
   // without one, derived = ship day + vendor transit(carrier) (etaDerived).
   expectedArrival: string | null; etaDerived: boolean;
+  // live carrier feed (EasyPost) — signals, never receiving truth
+  carrierStatus: string | null; deliveredAt: string | null;
+  lastScan: { status?: string | null; description?: string | null; location?: string | null; at?: string | null } | null;
+  trackingError: string | null; deliveredNotFoundAt: string | null;
   status: string;
   note: string | null;  // warehouse note typed at ship time
   slips: { name: string; url: string }[];
@@ -410,7 +414,7 @@ export async function loadReceivingBoard(sb: Sb): Promise<ReceivingBox[]> {
   // The date window only prunes RECEIVED boxes, to keep the Received tab bounded.
   const cutoff = new Date(Date.now() - 45 * 86400000).toISOString();
   const { data: ships } = await sb.from("shipments")
-    .select("id, tracking, carrier, pickup, status, expected_arrival, created_at, received_at, warehouse_notes, decorators(name, transit_defaults)")
+    .select("id, tracking, carrier, pickup, status, expected_arrival, expected_arrival_edited_at, est_delivery_date, est_delivery_updated_at, delivered_at, carrier_status, last_scan, tracking_error, delivered_not_found_at, created_at, received_at, warehouse_notes, decorators(name, transit_defaults)")
     .eq("direction", "inbound").or(`status.neq.received,created_at.gte.${cutoff}`)
     .order("created_at", { ascending: false }).limit(160);
   const open = ships || [];
@@ -480,24 +484,34 @@ export async function loadReceivingBoard(sb: Sb): Promise<ReceivingBox[]> {
     if (!rLines.length) continue;
     const slipMap = new Map<string, { name: string; url: string }>();
     for (const l of ls) for (const sl of slipsByItem.get(l.item_id) || []) slipMap.set(sl.url, sl);
-    // Fallback ETA when the box shipped without one: ship day + the vendor's
-    // transit default for how it's moving (carrier text → ground/freight/ocean;
-    // pickup = 0). Chain rule R5: derived-or-TBD, never a guess beyond that.
-    const derivedEta = (() => {
-      if (s.expected_arrival) return null;
-      // per-ITEM arrival overrides win (recorded via production2's Adjust date
-      // — a known item delay governs when the box is really complete): the
-      // LATEST line override is the box's honest ETA. Else ship day + transit.
+    // Box ETA (Rule B, locked 2026-07-16: FRESHEST SIGNAL WINS):
+    //   1. human expected_arrival vs carrier est_delivery — newer timestamp
+    //      wins (a legacy human edit with no timestamp loses to live carrier
+    //      data, which is the point of Rule B);
+    //   2. else per-ITEM arrival overrides (latest governs — box lands with
+    //      its slowest item);
+    //   3. else ship day + vendor transit default;
+    //   4. else TBD. Never a guess beyond the chain (R5).
+    const { eta: boxEta, derived: etaDerived } = (() => {
+      const human = s.expected_arrival ? { d: String(s.expected_arrival), at: s.expected_arrival_edited_at || "0" } : null;
+      const carrierEta = s.est_delivery_date ? { d: String(s.est_delivery_date), at: s.est_delivery_updated_at || "0" } : null;
+      if (human && carrierEta) return { eta: (human.at >= carrierEta.at ? human.d : carrierEta.d), derived: false };
+      if (human) return { eta: human.d, derived: false };
+      if (carrierEta) return { eta: carrierEta.d, derived: false };
       const lineOverrides = ls.map((l: any) => l.items?.expected_arrival).filter(Boolean) as string[];
-      if (lineOverrides.length) return lineOverrides.sort()[lineOverrides.length - 1];
+      if (lineOverrides.length) return { eta: lineOverrides.sort()[lineOverrides.length - 1], derived: false };
       const td = (s as any).decorators?.transit_defaults;
       const transit = transitDaysFor(td, s.pickup ? "Pick Up" : s.carrier);
-      return transit != null ? addDays(String(s.created_at).slice(0, 10), transit) : null;
+      const proj = transit != null ? addDays(String(s.created_at).slice(0, 10), transit) : null;
+      return { eta: proj, derived: !!proj };
     })();
     boxes.push({
       id: s.id, vendorName: (s as any).decorators?.name || "Unassigned vendor",
       carrier: s.carrier, tracking: s.tracking, pickup: !!s.pickup, createdAt: s.created_at, receivedAt: s.received_at || null,
-      expectedArrival: s.expected_arrival || derivedEta, etaDerived: !s.expected_arrival && !!derivedEta,
+      expectedArrival: boxEta, etaDerived,
+      carrierStatus: s.carrier_status || null, deliveredAt: s.delivered_at || null,
+      lastScan: s.last_scan || null, trackingError: s.tracking_error || null,
+      deliveredNotFoundAt: s.delivered_not_found_at || null,
       status: s.status || "expected", note: s.warehouse_notes || null,
       slips: Array.from(slipMap.values()),
       lines: rLines, totalUnits: rLines.reduce((a, l) => a + sumQ(l.shipQtys), 0),
