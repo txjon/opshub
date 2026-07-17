@@ -7,7 +7,7 @@
 
 import { recordReceive, appendMovement, recomputeItemFromLedger, cleanPositive, reverseReceiptForShipment } from "./inventory-ledger";
 import { recalcJobPhase } from "./job-phase-recalc";
-import { fulfillPullRequest, recordAdHocPull, resolvePulledInventory } from "./handoff";
+import { fulfillPullRequest, recordAdHocPull, resolvePulledInventory, deleteShipmentIfEmpty } from "./handoff";
 import { logJobActivity } from "@/components/JobActivityPanel";
 
 // Resolve a held pull. shipped_out / consumed = it's gone (leave the ledger pull
@@ -66,6 +66,7 @@ export async function returnIncomingToProduction(sb: any, args: { shipmentId: st
     // item re-appears on the production board and the phase regresses correctly.
     await sb.from("items").update({ ship_final: false, pipeline_stage: "in_production" }).eq("id", args.itemId);
     await sb.from("shipment_lines").delete().eq("shipment_id", args.shipmentId).eq("item_id", args.itemId);
+    await deleteShipmentIfEmpty(sb, args.shipmentId); // last line out → no hollow box left behind
     await recomputeItemFromLedger(sb, args.itemId);
     await recalcJobPhase(sb, args.jobId);
     logJobActivity(args.jobId, `Returned ${args.itemName} to production`);

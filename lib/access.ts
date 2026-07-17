@@ -43,6 +43,7 @@ export const PAGE_CATALOG: CatalogPage[] = [
   { key: "/shipping2", href: "/shipping2", label: "Shipping v2", group: "distro" },
   { key: "/fulfillment", href: "/fulfillment", label: "Fulfillment", group: "distro" },
   { key: "/staging2", href: "/staging2", label: "Staging v2", group: "distro" },
+  { key: "/warehouse", href: "/warehouse", label: "Warehouse (retired → Receiving)", group: "distro" },
   { key: "/hours", href: "/hours", label: "Log Hours", group: "distro" },
   // Ecomm
   { key: "/ecomm", href: "/ecomm", label: "Dashboard", group: "ecomm" },
@@ -56,6 +57,10 @@ export const PAGE_CATALOG: CatalogPage[] = [
   { key: "/billing", href: "/billing", label: "Billing", group: "billing", sensitive: true },
   // Admin
   { key: "/settings", href: "/settings", label: "Team", group: "settings", sensitive: true },
+  // Parked/mockup pages — catalogued so they can't fail open (uncatalogued
+  // paths are allowed by canAccessPath). Owner-sensitive: god/grant only.
+  { key: "/templates", href: "/templates", label: "Templates (parked)", group: "owner", sensitive: true },
+  { key: "/command-center-v2", href: "/command-center-v2", label: "Command Center mockup", group: "owner", sensitive: true },
   // Always-available utilities
   { key: "/toolkit", href: "/toolkit", label: "Toolkit", group: "side" },
   { key: "/references", href: "/references", label: "References", group: "side" },

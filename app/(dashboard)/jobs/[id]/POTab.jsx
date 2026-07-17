@@ -180,7 +180,6 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
   const [itemFields,setItemFields] = useState({});
   const [itemRoutes,setItemRoutes] = useState({}); // local mirror of items.shipping_route for instant UI on select change
   const [saving,setSaving] = useState({});
-  const [showPreview,setShowPreview] = useState(false); // unused legacy, kept to minimize diff
   const [showSendEmail,setShowSendEmail] = useState(false);
 
   useEffect(()=>{

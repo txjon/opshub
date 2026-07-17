@@ -241,6 +241,10 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
     loadAll();
   }
   async function removeEntry(entryId: string) {
+    // hard delete with no trace — the bare × buttons used to fire this
+    // instantly, silently changing Billed/Open-PO numbers (incl. QB-pushed
+    // history rows). Confirm matches this file's other destructive flows.
+    if (!window.confirm("Delete this cost entry? This is permanent — it changes Billed / Open-PO totals and cannot be undone.")) return;
     await supabase.from("cost_entries").delete().eq("id", entryId);
     loadAll();
   }
