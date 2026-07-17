@@ -144,6 +144,25 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   // NEW phase model (additive display) — computed from the ledger by loadJobPhase.
   // Shown alongside; the legacy jobs.phase write path (recalcPhase) is untouched.
   const [phaseView, setPhaseView] = useState<JobPhaseView|null>(null);
+  // Live inbound boxes (EasyPost-fed) — one status line per vendor in the
+  // Production strip. Boxes are decorator-scoped, so scope through
+  // shipment_lines by job_id and dedupe. Carrier signals only; delivered is
+  // NOT received — counting stays on /receiving2.
+  const [inboundBoxes, setInboundBoxes] = useState<any[]>([]);
+  useEffect(() => {
+    if (!params.id) return;
+    createClient().from("shipment_lines")
+      .select("shipment_id, shipments(id, decorator_id, direction, status, tracking, pickup, carrier_status, est_delivery_date, delivered_at, decorators(name, short_code))")
+      .eq("job_id", params.id)
+      .then(({ data }) => {
+        const seen = new Map<string, any>();
+        for (const l of (data || []) as any[]) {
+          const s = l.shipments;
+          if (s && s.direction === "inbound") seen.set(s.id, s);
+        }
+        setInboundBoxes(Array.from(seen.values()));
+      });
+  }, [params.id]);
   const initialLoadDone = useRef(false);
   const [confirmDeletePayment, setConfirmDeletePayment] = useState<string|null>(null);
   const [pdfPreview, setPdfPreview] = useState<{src:string;title:string;downloadHref:string}|null>(null);
@@ -1169,6 +1188,36 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                     );
                   })}
                 </div>
+                {/* Inbound boxes — live carrier status per vendor (EasyPost,
+                    Phase 3). Flat text, no pills. delivered ≠ received. */}
+                {inboundBoxes.length > 0 && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 10, paddingTop: 9, borderTop: `1px solid ${T.border}` }}>
+                    {(() => {
+                      const byDec = new Map<string, any[]>();
+                      for (const b of inboundBoxes) { const k = b.decorator_id || "?"; if (!byDec.has(k)) byDec.set(k, []); byDec.get(k)!.push(b); }
+                      return Array.from(byDec.values()).map((boxes) => {
+                        const vName = boxes[0]?.decorators?.short_code || boxes[0]?.decorators?.name || "Vendor";
+                        const received = boxes.filter(b => b.status === "received").length;
+                        const dock = boxes.filter(b => b.status !== "received" && b.delivered_at);
+                        const transit = boxes.filter(b => b.status !== "received" && !b.delivered_at);
+                        const nextEta = transit.map(b => b.est_delivery_date).filter(Boolean).sort()[0] || null;
+                        const oldestDock = dock.map(b => b.delivered_at).sort()[0];
+                        const dockAgeH = oldestDock ? (Date.now() - new Date(oldestDock).getTime()) / 36e5 : 0;
+                        const dockColor = dockAgeH >= 48 ? T.red : T.amber;
+                        return (
+                          <div key={boxes[0]?.decorator_id || vName} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 11 }}>
+                            <span style={{ fontSize: 10, color: T.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em" }}>Boxes · {vName}:</span>
+                            <span style={{ color: T.muted, fontWeight: 600 }}>{boxes.length} box{boxes.length !== 1 ? "es" : ""}</span>
+                            {received > 0 && <span style={{ color: T.green, fontWeight: 700 }}>· {received} received ✓</span>}
+                            {dock.length > 0 && <span style={{ color: dockColor, fontWeight: 700 }} title="Carrier says delivered — nobody has counted these in yet">· {dock.length} on the dock — not received</span>}
+                            {transit.length > 0 && <span style={{ color: T.muted, fontWeight: 600 }}>· {transit.length} in transit{nextEta ? ` · next est ${fmtDay(nextEta)}` : ""}</span>}
+                            <Link href="/receiving2" style={{ color: T.blue, fontWeight: 700, textDecoration: "none" }}>Receiving →</Link>
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
+                )}
               </div>
             );
           })()}
