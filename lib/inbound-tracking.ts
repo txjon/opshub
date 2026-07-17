@@ -21,6 +21,32 @@ import { createHash } from "crypto";
 
 const EP = "https://api.easypost.com/v2";
 
+// EasyPost's wallet "default" carrier accounts (activated when the wallet was
+// funded) register under Default carrier strings — a tracker created as plain
+// "FedEx" demands a BYOCA account and fails "Credentials not found". Map the
+// human-typed carrier to the default-account strings, in attempt order.
+// Failed creations don't bill; the first success wins. UPS has no default
+// account, and vendors habitually type "UPS"/"DHL" on FedEx Ground numbers
+// (874…), so FedExDefault rides along as a fallback candidate.
+// isRealTracking only fences known non-tracking tokens ("Freight", "TBD") —
+// and it also builds persisted group keys, so it must stay loose. Trackers
+// need a stricter fence: an explicit-carrier create accepts ANY string (and
+// bills for it), so junk like "RET1" or "MULTIPLE - SEE ATTACHMENT" must be
+// stopped here. Real parcel numbers are 8+ alphanumerics with 6+ digits.
+export function looksLikeParcelNumber(trk: string | null | undefined): boolean {
+  const t = (trk || "").trim();
+  return /^[A-Za-z0-9]{8,40}$/.test(t) && (t.match(/\d/g) || []).length >= 6;
+}
+
+function carrierCandidates(typed: string | null): (string | null)[] {
+  const t = (typed || "").toLowerCase();
+  if (/fedex/.test(t)) return ["FedExDefault"];
+  if (/dhl/.test(t)) return ["DHLExpressDefault", "DHLExpress", "FedExDefault"];
+  if (/usps/.test(t)) return ["USPS"];
+  if (/ups/.test(t)) return ["UPS", "FedExDefault"];
+  return [null, "FedExDefault", "USPS"]; // null = EasyPost auto-detect
+}
+
 function epAuth(): string {
   const key = process.env.EASYPOST_API_KEY || "";
   return "Basic " + Buffer.from(key + ":").toString("base64");
@@ -52,7 +78,8 @@ export async function applyTrackerPayload(sb: any, shipmentId: string, tracker: 
   const delivered = tracker.status === "delivered";
   const patch: any = {
     carrier_status: tracker.status || null,
-    carrier_detected: tracker.carrier || null,
+    // default-account carriers come back as "FedExDefault" etc — display-normalize
+    carrier_detected: tracker.carrier ? String(tracker.carrier).replace(/Default$/, "") : null,
     est_delivery_date: tracker.est_delivery_date ? String(tracker.est_delivery_date).slice(0, 10) : null,
     est_delivery_updated_at: new Date().toISOString(),
     last_scan: last ? {
@@ -75,7 +102,10 @@ export async function ensureTracker(sb: any, shipmentId: string): Promise<{ ok: 
   if (!box) return { ok: false, created: false, reason: "no such shipment" };
   if (box.easypost_tracker_id) return { ok: true, created: false, reason: "already tracked" };
   if (box.tracker_attempted_at) return { ok: true, created: false, reason: "already attempted" };
-  if (box.pickup || !isRealTracking(box.tracking)) return { ok: true, created: false, reason: "untrackable by design" };
+  if (box.pickup || !isRealTracking(box.tracking) || !looksLikeParcelNumber(box.tracking)) {
+    await sb.from("shipments").update({ tracker_attempted_at: new Date().toISOString() }).eq("id", shipmentId);
+    return { ok: true, created: false, reason: "untrackable by design" };
+  }
   // freight/ocean boxes carry BOLs and vessel refs, not parcel tracking —
   // untrackable-by-design (NOT an error state; the manual chain owns them)
   if (/freight|ocean|ltl|bol|vessel|oocl|maersk|msc|cma|evergreen|hapag/i.test(box.carrier || "")) {
@@ -99,18 +129,21 @@ export async function ensureTracker(sb: any, shipmentId: string): Promise<{ ok: 
   // stamp the attempt FIRST — even a crash below can't cause a retry loop
   await sb.from("shipments").update({ tracker_attempted_at: new Date().toISOString() }).eq("id", shipmentId);
 
-  const res = await fetch(`${EP}/trackers`, {
-    method: "POST",
-    headers: { Authorization: epAuth(), "Content-Type": "application/json" },
-    body: JSON.stringify({ tracker: { tracking_code: box.tracking } }), // carrier auto-detect
-  });
-  const bodyJson = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const msg = bodyJson?.error?.message || `EasyPost ${res.status}`;
-    await sb.from("shipments").update({ tracking_error: msg.slice(0, 200) }).eq("id", shipmentId);
-    return { ok: false, created: false, reason: msg };
+  let lastErr = "no carrier candidates";
+  for (const carrier of carrierCandidates(box.carrier)) {
+    const res = await fetch(`${EP}/trackers`, {
+      method: "POST",
+      headers: { Authorization: epAuth(), "Content-Type": "application/json" },
+      body: JSON.stringify({ tracker: { tracking_code: box.tracking, ...(carrier ? { carrier } : {}) } }),
+    });
+    const bodyJson = await res.json().catch(() => ({}));
+    if (res.ok) {
+      await sb.from("shipments").update({ easypost_tracker_id: bodyJson.id }).eq("id", shipmentId);
+      await applyTrackerPayload(sb, shipmentId, bodyJson);
+      return { ok: true, created: true };
+    }
+    lastErr = bodyJson?.error?.message || `EasyPost ${res.status}`;
   }
-  await sb.from("shipments").update({ easypost_tracker_id: bodyJson.id }).eq("id", shipmentId);
-  await applyTrackerPayload(sb, shipmentId, bodyJson);
-  return { ok: true, created: true };
+  await sb.from("shipments").update({ tracking_error: lastErr.slice(0, 200) }).eq("id", shipmentId);
+  return { ok: false, created: false, reason: lastErr };
 }
