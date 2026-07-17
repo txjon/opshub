@@ -56,6 +56,17 @@ export default async function DistroDashboard() {
       units: outstanding,
       eta: b.expectedArrival, etaSource: b.etaSource,
       deliveredAt: b.deliveredAt, // carrier signal — pins the row to the dock bucket
+      // stall watch (Phase 5): tracked + undelivered + feed gone quiet
+      stall: (() => {
+        if (b.deliveredAt || !b.carrierStatus) return null;
+        const daysSince = (iso: string | null) => iso ? Math.floor((Date.now() - new Date(iso).getTime()) / 864e5) : null;
+        if (b.carrierStatus === "pre_transit") {
+          const d = daysSince(b.createdAt);
+          return d != null && d >= 3 ? { text: `label created ${d}d ago — not picked up`, severe: d >= 6 } : null;
+        }
+        const d = daysSince(b.lastScan?.at || null);
+        return d != null && d >= 3 ? { text: `no scan ${d}d`, severe: d >= 6 } : null;
+      })(),
       shippedAt: b.createdAt, carrier: b.carrier, tracking: b.tracking, pickup: b.pickup,
       note: b.note, slips: b.slips,
       lines: b.lines.map(l => ({

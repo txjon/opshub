@@ -20,6 +20,7 @@ export type ArrivalRow = {
   eta: string | null;
   etaSource: "carrier" | "human" | "derived" | null; // plain date = carrier data; ~ = any estimate
   deliveredAt?: string | null;      // boxes: carrier says delivered (≠ received — human truth)
+  stall?: { text: string; severe: boolean } | null; // tracked box whose carrier feed went quiet
   shipBy?: string | null;           // strips: the vendor ship-by ("ASAP" possible)
   shippedAt?: string;               // boxes: when it left the vendor
   carrier?: string | null; tracking?: string | null; pickup?: boolean;
@@ -142,6 +143,7 @@ export default function Board({ rows, drops }: { rows: ArrivalRow[]; drops: Drop
                             <span>from <span style={{ color: T.muted, fontWeight: 700 }}>{r.vendor}</span></span>
                             <span style={{ opacity: 0.6 }}>·</span><span>{r.itemsLabel}</span>
                             {r.kind === "strip" && r.shipBy && <><span style={{ opacity: 0.6 }}>·</span><span>ships {r.shipBy === "ASAP" ? "ASAP" : `~${fmtDay(r.shipBy)}`}</span></>}
+                            {r.stall && <><span style={{ opacity: 0.6 }}>·</span><span title="The carrier feed went quiet — check with the vendor/carrier" style={{ color: r.stall.severe ? T.red : T.amber, fontWeight: 800 }}>⚠ {r.stall.text}</span></>}
                           </div>
                         </div>
                         <span style={{ fontFamily: mono, fontSize: 13, fontWeight: 700, color: T.muted, whiteSpace: "nowrap" }}>{r.units.toLocaleString()}u</span>
