@@ -51,7 +51,7 @@ const fmtDayOnly = (iso: string | null) => {
 type BoxRow = {
   id: string; carrier: string | null; tracking: string | null; carrier_detected: string | null;
   carrier_status: string | null; est_delivery_date: string | null; delivered_at: string | null;
-  tracking_error: string | null; created_at: string;
+  tracking_error: string | null; created_at: string; status: string | null; received_at: string | null;
 };
 type Scan = { id: string; status: string | null; description: string | null; location: string | null; occurred_at: string | null };
 
@@ -63,7 +63,7 @@ export function TrackingModal({ tracking, shipmentId, onClose }: { tracking: str
   useEffect(() => {
     const sb = createClient();
     (async () => {
-      const SEL = "id, carrier, tracking, carrier_detected, carrier_status, est_delivery_date, delivered_at, tracking_error, created_at";
+      const SEL = "id, carrier, tracking, carrier_detected, carrier_status, est_delivery_date, delivered_at, tracking_error, created_at, status, received_at";
       let b: BoxRow | null = null;
       if (shipmentId) b = (await sb.from("shipments").select(SEL).eq("id", shipmentId).single()).data as any;
       if (!b) {
@@ -83,7 +83,12 @@ export function TrackingModal({ tracking, shipmentId, onClose }: { tracking: str
 
   const carrier = box?.carrier_detected || box?.carrier || null;
   const outUrl = carrierTrackUrl(carrier, tracking);
-  const cur = statusMeta(box?.delivered_at ? "delivered" : box?.carrier_status);
+  // human receive state outranks carrier talk — a counted-in box saying
+  // "No movement yet" reads as a broken feed when it's actually DONE
+  const isReceived = box?.status === "received";
+  const cur = isReceived
+    ? { label: "Received at HPD", color: T.green }
+    : statusMeta(box?.delivered_at ? "delivered" : box?.carrier_status);
   const hasFeed = !!box?.carrier_status;
 
   const stat = (label: string, value: string, color?: string) => (
@@ -132,9 +137,11 @@ export function TrackingModal({ tracking, shipmentId, onClose }: { tracking: str
             <div style={{ padding: 30, textAlign: "center", color: T.faint, fontSize: 13 }}>
               {box?.tracking_error
                 ? <>The carrier rejected this number — <span style={{ color: T.red, fontWeight: 600 }}>{box.tracking_error}</span></>
-                : hasFeed
-                  ? "No scans yet — the carrier hasn't moved it."
-                  : "No live feed for this box — freight, pickup, or shipped before tracking went live."}
+                : isReceived && !hasFeed
+                  ? "Received and counted in — this box finished its trip before live tracking existed, so no feed was ever created."
+                  : hasFeed
+                    ? "No scans yet — the carrier hasn't moved it."
+                    : "No live feed for this box — freight, pickup, or shipped before tracking went live."}
               {outUrl && <div style={{ marginTop: 8 }}><a href={outUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12, fontWeight: 700, color: T.blue, textDecoration: "none" }}>Check on the carrier site →</a></div>}
             </div>
           )}
