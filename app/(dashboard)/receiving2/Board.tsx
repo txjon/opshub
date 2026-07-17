@@ -74,6 +74,13 @@ export default function Board({ boxes, pulls }: { boxes: ReceivingBox[]; pulls: 
     setBusyKey(null);
     if (res.ok) router.refresh();
   }
+  // "box not found?" on a delivered-not-received card — carrier says delivered
+  // but the box never appeared. A human flag (delivered_not_found_at), NOT a
+  // receive: received_at stays human-only and untouched.
+  async function flagNotFound(b: ReceivingBox, on: boolean) {
+    await (createClient().from("shipments") as any).update({ delivered_not_found_at: on ? new Date().toISOString() : null }).eq("id", b.id);
+    router.refresh();
+  }
   const acts: LineActions = { onEdit: (line, box) => setEditFor({ line, box, mode: "received" }), onEditShipped: (line, box) => setEditFor({ line, box, mode: "shipped" }), onReturn: returnLine, onReturnProd: returnToProd, onHistory: setHistoryFor, busyKey };
 
   const incoming = useMemo(() => boxes.filter(b => !b.allReceived), [boxes]);
@@ -101,6 +108,16 @@ export default function Board({ boxes, pulls }: { boxes: ReceivingBox[]; pulls: 
       (a.createdAt || "").localeCompare(b.createdAt || ""));
     return out;
   }, [active, query, filterVendor, filterClient, status]);
+
+  // Delivered-not-received queue (D3/D4, locked 2026-07-16): carrier says
+  // delivered, no human has received — pinned ABOVE incoming, newest-delivered
+  // first ("annoying by design"). Splits AFTER filters/search so both halves
+  // respect them. Received tab never queues.
+  const [queue, inTransit] = useMemo(() => {
+    if (status !== "incoming") return [[], display] as [ReceivingBox[], ReceivingBox[]];
+    const q = display.filter(b => b.deliveredAt).sort((a, b) => (b.deliveredAt || "").localeCompare(a.deliveredAt || ""));
+    return [q, display.filter(b => !b.deliveredAt)] as [ReceivingBox[], ReceivingBox[]];
+  }, [display, status]);
 
   const agg = useMemo(() => {
     const total: Metric = { boxes: active.length, units: 0, items: 0 };
@@ -156,7 +173,18 @@ export default function Board({ boxes, pulls }: { boxes: ReceivingBox[]; pulls: 
 
         {view === "shipment" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            {display.map(box => <BoxCard key={box.id} box={box} status={status} onReceive={() => setReceiveBox(box)} onAdjustEta={setEtaFor} acts={acts} />)}
+            {queue.length > 0 && (
+              <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 0.6, textTransform: "uppercase", color: T.red, marginBottom: -4 }}>
+                Delivered — not received · {queue.length}
+              </div>
+            )}
+            {queue.map(box => <BoxCard key={box.id} box={box} status={status} onReceive={() => setReceiveBox(box)} onAdjustEta={setEtaFor} onFlagNotFound={flagNotFound} acts={acts} />)}
+            {queue.length > 0 && inTransit.length > 0 && (
+              <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 0.6, textTransform: "uppercase", color: T.faint, margin: "6px 0 -4px" }}>
+                In transit · {inTransit.length}
+              </div>
+            )}
+            {inTransit.map(box => <BoxCard key={box.id} box={box} status={status} onReceive={() => setReceiveBox(box)} onAdjustEta={setEtaFor} onFlagNotFound={flagNotFound} acts={acts} />)}
           </div>
         )}
         {view === "job" && <JobView boxes={display} status={status} onReceive={setReceiveBox} acts={acts} />}
@@ -330,7 +358,7 @@ const dayOf = (iso: string | null) => {
   const d = new Date(iso);
   return isNaN(d.getTime()) ? "" : d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 };
-function BoxCard({ box, status, onReceive, onAdjustEta, acts }: { box: ReceivingBox; status: Status; onReceive: () => void; onAdjustEta?: (b: ReceivingBox) => void; acts?: LineActions }) {
+function BoxCard({ box, status, onReceive, onAdjustEta, onFlagNotFound, acts }: { box: ReceivingBox; status: Status; onReceive: () => void; onAdjustEta?: (b: ReceivingBox) => void; onFlagNotFound?: (b: ReceivingBox, on: boolean) => void; acts?: LineActions }) {
   const received = status === "received";
   // Button-less card (locked mockup v4): the WHOLE incoming card is the tap
   // target — production's act-on-what-you-click gesture. ETA, slip links and
@@ -339,8 +367,14 @@ function BoxCard({ box, status, onReceive, onAdjustEta, acts }: { box: Receiving
   // cue stays faintly visible for touch, where hover doesn't exist).
   const [hover, setHover] = useState(false);
   const clickable = !received;
-  const tag = received ? "Received" : box.pickup ? "Pickup" : "Incoming";
-  const tagColor = received ? T.green : T.blue; // blue = movement (incoming AND pickup)
+  // delivered-not-received (D3): carrier delivered, humans haven't counted it
+  // in. Aging escalates the card outline — amber past 24h, red past 48h
+  // ("annoying by design"). Fresh (<24h) stays calm.
+  const deliveredOpen = clickable && !!box.deliveredAt;
+  const ageH = deliveredOpen ? (Date.now() - new Date(box.deliveredAt!).getTime()) / 36e5 : 0;
+  const agingCol = ageH >= 48 ? T.red : ageH >= 24 ? T.amber : null;
+  const tag = received ? "Received" : deliveredOpen ? "Delivered" : box.pickup ? "Pickup" : "Incoming";
+  const tagColor = received ? T.green : deliveredOpen ? (agingCol || T.green) : T.blue; // blue = movement (incoming AND pickup)
   const multiClient = box.clients.length > 1;
   const headline = multiClient ? `${box.clients.length} clients` : (box.clients[0] || box.vendorName);
   const flags = boxMetaSegs(box, status).filter(s => s.tone === T.red || s.tone === T.blue);
@@ -348,7 +382,7 @@ function BoxCard({ box, status, onReceive, onAdjustEta, acts }: { box: Receiving
   return (
     <div onClick={clickable ? onReceive : undefined}
       onMouseEnter={() => clickable && setHover(true)} onMouseLeave={() => setHover(false)}
-      style={clickable ? { cursor: "pointer", borderRadius: 12, outline: hover ? `2.5px solid ${T.text}` : "none", outlineOffset: -1 } : undefined}>
+      style={clickable ? { cursor: "pointer", borderRadius: 12, outline: hover ? `2.5px solid ${T.text}` : agingCol ? `2px solid ${agingCol}` : "none", outlineOffset: -1 } : undefined}>
     <Card>
       {/* two columns, vertically centered: left = client line + detail line
           (tight); right = ETA + Receive cue. No dead vertical space. */}
@@ -374,6 +408,29 @@ function BoxCard({ box, status, onReceive, onAdjustEta, acts }: { box: Receiving
         <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
           {received ? (
             <span style={{ fontSize: 13, fontWeight: 700, color: T.green }}>✓ received</span>
+          ) : deliveredOpen ? (
+            // carrier says delivered — the ETA chip is moot; show the delivered
+            // signal + aging, and the human "not found" flag (a dispute state,
+            // NOT a receive — received_at stays human-only).
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3 }}>
+              <span title={`Carrier-reported delivery${box.lastScan?.location ? ` — ${box.lastScan.location}` : ""}. Not the same as received: find the box and count it in.`}
+                style={{ fontSize: 12.5, fontWeight: 800, color: agingCol || T.green }}>
+                ✓ delivered {dayOf(box.deliveredAt)} · {ageH < 1 ? "just now" : ageH < 24 ? `${Math.floor(ageH)}h ago` : `${Math.floor(ageH / 24)}d ago`}
+              </span>
+              {box.deliveredNotFoundAt ? (
+                <span onClick={e => { e.stopPropagation(); onFlagNotFound && onFlagNotFound(box, false); }}
+                  title="Flagged: carrier says delivered but the box never appeared — click to clear"
+                  style={{ fontSize: 10, fontWeight: 800, letterSpacing: 0.5, textTransform: "uppercase", color: T.red, cursor: "pointer" }}>
+                  ⚑ not found — clear
+                </span>
+              ) : (
+                <span onClick={e => { e.stopPropagation(); onFlagNotFound && onFlagNotFound(box, true); }}
+                  title="Carrier says delivered but you can't find the box? Flag it — production follows up with the carrier/vendor"
+                  style={{ fontSize: 10.5, fontWeight: 700, color: T.faint, cursor: "pointer", borderBottom: "1px dotted currentColor", paddingBottom: 1 }}>
+                  box not found?
+                </span>
+              )}
+            </div>
           ) : (<>
             {/* editable-value convention: dotted underline = "click to edit",
                 visible on touch too. Eats the click — adjusts the date, not receive. */}
