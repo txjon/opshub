@@ -530,7 +530,7 @@ export function OrderDetailView({ token, jobId, onClose, suppressOwnChrome }: { 
                       const est = s.estDelivery ? ` — estimated arrival ${fmtDateShort(s.estDelivery)}` : "";
                       const scan = s.lastScanLocation ? ` · last scan ${s.lastScanLocation}` : "";
                       return (
-                        <div style={{ fontSize: 12, fontWeight: 600, color: C.blue, marginTop: 4 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: C.text, marginTop: 4 }}>
                           {s.carrierStatus === "pre_transit" ? "Label created — awaiting pickup" : `In transit${est}${scan}`}
                         </div>
                       );
