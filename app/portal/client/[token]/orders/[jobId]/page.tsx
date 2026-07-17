@@ -87,7 +87,12 @@ type PortalData = {
   paymentLink: string | null;
   invoiceNumber: string | null;
   activity: { message: string; date: string }[];
-  shipments?: { decoratorId: string | null; tracking: string; itemCount: number; forwardTracking?: string }[];
+  shipments?: {
+    decoratorId: string | null; tracking: string; itemCount: number; forwardTracking?: string;
+    // live carrier feed (when the shipment has a tracker)
+    carrier?: string | null; carrierStatus?: string | null;
+    estDelivery?: string | null; deliveredAt?: string | null; lastScanLocation?: string | null;
+  }[];
 };
 
 const PHASE_STEPS = [
@@ -505,6 +510,33 @@ export function OrderDetailView({ token, jobId, onClose, suppressOwnChrome }: { 
                     <span style={{ color: C.faint, margin: "0 6px" }}>·</span>
                     {s.itemCount} item{s.itemCount !== 1 ? "s" : ""}
                   </div>
+                  {/* live carrier status — only when the shipment has a tracker feed */}
+                  {(() => {
+                    if (s.deliveredAt) {
+                      return (
+                        <div style={{ fontSize: 12, fontWeight: 700, color: C.green, marginTop: 4 }}>
+                          ✓ Delivered {fmtDateShort(s.deliveredAt)}
+                        </div>
+                      );
+                    }
+                    if (s.carrierStatus === "out_for_delivery") {
+                      return (
+                        <div style={{ fontSize: 12, fontWeight: 700, color: C.amber, marginTop: 4 }}>
+                          Out for delivery{s.lastScanLocation ? ` · ${s.lastScanLocation}` : ""}
+                        </div>
+                      );
+                    }
+                    if (s.carrierStatus === "in_transit" || s.carrierStatus === "pre_transit") {
+                      const est = s.estDelivery ? ` — estimated arrival ${fmtDateShort(s.estDelivery)}` : "";
+                      const scan = s.lastScanLocation ? ` · last scan ${s.lastScanLocation}` : "";
+                      return (
+                        <div style={{ fontSize: 12, fontWeight: 600, color: C.blue, marginTop: 4 }}>
+                          {s.carrierStatus === "pre_transit" ? "Label created — awaiting pickup" : `In transit${est}${scan}`}
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
                 </div>
                 <button
                   onClick={() => {

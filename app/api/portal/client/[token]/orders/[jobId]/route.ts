@@ -182,6 +182,34 @@ export async function GET(
       shipments = Object.values(grouped);
     }
 
+    // Live carrier status (EasyPost-fed, Phase 4): enrich each client-facing
+    // shipment with its box's tracker fields, matched by tracking number.
+    // Carrier name is safe to show; vendor identity still never leaves here.
+    let shipmentsLive: any[] = shipments;
+    if (shipments.length > 0) {
+      const trks = shipments.map((s) => s.tracking).filter(Boolean);
+      const { data: liveBoxes } = await sb
+        .from("shipments")
+        .select("tracking, carrier_status, carrier_detected, est_delivery_date, delivered_at, last_scan")
+        .in("tracking", trks);
+      const liveByTrk = new Map<string, any>();
+      for (const b of (liveBoxes || []) as any[]) {
+        if (!liveByTrk.has(b.tracking) || b.delivered_at) liveByTrk.set(b.tracking, b);
+      }
+      shipmentsLive = shipments.map((s) => {
+        const lv = liveByTrk.get(s.tracking);
+        if (!lv) return s;
+        return {
+          ...s,
+          carrier: lv.carrier_detected || null,
+          carrierStatus: lv.carrier_status || null,
+          estDelivery: lv.est_delivery_date || null,
+          deliveredAt: lv.delivered_at || null,
+          lastScanLocation: lv.last_scan?.location || null,
+        };
+      });
+    }
+
     let proofFiles: any[] = [];
     if (itemIds.length > 0) {
       const { data: files } = await sb
@@ -535,7 +563,7 @@ export async function GET(
         message: a.message,
         date: a.created_at,
       })),
-      shipments,
+      shipments: shipmentsLive,
       clientProjects,
     });
   } catch (e: any) {
