@@ -211,7 +211,7 @@ export function VariantChips({ qtys, sizes, max }: { qtys: Record<string, number
 // drift. Callers supply the surface-specific bits (status/route tag, per-row/box
 // action) as props/nodes; the layout is identical everywhere.
 export function BoxHead({ vendor, tag, tagColor, method, slips, when, meta, action }: {
-  vendor: string; tag: string; tagColor?: string; method: string;
+  vendor: string; tag: string; tagColor?: string; method: ReactNode;
   slips?: { name: string; url: string }[]; when?: string | null; meta?: { text: string; tone?: string }[]; action?: ReactNode;
 }) {
   return (

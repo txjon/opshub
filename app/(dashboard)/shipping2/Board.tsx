@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 import { BoardFrame, ToggleSearch, KpiStrip, KpiBreakdownModal, ModalShell, Card, CardHeader, BoxHead, ItemRow, RowMenu, VariantChips, SegmentControl, SliceSortRow } from "@/components/board-kit";
+import { TrackingLink } from "@/components/TrackingModal";
 import { forwardToClient, returnForwardedLine, editForwardedLine } from "@/lib/shipping2-forward";
 import LedgerHistory from "@/components/LedgerHistory";
 // @ts-ignore — plain JS component
@@ -306,7 +307,9 @@ function ForwardedView({ shipments, view, busyKey, onEdit, onReturn, onHistory }
         {shipments.map(s => (
           <Card key={s.id}>
             <BoxHead vendor={`${s.clients.join(", ") || "—"}${s.lines[0]?.invoiceNumber ? " · #" + s.lines[0].invoiceNumber : ""}`} tag="Forwarded" tagColor={T.green}
-              method={[s.carrier, s.tracking].filter(Boolean).join(" · ") || "no tracking"}
+              method={s.tracking
+                ? <>{s.carrier ? `${s.carrier} · ` : ""}<TrackingLink tracking={s.tracking} shipmentId={s.id} /></>
+                : (s.carrier || "no tracking")}
               slips={[{ name: "slip", url: `/api/pdf/packing-slip/${s.lines[0]?.jobId}?shipment=${s.id}` }]} when={fmtWhen(s.createdAt)}
               meta={[{ text: `${s.lines.length} item${s.lines.length > 1 ? "s" : ""} · ${s.totalUnits} units` }]} />
             {s.lines.map(l => (

@@ -7,6 +7,7 @@ import { daysUntilDay } from "@/lib/dates";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 import { DriveThumb } from "@/components/DriveThumb";
 import { BoardFrame, ToggleSearch, KpiStrip, KpiBreakdownModal, ModalShell, Card, CardHeader, BoxHead, BoxMeta, ItemRow, RowMenu, RouteTag, ItemThumb, SegmentControl, SliceSortRow } from "@/components/board-kit";
+import { TrackingLink } from "@/components/TrackingModal";
 import { shipFromProduction } from "@/lib/production2-ship";
 import { createPullRequest, PULL_KINDS } from "@/lib/handoff";
 import { closeShort } from "@/lib/production2-close";
@@ -637,7 +638,10 @@ function ShippedBoxCard({ box }: { box: ShippedBox }) {
 
   return (
     <Card>
-      <BoxHead vendor={box.vendorName} tag={routeLabel(box)} tagColor={T.blue} method={shipHow(box)}
+      <BoxHead vendor={box.vendorName} tag={routeLabel(box)} tagColor={T.blue}
+        method={box.pickup ? "Pickup" : box.tracking
+          ? <>{box.carrier ? `${box.carrier} · ` : ""}<TrackingLink tracking={box.tracking} shipmentId={box.id} /></>
+          : (box.carrier || "no tracking")}
         slips={box.hasSlip ? [{ name: "slip", url: "" }] : []} when={fmtWhen(box.createdAt)} meta={headerMeta} action={action} />
       <BoxMeta segments={noteSegs} />
       {lines.map((l, i) => (

@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { T, font, mono } from "@/lib/theme";
 import { fmtDay, daysUntilDay } from "@/lib/dates";
 import { BoardFrame, ModalShell, Card, RouteTag, VariantChips } from "@/components/board-kit";
+import { TrackingLink } from "@/components/TrackingModal";
 
 // /distro board — READ-ONLY arrival radar (locked mockup 2026-07-16).
 // Left: arrivals bucketed by expected day. Right: drops scheduled.
@@ -186,7 +187,7 @@ export default function Board({ rows, drops }: { rows: ArrivalRow[]; drops: Drop
             <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>
               from {detail.vendor}
               {detail.kind === "box"
-                ? <> · shipped {dayOf(detail.shippedAt)}{detail.pickup ? " · pickup" : detail.carrier || detail.tracking ? ` · ${[detail.carrier, detail.tracking].filter(Boolean).join(" · ")}` : ""}</>
+                ? <> · shipped {dayOf(detail.shippedAt)}{detail.pickup ? " · pickup" : (detail.carrier || detail.tracking) ? <> · {detail.carrier}{detail.carrier && detail.tracking ? " · " : ""}{detail.tracking && <TrackingLink tracking={detail.tracking} shipmentId={detail.id} />}</> : ""}</>
                 : <> · ships {detail.shipBy === "ASAP" ? "ASAP" : detail.shipBy ? `~${fmtDay(detail.shipBy)}` : "TBD"}</>}
               {" · "}<span style={{ color: etaMeta(detail).color, fontWeight: 700 }}>{detail.deliveredAt ? "delivered" : "ETA"} {etaMeta(detail).text}</span>
             </div>
