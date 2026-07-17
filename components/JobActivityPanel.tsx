@@ -106,9 +106,13 @@ export function JobActivityPanel({ jobId, currentUserId, profiles }: {
     return d.toLocaleDateString("en-US", { month: "short", day: "numeric" }) + " " + d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
   };
 
-  // Render message with @mention highlighting
+  // Render message with @mention highlighting. Messages carry user-typed text
+  // and vendor/client-derived strings — escape HTML FIRST, then decorate
+  // mentions (this feeds dangerouslySetInnerHTML; unescaped it was an XSS).
+  const escapeHtml = (s: string) =>
+    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
   const renderMessage = (msg: string) => {
-    return msg.replace(/@(\w+)/g, (match) =>
+    return escapeHtml(msg).replace(/@(\w+)/g, (match) =>
       `<span style="color:${T.accent};font-weight:600">${match}</span>`
     );
   };

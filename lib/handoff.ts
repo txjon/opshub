@@ -124,6 +124,21 @@ export async function upsertShipmentForItem(supabase: Sb, seed: ShipmentSeed): P
   }
 }
 
+// A shipment with zero lines is a meaningless hollow box — delete it,
+// REGARDLESS of status. (The old status="expected" filter here leaked hollow
+// received boxes, and the v2 return paths deleted lines without any cleanup
+// at all — the July-15 hollow-box incident. Every line-delete path must call
+// this.) Returns true if the box was empty and removed.
+export async function deleteShipmentIfEmpty(supabase: Sb, shipmentId: string): Promise<boolean> {
+  const { count } = await supabase
+    .from("shipment_lines").select("id", { count: "exact", head: true })
+    .eq("shipment_id", shipmentId);
+  if ((count ?? 0) > 0) return false;
+  const { error } = await supabase.from("shipments").delete().eq("id", shipmentId);
+  if (error) { console.error("[handoff] deleteShipmentIfEmpty", error); return false; }
+  return true;
+}
+
 // Undo paths (undo-shipped, return-to-production): drop the item's line from
 // any un-received shipment; delete the shipment if that was its last line.
 export async function removeShipmentLineForItem(supabase: Sb, itemId: string): Promise<void> {
@@ -133,12 +148,7 @@ export async function removeShipmentLineForItem(supabase: Sb, itemId: string): P
       .eq("item_id", itemId).eq("received", false);
     for (const ln of lines || []) {
       await supabase.from("shipment_lines").delete().eq("id", ln.id);
-      const { count } = await supabase
-        .from("shipment_lines").select("id", { count: "exact", head: true })
-        .eq("shipment_id", ln.shipment_id);
-      if ((count ?? 0) === 0) {
-        await supabase.from("shipments").delete().eq("id", ln.shipment_id).eq("status", "expected");
-      }
+      await deleteShipmentIfEmpty(supabase, ln.shipment_id);
     }
   } catch (e) {
     console.error("[handoff] removeShipmentLineForItem", e);

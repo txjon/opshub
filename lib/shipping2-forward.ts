@@ -6,6 +6,7 @@
 
 import { appendMovement, recomputeItemFromLedger, cleanPositive } from "./inventory-ledger";
 import { recalcJobPhase } from "./job-phase-recalc";
+import { deleteShipmentIfEmpty } from "./handoff";
 import { logJobActivity } from "@/components/JobActivityPanel";
 
 type SizeQtys = Record<string, number>;
@@ -62,6 +63,7 @@ export async function returnForwardedLine(sb: any, args: { shipmentId: string; i
       await appendMovement(sb, { itemId: args.itemId, jobId: t.job_id, type: "forward", qtys: neg, shipmentId: args.shipmentId, reason: "Returned to received", reversesId: t.id, description: t.description });
     }
     await sb.from("shipment_lines").delete().eq("shipment_id", args.shipmentId).eq("item_id", args.itemId);
+    await deleteShipmentIfEmpty(sb, args.shipmentId); // last line out → no hollow box left behind
     const st = await recomputeItemFromLedger(sb, args.itemId);
     // Deliberate un-complete: forwarded_at/forward_tracking are advance-only in
     // recompute. Clear them only when NOTHING is forwarded anymore — if another

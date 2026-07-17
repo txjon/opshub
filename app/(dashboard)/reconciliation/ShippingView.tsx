@@ -316,7 +316,10 @@ export function ShippingView({ companyId, billingOnly = false }: { companyId: st
                   <span style={{ width: 60, textAlign: "right", fontFamily: mono, color: T.faint }}>{r.n}</span>
                   <span style={{ width: 110, textAlign: "right", fontFamily: mono, color: T.text }}>{money(r.actual)}</span>
                   {!billingOnly && <><span style={{ width: 110, textAlign: "right", fontFamily: mono, color: T.muted }}>{money(r.calc)}</span>
-                    <span style={{ width: 110, textAlign: "right", fontFamily: mono, fontWeight: 700, color: r.variance > 20 ? T.red : r.variance < -20 ? T.amber : T.green }}>{r.variance >= 0 ? "+" : ""}{money(r.variance)}</span></>}
+                    {/* negative variance = shipped cheaper than costed = LTL margin captured
+                        (the business model) — green, matching the header total. Amber here
+                        used to contradict the green total on the same tab. */}
+                    <span style={{ width: 110, textAlign: "right", fontFamily: mono, fontWeight: 700, color: r.variance > 20 ? T.red : T.green }}>{r.variance >= 0 ? "+" : ""}{money(r.variance)}</span></>}
                 </div>
               ))}
             </div>
