@@ -137,7 +137,7 @@ export function JobItemsList({ items, job, isMobile, onChange, vendorFilter, onC
           )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <a href="/production" title="Shipping is managed on the Production board" style={{ fontSize: 10, fontWeight: 700, color: T.accent, textDecoration: "none", fontFamily: font, whiteSpace: "nowrap" }}>Ship in Production →</a>
+          <a href="/production2" title="Shipping is managed on the Production board" style={{ fontSize: 10, fontWeight: 700, color: T.accent, textDecoration: "none", fontFamily: font, whiteSpace: "nowrap" }}>Ship in Production →</a>
           <span style={{ fontSize: 10, color: T.muted }}>
             {shownItems.length} items · {shownItems.reduce((a, it) => a + tQty(it.qtys || {}), 0).toLocaleString()} units
           </span>
