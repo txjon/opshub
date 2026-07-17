@@ -2,6 +2,10 @@
 
 Internal operations platform for House Party Distro, a custom apparel company in Las Vegas. Built iteratively — started in Claude.ai, continued in Claude Code. Will also be used by Jon's second company (touring artists/bands) — ~90% feature overlap, same codebase.
 
+## MANDATORY: Design standard
+
+**Read `DESIGN.md` before building or changing ANY UI.** It is the locked house style — palette signal semantics, NO pills, note rails, edit-vs-view affordances, card/modal anatomy, date formatting. If a build deviates from DESIGN.md, the build is wrong and will be redone.
+
 ## MANDATORY: Before Writing Any Code
 
 DO NOT write code until you have completed these steps. No exceptions. These are not suggestions. Skipping these steps has repeatedly caused regressions — working features broken by changes that didn't account for all callers/consumers.
