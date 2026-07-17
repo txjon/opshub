@@ -55,6 +55,7 @@ export default async function DistroDashboard() {
       itemsLabel: b.lines.length === 1 ? b.lines[0].itemName : `${b.lines.length} items`,
       units: outstanding,
       eta: b.expectedArrival, etaDerived: b.etaDerived,
+      deliveredAt: b.deliveredAt, // carrier signal — pins the row to the dock bucket
       shippedAt: b.createdAt, carrier: b.carrier, tracking: b.tracking, pickup: b.pickup,
       note: b.note, slips: b.slips,
       lines: b.lines.map(l => ({
