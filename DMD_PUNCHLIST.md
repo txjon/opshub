@@ -34,8 +34,8 @@ See `project_dmd_tenant` memory for the full build plan/phases.
 ## Database / SQL (most already applied by Claude via service role)
 - [x] `companies` row for DMD seeded (slug=dmd, prefix=DMD, QB provider, addresses,
       departments labs/contacts/settings) + Jon owner membership. *(scripts/seed-dmd.cjs)*
-- [ ] **Confirm bill-to address suite + zip** — seeded as "6280 S Valley View Blvd,
-      Las Vegas, NV" (incomplete). Update via Settings or tell Claude.
+- [x] **Bill-to address confirmed** (Jon, 2026-07-17): 6280 S Valley View Blvd,
+      Suite C340, Las Vegas, NV 89118 — companies row + seed script updated.
 - [ ] **Google Drive folder** for DMD: create the root folder, share with the service
       account, then set `companies.drive_folder_id` (so art files file under DMD).
 

@@ -9,7 +9,7 @@ const DMD = {
   legal_name: "Dark Matter Dynamics, LLC",
   job_number_prefix: "DMD",
   default_payment_provider: "quickbooks",
-  bill_to_address: "6280 S Valley View Blvd, Las Vegas, NV",        // TODO confirm suite + zip
+  bill_to_address: "6280 S Valley View Blvd, Suite C340, Las Vegas, NV 89118", // confirmed by Jon 2026-07-17
   warehouse_address: "4670 W Silverado Ranch Blvd, STE 120, Las Vegas, NV 89139", // ships through HPD
   from_email_quotes: "hello@darkmatterdynamics.co",                 // NOT yet verified in Resend
   from_email_production: "production@darkmatterdynamics.co",
