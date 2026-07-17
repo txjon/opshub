@@ -222,20 +222,30 @@ export function JobItemsList({ items, job, isMobile, onChange, vendorFilter, onC
                   </span>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flex: "1 1 0", justifyContent: "flex-end" }}
                     title="Read-only — flows from the date chain (PO ship-by · production slips · receiving arrivals)">
-                    <span style={{ fontSize: 13, fontFamily: mono, fontWeight: 700, color: etaValue ? T.text : T.faint }}>
-                      {etaValue ? fmtDay(etaValue) : "TBD"}{etaIsOverride ? " ✎" : ""}
-                    </span>
-                    {cd && (
-                      <span style={{ fontSize: 10, fontWeight: 700, color: cdColor, textTransform: "uppercase", letterSpacing: "0.05em", whiteSpace: "nowrap" }}>
-                        {cd.text}
+                    {["in_stock", "complete"].includes(state) ? (
+                      <span style={{ fontSize: 11, color: T.faint, fontWeight: 600 }}>arrived</span>
+                    ) : (<>
+                      <span style={{ fontSize: 13, fontFamily: mono, fontWeight: 700, color: etaValue ? T.text : T.faint }}>
+                        {etaValue ? fmtDay(etaValue) : "TBD"}{etaIsOverride ? " ✎" : ""}
                       </span>
-                    )}
+                      {cd && (
+                        <span style={{ fontSize: 10, fontWeight: 700, color: cdColor, textTransform: "uppercase", letterSpacing: "0.05em", whiteSpace: "nowrap" }}>
+                          {cd.text}
+                        </span>
+                      )}
+                    </>)}
                   </div>
                 </div>
                 {state === "shipped" && (
                   <div style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: "space-between" }}>
                     <span style={{ fontSize: 10, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em" }}>Ship</span>
                     <span style={{ fontSize: 12, fontWeight: 700, color: T.green }}>✓ Shipped{item.ship_tracking ? ` · ${item.ship_tracking}` : ""}</span>
+                  </div>
+                )}
+                {["in_stock", "complete"].includes(state) && item.received_at_hpd && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: "space-between" }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em" }}>Ship</span>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: T.green }}>✓ Received</span>
                   </div>
                 )}
               </div>
@@ -267,25 +277,37 @@ export function JobItemsList({ items, job, isMobile, onChange, vendorFilter, onC
               }}>{stateLabel}</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 2 }}
                 title="Read-only — flows from the date chain (PO ship-by · production slips · receiving arrivals)">
-                <span style={{ fontSize: 11, fontFamily: mono, fontWeight: 700, color: etaValue ? T.text : T.faint }}>
-                  {etaValue ? fmtDay(etaValue) : "TBD"}{etaIsOverride ? " ✎" : ""}
-                </span>
-                {cd && (
-                  <span style={{ fontSize: 9, fontWeight: 700, color: cdColor, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                    {cd.text}
+                {/* Landed items (in stock / complete) — the prediction is
+                    satisfied; a stale date reads as a live ETA, so say so. */}
+                {["in_stock", "complete"].includes(state) ? (
+                  <span style={{ fontSize: 10, color: T.faint, fontWeight: 600 }}>arrived</span>
+                ) : (<>
+                  <span style={{ fontSize: 11, fontFamily: mono, fontWeight: 700, color: etaValue ? T.text : T.faint }}>
+                    {etaValue ? fmtDay(etaValue) : "TBD"}{etaIsOverride ? " ✎" : ""}
                   </span>
-                )}
+                  {cd && (
+                    <span style={{ fontSize: 9, fontWeight: 700, color: cdColor, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                      {cd.text}
+                    </span>
+                  )}
+                </>)}
               </div>
-              {/* Ship status — read-only. Shipping happens on /production. */}
+              {/* Ship status — read-only ship-LEG progress; never restates the
+                  Status column. Shipping happens on /production. */}
               <div onClick={e => e.stopPropagation()}>
                 {state === "shipped" ? (
                   <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
                     <span style={{ fontSize: 9, fontWeight: 700, color: T.green, textTransform: "uppercase", letterSpacing: "0.05em" }}>✓ Shipped</span>
                     {item.ship_tracking && <span style={{ fontSize: 9, color: T.faint, fontFamily: mono, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.ship_tracking}</span>}
                   </div>
+                ) : ["in_stock", "complete"].includes(state) && item.received_at_hpd ? (
+                  // the ship leg finished — furthest milestone wins ("—" here
+                  // made the one DONE item look like the least-progressed one)
+                  <span style={{ fontSize: 9, fontWeight: 700, color: T.green, textTransform: "uppercase", letterSpacing: "0.05em" }}>✓ Received</span>
                 ) : state === "in_production" ? (
                   (() => {
-                    // Show wave progress when partially shipped, else plain status.
+                    // Wave progress when partially shipped; zero progress is a
+                    // quiet dash (the Status column already says in production).
                     const p = shipProgress(item.qtys, item.ship_qtys);
                     if (p.shipped > 0 && p.remaining > 0) {
                       return (
@@ -295,7 +317,7 @@ export function JobItemsList({ items, job, isMobile, onChange, vendorFilter, onC
                         </div>
                       );
                     }
-                    return <span style={{ fontSize: 10, fontWeight: 700, color: T.blue, textTransform: "uppercase", letterSpacing: "0.05em" }}>In production</span>;
+                    return <span style={{ fontSize: 11, color: T.faint }}>—</span>;
                   })()
                 ) : (
                   <span style={{ fontSize: 11, color: T.faint }}>—</span>
