@@ -8,6 +8,7 @@ import { BoardFrame, ToggleSearch, KpiStrip, KpiBreakdownModal, ModalShell, Card
 import { receiveBox as receiveBoxAction, resolvePull, returnReceivedLine, editReceivedLine, editShippedLine, returnIncomingToProduction } from "@/lib/receiving2-receive";
 import { PULL_KINDS } from "@/lib/handoff";
 import LedgerHistory from "@/components/LedgerHistory";
+import { TrackingLink } from "@/components/TrackingModal";
 import type { ReceivingBox, ReceivingLine, HeldPull } from "@/lib/item-state";
 import { v2WriteAllowed } from "@/lib/v2-flags";
 
@@ -412,7 +413,10 @@ function BoxCard({ box, status, onReceive, onAdjustEta, onFlagNotFound, acts }: 
           <div style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 3, fontSize: 11.5, color: T.faint, flexWrap: "wrap" }}>
             <span>from <span style={{ color: T.muted, fontWeight: 700 }}>{box.vendorName}</span></span>
             {sep}<span>{received ? `received ${dayOf(box.receivedAt || box.createdAt)}` : `shipped ${dayOf(box.createdAt)}`}</span>
-            {!box.pickup && (box.carrier || box.tracking) && <>{sep}<span style={{ fontFamily: mono }}>{[box.carrier, box.tracking].filter(Boolean).join(" · ")}</span></>}
+            {!box.pickup && (box.carrier || box.tracking) && <>{sep}<span style={{ fontFamily: mono }}>
+              {box.carrier}{box.carrier && box.tracking ? " · " : ""}
+              {box.tracking && <TrackingLink tracking={box.tracking} shipmentId={box.id} />}
+            </span></>}
             {box.slips.map((s, i) => (
               <span key={i} style={{ display: "inline-flex", gap: 7 }}>{sep}
                 <a href={s.url} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} style={{ color: T.blue, fontWeight: 600, textDecoration: "none" }}>📎 slip</a>

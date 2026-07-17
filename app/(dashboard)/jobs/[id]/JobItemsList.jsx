@@ -7,6 +7,7 @@ import { shipProgress } from "@/lib/ship-progress";
 import { etaCountdown } from "@/lib/eta";
 import { fmtDay } from "@/lib/dates";
 import LedgerHistory from "@/components/LedgerHistory";
+import { TrackingLink } from "@/components/TrackingModal";
 
 // Map the eta countdown semantic band onto the internal T palette.
 // Mirrors the portal's color mapping (which uses C) so the urgency
@@ -239,7 +240,7 @@ export function JobItemsList({ items, job, isMobile, onChange, vendorFilter, onC
                 {state === "shipped" && (
                   <div style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: "space-between" }}>
                     <span style={{ fontSize: 10, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em" }}>Ship</span>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: T.green }}>✓ Shipped{item.ship_tracking ? ` · ${item.ship_tracking}` : ""}</span>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: T.green }}>✓ Shipped{item.ship_tracking ? <> · <TrackingLink tracking={item.ship_tracking} style={{ fontWeight: 700 }} /></> : ""}</span>
                   </div>
                 )}
                 {["in_stock", "complete"].includes(state) && item.received_at_hpd && (
@@ -298,7 +299,7 @@ export function JobItemsList({ items, job, isMobile, onChange, vendorFilter, onC
                 {state === "shipped" ? (
                   <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
                     <span style={{ fontSize: 9, fontWeight: 700, color: T.green, textTransform: "uppercase", letterSpacing: "0.05em" }}>✓ Shipped</span>
-                    {item.ship_tracking && <span style={{ fontSize: 9, color: T.faint, fontFamily: mono, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.ship_tracking}</span>}
+                    {item.ship_tracking && <span style={{ fontSize: 9, color: T.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}><TrackingLink tracking={item.ship_tracking} /></span>}
                   </div>
                 ) : ["in_stock", "complete"].includes(state) && item.received_at_hpd ? (
                   // the ship leg finished — furthest milestone wins ("—" here
