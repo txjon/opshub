@@ -307,7 +307,7 @@ function boxMetaSegs(box: ReceivingBox, status: Status): { text: string; tone?: 
 // delay lands here; the vendor ship-by upstream never moves; client ETAs
 // downstream re-derive. Clearing falls back to the derived schedule.
 function AdjustEtaModal({ box, onClose, onDone }: { box: ReceivingBox; onClose: () => void; onDone: () => void }) {
-  const [date, setDate] = useState(box.expectedArrival && !box.etaDerived ? box.expectedArrival : "");
+  const [date, setDate] = useState(box.etaSource === "human" && box.expectedArrival ? box.expectedArrival : "");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   async function save(value: string | null) {
@@ -327,16 +327,18 @@ function AdjustEtaModal({ box, onClose, onDone }: { box: ReceivingBox; onClose: 
         <input type="date" value={date} onChange={e => setDate(e.target.value)}
           style={{ fontFamily: mono, fontSize: 13, fontWeight: 700, padding: "8px 10px", border: `1px solid ${T.border}`, borderRadius: 7, background: T.surface, color: T.text, width: 180 }} />
         <div style={{ fontSize: 11, color: T.muted }}>
-          {box.etaDerived
+          {box.etaSource === "derived"
             ? `Currently ~${fmtDay(box.expectedArrival)} — derived from ship day + the vendor's transit default.`
-            : box.expectedArrival ? `Currently ${fmtDay(box.expectedArrival)} (set on this box).` : "No ETA on this box yet."}
+            : box.etaSource === "carrier"
+              ? `Currently ${fmtDay(box.expectedArrival)} — live carrier estimate. Setting a date here overrides it until the next scan (freshest signal wins).`
+              : box.expectedArrival ? `Currently ~${fmtDay(box.expectedArrival)} (set by hand on this box).` : "No ETA on this box yet."}
         </div>
         {err && <span style={{ fontSize: 12, color: T.red, fontWeight: 600 }}>{err}</span>}
       </div>
       <div style={{ padding: "14px 22px", borderTop: `1px solid ${T.border}`, display: "flex", gap: 10, justifyContent: "flex-end" }}>
-        {box.expectedArrival && !box.etaDerived && (
+        {box.etaSource === "human" && box.expectedArrival && (
           <button onClick={() => save(null)} disabled={busy}
-            style={{ fontSize: 12, fontWeight: 600, background: "none", border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 14px", cursor: "pointer", color: T.muted, marginRight: "auto" }}>Clear — back to derived</button>
+            style={{ fontSize: 12, fontWeight: 600, background: "none", border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 14px", cursor: "pointer", color: T.muted, marginRight: "auto" }}>Clear — back to carrier / derived</button>
         )}
         <button onClick={onClose} disabled={busy}
           style={{ fontSize: 13, background: "none", border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 16px", cursor: "pointer", color: T.muted }}>Cancel</button>
@@ -436,15 +438,21 @@ function BoxCard({ box, status, onReceive, onAdjustEta, onFlagNotFound, acts }: 
                 visible on touch too. Eats the click — adjusts the date, not receive. */}
             {(() => {
               // urgency-coded (signal table): gray = calm, amber = inside 3 days,
-              // red = past due. Derived estimates keep the ~ marker.
+              // red = past due. ~ = ANY estimate (human or transit math); a
+              // plain date is carrier data only ("one mark, one meaning").
               const d = box.expectedArrival ? daysUntilDay(box.expectedArrival) : null;
               const col = !box.expectedArrival ? T.faint : d != null && d < 0 ? T.red : d != null && d <= 3 ? T.amber : T.muted;
               const label = box.expectedArrival
-                ? `ETA ${box.etaDerived ? "~" : ""}${fmtDay(box.expectedArrival)}${d != null && d < 0 ? " · late" : ""}`
+                ? `ETA ${box.etaSource !== "carrier" ? "~" : ""}${fmtDay(box.expectedArrival)}${d != null && d < 0 ? " · late" : ""}`
                 : "set ETA";
+              const title = box.etaSource === "carrier"
+                ? "Live carrier estimate — updates with every scan. Click to override by hand."
+                : box.etaSource === "human"
+                  ? "~ set by hand (an estimate — a fresher carrier scan takes over). Click to adjust."
+                  : "~ ship day + vendor transit (an estimate). Click to set a real date.";
               return (
                 <span onClick={e => { e.stopPropagation(); onAdjustEta && onAdjustEta(box); }}
-                  title="Expected arrival — click to adjust (~ = derived estimate)"
+                  title={title}
                   style={{ fontSize: 12.5, fontWeight: 800, cursor: "pointer", color: col, borderBottom: "1px dotted currentColor", paddingBottom: 1 }}>
                   {label}
                 </span>

@@ -392,10 +392,11 @@ export type ReceivingLine = {
 export type ReceivingBox = {
   id: string; vendorName: string; carrier: string | null; tracking: string | null; pickup: boolean;
   createdAt: string; receivedAt: string | null;
-  // expectedArrival: the box's own date (set at ship or edited in-line in
-  // receiving — writes shipments.expected_arrival) OR, when the box shipped
-  // without one, derived = ship day + vendor transit(carrier) (etaDerived).
-  expectedArrival: string | null; etaDerived: boolean;
+  // expectedArrival: resolved box ETA. etaSource says who set it — "carrier"
+  // (live tracker estimate; the only PLAIN date, everything else renders ~),
+  // "human" (expected_arrival / item overrides), "derived" (ship day +
+  // vendor transit), null (TBD).
+  expectedArrival: string | null; etaSource: "carrier" | "human" | "derived" | null;
   // live carrier feed (EasyPost) — signals, never receiving truth
   carrierStatus: string | null; deliveredAt: string | null;
   lastScan: { status?: string | null; description?: string | null; location?: string | null; at?: string | null } | null;
@@ -492,23 +493,25 @@ export async function loadReceivingBoard(sb: Sb): Promise<ReceivingBox[]> {
     //      its slowest item);
     //   3. else ship day + vendor transit default;
     //   4. else TBD. Never a guess beyond the chain (R5).
-    const { eta: boxEta, derived: etaDerived } = (() => {
+    const { eta: boxEta, source: etaSource } = (() => {
+      type Src = "carrier" | "human" | "derived" | null;
       const human = s.expected_arrival ? { d: String(s.expected_arrival), at: s.expected_arrival_edited_at || "0" } : null;
       const carrierEta = s.est_delivery_date ? { d: String(s.est_delivery_date), at: s.est_delivery_updated_at || "0" } : null;
-      if (human && carrierEta) return { eta: (human.at >= carrierEta.at ? human.d : carrierEta.d), derived: false };
-      if (human) return { eta: human.d, derived: false };
-      if (carrierEta) return { eta: carrierEta.d, derived: false };
+      if (human && carrierEta) return human.at >= carrierEta.at
+        ? { eta: human.d, source: "human" as Src } : { eta: carrierEta.d, source: "carrier" as Src };
+      if (human) return { eta: human.d, source: "human" as Src };
+      if (carrierEta) return { eta: carrierEta.d, source: "carrier" as Src };
       const lineOverrides = ls.map((l: any) => l.items?.expected_arrival).filter(Boolean) as string[];
-      if (lineOverrides.length) return { eta: lineOverrides.sort()[lineOverrides.length - 1], derived: false };
+      if (lineOverrides.length) return { eta: lineOverrides.sort()[lineOverrides.length - 1], source: "human" as Src };
       const td = (s as any).decorators?.transit_defaults;
       const transit = transitDaysFor(td, s.pickup ? "Pick Up" : s.carrier);
       const proj = transit != null ? addDays(String(s.created_at).slice(0, 10), transit) : null;
-      return { eta: proj, derived: !!proj };
+      return { eta: proj, source: (proj ? "derived" : null) as Src };
     })();
     boxes.push({
       id: s.id, vendorName: (s as any).decorators?.name || "Unassigned vendor",
       carrier: s.carrier, tracking: s.tracking, pickup: !!s.pickup, createdAt: s.created_at, receivedAt: s.received_at || null,
-      expectedArrival: boxEta, etaDerived,
+      expectedArrival: boxEta, etaSource,
       carrierStatus: s.carrier_status || null, deliveredAt: s.delivered_at || null,
       lastScan: s.last_scan || null, trackingError: s.tracking_error || null,
       deliveredNotFoundAt: s.delivered_not_found_at || null,
