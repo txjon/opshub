@@ -827,7 +827,15 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
         items: activeItems.map(it => ({ itemId: it.itemId, jobId: it.jobId, itemName: it.name, qtys: qtys[it.itemId] || {}, final: !!final[it.itemId] })),
       });
       setBusy(false); setBusyLabel("Shipping…");
-      if (res.ok) setDone({ shipped: res.shipped, boxes: res.boxes, boxIds: res.boxIds, jobIds: res.jobIds });
+      if (res.ok) {
+        setDone({ shipped: res.shipped, boxes: res.boxes, boxIds: res.boxIds, jobIds: res.jobIds });
+        // register live tracking on the new boxes — fire-and-forget; the
+        // endpoint's guards make repeats free and failures silent here
+        fetch("/api/tracking/register", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ shipmentIds: res.boxIds }),
+        }).catch(() => {});
+      }
       else setErr(res.error || "Ship failed.");
     } catch (e: any) { setBusy(false); setErr(e?.message || "Ship failed."); }
   }

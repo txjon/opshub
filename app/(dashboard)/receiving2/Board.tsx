@@ -284,7 +284,7 @@ function AdjustEtaModal({ box, onClose, onDone }: { box: ReceivingBox; onClose: 
   const [err, setErr] = useState<string | null>(null);
   async function save(value: string | null) {
     setBusy(true); setErr(null);
-    const { error } = await (createClient().from("shipments") as any).update({ expected_arrival: value }).eq("id", box.id);
+    const { error } = await (createClient().from("shipments") as any).update({ expected_arrival: value, expected_arrival_edited_at: new Date().toISOString() }).eq("id", box.id);
     setBusy(false);
     if (error) setErr(error.message); else onDone();
   }

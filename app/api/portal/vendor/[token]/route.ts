@@ -4,6 +4,8 @@ import { sendClientNotification } from "@/lib/auto-email";
 import { buildPrintersMap, calcDecorationLines } from "@/lib/pricing";
 import { Resend } from "resend";
 import { renderBrandedEmail } from "@/lib/email-template";
+import { shipFromProduction } from "@/lib/production2-ship";
+import { ensureTracker } from "@/lib/inbound-tracking";
 
 const admin = () =>
   createClient(
@@ -445,21 +447,41 @@ export async function POST(
     // actively send back.)
 
     // ── ENTER TRACKING: Item shipped from decorator ──
+    // Routes through the SAME ship path production2 uses (shipFromProduction:
+    // shipment box + ledger movement + item state + phase recalc). The old
+    // handler wrote only the flat item fields, so vendor-entered ships never
+    // created a box — invisible to receiving2 and the ledger (fixed
+    // 2026-07-16, tracking-plan phase 1).
     if (action === "enter_tracking" && itemId && tracking) {
-      const updates: any = {
-        pipeline_stage: "shipped",
-        ship_tracking: tracking,
-      };
-      if (shipQtys) updates.ship_qtys = shipQtys;
+      const ctx = await getItemContext(itemId);
+      if (!ctx || !ctx.job) return NextResponse.json({ error: "Item not found" }, { status: 404 });
 
-      await sb.from("items").update(updates).eq("id", itemId);
+      // qtys for the wave: vendor-entered per-size counts, else the full order
+      let qtys: Record<string, number> = shipQtys || {};
+      if (!Object.values(qtys).some(n => Number(n) > 0)) {
+        const { data: bsl } = await sb.from("buy_sheet_lines").select("size, qty_ordered").eq("item_id", itemId);
+        qtys = {};
+        for (const l of bsl || []) qtys[l.size] = (qtys[l.size] || 0) + (Number(l.qty_ordered) || 0);
+      }
+
+      const shipRes = await shipFromProduction(sb, {
+        method: "tracking", tracking, carrier: carrier || null,
+        decoratorId: decorator.id, decoratorName: decorator.name,
+        items: [{ itemId, jobId: ctx.job.id, itemName: ctx.item.name, qtys, final: false }],
+      });
+      if (!shipRes.ok) return NextResponse.json({ error: shipRes.error || "Ship failed" }, { status: 500 });
+
+      // vendor-portal-specific stamps shipFromProduction doesn't own
       await sb.from("decorator_assignments").update({
-        pipeline_stage: "shipped",
         tracking_number: tracking,
         actual_completion_date: new Date().toISOString().split("T")[0],
       }).eq("item_id", itemId).eq("decorator_id", decorator.id);
 
-      const ctx = await getItemContext(itemId);
+      // register live tracking on the new box(es) — guarded, never throws
+      for (const boxId of shipRes.boxIds) {
+        await ensureTracker(sb, boxId).catch(() => {});
+      }
+
       if (ctx) {
         const carrierText = carrier ? ` via ${carrier}` : "";
         await sb.from("job_activity").insert({
