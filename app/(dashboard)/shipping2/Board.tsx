@@ -172,7 +172,17 @@ function ForwardModal({ job, onClose, onDone }: { job: ShippingJob; onClose: () 
       items: items.map(it => ({ itemId: it.itemId, jobId: job.jobId, itemName: it.name, qtys: qtys[it.itemId] || {} })),
     });
     setBusy(false);
-    if (res.ok) setDone({ shipmentId: res.shipmentId!, forwarded: res.forwarded }); else setErr(res.error || "Forward failed.");
+    if (res.ok) {
+      // fire-and-forget tracker registration (same as production2's ship path):
+      // the outbound box gets a live carrier feed → Client Hub shipment status +
+      // future outbound analytics. ensureTracker's guards make failures silent
+      // and repeats free.
+      fetch("/api/tracking/register", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shipmentIds: [res.shipmentId] }),
+      }).catch(() => {});
+      setDone({ shipmentId: res.shipmentId!, forwarded: res.forwarded });
+    } else setErr(res.error || "Forward failed.");
   }
 
   async function openNotify() {

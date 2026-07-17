@@ -380,6 +380,20 @@ function BoxCard({ box, status, onReceive, onAdjustEta, onFlagNotFound, acts }: 
   const multiClient = box.clients.length > 1;
   const headline = multiClient ? `${box.clients.length} clients` : (box.clients[0] || box.vendorName);
   const flags = boxMetaSegs(box, status).filter(s => s.tone === T.red || s.tone === T.blue);
+  // stall watch (Phase 5): a tracked, undelivered box whose feed went quiet.
+  // "no scan Nd" = moving box that stopped scanning (amber 3d / red 6d);
+  // "label created — not picked up" = vendor printed a label and never handed
+  // the box to the carrier (the sneakier stall).
+  const stall = (() => {
+    if (received || box.deliveredAt || !box.carrierStatus) return null;
+    const daysSince = (iso: string | null) => iso ? Math.floor((Date.now() - new Date(iso).getTime()) / 864e5) : null;
+    if (box.carrierStatus === "pre_transit") {
+      const d = daysSince(box.createdAt);
+      return d != null && d >= 3 ? { text: `label created ${d}d ago — not picked up`, tone: d >= 6 ? T.red : T.amber } : null;
+    }
+    const d = daysSince(box.lastScan?.at || null);
+    return d != null && d >= 3 ? { text: `no scan ${d}d`, tone: d >= 6 ? T.red : T.amber } : null;
+  })();
   const sep = <span style={{ opacity: 0.6 }}>·</span>;
   return (
     <div onClick={clickable ? onReceive : undefined}
@@ -405,6 +419,7 @@ function BoxCard({ box, status, onReceive, onAdjustEta, onFlagNotFound, acts }: 
               </span>
             ))}
             {flags.map((f, i) => <span key={`f${i}`} style={{ display: "inline-flex", gap: 7 }}>{sep}<span style={{ color: f.tone, fontWeight: 800 }}>{f.text}</span></span>)}
+            {stall && <span style={{ display: "inline-flex", gap: 7 }}>{sep}<span title="The carrier feed went quiet — check with the vendor/carrier" style={{ color: stall.tone, fontWeight: 800 }}>⚠ {stall.text}</span></span>}
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
