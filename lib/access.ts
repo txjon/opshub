@@ -59,7 +59,8 @@ export const PAGE_CATALOG: CatalogPage[] = [
   { key: "/settings", href: "/settings", label: "Team", group: "settings", sensitive: true },
   // Parked/mockup pages — catalogued so they can't fail open (uncatalogued
   // paths are allowed by canAccessPath). Owner-sensitive: god/grant only.
-  { key: "/templates", href: "/templates", label: "Templates (parked)", group: "owner", sensitive: true },
+  // (/templates deleted 2026-07-17 per Jon — superseded by the planned team
+  // Resources page, see roadmap.)
   { key: "/command-center-v2", href: "/command-center-v2", label: "Command Center mockup", group: "owner", sensitive: true },
   // Always-available utilities
   { key: "/toolkit", href: "/toolkit", label: "Toolkit", group: "side" },
