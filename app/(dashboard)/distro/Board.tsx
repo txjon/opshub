@@ -18,6 +18,7 @@ export type ArrivalRow = {
   kind: "box" | "strip"; id: string;
   client: string; vendor: string; itemsLabel: string; units: number;
   eta: string | null; etaDerived: boolean;
+  deliveredAt?: string | null;      // boxes: carrier says delivered (≠ received — human truth)
   shipBy?: string | null;           // strips: the vendor ship-by ("ASAP" possible)
   shippedAt?: string;               // boxes: when it left the vendor
   carrier?: string | null; tracking?: string | null; pickup?: boolean;
@@ -36,8 +37,17 @@ const dayOf = (iso: string | null | undefined) => {
   return isNaN(d.getTime()) ? "" : d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 };
 
+// delivered-not-received aging (D3): calm <24h · amber 24–48h · red 48h+
+function deliveredMeta(iso: string): { text: string; color: string } {
+  const ageH = (Date.now() - new Date(iso).getTime()) / 36e5;
+  const color = ageH >= 48 ? T.red : ageH >= 24 ? T.amber : T.green;
+  const ago = ageH < 1 ? "just now" : ageH < 24 ? `${Math.floor(ageH)}h ago` : `${Math.floor(ageH / 24)}d ago`;
+  return { text: `✓ ${dayOf(iso)} · ${ago}`, color };
+}
+
 // urgency-coded ETA (signal table): red late · amber ≤3d · gray calm · faint TBD
 function etaMeta(row: ArrivalRow): { text: string; color: string } {
+  if (row.deliveredAt) return deliveredMeta(row.deliveredAt);
   if (!row.eta) return { text: row.shipBy === "ASAP" ? "ASAP · TBD" : "TBD", color: T.faint };
   const d = daysUntilDay(row.eta);
   const pre = row.etaDerived ? "~" : "";
@@ -61,8 +71,15 @@ export default function Board({ rows, drops }: { rows: ArrivalRow[]; drops: Drop
   const [hoverId, setHoverId] = useState<string | null>(null);
 
   const buckets = useMemo(() => {
-    const sorted = [...rows].sort((a, b) => (a.eta || "9999").localeCompare(b.eta || "9999"));
-    return BUCKETS.map(bk => ({ ...bk, rows: sorted.filter(r => bk.match(r.eta ? daysUntilDay(r.eta) : null)) }))
+    // carrier-delivered boxes leave the date buckets — they're not "arriving",
+    // they're SITTING on the dock unreceived. Pinned first, newest-delivered
+    // first (mirrors receiving2's queue).
+    const dock = rows.filter(r => r.deliveredAt)
+      .sort((a, b) => (b.deliveredAt || "").localeCompare(a.deliveredAt || ""));
+    const rest = rows.filter(r => !r.deliveredAt);
+    const sorted = [...rest].sort((a, b) => (a.eta || "9999").localeCompare(b.eta || "9999"));
+    const dated = BUCKETS.map(bk => ({ ...bk, rows: sorted.filter(r => bk.match(r.eta ? daysUntilDay(r.eta) : null)) }));
+    return [{ key: "dock", label: "On the dock — not received", rows: dock }, ...dated]
       .filter(bk => bk.rows.length > 0);
   }, [rows]);
 
@@ -70,7 +87,7 @@ export default function Board({ rows, drops }: { rows: ArrivalRow[]; drops: Drop
     const withEta = (r: ArrivalRow) => (r.eta ? daysUntilDay(r.eta) : null);
     const arrivingWeek = rows.filter(r => { const d = withEta(r); return d != null && d <= 7; })
       .reduce((a, r) => a + r.units, 0);
-    const inTransit = rows.filter(r => r.kind === "box").length;
+    const inTransit = rows.filter(r => r.kind === "box" && !r.deliveredAt).length;
     const atVendors = rows.filter(r => r.kind === "strip").reduce((a, r) => a + r.units, 0);
     const today = new Date();
     const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
@@ -103,20 +120,20 @@ export default function Board({ rows, drops }: { rows: ArrivalRow[]; drops: Drop
           )}
           {buckets.map(bk => (
             <div key={bk.key}>
-              <div style={bucketLabel}>{bk.label}</div>
+              <div style={{ ...bucketLabel, ...(bk.key === "dock" ? { color: T.red } : {}) }}>{bk.label}</div>
               {bk.rows.map(r => {
                 const eta = etaMeta(r);
                 return (
                   <div key={r.id} onClick={() => setDetail(r)}
                     onMouseEnter={() => setHoverId(r.id)} onMouseLeave={() => setHoverId(null)}
-                    style={{ cursor: "pointer", borderRadius: 12, outline: hoverId === r.id ? `1.5px solid ${T.text}` : "none", outlineOffset: -1, marginBottom: 8 }}>
+                    style={{ cursor: "pointer", borderRadius: 12, outline: hoverId === r.id ? `1.5px solid ${T.text}` : r.deliveredAt && eta.color !== T.green ? `2px solid ${eta.color}` : "none", outlineOffset: -1, marginBottom: 8 }}>
                     <Card>
                       <div style={{ padding: "9px 16px", display: "flex", alignItems: "center", gap: 12 }}>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
                             <span style={{ fontSize: 14, fontWeight: 800 }}>{r.client}</span>
-                            <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: 0.5, textTransform: "uppercase", color: r.kind === "box" ? T.blue : T.green }}>
-                              {r.kind === "box" ? "In transit" : "At vendor"}
+                            <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: 0.5, textTransform: "uppercase", color: r.deliveredAt ? eta.color : r.kind === "box" ? T.blue : T.green }}>
+                              {r.deliveredAt ? "Delivered" : r.kind === "box" ? "In transit" : "At vendor"}
                             </span>
                           </div>
                           <div style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 3, fontSize: 11.5, color: T.faint, flexWrap: "wrap" }}>
@@ -167,7 +184,7 @@ export default function Board({ rows, drops }: { rows: ArrivalRow[]; drops: Drop
               {detail.kind === "box"
                 ? <> · shipped {dayOf(detail.shippedAt)}{detail.pickup ? " · pickup" : detail.carrier || detail.tracking ? ` · ${[detail.carrier, detail.tracking].filter(Boolean).join(" · ")}` : ""}</>
                 : <> · ships {detail.shipBy === "ASAP" ? "ASAP" : detail.shipBy ? `~${fmtDay(detail.shipBy)}` : "TBD"}</>}
-              {" · "}<span style={{ color: etaMeta(detail).color, fontWeight: 700 }}>ETA {etaMeta(detail).text}</span>
+              {" · "}<span style={{ color: etaMeta(detail).color, fontWeight: 700 }}>{detail.deliveredAt ? "delivered" : "ETA"} {etaMeta(detail).text}</span>
             </div>
             {detail.slips && detail.slips.length > 0 && (
               <div style={{ marginTop: 6 }}>{detail.slips.map((s, i) => (
