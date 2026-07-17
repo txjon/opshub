@@ -54,7 +54,7 @@ export default async function DistroDashboard() {
       vendor: b.vendorName,
       itemsLabel: b.lines.length === 1 ? b.lines[0].itemName : `${b.lines.length} items`,
       units: outstanding,
-      eta: b.expectedArrival, etaDerived: b.etaDerived,
+      eta: b.expectedArrival, etaSource: b.etaSource,
       deliveredAt: b.deliveredAt, // carrier signal — pins the row to the dock bucket
       shippedAt: b.createdAt, carrier: b.carrier, tracking: b.tracking, pickup: b.pickup,
       note: b.note, slips: b.slips,
@@ -92,7 +92,9 @@ export default async function DistroDashboard() {
       units: owed,
       shipBy: allOverridden ? null : s.shipDate, // dead ship-by drops off the line once fully rescheduled
       eta,
-      etaDerived: !etaFromOverride,
+      // strips have no carrier feed (nothing shipped yet) — every date is an
+      // estimate: human override or transit math. Both wear the ~.
+      etaSource: (eta ? (etaFromOverride ? "human" : "derived") : null) as "human" | "derived" | null,
       lines: s.items.map(i => ({
         name: i.name, route: i.route,
         qtys: i.owed, orderedTotal: i.orderedTotal, shippedTotal: i.shippedTotal,

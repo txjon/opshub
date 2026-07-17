@@ -17,7 +17,8 @@ export type ArrivalLine = {
 export type ArrivalRow = {
   kind: "box" | "strip"; id: string;
   client: string; vendor: string; itemsLabel: string; units: number;
-  eta: string | null; etaDerived: boolean;
+  eta: string | null;
+  etaSource: "carrier" | "human" | "derived" | null; // plain date = carrier data; ~ = any estimate
   deliveredAt?: string | null;      // boxes: carrier says delivered (≠ received — human truth)
   shipBy?: string | null;           // strips: the vendor ship-by ("ASAP" possible)
   shippedAt?: string;               // boxes: when it left the vendor
@@ -50,7 +51,8 @@ function etaMeta(row: ArrivalRow): { text: string; color: string } {
   if (row.deliveredAt) return deliveredMeta(row.deliveredAt);
   if (!row.eta) return { text: row.shipBy === "ASAP" ? "ASAP · TBD" : "TBD", color: T.faint };
   const d = daysUntilDay(row.eta);
-  const pre = row.etaDerived ? "~" : "";
+  const pre = row.etaSource !== "carrier" ? "~" : ""; // ~ = estimate (human or math); plain = carrier
+
   if (d != null && d < 0) return { text: `${pre}${fmtDay(row.eta)} · late`, color: T.red };
   if (d === 0) return { text: "today", color: T.amber };
   const color = d != null && d <= 3 ? T.amber : T.muted;
