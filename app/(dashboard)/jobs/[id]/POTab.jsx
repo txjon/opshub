@@ -187,26 +187,6 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
     supabase.from("decorators").select("*").order("name").then(({data})=>setDecorators(data||[]));
   },[]);
 
-  // Live inbound boxes for THIS job (EasyPost-fed) — grouped per vendor under
-  // the PO Status row. Boxes are decorator-scoped, so scope through
-  // shipment_lines by job_id and dedupe. Carrier signals only; receiving truth
-  // stays on /receiving2.
-  const [inboundBoxes,setInboundBoxes] = useState([]);
-  useEffect(()=>{
-    if (!project?.id) return;
-    supabase.from("shipment_lines")
-      .select("shipment_id, shipments(id, decorator_id, direction, status, tracking, pickup, carrier_status, est_delivery_date, delivered_at)")
-      .eq("job_id", project.id)
-      .then(({data})=>{
-        const seen = new Map();
-        for (const l of data||[]) {
-          const s = l.shipments;
-          if (s && s.direction === "inbound") seen.set(s.id, s);
-        }
-        setInboundBoxes(Array.from(seen.values()));
-      });
-  },[project?.id]);
-
   // Default suggestion for packing/shipping notes — pre-filled when no
   // value is set so the decorator gets sensible instructions even on
   // a quick send. User can edit; blur saves whatever's in the field.
@@ -740,35 +720,6 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
         </div>
       )}
 
-      {/* Inbound boxes — live carrier status per vendor (EasyPost, Phase 3).
-          Flat text per the no-pills rule; delivered≠received, counting stays
-          on /receiving2. Only vendors with boxes get a line. */}
-      {vendors.length > 0 && inboundBoxes.length > 0 && (
-        <div style={{display:"flex",flexDirection:"column",gap:4}}>
-          {vendors.map(v=>{
-            const decId = getDec(v)?.id;
-            const boxes = decId ? inboundBoxes.filter(b=>b.decorator_id===decId) : [];
-            if (!boxes.length) return null;
-            const received = boxes.filter(b=>b.status==="received").length;
-            const dock = boxes.filter(b=>b.status!=="received" && b.delivered_at);
-            const transit = boxes.filter(b=>b.status!=="received" && !b.delivered_at);
-            const nextEta = transit.map(b=>b.est_delivery_date).filter(Boolean).sort()[0] || null;
-            const oldestDock = dock.map(b=>b.delivered_at).sort()[0];
-            const dockAgeH = oldestDock ? (Date.now()-new Date(oldestDock).getTime())/36e5 : 0;
-            const dockColor = dockAgeH>=48 ? T.red : T.amber;
-            return (
-              <div key={v} style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",fontSize:11}}>
-                <span style={{fontSize:10,color:T.muted,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.07em"}}>Boxes · {v}:</span>
-                <span style={{color:T.muted,fontWeight:600}}>{boxes.length} box{boxes.length!==1?"es":""}</span>
-                {received>0 && <span style={{color:T.green,fontWeight:700}}>· {received} received ✓</span>}
-                {dock.length>0 && <span style={{color:dockColor,fontWeight:700}} title="Carrier says delivered — nobody has counted these in yet">· {dock.length} on the dock — not received</span>}
-                {transit.length>0 && <span style={{color:T.muted,fontWeight:600}}>· {transit.length} in transit{nextEta?` · next est ${fmtDay(nextEta)}`:""}</span>}
-                <a href="/receiving2" style={{color:T.blue,fontWeight:700,textDecoration:"none"}}>Receiving →</a>
-              </div>
-            );
-          })}
-        </div>
-      )}
 
       {active&&(
         <div style={{background:T.card,border:"1px solid "+T.border,borderRadius:10,overflow:"hidden"}}>
