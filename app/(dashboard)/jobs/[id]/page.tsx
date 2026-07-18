@@ -20,6 +20,7 @@ import { ProjectProgress } from "@/components/ProjectProgress";
 import { PdfPreviewModal } from "@/components/PdfPreviewModal";
 import { JobActivityPanel, logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
 import { calculatePhase } from "@/lib/lifecycle";
+import { effectiveRevenue } from "@/lib/revenue";
 import { loadJobPhase, type JobPhaseView } from "@/lib/item-state";
 import { CLIENT_LABEL, LEGACY_TO_NEW_PHASE } from "@/lib/phase-model";
 import { poSentToItem } from "@/lib/item-status";
@@ -670,10 +671,10 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   // pin the chip to the moment QB was pushed and ignore any items
   // added later after an unlock (which is exactly what Jon hit).
   const cs = job.costing_summary ? (typeof job.costing_summary === 'string' ? JSON.parse(job.costing_summary) : job.costing_summary) : null;
-  const qbTotal = (job.type_meta as any)?.qb_total_with_tax;
-  const qbTax = (job.type_meta as any)?.qb_tax_amount || 0;
-  const billedRev = qbTotal && qbTotal > 0 ? Math.max(0, qbTotal - qbTax) : null;
-  const totalRev = cs?.grossRev ?? billedRev ?? items.reduce((a,it)=>a+tQty(it.qtys||{})*((it.sell_per_unit)||0),0);
+  // ONE revenue formula app-wide (lib/revenue): variance-billed > costing
+  // grossRev+fees > QB net of passthrough. The items fallback below only
+  // covers pre-costing intake jobs (effectiveRevenue returns 0 there).
+  const totalRev = effectiveRevenue({ ...job, costing_summary: cs }) || items.reduce((a,it)=>a+tQty(it.qtys||{})*((it.sell_per_unit)||0),0);
   const totalCost = cs?.totalCost || items.reduce((a,it)=>a+tQty(it.qtys||{})*((it.cost_per_unit)||0),0);
   const totalUnits = items.reduce((a,it)=>a+tQty(it.qtys||{}),0);
   const margin = totalRev>0?((totalRev-totalCost)/totalRev*100):0;

@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useMemo } from "react";
+import { pnlJobs } from "@/lib/revenue";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
@@ -61,13 +62,13 @@ export default function ReportsPage() {
   useEffect(() => {
     Promise.all([
       supabase.from("jobs")
-        .select("id, title, phase, job_type, job_number, priority, created_at, is_inventory, target_ship_date, clients(name), costing_summary, type_meta, items(id, buy_sheet_lines(qty_ordered)), payment_records(amount, status, type, due_date, paid_date, created_at, invoice_number)")
+        .select("id, title, phase, job_type, job_number, priority, created_at, is_inventory, is_test, target_ship_date, clients(name), costing_summary, type_meta, items(id, buy_sheet_lines(qty_ordered)), payment_records(amount, status, type, due_date, paid_date, created_at, invoice_number)")
         .order("created_at", { ascending: false }),
       supabase.from("shipstation_reports")
         .select("id, client_id, report_type, postage_mode, period_label, totals, postage_totals, qb_invoice_number, qb_total_with_tax, paid_at, paid_amount, sent_at, created_at, clients(name)")
         .order("created_at", { ascending: false }),
     ]).then(([jRes, sRes]) => {
-      setJobs(jRes.data || []);
+      setJobs(pnlJobs(jRes.data || [])); // one policy: cancelled + test + inventory jobs never count as revenue
       setSsReports(sRes.data || []);
       setLoading(false);
     });
