@@ -186,8 +186,7 @@ function Strip({ r, onOpen }: { r: Row; onOpen: () => void }) {
         <div style={{ fontSize: 14, fontWeight: 700, lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginTop: 1 }}>{(job.clients as any)?.name || "—"}</div>
         <div style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: T.faint, fontFamily: mono, marginTop: 3 }}>{routeLabel[stage.route] || stage.route}</div>
       </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ position: "relative", height: 14 }}>
+      <div style={{ flex: 1, minWidth: 0, position: "relative", height: 14 }}>
           {/* clipped fill + ticks — variable length, only this route's milestones */}
           <div style={{ position: "absolute", inset: 0, borderRadius: 7, background: T.surface, overflow: "hidden" }}>
             {bars.map((m, i) => {
@@ -226,16 +225,13 @@ function Strip({ r, onOpen }: { r: Row; onOpen: () => void }) {
               </div>
             );
           })}
-        </div>
-        {/* dynamic status caption — the live action/state, under the current segment */}
+        {/* dynamic status caption — absolute so the BAR stays vertically centered in the strip */}
         {(stage.preQuote || cur >= 0) && (() => {
           const capText = stage.preQuote ? stage.now : (stage.reason || bars[cur].label);
           const capColor = stage.preQuote ? T.muted : (sig === "late" ? T.red : sig === "act" ? T.amber : T.muted);
           const pos = stage.preQuote ? { left: 0 as const } : (cur === N - 1 ? { right: 0 as const } : { left: `${((cur + 0.5) / N) * 100}%`, transform: "translateX(-50%)" });
           return (
-            <div style={{ position: "relative", height: 12, marginTop: 4 }}>
-              <div style={{ position: "absolute", whiteSpace: "nowrap", fontSize: 9.5, fontWeight: 800, letterSpacing: ".02em", textTransform: "uppercase", color: capColor, ...pos }}>{stage.preQuote ? "" : "▲ "}{capText}</div>
-            </div>
+            <div style={{ position: "absolute", top: "calc(100% + 3px)", whiteSpace: "nowrap", fontSize: 9.5, fontWeight: 800, letterSpacing: ".02em", textTransform: "uppercase", color: capColor, ...pos }}>{stage.preQuote ? "" : "▲ "}{capText}</div>
           );
         })()}
       </div>
