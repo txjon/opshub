@@ -46,7 +46,7 @@ export default function ProjectsBoard() {
   })), [jobs, phaseViews]);
 
   const clientName = (r: Row) => (r.job.clients as any)?.name || "—";
-  const clients = useMemo(() => [...new Set(rows.map(clientName))].sort(), [rows]);
+  const clients = useMemo(() => [...new Set(rows.filter(r => !r.stage.complete).map(clientName))].sort(), [rows]);
 
   const q = query.toLowerCase().trim();
   const matchQ = (r: Row) => !q || `${r.job.job_number} ${clientName(r)} ${r.job.title || ""}`.toLowerCase().includes(q);
