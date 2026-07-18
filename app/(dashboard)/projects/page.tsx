@@ -95,7 +95,7 @@ export default function ProjectsBoard() {
             </div>
           </SliceSortRow>
 
-          {active.map(r => <Strip key={r.job.id} r={r} onOpen={() => router.push(`/jobs/${r.job.id}`)} />)}
+          {active.map(r => <Strip key={r.job.id} r={r} onOpen={() => router.push(`/projects/${r.job.id}`)} />)}
           {active.length === 0 && <div style={{ color: T.muted, fontSize: 14, padding: 40, textAlign: "center", background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, marginTop: 8 }}>No active projects match.</div>}
         </>)
       ) : (
