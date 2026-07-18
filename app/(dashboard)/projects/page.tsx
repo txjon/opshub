@@ -3,16 +3,19 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
+import { BoardFrame, ToggleSearch, KpiStrip, SliceSortRow, SegmentControl } from "@/components/board-kit";
 import { loadJobPhasesBatch } from "@/lib/item-state";
 import { deriveProjectStage, PROJ_MILESTONES, ROUTE_DEAD, type ProjStage } from "@/lib/project-stage";
 
-// Projects Board V2 — the "find the job that needs action" board. Each job is a
-// strip with a linear milestone bar (frozen aligned headers); completed jobs drop
-// off and bucket by client. See [[opshub-project-board-v2]].
+// Projects Board V2 — the "find the job that needs action" board, on the shared
+// V2 board-kit (matches /receiving chrome). Each job = a strip with a ticked
+// progress bar; completed jobs bucket by client. See [[opshub-project-board-v2]].
 
 type Row = { job: any; stage: ProjStage };
+type Sort = "attention" | "ship" | "stage" | "client";
 const routeLabel: Record<string, string> = { drop_ship: "drop-ship", ship_through: "ship-through", stage: "stage" };
 const idx = (k: string | null) => PROJ_MILESTONES.findIndex(m => m.k === k);
+const selStyle = { padding: "9px 14px", borderRadius: 12, border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 13, fontWeight: 700, fontFamily: font, outline: "none", cursor: "pointer" } as const;
 
 export default function ProjectsBoard() {
   const supabase = createClient();
@@ -20,9 +23,10 @@ export default function ProjectsBoard() {
   const [jobs, setJobs] = useState<any[]>([]);
   const [phaseViews, setPhaseViews] = useState<Map<string, any>>(new Map());
   const [loading, setLoading] = useState(true);
-  const [sort, setSort] = useState<"attention" | "ship" | "stage" | "client">("attention");
+  const [tab, setTab] = useState<"active" | "completed">("active");
+  const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<Sort>("attention");
   const [clientFilter, setClientFilter] = useState("");
-  const [showDone, setShowDone] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -32,8 +36,7 @@ export default function ProjectsBoard() {
         .order("created_at", { ascending: false });
       const js = (data as any[]) || [];
       setJobs(js);
-      const activeIds = js.filter(j => j.phase !== "complete").map(j => j.id);
-      loadJobPhasesBatch(supabase, activeIds).then(setPhaseViews).catch(() => {});
+      loadJobPhasesBatch(supabase, js.filter(j => j.phase !== "complete").map(j => j.id)).then(setPhaseViews).catch(() => {});
       setLoading(false);
     })();
   }, []); // eslint-disable-line
@@ -45,9 +48,12 @@ export default function ProjectsBoard() {
   const clientName = (r: Row) => (r.job.clients as any)?.name || "—";
   const clients = useMemo(() => [...new Set(rows.map(clientName))].sort(), [rows]);
 
-  const filtered = clientFilter ? rows.filter(r => clientName(r) === clientFilter) : rows;
-  const active = filtered.filter(r => !r.stage.complete);
-  const done = filtered.filter(r => r.stage.complete);
+  const q = query.toLowerCase().trim();
+  const matchQ = (r: Row) => !q || `${r.job.job_number} ${clientName(r)} ${r.job.title || ""}`.toLowerCase().includes(q);
+  const base = rows.filter(r => (!clientFilter || clientName(r) === clientFilter) && matchQ(r));
+  const active = base.filter(r => !r.stage.complete);
+  const done = base.filter(r => r.stage.complete);
+  const activeAll = rows.filter(r => !r.stage.complete);
 
   const score = (r: Row) => r.stage.action ? (r.stage.action.lvl === "red" ? 3 : 2) : r.stage.preQuote ? 0.5 : 1;
   const shipVal = (r: Row) => { const d = r.job.type_meta?.in_hands_date || r.job.type_meta?.show_date; return d ? new Date(d).getTime() : 9e15; };
@@ -64,67 +70,51 @@ export default function ProjectsBoard() {
     return Object.entries(m).sort((a, b) => a[0].localeCompare(b[0]));
   }, [done]);
 
-  const counts = {
-    action: active.filter(r => r.stage.action).length,
-    active: active.length,
-  };
+  const kpi = (k: string) => k === "active" ? activeAll.length : k === "action" ? activeAll.filter(r => r.stage.action).length : activeAll.filter(r => r.stage.preQuote).length;
 
   return (
-    <div style={{ padding: "22px 22px 80px", fontFamily: font, maxWidth: 1320, margin: "0 auto", color: T.text }}>
-      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
-        <div>
-          <div style={lbl}>OpsHub</div>
-          <h1 style={{ fontSize: 21, fontWeight: 800, margin: 0 }}>Projects</h1>
-          <div style={{ fontSize: 12, color: T.muted, marginTop: 4 }}>{counts.active} active · <span style={{ color: counts.action ? T.red : T.muted, fontWeight: counts.action ? 700 : 400 }}>{counts.action} need action</span></div>
-        </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <select value={clientFilter} onChange={e => setClientFilter(e.target.value)} style={selStyle}>
-            <option value="">All clients</option>
-            {clients.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
-        </div>
-      </div>
+    <BoardFrame title="Projects">
+      <ToggleSearch
+        options={[["active", `Active · ${activeAll.length}`], ["completed", `Completed · ${rows.filter(r => r.stage.complete).length}`]]}
+        value={tab} onChange={setTab} query={query} setQuery={setQuery} placeholder="Search client, job #, or title…" />
 
-      {/* sticky sort + milestone header */}
-      <div style={{ position: "sticky", top: 0, zIndex: 6, background: T.bg, display: "flex", gap: 8, flexWrap: "wrap", padding: "14px 0 8px" }}>
-        <span style={{ ...lbl, marginRight: 2, alignSelf: "center" }}>Sort</span>
-        {(["attention", "ship", "stage", "client"] as const).map(s => (
-          <button key={s} onClick={() => setSort(s)} style={sortBtn(sort === s)}>{s === "attention" ? "Needs action" : s === "ship" ? "Ship date" : s === "stage" ? "Stage" : "Client"}</button>
-        ))}
-      </div>
-      <div style={{ position: "sticky", top: 46, zIndex: 5, background: T.bg, display: "flex", alignItems: "flex-end", padding: "8px 14px", borderBottom: `1px solid ${T.border}`, boxShadow: "0 6px 10px -8px rgba(0,0,0,.14)" }}>
-        <div style={{ width: 230, flexShrink: 0 }} />
-        <div style={{ flex: 1, display: "flex", gap: 0 }}>
-          {PROJ_MILESTONES.map(m => <div key={m.k} style={{ flex: 1, minWidth: 0, textAlign: "center", fontSize: 8.5, fontWeight: 700, letterSpacing: ".02em", textTransform: "uppercase", color: m.tail ? T.blue : T.faint, lineHeight: 1.15, padding: "0 2px", wordBreak: "break-word" }}>{m.label}</div>)}
-        </div>
-        <div style={{ width: 158, flexShrink: 0, textAlign: "right", ...lbl }}>Now</div>
-      </div>
+      {tab === "active" ? (
+        loading ? <div style={{ color: T.muted, fontSize: 14, padding: 40, textAlign: "center" }}>Loading…</div> : (<>
+          <KpiStrip metrics={[{ key: "active", label: "Active" }, { key: "action", label: "Need action" }, { key: "prequote", label: "Pre-quote" }]} get={kpi} onClick={() => { }} />
+          <SliceSortRow>
+            <SegmentControl label="Sort" options={[["attention", "Needs action"], ["ship", "Ship date"], ["stage", "Stage"], ["client", "Client"]]} value={sort} onChange={setSort} />
+            <select value={clientFilter} onChange={e => setClientFilter(e.target.value)} style={selStyle}>
+              <option value="">All clients</option>
+              {clients.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </SliceSortRow>
 
-      {loading ? <div style={{ color: T.muted, fontSize: 12, padding: 16 }}>Loading…</div> : (
-        <>
-          {sortedActive.map(r => <Strip key={r.job.id} r={r} onOpen={() => router.push(`/jobs/${r.job.id}`)} />)}
-          {sortedActive.length === 0 && <div style={{ color: T.muted, fontSize: 12, padding: 16 }}>No active projects{clientFilter ? " for this client" : ""}.</div>}
-
-          {done.length > 0 && (
-            <div style={{ marginTop: 26 }}>
-              <button onClick={() => setShowDone(s => !s)} style={{ background: "none", border: "none", color: T.muted, fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", cursor: "pointer", fontFamily: font, padding: 0 }}>{showDone ? "▾" : "▸"} Completed — {done.length} · {doneByClient.length} clients</button>
-              {showDone && (
-                <div style={{ marginTop: 10 }}>
-                  {doneByClient.map(([c, list]) => (
-                    <div key={c} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 14px", marginTop: 8 }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>{c} <span style={{ color: T.faint, fontWeight: 400, fontSize: 11 }}>· {list.length}</span></div>
-                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                        {list.map(r => <button key={r.job.id} onClick={() => router.push(`/jobs/${r.job.id}`)} style={{ background: T.surface, border: "none", borderRadius: 6, padding: "4px 9px", fontSize: 11, fontFamily: mono, color: T.muted, cursor: "pointer" }}>{r.job.job_number} · {r.job.title}</button>)}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+          {/* frozen aligned milestone header */}
+          <div style={{ position: "sticky", top: 0, zIndex: 5, background: T.bg, display: "flex", alignItems: "flex-end", padding: "8px 16px", borderBottom: `1px solid ${T.border}`, boxShadow: "0 6px 10px -8px rgba(0,0,0,.14)" }}>
+            <div style={{ width: 230, flexShrink: 0 }} />
+            <div style={{ flex: 1, display: "flex", gap: 0 }}>
+              {PROJ_MILESTONES.map(m => <div key={m.k} style={{ flex: 1, minWidth: 0, textAlign: "center", fontSize: 8.5, fontWeight: 700, letterSpacing: ".02em", textTransform: "uppercase", color: m.tail ? T.blue : T.faint, lineHeight: 1.15, padding: "0 2px", wordBreak: "break-word" }}>{m.label}</div>)}
             </div>
-          )}
-        </>
+            <div style={{ width: 158, flexShrink: 0, textAlign: "right", fontSize: 9.5, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", color: T.faint }}>Now</div>
+          </div>
+
+          {sortedActive.map(r => <Strip key={r.job.id} r={r} onOpen={() => router.push(`/jobs/${r.job.id}`)} />)}
+          {sortedActive.length === 0 && <div style={{ color: T.muted, fontSize: 14, padding: 40, textAlign: "center", background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, marginTop: 8 }}>No active projects match.</div>}
+        </>)
+      ) : (
+        <div style={{ marginTop: 4 }}>
+          {doneByClient.map(([c, list]) => (
+            <div key={c} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: "12px 16px", marginBottom: 10 }}>
+              <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 8 }}>{c} <span style={{ color: T.faint, fontWeight: 400, fontSize: 12 }}>· {list.length}</span></div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {list.map(r => <button key={r.job.id} onClick={() => router.push(`/jobs/${r.job.id}`)} style={{ background: T.surface, border: "none", borderRadius: 8, padding: "5px 10px", fontSize: 11.5, fontFamily: mono, color: T.muted, cursor: "pointer" }}>{r.job.job_number} · {r.job.title}</button>)}
+              </div>
+            </div>
+          ))}
+          {!doneByClient.length && <div style={{ color: T.muted, fontSize: 14, padding: 40, textAlign: "center" }}>No completed projects match.</div>}
+        </div>
       )}
-    </div>
+    </BoardFrame>
   );
 }
 
@@ -133,8 +123,9 @@ function Strip({ r, onOpen }: { r: Row; onOpen: () => void }) {
   const dead = ROUTE_DEAD[stage.route] || [];
   const cur = idx(stage.milestone);
   const act = stage.action;
+  const N = PROJ_MILESTONES.length;
   return (
-    <div onClick={onOpen} style={{ display: "flex", alignItems: "center", background: T.card, border: `1px solid ${T.border}`, borderLeft: act ? `4px solid ${act.lvl === "red" ? T.red : T.amber}` : `1px solid ${T.border}`, borderRadius: 11, padding: act ? "12px 14px 12px 11px" : "12px 14px", marginTop: 8, cursor: "pointer" }}>
+    <div onClick={onOpen} className="kpi-tile" style={{ display: "flex", alignItems: "center", background: T.card, border: `1px solid ${T.border}`, borderLeft: act ? `4px solid ${act.lvl === "red" ? T.red : T.amber}` : `1px solid ${T.border}`, borderRadius: 12, padding: act ? "12px 16px 12px 13px" : "12px 16px", marginTop: 8, cursor: "pointer" }}>
       <div style={{ width: 230, flexShrink: 0, minWidth: 0, paddingRight: 12 }}>
         <div style={{ fontFamily: mono, fontSize: 11, color: T.faint }}>{job.job_number}</div>
         <div style={{ fontSize: 13.5, fontWeight: 700, lineHeight: 1.15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{(job.clients as any)?.name || "—"}</div>
@@ -143,14 +134,13 @@ function Strip({ r, onOpen }: { r: Row; onOpen: () => void }) {
       </div>
       <div style={{ flex: 1, position: "relative", height: 14, borderRadius: 7, background: T.surface, overflow: "hidden" }}>
         {PROJ_MILESTONES.map((m, i) => {
-          const left = `${(i / PROJ_MILESTONES.length) * 100}%`, w = `${100 / PROJ_MILESTONES.length}%`;
-          const base = { position: "absolute" as const, left, top: 0, bottom: 0, width: w };
+          const base = { position: "absolute" as const, left: `${(i / N) * 100}%`, top: 0, bottom: 0, width: `${100 / N}%` };
           if (dead.includes(m.k)) return <div key={m.k} style={{ ...base, background: `repeating-linear-gradient(45deg,transparent,transparent 3px,${T.border} 3px,${T.border} 4px)` }} title={`${m.label} — n/a (${routeLabel[stage.route]})`} />;
           if (!stage.preQuote && cur >= 0 && i < cur) return <div key={m.k} style={{ ...base, background: T.green }} title={m.label} />;
           if (!stage.preQuote && i === cur) return <div key={m.k} style={{ ...base, background: act ? (act.lvl === "red" ? T.red : T.amber) : T.accent }} title={`Now: ${m.label}`} />;
           return null;
         })}
-        {PROJ_MILESTONES.map((m, i) => i > 0 ? <div key={"t" + m.k} style={{ position: "absolute", left: `${(i / PROJ_MILESTONES.length) * 100}%`, top: 2, bottom: 2, width: 1, zIndex: 2, background: !stage.preQuote && (i - 1) <= cur && !dead.includes(PROJ_MILESTONES[i - 1].k) ? "rgba(255,255,255,.85)" : T.faint }} /> : null)}
+        {PROJ_MILESTONES.map((m, i) => i > 0 ? <div key={"t" + m.k} style={{ position: "absolute", left: `${(i / N) * 100}%`, top: 2, bottom: 2, width: 1, zIndex: 2, background: !stage.preQuote && (i - 1) <= cur && !dead.includes(PROJ_MILESTONES[i - 1].k) ? "rgba(255,255,255,.85)" : T.faint }} /> : null)}
       </div>
       <div style={{ width: 158, flexShrink: 0, textAlign: "right", paddingLeft: 14 }}>
         {stage.preQuote
@@ -160,7 +150,3 @@ function Strip({ r, onOpen }: { r: Row; onOpen: () => void }) {
     </div>
   );
 }
-
-const lbl = { fontSize: 9.5, fontWeight: 700, letterSpacing: ".09em", textTransform: "uppercase", color: T.faint } as const;
-const sortBtn = (on: boolean) => ({ border: `1px solid ${on ? T.accent : T.border}`, background: on ? T.accent : T.card, color: on ? "#fff" : T.muted, borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font } as const);
-const selStyle = { border: `1px solid ${T.border}`, background: T.card, color: T.text, borderRadius: 8, padding: "7px 11px", fontSize: 12.5, fontFamily: font, outline: "none" } as const;
