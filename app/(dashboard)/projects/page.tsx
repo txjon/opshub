@@ -80,14 +80,16 @@ export default function ProjectsBoard() {
           <KpiStrip metrics={[{ key: "active", label: "Active" }, { key: "action", label: "Need action" }, { key: "prequote", label: "Pre-quote" }]} get={kpi} onClick={() => { }} />
           <SliceSortRow>
             <span style={{ fontSize: 12, color: T.muted }}>{active.length} {active.length === 1 ? "project" : "projects"}{stageFilter ? <> at <b style={{ color: T.text }}>{PROJ_MILESTONES.find(m => m.k === stageFilter)?.label}</b></> : <> · newest first</>}</span>
-            <select value={clientFilter} onChange={e => setClientFilter(e.target.value)} style={selStyle}>
-              <option value="">All clients</option>
-              {clients.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
-            <select value={stageFilter} onChange={e => setStageFilter(e.target.value)} style={selStyle}>
-              <option value="">All stages</option>
-              {PROJ_MILESTONES.map(m => <option key={m.k} value={m.k}>{m.label} ({stageCounts[m.k] || 0})</option>)}
-            </select>
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              <select value={clientFilter} onChange={e => setClientFilter(e.target.value)} style={selStyle}>
+                <option value="">All clients</option>
+                {clients.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <select value={stageFilter} onChange={e => setStageFilter(e.target.value)} style={selStyle}>
+                <option value="">All stages</option>
+                {PROJ_MILESTONES.map(m => <option key={m.k} value={m.k}>{m.label} ({stageCounts[m.k] || 0})</option>)}
+              </select>
+            </div>
           </SliceSortRow>
 
           {active.map(r => <Strip key={r.job.id} r={r} onOpen={() => router.push(`/jobs/${r.job.id}`)} />)}
