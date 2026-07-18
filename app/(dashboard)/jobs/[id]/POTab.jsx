@@ -654,6 +654,9 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
             // can't silently miss an item (lib/po-actions; same vendor matcher
             // the read side uses, so write/read can't disagree).
             await applyPoSentToVendorItems(supabase, project.id, active);
+            // Freeze this vendor's expected costs at send (Tier 2 snapshot) —
+            // baselines stop floating with later rate-card edits.
+            fetch(`/api/jobs/${project.id}/snapshot-po`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ vendor: active }) }).catch(()=>{});
             if(onRecalcPhase) setTimeout(onRecalcPhase, 300);
           }}
         />
@@ -714,6 +717,7 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
                 await supabase.from("jobs").update({type_meta:meta}).eq("id",project.id);
                 if(onUpdateJob) onUpdateJob({type_meta:meta});
                 const sentCount = await applyPoSentToVendorItems(supabase, project.id, v);
+                fetch(`/api/jobs/${project.id}/snapshot-po`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ vendor: v }) }).catch(()=>{});
                 logJobActivity(project.id, `PO for ${v} manually marked as sent (${sentCount} items)`);
                 if(onRecalcPhase) setTimeout(onRecalcPhase, 300);
               }

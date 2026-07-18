@@ -66,3 +66,38 @@ export async function refreshJobFinancials(sb: Sb, jobId: string): Promise<{ ok:
   if (error) return { ok: false, reason: error.message };
   return { ok: true, summary };
 }
+
+// ── PO-send cost snapshot (Tier 2) ──────────────────────────────────────────
+// Freeze THIS vendor's expected costs at the moment a PO goes out, into
+// type_meta.po_cost_snapshots[vendor]. Purpose: (1) billing/variance baselines
+// stop floating with later rate-card edits ("a rate change rewrites history"),
+// (2) revised POs can diff lines against the original send (line-level
+// REVISED markers), (3) god-mode can read snapshots instead of re-running the
+// pricing engine over all history. Capture-only for now — consumers wire in
+// later; every send from tonight accrues history.
+export async function snapshotVendorPo(sb: Sb, jobId: string, vendorName: string): Promise<{ ok: boolean; reason?: string }> {
+  const { data: job } = await sb.from("jobs").select("id, costing_data, type_meta").eq("id", jobId).single();
+  if (!job?.costing_data?.costProds?.length) return { ok: false, reason: "no costing data" };
+  const { data: decorators } = await sb.from("decorators").select("*");
+  const printers = buildPrintersMap(decorators || []);
+  const { costProds, costMargin, inclShip, inclCC } = job.costing_data;
+  const vendorProds = (costProds as any[]).filter(p => (p.printVendor || "") === vendorName);
+  if (!vendorProds.length) return { ok: false, reason: "no items for vendor" };
+  const items = vendorProds.map((p: any) => {
+    const r = calcCostProduct(p, costMargin, inclShip, inclCC, costProds, printers);
+    if (!r) return null;
+    return {
+      id: p.id, name: p.name || "", qty: r.qty,
+      poTotal: Math.round((Number(r.poTotal) || 0) * 100) / 100,
+      sellPerUnit: Math.round((Number(r.sellPerUnit) || 0) * 100) / 100,
+      blankCost: Math.round((Number(r.blankCost) || 0) * 100) / 100,
+      passthrough: !!p.passthrough,
+    };
+  }).filter(Boolean) as any[];
+  const vendorPoTotal = Math.round(items.reduce((a, i) => a + i.poTotal, 0) * 100) / 100;
+  const snapshot = { at: new Date().toISOString(), items, vendorPoTotal };
+  const tm = { ...(job.type_meta || {}) };
+  tm.po_cost_snapshots = { ...(tm.po_cost_snapshots || {}), [vendorName]: snapshot };
+  const { error } = await sb.from("jobs").update({ type_meta: tm }).eq("id", jobId);
+  return error ? { ok: false, reason: error.message } : { ok: true };
+}
