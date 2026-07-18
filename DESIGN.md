@@ -42,6 +42,10 @@ One hue, one meaning — never use amber decoratively or green for anything
 that isn't done/good. Route colors: **stage = green, ship_through = blue,
 drop_ship = muted.**
 
+PDFs (vendor/client-facing, print palette): revision markers = burnt orange
+`#c2410c` (attention, not alarm — Jon 2026-07-17); red on PDFs is reserved
+for true errors/shortages.
+
 ## Typography & numbers
 
 - Fonts: `font` = IBM Plex Sans stack; `mono` = IBM Plex Mono stack
