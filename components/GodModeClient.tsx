@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { T, font, mono } from "@/lib/theme";
+import { useConfirm } from "@/components/useConfirm";
 
 // ── Types passed from the server page ──
 export type ClientStat = {
@@ -259,6 +260,7 @@ export function GodModeClient(props: Props) {
   const { clientStats, decoratorStats, weekBuckets, weekLabels, upcomingPayments, pareto, categories, operations, details, totalExpectedInflow, costVariance, activeClientCount, activeProjectCount } = props;
 
   const [modalClient, setModalClient] = useState<ClientStat | null>(null);
+  const [confirm, confirmEl] = useConfirm();
   const [modalDecorator, setModalDecorator] = useState<DecoratorStat | null>(null);
   const [modalCashWeek, setModalCashWeek] = useState<number | null>(null);
   const [modalCategory, setModalCategory] = useState<CategoryStat | null>(null);
@@ -267,7 +269,7 @@ export function GodModeClient(props: Props) {
 
   async function runBackfill() {
     if (backfillStatus === "running") return;
-    if (!confirm("Backfill per-item costs for every historical job? This re-runs CostingTab's calculation server-side and writes cost_per_unit_all_in on every item. Safe to re-run.")) return;
+    if (!await confirm({ title: "Backfill per-item costs?", message: "Re-runs CostingTab's calculation server-side and writes cost_per_unit_all_in on every historical job's items. Safe to re-run.", confirmLabel: "Run backfill", confirmColor: T.accent })) return;
     setBackfillStatus("running");
     setBackfillResult("");
     try {
@@ -320,6 +322,7 @@ export function GodModeClient(props: Props) {
 
   return (
     <div className="gm-root" style={rootVars}>
+      {confirmEl}
       {/* dangerouslySetInnerHTML (not a text child) so the quotes in the CSS
           — e.g. content: "" on the chip dot — aren't HTML-escaped on the
           server and left raw on the client, which trips a hydration mismatch. */}
