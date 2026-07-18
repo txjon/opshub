@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
-import { BoardFrame, ToggleSearch, KpiStrip, SliceSortRow, SegmentControl } from "@/components/board-kit";
+import { BoardFrame, ToggleSearch, KpiStrip, SliceSortRow } from "@/components/board-kit";
 import { loadJobPhasesBatch } from "@/lib/item-state";
 import { deriveProjectStage, PROJ_MILESTONES, ROUTE_DEAD, type ProjStage } from "@/lib/project-stage";
 
@@ -25,7 +25,7 @@ export default function ProjectsBoard() {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<"active" | "completed">("active");
   const [query, setQuery] = useState("");
-  const [sort, setSort] = useState<Sort>("attention");
+  const [pulledStage, setPulledStage] = useState<string | null>(null);
   const [clientFilter, setClientFilter] = useState("");
 
   useEffect(() => {
@@ -55,14 +55,12 @@ export default function ProjectsBoard() {
   const done = base.filter(r => r.stage.complete);
   const activeAll = rows.filter(r => !r.stage.complete);
 
-  const score = (r: Row) => r.stage.action ? (r.stage.action.lvl === "red" ? 3 : 2) : r.stage.preQuote ? 0.5 : 1;
-  const shipVal = (r: Row) => { const d = r.job.type_meta?.in_hands_date || r.job.type_meta?.show_date; return d ? new Date(d).getTime() : 9e15; };
-  const sortedActive = useMemo(() => [...active].sort((a, b) => {
-    if (sort === "attention") return score(b) - score(a) || shipVal(a) - shipVal(b);
-    if (sort === "ship") return shipVal(a) - shipVal(b);
-    if (sort === "stage") return idx(a.stage.milestone) - idx(b.stage.milestone);
-    return clientName(a).localeCompare(clientName(b));
-  }), [active, sort]);
+  // Newest first (load order). Clicking a column header pulls jobs at that stage
+  // to the top (stable → newest order preserved within each group).
+  const sortedActive = useMemo(() => {
+    if (!pulledStage) return active;
+    return [...active].sort((a, b) => (a.stage.milestone === pulledStage ? 0 : 1) - (b.stage.milestone === pulledStage ? 0 : 1));
+  }, [active, pulledStage]);
 
   const doneByClient = useMemo(() => {
     const m: Record<string, Row[]> = {};
@@ -82,7 +80,7 @@ export default function ProjectsBoard() {
         loading ? <div style={{ color: T.muted, fontSize: 14, padding: 40, textAlign: "center" }}>Loading…</div> : (<>
           <KpiStrip metrics={[{ key: "active", label: "Active" }, { key: "action", label: "Need action" }, { key: "prequote", label: "Pre-quote" }]} get={kpi} onClick={() => { }} />
           <SliceSortRow>
-            <SegmentControl label="Sort" options={[["attention", "Needs action"], ["ship", "Ship date"], ["stage", "Stage"], ["client", "Client"]]} value={sort} onChange={setSort} />
+            <span style={{ fontSize: 12, color: T.muted }}>Newest first{pulledStage ? <> · <button onClick={() => setPulledStage(null)} style={{ background: "none", border: "none", color: T.accent, fontWeight: 700, cursor: "pointer", fontFamily: font, fontSize: 12, padding: 0 }}>clear stage ✕</button></> : <> — click a column header to pull that stage up</>}</span>
             <select value={clientFilter} onChange={e => setClientFilter(e.target.value)} style={selStyle}>
               <option value="">All clients</option>
               {clients.map(c => <option key={c} value={c}>{c}</option>)}
@@ -93,7 +91,10 @@ export default function ProjectsBoard() {
           <div style={{ position: "sticky", top: 0, zIndex: 5, background: T.bg, display: "flex", alignItems: "flex-end", padding: "8px 16px", borderBottom: `1px solid ${T.border}`, boxShadow: "0 6px 10px -8px rgba(0,0,0,.14)" }}>
             <div style={{ width: 230, flexShrink: 0 }} />
             <div style={{ flex: 1, display: "flex", gap: 0 }}>
-              {PROJ_MILESTONES.map(m => <div key={m.k} style={{ flex: 1, minWidth: 0, textAlign: "center", fontSize: 8.5, fontWeight: 700, letterSpacing: ".02em", textTransform: "uppercase", color: m.tail ? T.blue : T.faint, lineHeight: 1.15, padding: "0 2px", wordBreak: "break-word" }}>{m.label}</div>)}
+              {PROJ_MILESTONES.map(m => {
+                const on = pulledStage === m.k;
+                return <button key={m.k} onClick={() => setPulledStage(on ? null : m.k)} title={`Pull ${m.label} jobs to the top`} style={{ flex: 1, minWidth: 0, textAlign: "center", fontSize: 8.5, fontWeight: on ? 800 : 700, letterSpacing: ".02em", textTransform: "uppercase", color: on ? T.accent : (m.tail ? T.blue : T.faint), lineHeight: 1.15, padding: "3px 2px", wordBreak: "break-word", background: on ? T.surface : "transparent", border: "none", borderRadius: 5, cursor: "pointer", fontFamily: font }}>{m.label}</button>;
+              })}
             </div>
             <div style={{ width: 158, flexShrink: 0, textAlign: "right", fontSize: 9.5, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", color: T.faint }}>Now</div>
           </div>
