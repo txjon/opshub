@@ -72,7 +72,7 @@ export default function ProjectsBoard() {
     return Object.entries(m).sort((a, b) => a[0].localeCompare(b[0]));
   }, [done]);
 
-  const kpi = (k: string) => k === "active" ? activeAll.length : k === "action" ? activeAll.filter(r => r.stage.action).length : activeAll.filter(r => r.stage.preQuote).length;
+  const kpi = (k: string) => k === "active" ? activeAll.length : k === "action" ? activeAll.filter(r => !r.stage.preQuote && (r.stage.signal === "act" || r.stage.signal === "late")).length : activeAll.filter(r => r.stage.preQuote).length;
 
   return (
     <BoardFrame title="Projects">
@@ -144,18 +144,24 @@ function Strip({ r, onOpen }: { r: Row; onOpen: () => void }) {
   const [hover, setHover] = useState<string | null>(null);
   const dead = ROUTE_DEAD[stage.route] || [];
   const cur = idx(stage.milestone);
-  const act = stage.action;
+  const sig = stage.signal;
+  const edgeColor = sig === "late" ? T.red : sig === "act" ? T.amber : null; // wait → no edge (recedes)
+  const nowColor = sig === "late" ? T.red : sig === "act" ? T.amber : T.text;
   const N = PROJ_MILESTONES.length;
   // Per-segment content for the styled hover popover (layer 1).
   const statusOf = (m: typeof PROJ_MILESTONES[number], i: number): { label: string; note: string; color: string } => {
     if (dead.includes(m.k)) return { label: "N/A", note: `Not on the ${routeLabel[stage.route] || stage.route} route`, color: T.faint };
-    if (stage.preQuote) return m.k === "quote_sent" ? { label: "In progress", note: stage.now, color: T.accent } : { label: "Upcoming", note: "", color: T.faint };
+    if (stage.preQuote) return m.k === "quote_sent" ? { label: "Your move", note: stage.now, color: T.amber } : { label: "Upcoming", note: "", color: T.faint };
     if (cur >= 0 && i < cur) return { label: "Done", note: "", color: T.green };
-    if (i === cur) return { label: "Current", note: act ? act.reason : (stage.detail || stage.now), color: act ? (act.lvl === "red" ? T.red : T.amber) : T.accent };
+    if (i === cur) {
+      const lbl = sig === "late" ? "Late" : sig === "act" ? "Your move" : "Waiting on them";
+      const clr = sig === "late" ? T.red : sig === "act" ? T.amber : T.muted;
+      return { label: lbl, note: stage.reason || stage.detail || stage.now, color: clr };
+    }
     return { label: "Upcoming", note: "", color: T.faint };
   };
   return (
-    <div onClick={onOpen} className="kpi-tile" style={{ display: "flex", alignItems: "center", background: T.card, border: `1px solid ${T.border}`, borderLeft: act ? `4px solid ${act.lvl === "red" ? T.red : T.amber}` : `1px solid ${T.border}`, borderRadius: 12, padding: act ? "12px 16px 12px 13px" : "12px 16px", marginTop: 8, cursor: "pointer" }}>
+    <div onClick={onOpen} className="kpi-tile" style={{ display: "flex", alignItems: "center", background: T.card, border: `1px solid ${T.border}`, borderLeft: edgeColor ? `4px solid ${edgeColor}` : `1px solid ${T.border}`, borderRadius: 12, padding: edgeColor ? "12px 16px 12px 13px" : "12px 16px", marginTop: 8, cursor: "pointer" }}>
       <div style={{ width: 230, flexShrink: 0, minWidth: 0, paddingRight: 12 }}>
         <div style={{ fontFamily: mono, fontSize: 11, color: T.faint }}>{job.job_number}</div>
         <div style={{ fontSize: 13.5, fontWeight: 700, lineHeight: 1.15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{(job.clients as any)?.name || "—"}</div>
@@ -169,10 +175,18 @@ function Strip({ r, onOpen }: { r: Row; onOpen: () => void }) {
             const base = { position: "absolute" as const, left: `${(i / N) * 100}%`, top: 0, bottom: 0, width: `${100 / N}%` };
             if (dead.includes(m.k)) return <div key={m.k} style={{ ...base, background: `repeating-linear-gradient(45deg,transparent,transparent 3px,${T.border} 3px,${T.border} 4px)` }} />;
             if (!stage.preQuote && cur >= 0 && i < cur) return <div key={m.k} style={{ ...base, background: T.green }} />;
-            if (!stage.preQuote && i === cur) return <div key={m.k} style={{ ...base, background: act ? (act.lvl === "red" ? T.red : T.amber) : T.accent }} />;
+            if (!stage.preQuote && i === cur) {
+              // wait = hollow (live but passive); act = amber; late = red
+              if (sig === "wait") return <div key={m.k} style={{ ...base, background: T.surface, boxShadow: `inset 0 0 0 1.5px ${T.faint}` }} />;
+              return <div key={m.k} style={{ ...base, background: sig === "late" ? T.red : T.amber }} />;
+            }
             return null;
           })}
-          {PROJ_MILESTONES.map((m, i) => i > 0 ? <div key={"t" + m.k} style={{ position: "absolute", left: `${(i / N) * 100}%`, top: 2, bottom: 2, width: 1, zIndex: 2, background: !stage.preQuote && (i - 1) <= cur && !dead.includes(PROJ_MILESTONES[i - 1].k) ? "rgba(255,255,255,.85)" : T.faint }} /> : null)}
+          {PROJ_MILESTONES.map((m, i) => {
+            if (i === 0) return null;
+            const leftFilled = !stage.preQuote && (i - 1) <= cur && !dead.includes(PROJ_MILESTONES[i - 1].k) && !((i - 1) === cur && sig === "wait");
+            return <div key={"t" + m.k} style={{ position: "absolute", left: `${(i / N) * 100}%`, top: 2, bottom: 2, width: 1, zIndex: 2, background: leftFilled ? "rgba(255,255,255,.85)" : T.faint }} />;
+          })}
         </div>
         {/* interaction zones — hover peek (layer 1) + click deep-link (layer 2) */}
         {PROJ_MILESTONES.map((m, i) => {
@@ -198,7 +212,7 @@ function Strip({ r, onOpen }: { r: Row; onOpen: () => void }) {
       <div style={{ width: 158, flexShrink: 0, textAlign: "right", paddingLeft: 14 }}>
         {stage.preQuote
           ? <div style={{ fontSize: 12.5, fontWeight: 700, color: T.faint }}>Pre-quote</div>
-          : <div style={{ fontSize: 12.5, fontWeight: 700, color: act ? (act.lvl === "red" ? T.red : T.amber) : T.text }}>{stage.now}</div>}
+          : <div style={{ fontSize: 12.5, fontWeight: 700, color: nowColor }}>{stage.now}</div>}
       </div>
     </div>
   );

@@ -29,16 +29,21 @@ export const ROUTE_DEAD: Record<string, ProjMilestone[]> = {
   stage: ["shipping"],                                 // Receiving → Fulfillment (Shopify)
 };
 
-export type ProjAction = { lvl: "red" | "amber"; reason: string } | null;
+// The current milestone's signal: act = HPD's move (amber), wait = on the client
+// or a vendor, nothing for us to do (hollow), late = overdue past threshold (red).
+export type ProjSignal = "act" | "wait" | "late";
 export type ProjStage = {
   complete: boolean;
   preQuote: boolean;
   milestone: ProjMilestone | null; // null when preQuote or complete
   now: string;                     // label for the "Now" column
   detail: string;                  // sub-state (from phase engine or gate)
-  action: ProjAction;
+  signal: ProjSignal;              // colors the current segment + strip edge
+  reason: string;                  // blocker / next-move text
   route: string;                   // drop_ship / ship_through / stage
 };
+
+const STALE_QUOTE_DAYS = 3; // quote out this long with no approval → late (red)
 
 const daysSince = (ts: string | null | undefined): number | null => {
   if (!ts) return null;
@@ -68,18 +73,21 @@ export function deriveProjectStage(job: any, phaseView: any | undefined, items: 
   // (in_production) and can't distinguish the warehouse tail this board needs.
   const phaseKey: string = job.phase || "intake";
   const detail = phaseView?.detail || phaseView?.result?.job?.detail || "";
-  const mk = (milestone: ProjMilestone | null, now: string, action: ProjAction = null, det = detail): ProjStage =>
-    ({ complete: false, preQuote: false, milestone, now, detail: det, action, route });
+  const mk = (milestone: ProjMilestone | null, now: string, signal: ProjSignal, reason = "", det = detail): ProjStage =>
+    ({ complete: false, preQuote: false, milestone, now, detail: det, signal, reason, route });
 
   if (job.phase === "complete" || phaseKey === "complete")
-    return { complete: true, preQuote: false, milestone: null, now: "Complete", detail: "", action: null, route };
+    return { complete: true, preQuote: false, milestone: null, now: "Complete", detail: "", signal: "act", reason: "", route };
 
-  // ── warehouse tail: trust the phase engine ──
-  if (phaseKey === "fulfillment") return mk("fulfillment", "Staging");
-  if (phaseKey === "shipping") return mk("shipping", "Shipping");
-  if (phaseKey === "receiving") return mk("receiving", "Receiving");
-  if (phaseKey === "production")
-    return mk("production", "Production", shipTargetPast(job) ? { lvl: "red", reason: "Overdue at decorator" } : null);
+  // ── warehouse tail: HPD's move once goods move through the building ──
+  // (no overdue rule yet — needs per-phase-enter timestamps + Jon's thresholds)
+  if (phaseKey === "fulfillment") return mk("fulfillment", "Staging", "act", "Key into Shopify / stage");
+  if (phaseKey === "shipping") return mk("shipping", "Shipping", "act", "Forward to client");
+  if (phaseKey === "receiving") return mk("receiving", "Receiving", "act", "Receive & forward");
+  if (phaseKey === "production") {
+    const late = shipTargetPast(job);
+    return mk("production", "Production", late ? "late" : "wait", late ? "Overdue at decorator" : "At decorator");
+  }
 
   // ── front of the spine: derive from the client/money gates ──
   const quoteSent = !!tm.quote_sent_at;
@@ -89,14 +97,15 @@ export function deriveProjectStage(job: any, phaseView: any | undefined, items: 
   const posSent = ((tm.po_sent_vendors || []) as any[]).length > 0;
   const blanksOrdered = items.length > 0 && items.every((it: any) => it.blanks_order_cost != null || it.blanks_order_number);
 
-  if (!quoteSent) return { complete: false, preQuote: true, milestone: null, now: preQuoteStep(job, items), detail: "", action: null, route };
+  if (!quoteSent) return { complete: false, preQuote: true, milestone: null, now: preQuoteStep(job, items), detail: "", signal: "act", reason: "", route };
   if (!approved) {
     const d = daysSince(tm.quote_sent_at);
-    return mk("quote_appr", "Approved", d != null && d >= 2 ? { lvl: "red", reason: `Quote sent ${d}d ago — no approval` } : null, "awaiting approval");
+    const late = d != null && d >= STALE_QUOTE_DAYS;
+    return mk("quote_appr", "Approved", late ? "late" : "wait", late ? `No approval — quote sent ${d}d ago` : "Awaiting approval", "awaiting approval");
   }
-  if (!invoiceSent) return mk("invoice", "Invoice", null, "ready to invoice");
-  if (!paid) return mk("paid", "Paid", { lvl: "amber", reason: "Awaiting payment" }, "");
+  if (!invoiceSent) return mk("invoice", "Invoice", "act", "Send invoice", "ready to invoice");   // HPD's move
+  if (!paid) return mk("paid", "Paid", "wait", "Awaiting payment");                               // client's move
   if (!posSent || !blanksOrdered)
-    return mk("order", "PO / Blanks", { lvl: "amber", reason: !blanksOrdered ? "Blanks not ordered" : "POs not sent" }, "");
-  return mk("production", "Production"); // paid + ordered, heading to the decorator
+    return mk("order", "PO / Blanks", "act", !blanksOrdered ? "Order blanks" : "Send POs");        // HPD's move
+  return mk("production", "Production", "wait", "At decorator"); // paid + ordered, at the decorator
 }
