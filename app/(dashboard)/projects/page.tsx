@@ -32,7 +32,7 @@ export default function ProjectsBoard() {
   useEffect(() => {
     (async () => {
       const { data } = await supabase.from("jobs")
-        .select("id, job_number, title, phase, shipping_route, quote_approved, type_meta, costing_summary, clients(name), payment_records(amount, status), items(id, pipeline_stage, blanks_order_cost, blanks_order_number, received_at_hpd, forwarded_at)")
+        .select("id, job_number, title, phase, shipping_route, quote_approved, quote_approved_at, type_meta, costing_summary, clients(name), payment_records(amount, status, paid_date), items(id, pipeline_stage, blanks_order_cost, blanks_order_number, received_at_hpd, forwarded_at)")
         .not("phase", "in", "(cancelled)")
         .order("created_at", { ascending: false });
       const js = (data as any[]) || [];
@@ -154,23 +154,29 @@ function Strip({ r, onOpen }: { r: Row; onOpen: () => void }) {
   const tm = (job.type_meta || {}) as any;
   const cs = (job.costing_summary || {}) as any;
   const money = (n: number) => `$${Math.round(n).toLocaleString()}`;
-  const fmtD = (s?: string) => s ? new Date(s).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
-  const paidAmt = ((job.payment_records || []) as any[]).filter(p => p.status === "paid").reduce((a, p) => a + (+p.amount || 0), 0);
-  const total = tm.qb_total_with_tax || cs.grossRev || 0;
+  const fmtDT = (s?: string) => s ? `${new Date(s).toLocaleDateString("en-US", { month: "short", day: "numeric" })}, ${new Date(s).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}` : "";
+  const pays = (job.payment_records || []) as any[];
+  const paidAmt = pays.filter(p => p.status === "paid").reduce((a, p) => a + (+p.amount || 0), 0);
+  const paidDate = pays.filter(p => p.status === "paid" && p.paid_date).map(p => p.paid_date).sort().pop();
+  const invTotal = tm.qb_total_with_tax || cs.grossRev || 0;
   const posSent = ((tm.po_sent_vendors || []) as any[]).length;
   const its = (job.items || []) as any[];
-  const blanksOrdered = its.length > 0 && its.every(it => it.blanks_order_cost != null || it.blanks_order_number);
+  const nItems = its.length;
+  const blanksOrdered = nItems > 0 && its.every(it => it.blanks_order_cost != null || it.blanks_order_number);
+  const atVendor = its.filter(it => !it.pipeline_stage || it.pipeline_stage === "in_production").length;
+  const received = its.filter(it => it.received_at_hpd).length;
+  const forwarded = its.filter(it => it.forwarded_at).length;
   const peekFor = (k: string): string => {
     switch (k) {
-      case "quote_sent": return stage.preQuote ? stage.now : [fmtD(tm.quote_sent_at) && `Sent ${fmtD(tm.quote_sent_at)}`, cs.grossRev && `quote ${money(cs.grossRev)}`].filter(Boolean).join(" · ") || "Quote + proofs";
-      case "quote_appr": return job.quote_approved ? "Approved by client" : "Awaiting client approval";
-      case "invoice": return tm.qb_invoice_number ? `Invoice #${tm.qb_invoice_number}${total ? ` · ${money(total)}` : ""}` : "Not invoiced yet";
-      case "paid": return paidAmt > 0 ? `${money(paidAmt)} / ${money(total)} paid` : (total ? `Unpaid · ${money(total)} due` : "Unpaid");
+      case "quote_sent": return stage.preQuote ? stage.now : [tm.quote_sent_at && `Sent ${fmtDT(tm.quote_sent_at)}`, cs.grossRev && `quote ${money(cs.grossRev)}`].filter(Boolean).join(" · ") || "Quote + proofs";
+      case "quote_appr": return job.quote_approved ? (job.quote_approved_at ? `Approved ${fmtDT(job.quote_approved_at)}` : "Approved by client") : "Awaiting client approval";
+      case "invoice": return tm.qb_invoice_number ? `Invoice #${tm.qb_invoice_number}${invTotal ? ` · ${money(invTotal)}` : ""}${tm.qb_invoice_created_at ? ` · sent ${fmtDT(tm.qb_invoice_created_at)}` : ""}` : "Not invoiced yet";
+      case "paid": return paidAmt > 0 ? `${money(paidAmt)} / ${money(invTotal)} paid${paidDate ? ` · ${fmtDT(paidDate)}` : ""}` : (invTotal ? `Unpaid · ${money(invTotal)} due` : "Unpaid");
       case "order": return `${posSent} PO${posSent === 1 ? "" : "s"} sent · blanks ${blanksOrdered ? "ordered" : "not ordered"}`;
-      case "production": return (stage.milestone === "production" && stage.detail) || "At the decorator";
-      case "receiving": return (stage.milestone === "receiving" && stage.detail) || "Receiving at HPD";
-      case "shipping": return (stage.milestone === "shipping" && stage.detail) || "Forwarding to client";
-      case "fulfillment": return (stage.milestone === "fulfillment" && stage.detail) || "Staging for Shopify";
+      case "production": return nItems ? `${atVendor}/${nItems} still at vendor` : "In production";
+      case "receiving": return nItems ? `${received}/${nItems} received at HPD` : "Receiving";
+      case "shipping": return nItems ? `${forwarded}/${nItems} forwarded to client` : "Shipping to client";
+      case "fulfillment": return nItems ? `${received}/${nItems} received · staging` : "Staging";
       default: return "";
     }
   };
@@ -207,14 +213,16 @@ function Strip({ r, onOpen }: { r: Row; onOpen: () => void }) {
           </div>
           {/* interaction zones — hover peek (layer 1) + click deep-link (layer 2) */}
           {bars.map((m, i) => {
+            // Only done / current segments are hoverable — upcoming stages don't peek.
+            const hoverable = stage.preQuote ? m.k === "quote_sent" : i <= cur;
             const st = statusOf(m, i);
             const tgt = STAGE_TARGET[m.k];
-            const on = hover === m.k;
+            const on = hoverable && hover === m.k;
             return (
               <div key={"z" + m.k}
-                onMouseEnter={() => setHover(m.k)} onMouseLeave={() => setHover(h => (h === m.k ? null : h))}
-                onClick={e => { e.stopPropagation(); if (tgt) router.push(tgt.href(job)); }}
-                style={{ position: "absolute", left: `${(i / N) * 100}%`, width: `${100 / N}%`, top: -7, bottom: -7, zIndex: 4, cursor: "pointer" }}>
+                onMouseEnter={hoverable ? () => setHover(m.k) : undefined} onMouseLeave={hoverable ? () => setHover(h => (h === m.k ? null : h)) : undefined}
+                onClick={hoverable ? (e => { e.stopPropagation(); if (tgt) router.push(tgt.href(job)); }) : undefined}
+                style={{ position: "absolute", left: `${(i / N) * 100}%`, width: `${100 / N}%`, top: -7, bottom: -7, zIndex: 4, cursor: hoverable ? "pointer" : "default" }}>
                 {on && <div className="proj-chip" style={{ position: "absolute", left: 1, right: 1, top: 5, bottom: 5, borderRadius: 4, background: segFill(i), boxShadow: "0 3px 10px rgba(0,0,0,.22)", pointerEvents: "none" }} />}
                 {on && (
                   <div style={{ position: "absolute", bottom: "calc(100% + 6px)", left: "50%", transform: "translateX(-50%)", zIndex: 30, width: 186, background: T.card, border: `1px solid ${T.border}`, borderRadius: 9, boxShadow: "0 10px 30px rgba(0,0,0,.16)", padding: "10px 12px", pointerEvents: "none", textAlign: "left" }}>
