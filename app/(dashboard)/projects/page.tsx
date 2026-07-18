@@ -76,6 +76,7 @@ export default function ProjectsBoard() {
 
       {tab === "active" ? (
         loading ? <div style={{ color: T.muted, fontSize: 14, padding: 40, textAlign: "center" }}>Loading…</div> : (<>
+          <style>{`@keyframes projChipPop{from{transform:translateY(2px);opacity:.35}to{transform:none;opacity:1}}.proj-chip{animation:projChipPop .13s ease-out}`}</style>
           <KpiStrip metrics={[{ key: "active", label: "Active" }, { key: "action", label: "Need action" }, { key: "prequote", label: "Pre-quote" }]} get={kpi} onClick={() => { }} />
           <SliceSortRow>
             <span style={{ fontSize: 12, color: T.muted }}>{active.length} {active.length === 1 ? "project" : "projects"}{stageFilter ? <> at <b style={{ color: T.text }}>{PROJ_MILESTONES.find(m => m.k === stageFilter)?.label}</b></> : <> · newest first</>}</span>
@@ -148,6 +149,35 @@ function Strip({ r, onOpen }: { r: Row; onOpen: () => void }) {
     }
     return { label: "Upcoming", note: "", color: T.faint };
   };
+  // Rich per-stage hover peek (matches the interaction-map artifact), from loaded job data.
+  const tm = (job.type_meta || {}) as any;
+  const cs = (job.costing_summary || {}) as any;
+  const money = (n: number) => `$${Math.round(n).toLocaleString()}`;
+  const fmtD = (s?: string) => s ? new Date(s).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
+  const paidAmt = ((job.payment_records || []) as any[]).filter(p => p.status === "paid").reduce((a, p) => a + (+p.amount || 0), 0);
+  const total = tm.qb_total_with_tax || cs.grossRev || 0;
+  const posSent = ((tm.po_sent_vendors || []) as any[]).length;
+  const its = (job.items || []) as any[];
+  const blanksOrdered = its.length > 0 && its.every(it => it.blanks_order_cost != null || it.blanks_order_number);
+  const peekFor = (k: string): string => {
+    switch (k) {
+      case "quote_sent": return stage.preQuote ? stage.now : [fmtD(tm.quote_sent_at) && `Sent ${fmtD(tm.quote_sent_at)}`, cs.grossRev && `quote ${money(cs.grossRev)}`].filter(Boolean).join(" · ") || "Quote + proofs";
+      case "quote_appr": return job.quote_approved ? "Approved by client" : "Awaiting client approval";
+      case "invoice": return tm.qb_invoice_number ? `Invoice #${tm.qb_invoice_number}${total ? ` · ${money(total)}` : ""}` : "Not invoiced yet";
+      case "paid": return paidAmt > 0 ? `${money(paidAmt)} / ${money(total)} paid` : (total ? `Unpaid · ${money(total)} due` : "Unpaid");
+      case "order": return `${posSent} PO${posSent === 1 ? "" : "s"} sent · blanks ${blanksOrdered ? "ordered" : "not ordered"}`;
+      case "production": return (stage.milestone === "production" && stage.detail) || "At the decorator";
+      case "receiving": return (stage.milestone === "receiving" && stage.detail) || "Receiving at HPD";
+      case "shipping": return (stage.milestone === "shipping" && stage.detail) || "Forwarding to client";
+      case "fulfillment": return (stage.milestone === "fulfillment" && stage.detail) || "Staging for Shopify";
+      default: return "";
+    }
+  };
+  const segFill = (i: number) => {
+    if (!stage.preQuote && cur >= 0 && i < cur) return T.green;
+    if (!stage.preQuote && i === cur) return sig === "wait" ? T.surface : sig === "late" ? T.red : T.amber;
+    return T.surface;
+  };
   return (
     <div onClick={onOpen} style={{ display: "flex", alignItems: "center", background: T.card, border: `1px solid ${T.border}`, borderLeft: edgeColor ? `4px solid ${edgeColor}` : `1px solid ${T.border}`, borderRadius: 12, padding: edgeColor ? "12px 16px 12px 13px" : "12px 16px", marginTop: 8, cursor: "pointer", position: "relative", zIndex: hover ? 40 : undefined }}>
       <div style={{ width: 230, flexShrink: 0, minWidth: 0, paddingRight: 12 }}>
@@ -179,17 +209,17 @@ function Strip({ r, onOpen }: { r: Row; onOpen: () => void }) {
           {bars.map((m, i) => {
             const st = statusOf(m, i);
             const tgt = STAGE_TARGET[m.k];
+            const on = hover === m.k;
             return (
               <div key={"z" + m.k}
                 onMouseEnter={() => setHover(m.k)} onMouseLeave={() => setHover(h => (h === m.k ? null : h))}
                 onClick={e => { e.stopPropagation(); if (tgt) router.push(tgt.href(job)); }}
                 style={{ position: "absolute", left: `${(i / N) * 100}%`, width: `${100 / N}%`, top: -7, bottom: -7, zIndex: 4, cursor: "pointer" }}>
-                {hover === m.k && (
-                  <div style={{ position: "absolute", bottom: "calc(100% + 7px)", left: "50%", transform: "translateX(-50%)", zIndex: 30, width: 172, background: T.card, border: `1px solid ${T.border}`, borderRadius: 9, boxShadow: "0 10px 30px rgba(0,0,0,.16)", padding: "10px 12px", pointerEvents: "none", textAlign: "left" }}>
-                    <div style={{ fontSize: 12, fontWeight: 800, color: T.text }}>{m.label}</div>
-                    <div style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: ".07em", textTransform: "uppercase", color: st.color, marginTop: 3 }}>{st.label}</div>
-                    {st.note ? <div style={{ fontSize: 11.5, color: T.muted, marginTop: 4, lineHeight: 1.35 }}>{st.note}</div> : null}
-                    {tgt ? <div style={{ fontSize: 10, fontWeight: 700, color: T.accent, marginTop: 8, paddingTop: 7, borderTop: `1px solid ${T.border}`, fontFamily: mono }}>→ {tgt.label}</div> : null}
+                {on && <div className="proj-chip" style={{ position: "absolute", left: 1, right: 1, top: 5, bottom: 5, borderRadius: 4, background: segFill(i), boxShadow: "0 3px 10px rgba(0,0,0,.22)", pointerEvents: "none" }} />}
+                {on && (
+                  <div style={{ position: "absolute", bottom: "calc(100% + 6px)", left: "50%", transform: "translateX(-50%)", zIndex: 30, width: 186, background: T.card, border: `1px solid ${T.border}`, borderRadius: 9, boxShadow: "0 10px 30px rgba(0,0,0,.16)", padding: "10px 12px", pointerEvents: "none", textAlign: "left" }}>
+                    <div style={{ fontSize: 12, fontWeight: 800, color: st.color }}>{m.label}</div>
+                    <div style={{ fontSize: 11.5, color: T.muted, marginTop: 4, lineHeight: 1.35 }}>{peekFor(m.k)}</div>
                   </div>
                 )}
               </div>
