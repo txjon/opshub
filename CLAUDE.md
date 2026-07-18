@@ -96,10 +96,13 @@ The central hub. Horizontal pill tabs across the top, content below. Tabs ordere
 | Purchase Order | POTab.jsx | PO preview, PDF export/email, per-item fields + copy-to-all, blanks warning, PO sent tracker |
 | Production | Read-only status strip (inline) + "Ship in Production →" link | Read-only now — **all shipping moved to the /production board** (`ProductionTab.jsx` was deleted, commit 20cb08bc). The job page shows in_production / "✓ Shipped · tracking" status only. |
 
-NOTE (2026-06): the old separate "Buy Sheet" and "Art Files" tabs were merged into **Product Builder**;
-`BuySheetTab.jsx` / `ArtTab.jsx` still exist and export live helpers used by ProductBuilder + ApprovalsTab
-(and `assignBlank` lives in BuySheetTab, invoked via ProductBuilder). Verify page.tsx imports before assuming
-either file is dead.
+NOTE (updated 2026-07-17 — legacy tab exhumation): the old separate "Buy Sheet" / "Art Files" /
+"Processing" / "Warehouse" tab components are **deleted** (full bodies in git history, pre-2026-07-17).
+The surviving files are **helper modules only**: `BuySheetTab.jsx` exports the supplier pickers +
+size/curve helpers ProductBuilder imports; `ArtTab.jsx` exports collectFiles / FileCard / ProofModal
+(ApprovalsTab uses ProofModal); `ProcessingTab.jsx` exports parsePsd + placement maps. There is NO
+legacy tab UI anywhere — do not reference BuySheetTab/ArtTab/ProcessingTab/WarehouseTab as rendered
+surfaces. ProductBuilder owns its own save/assignBlank logic.
 
 **Progress checklist**: Shown at top of every active project (hidden on complete/cancelled). Shows ✓/→/○ for each workflow step. Clicking a step navigates to that tab. Progress bar shows overall percentage.
 
