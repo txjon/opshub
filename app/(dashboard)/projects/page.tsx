@@ -15,6 +15,7 @@ type Row = { job: any; stage: ProjStage };
 const routeLabel: Record<string, string> = { drop_ship: "drop-ship", ship_through: "ship-through", stage: "stage" };
 // hatched green = a tail phase's "reached but not yet done" portion (in progress)
 const HATCH_GREEN = "repeating-linear-gradient(45deg,transparent,transparent 3px,rgba(58,154,34,0.5) 3px,rgba(58,154,34,0.5) 4px)";
+const TERMS_LABEL: Record<string, string> = { net_15: "Net 15", net_30: "Net 30", net_45: "Net 45", net_60: "Net 60", prepaid: "Prepaid", deposit_balance: "Deposit" };
 // "at" a stage — quote_sent (the first column) is never a resting milestone, so it
 // represents the pre-quote / quoting jobs; every other column matches its milestone.
 const atStage = (r: Row, k: string) => k === "quote_sent" ? r.stage.preQuote : r.stage.milestone === k;
@@ -141,6 +142,7 @@ function Strip({ r, onOpen }: { r: Row; onOpen: () => void }) {
   const sig = stage.signal;
   const edgeColor = sig === "late" ? T.red : sig === "act" ? T.amber : null; // wait → no edge (recedes)
   const paidColor = stage.paidState === "paid" ? T.green : stage.paidState === "onaccount" ? T.blue : T.amber;
+  const paidLabel = stage.paidState === "paid" ? "Paid" : (TERMS_LABEL[(job.payment_terms || "") as string] || "Payment") + (stage.paidState === "due" ? " due" : "");
   const N = bars.length;
   // Per-segment content for the styled hover popover (layer 1).
   const statusOf = (m: typeof PROJ_MILESTONES[number], i: number): { label: string; note: string; color: string } => {
@@ -179,7 +181,7 @@ function Strip({ r, onOpen }: { r: Row; onOpen: () => void }) {
       case "quote_sent": return stage.preQuote ? stage.now : [tm.quote_sent_at && `Sent ${fmtDT(tm.quote_sent_at)}`, cs.grossRev && `quote ${money(cs.grossRev)}`].filter(Boolean).join(" · ") || "Quote + proofs";
       case "quote_appr": return job.quote_approved ? (job.quote_approved_at ? `Approved ${fmtDT(job.quote_approved_at)}` : "Approved by client") : "Awaiting client approval";
       case "invoice": return tm.qb_invoice_number ? `Invoice #${tm.qb_invoice_number}${invTotal ? ` · ${money(invTotal)}` : ""}${tm.qb_invoice_created_at ? ` · sent ${fmtDT(tm.qb_invoice_created_at)}` : ""}` : "Not invoiced yet";
-      case "paid": return paidAmt > 0 ? `${money(paidAmt)} / ${money(invTotal)} paid${paidDate ? ` · ${fmtDT(paidDate)}` : ""}` : stage.paidState === "onaccount" ? (invTotal ? `On account · ${money(invTotal)} (net terms)` : "On account · net terms") : (invTotal ? `Unpaid · ${money(invTotal)} due` : "Unpaid");
+      case "paid": return paidAmt > 0 ? `${money(paidAmt)} / ${money(invTotal)} paid${paidDate ? ` · ${fmtDT(paidDate)}` : ""}` : (invTotal ? `${money(invTotal)} due` : (stage.paidState === "onaccount" ? "On account" : "Unpaid"));
       case "order": return `${posSent} PO${posSent === 1 ? "" : "s"} sent · blanks ${blanksOrdered ? "ordered" : "not ordered"}`;
       case "production": return nItems ? `${shipped}/${nItems} shipped from vendor` : "In production";
       case "receiving": return nItems ? `${received}/${nItems} received at HPD` : "Receiving";
@@ -250,7 +252,7 @@ function Strip({ r, onOpen }: { r: Row; onOpen: () => void }) {
                   : <div className="proj-chip" style={{ position: "absolute", left: 1, right: 1, top: 5, bottom: 5, borderRadius: 4, background: segFill(i), boxShadow: "0 3px 10px rgba(0,0,0,.22)", pointerEvents: "none" }} />)}
                 {on && (
                   <div style={{ position: "absolute", bottom: "calc(100% + 6px)", left: "50%", transform: "translateX(-50%)", zIndex: 30, width: 186, background: T.card, border: `1px solid ${T.border}`, borderRadius: 9, boxShadow: "0 10px 30px rgba(0,0,0,.16)", padding: "10px 12px", pointerEvents: "none", textAlign: "left" }}>
-                    <div style={{ fontSize: 12, fontWeight: 800, color: st.color }}>{m.label}</div>
+                    <div style={{ fontSize: 12, fontWeight: 800, color: st.color }}>{m.k === "paid" ? paidLabel : m.label}</div>
                     <div style={{ fontSize: 11.5, color: T.muted, marginTop: 4, lineHeight: 1.35 }}>{peekFor(m.k)}</div>
                   </div>
                 )}
