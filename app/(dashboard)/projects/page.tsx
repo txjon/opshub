@@ -94,7 +94,7 @@ export default function ProjectsBoard() {
       </div>
       <div style={{ position: "sticky", top: 46, zIndex: 5, background: T.bg, display: "flex", alignItems: "flex-end", padding: "8px 14px", borderBottom: `1px solid ${T.border}`, boxShadow: "0 6px 10px -8px rgba(0,0,0,.14)" }}>
         <div style={{ width: 230, flexShrink: 0 }} />
-        <div style={{ flex: 1, display: "flex", gap: 3 }}>
+        <div style={{ flex: 1, display: "flex", gap: 0 }}>
           {PROJ_MILESTONES.map(m => <div key={m.k} style={{ flex: 1, minWidth: 0, textAlign: "center", fontSize: 8.5, fontWeight: 700, letterSpacing: ".02em", textTransform: "uppercase", color: m.tail ? T.blue : T.faint, lineHeight: 1.15, padding: "0 2px", wordBreak: "break-word" }}>{m.label}</div>)}
         </div>
         <div style={{ width: 158, flexShrink: 0, textAlign: "right", ...lbl }}>Now</div>
@@ -141,13 +141,16 @@ function Strip({ r, onOpen }: { r: Row; onOpen: () => void }) {
         <div style={{ fontSize: 11.5, color: T.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{job.title}</div>
         <div style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: T.faint, fontFamily: mono, marginTop: 2 }}>{routeLabel[stage.route] || stage.route}</div>
       </div>
-      <div style={{ flex: 1, display: "flex", gap: 3, alignItems: "center" }}>
+      <div style={{ flex: 1, position: "relative", height: 14, borderRadius: 7, background: T.surface, overflow: "hidden" }}>
         {PROJ_MILESTONES.map((m, i) => {
-          if (dead.includes(m.k)) return <div key={m.k} style={{ flex: 1, height: 7, borderRadius: 3, background: "transparent", border: `1px dashed ${T.border}` }} title={`${m.label} — n/a (${routeLabel[stage.route]})`} />;
-          if (!stage.preQuote && cur >= 0 && i < cur) return <div key={m.k} style={{ flex: 1, height: 9, borderRadius: 3, background: T.green }} title={m.label} />;
-          if (!stage.preQuote && i === cur) return <div key={m.k} style={{ flex: 1, height: 15, borderRadius: 3, background: act ? (act.lvl === "red" ? T.red : T.amber) : T.accent, boxShadow: `0 0 0 3px ${act ? (act.lvl === "red" ? T.redDim : T.amberDim) : "rgba(0,0,0,.08)"}` }} title={`Now: ${m.label}`} />;
-          return <div key={m.k} style={{ flex: 1, height: 9, borderRadius: 3, background: T.surface }} title={m.label} />;
+          const left = `${(i / PROJ_MILESTONES.length) * 100}%`, w = `${100 / PROJ_MILESTONES.length}%`;
+          const base = { position: "absolute" as const, left, top: 0, bottom: 0, width: w };
+          if (dead.includes(m.k)) return <div key={m.k} style={{ ...base, background: `repeating-linear-gradient(45deg,transparent,transparent 3px,${T.border} 3px,${T.border} 4px)` }} title={`${m.label} — n/a (${routeLabel[stage.route]})`} />;
+          if (!stage.preQuote && cur >= 0 && i < cur) return <div key={m.k} style={{ ...base, background: T.green }} title={m.label} />;
+          if (!stage.preQuote && i === cur) return <div key={m.k} style={{ ...base, background: act ? (act.lvl === "red" ? T.red : T.amber) : T.accent }} title={`Now: ${m.label}`} />;
+          return null;
         })}
+        {PROJ_MILESTONES.map((m, i) => i > 0 ? <div key={"t" + m.k} style={{ position: "absolute", left: `${(i / PROJ_MILESTONES.length) * 100}%`, top: 2, bottom: 2, width: 1, zIndex: 2, background: !stage.preQuote && (i - 1) <= cur && !dead.includes(PROJ_MILESTONES[i - 1].k) ? "rgba(255,255,255,.85)" : T.faint }} /> : null)}
       </div>
       <div style={{ width: 158, flexShrink: 0, textAlign: "right", paddingLeft: 14 }}>
         {stage.preQuote
