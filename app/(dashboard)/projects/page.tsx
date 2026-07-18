@@ -34,7 +34,7 @@ export default function ProjectsBoard() {
   useEffect(() => {
     (async () => {
       const { data } = await supabase.from("jobs")
-        .select("id, job_number, title, phase, shipping_route, quote_approved, quote_approved_at, type_meta, costing_summary, clients(name), payment_records(amount, status, paid_date), items(id, pipeline_stage, blanks_order_cost, blanks_order_number, received_at_hpd, forwarded_at)")
+        .select("id, job_number, title, phase, shipping_route, quote_approved, quote_approved_at, type_meta, costing_summary, clients(name), payment_records(amount, status, paid_date), items(id, pipeline_stage, blanks_order_cost, blanks_order_number, received_at_hpd, forwarded_at, webstore_entered_at)")
         .not("phase", "in", "(cancelled)")
         .order("created_at", { ascending: false });
       const js = (data as any[]) || [];
@@ -168,9 +168,10 @@ function Strip({ r, onOpen }: { r: Row; onOpen: () => void }) {
   const atVendor = its.filter(it => !it.pipeline_stage || it.pipeline_stage === "in_production").length;
   const received = its.filter(it => it.received_at_hpd).length;
   const forwarded = its.filter(it => it.forwarded_at).length;
+  const entered = its.filter(it => it.webstore_entered_at).length; // keyed into Shopify (stage route)
   const shipped = nItems - atVendor; // items that have left the vendor
   // per-tail-phase completion fraction (item-level) — drives the partial-fill "half steps"
-  const tailFrac: Record<string, number> = nItems ? { production: shipped / nItems, receiving: received / nItems, shipping: forwarded / nItems, fulfillment: received / nItems } : {};
+  const tailFrac: Record<string, number> = nItems ? { production: shipped / nItems, receiving: received / nItems, shipping: forwarded / nItems, fulfillment: entered / nItems } : {};
   const peekFor = (k: string): string => {
     switch (k) {
       case "quote_sent": return stage.preQuote ? stage.now : [tm.quote_sent_at && `Sent ${fmtDT(tm.quote_sent_at)}`, cs.grossRev && `quote ${money(cs.grossRev)}`].filter(Boolean).join(" · ") || "Quote + proofs";
@@ -181,7 +182,7 @@ function Strip({ r, onOpen }: { r: Row; onOpen: () => void }) {
       case "production": return nItems ? `${shipped}/${nItems} shipped from vendor` : "In production";
       case "receiving": return nItems ? `${received}/${nItems} received at HPD` : "Receiving";
       case "shipping": return nItems ? `${forwarded}/${nItems} forwarded to client` : "Shipping to client";
-      case "fulfillment": return nItems ? `${received}/${nItems} received · staging` : "Staging";
+      case "fulfillment": return nItems ? `${entered}/${nItems} entered in Shopify` : "Staging";
       default: return "";
     }
   };
@@ -206,7 +207,7 @@ function Strip({ r, onOpen }: { r: Row; onOpen: () => void }) {
               if (!stage.preQuote && tf !== undefined) {
                 // reached phases get a pale-green "in progress" tint so partial fills read as
                 // a track, not a hole; green fills the completed portion on top
-                const reached = i <= cur;
+                const reached = i <= cur || tf > 0;
                 return <div key={m.k} style={{ ...base, background: reached ? HATCH_GREEN : "transparent", overflow: "hidden" }}>
                   {tf > 0 && <div style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: `${Math.round(tf * 100)}%`, background: T.green }} />}
                 </div>;
@@ -228,9 +229,9 @@ function Strip({ r, onOpen }: { r: Row; onOpen: () => void }) {
           {/* interaction zones — hover peek (layer 1) + click deep-link (layer 2) */}
           {bars.map((m, i) => {
             // Only done / current segments are hoverable — upcoming stages don't peek.
-            const hoverable = stage.preQuote ? m.k === "quote_sent" : i <= cur;
-            const st = statusOf(m, i);
             const tf = tailFrac[m.k];
+            const hoverable = stage.preQuote ? m.k === "quote_sent" : (tf !== undefined ? (i <= cur || tf > 0) : i <= cur);
+            const st = statusOf(m, i);
             const tgt = STAGE_TARGET[m.k];
             const on = hoverable && hover === m.k;
             return (
@@ -239,7 +240,7 @@ function Strip({ r, onOpen }: { r: Row; onOpen: () => void }) {
                 onClick={hoverable ? (e => { e.stopPropagation(); if (tgt) router.push(tgt.href(job)); }) : undefined}
                 style={{ position: "absolute", left: `${(i / N) * 100}%`, width: `${100 / N}%`, top: -7, bottom: -7, zIndex: 4, cursor: hoverable ? "pointer" : "default" }}>
                 {on && (tf !== undefined
-                  ? <div className="proj-chip" style={{ position: "absolute", left: 1, right: 1, top: 5, bottom: 5, borderRadius: 4, background: i <= cur ? HATCH_GREEN : T.surface, boxShadow: "0 3px 10px rgba(0,0,0,.22)", pointerEvents: "none", overflow: "hidden" }}>
+                  ? <div className="proj-chip" style={{ position: "absolute", left: 1, right: 1, top: 5, bottom: 5, borderRadius: 4, background: (i <= cur || tf > 0) ? HATCH_GREEN : T.surface, boxShadow: "0 3px 10px rgba(0,0,0,.22)", pointerEvents: "none", overflow: "hidden" }}>
                       {tf > 0 && <div style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: `${Math.round(tf * 100)}%`, background: T.green }} />}
                     </div>
                   : <div className="proj-chip" style={{ position: "absolute", left: 1, right: 1, top: 5, bottom: 5, borderRadius: 4, background: segFill(i), boxShadow: "0 3px 10px rgba(0,0,0,.22)", pointerEvents: "none" }} />)}
