@@ -9,6 +9,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
+import { useConfirm } from "@/components/useConfirm";
 import { buildPoRefIndex, resolvePoRef, type JobLite } from "@/lib/po-ref-match";
 import { buildPrintersMap, calcCostProduct } from "@/lib/pricing";
 import { computeBillingQueue } from "@/lib/billing-queue";
@@ -113,6 +114,7 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
   const [search, setSearch] = useState("");
   const [billVendorFilter, setBillVendorFilter] = useState(""); // vendor select for the bills list (189 rows and counting)
   const [view, setView] = useState<"queue" | "history" | "variances" | "shipping" | "hours">("queue");
+  const [confirm, confirmEl] = useConfirm();
   // (inline bill entry removed — all bill creation goes through the New Bill form)
   // New Bill modal (QB-style entry, job-aware)
   const [showBill, setShowBill] = useState(false);
@@ -245,7 +247,7 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
     // hard delete with no trace — the bare × buttons used to fire this
     // instantly, silently changing Billed/Open-PO numbers (incl. QB-pushed
     // history rows). Confirm matches this file's other destructive flows.
-    if (!window.confirm("Delete this cost entry? This is permanent — it changes Billed / Open-PO totals and cannot be undone.")) return;
+    if (!await confirm({ title: "Delete this cost entry?", message: "This is permanent — it changes Billed / Open-PO totals and cannot be undone.", confirmLabel: "Delete" })) return;
     await supabase.from("cost_entries").delete().eq("id", entryId);
     loadAll();
   }
@@ -585,9 +587,9 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
     openNotify(nbSavedIds, nbVendor, vendors.find(v => v.id === nbVendor)?.name || "Vendor", "modal");
   }
   // Guard against losing entered lines to a stray backdrop/✕ click.
-  function tryCloseBill() {
+  async function tryCloseBill() {
     const dirty = !nbSavedIds && nbLines.some(l => l.poInput.trim() || l.amount.trim() || l.invoiceNumber.trim());
-    if (dirty && !window.confirm("Discard this bill? Your entered lines will be lost.")) return;
+    if (dirty && !await confirm({ title: "Discard this bill?", message: "Your entered lines will be lost.", confirmLabel: "Discard" })) return;
     closeBill();
   }
   async function pushSavedBill() {
@@ -624,7 +626,7 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
     const valid = nbValidLines();
     if (!valid.length || !nbVendor) return; // vendor must be chosen intentionally
     const dups = valid.filter(l => isExactDup(l.resolved!.poRef, parseAmount(l.amount)));
-    if (dups.length && !window.confirm(`${dups.length} line${dups.length !== 1 ? "s" : ""} (${dups.map(l => l.resolved!.poRef).join(", ")}) ${dups.length !== 1 ? "have" : "has"} the SAME amount already billed on that PO — this looks like a double-bill. Save anyway?`)) return;
+    if (dups.length && !await confirm({ title: "Possible double-bill", message: `${dups.length} line${dups.length !== 1 ? "s" : ""} (${dups.map(l => l.resolved!.poRef).join(", ")}) ${dups.length !== 1 ? "have" : "has"} the SAME amount already billed on that PO. Save anyway?`, confirmLabel: "Save anyway", confirmColor: T.amber })) return;
     const vId = nbVendor;
     setNbSaving(true);
     const vendorName = vendors.find(v => v.id === vId)?.name || null;
@@ -645,6 +647,7 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
 
   return (
     <div style={{ padding: "22px 26px", fontFamily: font, maxWidth: 1180, margin: "0 auto" }}>
+      {confirmEl}
       <style>{`
         .bq-mono { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
         .bq-ghost { background: transparent; border: 1px solid ${T.border}; color: ${T.muted}; border-radius: 6px; padding: 4px 11px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: ${font}; transition: background .12s, color .12s, border-color .12s; white-space: nowrap; }
