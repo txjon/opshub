@@ -1,7 +1,8 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { GodModeClient, type ClientStat, type DecoratorStat, type CashRow, type CategoryStat } from "@/components/GodModeClient";
-import { effectiveRevenue, effectiveCost } from "@/lib/revenue";
+import { effectiveRevenue, effectiveCost, pnlJobs } from "@/lib/revenue";
+import { ssRevCost } from "@/lib/analytics";
 import { poSentToItem, isItemInProduction } from "@/lib/item-status";
 import { buildPrintersMap } from "@/lib/pricing";
 import { computeBillingQueue } from "@/lib/billing-queue";
@@ -37,7 +38,7 @@ export default async function GodModePage() {
     costMarksRes,
   ] = await Promise.all([
     supabase.from("jobs")
-      .select("id, job_number, title, phase, client_id, clients(name), company_id, payment_terms, target_ship_date, costing_summary, costing_data, type_meta, phase_timestamps, created_at, quote_approved, quote_approved_at, is_inventory")
+      .select("id, job_number, title, phase, client_id, clients(name), company_id, payment_terms, target_ship_date, costing_summary, costing_data, type_meta, phase_timestamps, created_at, quote_approved, quote_approved_at, is_inventory, is_test")
       .order("created_at", { ascending: false }),
     supabase.from("items")
       .select("id, job_id, name, pipeline_stage, pipeline_timestamps, sell_per_unit, cost_per_unit, cost_per_unit_all_in, garment_type, ship_qtys, blanks_order_cost, blanks_order_number, buy_sheet_lines(qty_ordered), decorator_assignments(decorator_id)")
@@ -82,22 +83,10 @@ export default async function GodModePage() {
   // client) count as revenue — unsent drafts don't.
   const ssReports: any[] = (ssReportsRes.data || []).filter((r: any) => r.qb_invoice_number || r.sent_at);
 
-  // ── ShipStation revenue/cost — margin-accurate per report ──
+  // ShipStation revenue/cost math imported from lib/analytics (was a verbatim
+  // inline copy — the drift the lib exists to prevent).
   const num = (x: any) => Number(x) || 0;
-  function ssRevCost(r: any): { revenue: number; cost: number } {
-    const t = r.totals || {};
-    const pt = r.postage_totals || {};
-    if (r.report_type === "combined") {
-      return { revenue: num(t.fee) + num(pt.billed) + num(pt.fulfillment), cost: num(pt.cost_raw) + num(pt.insurance) };
-    }
-    if (r.report_type === "postage") {
-      return { revenue: num(t.billed) + num(t.fulfillment), cost: num(t.cost_raw) + num(t.insurance) };
-    }
-    if (r.report_type === "fulfillment") {
-      return { revenue: num(t.fulfillment), cost: 0 };
-    }
-    return { revenue: num(t.fee), cost: 0 }; // sales — pure commission
-  }
+  void num;
   const ssTypeLabel = (rt: string) => rt === "combined" ? "Full Service" : rt === "postage" ? "Postage" : rt === "fulfillment" ? "Fulfillment" : "Sales";
 
   // Aggregate per client + keep per-report rows for the drill-downs.
@@ -144,7 +133,7 @@ export default async function GodModePage() {
 
   // Exclude bulk inventory/stock-buy jobs from all P&L — their cost rides the
   // future jobs that decorate + sell the stock (see lib/revenue pnlJobs).
-  const revenueJobs = jobs.filter(j => j.phase !== "cancelled" && !(j as any).is_inventory);
+  const revenueJobs = pnlJobs(jobs); // one policy: cancelled + is_test + is_inventory excluded
 
   // ── 1. CLIENT HEALTH ──────────────────────────────────────────────────
   const ytdCutoff = new Date(now.getFullYear(), 0, 1);
