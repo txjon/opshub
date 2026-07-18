@@ -1083,8 +1083,11 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
                               // BillPayment webhook stamps qb_paid_at (mig 126) — the chip
                               // graduates from "in QB" (pushed, awaiting payment) to PAID.
                               const paidAt = b.lines.find(e => e.qb_paid_at)?.qb_paid_at;
+                              // 'paid-verified' = Jon-attested legacy history (no QB bill
+                              // link, date unknown) → plain PAID, no date shown.
+                              const verifiedOnly = pushed === "paid-verified";
                               return paidAt
-                                ? <span title={`Paid in QuickBooks ${paidAt.slice(0, 10)} · Bill #${pushed}`} style={{ fontSize: 10.5, fontWeight: 800, color: "#fff", background: T.green, padding: "3px 9px", borderRadius: 20, whiteSpace: "nowrap" }}>✓ PAID {paidAt.slice(5, 10)}</span>
+                                ? <span title={verifiedOnly ? "Marked paid — legacy batch history, verified by Jon" : `Paid in QuickBooks ${paidAt.slice(0, 10)} · Bill #${pushed}`} style={{ fontSize: 10.5, fontWeight: 800, color: "#fff", background: T.green, padding: "3px 9px", borderRadius: 20, whiteSpace: "nowrap" }}>✓ PAID{verifiedOnly ? "" : " " + paidAt.slice(5, 10)}</span>
                                 : <span title={`QuickBooks Bill #${pushed} — awaiting payment`} style={{ fontSize: 10.5, fontWeight: 700, color: T.green, background: T.green + "1f", padding: "3px 9px", borderRadius: 20, whiteSpace: "nowrap" }}>✓ in QB</span>;
                             })()
                           : <button onClick={ev => { ev.stopPropagation(); if (!busy) pushBillToQb(bKey, ids); }} disabled={busy} className="bq-ghost" style={{ whiteSpace: "nowrap" }}>{busy ? "Pushing…" : "Push to QB"}</button>}
