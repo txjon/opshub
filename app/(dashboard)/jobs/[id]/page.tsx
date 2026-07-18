@@ -16,7 +16,7 @@ import { ProductBuilder } from "./ProductBuilder";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Skeleton } from "@/components/Skeleton";
-import { ProjectProgress } from "@/components/ProjectProgress";
+import { JobFlowBar } from "@/components/JobFlowBar";
 import { PdfPreviewModal } from "@/components/PdfPreviewModal";
 import { JobActivityPanel, logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
 import { calculatePhase } from "@/lib/lifecycle";
@@ -871,8 +871,16 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         </div>
       </div>
 
-      {/* Progress checklist — horizontal tabs (X axis) */}
-      <ProjectProgress job={job} items={items} payments={payments} proofStatus={proofStatus} activeTab={tab} onTabClick={switchTab} />
+      {/* V2 nav: status bar + build tabs. Drives switchTab (the save-and-navigate
+          gate) so the costing save contract is preserved untouched. Gates map to
+          the flow tabs; the warehouse tail routes to its pages. */}
+      <JobFlowBar job={job} items={items} payments={payments} phaseView={phaseView} activeTab={tab}
+        onGate={(k) => {
+          const tabFor: Record<string, string> = { quote_sent: "quote", quote_appr: "proofs", invoice: "quote", paid: "proofs", order: "po" };
+          const pageFor: Record<string, string> = { production: "/production", receiving: "/receiving", shipping: "/shipping", fulfillment: "/staging2" };
+          if (tabFor[k]) switchTab(tabFor[k]); else if (pageFor[k]) router.push(pageFor[k]);
+        }}
+        onBuild={(t) => switchTab(t)} />
 
       {/* ── Sidebar + Content Layout (Y axis: items | content) ── */}
       <div style={{display:"flex",gap:0,minHeight:"calc(100vh - 240px)"}}>
