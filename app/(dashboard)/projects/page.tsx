@@ -13,6 +13,8 @@ import { deriveProjectStage, PROJ_MILESTONES, ROUTE_DEAD, type ProjStage } from 
 
 type Row = { job: any; stage: ProjStage };
 const routeLabel: Record<string, string> = { drop_ship: "drop-ship", ship_through: "ship-through", stage: "stage" };
+// hatched green = a tail phase's "reached but not yet done" portion (in progress)
+const HATCH_GREEN = "repeating-linear-gradient(45deg,transparent,transparent 3px,rgba(58,154,34,0.5) 3px,rgba(58,154,34,0.5) 4px)";
 // "at" a stage — quote_sent (the first column) is never a resting milestone, so it
 // represents the pre-quote / quoting jobs; every other column matches its milestone.
 const atStage = (r: Row, k: string) => k === "quote_sent" ? r.stage.preQuote : r.stage.milestone === k;
@@ -205,7 +207,7 @@ function Strip({ r, onOpen }: { r: Row; onOpen: () => void }) {
                 // reached phases get a pale-green "in progress" tint so partial fills read as
                 // a track, not a hole; green fills the completed portion on top
                 const reached = i <= cur;
-                return <div key={m.k} style={{ ...base, background: reached ? "rgba(58,154,34,0.15)" : "transparent", overflow: "hidden" }}>
+                return <div key={m.k} style={{ ...base, background: reached ? HATCH_GREEN : "transparent", overflow: "hidden" }}>
                   {tf > 0 && <div style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: `${Math.round(tf * 100)}%`, background: T.green }} />}
                 </div>;
               }
@@ -228,6 +230,7 @@ function Strip({ r, onOpen }: { r: Row; onOpen: () => void }) {
             // Only done / current segments are hoverable — upcoming stages don't peek.
             const hoverable = stage.preQuote ? m.k === "quote_sent" : i <= cur;
             const st = statusOf(m, i);
+            const tf = tailFrac[m.k];
             const tgt = STAGE_TARGET[m.k];
             const on = hoverable && hover === m.k;
             return (
@@ -235,7 +238,11 @@ function Strip({ r, onOpen }: { r: Row; onOpen: () => void }) {
                 onMouseEnter={hoverable ? () => setHover(m.k) : undefined} onMouseLeave={hoverable ? () => setHover(h => (h === m.k ? null : h)) : undefined}
                 onClick={hoverable ? (e => { e.stopPropagation(); if (tgt) router.push(tgt.href(job)); }) : undefined}
                 style={{ position: "absolute", left: `${(i / N) * 100}%`, width: `${100 / N}%`, top: -7, bottom: -7, zIndex: 4, cursor: hoverable ? "pointer" : "default" }}>
-                {on && <div className="proj-chip" style={{ position: "absolute", left: 1, right: 1, top: 5, bottom: 5, borderRadius: 4, background: segFill(i), boxShadow: "0 3px 10px rgba(0,0,0,.22)", pointerEvents: "none" }} />}
+                {on && (tf !== undefined
+                  ? <div className="proj-chip" style={{ position: "absolute", left: 1, right: 1, top: 5, bottom: 5, borderRadius: 4, background: i <= cur ? HATCH_GREEN : T.surface, boxShadow: "0 3px 10px rgba(0,0,0,.22)", pointerEvents: "none", overflow: "hidden" }}>
+                      {tf > 0 && <div style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: `${Math.round(tf * 100)}%`, background: T.green }} />}
+                    </div>
+                  : <div className="proj-chip" style={{ position: "absolute", left: 1, right: 1, top: 5, bottom: 5, borderRadius: 4, background: segFill(i), boxShadow: "0 3px 10px rgba(0,0,0,.22)", pointerEvents: "none" }} />)}
                 {on && (
                   <div style={{ position: "absolute", bottom: "calc(100% + 6px)", left: "50%", transform: "translateX(-50%)", zIndex: 30, width: 186, background: T.card, border: `1px solid ${T.border}`, borderRadius: 9, boxShadow: "0 10px 30px rgba(0,0,0,.16)", padding: "10px 12px", pointerEvents: "none", textAlign: "left" }}>
                     <div style={{ fontSize: 12, fontWeight: 800, color: st.color }}>{m.label}</div>
