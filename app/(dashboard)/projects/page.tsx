@@ -200,12 +200,10 @@ function Strip({ r, onOpen }: { r: Row; onOpen: () => void }) {
           <div style={{ position: "absolute", inset: 0, borderRadius: 7, background: T.surface, overflow: "hidden" }}>
             {bars.map((m, i) => {
               const base = { position: "absolute" as const, left: `${(i / N) * 100}%`, top: 0, bottom: 0, width: `${100 / N}%` };
-              const tf = tailFrac[m.k]; // tail phases fill by item progress (the "half steps")
-              // only the CURRENT tail phase partial-fills; done phases are solid green
-              if (!stage.preQuote && tf !== undefined && i === cur) {
-                const remainder = sig === "late" ? T.red : sig === "act" ? T.amber : T.surface;
-                const ring = sig === "wait" ? `inset 0 0 0 1.5px ${T.faint}` : undefined;
-                return <div key={m.k} style={{ ...base, background: remainder, boxShadow: ring, overflow: "hidden" }}>
+              const tf = tailFrac[m.k]; // each tail phase fills by its OWN item progress (the half-steps)
+              if (!stage.preQuote && tf !== undefined) {
+                // green fills this phase's completion; the empty track shows through the rest
+                return <div key={m.k} style={{ ...base, background: "transparent", overflow: "hidden" }}>
                   {tf > 0 && <div style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: `${Math.round(tf * 100)}%`, background: T.green }} />}
                 </div>;
               }
