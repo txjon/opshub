@@ -111,6 +111,7 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
   const [showForm, setShowForm] = useState(false);
   const [showByVendor, setShowByVendor] = useState(false);
   const [search, setSearch] = useState("");
+  const [billVendorFilter, setBillVendorFilter] = useState(""); // vendor select for the bills list (189 rows and counting)
   const [view, setView] = useState<"queue" | "history" | "variances" | "shipping" | "hours">("queue");
   // (inline bill entry removed — all bill creation goes through the New Bill form)
   // New Bill modal (QB-style entry, job-aware)
@@ -406,6 +407,7 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
     return arr;
   }, [entries]);
   const filteredBills = bills.filter(b => {
+    if (billVendorFilter && (b.vendor_name || "") !== billVendorFilter) return false;
     if (!sq) return true;
     if ((b.vendor_name || "").toLowerCase().includes(sq) || (b.invoice || "").toLowerCase().includes(sq)) return true;
     return b.lines.some(e => (e.po_ref || "").toLowerCase().includes(sq) || (e.job_id ? (jobById[e.job_id]?.client_name || "").toLowerCase().includes(sq) : false));
@@ -1043,10 +1045,18 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
 
       {view === "history" && (
         <div>
-          <div style={{ position: "relative", maxWidth: 360, marginBottom: 12 }}>
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search vendor · invoice # · PO · client…"
-              style={{ width: "100%", padding: "7px 30px 7px 11px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.card, color: T.text, fontSize: 13, fontFamily: font, outline: "none" }} />
-            {search && <button onClick={() => setSearch("")} style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: T.faint, fontSize: 14, cursor: "pointer", padding: 0 }}>×</button>}
+          <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+            <div style={{ position: "relative", maxWidth: 360, flex: "1 1 240px" }}>
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search vendor · invoice # · PO · client…"
+                style={{ width: "100%", padding: "7px 30px 7px 11px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.card, color: T.text, fontSize: 13, fontFamily: font, outline: "none" }} />
+              {search && <button onClick={() => setSearch("")} style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: T.faint, fontSize: 14, cursor: "pointer", padding: 0 }}>×</button>}
+            </div>
+            {/* vendor select — white-box bold per DESIGN.md filter convention */}
+            <select value={billVendorFilter} onChange={e => setBillVendorFilter(e.target.value)}
+              style={{ padding: "7px 12px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 13, fontWeight: 700, fontFamily: font, outline: "none", cursor: "pointer" }}>
+              <option value="">All vendors</option>
+              {(Array.from(new Set(bills.map(b => b.vendor_name).filter(Boolean))) as string[]).sort().map(v => <option key={v} value={v}>{v}</option>)}
+            </select>
           </div>
           <div style={{ ...lbl, marginBottom: 8 }}>{filteredBills.length} bill{filteredBills.length !== 1 ? "s" : ""}</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
@@ -1073,8 +1083,11 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
                               // BillPayment webhook stamps qb_paid_at (mig 126) — the chip
                               // graduates from "in QB" (pushed, awaiting payment) to PAID.
                               const paidAt = b.lines.find(e => e.qb_paid_at)?.qb_paid_at;
+                              // 'paid-verified' = Jon-attested legacy history (no QB bill
+                              // link, date unknown) → plain PAID, no date shown.
+                              const verifiedOnly = pushed === "paid-verified";
                               return paidAt
-                                ? <span title={`Paid in QuickBooks ${paidAt.slice(0, 10)} · Bill #${pushed}`} style={{ fontSize: 10.5, fontWeight: 800, color: "#fff", background: T.green, padding: "3px 9px", borderRadius: 20, whiteSpace: "nowrap" }}>✓ PAID {paidAt.slice(5, 10)}</span>
+                                ? <span title={verifiedOnly ? "Marked paid — legacy batch history, verified by Jon" : `Paid in QuickBooks ${paidAt.slice(0, 10)} · Bill #${pushed}`} style={{ fontSize: 10.5, fontWeight: 800, color: "#fff", background: T.green, padding: "3px 9px", borderRadius: 20, whiteSpace: "nowrap" }}>✓ PAID{verifiedOnly ? "" : " " + paidAt.slice(5, 10)}</span>
                                 : <span title={`QuickBooks Bill #${pushed} — awaiting payment`} style={{ fontSize: 10.5, fontWeight: 700, color: T.green, background: T.green + "1f", padding: "3px 9px", borderRadius: 20, whiteSpace: "nowrap" }}>✓ in QB</span>;
                             })()
                           : <button onClick={ev => { ev.stopPropagation(); if (!busy) pushBillToQb(bKey, ids); }} disabled={busy} className="bq-ghost" style={{ whiteSpace: "nowrap" }}>{busy ? "Pushing…" : "Push to QB"}</button>}
