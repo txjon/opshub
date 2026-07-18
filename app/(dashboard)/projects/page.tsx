@@ -164,7 +164,7 @@ function Strip({ r, onOpen }: { r: Row; onOpen: () => void }) {
     return { label: "Upcoming", note: "", color: T.faint };
   };
   return (
-    <div onClick={onOpen} className="kpi-tile" style={{ display: "flex", alignItems: "center", background: T.card, border: `1px solid ${T.border}`, borderLeft: edgeColor ? `4px solid ${edgeColor}` : `1px solid ${T.border}`, borderRadius: 12, padding: edgeColor ? "12px 16px 12px 13px" : "12px 16px", marginTop: 8, cursor: "pointer" }}>
+    <div onClick={onOpen} style={{ display: "flex", alignItems: "center", background: T.card, border: `1px solid ${T.border}`, borderLeft: edgeColor ? `4px solid ${edgeColor}` : `1px solid ${T.border}`, borderRadius: 12, padding: edgeColor ? "12px 16px 12px 13px" : "12px 16px", marginTop: 8, cursor: "pointer", position: "relative", zIndex: hover ? 40 : undefined }}>
       <div style={{ width: 230, flexShrink: 0, minWidth: 0, paddingRight: 12 }}>
         <div style={{ fontFamily: mono, fontSize: 11.5, fontWeight: 700, color: T.muted }}>{invNo}</div>
         <div style={{ fontSize: 14, fontWeight: 700, lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginTop: 1 }}>{(job.clients as any)?.name || "—"}</div>
@@ -200,7 +200,7 @@ function Strip({ r, onOpen }: { r: Row; onOpen: () => void }) {
               onClick={e => { e.stopPropagation(); if (tgt) router.push(tgt.href(job)); }}
               style={{ position: "absolute", left: `${(i / N) * 100}%`, width: `${100 / N}%`, top: -7, bottom: -7, zIndex: 4, cursor: "pointer" }}>
               {hover === m.k && (
-                <div style={{ position: "absolute", bottom: "calc(100% + 7px)", left: "50%", transform: "translateX(-50%)", zIndex: 30, width: 172, background: T.card, border: `1px solid ${T.border}`, borderRadius: 9, boxShadow: "0 10px 30px rgba(0,0,0,.16)", padding: "10px 12px", pointerEvents: "none", textAlign: "left" }}>
+                <div style={{ position: "absolute", top: "calc(100% + 7px)", left: "50%", transform: "translateX(-50%)", zIndex: 30, width: 172, background: T.card, border: `1px solid ${T.border}`, borderRadius: 9, boxShadow: "0 10px 30px rgba(0,0,0,.16)", padding: "10px 12px", pointerEvents: "none", textAlign: "left" }}>
                   <div style={{ fontSize: 12, fontWeight: 800, color: T.text }}>{m.label}</div>
                   <div style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: ".07em", textTransform: "uppercase", color: st.color, marginTop: 3 }}>{st.label}</div>
                   {st.note ? <div style={{ fontSize: 11.5, color: T.muted, marginTop: 4, lineHeight: 1.35 }}>{st.note}</div> : null}
