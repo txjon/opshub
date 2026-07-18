@@ -202,8 +202,10 @@ function Strip({ r, onOpen }: { r: Row; onOpen: () => void }) {
               const base = { position: "absolute" as const, left: `${(i / N) * 100}%`, top: 0, bottom: 0, width: `${100 / N}%` };
               const tf = tailFrac[m.k]; // each tail phase fills by its OWN item progress (the half-steps)
               if (!stage.preQuote && tf !== undefined) {
-                // green fills this phase's completion; the empty track shows through the rest
-                return <div key={m.k} style={{ ...base, background: "transparent", overflow: "hidden" }}>
+                // reached phases get a pale-green "in progress" tint so partial fills read as
+                // a track, not a hole; green fills the completed portion on top
+                const reached = i <= cur;
+                return <div key={m.k} style={{ ...base, background: reached ? "rgba(58,154,34,0.15)" : "transparent", overflow: "hidden" }}>
                   {tf > 0 && <div style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: `${Math.round(tf * 100)}%`, background: T.green }} />}
                 </div>;
               }
