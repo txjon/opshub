@@ -1,15 +1,17 @@
 "use client";
 // V2 job detail — the job's HOME. Reuses deriveProjectStage (same model as the
-// /projects board) so the list and detail share one status-bar language.
-// Increment 1: the hub — header + status bar (gates + tail half-fills) + the
-// "what's in this job" overview. Gate/tab clicks deep-link to the existing
-// /jobs/[id] tabs for now; native surfaces (Invoice, etc.) land in later passes.
+// /projects board). Increment 2: full read-only completeness — KPI strip, project
+// fields, contacts, documents, activity — plus the ⋯ menu (Duplicate native;
+// Hold/Resume, Cancel & Void, Delete route to the full page where their proven
+// logic lives). Gate/build clicks still deep-link to /jobs/[id] tabs.
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
 import { deriveProjectStage, PROJ_MILESTONES, ROUTE_DEAD } from "@/lib/project-stage";
 import { loadJobPhasesBatch } from "@/lib/item-state";
+import { effectiveRevenue } from "@/lib/revenue";
+import { JobActivityPanel } from "@/components/JobActivityPanel";
 
 const ROUTE_LABEL: Record<string, string> = { drop_ship: "drop-ship", ship_through: "ship-through", stage: "stage" };
 const TERMS_LABEL: Record<string, string> = { net_15: "Net 15", net_30: "Net 30", net_45: "Net 45", net_60: "Net 60", prepaid: "Prepaid", deposit_balance: "Deposit" };
@@ -24,22 +26,33 @@ const ZONES: { label: string; keys: string[]; blue?: boolean }[] = [
   { label: "Fulfillment", keys: ["receiving", "shipping", "fulfillment"], blue: true },
 ];
 
+const panel: React.CSSProperties = { border: `1px solid ${T.border}`, borderRadius: 11, padding: "13px 15px" };
+const pt: React.CSSProperties = { fontSize: 9.5, fontWeight: 800, letterSpacing: ".06em", textTransform: "uppercase", color: T.faint, marginBottom: 8 };
+const KV = ({ k, v, c }: { k: string; v: any; c?: string }) => <div style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 12.5, padding: "3px 0" }}><span style={{ color: T.muted }}>{k}</span><span style={{ fontWeight: 700, color: c || T.text, textAlign: "right" }}>{v}</span></div>;
+
 export default function ProjectDetail() {
   const id = String(useParams().id);
   const router = useRouter();
   const supabase = createClient();
   const [job, setJob] = useState<any>(null);
   const [pv, setPv] = useState<any>(null);
+  const [contacts, setContacts] = useState<any[]>([]);
+  const [profiles, setProfiles] = useState<any[]>([]);
+  const [userId, setUserId] = useState<string>("");
   const [loading, setLoading] = useState(true);
+  const [menu, setMenu] = useState(false);
 
   useEffect(() => {
     let live = true;
     (async () => {
-      const { data } = await supabase.from("jobs")
-        .select("id, job_number, title, phase, shipping_route, payment_terms, quote_approved, quote_approved_at, type_meta, costing_summary, clients(name), payment_records(amount, status, paid_date), items(id, name, garment_type, sell_per_unit, pipeline_stage, blanks_order_cost, blanks_order_number, received_at_hpd, forwarded_at, webstore_entered_at, buy_sheet_lines(qty_ordered))")
-        .eq("id", id).single();
+      const [{ data }, jc, pr, au] = await Promise.all([
+        supabase.from("jobs").select("id, job_number, title, notes, phase, priority, is_inventory, target_ship_date, portal_token, shipping_route, payment_terms, quote_approved, quote_approved_at, type_meta, costing_summary, clients(name), payment_records(amount, status, paid_date), items(id, name, garment_type, sell_per_unit, pipeline_stage, blanks_order_cost, blanks_order_number, received_at_hpd, forwarded_at, webstore_entered_at, buy_sheet_lines(qty_ordered))").eq("id", id).single(),
+        supabase.from("job_contacts").select("role_on_job, contacts(name, email, phone)").eq("job_id", id),
+        supabase.from("profiles").select("id, name, email"),
+        supabase.auth.getUser(),
+      ]);
       if (!live) return;
-      setJob(data);
+      setJob(data); setContacts((jc.data as any[]) || []); setProfiles((pr.data as any[]) || []); setUserId(au.data.user?.id || "");
       if (data && data.phase !== "complete") {
         try { const m = await loadJobPhasesBatch(supabase, [data.id]); if (live) setPv(m.get(data.id)); } catch { }
       }
@@ -67,11 +80,28 @@ export default function ProjectDetail() {
 
   const tm = job.type_meta || {}; const cs = job.costing_summary || {};
   const paidColor = stage.paidState === "paid" ? T.green : stage.paidState === "onaccount" ? T.blue : T.amber;
-  const paidAmt = (job.payment_records || []).filter((p: any) => p.status === "paid").reduce((a: number, p: any) => a + (+p.amount || 0), 0);
+  const paidAmt = (job.payment_records || []).filter((p: any) => p.status === "paid" || p.status === "partial").reduce((a: number, p: any) => a + (+p.amount || 0), 0);
   const invTotal = tm.qb_total_with_tax || cs.grossRev || 0;
   const invNo = tm.qb_invoice_number || job.job_number;
   const client = (job.clients as any)?.name || "—";
   const termsLabel = TERMS_LABEL[job.payment_terms as string] || "—";
+
+  // KPIs
+  const rev = effectiveRevenue(job) || cs.grossRev || 0;
+  const cost = cs.totalCost || 0;
+  const profit = rev - cost;
+  const margin = rev ? (profit / rev) * 100 : 0;
+  const qtyOf = (it: any) => ((it.buy_sheet_lines || []) as any[]).reduce((a, b) => a + (+b.qty_ordered || 0), 0);
+  const totalUnits = items.reduce((a, it) => a + qtyOf(it), 0);
+
+  // ship countdown
+  let countdown: { label: string; color: string } | null = null;
+  if (stage.complete) countdown = { label: "Complete", color: T.green };
+  else if (job.target_ship_date) {
+    const days = Math.ceil((new Date(job.target_ship_date + "T00:00:00").getTime() - Date.now()) / 86400000);
+    countdown = days < 0 ? { label: `${-days}d overdue`, color: T.red } : days === 0 ? { label: "Ships today", color: T.amber } : { label: `${days}d to ship`, color: days <= 3 ? T.amber : T.muted };
+  }
+  const prio = job.priority === "rush" ? { l: "RUSH", c: T.amber } : job.priority === "hot" ? { l: "HOT", c: T.red } : null;
 
   const HREF: Record<string, string> = {
     quote_sent: `/jobs/${id}?tab=quote`, quote_appr: `/jobs/${id}?tab=proofs`, invoice: `/jobs/${id}?tab=quote`,
@@ -79,8 +109,6 @@ export default function ProjectDetail() {
     receiving: `/receiving`, shipping: `/shipping`, fulfillment: `/staging2`,
   };
 
-  const qtyOf = (it: any) => ((it.buy_sheet_lines || []) as any[]).reduce((a, b) => a + (+b.qty_ordered || 0), 0);
-  const totalUnits = items.reduce((a, it) => a + qtyOf(it), 0);
   const itemStatus = (it: any) => {
     if (it.forwarded_at) return { s: "Forwarded", c: T.green };
     if (it.received_at_hpd) return { s: "Received", c: T.green };
@@ -109,16 +137,46 @@ export default function ProjectDetail() {
     return null;
   };
 
+  async function duplicate() {
+    setMenu(false);
+    try {
+      const res = await fetch(`/api/jobs/${id}/duplicate`, { method: "POST" });
+      const d = await res.json().catch(() => ({}));
+      const newId = d?.id || d?.jobId || d?.job?.id;
+      if (newId) router.push(`/projects/${newId}`);
+      else router.push(`/jobs/${id}`);
+    } catch { router.push(`/jobs/${id}`); }
+  }
+
+  const KPI = ({ label, value, color }: { label: string; value: string; color?: string }) =>
+    <div style={{ ...panel, padding: "11px 13px" }}><div style={{ fontSize: 9, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: T.faint }}>{label}</div><div style={{ fontFamily: mono, fontSize: 18, fontWeight: 700, marginTop: 5, color: color || T.text }}>{value}</div></div>;
+
+  const menuItem = (label: string, onClick: () => void, danger?: boolean) =>
+    <button onClick={onClick} style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 13px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: danger ? T.red : T.text }}>{label}</button>;
+
   return (
     <div style={{ maxWidth: 1080, margin: "0 auto", padding: "18px 20px 80px", fontFamily: font, color: T.text }}>
       <button onClick={() => router.push("/projects")} style={{ background: "none", border: "none", color: T.muted, fontFamily: font, fontSize: 12, cursor: "pointer", padding: 0, marginBottom: 10 }}>← Projects</button>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
         <div>
-          <div style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: T.muted }}>{invNo}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ fontFamily: mono, fontSize: 12, fontWeight: 700, color: T.muted }}>{invNo}</div>
+            {prio && <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: ".06em", color: prio.c }}>{prio.l}</span>}
+            {countdown && <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: ".04em", textTransform: "uppercase", color: countdown.color }}>· {countdown.label}</span>}
+          </div>
           <div style={{ fontSize: 20, fontWeight: 800, lineHeight: 1.15 }}>{job.title}</div>
           <div style={{ fontSize: 12.5, color: T.muted, marginTop: 2 }}><b style={{ color: T.text }}>{client}</b> · <span style={{ color: stage.paidState === "onaccount" ? T.blue : T.muted }}>{termsLabel}</span> · {ROUTE_LABEL[stage.route] || stage.route}</div>
         </div>
-        <button onClick={() => router.push(`/jobs/${id}`)} style={{ border: `1px solid ${T.border}`, background: T.card, color: T.muted, borderRadius: 9, padding: "8px 13px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>Open full job page →</button>
+        <div style={{ display: "flex", gap: 8, position: "relative" }}>
+          <button onClick={() => router.push(`/jobs/${id}`)} style={{ border: `1px solid ${T.border}`, background: T.card, color: T.muted, borderRadius: 9, padding: "8px 13px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>Open full job page →</button>
+          <button onClick={() => setMenu(m => !m)} style={{ border: `1px solid ${T.border}`, background: T.card, color: T.muted, borderRadius: 9, padding: "8px 12px", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: font }}>⋯</button>
+          {menu && <div style={{ position: "absolute", top: "100%", right: 0, marginTop: 6, background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, boxShadow: "0 10px 30px rgba(0,0,0,.16)", zIndex: 40, minWidth: 190, overflow: "hidden" }}>
+            {menuItem("Duplicate", duplicate)}
+            {menuItem(job.phase === "on_hold" ? "Resume →" : "Place on hold →", () => router.push(`/jobs/${id}`))}
+            {tm.qb_invoice_number && job.phase !== "cancelled" && menuItem("Cancel & void →", () => router.push(`/jobs/${id}`), true)}
+            {menuItem("Delete →", () => router.push(`/jobs/${id}`), true)}
+          </div>}
+        </div>
       </div>
 
       {/* status bar spine */}
@@ -148,13 +206,23 @@ export default function ProjectDetail() {
           <button key={k} onClick={() => router.push(`/jobs/${id}?tab=${k}`)} style={{ border: `1px solid ${T.border}`, background: T.card, color: T.muted, borderRadius: 9, padding: "8px 15px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: font }}>{l}</button>)}
       </div>
 
-      {/* overview */}
+      {/* KPI strip */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: 10, marginTop: 14 }}>
+        <KPI label="Revenue" value={rev ? money(rev) : "—"} />
+        <KPI label="Cost" value={cost ? money(cost) : "—"} />
+        <KPI label="Profit" value={rev ? money(profit) : "—"} color={profit >= 0 ? T.green : T.red} />
+        <KPI label="Margin" value={rev ? `${Math.round(margin)}%` : "—"} color={margin >= 30 ? T.green : margin >= 20 ? T.amber : T.red} />
+        <KPI label="Units" value={String(totalUnits)} />
+        <KPI label="Paid" value={money(paidAmt)} color={paidAmt >= invTotal && invTotal > 0 ? T.green : T.text} />
+      </div>
+
+      {/* what's in this job */}
       <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 14, padding: "18px 20px", marginTop: 14 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 }}>
           <div style={{ fontSize: 15, fontWeight: 800 }}>What&apos;s in this job</div>
           <div style={{ fontSize: 12, color: T.muted }}>{nItems} item{nItems !== 1 ? "s" : ""} · {totalUnits} units</div>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(150px,1fr))", gap: 12, marginBottom: 18 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(150px,1fr))", gap: 12 }}>
           {items.map(it => {
             const st = itemStatus(it); const gc = gcolor(it.garment_type || it.name);
             return <div key={it.id} onClick={() => router.push(`/jobs/${id}?tab=builder`)} style={{ border: `1px solid ${T.border}`, borderRadius: 11, overflow: "hidden", background: T.card, cursor: "pointer" }}>
@@ -170,18 +238,45 @@ export default function ProjectDetail() {
           })}
           {!items.length && <div style={{ color: T.muted, fontSize: 13 }}>No items yet.</div>}
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-          <div style={{ border: `1px solid ${T.border}`, borderRadius: 11, padding: "13px 15px" }}>
-            <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: ".06em", textTransform: "uppercase", color: T.faint, marginBottom: 8 }}>Money</div>
-            {([["Quote", cs.grossRev ? money(cs.grossRev) : "—"], ["Invoice", tm.qb_invoice_number ? `#${tm.qb_invoice_number} · ${money(invTotal)}` : "not invoiced"], ["Terms", termsLabel + (stage.paidState === "onaccount" ? " · on account" : "")], ["Paid / balance", `${money(paidAmt)} / ${money(Math.max(0, invTotal - paidAmt))}`]] as [string, string][]).map(([k, v]) =>
-              <div key={k} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, padding: "3px 0" }}><span style={{ color: T.muted }}>{k}</span><span style={{ fontWeight: 700 }}>{v}</span></div>)}
-          </div>
-          <div style={{ border: `1px solid ${T.border}`, borderRadius: 11, padding: "13px 15px" }}>
-            <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: ".06em", textTransform: "uppercase", color: T.faint, marginBottom: 8 }}>Client · ship</div>
-            {([["Client", client], ["Route", ROUTE_LABEL[stage.route] || stage.route], ["In-hands", tm.in_hands_date || "—"]] as [string, string][]).map(([k, v]) =>
-              <div key={k} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, padding: "3px 0" }}><span style={{ color: T.muted }}>{k}</span><span style={{ fontWeight: 700 }}>{v}</span></div>)}
-          </div>
+      </div>
+
+      {/* panels */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))", gap: 12, marginTop: 12 }}>
+        <div style={panel}>
+          <div style={pt}>Money</div>
+          <KV k="Quote" v={cs.grossRev ? money(cs.grossRev) : "—"} />
+          <KV k="Invoice" v={tm.qb_invoice_number ? `#${tm.qb_invoice_number} · ${money(invTotal)}` : "not invoiced"} />
+          <KV k="Terms" v={termsLabel + (stage.paidState === "onaccount" ? " · on account" : "")} c={stage.paidState === "onaccount" ? T.blue : undefined} />
+          <KV k="Paid / balance" v={`${money(paidAmt)} / ${money(Math.max(0, invTotal - paidAmt))}`} />
         </div>
+        <div style={panel}>
+          <div style={pt}>Details</div>
+          <KV k="Route" v={ROUTE_LABEL[stage.route] || stage.route} />
+          <KV k="In-hands" v={job.target_ship_date || "—"} />
+          <KV k="Inventory job" v={job.is_inventory ? "Yes" : "No"} />
+          {tm.venue_address && <div style={{ fontSize: 11.5, color: T.muted, marginTop: 8, whiteSpace: "pre-wrap", lineHeight: 1.35 }}><span style={{ color: T.faint, fontWeight: 700 }}>Ship to: </span>{tm.venue_address}</div>}
+          {job.notes && <div style={{ fontSize: 11.5, color: T.muted, marginTop: 8, whiteSpace: "pre-wrap", lineHeight: 1.35 }}><span style={{ color: T.faint, fontWeight: 700 }}>Notes: </span>{job.notes}</div>}
+          {tm.shipping_notes && <div style={{ fontSize: 11.5, color: T.muted, marginTop: 8, whiteSpace: "pre-wrap", lineHeight: 1.35 }}><span style={{ color: T.faint, fontWeight: 700 }}>Shipping: </span>{tm.shipping_notes}</div>}
+        </div>
+        <div style={panel}>
+          <div style={pt}>Contacts</div>
+          {contacts.length ? contacts.map((c, i) => { const ct = (c.contacts as any) || {}; return <div key={i} style={{ padding: "4px 0", borderBottom: i < contacts.length - 1 ? `1px solid ${T.border}` : "none" }}>
+            <div style={{ fontSize: 12.5, fontWeight: 700 }}>{ct.name || "—"} {c.role_on_job && c.role_on_job !== "cc" ? <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", color: T.faint }}>· {c.role_on_job}</span> : null}</div>
+            {ct.email && <div style={{ fontSize: 11.5, color: T.muted }}>{ct.email}</div>}
+          </div>; }) : <div style={{ fontSize: 12, color: T.muted }}>No contacts.</div>}
+        </div>
+        <div style={panel}>
+          <div style={pt}>Documents</div>
+          {([["Quote PDF", `/api/pdf/quote/${id}`, true], ["Invoice PDF", `/api/pdf/invoice/${id}`, true], ["Art & proofs", `/jobs/${id}?tab=proofs`, false], ["Purchase orders", `/jobs/${id}?tab=po`, false]] as [string, string, boolean][]).map(([l, href, ext]) =>
+            <a key={l} href={href} target={ext ? "_blank" : undefined} rel="noreferrer" style={{ display: "block", fontSize: 12.5, fontWeight: 700, color: T.blue, padding: "4px 0", textDecoration: "none" }}>{l} →</a>)}
+          {job.portal_token && <a href={`/portal/client/${job.portal_token}`} target="_blank" rel="noreferrer" style={{ display: "block", fontSize: 12.5, fontWeight: 700, color: T.blue, padding: "4px 0", textDecoration: "none" }}>Client portal →</a>}
+        </div>
+      </div>
+
+      {/* activity */}
+      <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 14, padding: "14px 18px", marginTop: 12 }}>
+        <div style={pt}>Activity</div>
+        <JobActivityPanel jobId={id} currentUserId={userId} profiles={profiles} />
       </div>
     </div>
   );
