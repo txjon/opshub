@@ -559,6 +559,15 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
                 style={{background:canSend?(isRevised?T.amber:T.blue):T.surface,border:"1px solid "+(canSend?(isRevised?T.amber:T.blue):T.border),borderRadius:8,color:canSend?"#fff":T.faint,fontFamily:font,fontSize:13,fontWeight:700,padding:"10px 16px",cursor:canSend?"pointer":"default",opacity:canSend?1:0.5,width:"100%"}}>
                 {isRevised ? "Send Revised PO" : "Send to Decorator"}
               </button>
+              {/* Download without emailing (Jon, 2026-07-17): emailing a revised
+                  PO breaks the vendor's original thread — their de-facto activity
+                  log. Download here, drop it into the existing thread yourself. */}
+              <button onClick={()=>{ if(!active) return; window.open(`/api/pdf/po/${project.id}?vendor=${encodeURIComponent(active)}${isRevised?"&revised=1":""}&download=1`,"_blank"); }}
+                disabled={!active}
+                title={isRevised ? "Download the revised PDF without emailing — keeps the vendor's original email thread intact" : "Download the PO PDF without emailing"}
+                style={{background:"transparent",border:`1px solid ${T.border}`,borderRadius:8,color:active?T.muted:T.faint,fontFamily:font,fontSize:12,fontWeight:600,padding:"8px 12px",cursor:active?"pointer":"default",width:"100%"}}>
+                {isRevised ? "Download Revised PDF" : "Download PDF"}
+              </button>
             </div>
           </div>
         </div>

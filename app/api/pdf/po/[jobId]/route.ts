@@ -370,12 +370,19 @@ function renderPOHTML(data: any): string {
   const originalSentLabel = data.original_sent_date
     ? new Date(data.original_sent_date).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
     : null;
+  // Dynamic banner copy (Jon, 2026-07-17): the NEW-items sentence only when
+  // items were actually added — a cost-only revision (e.g. a fleece upcharge
+  // added to an existing item) used to promise NEW chips that never appear.
+  const hasNewItems = data.is_revision && (data.items || []).some((it: any) => !it.sent_to_decorator_date);
+  const revisionDetail = hasNewItems
+    ? `Items marked <strong style="background:#fff;color:#dc2626;padding:0 5px;border-radius:2px;font-size:9px">NEW</strong> were added since the original send — please process accordingly.`
+    : `Costs or details on existing items were updated since the original send — please review the line items and process accordingly.`;
   const revisionBanner = data.is_revision ? `
     <div style="background:#dc2626;color:#fff;padding:10px 14px;border-radius:4px;margin-bottom:14px;display:flex;align-items:center;gap:12px">
       <div style="font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:0.08em">⚠ Revised PO</div>
       <div style="flex:1;font-size:10.5px;line-height:1.5">
         This PO supersedes the prior version${originalSentLabel ? ` sent on <strong>${originalSentLabel}</strong>` : ""}.
-        Items marked <strong style="background:#fff;color:#dc2626;padding:0 5px;border-radius:2px;font-size:9px">NEW</strong> were added since the original send — please process accordingly.
+        ${revisionDetail}
       </div>
     </div>` : "";
 
