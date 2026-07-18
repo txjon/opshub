@@ -81,12 +81,12 @@ export function deriveProjectStage(job: any, phaseView: any | undefined, items: 
 
   // ── warehouse tail: HPD's move once goods move through the building ──
   // (no overdue rule yet — needs per-phase-enter timestamps + Jon's thresholds)
-  if (phaseKey === "fulfillment") return mk("fulfillment", "Staging", "act", "Key into Shopify / stage");
-  if (phaseKey === "shipping") return mk("shipping", "Shipping", "act", "Forward to client");
-  if (phaseKey === "receiving") return mk("receiving", "Receiving", "act", "Receive & forward");
+  if (phaseKey === "fulfillment") return mk("fulfillment", "Staging", "act", "Staging");
+  if (phaseKey === "shipping") return mk("shipping", "Shipping", "act", "Shipping to client");
+  if (phaseKey === "receiving") return mk("receiving", "Receiving", "act", "Receiving");
   if (phaseKey === "production") {
     const late = shipTargetPast(job);
-    return mk("production", "Production", late ? "late" : "wait", late ? "Overdue at decorator" : "At decorator");
+    return mk("production", "Production", late ? "late" : "wait", late ? "Production overdue" : "In production");
   }
 
   // ── front of the spine: derive from the client/money gates ──
@@ -101,11 +101,11 @@ export function deriveProjectStage(job: any, phaseView: any | undefined, items: 
   if (!approved) {
     const d = daysSince(tm.quote_sent_at);
     const late = d != null && d >= STALE_QUOTE_DAYS;
-    return mk("quote_appr", "Approved", late ? "late" : "wait", late ? `No approval — quote sent ${d}d ago` : "Awaiting approval", "awaiting approval");
+    return mk("quote_appr", "Approved", late ? "late" : "wait", late ? `Approval overdue · ${d}d` : "Awaiting approval", "awaiting approval");
   }
-  if (!invoiceSent) return mk("invoice", "Invoice", "act", "Send invoice", "ready to invoice");   // HPD's move
-  if (!paid) return mk("paid", "Paid", "wait", "Awaiting payment");                               // client's move
+  if (!invoiceSent) return mk("invoice", "Invoice", "act", "Ready to invoice", "ready to invoice"); // HPD's move
+  if (!paid) return mk("paid", "Paid", "wait", "Awaiting payment");                                 // client's move
   if (!posSent || !blanksOrdered)
-    return mk("order", "PO / Blanks", "act", !blanksOrdered ? "Order blanks" : "Send POs");        // HPD's move
-  return mk("production", "Production", "wait", "At decorator"); // paid + ordered, at the decorator
+    return mk("order", "PO / Blanks", "act", !blanksOrdered ? "Order blanks" : "Send POs");          // HPD's move
+  return mk("production", "Production", "wait", "In production"); // paid + ordered, at the decorator
 }

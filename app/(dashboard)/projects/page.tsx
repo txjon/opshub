@@ -138,7 +138,6 @@ function Strip({ r, onOpen }: { r: Row; onOpen: () => void }) {
   const cur = bars.findIndex(m => m.k === stage.milestone);
   const sig = stage.signal;
   const edgeColor = sig === "late" ? T.red : sig === "act" ? T.amber : null; // wait → no edge (recedes)
-  const nowColor = sig === "late" ? T.red : sig === "act" ? T.amber : T.text;
   const N = bars.length;
   // Per-segment content for the styled hover popover (layer 1).
   const statusOf = (m: typeof PROJ_MILESTONES[number], i: number): { label: string; note: string; color: string } => {
@@ -228,17 +227,17 @@ function Strip({ r, onOpen }: { r: Row; onOpen: () => void }) {
             );
           })}
         </div>
-        {/* current-stage caption — the one label that matters, under the active segment */}
-        {!stage.preQuote && cur >= 0 && (
-          <div style={{ position: "relative", height: 12, marginTop: 4 }}>
-            <div style={{ position: "absolute", whiteSpace: "nowrap", fontSize: 9, fontWeight: 800, letterSpacing: ".02em", textTransform: "uppercase", color: sig === "late" ? T.red : sig === "act" ? T.amber : T.muted, ...(cur === N - 1 ? { right: 0 as const } : { left: `${((cur + 0.5) / N) * 100}%`, transform: "translateX(-50%)" }) }}>▲ {bars[cur].label}</div>
-          </div>
-        )}
-      </div>
-      <div style={{ width: 158, flexShrink: 0, textAlign: "right", paddingLeft: 14 }}>
-        {stage.preQuote
-          ? <div style={{ fontSize: 12.5, fontWeight: 700, color: T.faint }}>Pre-quote</div>
-          : <div style={{ fontSize: 12.5, fontWeight: 700, color: nowColor }}>{stage.now}</div>}
+        {/* dynamic status caption — the live action/state, under the current segment */}
+        {(stage.preQuote || cur >= 0) && (() => {
+          const capText = stage.preQuote ? stage.now : (stage.reason || bars[cur].label);
+          const capColor = stage.preQuote ? T.muted : (sig === "late" ? T.red : sig === "act" ? T.amber : T.muted);
+          const pos = stage.preQuote ? { left: 0 as const } : (cur === N - 1 ? { right: 0 as const } : { left: `${((cur + 0.5) / N) * 100}%`, transform: "translateX(-50%)" });
+          return (
+            <div style={{ position: "relative", height: 12, marginTop: 4 }}>
+              <div style={{ position: "absolute", whiteSpace: "nowrap", fontSize: 9.5, fontWeight: 800, letterSpacing: ".02em", textTransform: "uppercase", color: capColor, ...pos }}>{stage.preQuote ? "" : "▲ "}{capText}</div>
+            </div>
+          );
+        })()}
       </div>
     </div>
   );
