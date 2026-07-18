@@ -19,7 +19,7 @@ export const PROJ_MILESTONES: { k: ProjMilestone; label: string; tail?: boolean 
   { k: "production", label: "Production" },
   { k: "receiving", label: "Receiving", tail: true },
   { k: "shipping", label: "Shipping", tail: true },
-  { k: "fulfillment", label: "Fulfillment", tail: true },
+  { k: "fulfillment", label: "Staging", tail: true },
 ];
 
 // Which tail pages each route NEVER passes through (rendered dead/dashed).
@@ -63,7 +63,10 @@ function preQuoteStep(job: any, items: any[]): string {
 export function deriveProjectStage(job: any, phaseView: any | undefined, items: any[], payments: any[]): ProjStage {
   const tm = job.type_meta || {};
   const route = job.shipping_route || "ship_through";
-  const phaseKey: string = phaseView?.result?.job?.key || job.phase || "intake";
+  // Use the STORED job.phase — it carries the detailed lifecycle (production /
+  // receiving / shipping / fulfillment). The new phase-model engine is coarse
+  // (in_production) and can't distinguish the warehouse tail this board needs.
+  const phaseKey: string = job.phase || "intake";
   const detail = phaseView?.detail || phaseView?.result?.job?.detail || "";
   const mk = (milestone: ProjMilestone | null, now: string, action: ProjAction = null, det = detail): ProjStage =>
     ({ complete: false, preQuote: false, milestone, now, detail: det, action, route });
@@ -72,7 +75,7 @@ export function deriveProjectStage(job: any, phaseView: any | undefined, items: 
     return { complete: true, preQuote: false, milestone: null, now: "Complete", detail: "", action: null, route };
 
   // ── warehouse tail: trust the phase engine ──
-  if (phaseKey === "fulfillment") return mk("fulfillment", "Fulfillment");
+  if (phaseKey === "fulfillment") return mk("fulfillment", "Staging");
   if (phaseKey === "shipping") return mk("shipping", "Shipping");
   if (phaseKey === "receiving") return mk("receiving", "Receiving");
   if (phaseKey === "production")

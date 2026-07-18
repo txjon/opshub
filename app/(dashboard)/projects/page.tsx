@@ -124,12 +124,36 @@ export default function ProjectsBoard() {
   );
 }
 
+// Where each milestone's hover peek deep-links on click (layer 2 of the onion).
+// Front stages → the job's tab (?tab= is read on load); tail → the dedicated page.
+const STAGE_TARGET: Record<string, { label: string; href: (j: any) => string }> = {
+  quote_sent:  { label: "Quote tab",        href: j => `/jobs/${j.id}?tab=quote` },
+  quote_appr:  { label: "Proofs & Invoice", href: j => `/jobs/${j.id}?tab=proofs` },
+  invoice:     { label: "Client Quote",     href: j => `/jobs/${j.id}?tab=quote` },
+  paid:        { label: "Proofs & Invoice", href: j => `/jobs/${j.id}?tab=proofs` },
+  order:       { label: "Purchase Order",   href: j => `/jobs/${j.id}?tab=po` },
+  production:  { label: "Production board",  href: () => `/production` },
+  receiving:   { label: "Receiving",         href: () => `/receiving` },
+  shipping:    { label: "Shipping",          href: () => `/shipping` },
+  fulfillment: { label: "Staging",           href: () => `/staging2` },
+};
+
 function Strip({ r, onOpen }: { r: Row; onOpen: () => void }) {
   const { job, stage } = r;
+  const router = useRouter();
+  const [hover, setHover] = useState<string | null>(null);
   const dead = ROUTE_DEAD[stage.route] || [];
   const cur = idx(stage.milestone);
   const act = stage.action;
   const N = PROJ_MILESTONES.length;
+  // Per-segment content for the styled hover popover (layer 1).
+  const statusOf = (m: typeof PROJ_MILESTONES[number], i: number): { label: string; note: string; color: string } => {
+    if (dead.includes(m.k)) return { label: "N/A", note: `Not on the ${routeLabel[stage.route] || stage.route} route`, color: T.faint };
+    if (stage.preQuote) return m.k === "quote_sent" ? { label: "In progress", note: stage.now, color: T.accent } : { label: "Upcoming", note: "", color: T.faint };
+    if (cur >= 0 && i < cur) return { label: "Done", note: "", color: T.green };
+    if (i === cur) return { label: "Current", note: act ? act.reason : (stage.detail || stage.now), color: act ? (act.lvl === "red" ? T.red : T.amber) : T.accent };
+    return { label: "Upcoming", note: "", color: T.faint };
+  };
   return (
     <div onClick={onOpen} className="kpi-tile" style={{ display: "flex", alignItems: "center", background: T.card, border: `1px solid ${T.border}`, borderLeft: act ? `4px solid ${act.lvl === "red" ? T.red : T.amber}` : `1px solid ${T.border}`, borderRadius: 12, padding: act ? "12px 16px 12px 13px" : "12px 16px", marginTop: 8, cursor: "pointer" }}>
       <div style={{ width: 230, flexShrink: 0, minWidth: 0, paddingRight: 12 }}>
@@ -138,15 +162,38 @@ function Strip({ r, onOpen }: { r: Row; onOpen: () => void }) {
         <div style={{ fontSize: 11.5, color: T.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{job.title}</div>
         <div style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: T.faint, fontFamily: mono, marginTop: 2 }}>{routeLabel[stage.route] || stage.route}</div>
       </div>
-      <div style={{ flex: 1, position: "relative", height: 14, borderRadius: 7, background: T.surface, overflow: "hidden" }}>
+      <div style={{ flex: 1, position: "relative", height: 14 }}>
+        {/* clipped fill + ticks */}
+        <div style={{ position: "absolute", inset: 0, borderRadius: 7, background: T.surface, overflow: "hidden" }}>
+          {PROJ_MILESTONES.map((m, i) => {
+            const base = { position: "absolute" as const, left: `${(i / N) * 100}%`, top: 0, bottom: 0, width: `${100 / N}%` };
+            if (dead.includes(m.k)) return <div key={m.k} style={{ ...base, background: `repeating-linear-gradient(45deg,transparent,transparent 3px,${T.border} 3px,${T.border} 4px)` }} />;
+            if (!stage.preQuote && cur >= 0 && i < cur) return <div key={m.k} style={{ ...base, background: T.green }} />;
+            if (!stage.preQuote && i === cur) return <div key={m.k} style={{ ...base, background: act ? (act.lvl === "red" ? T.red : T.amber) : T.accent }} />;
+            return null;
+          })}
+          {PROJ_MILESTONES.map((m, i) => i > 0 ? <div key={"t" + m.k} style={{ position: "absolute", left: `${(i / N) * 100}%`, top: 2, bottom: 2, width: 1, zIndex: 2, background: !stage.preQuote && (i - 1) <= cur && !dead.includes(PROJ_MILESTONES[i - 1].k) ? "rgba(255,255,255,.85)" : T.faint }} /> : null)}
+        </div>
+        {/* interaction zones — hover peek (layer 1) + click deep-link (layer 2) */}
         {PROJ_MILESTONES.map((m, i) => {
-          const base = { position: "absolute" as const, left: `${(i / N) * 100}%`, top: 0, bottom: 0, width: `${100 / N}%` };
-          if (dead.includes(m.k)) return <div key={m.k} style={{ ...base, background: `repeating-linear-gradient(45deg,transparent,transparent 3px,${T.border} 3px,${T.border} 4px)` }} title={`${m.label} — n/a (${routeLabel[stage.route]})`} />;
-          if (!stage.preQuote && cur >= 0 && i < cur) return <div key={m.k} style={{ ...base, background: T.green }} title={m.label} />;
-          if (!stage.preQuote && i === cur) return <div key={m.k} style={{ ...base, background: act ? (act.lvl === "red" ? T.red : T.amber) : T.accent }} title={`Now: ${m.label}`} />;
-          return null;
+          const st = statusOf(m, i);
+          const tgt = STAGE_TARGET[m.k];
+          return (
+            <div key={"z" + m.k}
+              onMouseEnter={() => setHover(m.k)} onMouseLeave={() => setHover(h => (h === m.k ? null : h))}
+              onClick={e => { e.stopPropagation(); if (tgt) router.push(tgt.href(job)); }}
+              style={{ position: "absolute", left: `${(i / N) * 100}%`, width: `${100 / N}%`, top: -7, bottom: -7, zIndex: 4, cursor: "pointer" }}>
+              {hover === m.k && (
+                <div style={{ position: "absolute", bottom: "calc(100% + 7px)", left: "50%", transform: "translateX(-50%)", zIndex: 30, width: 172, background: T.card, border: `1px solid ${T.border}`, borderRadius: 9, boxShadow: "0 10px 30px rgba(0,0,0,.16)", padding: "10px 12px", pointerEvents: "none", textAlign: "left" }}>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: T.text }}>{m.label}</div>
+                  <div style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: ".07em", textTransform: "uppercase", color: st.color, marginTop: 3 }}>{st.label}</div>
+                  {st.note ? <div style={{ fontSize: 11.5, color: T.muted, marginTop: 4, lineHeight: 1.35 }}>{st.note}</div> : null}
+                  {tgt ? <div style={{ fontSize: 10, fontWeight: 700, color: T.accent, marginTop: 8, paddingTop: 7, borderTop: `1px solid ${T.border}`, fontFamily: mono }}>→ {tgt.label}</div> : null}
+                </div>
+              )}
+            </div>
+          );
         })}
-        {PROJ_MILESTONES.map((m, i) => i > 0 ? <div key={"t" + m.k} style={{ position: "absolute", left: `${(i / N) * 100}%`, top: 2, bottom: 2, width: 1, zIndex: 2, background: !stage.preQuote && (i - 1) <= cur && !dead.includes(PROJ_MILESTONES[i - 1].k) ? "rgba(255,255,255,.85)" : T.faint }} /> : null)}
       </div>
       <div style={{ width: 158, flexShrink: 0, textAlign: "right", paddingLeft: 14 }}>
         {stage.preQuote
