@@ -42,8 +42,8 @@ One hue, one meaning — never use amber decoratively or green for anything
 that isn't done/good. Route colors: **stage = green, ship_through = blue,
 drop_ship = muted.**
 
-PDFs (vendor/client-facing, print palette): revision markers = burnt orange
-`#c2410c` (attention, not alarm — Jon 2026-07-17); red on PDFs is reserved
+PDFs (vendor/client-facing, print palette): revision markers = friendly construction orange
+`#f97316` (attention, not alarm — Jon 2026-07-17); red on PDFs is reserved
 for true errors/shortages.
 
 ## Typography & numbers

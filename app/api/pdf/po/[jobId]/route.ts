@@ -294,10 +294,10 @@ function renderPOHTML(data: any): string {
     // item was added after the original PO went out.
     const isNew = data.is_revision && !item.sent_to_decorator_date;
     const newChip = isNew
-      ? `<span style="font-size:8px;font-weight:800;text-transform:uppercase;letter-spacing:0.1em;color:#fff;background:#c2410c;padding:2px 8px;border-radius:3px;margin-left:10px;vertical-align:middle">NEW</span>`
+      ? `<span style="font-size:8px;font-weight:800;text-transform:uppercase;letter-spacing:0.1em;color:#fff;background:#f97316;padding:2px 8px;border-radius:3px;margin-left:10px;vertical-align:middle">NEW</span>`
       : "";
 
-    return `<div style="border-left:3px solid ${isNew ? "#c2410c" : "#1a1a1a"};padding-left:16px;margin-bottom:16px;page-break-inside:avoid">
+    return `<div style="border-left:3px solid ${isNew ? "#f97316" : "#1a1a1a"};padding-left:16px;margin-bottom:16px;page-break-inside:avoid">
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
         <div style="font-size:13px;font-weight:700">${item.letter} — ${item.name}${newChip}${routeBadge}</div>
         <div style="font-size:10px;color:#888">${item.totalQty.toLocaleString()} units</div>
@@ -375,10 +375,10 @@ function renderPOHTML(data: any): string {
   // added to an existing item) used to promise NEW chips that never appear.
   const hasNewItems = data.is_revision && (data.items || []).some((it: any) => !it.sent_to_decorator_date);
   const revisionDetail = hasNewItems
-    ? `Items marked <strong style="background:#fff;color:#c2410c;padding:0 5px;border-radius:2px;font-size:9px">NEW</strong> were added since the original send — please process accordingly.`
+    ? `Items marked <strong style="background:#fff;color:#f97316;padding:0 5px;border-radius:2px;font-size:9px">NEW</strong> were added since the original send — please process accordingly.`
     : `Costs or details on existing items were updated since the original send — please review the line items and process accordingly.`;
   const revisionBanner = data.is_revision ? `
-    <div style="background:#c2410c;color:#fff;padding:10px 14px;border-radius:4px;margin-bottom:14px;display:flex;align-items:center;gap:12px">
+    <div style="background:#f97316;color:#fff;padding:10px 14px;border-radius:4px;margin-bottom:14px;display:flex;align-items:center;gap:12px">
       <div style="font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:0.08em">⚠ Revised PO</div>
       <div style="flex:1;font-size:10.5px;line-height:1.5">
         This PO supersedes the prior version${originalSentLabel ? ` sent on <strong>${originalSentLabel}</strong>` : ""}.
@@ -399,7 +399,7 @@ function renderPOHTML(data: any): string {
       </div>
     </div>
     <div style="text-align:right">
-      <div style="font-size:20px;font-weight:800;letter-spacing:-0.5px;color:#1a1a1a">${data.branding.poNumberPrefix || "PO"}# ${data.job_number || "—"}${data.is_revision ? ` <span style="font-size:11px;color:#c2410c;font-weight:700">REVISED</span>` : ""}</div>
+      <div style="font-size:20px;font-weight:800;letter-spacing:-0.5px;color:#1a1a1a">${data.branding.poNumberPrefix || "PO"}# ${data.job_number || "—"}${data.is_revision ? ` <span style="font-size:11px;color:#f97316;font-weight:700">REVISED</span>` : ""}</div>
       <div style="font-size:10px;color:#888;margin-top:4px">${data.client_name} · ${data.vendor_name}</div>
     </div>
   </div>
