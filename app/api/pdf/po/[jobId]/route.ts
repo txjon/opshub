@@ -641,10 +641,13 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     const html = renderPOHTML(poData);
     const pdfBuffer = await generatePDF(html);
 
-    const slug = (job.title || jobId).replace(/\s+/g, "-");
+    // Filename = HPD-PO-{num}{letters}-{vendor}[-revised].pdf (Jon 2026-07-17:
+    // job-title slug dropped; email attachments reuse this exact name via the
+    // Content-Disposition header so 3 vendors never get identically-named PDFs).
     const vendorSlug = vendorName.replace(/\s+/g, "-");
     const displayNum = (job.type_meta as any)?.qb_invoice_number || job.job_number;
-    const filename = `HPD-PO-${displayNum}${itemLetters}-${vendorSlug}${isRevised ? "-revised" : ""}-${slug}.pdf`;
+    const numCore = String(displayNum || "").replace(/^HPD-/, ""); // avoid HPD-PO-HPD-…
+    const filename = `HPD-PO-${numCore}${itemLetters}-${vendorSlug}${isRevised ? "-revised" : ""}.pdf`;
 
     const isDownload = req.nextUrl.searchParams.get("download");
     return new NextResponse(pdfBuffer, {

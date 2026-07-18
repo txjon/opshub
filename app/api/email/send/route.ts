@@ -154,6 +154,14 @@ export async function POST(req: NextRequest) {
     }
 
     const pdfBuffer = Buffer.from(await pdfRes.arrayBuffer());
+    // PO attachments reuse the PDF route's canonical filename (from its
+    // Content-Disposition) — the local "po-4398.pdf" fallback named every
+    // vendor's attachment identically on multi-vendor sends.
+    if (type === "po") {
+      const cd = pdfRes.headers.get("content-disposition") || "";
+      const cdName = /filename\*?="?([^";]+)"?/.exec(cd)?.[1];
+      if (cdName && cdName.endsWith(".pdf")) filename = cdName;
+    }
 
     // Get QB payment link. If missing or the stale admin URL, ask QB to mint
     // a fresh customer-facing one before sending — otherwise the email ships
