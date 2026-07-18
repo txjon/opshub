@@ -15,6 +15,9 @@ type Row = { job: any; stage: ProjStage };
 type Sort = "attention" | "ship" | "stage" | "client";
 const routeLabel: Record<string, string> = { drop_ship: "drop-ship", ship_through: "ship-through", stage: "stage" };
 const idx = (k: string | null) => PROJ_MILESTONES.findIndex(m => m.k === k);
+// "at" a stage — quote_sent (the first column) is never a resting milestone, so it
+// represents the pre-quote / quoting jobs; every other column matches its milestone.
+const atStage = (r: Row, k: string) => k === "quote_sent" ? r.stage.preQuote : r.stage.milestone === k;
 const selStyle = { padding: "9px 14px", borderRadius: 12, border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 13, fontWeight: 700, fontFamily: font, outline: "none", cursor: "pointer" } as const;
 
 export default function ProjectsBoard() {
@@ -57,9 +60,10 @@ export default function ProjectsBoard() {
 
   // Newest first (load order). Clicking a column header pulls jobs at that stage
   // to the top (stable → newest order preserved within each group).
+  const stageCounts = useMemo(() => Object.fromEntries(PROJ_MILESTONES.map(m => [m.k, active.filter(r => atStage(r, m.k)).length])) as Record<string, number>, [active]);
   const sortedActive = useMemo(() => {
     if (!pulledStage) return active;
-    return [...active].sort((a, b) => (a.stage.milestone === pulledStage ? 0 : 1) - (b.stage.milestone === pulledStage ? 0 : 1));
+    return [...active].sort((a, b) => (atStage(a, pulledStage) ? 0 : 1) - (atStage(b, pulledStage) ? 0 : 1));
   }, [active, pulledStage]);
 
   const doneByClient = useMemo(() => {
@@ -93,7 +97,8 @@ export default function ProjectsBoard() {
             <div style={{ flex: 1, display: "flex", gap: 0 }}>
               {PROJ_MILESTONES.map(m => {
                 const on = pulledStage === m.k;
-                return <button key={m.k} onClick={() => setPulledStage(on ? null : m.k)} title={`Pull ${m.label} jobs to the top`} style={{ flex: 1, minWidth: 0, textAlign: "center", fontSize: 8.5, fontWeight: on ? 800 : 700, letterSpacing: ".02em", textTransform: "uppercase", color: on ? T.accent : (m.tail ? T.blue : T.faint), lineHeight: 1.15, padding: "3px 2px", wordBreak: "break-word", background: on ? T.surface : "transparent", border: "none", borderRadius: 5, cursor: "pointer", fontFamily: font }}>{m.label}</button>;
+                const cnt = stageCounts[m.k] || 0;
+                return <button key={m.k} onClick={() => setPulledStage(on ? null : m.k)} title={`${cnt} at ${m.label}`} style={{ flex: 1, minWidth: 0, textAlign: "center", fontSize: 8.5, fontWeight: on ? 800 : 700, letterSpacing: ".02em", textTransform: "uppercase", color: on ? T.accent : (m.tail ? T.blue : T.faint), lineHeight: 1.15, padding: "3px 2px", wordBreak: "break-word", background: on ? T.surface : "transparent", border: "none", borderRadius: 5, cursor: cnt ? "pointer" : "default", fontFamily: font, opacity: cnt || on ? 1 : 0.5 }}>{m.label}<div style={{ fontFamily: mono, fontSize: 8.5, marginTop: 1, color: on ? T.accent : cnt ? T.muted : T.faint }}>{cnt}</div></button>;
               })}
             </div>
             <div style={{ width: 158, flexShrink: 0, textAlign: "right", fontSize: 9.5, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", color: T.faint }}>Now</div>
