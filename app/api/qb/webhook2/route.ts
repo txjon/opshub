@@ -45,7 +45,10 @@ export async function POST(req: NextRequest) {
       // BillPayment = QB recorded payment of an AP bill. Stamp qb_paid_at on
       // whatever we pushed that bill from (cost_entries AP bills, contractor
       // pay-runs) so "paid" shows in OpsHub. (Tier 2 / parking-lot #4 — Jon.)
-      if (ev.name === "BillPayment") {
+      if (ev.name.toLowerCase() === "billpayment") {
+        // CloudEvents lowercases entities ("Billpayment") — compare loosely.
+        const op = (ev.operation || "").toLowerCase();
+        if (op.startsWith("delete")) { console.log("[QB Webhook2] BillPayment", ev.id, "deleted — entity gone, cannot resolve bills; skipping"); continue; }
         try {
           const token = await getAccessToken();
           const bpRes = await fetch(
@@ -61,6 +64,15 @@ export async function POST(req: NextRequest) {
             }
           }
           if (!billIds.length) { console.log("[QB Webhook2] BillPayment", ev.id, "links no bills"); continue; }
+          if (op.startsWith("void")) {
+            // Payment voided → the linked bills are UNPAID again.
+            const { data: ce } = await supabase.from("cost_entries")
+              .update({ qb_paid_at: null }).in("qb_bill_id", billIds).select("id");
+            const { data: pr } = await supabase.from("contractor_pay_runs")
+              .update({ qb_paid_at: null }).in("qb_bill_id", billIds).select("id");
+            console.log(`[QB Webhook2] BillPayment ${ev.id} VOIDED: bills [${billIds.join(",")}] → ${ce?.length || 0} entries + ${pr?.length || 0} pay runs un-paid`);
+            continue;
+          }
           const paidAt = bp?.TxnDate ? new Date(bp.TxnDate + "T12:00:00Z").toISOString() : new Date().toISOString();
           const { data: ce } = await supabase.from("cost_entries")
             .update({ qb_paid_at: paidAt }).in("qb_bill_id", billIds).is("qb_paid_at", null).select("id");
