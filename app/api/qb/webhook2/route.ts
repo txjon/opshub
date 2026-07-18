@@ -42,6 +42,36 @@ export async function POST(req: NextRequest) {
         console.error("[QB Webhook2] Realm mismatch:", realmId, "!==", process.env.QB_REALM_ID);
         continue;
       }
+      // BillPayment = QB recorded payment of an AP bill. Stamp qb_paid_at on
+      // whatever we pushed that bill from (cost_entries AP bills, contractor
+      // pay-runs) so "paid" shows in OpsHub. (Tier 2 / parking-lot #4 — Jon.)
+      if (ev.name === "BillPayment") {
+        try {
+          const token = await getAccessToken();
+          const bpRes = await fetch(
+            `${QB_BASE_URL}/v3/company/${realmId}/billpayment/${ev.id}`,
+            { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } }
+          );
+          if (!bpRes.ok) { console.error("[QB Webhook2] billpayment fetch failed:", bpRes.status); continue; }
+          const bp = (await bpRes.json())?.BillPayment;
+          const billIds: string[] = [];
+          for (const line of bp?.Line || []) {
+            for (const lt of line?.LinkedTxn || []) {
+              if (lt?.TxnType === "Bill" && lt?.TxnId) billIds.push(String(lt.TxnId));
+            }
+          }
+          if (!billIds.length) { console.log("[QB Webhook2] BillPayment", ev.id, "links no bills"); continue; }
+          const paidAt = bp?.TxnDate ? new Date(bp.TxnDate + "T12:00:00Z").toISOString() : new Date().toISOString();
+          const { data: ce } = await supabase.from("cost_entries")
+            .update({ qb_paid_at: paidAt }).in("qb_bill_id", billIds).is("qb_paid_at", null).select("id");
+          const { data: pr } = await supabase.from("contractor_pay_runs")
+            .update({ qb_paid_at: paidAt }).in("qb_bill_id", billIds).is("qb_paid_at", null).select("id");
+          console.log(`[QB Webhook2] BillPayment ${ev.id}: bills [${billIds.join(",")}] → ${ce?.length || 0} cost entries + ${pr?.length || 0} pay runs marked paid`);
+        } catch (e: any) {
+          console.error("[QB Webhook2] BillPayment handling failed:", e?.message);
+        }
+        continue;
+      }
       if (ev.name !== "Payment") continue;
       const paymentId = ev.id;
       console.log("[QB Webhook2] Processing payment:", paymentId);
