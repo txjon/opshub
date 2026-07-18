@@ -89,7 +89,7 @@ The central hub. Horizontal pill tabs across the top, content below. Tabs ordere
 |---|---|---|
 | Overview | Inline in page.tsx | Project info + shipping details (top row), contacts + invoice/payments (left), items + activity stats (right) |
 | Product Builder | ProductBuilder.jsx (tab key `builder`) | The merged Buy Sheet + Art surface: item creation, size/qty, S&S + manual catalog pickers, drag-to-reorder, and per-item art/mockups. Reuses `BuySheetTab.jsx` (items) + `ArtTab.jsx` (art) internally — those are NOT dead, they're sub-components now. |
-| Approvals | ApprovalsTab.jsx (tab key `proofs`) | Proof review + approval workflow, revised-proof re-send nudge; reuses `ArtTab.jsx` |
+| Proofs & Invoice | ApprovalsTab.jsx (tab key `proofs`) | Proof review + approval workflow, revised-proof re-send nudge, invoice/payments; uses ProofModal from `ArtTab.jsx`. NOTE: "Approvals" is only the component filename — the UI label is **Proofs & Invoice** |
 | Costing | CostingTab.jsx (tab key `costing`) | Decoration pricing, margin calc, auto-save, share groups |
 | Client Quote | CostingTab.jsx (quote sub-tab) | Quote preview + PDF download/email + quote approval + post-approval next-step links |
 | Blanks | BlanksTab.jsx | Per-item S&S order # + cost entry with 3-gate checklist |
