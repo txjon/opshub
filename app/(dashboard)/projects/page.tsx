@@ -166,6 +166,9 @@ function Strip({ r, onOpen }: { r: Row; onOpen: () => void }) {
   const atVendor = its.filter(it => !it.pipeline_stage || it.pipeline_stage === "in_production").length;
   const received = its.filter(it => it.received_at_hpd).length;
   const forwarded = its.filter(it => it.forwarded_at).length;
+  const shipped = nItems - atVendor; // items that have left the vendor
+  // per-tail-phase completion fraction (item-level) — drives the partial-fill "half steps"
+  const tailFrac: Record<string, number> = nItems ? { production: shipped / nItems, receiving: received / nItems, shipping: forwarded / nItems, fulfillment: received / nItems } : {};
   const peekFor = (k: string): string => {
     switch (k) {
       case "quote_sent": return stage.preQuote ? stage.now : [tm.quote_sent_at && `Sent ${fmtDT(tm.quote_sent_at)}`, cs.grossRev && `quote ${money(cs.grossRev)}`].filter(Boolean).join(" · ") || "Quote + proofs";
@@ -173,7 +176,7 @@ function Strip({ r, onOpen }: { r: Row; onOpen: () => void }) {
       case "invoice": return tm.qb_invoice_number ? `Invoice #${tm.qb_invoice_number}${invTotal ? ` · ${money(invTotal)}` : ""}${tm.qb_invoice_created_at ? ` · sent ${fmtDT(tm.qb_invoice_created_at)}` : ""}` : "Not invoiced yet";
       case "paid": return paidAmt > 0 ? `${money(paidAmt)} / ${money(invTotal)} paid${paidDate ? ` · ${fmtDT(paidDate)}` : ""}` : (invTotal ? `Unpaid · ${money(invTotal)} due` : "Unpaid");
       case "order": return `${posSent} PO${posSent === 1 ? "" : "s"} sent · blanks ${blanksOrdered ? "ordered" : "not ordered"}`;
-      case "production": return nItems ? `${atVendor}/${nItems} still at vendor` : "In production";
+      case "production": return nItems ? `${shipped}/${nItems} shipped from vendor` : "In production";
       case "receiving": return nItems ? `${received}/${nItems} received at HPD` : "Receiving";
       case "shipping": return nItems ? `${forwarded}/${nItems} forwarded to client` : "Shipping to client";
       case "fulfillment": return nItems ? `${received}/${nItems} received · staging` : "Staging";
@@ -197,6 +200,15 @@ function Strip({ r, onOpen }: { r: Row; onOpen: () => void }) {
           <div style={{ position: "absolute", inset: 0, borderRadius: 7, background: T.surface, overflow: "hidden" }}>
             {bars.map((m, i) => {
               const base = { position: "absolute" as const, left: `${(i / N) * 100}%`, top: 0, bottom: 0, width: `${100 / N}%` };
+              const tf = tailFrac[m.k]; // tail phases fill by item progress (the "half steps")
+              if (!stage.preQuote && tf !== undefined && i <= cur) {
+                const isCur = i === cur;
+                const remainder = isCur ? (sig === "late" ? T.red : sig === "act" ? T.amber : T.surface) : T.surface;
+                const ring = isCur && sig === "wait" ? `inset 0 0 0 1.5px ${T.faint}` : undefined;
+                return <div key={m.k} style={{ ...base, background: remainder, boxShadow: ring, overflow: "hidden" }}>
+                  {tf > 0 && <div style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: `${Math.round(tf * 100)}%`, background: T.green }} />}
+                </div>;
+              }
               if (!stage.preQuote && cur >= 0 && i < cur) return <div key={m.k} style={{ ...base, background: T.green }} />;
               if (!stage.preQuote && i === cur) {
                 // wait = hollow (live but passive); act = amber; late = red
