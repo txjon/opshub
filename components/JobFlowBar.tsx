@@ -69,9 +69,10 @@ export function JobFlowBar({ job, items, payments, phaseView, activeTab, onGate,
         })}
       </div>
       <div style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "center", flexWrap: "wrap" }}>
+        <button onClick={() => onBuild("overview")} style={{ border: `1px solid ${activeTab === "overview" ? T.accent : T.border}`, background: activeTab === "overview" ? T.accent : T.card, color: activeTab === "overview" ? "#fff" : T.text, borderRadius: 9, padding: "7px 15px", fontSize: 12.5, fontWeight: 800, cursor: "pointer", fontFamily: font }}>Overview</button>
+        <span style={{ width: 1, alignSelf: "stretch", background: T.border, margin: "2px 4px" }} />
         <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: ".08em", textTransform: "uppercase", color: T.faint }}>Build</span>
         {BUILD.map(([k, l]) => <button key={k} onClick={() => onBuild(k)} style={{ border: `1px solid ${activeTab === k ? T.accent : T.border}`, background: activeTab === k ? T.accent : T.card, color: activeTab === k ? "#fff" : T.muted, borderRadius: 9, padding: "7px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: font }}>{l}</button>)}
-        <button onClick={() => onBuild("overview")} style={{ marginLeft: "auto", border: "none", background: "none", color: activeTab === "overview" ? T.accent : T.muted, fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: font }}>Overview</button>
       </div>
     </div>
   );
