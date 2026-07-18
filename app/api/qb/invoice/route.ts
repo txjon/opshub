@@ -282,6 +282,10 @@ export async function POST(req: NextRequest) {
           } : {}),
         },
       }).eq("id", jobId);
+      // Keep the derived summary current after any invoice update (fees /
+      // extra lines may have shifted). effectiveRevenue reads variance
+      // fields from type_meta directly; this keeps the rest coherent.
+      try { const { refreshJobFinancials } = await import("@/lib/costing-summary"); await refreshJobFinancials(admin, jobId); } catch {}
 
       // No auto-email on update. The user reviews and triggers any
       // client-facing send via the Send Invoice button (first send or
