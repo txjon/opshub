@@ -41,7 +41,9 @@ export type ProjStage = {
   signal: ProjSignal;              // colors the current segment + strip edge
   reason: string;                  // blocker / next-move text
   route: string;                   // drop_ship / ship_through / stage
+  paidState: PaidState;            // green (paid) / blue (net-terms on account) / amber (due)
 };
+export type PaidState = "paid" | "onaccount" | "due";
 
 const STALE_QUOTE_DAYS = 3; // quote out this long with no approval → late (red)
 
@@ -73,11 +75,14 @@ export function deriveProjectStage(job: any, phaseView: any | undefined, items: 
   // (in_production) and can't distinguish the warehouse tail this board needs.
   const phaseKey: string = job.phase || "intake";
   const detail = phaseView?.detail || phaseView?.result?.job?.detail || "";
+  const paid = (payments || []).some((p: any) => p.status === "paid");
+  const netTerms = /^net/.test((job.payment_terms || "").toLowerCase());
+  const paidState: PaidState = paid ? "paid" : (netTerms ? "onaccount" : "due"); // net terms → on account (blue)
   const mk = (milestone: ProjMilestone | null, now: string, signal: ProjSignal, reason = "", det = detail): ProjStage =>
-    ({ complete: false, preQuote: false, milestone, now, detail: det, signal, reason, route });
+    ({ complete: false, preQuote: false, milestone, now, detail: det, signal, reason, route, paidState });
 
   if (job.phase === "complete" || phaseKey === "complete")
-    return { complete: true, preQuote: false, milestone: null, now: "Complete", detail: "", signal: "act", reason: "", route };
+    return { complete: true, preQuote: false, milestone: null, now: "Complete", detail: "", signal: "act", reason: "", route, paidState };
 
   // ── warehouse tail: HPD's move once goods move through the building ──
   // (no overdue rule yet — needs per-phase-enter timestamps + Jon's thresholds)
@@ -93,18 +98,17 @@ export function deriveProjectStage(job: any, phaseView: any | undefined, items: 
   const quoteSent = !!tm.quote_sent_at;
   const approved = !!job.quote_approved;
   const invoiceSent = !!(job as any).invoice_sent || !!tm.qb_invoice_number;
-  const paid = (payments || []).some((p: any) => p.status === "paid");
   const posSent = ((tm.po_sent_vendors || []) as any[]).length > 0;
   const blanksOrdered = items.length > 0 && items.every((it: any) => it.blanks_order_cost != null || it.blanks_order_number);
 
-  if (!quoteSent) return { complete: false, preQuote: true, milestone: null, now: preQuoteStep(job, items), detail: "", signal: "act", reason: "", route };
+  if (!quoteSent) return { complete: false, preQuote: true, milestone: null, now: preQuoteStep(job, items), detail: "", signal: "act", reason: "", route, paidState };
   if (!approved) {
     const d = daysSince(tm.quote_sent_at);
     const late = d != null && d >= STALE_QUOTE_DAYS;
     return mk("quote_appr", "Approved", late ? "late" : "wait", late ? `Approval overdue · ${d}d` : "Awaiting approval", "awaiting approval");
   }
   if (!invoiceSent) return mk("invoice", "Invoice", "act", "Ready to invoice", "ready to invoice"); // HPD's move
-  if (!paid) return mk("paid", "Paid", "wait", "Awaiting payment");                                 // client's move
+  if (!paid) return mk("paid", "Paid", "wait", netTerms ? "On account · net terms" : "Awaiting payment"); // client's move
   if (!posSent || !blanksOrdered)
     return mk("order", "PO / Blanks", "act", !blanksOrdered ? "Order blanks" : "Send POs");          // HPD's move
   return mk("production", "Production", "wait", "In production"); // paid + ordered, at the decorator

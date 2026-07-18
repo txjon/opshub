@@ -34,7 +34,7 @@ export default function ProjectsBoard() {
   useEffect(() => {
     (async () => {
       const { data } = await supabase.from("jobs")
-        .select("id, job_number, title, phase, shipping_route, quote_approved, quote_approved_at, type_meta, costing_summary, clients(name), payment_records(amount, status, paid_date), items(id, pipeline_stage, blanks_order_cost, blanks_order_number, received_at_hpd, forwarded_at, webstore_entered_at)")
+        .select("id, job_number, title, phase, shipping_route, payment_terms, quote_approved, quote_approved_at, type_meta, costing_summary, clients(name), payment_records(amount, status, paid_date), items(id, pipeline_stage, blanks_order_cost, blanks_order_number, received_at_hpd, forwarded_at, webstore_entered_at)")
         .not("phase", "in", "(cancelled)")
         .order("created_at", { ascending: false });
       const js = (data as any[]) || [];
@@ -177,7 +177,7 @@ function Strip({ r, onOpen }: { r: Row; onOpen: () => void }) {
       case "quote_sent": return stage.preQuote ? stage.now : [tm.quote_sent_at && `Sent ${fmtDT(tm.quote_sent_at)}`, cs.grossRev && `quote ${money(cs.grossRev)}`].filter(Boolean).join(" · ") || "Quote + proofs";
       case "quote_appr": return job.quote_approved ? (job.quote_approved_at ? `Approved ${fmtDT(job.quote_approved_at)}` : "Approved by client") : "Awaiting client approval";
       case "invoice": return tm.qb_invoice_number ? `Invoice #${tm.qb_invoice_number}${invTotal ? ` · ${money(invTotal)}` : ""}${tm.qb_invoice_created_at ? ` · sent ${fmtDT(tm.qb_invoice_created_at)}` : ""}` : "Not invoiced yet";
-      case "paid": return paidAmt > 0 ? `${money(paidAmt)} / ${money(invTotal)} paid${paidDate ? ` · ${fmtDT(paidDate)}` : ""}` : (invTotal ? `Unpaid · ${money(invTotal)} due` : "Unpaid");
+      case "paid": return paidAmt > 0 ? `${money(paidAmt)} / ${money(invTotal)} paid${paidDate ? ` · ${fmtDT(paidDate)}` : ""}` : stage.paidState === "onaccount" ? (invTotal ? `On account · ${money(invTotal)} (net terms)` : "On account · net terms") : (invTotal ? `Unpaid · ${money(invTotal)} due` : "Unpaid");
       case "order": return `${posSent} PO${posSent === 1 ? "" : "s"} sent · blanks ${blanksOrdered ? "ordered" : "not ordered"}`;
       case "production": return nItems ? `${shipped}/${nItems} shipped from vendor` : "In production";
       case "receiving": return nItems ? `${received}/${nItems} received at HPD` : "Receiving";
@@ -186,7 +186,9 @@ function Strip({ r, onOpen }: { r: Row; onOpen: () => void }) {
       default: return "";
     }
   };
+  const paidColor = stage.paidState === "paid" ? T.green : stage.paidState === "onaccount" ? T.blue : T.amber;
   const segFill = (i: number) => {
+    if (!stage.preQuote && bars[i]?.k === "paid" && i <= cur) return paidColor; // payment truth, not blind green
     if (!stage.preQuote && cur >= 0 && i < cur) return T.green;
     if (!stage.preQuote && i === cur) return sig === "wait" ? T.surface : sig === "late" ? T.red : T.amber;
     return T.surface;
@@ -212,6 +214,7 @@ function Strip({ r, onOpen }: { r: Row; onOpen: () => void }) {
                   {tf > 0 && <div style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: `${Math.round(tf * 100)}%`, background: T.green }} />}
                 </div>;
               }
+              if (!stage.preQuote && m.k === "paid" && i <= cur) return <div key={m.k} style={{ ...base, background: paidColor }} />;
               if (!stage.preQuote && cur >= 0 && i < cur) return <div key={m.k} style={{ ...base, background: T.green }} />;
               if (!stage.preQuote && i === cur) {
                 // wait = hollow (live but passive); act = amber; late = red
