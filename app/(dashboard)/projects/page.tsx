@@ -144,8 +144,8 @@ function Strip({ r, onOpen }: { r: Row; onOpen: () => void }) {
       </div>
       <div style={{ width: 158, flexShrink: 0, textAlign: "right", paddingLeft: 14 }}>
         {stage.preQuote
-          ? <><div style={{ fontSize: 12.5, fontWeight: 700, color: T.faint }}>Pre-quote</div><div style={{ fontSize: 10.5, color: T.muted, marginTop: 2 }}>{stage.now}</div></>
-          : <><div style={{ fontSize: 12.5, fontWeight: 700 }}>{stage.now}</div><div style={{ fontSize: 10.5, marginTop: 2, color: act ? (act.lvl === "red" ? T.red : T.amber) : T.muted }}>{act ? act.reason : stage.detail || ""}</div></>}
+          ? <div style={{ fontSize: 12.5, fontWeight: 700, color: T.faint }}>Pre-quote</div>
+          : <div style={{ fontSize: 12.5, fontWeight: 700, color: act ? (act.lvl === "red" ? T.red : T.amber) : T.text }}>{stage.now}</div>}
       </div>
     </div>
   );
