@@ -140,10 +140,12 @@ function Strip({ r, onOpen }: { r: Row; onOpen: () => void }) {
   const cur = bars.findIndex(m => m.k === stage.milestone);
   const sig = stage.signal;
   const edgeColor = sig === "late" ? T.red : sig === "act" ? T.amber : null; // wait → no edge (recedes)
+  const paidColor = stage.paidState === "paid" ? T.green : stage.paidState === "onaccount" ? T.blue : T.amber;
   const N = bars.length;
   // Per-segment content for the styled hover popover (layer 1).
   const statusOf = (m: typeof PROJ_MILESTONES[number], i: number): { label: string; note: string; color: string } => {
     if (stage.preQuote) return m.k === "quote_sent" ? { label: "Your move", note: stage.now, color: T.amber } : { label: "Upcoming", note: "", color: T.faint };
+    if (m.k === "paid" && i <= cur) return { label: stage.paidState === "onaccount" ? "On account" : stage.paidState === "paid" ? "Paid" : "Due", note: "", color: paidColor };
     if (cur >= 0 && i < cur) return { label: "Done", note: "", color: T.green };
     if (i === cur) {
       const lbl = sig === "late" ? "Late" : sig === "act" ? "Your move" : "Waiting on them";
@@ -186,7 +188,6 @@ function Strip({ r, onOpen }: { r: Row; onOpen: () => void }) {
       default: return "";
     }
   };
-  const paidColor = stage.paidState === "paid" ? T.green : stage.paidState === "onaccount" ? T.blue : T.amber;
   const segFill = (i: number) => {
     if (!stage.preQuote && bars[i]?.k === "paid" && i <= cur) return paidColor; // payment truth, not blind green
     if (!stage.preQuote && cur >= 0 && i < cur) return T.green;
