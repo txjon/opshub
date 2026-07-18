@@ -165,6 +165,18 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       console.error("[item move] phase recalc failed:", e);
     });
 
+    // 8b. Refresh both jobs' costing_summary from the just-updated
+    // costing_data (lib/costing-summary — Tier 2). This replaces the old
+    // "slight staleness beats bad totals" compromise in step 7's comment:
+    // the mirror is verified against every stored summary, so both jobs'
+    // dollar KPIs are correct the moment the move lands.
+    try {
+      const { refreshJobFinancials } = await import("@/lib/costing-summary");
+      await Promise.all([refreshJobFinancials(db, sourceJobId), refreshJobFinancials(db, to_job_id)]);
+    } catch (e) {
+      console.error("[item move] financials refresh failed:", e);
+    }
+
     // 9. Log activity on both sides.
     try {
       await Promise.all([

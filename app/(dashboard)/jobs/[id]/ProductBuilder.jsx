@@ -238,6 +238,10 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
       setSavedSnapshot(JSON.stringify(resolvedCurrent));
       if (onSaved) onSaved(resolvedCurrent);
       if (onSaveStatus) onSaveStatus("saved");
+      // Fire-and-forget: recompute costing_summary server-side so qty edits /
+      // add-remove / blank swaps here can't leave dollar KPIs stale until the
+      // next Costing-tab visit (Tier 2, the #1 KPI-trust hole).
+      fetch(`/api/jobs/${project.id}/refresh-financials`, { method: "POST" }).catch(() => {});
     } catch (e) {
       console.error("Product builder save failed", e);
       if (onSaveStatus) onSaveStatus("error");
