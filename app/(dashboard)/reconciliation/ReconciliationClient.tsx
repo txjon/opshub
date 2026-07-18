@@ -33,7 +33,7 @@ type Vendor = { id: string; name: string; kind: string; decorator_id: string | n
 type Entry = {
   id: string; vendor_id: string | null; vendor_name: string | null; vendor_invoice_number: string | null;
   po_ref: string | null; job_id: string | null; amount: number; expected_amount: number | null;
-  charge_type: string; status: string; not_job_specific: boolean; notes: string | null; created_at: string; bill_method?: string; qb_bill_id?: string | null; bill_group_id?: string | null; hpd_bill_number?: string | null;
+  charge_type: string; status: string; not_job_specific: boolean; notes: string | null; created_at: string; bill_method?: string; qb_bill_id?: string | null; qb_paid_at?: string | null; bill_group_id?: string | null; hpd_bill_number?: string | null;
 };
 const BILL_METHODS = [
   { v: "invoice", label: "Invoice" },
@@ -1069,7 +1069,14 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
                       const busy = pushingBill === bKey;
                       return <>
                         {pushed
-                          ? <span title={`QuickBooks Bill #${pushed}`} style={{ fontSize: 10.5, fontWeight: 700, color: T.green, background: T.green + "1f", padding: "3px 9px", borderRadius: 20, whiteSpace: "nowrap" }}>✓ in QB</span>
+                          ? (() => {
+                              // BillPayment webhook stamps qb_paid_at (mig 126) — the chip
+                              // graduates from "in QB" (pushed, awaiting payment) to PAID.
+                              const paidAt = b.lines.find(e => e.qb_paid_at)?.qb_paid_at;
+                              return paidAt
+                                ? <span title={`Paid in QuickBooks ${paidAt.slice(0, 10)} · Bill #${pushed}`} style={{ fontSize: 10.5, fontWeight: 800, color: "#fff", background: T.green, padding: "3px 9px", borderRadius: 20, whiteSpace: "nowrap" }}>✓ PAID {paidAt.slice(5, 10)}</span>
+                                : <span title={`QuickBooks Bill #${pushed} — awaiting payment`} style={{ fontSize: 10.5, fontWeight: 700, color: T.green, background: T.green + "1f", padding: "3px 9px", borderRadius: 20, whiteSpace: "nowrap" }}>✓ in QB</span>;
+                            })()
                           : <button onClick={ev => { ev.stopPropagation(); if (!busy) pushBillToQb(bKey, ids); }} disabled={busy} className="bq-ghost" style={{ whiteSpace: "nowrap" }}>{busy ? "Pushing…" : "Push to QB"}</button>}
                         <button onClick={ev => { ev.stopPropagation(); openNotify(ids, b.vendor_id, b.vendor_name || "Vendor", "history"); }} className="bq-ghost" style={{ whiteSpace: "nowrap" }}>Notify</button>
                       </>;
