@@ -26,6 +26,14 @@ import {
 // nag for cut-and-sew / accessory items (e.g. all DMD items, garment_type "custom").
 const NON_GARMENT = ["accessory","patch","sticker","poster","pin","koozie","banner","flag","lighter","towel","water_bottle","samples","custom","key_chain","woven_labels","bandana","socks","tote","custom_bag","pillow","rug","pens","napkins","balloons","stencils"];
 
+// Fleece garment classes auto-flag is_fleece (drives the decorator's per-print
+// fleece upcharge + fleece packaging in Costing). Applied at CREATE/ASSIGN as
+// set-only — never clears a deliberate un-fleece; the garment-type dropdown
+// handlers below own explicit set AND clear. (Jon, 2026-07-17 — HPD-2607-007
+// hoodies silently missed the upcharge because only the dropdown auto-flagged.)
+const FLEECE_GARMENTS = ["crewneck", "hoodie", "jacket"];
+const fleeceFlag = (gt) => (gt && FLEECE_GARMENTS.includes(gt) ? { is_fleece: true } : {});
+
 /**
  * Product Builder — unified tab: PSD drop + blank assignment + sizes/qty + art files
  * Layout: collapsed items by default, expand one to work on it.
@@ -165,6 +173,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
           blank_costs: item.blankCosts && Object.keys(item.blankCosts).length > 0 ? item.blankCosts : null,
           size_subs: item.sizeSubs && Object.keys(item.sizeSubs).length > 0 ? item.sizeSubs : {},
           garment_type: item.garment_type || null,
+          is_fleece: !!(item.is_fleece || fleeceFlag(item.garment_type).is_fleece),
           qb_item_type: item.qb_item_type || null,
           status: "tbd", artwork_status: "not_started", sort_order: current.indexOf(item),
         }).select("id").single();
@@ -363,6 +372,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
         blankCosts: newBlankCosts,
         cost_per_unit: newCostPerUnit,
         garment_type: blankData.garment_type || detectGarmentType("", (it.name || "") + " " + (blankData.blank_vendor || "")) || it.garment_type,
+        ...fleeceFlag(blankData.garment_type || detectGarmentType("", (it.name || "") + " " + (blankData.blank_vendor || "")) || it.garment_type),
         totalQty: newTotal,
         curve: blankData.curve || it.curve || DEFAULT_CURVE,
       };
@@ -900,6 +910,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
               job_id: project.id, name: r.name.trim(), blank_vendor: r.vendor.trim() || null, blank_sku: r.color.trim() || null,
               status: "tbd", artwork_status: "not_started", sort_order: sortOrder,
               garment_type: garmentType,
+              is_fleece: FLEECE_GARMENTS.includes(garmentType),
             }).select("id").single().then(async ({ data: newItem }) => {
               if (newItem && sizes.length > 0) {
                 await supabase.from("buy_sheet_lines").insert(
@@ -2010,8 +2021,7 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
                     // decorator's per-print fleece upcharge + fleece
                     // packaging variant kick in without a second click.
                     // Picking a non-fleece garment clears the flag.
-                    const FLEECE_TYPES = ["crewneck","hoodie","jacket"];
-                    const isFleeceType = next && FLEECE_TYPES.includes(next);
+                    const isFleeceType = next && FLEECE_GARMENTS.includes(next);
                     onUpdateItem(item.id, { garment_type: next, is_fleece: !!isFleeceType });
                   }}
                   style={{ fontSize: 10, padding: "3px 8px", borderRadius: 6, background: T.card, color: T.muted, border: `1px solid ${T.border}`, cursor: "pointer", outline: "none", appearance: "none", WebkitAppearance: "none", paddingRight: 18, backgroundImage: `url("data:image/svg+xml,%3Csvg width='8' height='5' viewBox='0 0 8 5' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L4 4L7 1' stroke='%23a0a0ad' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E")`, backgroundRepeat: "no-repeat", backgroundPosition: "right 6px center" }}>
@@ -2045,8 +2055,7 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
                       e.stopPropagation();
                       if (costingLocked) return;
                       const next = e.target.value || null;
-                      const FLEECE_TYPES = ["crewneck", "hoodie", "jacket"];
-                      onUpdateItem(item.id, { garment_type: next, is_fleece: !!(next && FLEECE_TYPES.includes(next)) });
+                                            onUpdateItem(item.id, { garment_type: next, is_fleece: !!(next && FLEECE_GARMENTS.includes(next)) });
                     }}
                     style={{ fontSize: 10, padding: "3px 8px", borderRadius: 6, background: T.card, color: item.garment_type ? T.text : T.muted, border: `1px solid ${item.garment_type ? T.accent : T.border}`, cursor: "pointer", outline: "none", appearance: "none", WebkitAppearance: "none", paddingRight: 18, backgroundImage: `url("data:image/svg+xml,%3Csvg width='8' height='5' viewBox='0 0 8 5' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L4 4L7 1' stroke='%23a0a0ad' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E")`, backgroundRepeat: "no-repeat", backgroundPosition: "right 6px center" }}>
                     <option value="">set type</option>
