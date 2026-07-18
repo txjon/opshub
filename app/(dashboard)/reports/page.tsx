@@ -1,6 +1,5 @@
 "use client";
 import { useState, useEffect, useMemo } from "react";
-import { pnlJobs } from "@/lib/revenue";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
