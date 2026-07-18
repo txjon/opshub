@@ -140,6 +140,9 @@ const STAGE_TARGET: Record<string, { label: string; href: (j: any) => string }> 
 
 function Strip({ r, onOpen }: { r: Row; onOpen: () => void }) {
   const { job, stage } = r;
+  // Once a QB invoice # is assigned that's the number used everywhere (POs tie to
+  // it, it matches QB) — lead with it, fall back to the job number pre-invoice.
+  const invNo = (job.type_meta as any)?.qb_invoice_number || job.job_number;
   const router = useRouter();
   const [hover, setHover] = useState<string | null>(null);
   const dead = ROUTE_DEAD[stage.route] || [];
@@ -163,10 +166,9 @@ function Strip({ r, onOpen }: { r: Row; onOpen: () => void }) {
   return (
     <div onClick={onOpen} className="kpi-tile" style={{ display: "flex", alignItems: "center", background: T.card, border: `1px solid ${T.border}`, borderLeft: edgeColor ? `4px solid ${edgeColor}` : `1px solid ${T.border}`, borderRadius: 12, padding: edgeColor ? "12px 16px 12px 13px" : "12px 16px", marginTop: 8, cursor: "pointer" }}>
       <div style={{ width: 230, flexShrink: 0, minWidth: 0, paddingRight: 12 }}>
-        <div style={{ fontFamily: mono, fontSize: 11, color: T.faint }}>{job.job_number}</div>
-        <div style={{ fontSize: 13.5, fontWeight: 700, lineHeight: 1.15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{(job.clients as any)?.name || "—"}</div>
-        <div style={{ fontSize: 11.5, color: T.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{job.title}</div>
-        <div style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: T.faint, fontFamily: mono, marginTop: 2 }}>{routeLabel[stage.route] || stage.route}</div>
+        <div style={{ fontFamily: mono, fontSize: 11.5, fontWeight: 700, color: T.muted }}>{invNo}</div>
+        <div style={{ fontSize: 14, fontWeight: 700, lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginTop: 1 }}>{(job.clients as any)?.name || "—"}</div>
+        <div style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: T.faint, fontFamily: mono, marginTop: 3 }}>{routeLabel[stage.route] || stage.route}</div>
       </div>
       <div style={{ flex: 1, position: "relative", height: 14 }}>
         {/* clipped fill + ticks */}
