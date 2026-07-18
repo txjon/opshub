@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
+import { useConfirm } from "@/components/useConfirm";
 
 // Contractor hours → QuickBooks (billing-gated). Hours are logged rate-blind in
 // /hours; here the owner/bookkeeper applies the hourly rate per contractor for a
@@ -36,6 +37,7 @@ export function ContractorHoursView() {
   const [rateEdits, setRateEdits] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [pushing, setPushing] = useState<string | null>(null);
+  const [confirm, confirmEl] = useConfirm();
   const [mapOpen, setMapOpen] = useState<string | null>(null);
   const [vendorQ, setVendorQ] = useState("");
   const [vendorRes, setVendorRes] = useState<{ id: string; name: string }[]>([]);
@@ -102,7 +104,7 @@ export function ContractorHoursView() {
     await load();
   }
   async function unpush(run: Run) {
-    if (!confirm(`Un-push these hours? This unlocks them in OpsHub so they can be re-pushed.\n\nIt does NOT touch QuickBooks — void QB bill${run.qb_doc_number ? " #" + run.qb_doc_number : ""} there separately.`)) return;
+    if (!await confirm({ title: "Un-push these hours?", message: `Unlocks them in OpsHub so they can be re-pushed. Does NOT touch QuickBooks — void QB bill${run.qb_doc_number ? " #" + run.qb_doc_number : ""} there separately.`, confirmLabel: "Un-push" })) return;
     await supabase.from("contractor_time_entries").update({ pay_run_id: null }).eq("pay_run_id", run.id);
     await supabase.from("contractor_pay_runs").delete().eq("id", run.id);
     await load();
@@ -110,6 +112,7 @@ export function ContractorHoursView() {
 
   return (
     <div>
+      {confirmEl}
       {/* Week selector */}
       <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 18 }}>
         <button onClick={() => setWeekStart(new Date(weekStart.getTime() - 7 * 86400000))} style={navBtn}>← Prev</button>
