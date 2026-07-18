@@ -11,7 +11,7 @@ import { T, font, mono } from "@/lib/theme";
 type Contractor = { id: string; name: string };
 type Entry = { id: string; contractor_id: string; work_date: string; time_in: string | null; time_out: string | null; break_minutes: number | null; pay_run_id: string | null };
 type Pay = { contractor_id: string; hourly_rate: number; qb_vendor_id: string | null; qb_vendor_name: string | null };
-type Run = { id: string; contractor_id: string; period_start: string; hours: number; amount: number; qb_doc_number: string | null };
+type Run = { id: string; contractor_id: string; period_start: string; hours: number; amount: number; qb_doc_number: string | null; qb_paid_at: string | null };
 
 const money = (n: number) => `$${(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const lbl = { fontSize: 9.5, fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: T.faint } as const;
@@ -50,7 +50,7 @@ export function ContractorHoursView() {
       supabase.from("contractors").select("id, name").eq("active", true).order("sort_order"),
       supabase.from("contractor_time_entries").select("id, contractor_id, work_date, time_in, time_out, break_minutes, pay_run_id").gte("work_date", periodStart).lte("work_date", periodEnd),
       supabase.from("contractor_pay").select("contractor_id, hourly_rate, qb_vendor_id, qb_vendor_name"),
-      supabase.from("contractor_pay_runs").select("id, contractor_id, period_start, hours, amount, qb_doc_number").eq("period_start", periodStart),
+      supabase.from("contractor_pay_runs").select("id, contractor_id, period_start, hours, amount, qb_doc_number, qb_paid_at").eq("period_start", periodStart),
     ]);
     setContractors((cs as any) || []);
     setEntries((es as any) || []);
@@ -167,7 +167,7 @@ export function ContractorHoursView() {
               </span>
               <span style={{ width: 120, textAlign: "right" }}>
                 {run ? <span style={{ display: "inline-flex", flexDirection: "column", alignItems: "flex-end", gap: 1 }}>
-                    <span style={{ color: T.green, fontWeight: 700, fontSize: 12 }}>✓ Pushed{run.qb_doc_number ? ` · #${run.qb_doc_number}` : ""}</span>
+                    <span style={{ color: T.green, fontWeight: 700, fontSize: 12 }}>{run.qb_paid_at ? `✓ Paid ${run.qb_paid_at.slice(0, 10)}` : "✓ Pushed"}{run.qb_doc_number ? ` · #${run.qb_doc_number}` : ""}</span>
                     <button onClick={() => unpush(run)} style={{ background: "none", border: "none", color: T.faint, fontSize: 10, cursor: "pointer", textDecoration: "underline", padding: 0 }}>un-push</button>
                   </span>
                   : <button onClick={() => push(c.id, rate)} disabled={pushing === c.id || hours <= 0 || rate <= 0 || !vendorId}
