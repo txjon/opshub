@@ -1028,7 +1028,8 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               OR any item.sell_per_unit set) trust totalRev even if it's
               0 — don't fake a "~1.43× cost" estimate. The estimate is
               only for jobs that haven't been priced yet. */}
-          <div style={{display:"grid",gridTemplateColumns:isMobile?"repeat(2,1fr)":"repeat(6, 1fr)",gap:8,marginBottom:10}}>
+          <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:12,padding:"12px 18px",margin:"14px 0",display:"flex",flexWrap:"wrap",gap:isMobile?16:30,alignItems:"center"}}>
+            <span style={{fontSize:9.5,fontWeight:800,letterSpacing:"0.08em",textTransform:"uppercase",color:T.faint}}>Costing</span>
             {(() => {
               const pricingKnown = !!cs || items.some((it:any) => it.sell_per_unit != null);
               const estRev = !pricingKnown && totalCost > 0 ? totalCost * 1.43 : null;
@@ -1051,9 +1052,9 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 { label: "Paid", value: totalPaid > 0 ? fmt$(totalPaid) : "—", color: totalPaid > 0 ? T.green : T.faint },
               ];
             })().map(s=>(
-              <div key={s.label} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"6px 12px",boxShadow:"0 1px 2px rgba(16,18,32,0.05)"}}>
-                <div style={{fontSize:8.5,color:T.faint,textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700}}>{s.label}</div>
-                <div style={{fontSize:16,fontWeight:800,color:(s as any).color||T.text,fontFamily:mono,letterSpacing:"-0.02em"}}>{s.value}</div>
+              <div key={s.label} style={{display:"flex",flexDirection:"column",gap:1}}>
+                <span style={{fontSize:9,color:T.faint,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>{s.label}</span>
+                <span style={{fontSize:17,fontWeight:700,color:(s as any).color||T.text,fontFamily:mono}}>{s.value}</span>
               </div>
             ))}
           </div>
