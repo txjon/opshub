@@ -1005,7 +1005,8 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             const hov=(e:any,on:boolean)=>{e.currentTarget.style.borderColor=on?T.accent:T.border;};
             const Fact=({label,value,color}:{label:string;value:any;color?:string})=>(<div style={{display:"flex",flexDirection:"column",gap:1,minWidth:0}}><span style={{fontSize:8.5,color:T.faint,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:600}}>{label}</span><span style={{fontSize:13,fontWeight:600,color:color||T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{value}</span></div>);
             return (
-              <>
+              // column-reverse so Details + Billing render ABOVE the gallery.
+              <div style={{display:"flex",flexDirection:"column-reverse"}}>
                 {/* What's in this job — the gallery. Click an item → the Items worksheet editor. */}
                 <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:12,padding:"14px 16px",marginBottom:10}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:10}}>
@@ -1056,7 +1057,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                     </div>
                   </button>
                 </div>
-              </>
+              </div>
             );
           })()}
 
