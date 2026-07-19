@@ -1061,50 +1061,63 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             const payState=paidSum>0.01&&balance<=0.01?"Paid":paidSum>0.01?"Partial":invoiceTotal>0?"Unpaid":"No invoice";
             const payColor=payState==="Paid"?T.green:payState==="Partial"?T.amber:invoiceTotal>0?T.red:T.muted;
             const units=items.reduce((a:number,it:any)=>a+tQty(it.qtys||{}),0);
-            const tileStyle:React.CSSProperties={textAlign:"left",background:T.card,border:`1px solid ${T.border}`,borderRadius:12,padding:"14px 16px",cursor:"pointer",fontFamily:font,boxShadow:"0 1px 2px rgba(16,18,32,0.05)",transition:"all 0.12s",display:"flex",flexDirection:"column",gap:11,minHeight:158};
-            const Hd=({label}:{label:string})=>(<div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}><span style={{fontSize:9.5,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",color:T.faint}}>{label}</span><span style={{fontSize:15,color:T.faint,lineHeight:1}}>›</span></div>);
+            const gcolor=(s:string)=>["#243b6b","#3a9a22","#9a9aa2","#c0392b","#d4930f","#1a1a1a","#3a97ad","#7b4fb5"][(s||"x").split("").reduce((a:number,c:string)=>a+c.charCodeAt(0),0)%8];
+            const iStatus=(it:any)=> it.forwarded_at?{s:"Forwarded",c:T.green}:it.received_at_hpd?{s:"Received",c:T.green}:it.pipeline_stage==="shipped"?{s:"Shipped from vendor",c:T.blue}:it.pipeline_stage==="in_production"?{s:"In production",c:T.amber}:((it as any).blanks_order_cost!=null||(it as any).blanks_order_number)?{s:"Blanks ordered",c:T.muted}:{s:"In setup",c:T.faint};
+            const money=(n:number)=>"$"+Math.round(n||0).toLocaleString();
+            const panelBtn:React.CSSProperties={textAlign:"left",background:T.card,border:`1px solid ${T.border}`,borderRadius:12,padding:"14px 16px",cursor:"pointer",fontFamily:font,boxShadow:"0 1px 2px rgba(16,18,32,0.05)",transition:"all 0.12s"};
+            const hov=(e:any,on:boolean)=>{e.currentTarget.style.borderColor=on?T.accent:T.border;};
             const Fact=({label,value,color}:{label:string;value:any;color?:string})=>(<div style={{display:"flex",flexDirection:"column",gap:1,minWidth:0}}><span style={{fontSize:8.5,color:T.faint,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:600}}>{label}</span><span style={{fontSize:13,fontWeight:600,color:color||T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{value}</span></div>);
-            const hov=(e:any,on:boolean)=>{e.currentTarget.style.borderColor=on?T.accent:T.border;e.currentTarget.style.transform=on?"translateY(-1px)":"none";};
             return (
-              <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(3,1fr)",gap:10,marginBottom:10,alignItems:"stretch"}}>
-                <button onClick={()=>setOvSection("details")} style={tileStyle} onMouseEnter={e=>hov(e,true)} onMouseLeave={e=>hov(e,false)}>
-                  <Hd label="Details" />
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:11}}>
-                    <Fact label="Ships" value={shipLabel+(shipSub?` · ${shipSub}`:"")} color={shipColor} />
-                    <Fact label="Route" value={routeLabel} />
-                    <Fact label="Terms" value={termsLabel} />
-                    <Fact label="Priority" value={priLabel} color={priColor} />
+              <>
+                {/* What's in this job — the gallery. Click an item → the Items worksheet editor. */}
+                <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:12,padding:"14px 16px",marginBottom:10}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:10}}>
+                    <span style={{fontSize:14,fontWeight:800}}>What&apos;s in this job</span>
+                    <span style={{fontSize:12,color:T.muted}}>{items.length} item{items.length!==1?"s":""} · {units.toLocaleString()} units</span>
                   </div>
-                </button>
-                <button onClick={()=>{setOvSection("items");setOvItemsVendor(null);}} style={tileStyle} onMouseEnter={e=>hov(e,true)} onMouseLeave={e=>hov(e,false)}>
-                  <Hd label="Items" />
-                  <div style={{fontSize:16,fontWeight:800,color:T.text}}>{items.length} item{items.length!==1?"s":""}<span style={{fontSize:12,fontWeight:600,color:T.muted}}> · {units.toLocaleString()} units</span></div>
-                  <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                    {items.length===0 && <span style={{fontSize:12,color:T.muted}}>No items yet</span>}
-                    {items.slice(0,5).map((it:any)=>(
-                      <div key={it.id} style={{display:"flex",justifyContent:"space-between",gap:8,fontSize:12.5,minWidth:0}}>
-                        <span style={{fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.name||"Untitled"}</span>
-                        <span style={{color:T.faint,flexShrink:0,fontFamily:mono}}>{tQty(it.qtys||{})}</span>
+                  {items.length===0 ? <div style={{fontSize:13,color:T.muted}}>No items yet.</div> :
+                  <div style={{display:"grid",gridTemplateColumns:isMobile?"repeat(2,1fr)":"repeat(auto-fill,minmax(150px,1fr))",gap:12}}>
+                    {items.map((it:any)=>{const st=iStatus(it);const gc=gcolor(it.garment_type||it.name);return (
+                      <div key={it.id} onClick={()=>{setOvSection("items");setOvItemsVendor(null);}} style={{border:`1px solid ${T.border}`,borderRadius:11,overflow:"hidden",background:T.card,cursor:"pointer"}}>
+                        <div style={{aspectRatio:"1",background:"#f2f2f4",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                          <div style={{width:"62%",height:"62%",borderRadius:14,background:gc,boxShadow:"0 2px 8px rgba(0,0,0,.12)"}} />
+                        </div>
+                        <div style={{padding:"9px 11px 11px"}}>
+                          <div style={{fontSize:12.5,fontWeight:800,lineHeight:1.2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{it.name||"Untitled"}</div>
+                          <div style={{fontSize:10.5,color:T.muted,marginTop:3,fontFamily:mono}}>{tQty(it.qtys||{})} · {(it as any).sell_per_unit?money((it as any).sell_per_unit):"—"}/unit</div>
+                          <div style={{fontSize:10,fontWeight:800,textTransform:"uppercase",letterSpacing:"0.04em",color:st.c,marginTop:3}}>{st.s}</div>
+                        </div>
                       </div>
-                    ))}
-                    {items.length>5 && <span style={{fontSize:11,color:T.faint}}>+{items.length-5} more</span>}
-                  </div>
-                </button>
-                <button onClick={()=>setOvSection("billing")} style={tileStyle} onMouseEnter={e=>hov(e,true)} onMouseLeave={e=>hov(e,false)}>
-                  <Hd label="Billing & Contacts" />
-                  <div style={{fontSize:16,fontWeight:800,color:payColor}}>{payState}{invoiceTotal>0 && <span style={{fontSize:12,fontWeight:600,color:T.muted}}> · ${Math.round(paidSum).toLocaleString()} / ${Math.round(invoiceTotal).toLocaleString()}</span>}</div>
-                  <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                    {contacts.length===0 && <span style={{fontSize:12,color:T.muted}}>No contacts</span>}
-                    {contacts.slice(0,3).map((c:any)=>(
-                      <div key={c.id} style={{display:"flex",flexDirection:"column",gap:1,minWidth:0}}>
-                        <span style={{fontWeight:600,color:T.text,fontSize:12.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}{(c.role_on_job==="primary"||c.role_on_job==="billing") && <span style={{fontWeight:400,color:T.faint,textTransform:"capitalize"}}> · {c.role_on_job}</span>}</span>
-                        {c.email && <span style={{fontSize:11.5,color:T.accent,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.email}</span>}
-                      </div>
-                    ))}
-                    {contacts.length>3 && <span style={{fontSize:11,color:T.faint}}>+{contacts.length-3} more</span>}
-                  </div>
-                </button>
-              </div>
+                    );})}
+                  </div>}
+                </div>
+                {/* Details + Billing & Contacts — open the same editors as before */}
+                <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(2,1fr)",gap:10,marginBottom:10}}>
+                  <button onClick={()=>setOvSection("details")} style={panelBtn} onMouseEnter={e=>hov(e,true)} onMouseLeave={e=>hov(e,false)}>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}><span style={{fontSize:9.5,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",color:T.faint}}>Details</span><span style={{fontSize:15,color:T.faint,lineHeight:1}}>›</span></div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:11}}>
+                      <Fact label="Ships" value={shipLabel+(shipSub?` · ${shipSub}`:"")} color={shipColor} />
+                      <Fact label="Route" value={routeLabel} />
+                      <Fact label="Terms" value={termsLabel} />
+                      <Fact label="Priority" value={priLabel} color={priColor} />
+                    </div>
+                  </button>
+                  <button onClick={()=>setOvSection("billing")} style={panelBtn} onMouseEnter={e=>hov(e,true)} onMouseLeave={e=>hov(e,false)}>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}><span style={{fontSize:9.5,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",color:T.faint}}>Billing &amp; Contacts</span><span style={{fontSize:15,color:T.faint,lineHeight:1}}>›</span></div>
+                    <div style={{fontSize:16,fontWeight:800,color:payColor,marginBottom:8}}>{payState}{invoiceTotal>0 && <span style={{fontSize:12,fontWeight:600,color:T.muted}}> · ${Math.round(paidSum).toLocaleString()} / ${Math.round(invoiceTotal).toLocaleString()}</span>}</div>
+                    <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                      {contacts.length===0 && <span style={{fontSize:12,color:T.muted}}>No contacts</span>}
+                      {contacts.slice(0,3).map((c:any)=>(
+                        <div key={c.id} style={{display:"flex",flexDirection:"column",gap:1,minWidth:0}}>
+                          <span style={{fontWeight:600,color:T.text,fontSize:12.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}{(c.role_on_job==="primary"||c.role_on_job==="billing") && <span style={{fontWeight:400,color:T.faint,textTransform:"capitalize"}}> · {c.role_on_job}</span>}</span>
+                          {c.email && <span style={{fontSize:11.5,color:T.accent,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.email}</span>}
+                        </div>
+                      ))}
+                      {contacts.length>3 && <span style={{fontSize:11,color:T.faint}}>+{contacts.length-3} more</span>}
+                    </div>
+                  </button>
+                </div>
+              </>
             );
           })()}
 
