@@ -172,6 +172,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const [forwardSlips, setForwardSlips] = useState<{ id: string; tracking: string | null; createdAt: string }[]>([]);
   const [confirmDeleteProject, setConfirmDeleteProject] = useState(false);
   const [confirmCancelVoid, setConfirmCancelVoid] = useState(false);
+  const [ovMenu, setOvMenu] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string>("");
   const [teamProfiles, setTeamProfiles] = useState<Record<string,string>>({});
@@ -758,7 +759,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           ) : (
             <span style={{fontSize:isMobile?20:22,fontWeight:800,color:T.faint,letterSpacing:"-0.02em",lineHeight:1.15}}>No client</span>
           )}
-          <span style={{fontSize:isMobile?13:14,color:T.muted,lineHeight:1.2}}>{job.title || "Untitled"}</span>
+          <button onClick={()=>switchTab("overview")} title="Back to overview" style={{fontSize:isMobile?13:14,color:T.muted,lineHeight:1.2,background:"none",border:"none",padding:0,cursor:"pointer",fontFamily:font}} onMouseEnter={(e:any)=>e.currentTarget.style.color=T.accent} onMouseLeave={(e:any)=>e.currentTarget.style.color=T.muted}>{job.title || "Untitled"}</button>
           {/* Costing actions — only relevant on Product Builder + Costing
               tabs. Pull from PSDs and Request Pricing operate on costing
               state, so when triggered from Builder we jump to Costing
@@ -1001,6 +1002,21 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       {/* OVERVIEW */}
                   {tab==="overview"&&(
         <div style={{fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif"}}>
+
+          {/* ⋯ job-level actions — Activity, Hold/Resume, Duplicate, Cancel & Void, Delete */}
+          <div style={{display:"flex",justifyContent:"flex-end",marginBottom:8,position:"relative"}}>
+            <button onClick={()=>setOvMenu(m=>!m)} style={{border:`1px solid ${T.border}`,background:T.card,color:T.muted,borderRadius:8,padding:"5px 12px",fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:font,lineHeight:1}}>⋯</button>
+            {ovMenu && (
+              <div style={{position:"absolute",top:"100%",right:0,marginTop:6,background:T.card,border:`1px solid ${T.border}`,borderRadius:10,boxShadow:"0 10px 30px rgba(0,0,0,.16)",zIndex:40,minWidth:196,overflow:"hidden"}}>
+                <button onClick={()=>{setOvMenu(false);setOvSection("activity");}} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 13px",background:"none",border:"none",cursor:"pointer",fontFamily:font,fontSize:12.5,fontWeight:600,color:T.text}}>Activity log</button>
+                {job.phase!=="on_hold"&&job.phase!=="cancelled"&&<button onClick={()=>{setOvMenu(false);upd("phase","on_hold");}} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 13px",background:"none",border:"none",cursor:"pointer",fontFamily:font,fontSize:12.5,fontWeight:600,color:T.text}}>Place on hold</button>}
+                {job.phase==="on_hold"&&<button onClick={async()=>{setOvMenu(false);await supabase.from("jobs").update({phase:"intake"}).eq("id",job.id);setJob(j=>j?{...j,phase:"intake"} as any:j);setTimeout(recalcPhase,300);}} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 13px",background:"none",border:"none",cursor:"pointer",fontFamily:font,fontSize:12.5,fontWeight:600,color:T.green}}>Resume</button>}
+                <button onClick={async()=>{setOvMenu(false);if(!window.confirm(`Duplicate "${job.title}" as a re-order? Items, costing, contacts, art, and approved proofs carry over.`))return;try{const res=await fetch(`/api/jobs/${job.id}/duplicate`,{method:"POST"});const data=await res.json();if(!res.ok)throw new Error(data?.error||"Duplication failed");if(!data?.jobId)throw new Error("No new job id returned");router.push(`/jobs/${data.jobId}`);}catch(e:any){alert(`Duplicate failed: ${e?.message||"Unknown error"}`);}}} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 13px",background:"none",border:"none",cursor:"pointer",fontFamily:font,fontSize:12.5,fontWeight:600,color:T.text}}>Duplicate</button>
+                {job.phase!=="cancelled"&&(job as any).type_meta?.qb_invoice_number&&<button onClick={()=>{setOvMenu(false);setConfirmCancelVoid(true);}} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 13px",background:"none",border:"none",cursor:"pointer",fontFamily:font,fontSize:12.5,fontWeight:600,color:T.amber}}>Cancel &amp; void invoice</button>}
+                <button onClick={()=>{setOvMenu(false);setConfirmDeleteProject(true);}} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 13px",background:"none",border:"none",cursor:"pointer",fontFamily:font,fontSize:12.5,fontWeight:600,color:T.red}}>Delete project</button>
+              </div>
+            )}
+          </div>
 
           {/* KPI strip — Overview-only so switching to other tabs doesn't
               jump the layout. 4-up on desktop, 2×2 on mobile so the
@@ -1563,66 +1579,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           <JobItemsList items={items} job={job} isMobile={isMobile} onChange={reloadItems} vendorFilter={ovItemsVendor} onClearVendor={()=>setOvItemsVendor(null)} />
           </OvModal>)}
 
-          {/* Action row — Activity Log (left) + Hold / Duplicate / Delete (right). */}
-          <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:10}}>
-            <button onClick={()=>setOvSection("activity")}
-              style={{marginRight:"auto",padding:"6px 14px",background:"transparent",border:`1px solid ${T.border}`,borderRadius:6,color:T.muted,fontSize:11,fontFamily:font,fontWeight:600,cursor:"pointer"}}
-              onMouseEnter={e=>{e.currentTarget.style.borderColor=T.accent;e.currentTarget.style.color=T.accent;}}
-              onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.color=T.muted;}}>
-              Activity Log
-            </button>
-            {job.phase!=="on_hold"&&job.phase!=="cancelled"&&(
-              <button onClick={()=>{upd("phase","on_hold");}}
-                style={{padding:"6px 14px",background:"transparent",border:`1px solid ${T.border}`,borderRadius:6,color:T.muted,fontSize:11,fontFamily:font,fontWeight:600,cursor:"pointer"}}
-                onMouseEnter={e=>{e.currentTarget.style.borderColor=T.amber;e.currentTarget.style.color=T.amber;}}
-                onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.color=T.muted;}}>
-                Place on Hold
-              </button>
-            )}
-            {job.phase==="on_hold"&&(
-              <button onClick={async()=>{
-                await supabase.from("jobs").update({phase:"intake"}).eq("id",job.id);
-                setJob(j=>j?{...j,phase:"intake"} as any:j);
-                setTimeout(recalcPhase, 300);
-              }}
-                style={{padding:"6px 14px",background:T.greenDim,border:`1px solid ${T.green}44`,borderRadius:6,color:T.green,fontSize:11,fontFamily:font,fontWeight:600,cursor:"pointer"}}>
-                Resume
-              </button>
-            )}
-            <button onClick={async()=>{
-                if(!window.confirm(`Duplicate "${job.title}" as a re-order? Items, costing, contacts, art, and approved proofs carry over.`)) return;
-                try {
-                  const res = await fetch(`/api/jobs/${job.id}/duplicate`, { method: "POST" });
-                  const data = await res.json();
-                  if (!res.ok) throw new Error(data?.error || "Duplication failed");
-                  if (!data?.jobId) throw new Error("No new job id returned");
-                  router.push(`/jobs/${data.jobId}`);
-                } catch (e: any) {
-                  alert(`Duplicate failed: ${e?.message || "Unknown error"}`);
-                }
-              }}
-              style={{padding:"6px 14px",background:"transparent",border:`1px solid ${T.border}`,borderRadius:6,color:T.muted,fontSize:11,fontFamily:font,fontWeight:600,cursor:"pointer"}}
-              onMouseEnter={e=>{e.currentTarget.style.borderColor=T.accent;e.currentTarget.style.color=T.accent;}}
-              onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.color=T.muted;}}>
-              Duplicate
-            </button>
-            {job.phase!=="cancelled"&&(job as any).type_meta?.qb_invoice_number&&(
-              <button
-                onClick={() => setConfirmCancelVoid(true)}
-                style={{padding:"6px 14px",background:"transparent",border:`1px solid ${T.border}`,borderRadius:6,color:T.muted,fontSize:11,fontFamily:font,fontWeight:600,cursor:"pointer"}}
-                onMouseEnter={e=>{e.currentTarget.style.borderColor=T.amber;e.currentTarget.style.color=T.amber;}}
-                onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.color=T.muted;}}>
-                Cancel &amp; void invoice
-              </button>
-            )}
-            <button
-              onClick={() => setConfirmDeleteProject(true)}
-              style={{padding:"6px 14px",background:"transparent",border:`1px solid ${T.border}`,borderRadius:6,color:T.muted,fontSize:11,fontFamily:font,fontWeight:600,cursor:"pointer"}}
-              onMouseEnter={e=>{e.currentTarget.style.borderColor=T.red;e.currentTarget.style.color=T.red;}}
-              onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.color=T.muted;}}>
-              Delete project
-            </button>
-          </div>
+          {/* Action row moved to the ⋯ menu at the top of the overview. */}
 
           {/* Activity — collapsed into a modal, opened by the Activity Log
               button in the action row above. (The outbound-email test panel was
