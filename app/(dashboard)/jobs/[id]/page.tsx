@@ -722,29 +722,19 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           onMouseLeave={(e:any)=>{ if (!navigating) e.currentTarget.style.opacity="1";}}>
           <span style={{fontSize:20,lineHeight:1,marginRight:2}}>‹</span> {navigating ? "Saving…" : "Projects"}
         </button>
-        {(() => {
-          const isComplete = job.phase === "complete";
-          const isCancelled = job.phase === "cancelled";
-          const fmt = (iso: string) => fmtDay(iso);
-          const render = (primary: string, date: string | null, color: string) => (
-            <span style={{display:"inline-flex",alignItems:"baseline",gap:6,fontFamily:font}}>
-              <span style={{fontSize:13,fontWeight:700,color,letterSpacing:"-0.01em"}}>{primary}</span>
-              {date && <span style={{fontSize:11,color:T.muted}}>· {date}</span>}
-              {saving && <span style={{fontSize:10,color:T.muted,fontStyle:"italic",marginLeft:4}}>Saving…</span>}
-            </span>
-          );
-          if (isComplete || isCancelled) {
-            const ts = (job as any).phase_timestamps?.[isComplete ? "complete" : "cancelled"];
-            return render(isComplete?"Completed":"Cancelled", ts ? fmt(ts) : null, isCancelled?T.red:T.green);
-          }
-          if (job.phase === "fulfillment" || job.phase === "shipping" || job.phase === "receiving") {
-            return render("At HPD", job.target_ship_date ? fmt(job.target_ship_date) : null, T.green);
-          }
-          if (daysLeft === null) return saving ? <span style={{fontSize:10,color:T.muted,fontStyle:"italic"}}>Saving…</span> : null;
-          const primary = daysLeft<0?`${Math.abs(daysLeft)}d overdue`:daysLeft===0?"Ships today":`${daysLeft}d to ship`;
-          const color = daysLeft<0?T.red:daysLeft<=3?T.amber:T.text;
-          return render(primary, fmt(job.target_ship_date!), color);
-        })()}
+        <div style={{position:"relative"}}>
+          <button onClick={()=>setOvMenu(m=>!m)} style={{border:`1px solid ${T.border}`,background:T.card,color:T.muted,borderRadius:8,padding:"5px 12px",fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:font,lineHeight:1}}>⋯</button>
+          {ovMenu && (
+            <div style={{position:"absolute",top:"100%",right:0,marginTop:6,background:T.card,border:`1px solid ${T.border}`,borderRadius:10,boxShadow:"0 10px 30px rgba(0,0,0,.16)",zIndex:40,minWidth:196,overflow:"hidden"}}>
+              <button onClick={async()=>{setOvMenu(false);await switchTab("overview");setOvSection("activity");}} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 13px",background:"none",border:"none",cursor:"pointer",fontFamily:font,fontSize:12.5,fontWeight:600,color:T.text}}>Activity log</button>
+              {job.phase!=="on_hold"&&job.phase!=="cancelled"&&<button onClick={()=>{setOvMenu(false);upd("phase","on_hold");}} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 13px",background:"none",border:"none",cursor:"pointer",fontFamily:font,fontSize:12.5,fontWeight:600,color:T.text}}>Place on hold</button>}
+              {job.phase==="on_hold"&&<button onClick={async()=>{setOvMenu(false);await supabase.from("jobs").update({phase:"intake"}).eq("id",job.id);setJob(j=>j?{...j,phase:"intake"} as any:j);setTimeout(recalcPhase,300);}} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 13px",background:"none",border:"none",cursor:"pointer",fontFamily:font,fontSize:12.5,fontWeight:600,color:T.green}}>Resume</button>}
+              <button onClick={async()=>{setOvMenu(false);if(!window.confirm(`Duplicate "${job.title}" as a re-order? Items, costing, contacts, art, and approved proofs carry over.`))return;try{const res=await fetch(`/api/jobs/${job.id}/duplicate`,{method:"POST"});const data=await res.json();if(!res.ok)throw new Error(data?.error||"Duplication failed");if(!data?.jobId)throw new Error("No new job id returned");router.push(`/jobs/${data.jobId}`);}catch(e:any){alert(`Duplicate failed: ${e?.message||"Unknown error"}`);}}} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 13px",background:"none",border:"none",cursor:"pointer",fontFamily:font,fontSize:12.5,fontWeight:600,color:T.text}}>Duplicate</button>
+              {job.phase!=="cancelled"&&(job as any).type_meta?.qb_invoice_number&&<button onClick={()=>{setOvMenu(false);setConfirmCancelVoid(true);}} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 13px",background:"none",border:"none",cursor:"pointer",fontFamily:font,fontSize:12.5,fontWeight:600,color:T.amber}}>Cancel &amp; void invoice</button>}
+              <button onClick={()=>{setOvMenu(false);setConfirmDeleteProject(true);}} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 13px",background:"none",border:"none",cursor:"pointer",fontFamily:font,fontSize:12.5,fontWeight:600,color:T.red}}>Delete project</button>
+            </div>
+          )}
+        </div>
       </div>
 
       <div style={{marginBottom:10,display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:16,flexWrap:"wrap"}}>
@@ -984,20 +974,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                   {tab==="overview"&&(
         <div style={{fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif"}}>
 
-          {/* ⋯ job-level actions — Activity, Hold/Resume, Duplicate, Cancel & Void, Delete */}
-          <div style={{display:"flex",justifyContent:"flex-end",marginBottom:8,position:"relative"}}>
-            <button onClick={()=>setOvMenu(m=>!m)} style={{border:`1px solid ${T.border}`,background:T.card,color:T.muted,borderRadius:8,padding:"5px 12px",fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:font,lineHeight:1}}>⋯</button>
-            {ovMenu && (
-              <div style={{position:"absolute",top:"100%",right:0,marginTop:6,background:T.card,border:`1px solid ${T.border}`,borderRadius:10,boxShadow:"0 10px 30px rgba(0,0,0,.16)",zIndex:40,minWidth:196,overflow:"hidden"}}>
-                <button onClick={()=>{setOvMenu(false);setOvSection("activity");}} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 13px",background:"none",border:"none",cursor:"pointer",fontFamily:font,fontSize:12.5,fontWeight:600,color:T.text}}>Activity log</button>
-                {job.phase!=="on_hold"&&job.phase!=="cancelled"&&<button onClick={()=>{setOvMenu(false);upd("phase","on_hold");}} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 13px",background:"none",border:"none",cursor:"pointer",fontFamily:font,fontSize:12.5,fontWeight:600,color:T.text}}>Place on hold</button>}
-                {job.phase==="on_hold"&&<button onClick={async()=>{setOvMenu(false);await supabase.from("jobs").update({phase:"intake"}).eq("id",job.id);setJob(j=>j?{...j,phase:"intake"} as any:j);setTimeout(recalcPhase,300);}} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 13px",background:"none",border:"none",cursor:"pointer",fontFamily:font,fontSize:12.5,fontWeight:600,color:T.green}}>Resume</button>}
-                <button onClick={async()=>{setOvMenu(false);if(!window.confirm(`Duplicate "${job.title}" as a re-order? Items, costing, contacts, art, and approved proofs carry over.`))return;try{const res=await fetch(`/api/jobs/${job.id}/duplicate`,{method:"POST"});const data=await res.json();if(!res.ok)throw new Error(data?.error||"Duplication failed");if(!data?.jobId)throw new Error("No new job id returned");router.push(`/jobs/${data.jobId}`);}catch(e:any){alert(`Duplicate failed: ${e?.message||"Unknown error"}`);}}} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 13px",background:"none",border:"none",cursor:"pointer",fontFamily:font,fontSize:12.5,fontWeight:600,color:T.text}}>Duplicate</button>
-                {job.phase!=="cancelled"&&(job as any).type_meta?.qb_invoice_number&&<button onClick={()=>{setOvMenu(false);setConfirmCancelVoid(true);}} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 13px",background:"none",border:"none",cursor:"pointer",fontFamily:font,fontSize:12.5,fontWeight:600,color:T.amber}}>Cancel &amp; void invoice</button>}
-                <button onClick={()=>{setOvMenu(false);setConfirmDeleteProject(true);}} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 13px",background:"none",border:"none",cursor:"pointer",fontFamily:font,fontSize:12.5,fontWeight:600,color:T.red}}>Delete project</button>
-              </div>
-            )}
-          </div>
+          {/* ⋯ actions moved to the header top-right. */}
 
           {/* Money summary lives on the Costing tab — no KPI/costing strip on the overview. */}
 
