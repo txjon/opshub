@@ -8,11 +8,6 @@ import { T, font } from "@/lib/theme";
 import { deriveProjectStage, PROJ_MILESTONES, ROUTE_DEAD } from "@/lib/project-stage";
 
 const HATCH = "repeating-linear-gradient(45deg,transparent,transparent 3px,rgba(58,154,34,0.5) 3px,rgba(58,154,34,0.5) 4px)";
-const ZONES: { label: string; keys: string[]; blue?: boolean }[] = [
-  { label: "Sign-off & money", keys: ["quote_sent", "quote_appr", "invoice", "paid"] },
-  { label: "Build & execution", keys: ["order", "production"] },
-  { label: "Fulfillment", keys: ["receiving", "shipping", "fulfillment"], blue: true },
-];
 const BUILD: [string, string][] = [["builder", "Product Builder"], ["costing", "Costing"], ["blanks", "Blanks"], ["po", "Purchase Order"]];
 
 export function JobFlowBar({ job, items, payments, phaseView, activeTab, onGate, onBuild }: {
@@ -58,9 +53,6 @@ export function JobFlowBar({ job, items, payments, phaseView, activeTab, onGate,
     <>
       {/* Status card — labels & zones ABOVE the bar. */}
       <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 14, padding: "14px 18px", margin: "6px 0 0" }}>
-        <div style={{ display: "flex" }}>
-          {ZONES.map(z => { const n = z.keys.filter(k => bars.some(b => b.k === k)).length; if (!n) return null; return <div key={z.label} style={{ flex: n, textAlign: "center", fontSize: 8.5, fontWeight: 800, letterSpacing: ".06em", textTransform: "uppercase", color: z.blue ? T.blue : T.faint, margin: "0 3px 2px" }}>{z.label}</div>; })}
-        </div>
         <div style={{ display: "flex", marginBottom: 9 }}>
           {bars.map(m => { const tail = tailFrac[m.k] !== undefined; return <button key={m.k} onClick={() => onGate(m.k)} style={{ flex: 1, minWidth: 0, textAlign: "center", padding: "2px", background: "transparent", border: "none", cursor: "pointer", fontFamily: font }}><div style={{ fontSize: 9, fontWeight: 800, letterSpacing: ".02em", textTransform: "uppercase", color: tail ? T.blue : T.muted, lineHeight: 1.15, wordBreak: "break-word" }}>{m.label}</div></button>; })}
         </div>
