@@ -6,6 +6,7 @@ import { logJobActivity } from "@/components/JobActivityPanel";
 import { useIsMobile } from "@/lib/useIsMobile";
 import SizeGrid from "@/components/SizeGrid";
 import { parseSizeMatrix } from "@/lib/size-grid";
+import { ItemThumb } from "@/components/board-kit";
 
 // Dark-app palette for the shared <SizeGrid/> cut-ticket renderer.
 const GRID_PALETTE = { text: T.text, muted: T.muted, faint: T.faint, border: T.border, surface: T.surface, accent: T.accent };
@@ -37,6 +38,22 @@ const NON_GARMENT = new Set([
 export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpdateItem, onTabClick, onRegisterSave, onItemsChanged, selectedItemId }) {
   const isMobile = useIsMobile();
   const items = useMemo(() => allItems.filter(it => !NON_GARMENT.has(it.garment_type)), [allItems]);
+
+  // Mockup thumbnails for the V2 row layout — one drive_file_id per item.
+  const [mockupIds, setMockupIds] = useState({});
+  useEffect(() => {
+    const ids = items.map(it => it.id).filter(id => typeof id === "string" && id.length > 20);
+    if (!ids.length) return;
+    createClient().from("item_files").select("item_id, drive_file_id, stage, file_name")
+      .in("item_id", ids).is("superseded_at", null)
+      .then(({ data }) => {
+        const m = {};
+        for (const f of (data || [])) {
+          if ((f.stage === "mockup" || f.file_name?.toLowerCase().includes("mockup")) && !m[f.item_id]) m[f.item_id] = f.drive_file_id;
+        }
+        setMockupIds(m);
+      });
+  }, [items]);
   // Letter designators are canonical across surfaces (ProductBuilder,
   // PO, Blanks) — they must reflect the item's position in the FULL
   // sort_order-ordered list, not its position in the filtered apparel
@@ -60,8 +77,6 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
   const [bulkTotal, setBulkTotal] = useState("");
   const saveTimers = useRef({});
   const pendingSaves = useRef({});
-  const [ssSyncing, setSsSyncing] = useState(false);
-  const [ssResult, setSsResult] = useState(null); // { matched, total } or error string
 
   // Flush every pending debounced save in parallel. Resolves once all
   // Supabase writes complete + onUpdateItem has propagated, so the
@@ -263,108 +278,6 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
     clearSelection();
   }
 
-  // ── S&S Orders sync ──
-  const ssItems = useMemo(() => items.filter(it =>
-    !it.blank_vendor || it.blank_vendor === "S&S Activewear" || it.blank_vendor?.startsWith("S&S")
-  ), [items]);
-  const hasSSItems = ssItems.length > 0;
-
-  async function syncSSOrders() {
-    if (!job?.job_number || ssSyncing) return;
-    setSsSyncing(true);
-    setSsResult(null);
-    try {
-      // Fetch orders matching this project's job number as PO number
-      const res = await fetch(`/api/ss?endpoint=orders&po=${encodeURIComponent(job.job_number)}`);
-      if (!res.ok) throw new Error("Failed to fetch S&S orders");
-      const orders = await res.json();
-
-      // S&S returns array of orders (or single object)
-      const orderList = Array.isArray(orders) ? orders : orders ? [orders] : [];
-      if (orderList.length === 0) {
-        setSsResult({ matched: 0, total: 0, message: `No S&S orders found for PO ${job.job_number}` });
-        setSsSyncing(false);
-        return;
-      }
-
-      let matched = 0;
-
-      for (const order of orderList) {
-        const orderNumber = order.orderNumber || order.OrderNumber || order.order_number || "";
-        const orderTotal = order.total || order.Total || order.orderTotal || 0;
-        const poNumber = order.poNumber || order.PONumber || order.po_number || "";
-        const trackingNumber = order.trackingNumber || order.TrackingNumber || "";
-        const carrier = order.shippingCarrier || order.ShippingCarrier || "";
-        const status = order.orderStatus || order.OrderStatus || order.status || "";
-
-        // Match to items: PO number might be "HPD-2603-014" (whole project)
-        // or "HPD-2603-014A" (specific item letter). The letter is the
-        // canonical one shown across ProductBuilder / PO / Blanks (full
-        // sort-order position), not a position within the apparel-only
-        // subset — so we resolve via letterByItemId.
-        const itemLetter = poNumber.replace(job.job_number, "").trim().toUpperCase();
-
-        let matchedItems = [];
-        if (itemLetter && itemLetter.length === 1) {
-          const targetId = Object.entries(letterByItemId).find(([, l]) => l === itemLetter)?.[0];
-          const target = targetId ? ssItems.find(it => it.id === targetId) : null;
-          if (target) matchedItems = [target];
-        } else if (ssItems.length === 1) {
-          // Only one S&S item — auto-match
-          matchedItems = [ssItems[0]];
-        } else {
-          // Multiple items, no letter suffix — try to match by line items in order
-          // For now, apply to all S&S items that don't have an order yet
-          matchedItems = ssItems.filter(it => {
-            const v = localFields[it.id]?.blanks_order_cost;
-            const n = v ? parseFloat(String(v).replace(/[^0-9.\-]/g, "")) : 0;
-            return n <= 0;
-          });
-          if (matchedItems.length === 0) matchedItems = ssItems;
-        }
-
-        for (const item of matchedItems) {
-          if (!item) continue;
-          const updates = {};
-
-          if (orderNumber) {
-            updates.blanks_order_number = String(orderNumber);
-            setLocalFields(p => ({ ...p, [item.id]: { ...p[item.id], blanks_order_number: String(orderNumber) } }));
-            await supabase.from("items").update({ blanks_order_number: String(orderNumber) }).eq("id", item.id);
-            if (onUpdateItem) onUpdateItem(item.id, { blanks_order_number: String(orderNumber) });
-          }
-
-          if (orderTotal) {
-            const cost = typeof orderTotal === "string" ? parseFloat(orderTotal) : orderTotal;
-            if (cost > 0) {
-              const costStr = cost.toFixed(2);
-              setLocalFields(p => ({ ...p, [item.id]: { ...p[item.id], blanks_order_cost: costStr } }));
-              await supabase.from("items").update({ blanks_order_cost: cost }).eq("id", item.id);
-              if (onUpdateItem) onUpdateItem(item.id, { blanks_order_cost: cost });
-            }
-          }
-
-          // If shipped, save tracking
-          if (trackingNumber && (status === "Shipped" || status === "Delivered")) {
-            await supabase.from("items").update({
-              incoming_goods: `S&S shipped${carrier ? ` via ${carrier}` : ""} — tracking: ${trackingNumber}`,
-            }).eq("id", item.id);
-            if (onUpdateItem) onUpdateItem(item.id, { incoming_goods: `S&S shipped${carrier ? ` via ${carrier}` : ""} — tracking: ${trackingNumber}` });
-          }
-
-          matched++;
-          logJobActivity(job.id, `S&S order synced for ${item.name} — Order #${orderNumber}${orderTotal ? `, $${parseFloat(orderTotal).toFixed(2)}` : ""}${status ? `, status: ${status}` : ""}`);
-        }
-      }
-
-      setSsResult({ matched, total: orderList.length, message: `${matched} item${matched !== 1 ? "s" : ""} synced from ${orderList.length} S&S order${orderList.length !== 1 ? "s" : ""}` });
-      if (onRecalcPhase) onRecalcPhase();
-    } catch (err) {
-      console.error("S&S sync error:", err);
-      setSsResult({ matched: 0, total: 0, message: `Sync failed: ${err.message}` });
-    }
-    setSsSyncing(false);
-  }
 
   // Gate checks
   const quoteApproved = job?.quote_approved;
@@ -392,368 +305,173 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
   }
 
   return (
-    <div style={{ fontFamily: font, color: T.text, display: "flex", flexDirection: "column", gap: 10 }}>
+    <div style={{ fontFamily: font, color: T.text, display: "flex", flexDirection: "column", gap: 12, paddingBottom: selectedIds.size > 0 ? 88 : 0 }}>
 
-      {/* Gate status — flat row, no banner */}
-      {!gatesMet && (
-        <div style={{ paddingBottom: 8, borderBottom: `1px solid ${T.border}` }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: T.amber, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 6 }}>Before ordering blanks</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ color: quoteApproved ? T.green : T.red }}>{quoteApproved ? "✓" : "✕"}</span>
+      {/* ── Gate strip ── */}
+      {!gatesMet ? (
+        <div style={{ ...card, padding: "11px 14px" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.amber, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 8 }}>Before ordering blanks</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12.5 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+              <span style={{ color: quoteApproved ? T.green : T.red, fontWeight: 800 }}>{quoteApproved ? "✓" : "✕"}</span>
               <span style={{ color: quoteApproved ? T.muted : T.text }}>Quote approved</span>
             </div>
-            {!isNetTerms && (
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span style={{ color: paymentGateMet ? T.green : T.red }}>{paymentGateMet ? "✓" : "✕"}</span>
+            {!isNetTerms ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                <span style={{ color: paymentGateMet ? T.green : T.red, fontWeight: 800 }}>{paymentGateMet ? "✓" : "✕"}</span>
                 <span style={{ color: paymentGateMet ? T.muted : T.text }}>
                   {terms === "prepaid" ? "Full payment received" : "Deposit received"}
-                  {!paymentGateMet && <> (add on <a onClick={e=>{e.preventDefault();if(onTabClick)onTabClick("proofs");}} style={{color:T.accent,cursor:"pointer",textDecoration:"underline"}}>Proofs & Invoice</a> tab)</>}
+                  {!paymentGateMet && <> (add on <a onClick={e=>{e.preventDefault();if(onTabClick)onTabClick("invoice");}} style={{color:T.accent,cursor:"pointer",textDecoration:"underline"}}>Invoice</a> tab)</>}
                 </span>
               </div>
-            )}
-            {isNetTerms && (
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span style={{ color: T.green }}>✓</span>
-                <span style={{ color: T.muted }}>Net terms — no payment required</span>
+            ) : (
+              <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                <span style={{ color: T.green, fontWeight: 800 }}>✓</span>
+                <span style={{ color: T.muted }}>Net terms — payment on account, no gate</span>
               </div>
             )}
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ color: allProofsApproved ? T.green : T.red }}>{allProofsApproved ? "✓" : "✕"}</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+              <span style={{ color: allProofsApproved ? T.green : T.red, fontWeight: 800 }}>{allProofsApproved ? "✓" : "✕"}</span>
               <span style={{ color: allProofsApproved ? T.muted : T.text }}>All proofs approved ({items.filter(it => proofStatus[it.id]?.allApproved || it.artwork_status === "approved").length}/{items.length})</span>
             </div>
           </div>
         </div>
-      )}
-
-      {gatesMet && (
-        <div style={{ paddingBottom: 8, borderBottom: `1px solid ${T.border}`, fontSize: 10, fontWeight: 700, color: T.green, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-          All gates met · ready to order blanks
+      ) : (
+        <div style={{ ...card, padding: "11px 14px", display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ color: T.green, fontWeight: 800, fontSize: 13 }}>✓</span>
+          <span style={{ fontSize: 10, fontWeight: 700, color: T.green, letterSpacing: "0.06em", textTransform: "uppercase" }}>All gates met · ready to order blanks</span>
         </div>
       )}
 
-      {/* S&S sync button — only for projects with S&S items */}
-      {hasSSItems && job?.job_number && (
-        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", background: T.card, border: `1px solid ${T.border}`, borderRadius: 8 }}>
-          <button
-            onClick={syncSSOrders}
-            disabled={ssSyncing}
-            style={{
-              background: T.accent, border: "none", borderRadius: 6,
-              color: "#fff", fontSize: 11, fontWeight: 600, padding: "6px 14px",
-              cursor: ssSyncing ? "default" : "pointer", opacity: ssSyncing ? 0.5 : 1,
-              whiteSpace: "nowrap",
-            }}
-          >
-            {ssSyncing ? "Syncing..." : "Sync S&S Orders"}
-          </button>
-          <span style={{ fontSize: 10, color: T.muted }}>
-            Auto-fill order numbers, costs & tracking from S&S using PO #{job.job_number}
-          </span>
-          {ssResult && (
-            <span style={{ fontSize: 10, fontWeight: 600, color: ssResult.matched > 0 ? T.green : T.amber, marginLeft: "auto" }}>
-              {ssResult.message}
-            </span>
-          )}
-        </div>
-      )}
-
-      {/* Cost variance summary */}
-      {(()=>{
+      {/* ── Variance KPIs ── */}
+      {(() => {
         let totalCalc = 0, totalActual = 0, hasAny = false;
         items.forEach(item => {
-          const f = localFields[item.id] || {};
-          const totalUnits = tQty(item.qtys || {});
-          // Calculated: cost_per_unit × units — the SAME figure shown under
-          // each item's order box (the blank cost the job is priced off of).
-          // Must match the per-row calc below so the rows sum to this total.
+          const fld = localFields[item.id] || {};
           const calcCost = blankCalcCost(item) || 0;
-          const actualCost = f.blanks_order_cost ? parseFloat(String(f.blanks_order_cost).replace(/[^0-9.\-]/g, "")) : 0;
-          totalCalc += calcCost;
-          totalActual += actualCost;
+          const actualCost = fld.blanks_order_cost ? parseFloat(String(fld.blanks_order_cost).replace(/[^0-9.\-]/g, "")) : 0;
+          totalCalc += calcCost; totalActual += actualCost;
           if (actualCost > 0) hasAny = true;
         });
         if (!hasAny) return null;
         const variance = totalActual - totalCalc;
-        const color = variance === 0 ? T.muted : variance > 0 ? T.red : T.green;
+        const vColor = variance === 0 ? T.faint : variance > 0 ? T.red : T.green;
+        const tile = (k, v, c) => (
+          <div style={{ ...card, padding: "12px 14px" }}>
+            <div style={{ fontSize: 8.5, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.05em" }}>{k}</div>
+            <div style={{ fontSize: 19, fontWeight: 800, marginTop: 4, fontFamily: mono, color: c || T.text }}>{v}</div>
+          </div>
+        );
         return (
-          <div style={{ display: "flex", gap: 16, alignItems: "center", padding: "8px 14px", background: T.card, border: `1px solid ${T.border}`, borderRadius: 8 }}>
-            <div><div style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>Calculated</div><div style={{ fontSize: 13, fontWeight: 700, color: T.text, fontFamily: mono }}>${totalCalc.toFixed(2)}</div></div>
-            <div><div style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>Actual</div><div style={{ fontSize: 13, fontWeight: 700, color: T.text, fontFamily: mono }}>${totalActual.toFixed(2)}</div></div>
-            <div><div style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>Variance</div><div style={{ fontSize: 13, fontWeight: 700, color, fontFamily: mono }}>{variance >= 0 ? "+" : ""}${variance.toFixed(2)}</div></div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10 }}>
+            {tile("Calculated", "$" + totalCalc.toFixed(2))}
+            {tile("Actual ordered", "$" + totalActual.toFixed(2))}
+            {tile("Variance", (variance >= 0 ? "+" : "−") + "$" + Math.abs(variance).toFixed(2), vColor)}
           </div>
         );
       })()}
 
-      {/* Item list — single tight row per item. QB invoice # is the
-          primary identifier (front and center), brand/style/color
-          combined with no individual labels, sizes inline, order total
-          input on the right with variance pill. */}
-      <div style={{ ...card }}>
-        {/* Bulk-apply action bar — appears when any items are checked.
-            Lets the user enter ONE order total for multiple items
-            (real-world: same S&S/AS Colour PO covering several items)
-            and allocates the total across them proportionally by
-            calculated cost. */}
-        {selectedIds.size > 0 && (
-          <div style={{
-            padding: "10px 14px",
-            borderBottom: `1px solid ${T.accent}44`,
-            background: T.accentDim,
-            display: "flex", alignItems: "center", gap: 10,
-            flexDirection: isMobile ? "column" : "row",
-            alignItems: isMobile ? "stretch" : "center",
-          }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, fontFamily: font }}>
-                {selectedIds.size} item{selectedIds.size !== 1 ? "s" : ""} selected
-              </span>
-              <button onClick={clearSelection}
-                style={{ fontSize: 10, color: T.muted, background: "none", border: `1px solid ${T.border}`, borderRadius: 5, padding: "3px 10px", cursor: "pointer", fontFamily: font }}>
-                Clear
-              </button>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ fontSize: 11, color: T.muted, fontFamily: font }}>Order total</span>
-              <div style={{ display: "flex", alignItems: "center", gap: 3, background: T.surface, border: `1px solid ${T.accent}66`, borderRadius: 5, padding: "4px 8px" }}>
-                <span style={{ fontSize: 12, color: T.faint, fontFamily: mono }}>$</span>
-                <input type="text" inputMode="decimal" placeholder="0.00"
-                  value={bulkTotal} onChange={e => setBulkTotal(e.target.value)}
-                  onFocus={e => e.target.select()}
-                  onKeyDown={e => { if (e.key === "Enter") applyBulkOrder(); }}
-                  style={{ width: 100, background: "transparent", border: "none", outline: "none", color: T.text, fontSize: 13, fontFamily: mono, fontWeight: 700, textAlign: "right", padding: 0 }} />
-              </div>
-              {(() => {
-                // Valid when a number ≥ 0 is entered (0 marks free blanks ordered).
-                const n = parseFloat(String(bulkTotal).replace(/[^0-9.\-]/g, ""));
-                const invalid = bulkTotal === "" || isNaN(n) || n < 0;
-                return (
-                  <button onClick={applyBulkOrder} disabled={invalid}
-                    style={{
-                      background: T.green, color: "#fff", border: "none", borderRadius: 5,
-                      padding: "6px 14px", fontSize: 12, fontWeight: 700, fontFamily: font,
-                      cursor: invalid ? "not-allowed" : "pointer",
-                      opacity: invalid ? 0.5 : 1,
-                    }}>
-                    Apply
-                  </button>
-                );
-              })()}
-            </div>
-          </div>
-        )}
 
-        {/* Column headers — desktop only. Mobile uses inline labels per
-            card-row since the 5-col grid doesn't survive narrow widths. */}
-        {!isMobile && (
-          <div style={{ display: "grid", gridTemplateColumns: "22px 32px 90px 1fr 150px 160px", gap: 12, padding: "8px 14px", borderBottom: `1px solid ${T.border}`, background: T.surface, fontSize: 9, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>
-            <div>
-              <input type="checkbox"
-                checked={selectedIds.size > 0 && selectedIds.size === items.length}
-                ref={el => { if (el) el.indeterminate = selectedIds.size > 0 && selectedIds.size < items.length; }}
-                onChange={() => {
-                  if (selectedIds.size === items.length) clearSelection();
-                  else setSelectedIds(new Set(items.map(it => it.id)));
-                }}
-                style={{ cursor: "pointer" }} />
-            </div>
-            <div></div>
-            <div>QB Invoice</div>
-            <div>Brand · Style · Color · Sizes</div>
-            <div>Order total</div>
-            <div style={{ textAlign: "right" }}>Status</div>
-          </div>
-        )}
-        {items.map((item, i) => {
-          if (selectedItemId && item.id !== selectedItemId) return null;
-          const f = localFields[item.id] || {};
+      {/* ── Supplier-grouped item list (production2 row style) ── */}
+      {(() => {
+        const renderRow = (item) => {
+          const fld = localFields[item.id] || {};
           const totalUnits = tQty(item.qtys || {});
-          // Multi-dimensional sizes (pants: Fit/Waist/Inseam) → cut-ticket grid;
-          // null for 1-D sizes (S/M/L) so tees/hats keep the inline stacks.
-          const sizeMatrix = parseSizeMatrix(item.sizes || [], item.qtys || {});
           const calcCost = blankCalcCost(item);
-          // Prefer localFields (in-progress edits), fall back to the
-          // items prop so a remount or stale local state still shows
-          // the persisted value from DB.
-          const effectiveOrderCost = (f.blanks_order_cost != null && f.blanks_order_cost !== "")
-            ? f.blanks_order_cost
+          const effectiveOrderCost = (fld.blanks_order_cost != null && fld.blanks_order_cost !== "")
+            ? fld.blanks_order_cost
             : (item.blanks_order_cost != null ? item.blanks_order_cost : "");
-          // An order is "entered" when the field has any value — including 0
-          // (free blanks). Empty = not ordered. 0 must not read as null here.
           const orderEntered = effectiveOrderCost !== "" && effectiveOrderCost != null;
           const actualCost = orderEntered ? (parseFloat(String(effectiveOrderCost).replace(/[^0-9.\-]/g, "")) || 0) : null;
           const costDiff = calcCost !== null && actualCost !== null ? actualCost - calcCost : null;
-          const hasOrder = orderEntered;
-          const itemLetter = letterByItemId[item.id] || String.fromCharCode(65 + i);
-          // QB invoice # is the primary reference for ordering. Format
-          // matches the PO PDF naming: invoice number + item letter.
-          const qbInvNum = job?.type_meta?.qb_invoice_number;
-          const qbRef = qbInvNum ? `#${qbInvNum}${itemLetter}` : null;
-          const fallbackRef = `${job?.job_number || ""}${itemLetter}`;
-          const blankInfo = [item.blank_vendor, item.blank_sku, item.color || item.blank_color].filter(Boolean).join(" · ");
-          const isLast = i === items.length - 1;
-
-          // Per-size blank substitutions — a different garment for specific sizes.
-          // Whoever orders blanks needs to know to order the substitute separately.
-          const _subs = item.sizeSubs || item.size_subs || {};
-          const _subSizes = sortSizes((item.sizes || []).filter(sz => {
-            const s = _subs[sz]; return s && (s.label || s.color || s.note) && (item.qtys?.[sz] || 0) > 0;
-          }));
-          const subNote = _subSizes.length ? (
-            <div style={{ marginTop: 6, fontSize: 11, color: T.amber, border: `1px solid ${T.amber}`, borderRadius: 5, padding: "5px 9px", lineHeight: 1.5, fontFamily: font }}>
-              <span style={{ fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.05em", fontSize: 9, marginRight: 6 }}>⚠ Substitute blank</span>
-              {_subSizes.map(sz => { const s = _subs[sz]; const g = [s.label, s.color].filter(Boolean).join(" "); return `${sz} (${(item.qtys?.[sz] || 0).toLocaleString()}): ${g || "sub"}${s.note ? ` — ${s.note}` : ""}`; }).join("  ·  ")}
-            </div>
-          ) : null;
-
-          // Mobile: stacked card layout — letter+ref+status on row 1,
-          // blank info on row 2, sizes wrap on row 3, order total + variance
-          // on row 4. Each section gets enough breathing room to be tappable.
-          if (isMobile) {
-            return (
-              <div key={item.id} style={{
-                padding: "12px 14px",
-                borderBottom: isLast ? "none" : `1px solid ${T.border}`,
-                display: "flex", flexDirection: "column", gap: 10,
-                background: selectedIds.has(item.id) ? T.accentDim + "55" : "transparent",
-              }}>
-                {/* Row 1: checkbox + letter + invoice ref + status */}
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <input type="checkbox"
-                    checked={selectedIds.has(item.id)}
-                    onChange={() => toggleSelected(item.id)}
-                    style={{ cursor: "pointer", width: 16, height: 16, flexShrink: 0 }} />
-                  <span style={{ width: 28, height: 28, borderRadius: 5, background: T.accentDim, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: T.accent, fontFamily: mono, flexShrink: 0 }}>
-                    {itemLetter}
-                  </span>
-                  <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 700, color: qbInvNum ? T.text : T.faint, fontFamily: mono, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {qbRef || <span title="Push to QB to get an invoice #" style={{ fontSize: 11 }}>{fallbackRef}</span>}
-                  </div>
-                  {hasOrder && <span style={{ fontSize: 9, fontWeight: 700, color: T.green, letterSpacing: "0.06em", textTransform: "uppercase", whiteSpace: "nowrap", flexShrink: 0 }}>✓ Ordered</span>}
-                </div>
-
-                {/* Row 2: blank info */}
-                <div style={{ fontSize: 13, fontWeight: 600, color: T.text, paddingLeft: 26 }}>{blankInfo || "—"}</div>
-
-                {/* Row 3: sizes — cut-ticket grid for multi-dim, inline stacks otherwise */}
-                {sizeMatrix ? (
-                  <div style={{ paddingLeft: 26 }}>
-                    <SizeGrid labels={item.sizes || []} qtys={item.qtys || {}} palette={GRID_PALETTE} mono={mono} />
-                    <div style={{ fontSize: 11, color: T.muted, fontFamily: mono, fontWeight: 600, marginTop: 5 }}>{totalUnits.toLocaleString()} units</div>
-                  </div>
-                ) : (
-                  <div style={{ display: "flex", gap: 14, alignItems: "flex-end", flexWrap: "wrap", paddingLeft: 26 }}>
-                    {(item.sizes || []).filter(sz => (item.qtys || {})[sz] > 0).map(sz => (
-                      <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", lineHeight: 1.1 }}>
-                        <span style={{ fontSize: 11, color: T.muted, fontFamily: mono, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 2 }}>{sz}</span>
-                        <span style={{ fontSize: 14, color: T.text, fontWeight: 700, fontFamily: mono }}>{(item.qtys || {})[sz].toLocaleString()}</span>
-                      </div>
-                    ))}
-                    <span style={{ fontSize: 12, color: T.muted, fontFamily: mono, fontWeight: 600, paddingBottom: 1 }}>· {totalUnits.toLocaleString()} units</span>
-                  </div>
-                )}
-
-                {subNote && <div style={{ paddingLeft: 26 }}>{subNote}</div>}
-
-                {/* Row 4: order total input + variance */}
-                <div style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: "space-between", paddingLeft: 26, marginTop: 2 }}>
-                  <div style={{ fontSize: 11, color: T.muted, fontFamily: font }}>
-                    Order total
-                    {calcCost !== null && <span style={{ fontFamily: mono, marginLeft: 6, color: T.faint }}>· calc ${calcCost.toFixed(2)}</span>}
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    {calcCost !== null && actualCost !== null && actualCost > 0 && (
-                      <span style={{ fontSize: 11, fontFamily: mono, fontWeight: 700, color: costDiff > 0 ? T.red : costDiff < 0 ? T.green : T.muted }}>
-                        {costDiff === 0 ? "match" : (costDiff > 0 ? "+" : "") + "$" + Math.abs(costDiff).toFixed(2)}
-                      </span>
-                    )}
-                    <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                      <span style={{ fontSize: 12, color: T.faint, fontFamily: mono }}>$</span>
-                      <input style={{ width: 100, padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 5, background: T.surface, color: T.text, fontSize: 13, fontFamily: mono, fontWeight: 600, outline: "none", textAlign: "right" }} type="text" inputMode="decimal" value={effectiveOrderCost || ""} placeholder="0.00"
-                        onChange={e => updateField(item.id, "blanks_order_cost", e.target.value)}
-                        onFocus={e => e.target.select()} />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            );
-          }
-
+          const letter = letterByItemId[item.id] || "";
+          const sel = selectedIds.has(item.id);
+          const colorVal = item.color || item.blank_color || "";
+          const sizeStr = (item.sizes || []).filter(sz => (item.qtys || {})[sz] > 0).map(sz => sz + ":" + (item.qtys || {})[sz]).join(" ");
+          const sub = [item.blank_sku, colorVal].filter(Boolean).join(" · ");
+          const subs = item.sizeSubs || item.size_subs || {};
+          const subSizes = sortSizes((item.sizes || []).filter(sz => { const s = subs[sz]; return s && (s.label || s.color || s.note) && (item.qtys?.[sz] || 0) > 0; }));
           return (
-            <div key={item.id} style={{
-              display: "grid", gridTemplateColumns: "22px 32px 90px 1fr 150px 160px",
-              gap: 12, padding: "10px 14px", alignItems: sizeMatrix ? "flex-start" : "center",
-              borderBottom: isLast ? "none" : `1px solid ${T.border}`,
-              background: selectedIds.has(item.id) ? T.accentDim + "55" : "transparent",
-            }}>
-              {/* Bulk-select checkbox */}
-              <input type="checkbox"
-                checked={selectedIds.has(item.id)}
-                onChange={() => toggleSelected(item.id)}
-                style={{ cursor: "pointer", width: 14, height: 14 }} />
-              {/* Letter */}
-              <span style={{ width: 28, height: 28, borderRadius: 5, background: T.accentDim, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: T.accent, fontFamily: mono }}>
-                {itemLetter}
-              </span>
-              {/* QB invoice ref */}
-              <div style={{ fontSize: 14, fontWeight: 700, color: qbInvNum ? T.text : T.faint, fontFamily: mono }}>
-                {qbRef || <span title={`OpsHub job number — push to QB to get an invoice #`} style={{ fontSize: 11 }}>{fallbackRef}</span>}
+            <div key={item.id} onClick={() => toggleSelected(item.id)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 16px", borderTop: `1px solid ${T.border}`, background: sel ? "#fafafb" : "transparent", boxShadow: sel ? `inset 3px 0 0 0 ${T.accent}` : "none", cursor: "pointer" }}>
+              <input type="checkbox" checked={sel} readOnly style={{ width: 16, height: 16, accentColor: T.accent, flexShrink: 0, pointerEvents: "none" }} />
+              <span style={{ width: 16, textAlign: "center", color: T.muted, fontWeight: 700, fontSize: 12, fontFamily: mono, flexShrink: 0 }}>{letter}</span>
+              <span onClick={e => e.stopPropagation()} style={{ display: "flex", flexShrink: 0 }}><ItemThumb fileId={mockupIds[item.id] || null} name={item.name} size={44} /></span>
+              <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+                <span style={{ fontSize: 13.5, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {sub && <span>{sub}{"  ·  "}</span>}
+                  <span style={{ fontFamily: mono }}>{sizeStr}</span>
+                </span>
+                <span style={{ fontSize: 11.5, color: T.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.name}</span>
+                {subSizes.length > 0 && <span style={{ fontSize: 10.5, fontWeight: 700, color: T.amber, textTransform: "uppercase", letterSpacing: "0.04em" }}>⚠ Substitute blank on {subSizes.join(", ")}</span>}
               </div>
-              {/* Blank info + sizes — sizes stacked label-over-number, bigger */}
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: T.text, marginBottom: 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{blankInfo || "—"}</div>
-                {sizeMatrix ? (
-                  <div>
-                    <SizeGrid labels={item.sizes || []} qtys={item.qtys || {}} palette={GRID_PALETTE} mono={mono} />
-                    <div style={{ fontSize: 13, color: T.muted, fontFamily: mono, fontWeight: 600, marginTop: 6 }}>{totalUnits.toLocaleString()} units</div>
-                  </div>
-                ) : (
-                  <div style={{ display: "flex", gap: 14, alignItems: "flex-end", flexWrap: "wrap" }}>
-                    {(item.sizes || []).filter(sz => (item.qtys || {})[sz] > 0).map(sz => (
-                      <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", lineHeight: 1.1 }}>
-                        <span style={{ fontSize: 13, color: T.muted, fontFamily: mono, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 3 }}>{sz}</span>
-                        <span style={{ fontSize: 16, color: T.text, fontWeight: 700, fontFamily: mono }}>{(item.qtys || {})[sz].toLocaleString()}</span>
-                      </div>
-                    ))}
-                    <span style={{ fontSize: 14, color: T.muted, fontFamily: mono, fontWeight: 600, paddingBottom: 1 }}>· {totalUnits.toLocaleString()} units</span>
-                  </div>
-                )}
-                {subNote}
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", minWidth: 56, flexShrink: 0 }}>
+                <span style={{ fontSize: 8.5, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.04em" }}>Calc</span>
+                <span style={{ fontSize: 13, fontWeight: 700, fontFamily: mono, color: T.muted }}>{calcCost !== null ? "$" + calcCost.toFixed(2) : "—"}</span>
               </div>
-              {/* Order total input — sized for $100,000.00, right-aligned */}
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                  <span style={{ fontSize: 12, color: T.faint, fontFamily: mono }}>$</span>
-                  <input style={{ width: 110, padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 5, background: T.surface, color: T.text, fontSize: 13, fontFamily: mono, fontWeight: 600, outline: "none", textAlign: "right" }} type="text" inputMode="decimal" value={effectiveOrderCost || ""} placeholder="0.00"
-                    onChange={e => updateField(item.id, "blanks_order_cost", e.target.value)}
-                    onFocus={e => e.target.select()} />
-                </div>
-                {calcCost !== null && (
-                  <div style={{ fontSize: 12, color: T.muted, marginTop: 4, fontFamily: mono }}>calc ${calcCost.toFixed(2)}</div>
-                )}
+              <div onClick={e => e.stopPropagation()} style={{ display: "flex", alignItems: "center", gap: 3, background: T.card, border: `1px solid ${orderEntered ? T.accent : T.border}`, borderRadius: 7, padding: "6px 9px", minWidth: 108, flexShrink: 0 }}>
+                <span style={{ fontSize: 12, color: T.faint, fontFamily: mono }}>$</span>
+                <input type="text" inputMode="decimal" value={effectiveOrderCost || ""} placeholder="0.00"
+                  onChange={e => updateField(item.id, "blanks_order_cost", e.target.value)} onFocus={e => e.target.select()}
+                  style={{ width: 66, border: "none", outline: "none", background: "transparent", textAlign: "right", fontFamily: mono, fontWeight: 700, fontSize: 13, color: T.text }} />
               </div>
-              {/* Variance + Ordered badge */}
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8 }}>
-                {calcCost !== null && actualCost !== null && actualCost > 0 && (
-                  <span style={{ fontSize: 12, fontFamily: mono, fontWeight: 700, color: costDiff > 0 ? T.red : costDiff < 0 ? T.green : T.muted }}>
-                    {costDiff === 0 ? "match" : (costDiff > 0 ? "+" : "") + "$" + Math.abs(costDiff).toFixed(2)}
-                  </span>
-                )}
-                {hasOrder && <span style={{ fontSize: 10, fontWeight: 700, color: T.green, letterSpacing: "0.06em", textTransform: "uppercase", whiteSpace: "nowrap" }}>✓ Ordered</span>}
+              <div style={{ minWidth: 62, textAlign: "right", fontFamily: mono, fontSize: 12, fontWeight: 700, flexShrink: 0, color: costDiff == null ? T.faint : costDiff > 0 ? T.red : costDiff < 0 ? T.green : T.faint }}>
+                {costDiff == null ? "—" : costDiff === 0 ? "$0.00" : (costDiff > 0 ? "+" : "−") + "$" + Math.abs(costDiff).toFixed(2)}
               </div>
             </div>
           );
-        })}
+        };
+        const groups = new Map();
+        for (const it of items) {
+          if (selectedItemId && it.id !== selectedItemId) continue;
+          const v = it.blank_vendor || "Other supplier";
+          if (!groups.has(v)) groups.set(v, []);
+          groups.get(v).push(it);
+        }
+        const poNum = job?.type_meta?.qb_invoice_number;
+        return [...groups.entries()].map(([vendor, gitems]) => {
+          const units = gitems.reduce((a, it) => a + tQty(it.qtys || {}), 0);
+          const isSS = /^S&S/i.test(vendor);
+          return (
+            <div key={vendor} style={{ ...card }}>
+              <div style={{ padding: "9px 16px", background: T.surface, borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{ fontSize: 14, fontWeight: 800 }}>{vendor}</span>
+                  <span style={{ fontSize: 11.5, color: T.faint, marginLeft: 10 }}>{gitems.length} item{gitems.length !== 1 ? "s" : ""} · {units.toLocaleString()} units</span>
+                </div>
+                <span style={{ fontSize: 11.5, color: T.faint, fontFamily: mono }}>{poNum ? "PO #" + poNum : (isSS ? "PO #" + (job?.job_number || "") : "manual order")}</span>
+              </div>
+              {gitems.map(renderRow)}
+            </div>
+          );
+        });
+      })()}
+
+      {/* ── Summary ── */}
+      <div style={{ fontSize: 11, color: T.muted, textAlign: "center" }}>
+        {items.filter(it => { const lv = localFields[it.id]?.blanks_order_cost; const v = lv !== undefined ? lv : it.blanks_order_cost; return v !== "" && v != null; }).length}/{items.length} items ordered
       </div>
 
-      {/* Summary — counts items where the order total has been entered. */}
-      <div style={{ fontSize: 11, color: T.muted, textAlign: "center" }}>
-        {items.filter(it => {
-          const lv = localFields[it.id]?.blanks_order_cost;
-          const v = lv !== undefined ? lv : it.blanks_order_cost;
-          return v !== "" && v != null; // ordered if a total was entered, incl. 0
-        }).length}/{items.length} items ordered
-      </div>
+      {/* ── Sticky bulk-apply bar ── */}
+      {selectedIds.size > 0 && (
+        <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, background: T.card, borderTop: `1px solid ${T.border}`, boxShadow: "0 -4px 20px rgba(0,0,0,0.06)", padding: "14px 24px", zIndex: 40 }}>
+          <div style={{ maxWidth: 1080, margin: "0 auto", display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: T.accent }}>{selectedIds.size} item{selectedIds.size !== 1 ? "s" : ""} selected</span>
+            <button onClick={clearSelection} style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 14px", fontSize: 13, color: T.muted, cursor: "pointer", fontFamily: font }}>Clear</button>
+            <span style={{ flex: 1 }} />
+            <span style={{ fontSize: 11.5, color: T.muted }}>One PO total, split by calc:</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 3, background: T.card, border: `1px solid ${T.accent}`, borderRadius: 8, padding: "7px 10px" }}>
+              <span style={{ fontSize: 13, color: T.faint, fontFamily: mono }}>$</span>
+              <input type="text" inputMode="decimal" placeholder="0.00" value={bulkTotal}
+                onChange={e => setBulkTotal(e.target.value)} onFocus={e => e.target.select()}
+                onKeyDown={e => { if (e.key === "Enter") applyBulkOrder(); }}
+                style={{ width: 100, border: "none", outline: "none", background: "transparent", textAlign: "right", fontFamily: mono, fontWeight: 700, fontSize: 14, color: T.text }} />
+            </div>
+            {(() => { const n = parseFloat(String(bulkTotal).replace(/[^0-9.\-]/g, "")); const invalid = bulkTotal === "" || isNaN(n) || n < 0;
+              return <button onClick={applyBulkOrder} disabled={invalid} style={{ background: invalid ? T.accentDim : T.green, color: invalid ? T.faint : "#fff", border: "none", borderRadius: 8, padding: "8px 18px", fontSize: 13, fontWeight: 700, cursor: invalid ? "default" : "pointer", fontFamily: font }}>Apply to {selectedIds.size} →</button>;
+            })()}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

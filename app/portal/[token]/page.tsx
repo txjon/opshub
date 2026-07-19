@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { getLogoSvgForSlug } from "@/lib/branding-client";
 import { parseDay, daysUntilDay } from "@/lib/dates";
+import { PackageApproval } from "@/components/portal/PackageApproval";
 
 // ── Document-style theme — matches invoice/quote PDF aesthetic ──
 const C = {
@@ -85,10 +86,6 @@ export default function PortalPage({ params }: { params: { token: string } }) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [revisionNote, setRevisionNote] = useState<Record<string, string>>({});
-  const [showRevisionInput, setShowRevisionInput] = useState<string | null>(null);
-  const [showQuoteReject, setShowQuoteReject] = useState(false);
-  const [quoteRejectNote, setQuoteRejectNote] = useState("");
   const [viewingProof, setViewingProof] = useState<any>(null);
   const isMobile = useIsMobile();
   const [activeToken, setActiveToken] = useState(params.token);
@@ -158,7 +155,6 @@ export default function PortalPage({ params }: { params: { token: string } }) {
       if (res.ok) {
         setProjectCache(prev => { const n = {...prev}; delete n[activeToken]; return n; });
         await loadPortal(undefined, true);
-        setShowRevisionInput(null);
       }
     } catch {}
     setActionLoading(null);
@@ -363,31 +359,17 @@ export default function PortalPage({ params }: { params: { token: string } }) {
                 Your invoice is being updated — you'll be notified when it's ready.
               </div>
             ) : paymentLink && balance > 0 && (
-              hasProofs && !allProofsApproved ? (
-                <button onClick={async () => {
-                  await doAction("approve-all-proofs");
-                  window.open(paymentLink, "_blank");
-                }}
-                  disabled={!!actionLoading}
-                  style={{
-                    display: "block", textAlign: "center", width: "100%",
-                    padding: "14px 0", borderRadius: 10, border: "none", cursor: "pointer",
-                    background: C.accent, color: "#fff",
-                    fontSize: 15, fontWeight: 700, opacity: actionLoading ? 0.6 : 1,
-                  }}>
-                  Approve & Pay Now — {fmtD(balance)}
-                </button>
-              ) : (
-                <a href={paymentLink} target="_blank" rel="noopener noreferrer"
-                  style={{
-                    display: "block", textAlign: "center", width: "100%",
-                    padding: "14px 0", borderRadius: 10, textDecoration: "none",
-                    background: C.accent, color: "#fff",
-                    fontSize: 15, fontWeight: 700,
-                  }}>
-                  Pay Now — {fmtD(balance)}
-                </a>
-              )
+              // Payment is its own step now — approval (quote + proofs) happens
+              // once via PackageApproval, then we invoice, then they pay.
+              <a href={paymentLink} target="_blank" rel="noopener noreferrer"
+                style={{
+                  display: "block", textAlign: "center", width: "100%",
+                  padding: "14px 0", borderRadius: 10, textDecoration: "none",
+                  background: C.accent, color: "#fff",
+                  fontSize: 15, fontWeight: 700,
+                }}>
+                Pay Now — {fmtD(balance)}
+              </a>
             )}
 
             {/* Payment history */}
@@ -574,74 +556,13 @@ export default function PortalPage({ params }: { params: { token: string } }) {
               </div>
             </div>
 
-            {/* Quote actions */}
-            {!project.quoteApproved && (
-              <div style={{ marginTop: 16 }}>
-                <button
-                  onClick={() => doAction("approve-quote")}
-                  disabled={actionLoading === "approve-quote"}
-                  style={{
-                    width: "100%", padding: "14px 0", borderRadius: 10,
-                    background: C.blue, color: "#fff", border: "none",
-                    fontSize: 15, fontWeight: 700, cursor: "pointer",
-                    opacity: actionLoading === "approve-quote" ? 0.6 : 1,
-                  }}
-                >
-                  {actionLoading === "approve-quote" ? "Approving..." : "Approve Quote"}
-                </button>
-                {!showQuoteReject ? (
-                  <button
-                    onClick={() => setShowQuoteReject(true)}
-                    style={{
-                      width: "100%", marginTop: 8, padding: "10px 0", borderRadius: 10,
-                      background: "transparent", color: C.muted, border: `1px solid ${C.border}`,
-                      fontSize: 13, fontWeight: 600, cursor: "pointer",
-                    }}
-                  >
-                    Request Changes
-                  </button>
-                ) : (
-                  <div style={{ marginTop: 10, background: C.surface, borderRadius: 10, padding: 14, border: `1px solid ${C.border}` }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: C.text, marginBottom: 6 }}>What changes are needed?</div>
-                    <textarea
-                      value={quoteRejectNote}
-                      onChange={e => setQuoteRejectNote(e.target.value)}
-                      placeholder="Describe the changes you'd like..."
-                      rows={3}
-                      style={{
-                        width: "100%", padding: 10, borderRadius: 8,
-                        border: `1px solid ${C.border}`, background: C.card, color: C.text,
-                        fontSize: 13, resize: "vertical", outline: "none", boxSizing: "border-box",
-                      }}
-                    />
-                    <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                      <button
-                        onClick={() => doAction("reject-quote", { note: quoteRejectNote })}
-                        disabled={!quoteRejectNote.trim() || actionLoading === "reject-quote"}
-                        style={{
-                          flex: 1, padding: "10px", borderRadius: 8,
-                          background: C.red || "#f87171", color: "#fff", border: "none",
-                          fontSize: 13, fontWeight: 600, cursor: "pointer",
-                          opacity: (!quoteRejectNote.trim() || actionLoading === "reject-quote") ? 0.5 : 1,
-                        }}
-                      >
-                        {actionLoading === "reject-quote" ? "Sending..." : "Submit Changes"}
-                      </button>
-                      <button
-                        onClick={() => { setShowQuoteReject(false); setQuoteRejectNote(""); }}
-                        style={{
-                          padding: "10px 16px", borderRadius: 8,
-                          background: "transparent", border: `1px solid ${C.border}`, color: C.muted,
-                          fontSize: 13, cursor: "pointer",
-                        }}
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
+            {/* Package approval — one Approve + one Request-changes for the whole
+                package (quote + all proofs). Blanket, per V2. */}
+            <div style={{ marginTop: 16 }}>
+              <PackageApproval c={C} approved={project.quoteApproved} approvedAt={project.quoteApprovedAt}
+                changeRequest={(project as any).changeRequest} quoteTotal={quote.total}
+                terms={(project as any).terms} projectName={project.title} onAction={doAction} />
+            </div>
 
             {/* View Quote PDF */}
             <button
@@ -671,13 +592,7 @@ export default function PortalPage({ params }: { params: { token: string } }) {
                 <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: C.blueDark }}>All Approved</span>
               )}
               {!allProofsApproved && pendingProofCount > 0 && (
-                <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-                  <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: C.amber }}>{pendingProofCount} pending</span>
-                  <button onClick={() => doAction("approve-all-proofs")} disabled={!!actionLoading}
-                    style={{ padding: "6px 14px", borderRadius: 6, border: "none", cursor: "pointer", background: C.blue, color: "#fff", fontSize: 11, fontWeight: 700, opacity: actionLoading ? 0.6 : 1 }}>
-                    Approve All
-                  </button>
-                </div>
+                <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: C.amber }}>{pendingProofCount} pending</span>
               )}
             </div>
 
@@ -765,7 +680,7 @@ export default function PortalPage({ params }: { params: { token: string } }) {
                 {(() => { const pending = actualProofs.filter(p => p.approval === "pending"); const idx = pending.findIndex(p => p.id === viewingProof.id); return pending.length > 1 && idx >= 0 ? ` · ${idx + 1} of ${pending.length}` : ""; })()}
               </div>
             </div>
-            <button onClick={() => { setViewingProof(null); setShowRevisionInput(null); }} style={{
+            <button onClick={() => setViewingProof(null)} style={{
               background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, fontWeight: 600, color: C.text, cursor: "pointer", padding: "8px 20px",
             }}>Close</button>
           </div>
@@ -786,54 +701,8 @@ export default function PortalPage({ params }: { params: { token: string } }) {
             )}
           </div>
 
-            {/* Action buttons — all inside modal */}
-            {(viewingProof.approval === "pending" || viewingProof.approval === "revision_requested") && (
-              <div style={{ padding: "16px 20px", borderTop: `1px solid ${C.border}` }}>
-                {showRevisionInput === viewingProof.id ? (
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: C.text, marginBottom: 8 }}>What changes would you like?</div>
-                    <textarea value={revisionNote[viewingProof.id] || ""}
-                      onChange={e => setRevisionNote(prev => ({ ...prev, [viewingProof.id]: e.target.value }))}
-                      placeholder="Describe the changes..."
-                      autoFocus
-                      style={{ width: "100%", minHeight: 70, borderRadius: 8, border: `1px solid ${C.border}`, padding: 10, fontSize: 13, fontFamily: C.font, resize: "vertical", background: C.surface, color: C.text, boxSizing: "border-box" }} />
-                    <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                      <button onClick={async () => { await doAction("request-revision", { fileId: viewingProof.id, note: revisionNote[viewingProof.id] || "" }); setViewingProof(null); }}
-                        disabled={actionLoading === `request-revision${viewingProof.id}`}
-                        style={{ flex: 1, padding: "10px", borderRadius: 8, background: C.red, color: "#fff", border: "none", fontSize: 13, fontWeight: 700, cursor: "pointer", opacity: actionLoading ? 0.6 : 1 }}>
-                        {actionLoading ? "Sending..." : "Submit Changes"}
-                      </button>
-                      <button onClick={() => setShowRevisionInput(null)}
-                        style={{ padding: "10px 20px", borderRadius: 8, background: "transparent", border: `1px solid ${C.border}`, color: C.muted, fontSize: 13, cursor: "pointer" }}>
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
-                    <button onClick={async () => {
-                      const currentId = viewingProof.id;
-                      await doAction("approve-proof", { fileId: currentId });
-                      // Auto-advance to next pending proof
-                      const pending = actualProofs.filter(p => p.approval === "pending" && p.id !== currentId);
-                      if (pending.length > 0) {
-                        setViewingProof(pending[0]);
-                      } else {
-                        setViewingProof(null);
-                      }
-                    }}
-                      disabled={actionLoading === `approve-proof${viewingProof.id}`}
-                      style={{ padding: "12px 32px", borderRadius: 10, background: C.blue, color: "#fff", border: "none", fontSize: 14, fontWeight: 700, cursor: "pointer", opacity: actionLoading ? 0.6 : 1 }}>
-                      {(() => { const remaining = actualProofs.filter(p => p.approval === "pending" && p.id !== viewingProof.id).length; return remaining > 0 ? `Approve · ${remaining} more` : "Approve"; })()}
-                    </button>
-                    <button onClick={() => setShowRevisionInput(viewingProof.id)}
-                      style={{ padding: "12px 32px", borderRadius: 10, background: "transparent", color: C.red, border: `1px solid ${C.redBorder}`, fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
-                      Request Changes
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
+            {/* Proofs are view-only in this modal — approval is the single
+                blanket action in PackageApproval (quote + all proofs together). */}
 
             {/* Approved state */}
             {viewingProof.approval === "approved" && (

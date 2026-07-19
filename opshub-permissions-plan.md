@@ -57,14 +57,17 @@ God Mode, Reports, Reconciliation, Integrations, Team & Access.
 - Ready for ONE push (Phase 1 + 1.5). NOT pushed yet.
 - Phase 2 (self-serve Team & Access toggle grid in /settings) — not built.
 
-## PARKED backlog
-- **Billing-queue cleanup:** make the per-job queue modal READ-ONLY for bill entry — remove the
-  inline `+ bill` buttons (per-line / per-vendor / job-header); force ALL bill creation through the
-  "+ New bill" form (matches how vendors invoice). KEEP the dispositions (Mark fully billed /
-  Over–accepted / Reopen). Shared component → applies to both /billing and /reconciliation. Open Q:
-  should Abigail be able to accept an over-variance, or is that owner-only?
-- Pre-push housekeeping: reset OpsHubTesting.page_access back to NULL (it's been mirroring personas
-  during testing).
+## DONE 2026-06-29 (live, main 46c15add)
+- **Billing-queue cleanup:** queue is read-only — inline `+ bill` removed everywhere (buttons +
+  inline invoice/allocation UI + handlers/state); all bill creation goes through "+ New bill".
+  **Dispositions (Mark fully billed / Over–accepted / Reopen) are OWNER-ONLY** (gated !billingOnly).
+  Also owner-only: the aggregate KPI strip + Open-PO-by-vendor. Abigail keeps the read-only queue +
+  per-line inline variance. Shared component → /billing (Abigail) vs /reconciliation (owner).
+- **CLAUDE.md access rule** added (scope every new (dashboard) page from the start).
+
+## Notes
+- **OpsHubTesting is an is_god account on prod**, kept as Jon's impersonation/test login (flip its
+  page_access + is_god to test any persona). Treat its password as a root key.
 
 ## Notes
 - Keep a simple `is_owner` capability (who may edit others' access) — even "no roles" needs an admin.

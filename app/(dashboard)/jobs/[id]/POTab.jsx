@@ -11,6 +11,7 @@ import { useIsMobile } from "@/lib/useIsMobile";
 import { PdfCanvasPreview } from "@/components/PdfCanvasPreview";
 import { addBusinessDays, addDays, fmtDay } from "@/lib/dates";
 import { poSendAllowed } from "@/lib/date-chain";
+import { SHIP_METHODS } from "@/lib/ship-methods";
 // dates — milestones removed, ship date is set manually
 
 function fmtD(n) {
@@ -136,8 +137,6 @@ function buildLineItems(cp, allProds) {
   return { printLines, finLines, specLines, setupLines };
 }
 
-const SHIP_METHODS = ["UPS Ground","UPS 2-Day","UPS Next Day","UPS Next Day Air Saver","Freight / LTL","Ocean","Pick Up","Vendor's Choice"];
-
 export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selectedItemId}) {
   const supabase = createClient();
   const branding = useClientBranding();
@@ -181,6 +180,8 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
   const [itemRoutes,setItemRoutes] = useState({}); // local mirror of items.shipping_route for instant UI on select change
   const [saving,setSaving] = useState({});
   const [showSendEmail,setShowSendEmail] = useState(false);
+  const [shipModalVendor,setShipModalVendor] = useState(null); // vendor whose pre-send ship modal is open
+  const shipDefaultsAppliedRef = useRef({}); // per-vendor: defaults auto-applied once
 
   useEffect(()=>{
     supabase.from("decorators").select("*").order("name").then(({data})=>setDecorators(data||[]));
@@ -261,7 +262,8 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
   // PO ship method to "Vendor's Choice" — they pick the carrier. Explicit pick
   // still wins.
   const activeVendorShipsToHpd = !!activeVendorRoute && activeVendorRoute !== "drop_ship";
-  const effectiveShipMethod = shipMethods[active] || (activeVendorShipsToHpd ? "Vendor's Choice" : "");
+  // Ship method: explicit override → per-vendor default → HPD-bound fallback.
+  const effectiveShipMethod = shipMethods[active] || getDec(active)?.default_ship_method || (activeVendorShipsToHpd ? "Vendor's Choice" : "");
   const today = new Date().toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"});
   const shipDate = project?.target_ship_date
     ? new Date(project.target_ship_date+"T12:00:00").toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"})
@@ -292,7 +294,10 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
   // R1 — the one gate (locked 2026-07-15): a PO needs a ship-by date or a
   // deliberate ASAP before it can send. Blank used to sail through.
   const shipBySet = poSendAllowed(poShipDates[active]);
-  const canSend = ready && shipBySet;
+  // Gate BOTH now (Jon 2026-07-19): a PO can't send without a ship-by date AND
+  // a ship method. The pre-send modal enforces both before the email step.
+  const methodSet = !!effectiveShipMethod;
+  const canSend = ready && shipBySet && methodSet;
   const allFilled = vItems.every(it=>itemFields[it.id]?.packing_notes?.trim());
 
   // Blanks gate: check if all items for current vendor have blanks ordered
@@ -320,6 +325,21 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
   const activeDecorator = getDec(active);
   const activeLeadDays = Number(activeDecorator?.lead_time_days) || 0;
   const todayIso = new Date().toISOString().slice(0, 10);
+
+  // Auto-populate ship defaults when a vendor's pre-send modal opens: ship-by
+  // date from the decorator's lead time, ship method from its default. Applied
+  // ONCE per vendor (ref-guarded) so it never clobbers a manual overwrite.
+  useEffect(() => {
+    const v = shipModalVendor;
+    if (!v || active !== v || shipDefaultsAppliedRef.current[v]) return;
+    shipDefaultsAppliedRef.current[v] = true;
+    const dec = getDec(v);
+    const lead = Number(dec?.lead_time_days) || 0;
+    if (!poShipDates[v] && lead > 0) setShipDateForVendor(addDays(todayIso, lead));
+    if (!shipMethods[v] && dec?.default_ship_method) setShipMethodForVendor(dec.default_ship_method);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shipModalVendor, active]);
+  const openShipModal = (v) => { setSelectedVendor(v); setShipModalVendor(v); };
   // Common quick-set offsets exposed as small buttons under the date
   // input. Business-day math via addBusinessDays so they skip
   // weekends; matches the in-hands → priority calc used elsewhere.
@@ -407,171 +427,122 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
         </div>
       )}
 
-      <div style={{background:T.card,border:"1px solid "+T.border,borderRadius:10,padding:"12px 14px",display:"flex",flexDirection:"column",gap:10}}>
-        {/* Single row: Vendor | Ship Method | Ship Date | Ship To | Actions
-            On mobile the row stacks — Ship To and the Send button get
-            full width so they're tappable + don't horizontal-scroll. */}
-        <div style={{display:"flex",gap:isMobile?12:16,alignItems:"flex-start",flexDirection:isMobile?"column":"row"}}>
-          {/* Vendor */}
-          <div style={{display:"flex",flexDirection:"column",gap:4,alignSelf:isMobile?"stretch":"center",width:isMobile?"100%":undefined}}>
-            <div style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Vendor</div>
-            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-              {vendors.length===0&&<div style={{fontSize:11,color:T.faint,padding:"6px 0"}}>No vendors assigned</div>}
-              {vendors.map(v=>(
-                <button key={v} onClick={()=>setSelectedVendor(v)}
-                  style={{background:active===v?T.accent:T.surface,border:"1px solid "+(active===v?T.accent:T.border),borderRadius:6,color:active===v?"#fff":T.muted,fontFamily:font,fontSize:11,fontWeight:600,padding:"5px 12px",cursor:"pointer"}}>
-                  {v}
-                </button>
-              ))}
-            </div>
-          </div>
-          {/* Ship by date + Ship method — stacked next to Ship To.
-              Desktop: fixed 200px width so the column sizes uniformly
-              and sits flush against Ship To. Mobile: full-width inputs
-              and the stack itself stretches. */}
-          <div style={{display:"flex",flexDirection:"column",gap:10,alignSelf:isMobile?"stretch":"flex-start",flexShrink:0,width:isMobile?"100%":undefined}}>
-            <div style={{display:"flex",flexDirection:"column",gap:4}}>
-              <div style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Ship by date</div>
-              {/* ASAP and a date are mutually exclusive — both write to the
-                  same po_ship_dates[vendor] slot. PDF route detects the
-                  "ASAP" sentinel and renders it as-is instead of parsing
-                  it as a date. */}
-              {poShipDates[active] === "ASAP" ? (
-                <div style={{display:"flex",alignItems:"center",gap:6,width:isMobile?"100%":200,height:32,background:T.amberDim,border:`1px solid ${T.amber}66`,borderRadius:6,padding:"0 10px",boxSizing:"border-box"}}>
-                  <span style={{flex:1,fontSize:11,fontWeight:700,color:T.amber,letterSpacing:"0.06em",textTransform:"uppercase"}}>ASAP</span>
-                  <button onClick={()=>setShipDateForVendor("")} title="Clear"
-                    style={{background:"transparent",border:"none",color:T.amber,cursor:"pointer",fontSize:14,lineHeight:1,padding:"0 2px"}}>×</button>
+      {/* ── Per-vendor peek cards (Overview DETAILS style) — click opens the ship + send modal ── */}
+      <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(auto-fit,minmax(300px,1fr))",gap:10}}>
+        {vendors.length===0 && <div style={{fontSize:12,color:T.faint,padding:"14px 16px",background:T.card,border:`1px solid ${T.border}`,borderRadius:12}}>No vendors assigned</div>}
+        {vendors.map(v=>{
+          const sent=poSentVendors.includes(v);
+          const vit=sorted.filter(it=>getCostProd(it.id)?.printVendor===v);
+          const readyN=vit.filter(it=>itemFields[it.id]?.packing_notes?.trim()).length;
+          const allR=vit.length>0&&readyN===vit.length;
+          const vRoute=isDropShipJob?(getDec(v)?.default_shipping_route||""):"";
+          const vShipsClient=vit.length>0&&vit.every(it=>((itemRoutes[it.id]??it.shipping_route)||vRoute||shippingRoute)==="drop_ship");
+          const vHpdBound=!!vRoute&&vRoute!=="drop_ship";
+          const dateV=poShipDates[v]==="ASAP"?"ASAP":(poShipDates[v]?fmtShortDate(poShipDates[v]):null);
+          const methodV=shipMethods[v]||getDec(v)?.default_ship_method||(vHpdBound?"Vendor's Choice":"")||null;
+          const shipToV=(poShipTo[v]||"").trim()?"Custom":(vShipsClient?"Client":"HPD warehouse");
+          const Fact=({label,value,color})=>(<div style={{display:"flex",flexDirection:"column",gap:1,minWidth:0}}><span style={{fontSize:8.5,color:T.faint,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:600}}>{label}</span><span style={{fontSize:13,fontWeight:600,color:color||T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{value}</span></div>);
+          return (
+            <button key={v} onClick={()=>openShipModal(v)}
+              onMouseEnter={e=>e.currentTarget.style.borderColor=T.accent} onMouseLeave={e=>e.currentTarget.style.borderColor=T.border}
+              style={{textAlign:"left",background:T.card,border:`1px solid ${T.border}`,borderRadius:12,padding:"14px 16px",cursor:"pointer",fontFamily:font,boxShadow:"0 1px 2px rgba(16,18,32,0.05)",transition:"all 0.12s"}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:11,gap:8}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}>
+                  <span style={{fontSize:14,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{v}</span>
+                  <span style={{fontSize:9,fontWeight:800,letterSpacing:"0.05em",textTransform:"uppercase",color:sent?T.green:T.amber,flexShrink:0}}>{sent?"✓ Sent":"Not sent"}</span>
                 </div>
-              ) : (
-                <>
-                <div style={{display:"flex",gap:4,alignItems:"center",width:isMobile?"100%":undefined}}>
-                  <input type="date" value={poShipDates[active]||""} onClick={e=>e.target.showPicker?.()}
-                    onChange={e=>setShipDateForVendor(e.target.value)}
-                    style={{flex:1,background:T.surface,border:`1px solid ${poShipDates[active]?T.accent+"66":T.border}`,borderRadius:6,color:poShipDates[active]?T.text:T.muted,fontFamily:font,fontSize:12,padding:"6px 10px",outline:"none",cursor:"pointer",width:isMobile?"auto":152,boxSizing:"border-box"}} />
-                  <button onClick={()=>setShipDateForVendor("ASAP")} title="Ship as soon as possible"
-                    style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:6,color:T.amber,fontFamily:font,fontSize:10,fontWeight:700,letterSpacing:"0.05em",padding:"0 8px",height:32,cursor:"pointer",boxSizing:"border-box",flexShrink:0}}>ASAP</button>
-                </div>
-                {/* Decorator-default suggestion — only when the field
-                    is empty AND the active decorator has a saved lead
-                    time. One tap applies (today + leadDays business
-                    days). Hidden once the date is set so it stops
-                    nagging. */}
-                {!poShipDates[active] && activeLeadDays > 0 && (() => {
-                  // lead times are CALENDAR days (vendors quote "6 weeks"),
-                  // matching the date-chain derivation — not business days
-                  const suggested = addDays(todayIso, activeLeadDays);
-                  return (
-                    <button onClick={()=>setShipDateForVendor(suggested)}
-                      title={`${active}'s saved lead time is ${activeLeadDays} days`}
-                      style={{alignSelf:"flex-start",background:T.accentDim,border:`1px solid ${T.accent}66`,borderRadius:5,color:T.accent,fontFamily:font,fontSize:10,fontWeight:600,padding:"3px 8px",cursor:"pointer",marginTop:2}}>
-                      Use {active} default · +{activeLeadDays}d → {fmtShortDate(suggested)}
-                    </button>
-                  );
-                })()}
-                {/* Quick-set offsets — visible only when the date is
-                    empty so they don't crowd the row once it's filled.
-                    Business-day math so weekends are skipped. */}
-                {!poShipDates[active] && (
-                  <div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:2}}>
-                    {QUICK_OFFSETS.map(d => (
-                      <button key={d} onClick={()=>applyDateOffset(d)}
-                        title={`${d} business days from today → ${fmtShortDate(addBusinessDays(todayIso, d))}`}
-                        style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:5,color:T.muted,fontFamily:font,fontSize:10,fontWeight:600,padding:"3px 8px",cursor:"pointer"}}>
-                        +{d}d
-                      </button>
-                    ))}
-                  </div>
-                )}
-                </>
-              )}
-              {/* Mid-flight slip (edited in-line on /production2). The PO's
-                  agreed date above is never rewritten — the live date rides
-                  on the chain (type_meta.po_ship_live, locked R3). */}
-              {(() => {
-                const live = project?.type_meta?.po_ship_live?.[active]?.date;
-                const agreed = poShipDates[active];
-                if (!live || !agreed || agreed === "ASAP" || live === agreed) return null;
-                const slip = Math.round((new Date(live + "T12:00:00").getTime() - new Date(agreed + "T12:00:00").getTime()) / 86400000);
-                return (
-                  <div style={{fontSize:10,fontWeight:700,color:T.amber,marginTop:2}}>
-                    now {fmtDay(live)} ({slip > 0 ? "+" : ""}{slip}d vs plan)
-                  </div>
-                );
-              })()}
-            </div>
-            <div style={{display:"flex",flexDirection:"column",gap:4}}>
-              <div style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Ship method</div>
-              <select value={effectiveShipMethod} onChange={e=>setShipMethodForVendor(e.target.value)}
-              style={{background:T.surface,border:"1px solid "+T.border,borderRadius:6,color:effectiveShipMethod?T.text:T.muted,fontFamily:font,fontSize:12,padding:"6px 10px",outline:"none",cursor:"pointer",width:isMobile?"100%":200,boxSizing:"border-box"}}>
-              <option value="">— select —</option>
-              {SHIP_METHODS.map(m=><option key={m} value={m}>{m}</option>)}
-            </select>
-            </div>
-          </div>
-          {/* Ship To — empty = use the job-route default. The textarea
-              shows that default as placeholder so it's obvious the
-              field is editable for one-off addresses (e.g. an item
-              going from decorator A to decorator B). The PO PDF
-              renderer applies the same fallback. */}
-          <div style={{display:"flex",flexDirection:"column",gap:4,flex:1,width:isMobile?"100%":undefined,alignSelf:isMobile?"stretch":undefined}}>
-            <div style={{display:"flex",alignItems:"center",gap:6}}>
-              <span style={{fontSize:9,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Ship to</span>
-              <span style={{fontSize:10,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase",color:(poShipTo[active]||"").trim()?T.amber:(activeShipsToClient?T.green:T.accent)}}>
-                {(poShipTo[active]||"").trim()?"Custom":(activeShipsToClient?"Client address":"HPD warehouse")}
-              </span>
-              {(poShipTo[active]||"").trim()&&(
-                <button onClick={()=>{
-                  // Reset = explicit commit to "default". Log directly
-                  // here so we don't fight React's state-update batching
-                  // — commitShipToRevision reads from state, which the
-                  // setShipToForVendor call above hasn't applied yet.
-                  if (isPoSent) {
-                    const prev = (shipToBaseline.current[active] || "").trim();
-                    if (prev) {
-                      const oneLine = (v) => v ? v.split("\n").map(l => l.trim()).filter(Boolean).join(", ") : "default";
-                      logJobActivity(project.id, `Ship-to for ${active} revised — ${oneLine(prev)} → default`);
-                    }
-                  }
-                  shipToBaseline.current[active] = "";
-                  setShipToForVendor("");
-                }}
-                  style={{fontSize:9,color:T.faint,fontFamily:font,background:"none",border:"none",cursor:"pointer",padding:0,textDecoration:"underline"}}
-                  title="Clear override — fall back to the job-route default">
-                  reset
-                </button>
-              )}
-            </div>
-            <textarea value={poShipTo[active]||""} placeholder={activeDefaultShipTo + "\n\n(default — type to override)"}
-              onChange={e=>setShipToForVendor(e.target.value)}
-              onBlur={commitShipToRevision}
-              style={{background:T.surface,border:"1px solid "+((poShipTo[active]||"").trim()?T.amber+"66":T.border),borderRadius:6,color:T.text,fontFamily:font,fontSize:11,padding:"8px 10px",outline:"none",resize:"vertical",minHeight:110,lineHeight:1.4}}/>
-          </div>
-          {/* Items ready + buttons */}
-          <div style={{display:"flex",flexDirection:"column",alignItems:isMobile?"stretch":"flex-end",gap:8,flexShrink:0,width:isMobile?"100%":undefined}}>
-            {ready&&(
-              <div style={{fontSize:14,fontWeight:600,color:allFilled?T.green:T.amber,textAlign:isMobile?"left":"right"}}>
-                {vItems.filter(it=>itemFields[it.id]?.packing_notes?.trim()).length}/{vItems.length} items ready
+                <span style={{fontSize:15,color:T.faint,lineHeight:1,flexShrink:0}}>›</span>
               </div>
-            )}
-            <div style={{display:"flex",flexDirection:"column",gap:6,width:isMobile?"100%":170}}>
-              <button onClick={()=>setShowSendEmail(!showSendEmail)} disabled={!canSend}
-                title={!ready ? "Fill in packing notes on all vendor items first" : !shipBySet ? "Set the vendor ship-by date (or ASAP) first — the PO can't send without one" : (isRevised ? "Send a revised PO that supersedes the original" : "Preview + send to decorator in one screen")}
-                style={{background:canSend?(isRevised?T.amber:T.blue):T.surface,border:"1px solid "+(canSend?(isRevised?T.amber:T.blue):T.border),borderRadius:8,color:canSend?"#fff":T.faint,fontFamily:font,fontSize:13,fontWeight:700,padding:"10px 16px",cursor:canSend?"pointer":"default",opacity:canSend?1:0.5,width:"100%"}}>
-                {isRevised ? "Send Revised PO" : "Send to Decorator"}
-              </button>
-              {/* Download without emailing (Jon, 2026-07-17): emailing a revised
-                  PO breaks the vendor's original thread — their de-facto activity
-                  log. Download here, drop it into the existing thread yourself. */}
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:11}}>
+                <Fact label="Ship by" value={dateV||"Not set"} color={dateV?undefined:T.amber} />
+                <Fact label="Method" value={methodV||"Not set"} color={methodV?undefined:T.amber} />
+                <Fact label="Ship to" value={shipToV} />
+                <Fact label="Ready" value={`${readyN}/${vit.length}`} color={allR?T.green:T.amber} />
+              </div>
+            </button>
+          );
+        })}
+      </div>
+      {/* ── Pre-send ship modal (V2) — gated: date + method required before send ── */}
+      {shipModalVendor && active===shipModalVendor && (
+        <div onClick={()=>setShipModalVendor(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:120,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"6vh 16px",overflowY:"auto",fontFamily:font}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:14,width:"100%",maxWidth:560,boxShadow:"0 16px 48px rgba(0,0,0,0.3)",overflow:"hidden"}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"16px 20px",borderBottom:`1px solid ${T.border}`}}>
+              <div style={{minWidth:0}}>
+                <div style={{fontSize:15,fontWeight:800}}>Send PO — {active}</div>
+                <div style={{fontSize:11.5,color:T.muted,marginTop:2}}>Confirm ship details before sending. Vendor defaults are pre-filled — edit as needed.</div>
+              </div>
+              <button onClick={()=>setShipModalVendor(null)} aria-label="Close" style={{background:"none",border:"none",color:T.muted,fontSize:22,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
+            </div>
+            <div style={{padding:"18px 20px",display:"flex",flexDirection:"column",gap:16}}>
+              {/* Ship by date */}
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                <div style={{fontSize:10,fontWeight:800,color:shipBySet?T.muted:T.amber,textTransform:"uppercase",letterSpacing:"0.06em"}}>Ship by date <span style={{color:T.red}}>*</span></div>
+                {poShipDates[active]==="ASAP" ? (
+                  <div style={{display:"flex",alignItems:"center",gap:6,background:T.amberDim,border:`1px solid ${T.amber}66`,borderRadius:7,padding:"9px 12px"}}>
+                    <span style={{flex:1,fontSize:12,fontWeight:700,color:T.amber,letterSpacing:"0.06em",textTransform:"uppercase"}}>ASAP</span>
+                    <button onClick={()=>setShipDateForVendor("")} title="Clear" style={{background:"none",border:"none",color:T.amber,cursor:"pointer",fontSize:16,lineHeight:1}}>×</button>
+                  </div>
+                ) : (
+                  <>
+                    <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                      <input type="date" value={poShipDates[active]||""} onChange={e=>setShipDateForVendor(e.target.value)}
+                        style={{flex:1,background:T.surface,border:`1px solid ${poShipDates[active]?T.accent:T.border}`,borderRadius:7,color:poShipDates[active]?T.text:T.muted,fontFamily:font,fontSize:13,padding:"9px 12px",outline:"none",cursor:"pointer",boxSizing:"border-box"}} />
+                      <button onClick={()=>setShipDateForVendor("ASAP")} title="Ship as soon as possible"
+                        style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:7,color:T.amber,fontFamily:font,fontSize:11,fontWeight:700,letterSpacing:"0.05em",padding:"0 12px",height:38,cursor:"pointer",flexShrink:0}}>ASAP</button>
+                    </div>
+                    <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+                      {activeLeadDays>0 && !poShipDates[active] && (
+                        <button onClick={()=>setShipDateForVendor(addDays(todayIso,activeLeadDays))} title={`${active}'s saved lead time`}
+                          style={{background:T.accentDim,border:`1px solid ${T.accent}66`,borderRadius:6,color:T.accent,fontFamily:font,fontSize:10.5,fontWeight:700,padding:"4px 9px",cursor:"pointer"}}>
+                          Use {active} default · +{activeLeadDays}d → {fmtShortDate(addDays(todayIso,activeLeadDays))}
+                        </button>
+                      )}
+                      {QUICK_OFFSETS.map(d=>(
+                        <button key={d} onClick={()=>applyDateOffset(d)} title={`${d} business days from today`}
+                          style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:6,color:T.muted,fontFamily:font,fontSize:10.5,fontWeight:600,padding:"4px 9px",cursor:"pointer"}}>+{d}d</button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+              {/* Ship method */}
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                <div style={{fontSize:10,fontWeight:800,color:methodSet?T.muted:T.amber,textTransform:"uppercase",letterSpacing:"0.06em"}}>Ship method <span style={{color:T.red}}>*</span></div>
+                <select value={shipMethods[active]||effectiveShipMethod||""} onChange={e=>setShipMethodForVendor(e.target.value)}
+                  style={{background:T.surface,border:`1px solid ${(shipMethods[active]||effectiveShipMethod)?T.accent:T.border}`,borderRadius:7,color:(shipMethods[active]||effectiveShipMethod)?T.text:T.muted,fontFamily:font,fontSize:13,padding:"9px 12px",outline:"none",cursor:"pointer",width:"100%",boxSizing:"border-box"}}>
+                  <option value="">— select —</option>
+                  {SHIP_METHODS.map(m=><option key={m} value={m}>{m}</option>)}
+                </select>
+              </div>
+              {/* Ship to */}
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{fontSize:10,fontWeight:800,color:T.muted,textTransform:"uppercase",letterSpacing:"0.06em"}}>Ship to</span>
+                  <span style={{fontSize:10,fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",color:(poShipTo[active]||"").trim()?T.amber:(activeShipsToClient?T.green:T.accent)}}>
+                    {(poShipTo[active]||"").trim()?"Custom":(activeShipsToClient?"Client address":"HPD warehouse")}
+                  </span>
+                </div>
+                <textarea value={poShipTo[active]||""} placeholder={activeDefaultShipTo + "\n\n(default — type to override)"}
+                  onChange={e=>setShipToForVendor(e.target.value)} onBlur={commitShipToRevision}
+                  style={{background:T.surface,border:`1px solid ${(poShipTo[active]||"").trim()?T.amber+"66":T.border}`,borderRadius:7,color:T.text,fontFamily:font,fontSize:12,padding:"9px 12px",outline:"none",resize:"vertical",minHeight:96,lineHeight:1.4,boxSizing:"border-box"}} />
+              </div>
+            </div>
+            <div style={{padding:"14px 20px",borderTop:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:10}}>
+              <div style={{flex:1,fontSize:11.5,fontWeight:600,color:canSend?T.green:T.amber}}>
+                {canSend ? "✓ Ready to send" : !ready ? "Fill packing notes on all items first" : !shipBySet ? "Set a ship-by date (or ASAP)" : !methodSet ? "Pick a ship method" : ""}
+              </div>
               <button onClick={()=>{ if(!active) return; window.open(`/api/pdf/po/${project.id}?vendor=${encodeURIComponent(active)}${isRevised?"&revised=1":""}&download=1`,"_blank"); }}
-                disabled={!active}
-                title={isRevised ? "Download the revised PDF without emailing — keeps the vendor's original email thread intact" : "Download the PO PDF without emailing"}
-                style={{background:"transparent",border:`1px solid ${T.border}`,borderRadius:8,color:active?T.muted:T.faint,fontFamily:font,fontSize:12,fontWeight:600,padding:"8px 12px",cursor:active?"pointer":"default",width:"100%"}}>
-                {isRevised ? "Download Revised PDF" : "Download PDF"}
+                style={{background:"none",border:`1px solid ${T.border}`,borderRadius:8,color:T.muted,fontFamily:font,fontSize:13,padding:"9px 15px",cursor:"pointer"}}>Download PDF</button>
+              <button onClick={()=>setShipModalVendor(null)} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:8,color:T.muted,fontFamily:font,fontSize:13,padding:"9px 15px",cursor:"pointer"}}>Cancel</button>
+              <button onClick={()=>{ setShipModalVendor(null); setShowSendEmail(true); }} disabled={!canSend}
+                style={{background:canSend?(isRevised?T.amber:T.accent):T.surface,color:canSend?"#fff":T.faint,border:"none",borderRadius:8,fontFamily:font,fontSize:13,fontWeight:800,padding:"9px 20px",cursor:canSend?"pointer":"default",opacity:canSend?1:0.6}}>
+                Continue to send →
               </button>
             </div>
           </div>
         </div>
-      </div>
+      )}
       {showSendEmail&&(
         <div style={{position:"fixed",inset:0,background:"#fff",zIndex:100,display:"flex",flexDirection:"column",fontFamily:font}}>
           {/* Header */}

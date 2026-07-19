@@ -270,7 +270,7 @@ function PassthroughToggle({ on, disabled, onToggle }) {
   );
 }
 
-const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,setCostProds,qtyEditedRef,notesEditedRef,isGod,costMargin,setCostMargin,inclShip,setInclShip,inclCC,setInclCC,orderInfo,setOrderInfo,invoiceExtraLines=[],setInvoiceExtraLines,decoratorRecords=[],onRefreshDecorators,costingDirty,onSave,saveStatus,initialTab,hideSubTabs,selectedItemId,onSelectItem,onUpdateProject,onPullFromPsds,pullingPsds,pullResult,hideToolbar=false,openRfqRef})=>{
+const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,setCostProds,qtyEditedRef,notesEditedRef,isGod,costMargin,setCostMargin,inclShip,setInclShip,inclCC,setInclCC,orderInfo,setOrderInfo,invoiceExtraLines=[],setInvoiceExtraLines,decoratorRecords=[],onRefreshDecorators,costingDirty,onSave,saveStatus,initialTab,hideSubTabs,selectedItemId,onSelectItem,onUpdateProject,onPullFromPsds,pullingPsds,pullResult,hideToolbar=false,openRfqRef,hideQuoteSend=false})=>{
   const branding=useClientBranding();
   const isMobile=useIsMobile();
   // Effective lock = manual "Lock In Pricing" OR archived phase.
@@ -293,6 +293,11 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
     const raf = requestAnimationFrame(find);
     return () => cancelAnimationFrame(raf);
   }, []);
+  // autoFocus on the sell-override input must fire ONLY when the user toggles
+  // override on — not when a job loads with overrides already active, which would
+  // steal focus and scroll the header out of view on Costing open. Flips true post-mount.
+  const overrideFocusRef = React.useRef(false);
+  useEffect(() => { overrideFocusRef.current = true; }, []);
   const [showSendEmail,setShowSendEmail]=useState(false);
   // Per-item shipping-rate modal (job-level override of the buffer). Draft is a
   // { [costProdId]: string } of the rate as typed; applied to costProds on Save.
@@ -699,7 +704,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                             {p._sellOverride?(
                               <div style={{background:T.surface,border:"1px solid "+T.text,borderRadius:6,padding:"3px 8px",display:"flex",alignItems:"center",gap:2,width:76,boxSizing:"border-box"}}>
                                 <span style={{fontSize:10,color:T.faint,fontFamily:mono}}>$</span>
-                                <input type="number" step="0.01" value={p._sellOverrideVal??r?.sellPerUnit?.toFixed(2)??""} autoFocus
+                                <input type="number" step="0.01" value={p._sellOverrideVal??r?.sellPerUnit?.toFixed(2)??""} autoFocus={overrideFocusRef.current}
                                   disabled={costingLocked}
                                   onFocus={e=>e.target.select()}
                                   onChange={e=>updateProd(i,{...p,_sellOverrideVal:e.target.value})}
@@ -947,7 +952,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                           {p._sellOverride?(
                             <div style={{background:T.surface,border:"1px solid "+T.text,borderRadius:6,padding:"3px 8px",display:"flex",alignItems:"center",gap:2,width:76,boxSizing:"border-box"}}>
                               <span style={{fontSize:10,color:T.faint,fontFamily:mono}}>$</span>
-                              <input type="number" step="0.01" value={p._sellOverrideVal??r?.sellPerUnit?.toFixed(2)??""} autoFocus
+                              <input type="number" step="0.01" value={p._sellOverrideVal??r?.sellPerUnit?.toFixed(2)??""} autoFocus={overrideFocusRef.current}
                                 onFocus={e=>e.target.select()}
                                 onChange={e=>updateProd(i,{...p,_sellOverrideVal:e.target.value})}
                                 style={{width:"100%",background:"transparent",border:"none",outline:"none",color:T.text,fontSize:12,fontWeight:700,fontFamily:mono,textAlign:"left"}}/>
@@ -1376,10 +1381,12 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                 <CInput label="Quote #" value={orderInfo.invoiceNum} onChange={v=>setOrderInfo(o=>({...o,invoiceNum:v}))}/>
                 <CInput label="Valid until" type="date" value={orderInfo.validUntil} onChange={v=>setOrderInfo(o=>({...o,validUntil:v}))}/>
               </div>
-              <button onClick={()=>setShowSendEmail(true)}
-                style={{display:"block",background:T.blue,color:"#fff",border:"none",borderRadius:8,padding:"10px 22px",fontSize:13,fontWeight:700,fontFamily:font,cursor:"pointer",width:"100%",boxSizing:"border-box",boxShadow:"0 1px 2px rgba(0,0,0,0.06)"}}>
-                Send Quote →
-              </button>
+              {!hideQuoteSend && (
+                <button onClick={()=>setShowSendEmail(true)}
+                  style={{display:"block",background:T.blue,color:"#fff",border:"none",borderRadius:8,padding:"10px 22px",fontSize:13,fontWeight:700,fontFamily:font,cursor:"pointer",width:"100%",boxSizing:"border-box",boxShadow:"0 1px 2px rgba(0,0,0,0.06)"}}>
+                  Send Quote →
+                </button>
+              )}
             </div>
             {/* Additional charges — custom invoice line items (fees,
                 passthrough, freight, discounts). Auto-saved to
@@ -1748,7 +1755,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
 
 export { CostingTab };
 
-export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpdateBuyItems, onRegisterSave, onSaveStatus, onSaved, initialTab = "calc", hideSubTabs = false, selectedItemId, onSelectItem, onUpdateProject, hideToolbar = false, actionsRef, onPullStateChange }) {
+export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpdateBuyItems, onRegisterSave, onSaveStatus, onSaved, initialTab = "calc", hideSubTabs = false, selectedItemId, onSelectItem, onUpdateProject, hideToolbar = false, hideQuoteSend = false, actionsRef, onPullStateChange }) {
   // Archived (complete/cancelled) = read-only historic record. Blocks
   // the PSD auto-pull mount effect and hard-gates onSave so nothing
   // writes costing_data / items / buy_sheet_lines on an archived job —
@@ -2149,6 +2156,11 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
         // so we NEVER overwrite a refined cost on an unchanged blank (the
         // per-item revert bug) and never pull a transient empty buyItems snapshot.
         const cpHasRealCost = cp.blankCosts && Object.values(cp.blankCosts).some(v => (Number(v) || 0) > 0);
+        // Has costing been priced at all? KEYS present (even all-$0) = yes.
+        // "All zero" is a legitimate cost (free / client-supplied blanks) and
+        // must NOT be treated as "uncosted" — otherwise the pull below reverts
+        // an intentional $0 back to the item's stale cost (the zero-out bug).
+        const cpHasCostKeys = cp.blankCosts && Object.keys(cp.blankCosts).length > 0;
         const biHasRealCost = bi.blankCosts && Object.values(bi.blankCosts).some(v => (Number(v) || 0) > 0);
         const biSizes = bi.sizes || [];
         const biHasCostKeys = bi.blankCosts && Object.keys(bi.blankCosts).length > 0;
@@ -2156,7 +2168,7 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
         // priced for EXTRA sizes the order doesn't include (costing ⊇ live) is
         // benign and must NOT trigger a pull.
         const blankCostsStale = biHasCostKeys && biSizes.some(sz => !cp.blankCosts || !(sz in cp.blankCosts));
-        if ((blankReassigned || blankCostsStale || (!cpHasRealCost && biHasRealCost)) && biHasCostKeys) {
+        if ((blankReassigned || blankCostsStale || (!cpHasCostKeys && biHasRealCost)) && biHasCostKeys) {
           updates.blankCosts = bi.blankCosts;
           const rv = Object.values(bi.blankCosts).filter(v => (Number(v) || 0) > 0);
           updates.blankCostPerUnit = rv.length ? rv.reduce((a, v) => a + Number(v), 0) / rv.length : 0;
@@ -2281,10 +2293,16 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
           // whenever this tab's buyItems snapshot was momentarily stale — silently
           // wiping the carried-over blank pricing. An all-zero map = "no data",
           // never authoritative, so it must not overwrite.
-          const costValues = (cp.blankCosts ? Object.values(cp.blankCosts) : []).filter(v => (Number(v) || 0) > 0);
-          if (costValues.length > 0) {
+          // Persist when the item has been PRICED — every active size has a cost
+          // entry. A real $0 is a valid price (free / client-supplied blanks) and
+          // must stick. An empty/partial map = "no data" and must not clobber the
+          // supplier costs ProductBuilder saved.
+          const cpSizes = cp.sizes || [];
+          const fullyPriced = cpSizes.length > 0 && cp.blankCosts && cpSizes.every(sz => sz in cp.blankCosts);
+          if (fullyPriced) {
             itemUpdates.blank_costs = cp.blankCosts;
-            itemUpdates.cost_per_unit = Math.round(costValues.reduce((a, v) => a + (Number(v) || 0), 0) / costValues.length * 100) / 100;
+            const realVals = Object.values(cp.blankCosts).filter(v => (Number(v) || 0) > 0);
+            itemUpdates.cost_per_unit = realVals.length ? Math.round(realVals.reduce((a, v) => a + (Number(v) || 0), 0) / realVals.length * 100) / 100 : 0;
           }
           // Save the calculated sell_per_unit when either (a) there's an
           // explicit override (including $0 — replacements at no charge),
@@ -2385,7 +2403,7 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
       onRefreshDecorators={refreshDecorators}
       costingDirty={costingDirty} onSave={onSave} saveStatus={saveStatus} initialTab={initialTab} hideSubTabs={hideSubTabs} selectedItemId={selectedItemId} onSelectItem={onSelectItem} onUpdateProject={onUpdateProject}
       onPullFromPsds={handlePullFromPsds} pullingPsds={pullingPsds} pullResult={pullResult}
-      hideToolbar={hideToolbar} openRfqRef={openRfqRef}
+      hideToolbar={hideToolbar} openRfqRef={openRfqRef} hideQuoteSend={hideQuoteSend}
     />
   );
 }

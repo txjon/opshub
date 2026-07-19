@@ -8,7 +8,8 @@ import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { CostingTabWrapper } from "./CostingTab";
 import { POTab } from "./POTab.jsx";
 import { BlanksTab } from "./BlanksTab";
-import { PaymentTab } from "./PaymentTab";
+import { InvoiceSurface } from "./surfaces/InvoiceSurface";
+import { sendQuoteAndProofs, defaultRecipient } from "@/lib/job/quote-actions";
 import { ApprovalsTab } from "./ApprovalsTab";
 import { JobItemsList } from "./JobItemsList.jsx";
 import { useIsMobile } from "@/lib/useIsMobile";
@@ -16,7 +17,7 @@ import { ProductBuilder } from "./ProductBuilder";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Skeleton } from "@/components/Skeleton";
-import { ProjectProgress } from "@/components/ProjectProgress";
+import { JobFlowBar } from "@/components/JobFlowBar";
 import { PdfPreviewModal } from "@/components/PdfPreviewModal";
 import { JobActivityPanel, logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
 import { calculatePhase } from "@/lib/lifecycle";
@@ -107,6 +108,8 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const [tab, setTab] = useState(() => {
     if (typeof window !== "undefined") {
       const p = new URLSearchParams(window.location.search).get("tab");
+      // "proofs" merged into the Quote + Proofs surface (tab "quote").
+      if (p === "proofs") return "quote";
       if (p) return p;
     }
     return "overview";
@@ -172,10 +175,30 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const [forwardSlips, setForwardSlips] = useState<{ id: string; tracking: string | null; createdAt: string }[]>([]);
   const [confirmDeleteProject, setConfirmDeleteProject] = useState(false);
   const [confirmCancelVoid, setConfirmCancelVoid] = useState(false);
+  const [ovMenu, setOvMenu] = useState(false);
+  const [thumbByItem, setThumbByItem] = useState<Record<string, string>>({});
+  const [peekItem, setPeekItem] = useState<any | null>(null);
+  const [sendingQP, setSendingQP] = useState(false);
+  const [qpErr, setQpErr] = useState("");
+  const [qpSendOpen, setQpSendOpen] = useState(false);
+  const [qpSelected, setQpSelected] = useState<Record<number, boolean>>({});
+  const [editingValidUntil, setEditingValidUntil] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string>("");
   const [teamProfiles, setTeamProfiles] = useState<Record<string,string>>({});
-  const [proofStatus, setProofStatus] = useState<Record<string,{allApproved:boolean}>>({});
+  const [proofStatus, setProofStatus] = useState<Record<string,{allApproved:boolean;proofState?:"approved"|"revision"|"pending"|"none";note?:string}>>({});
+  // Single source for an item's gallery status — art must clear before "in production".
+  const iStatus = (it:any):{s:string;c:string} => {
+    if(it.forwarded_at) return {s:"Forwarded",c:T.green};
+    if(it.received_at_hpd) return {s:"Received",c:T.green};
+    if(it.pipeline_stage==="shipped") return {s:"Shipped from vendor",c:T.blue};
+    const pf=proofStatus[it.id]?.proofState;
+    if(pf==="revision") return {s:"Proof — revision",c:T.red};
+    if(pf==="pending") return {s:"Awaiting proof",c:T.amber};
+    if(it.pipeline_stage==="in_production") return {s:"In production",c:T.amber};
+    if(it.blanks_order_cost!=null||it.blanks_order_number) return {s:"Blanks ordered",c:T.muted};
+    return {s:"In setup",c:T.faint};
+  };
   const [allClients, setAllClients] = useState<{id:string,name:string}[]>([]);
   const [clientQuery, setClientQuery] = useState("");
   const [showClientDropdown, setShowClientDropdown] = useState(false);
@@ -351,7 +374,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
     if (itemsRes.data) {
       const ids = itemsRes.data.map((it: any) => it.id);
       if (ids.length > 0) {
-        const { data: allFiles } = await supabase.from("item_files").select("item_id, stage, approval").in("item_id", ids).is("superseded_at", null);
+        const { data: allFiles } = await supabase.from("item_files").select("item_id, stage, approval, drive_file_id, notes").in("item_id", ids).is("superseded_at", null);
         // Outbound shipments for this job = the frozen forward packing slips.
         const { data: obLines } = await supabase.from("shipment_lines").select("shipment_id, shipments(id, tracking, created_at, direction)").eq("job_id", params.id);
         const slipMap = new Map<string, { id: string; tracking: string | null; createdAt: string }>();
@@ -360,18 +383,30 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           if (s?.direction === "outbound" && !slipMap.has(s.id)) slipMap.set(s.id, { id: s.id, tracking: s.tracking, createdAt: s.created_at });
         }
         setForwardSlips(Array.from(slipMap.values()).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || "")));
-        const ps: Record<string, { allApproved: boolean }> = {};
+        const ps: Record<string, { allApproved: boolean; proofState?: "approved" | "revision" | "pending" | "none"; note?: string }> = {};
         const filesPerItem: Record<string, boolean> = {};
+        const thumbPerItem: Record<string, string | null> = {};
         for (const id of ids) {
           const item = itemsRes.data.find((it: any) => it.id === id);
           const manualApproved = item?.artwork_status === "approved";
           const proofs = (allFiles || []).filter((f: any) => f.item_id === id && f.stage === "proof");
           const itemFiles = (allFiles || []).filter((f: any) => f.item_id === id);
-          ps[id] = { allApproved: manualApproved || (proofs.length > 0 && proofs.every((f: any) => f.approval === "approved")) };
+          // proofState feeds the gallery: an unapproved proof blocks "in production".
+          const proofState: "approved" | "revision" | "pending" | "none" =
+            manualApproved ? "approved"
+            : proofs.some((f: any) => f.approval === "revision_requested") ? "revision"
+            : (proofs.length > 0 && proofs.every((f: any) => f.approval === "approved")) ? "approved"
+            : proofs.length > 0 ? "pending"
+            : "none";
+          const revNote = proofState === "revision" ? (proofs.find((f: any) => f.approval === "revision_requested")?.notes || null) : null;
+          ps[id] = { allApproved: proofState === "approved", proofState, note: revNote || undefined };
           filesPerItem[id] = itemFiles.length > 0;
+          const mock = itemFiles.find((f: any) => f.stage === "mockup") || itemFiles.find((f: any) => f.stage === "proof") || itemFiles.find((f: any) => f.stage === "print_ready");
+          thumbPerItem[id] = mock?.drive_file_id || null;
         }
         setProofStatus(ps);
-        // Mark items with files
+        // Persist gallery thumbnails in their own map so reloadItems() can't drop them.
+        setThumbByItem(Object.fromEntries(Object.entries(thumbPerItem).filter(([, v]) => v)) as Record<string, string>);
         setItems(prev => prev.map(it => ({ ...it, hasFiles: filesPerItem[it.id] || false })));
       }
     }
@@ -504,10 +539,10 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   async function switchTab(t: string) {
     await flushAllSavesWithTimeout();
     // Refresh data for tabs that read from DB
-    if (["quote","overview","proofs"].includes(t)) {
+    if (["quote","overview","proofs","invoice"].includes(t)) {
       const { data: fresh } = await supabase.from("jobs").select("quote_approved, quote_approved_at, type_meta").eq("id", job!.id).single();
       if (fresh) setJob(j => j ? {...j, quote_approved: fresh.quote_approved, quote_approved_at: fresh.quote_approved_at, type_meta: {...(j as any).type_meta, ...fresh.type_meta}} as any : j);
-      if (t === "proofs" || t === "overview") {
+      if (t === "proofs" || t === "overview" || t === "invoice") {
         const { data: freshPay } = await supabase.from("payment_records").select("*").eq("job_id", job!.id).order("created_at");
         if (freshPay) setPayments(freshPay);
       }
@@ -688,7 +723,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const card = {background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"1rem 1.25rem"};
 
   return (
-    <div style={{fontFamily:"var(--font-sans)",color:T.text,maxWidth:1100,margin:"0 auto",paddingBottom:"3rem"}}>
+    <div style={{fontFamily:font,color:T.text,maxWidth:1100,margin:"0 auto",paddingBottom:"3rem"}}>
       {/* ── Project detail header ──
           Compact 3-row layout, client name primary:
             Row 1: Back chevron · ship countdown (one line, right-aligned)
@@ -716,32 +751,23 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           onMouseLeave={(e:any)=>{ if (!navigating) e.currentTarget.style.opacity="1";}}>
           <span style={{fontSize:20,lineHeight:1,marginRight:2}}>‹</span> {navigating ? "Saving…" : "Projects"}
         </button>
-        {(() => {
-          const isComplete = job.phase === "complete";
-          const isCancelled = job.phase === "cancelled";
-          const fmt = (iso: string) => fmtDay(iso);
-          const render = (primary: string, date: string | null, color: string) => (
-            <span style={{display:"inline-flex",alignItems:"baseline",gap:6,fontFamily:font}}>
-              <span style={{fontSize:13,fontWeight:700,color,letterSpacing:"-0.01em"}}>{primary}</span>
-              {date && <span style={{fontSize:11,color:T.muted}}>· {date}</span>}
-              {saving && <span style={{fontSize:10,color:T.muted,fontStyle:"italic",marginLeft:4}}>Saving…</span>}
-            </span>
-          );
-          if (isComplete || isCancelled) {
-            const ts = (job as any).phase_timestamps?.[isComplete ? "complete" : "cancelled"];
-            return render(isComplete?"Completed":"Cancelled", ts ? fmt(ts) : null, isCancelled?T.red:T.green);
-          }
-          if (job.phase === "fulfillment" || job.phase === "shipping" || job.phase === "receiving") {
-            return render("At HPD", job.target_ship_date ? fmt(job.target_ship_date) : null, T.green);
-          }
-          if (daysLeft === null) return saving ? <span style={{fontSize:10,color:T.muted,fontStyle:"italic"}}>Saving…</span> : null;
-          const primary = daysLeft<0?`${Math.abs(daysLeft)}d overdue`:daysLeft===0?"Ships today":`${daysLeft}d to ship`;
-          const color = daysLeft<0?T.red:daysLeft<=3?T.amber:T.text;
-          return render(primary, fmt(job.target_ship_date!), color);
-        })()}
+        <div style={{position:"relative"}}>
+          <button onClick={()=>setOvMenu(m=>!m)} style={{border:`1px solid ${T.border}`,background:T.card,color:T.muted,borderRadius:8,padding:"5px 12px",fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:font,lineHeight:1}}>⋯</button>
+          {ovMenu && (
+            <div style={{position:"absolute",top:"100%",right:0,marginTop:6,background:T.card,border:`1px solid ${T.border}`,borderRadius:10,boxShadow:"0 10px 30px rgba(0,0,0,.16)",zIndex:40,minWidth:196,overflow:"hidden"}}>
+              <button onClick={async()=>{setOvMenu(false);await switchTab("overview");setOvSection("activity");}} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 13px",background:"none",border:"none",cursor:"pointer",fontFamily:font,fontSize:12.5,fontWeight:600,color:T.text}}>Activity log</button>
+              {job.phase!=="on_hold"&&job.phase!=="cancelled"&&<button onClick={()=>{setOvMenu(false);upd("phase","on_hold");}} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 13px",background:"none",border:"none",cursor:"pointer",fontFamily:font,fontSize:12.5,fontWeight:600,color:T.text}}>Place on hold</button>}
+              {job.phase==="on_hold"&&<button onClick={async()=>{setOvMenu(false);await supabase.from("jobs").update({phase:"intake"}).eq("id",job.id);setJob(j=>j?{...j,phase:"intake"} as any:j);setTimeout(recalcPhase,300);}} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 13px",background:"none",border:"none",cursor:"pointer",fontFamily:font,fontSize:12.5,fontWeight:600,color:T.green}}>Resume</button>}
+              <button onClick={async()=>{setOvMenu(false);if(!window.confirm(`Duplicate "${job.title}" as a re-order? Items, costing, contacts, art, and approved proofs carry over.`))return;try{const res=await fetch(`/api/jobs/${job.id}/duplicate`,{method:"POST"});const data=await res.json();if(!res.ok)throw new Error(data?.error||"Duplication failed");if(!data?.jobId)throw new Error("No new job id returned");router.push(`/jobs/${data.jobId}`);}catch(e:any){alert(`Duplicate failed: ${e?.message||"Unknown error"}`);}}} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 13px",background:"none",border:"none",cursor:"pointer",fontFamily:font,fontSize:12.5,fontWeight:600,color:T.text}}>Duplicate</button>
+              {job.phase!=="cancelled"&&(job as any).type_meta?.qb_invoice_number&&<button onClick={()=>{setOvMenu(false);setConfirmCancelVoid(true);}} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 13px",background:"none",border:"none",cursor:"pointer",fontFamily:font,fontSize:12.5,fontWeight:600,color:T.amber}}>Cancel &amp; void invoice</button>}
+              <button onClick={()=>{setOvMenu(false);setConfirmDeleteProject(true);}} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 13px",background:"none",border:"none",cursor:"pointer",fontFamily:font,fontSize:12.5,fontWeight:600,color:T.red}}>Delete project</button>
+            </div>
+          )}
+        </div>
       </div>
 
-      <div style={{marginBottom:10}}>
+      <div style={{marginBottom:10,display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:16,flexWrap:"wrap"}}>
+      <div style={{minWidth:0}}>
         {/* H1 row — client name dominates, project title trails as
             subtitle. Inline on desktop; project title drops to a
             second line on mobile so the client name has full width. */}
@@ -753,12 +779,10 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               onMouseLeave={(e:any)=>e.currentTarget.style.color=T.text}
               title="View in client hub">
               {(job.clients as any)?.name||"No client"}
-              <span style={{fontSize:13,fontWeight:500,color:T.muted}}>↗</span>
             </Link>
           ) : (
             <span style={{fontSize:isMobile?20:22,fontWeight:800,color:T.faint,letterSpacing:"-0.02em",lineHeight:1.15}}>No client</span>
           )}
-          <span style={{fontSize:isMobile?13:14,color:T.muted,lineHeight:1.2}}>{job.title || "Untitled"}</span>
           {/* Costing actions — only relevant on Product Builder + Costing
               tabs. Pull from PSDs and Request Pricing operate on costing
               state, so when triggered from Builder we jump to Costing
@@ -833,46 +857,24 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
 
         {/* Quiet metadata strip — single line, wraps if needed. */}
         <div style={{display:"flex",alignItems:"center",gap:12,marginTop:6,flexWrap:"wrap",fontSize:11,color:T.muted}}>
-          <span style={{fontFamily:mono,color:T.muted}}>
-            {(job as any).type_meta?.qb_invoice_number || job.job_number}
-          </span>
-          {(job as any).type_meta?.qb_invoice_number && (
-            <span style={{fontFamily:mono,color:T.faint,fontSize:10}}>{job.job_number}</span>
-          )}
-          <span>{totalUnits.toLocaleString()} units</span>
-          {(() => {
-            const label = {fontSize:10,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase" as const};
-            const isTerminal = ["complete","cancelled","on_hold"].includes(job.phase);
-            // NEW phase model (additive). Falls back to legacy job.phase until it loads
-            // or for terminal states. Does NOT drive jobs.phase — display only.
-            if (isTerminal || items.length === 0 || !phaseView) {
-              const shown = phaseView?.phase || LEGACY_TO_NEW_PHASE[job.phase] || job.phase.replace(/_/g," ");
-              return <span style={{...label,color:phaseColor.text}}>{shown}</span>;
-            }
-            const pv = phaseView;
-            const { out, total } = pv.fulfillment;
-            const partial = out > 0 && out < total;
-            const clientKey = pv.result.client;
-            return <>
-              <span style={{...label,color:phaseColor.text}}>
-                {pv.phase}
-                {pv.detail && <span style={{fontWeight:600,color:T.muted,textTransform:"none",letterSpacing:0}}> · {pv.detail}</span>}
-              </span>
-              {partial && (
-                <span style={{...label,color:T.blue,whiteSpace:"nowrap"}}>Out the door <span style={{fontFamily:mono,fontWeight:600}}>· {out}/{total}</span></span>
-              )}
-              {clientKey !== "none" && (
-                <span style={{fontSize:10,color:T.faint,letterSpacing:"0.04em",textTransform:"uppercase"}}>Client: {CLIENT_LABEL[clientKey]}</span>
-              )}
-            </>;
-          })()}
+          {/* Phase (and its detail) now live in the status bar — dropped from the metadata line. */}
           {job.priority==="rush" && <span style={{fontSize:10,fontWeight:700,color:T.amber,letterSpacing:"0.06em",textTransform:"uppercase"}}>Rush</span>}
           {job.priority==="hot" && <span style={{fontSize:10,fontWeight:700,color:T.red,letterSpacing:"0.06em",textTransform:"uppercase"}}>Hot</span>}
         </div>
       </div>
+      <div style={{textAlign:"right",flexShrink:0}}>
+        <div style={{fontFamily:mono,fontSize:isMobile?20:22,fontWeight:800,color:T.text,lineHeight:1.15,letterSpacing:"-0.02em"}}>{(job as any).type_meta?.qb_invoice_number || job.job_number}</div>
+        {(job as any).type_meta?.qb_invoice_number && (
+          <div style={{fontFamily:mono,fontSize:11,color:T.faint,marginTop:2}}>{job.job_number}</div>
+        )}
+      </div>
+      </div>
 
-      {/* Progress checklist — horizontal tabs (X axis) */}
-      <ProjectProgress job={job} items={items} payments={payments} proofStatus={proofStatus} activeTab={tab} onTabClick={switchTab} />
+      {/* V2 nav: status bar + build tabs. Drives switchTab (the save-and-navigate
+          gate) so the costing save contract is preserved untouched. Gates map to
+          the flow tabs; the warehouse tail routes to its pages. */}
+      <JobFlowBar job={job} items={items} payments={payments} phaseView={phaseView} activeTab={tab}
+        onBuild={(t) => switchTab(t)} />
 
       {/* ── Sidebar + Content Layout (Y axis: items | content) ── */}
       <div style={{display:"flex",gap:0,minHeight:"calc(100vh - 240px)"}}>
@@ -994,42 +996,9 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                   {tab==="overview"&&(
         <div style={{fontFamily:"'IBM Plex Sans','Helvetica Neue',Arial,sans-serif"}}>
 
-          {/* KPI strip — Overview-only so switching to other tabs doesn't
-              jump the layout. 4-up on desktop, 2×2 on mobile so the
-              dollar values don't truncate on a 375px screen.
-              When the job has been intentionally priced (costing saved
-              OR any item.sell_per_unit set) trust totalRev even if it's
-              0 — don't fake a "~1.43× cost" estimate. The estimate is
-              only for jobs that haven't been priced yet. */}
-          <div style={{display:"grid",gridTemplateColumns:isMobile?"repeat(2,1fr)":"repeat(6, 1fr)",gap:8,marginBottom:10}}>
-            {(() => {
-              const pricingKnown = !!cs || items.some((it:any) => it.sell_per_unit != null);
-              const estRev = !pricingKnown && totalCost > 0 ? totalCost * 1.43 : null;
-              const effRev = totalRev > 0 ? totalRev : (estRev ?? totalRev);
-              const showRev = totalRev > 0 || pricingKnown || estRev != null;
-              const profit = totalCost > 0 ? effRev - totalCost : 0;
-              const marginPct = effRev > 0 ? (profit / effRev * 100) : 0;
-              // Show full cents — Math.round() was hiding the .46 on
-              // an $80.46 invoice, which led Taylor to mark a partial
-              // $80 payment as "Full Payment" because $80 looked like
-              // the total.
-              const fmt$ = (n: number) => "$" + n.toLocaleString("en-US", { maximumFractionDigits: 0 });
-              const units = items.reduce((a:number,it:any)=>a+tQty(it.qtys||{}),0);
-              return [
-                { label: "Revenue", value: showRev ? fmt$(effRev) : "—", color: T.text },
-                { label: "Cost", value: totalCost > 0 ? fmt$(totalCost) : "—", color: T.muted },
-                { label: "Profit", value: totalCost > 0 ? fmt$(profit) : "—", color: profit >= 0 ? T.green : T.red },
-                { label: "Margin", value: totalCost > 0 && effRev > 0 ? marginPct.toFixed(1) + "%" : "—", color: marginPct >= 30 ? T.green : marginPct >= 20 ? T.amber : T.red },
-                { label: "Units", value: units > 0 ? units.toLocaleString() : "—", color: T.text },
-                { label: "Paid", value: totalPaid > 0 ? fmt$(totalPaid) : "—", color: totalPaid > 0 ? T.green : T.faint },
-              ];
-            })().map(s=>(
-              <div key={s.label} style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"6px 12px",boxShadow:"0 1px 2px rgba(16,18,32,0.05)"}}>
-                <div style={{fontSize:8.5,color:T.faint,textTransform:"uppercase",letterSpacing:"0.07em",fontWeight:700}}>{s.label}</div>
-                <div style={{fontSize:16,fontWeight:800,color:(s as any).color||T.text,fontFamily:mono,letterSpacing:"-0.02em"}}>{s.value}</div>
-              </div>
-            ))}
-          </div>
+          {/* ⋯ actions moved to the header top-right. */}
+
+          {/* Money summary lives on the Costing tab — no KPI/costing strip on the overview. */}
 
           {/* Section tiles — command-center style, packed with as much live
               summary as fits so you rarely open them. Click opens the OvModal
@@ -1053,49 +1022,64 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             const payState=paidSum>0.01&&balance<=0.01?"Paid":paidSum>0.01?"Partial":invoiceTotal>0?"Unpaid":"No invoice";
             const payColor=payState==="Paid"?T.green:payState==="Partial"?T.amber:invoiceTotal>0?T.red:T.muted;
             const units=items.reduce((a:number,it:any)=>a+tQty(it.qtys||{}),0);
-            const tileStyle:React.CSSProperties={textAlign:"left",background:T.card,border:`1px solid ${T.border}`,borderRadius:12,padding:"14px 16px",cursor:"pointer",fontFamily:font,boxShadow:"0 1px 2px rgba(16,18,32,0.05)",transition:"all 0.12s",display:"flex",flexDirection:"column",gap:11,minHeight:158};
-            const Hd=({label}:{label:string})=>(<div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}><span style={{fontSize:9.5,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",color:T.faint}}>{label}</span><span style={{fontSize:15,color:T.faint,lineHeight:1}}>›</span></div>);
+            const gcolor=(s:string)=>["#243b6b","#3a9a22","#9a9aa2","#c0392b","#d4930f","#1a1a1a","#3a97ad","#7b4fb5"][(s||"x").split("").reduce((a:number,c:string)=>a+c.charCodeAt(0),0)%8];
+            const money=(n:number)=>"$"+Math.round(n||0).toLocaleString();
+            const panelBtn:React.CSSProperties={textAlign:"left",background:T.card,border:`1px solid ${T.border}`,borderRadius:12,padding:"14px 16px",cursor:"pointer",fontFamily:font,boxShadow:"0 1px 2px rgba(16,18,32,0.05)",transition:"all 0.12s"};
+            const hov=(e:any,on:boolean)=>{e.currentTarget.style.borderColor=on?T.accent:T.border;};
             const Fact=({label,value,color}:{label:string;value:any;color?:string})=>(<div style={{display:"flex",flexDirection:"column",gap:1,minWidth:0}}><span style={{fontSize:8.5,color:T.faint,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:600}}>{label}</span><span style={{fontSize:13,fontWeight:600,color:color||T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{value}</span></div>);
-            const hov=(e:any,on:boolean)=>{e.currentTarget.style.borderColor=on?T.accent:T.border;e.currentTarget.style.transform=on?"translateY(-1px)":"none";};
             return (
-              <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(3,1fr)",gap:10,marginBottom:10,alignItems:"stretch"}}>
-                <button onClick={()=>setOvSection("details")} style={tileStyle} onMouseEnter={e=>hov(e,true)} onMouseLeave={e=>hov(e,false)}>
-                  <Hd label="Details" />
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:11}}>
-                    <Fact label="Ships" value={shipLabel+(shipSub?` · ${shipSub}`:"")} color={shipColor} />
-                    <Fact label="Route" value={routeLabel} />
-                    <Fact label="Terms" value={termsLabel} />
-                    <Fact label="Priority" value={priLabel} color={priColor} />
+              // column-reverse so Details + Billing render ABOVE the gallery.
+              <div style={{display:"flex",flexDirection:"column-reverse"}}>
+                {/* What's in this job — the gallery. Click an item → the Items worksheet editor. */}
+                <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:12,padding:"14px 16px",marginBottom:10}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:10}}>
+                    <span style={{fontSize:14,fontWeight:800}}>What&apos;s in this job</span>
+                    <span style={{fontSize:12,color:T.muted}}>{items.length} item{items.length!==1?"s":""} · {units.toLocaleString()} units</span>
                   </div>
-                </button>
-                <button onClick={()=>{setOvSection("items");setOvItemsVendor(null);}} style={tileStyle} onMouseEnter={e=>hov(e,true)} onMouseLeave={e=>hov(e,false)}>
-                  <Hd label="Items" />
-                  <div style={{fontSize:16,fontWeight:800,color:T.text}}>{items.length} item{items.length!==1?"s":""}<span style={{fontSize:12,fontWeight:600,color:T.muted}}> · {units.toLocaleString()} units</span></div>
-                  <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                    {items.length===0 && <span style={{fontSize:12,color:T.muted}}>No items yet</span>}
-                    {items.slice(0,5).map((it:any)=>(
-                      <div key={it.id} style={{display:"flex",justifyContent:"space-between",gap:8,fontSize:12.5,minWidth:0}}>
-                        <span style={{fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.name||"Untitled"}</span>
-                        <span style={{color:T.faint,flexShrink:0,fontFamily:mono}}>{tQty(it.qtys||{})}</span>
+                  {items.length===0 ? <div style={{fontSize:13,color:T.muted}}>No items yet.</div> :
+                  <div style={{display:"grid",gridTemplateColumns:isMobile?"repeat(2,1fr)":"repeat(auto-fill,minmax(150px,1fr))",gap:12}}>
+                    {items.map((it:any)=>{const st=iStatus(it);const gc=gcolor(it.garment_type||it.name);return (
+                      <div key={it.id} onClick={()=>setPeekItem(it)} style={{border:`1px solid ${T.border}`,borderRadius:11,overflow:"hidden",background:T.card,cursor:"pointer"}}>
+                        <div style={{aspectRatio:"1",background:"#f2f2f4",display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden"}}>
+                          {thumbByItem[it.id]
+                            ? <img src={`/api/files/thumbnail?id=${thumbByItem[it.id]}&thumb=1`} alt="" style={{width:"100%",height:"100%",objectFit:"contain"}} />
+                            : <div style={{width:"62%",height:"62%",borderRadius:14,background:gc,boxShadow:"0 2px 8px rgba(0,0,0,.12)"}} />}
+                        </div>
+                        <div style={{padding:"9px 11px 11px"}}>
+                          <div style={{fontSize:12.5,fontWeight:800,lineHeight:1.2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{it.name||"Untitled"}</div>
+                          <div style={{fontSize:10.5,color:T.muted,marginTop:3,fontFamily:mono}}>{tQty(it.qtys||{})} · {(it as any).sell_per_unit?money((it as any).sell_per_unit):"—"}/unit</div>
+                          <div style={{fontSize:10,fontWeight:800,textTransform:"uppercase",letterSpacing:"0.04em",color:st.c,marginTop:3}}>{st.s}</div>
+                        </div>
                       </div>
-                    ))}
-                    {items.length>5 && <span style={{fontSize:11,color:T.faint}}>+{items.length-5} more</span>}
-                  </div>
-                </button>
-                <button onClick={()=>setOvSection("billing")} style={tileStyle} onMouseEnter={e=>hov(e,true)} onMouseLeave={e=>hov(e,false)}>
-                  <Hd label="Billing & Contacts" />
-                  <div style={{fontSize:16,fontWeight:800,color:payColor}}>{payState}{invoiceTotal>0 && <span style={{fontSize:12,fontWeight:600,color:T.muted}}> · ${Math.round(paidSum).toLocaleString()} / ${Math.round(invoiceTotal).toLocaleString()}</span>}</div>
-                  <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                    {contacts.length===0 && <span style={{fontSize:12,color:T.muted}}>No contacts</span>}
-                    {contacts.slice(0,3).map((c:any)=>(
-                      <div key={c.id} style={{display:"flex",flexDirection:"column",gap:1,minWidth:0}}>
-                        <span style={{fontWeight:600,color:T.text,fontSize:12.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}{(c.role_on_job==="primary"||c.role_on_job==="billing") && <span style={{fontWeight:400,color:T.faint,textTransform:"capitalize"}}> · {c.role_on_job}</span>}</span>
-                        {c.email && <span style={{fontSize:11.5,color:T.accent,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.email}</span>}
-                      </div>
-                    ))}
-                    {contacts.length>3 && <span style={{fontSize:11,color:T.faint}}>+{contacts.length-3} more</span>}
-                  </div>
-                </button>
+                    );})}
+                  </div>}
+                </div>
+                {/* Details + Billing & Contacts — open the same editors as before */}
+                <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(2,1fr)",gap:10,marginBottom:10}}>
+                  <button onClick={()=>setOvSection("details")} style={panelBtn} onMouseEnter={e=>hov(e,true)} onMouseLeave={e=>hov(e,false)}>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}><span style={{fontSize:9.5,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",color:T.faint}}>Details</span><span style={{fontSize:15,color:T.faint,lineHeight:1}}>›</span></div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:11}}>
+                      <Fact label="Ships" value={shipLabel+(shipSub?` · ${shipSub}`:"")} color={shipColor} />
+                      <Fact label="Route" value={routeLabel} />
+                      <Fact label="Terms" value={termsLabel} />
+                      <Fact label="Priority" value={priLabel} color={priColor} />
+                    </div>
+                  </button>
+                  <button onClick={()=>setOvSection("billing")} style={panelBtn} onMouseEnter={e=>hov(e,true)} onMouseLeave={e=>hov(e,false)}>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}><span style={{fontSize:9.5,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",color:T.faint}}>Billing &amp; Contacts</span><span style={{fontSize:15,color:T.faint,lineHeight:1}}>›</span></div>
+                    <div style={{fontSize:16,fontWeight:800,color:payColor,marginBottom:8}}>{payState}{invoiceTotal>0 && <span style={{fontSize:12,fontWeight:600,color:T.muted}}> · ${Math.round(paidSum).toLocaleString()} / ${Math.round(invoiceTotal).toLocaleString()}</span>}</div>
+                    <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                      {contacts.length===0 && <span style={{fontSize:12,color:T.muted}}>No contacts</span>}
+                      {contacts.slice(0,3).map((c:any)=>(
+                        <div key={c.id} style={{display:"flex",flexDirection:"column",gap:1,minWidth:0}}>
+                          <span style={{fontWeight:600,color:T.text,fontSize:12.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}{(c.role_on_job==="primary"||c.role_on_job==="billing") && <span style={{fontWeight:400,color:T.faint,textTransform:"capitalize"}}> · {c.role_on_job}</span>}</span>
+                          {c.email && <span style={{fontSize:11.5,color:T.accent,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.email}</span>}
+                        </div>
+                      ))}
+                      {contacts.length>3 && <span style={{fontSize:11,color:T.faint}}>+{contacts.length-3} more</span>}
+                    </div>
+                  </button>
+                </div>
               </div>
             );
           })()}
@@ -1459,7 +1443,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px"}}>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
                   <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Payments</div>
-                  <button onClick={()=>switchTab("proofs")} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.accent,fontSize:10,padding:"2px 8px",cursor:"pointer"}}>Manage →</button>
+                  <button onClick={()=>switchTab("quote")} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.accent,fontSize:10,padding:"2px 8px",cursor:"pointer"}}>Manage →</button>
                 </div>
                 <div style={{marginBottom:8}}>
                   <label style={{fontSize:10,color:T.muted,marginBottom:3,display:"block"}}>Payment terms</label>
@@ -1542,66 +1526,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           <JobItemsList items={items} job={job} isMobile={isMobile} onChange={reloadItems} vendorFilter={ovItemsVendor} onClearVendor={()=>setOvItemsVendor(null)} />
           </OvModal>)}
 
-          {/* Action row — Activity Log (left) + Hold / Duplicate / Delete (right). */}
-          <div style={{display:"flex",justifyContent:"flex-end",gap:8,marginTop:10}}>
-            <button onClick={()=>setOvSection("activity")}
-              style={{marginRight:"auto",padding:"6px 14px",background:"transparent",border:`1px solid ${T.border}`,borderRadius:6,color:T.muted,fontSize:11,fontFamily:font,fontWeight:600,cursor:"pointer"}}
-              onMouseEnter={e=>{e.currentTarget.style.borderColor=T.accent;e.currentTarget.style.color=T.accent;}}
-              onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.color=T.muted;}}>
-              Activity Log
-            </button>
-            {job.phase!=="on_hold"&&job.phase!=="cancelled"&&(
-              <button onClick={()=>{upd("phase","on_hold");}}
-                style={{padding:"6px 14px",background:"transparent",border:`1px solid ${T.border}`,borderRadius:6,color:T.muted,fontSize:11,fontFamily:font,fontWeight:600,cursor:"pointer"}}
-                onMouseEnter={e=>{e.currentTarget.style.borderColor=T.amber;e.currentTarget.style.color=T.amber;}}
-                onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.color=T.muted;}}>
-                Place on Hold
-              </button>
-            )}
-            {job.phase==="on_hold"&&(
-              <button onClick={async()=>{
-                await supabase.from("jobs").update({phase:"intake"}).eq("id",job.id);
-                setJob(j=>j?{...j,phase:"intake"} as any:j);
-                setTimeout(recalcPhase, 300);
-              }}
-                style={{padding:"6px 14px",background:T.greenDim,border:`1px solid ${T.green}44`,borderRadius:6,color:T.green,fontSize:11,fontFamily:font,fontWeight:600,cursor:"pointer"}}>
-                Resume
-              </button>
-            )}
-            <button onClick={async()=>{
-                if(!window.confirm(`Duplicate "${job.title}" as a re-order? Items, costing, contacts, art, and approved proofs carry over.`)) return;
-                try {
-                  const res = await fetch(`/api/jobs/${job.id}/duplicate`, { method: "POST" });
-                  const data = await res.json();
-                  if (!res.ok) throw new Error(data?.error || "Duplication failed");
-                  if (!data?.jobId) throw new Error("No new job id returned");
-                  router.push(`/jobs/${data.jobId}`);
-                } catch (e: any) {
-                  alert(`Duplicate failed: ${e?.message || "Unknown error"}`);
-                }
-              }}
-              style={{padding:"6px 14px",background:"transparent",border:`1px solid ${T.border}`,borderRadius:6,color:T.muted,fontSize:11,fontFamily:font,fontWeight:600,cursor:"pointer"}}
-              onMouseEnter={e=>{e.currentTarget.style.borderColor=T.accent;e.currentTarget.style.color=T.accent;}}
-              onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.color=T.muted;}}>
-              Duplicate
-            </button>
-            {job.phase!=="cancelled"&&(job as any).type_meta?.qb_invoice_number&&(
-              <button
-                onClick={() => setConfirmCancelVoid(true)}
-                style={{padding:"6px 14px",background:"transparent",border:`1px solid ${T.border}`,borderRadius:6,color:T.muted,fontSize:11,fontFamily:font,fontWeight:600,cursor:"pointer"}}
-                onMouseEnter={e=>{e.currentTarget.style.borderColor=T.amber;e.currentTarget.style.color=T.amber;}}
-                onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.color=T.muted;}}>
-                Cancel &amp; void invoice
-              </button>
-            )}
-            <button
-              onClick={() => setConfirmDeleteProject(true)}
-              style={{padding:"6px 14px",background:"transparent",border:`1px solid ${T.border}`,borderRadius:6,color:T.muted,fontSize:11,fontFamily:font,fontWeight:600,cursor:"pointer"}}
-              onMouseEnter={e=>{e.currentTarget.style.borderColor=T.red;e.currentTarget.style.color=T.red;}}
-              onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.color=T.muted;}}>
-              Delete project
-            </button>
-          </div>
+          {/* Action row moved to the ⋯ menu at the top of the overview. */}
 
           {/* Activity — collapsed into a modal, opened by the Activity Log
               button in the action row above. (The outbound-email test panel was
@@ -1609,6 +1534,44 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           {ovSection==="activity" && (<OvModal title="Activity" onClose={()=>setOvSection(null)}>
             <JobActivityPanel jobId={job.id} currentUserId={currentUserId} profiles={teamProfiles} />
           </OvModal>)}
+
+          {/* Item peek — focused read-view of one gallery item + jump-ins. */}
+          {peekItem && (()=>{
+            const it:any = items.find((x:any)=>x.id===peekItem.id) || peekItem;
+            const st = iStatus(it);
+            const pf = proofStatus[it.id];
+            const q:Record<string,number> = it.qtys||{};
+            const sizes:string[] = (it.sizes&&it.sizes.length?it.sizes:Object.keys(q));
+            const total = tQty(q);
+            const go = (t:string)=>{ setSelectedItemId(it.id); setPeekItem(null); switchTab(t); };
+            const peekBtn:React.CSSProperties={flex:1,padding:"9px 0",borderRadius:9,border:`1px solid ${T.border}`,background:T.bg,color:T.text,fontFamily:font,fontSize:12.5,fontWeight:700,cursor:"pointer"};
+            return (
+              <div onClick={()=>setPeekItem(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:9998,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"48px 16px",overflowY:"auto"}}>
+                <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:14,width:"100%",maxWidth:480,boxShadow:"0 16px 48px rgba(0,0,0,0.45)",overflow:"hidden"}}>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 18px",borderBottom:`1px solid ${T.border}`}}>
+                    <div style={{fontSize:14,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.name||"Item"}</div>
+                    <button onClick={()=>setPeekItem(null)} aria-label="Close" style={{background:"none",border:"none",color:T.muted,fontSize:22,cursor:"pointer",lineHeight:1}}>×</button>
+                  </div>
+                  <div style={{aspectRatio:"16/10",background:"#f2f2f4",display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden"}}>
+                    {thumbByItem[it.id]
+                      ? <img src={`/api/files/thumbnail?id=${thumbByItem[it.id]}&thumb=1`} alt="" style={{width:"100%",height:"100%",objectFit:"contain"}} />
+                      : <div style={{width:"36%",height:"55%",borderRadius:14,background:"#c9c9d0"}} />}
+                  </div>
+                  <div style={{padding:"14px 18px"}}>
+                    <div style={{fontSize:11,fontWeight:800,textTransform:"uppercase",letterSpacing:"0.04em",color:st.c}}>{st.s}</div>
+                    <div style={{fontSize:13,color:T.muted,marginTop:6,fontFamily:mono}}>{total} units · {it.sell_per_unit?("$"+Math.round(it.sell_per_unit).toLocaleString()):"—"}/unit</div>
+                    {sizes.length>0 && <div style={{fontSize:12.5,color:T.text,marginTop:8,fontFamily:mono,display:"flex",flexWrap:"wrap",gap:"4px 14px"}}>{sizes.map((s:string)=>q[s]?<span key={s}>{s}:{q[s]}</span>:null)}</div>}
+                    {pf?.proofState==="revision" && pf?.note && <div style={{fontSize:12.5,color:T.red,marginTop:12,borderLeft:`3px solid ${T.red}`,paddingLeft:11,lineHeight:1.4}}>&ldquo;{pf.note}&rdquo;</div>}
+                    <div style={{display:"flex",gap:8,marginTop:16}}>
+                      <button onClick={()=>go("builder")} style={peekBtn}>Product Builder</button>
+                      <button onClick={()=>go("costing")} style={peekBtn}>Costing</button>
+                      <button onClick={()=>go("quote")} style={peekBtn}>Quote + Proofs</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Client portal preview modal — iframes the client's
               read-only view of this job so you can see exactly what
@@ -1679,37 +1642,17 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         />
       )}
 
-      {tab==="proofs"&&(
-        <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"3fr 2fr",gap:20,alignItems:"start"}}>
-          <ApprovalsTab
-            job={job}
-            items={items}
-            contacts={contacts}
-            proofStatus={proofStatus}
-            onUpdateItem={(id: string, updates: any) => {
-              setItems(prev => prev.map(it => it.id === id ? {...it, ...updates} : it));
-              // Keep proofStatus in sync when artwork_status changes (manual approval)
-              if ("artwork_status" in updates) {
-                setProofStatus(prev => {
-                  const next = { ...prev };
-                  const existing = next[id] || { allApproved: false };
-                  next[id] = { ...existing, allApproved: updates.artwork_status === "approved" || existing.allApproved };
-                  return next;
-                });
-              }
-            }}
-            onRecalcPhase={recalcPhase}
-          />
-          <PaymentTab
-            job={job}
-            items={items}
-            contacts={contacts}
-            payments={payments}
-            onReload={loadData}
-            onRecalcPhase={recalcPhase}
-            onUpdateJob={(updates: any) => setJob(j => j ? {...j, ...updates} : j)}
-          />
-        </div>
+      {/* Proofs merged into the Quote + Proofs surface (tab "quote"). */}
+      {tab==="invoice"&&(
+        <InvoiceSurface
+          job={job}
+          items={items}
+          contacts={contacts}
+          payments={payments}
+          onReload={loadData}
+          onRecalcPhase={recalcPhase}
+          onUpdateJob={(updates: any) => setJob(j => j ? {...j, ...updates} : j)}
+        />
       )}
       {/* COSTING */}
             {tab==="costing"&&(
@@ -1732,74 +1675,225 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         />
       )}
 
-      {tab==="quote"&&(
-        <>
-        <div style={{display:"flex",flexDirection:isMobile?"column":"row",gap:12,alignItems:"flex-start",maxWidth:1080,margin:"0 auto"}}>
-        {/* Step 1: Quote details + Send Quote — comes first since you
-            send to the client before they can approve. */}
-        <div style={{flex:isMobile?"0 0 auto":"2 1 460px",minWidth:0,width:isMobile?"100%":undefined}}>
-        <CostingTabWrapper
-          key={"quote-"+items.map(i=>i.id).join(',')}
-          project={job}
-          buyItems={items}
-          contacts={contacts}
-          onUpdateBuyItems={setItems}
-          onRegisterSave={(fn: () => Promise<void>) => { saveCostingRef.current = fn; }}
-          onSaveStatus={(s: string) => handleSaveStatus(s)}
-          onSaved={(data: any) => setJob(j => j ? {...j, ...data} : j)}
-          initialTab="quote"
-          hideSubTabs={true}
-        />
-        </div>
-        {/* Step 2: Approve Quote — internal confirmation once the
-            client signs off on the sent quote. */}
-        <div style={{flex:isMobile?"0 0 auto":"1 1 380px",minWidth:0,width:isMobile?"100%":undefined}}>
-          {(job as any).quote_approved ? (
-            <div style={{background:T.greenDim,border:`1px solid ${T.green}44`,borderRadius:8,padding:"10px 14px"}}>
-              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
-                <div>
-                  <div style={{fontSize:13,fontWeight:600,color:T.green}}>Quote approved</div>
-                  {(job as any).quote_approved_at && <div style={{fontSize:10,color:T.muted,marginTop:2}}>Approved {new Date((job as any).quote_approved_at).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}</div>}
-                </div>
-                <button onClick={async()=>{
-                  await supabase.from("jobs").update({quote_approved:false,quote_approved_at:null}).eq("id",job.id);
-                  setJob(j=>j?{...j,quote_approved:false,quote_approved_at:null} as any:j);
-                  logJobActivity(job.id, "Quote approval revoked");
-                  recalcPhase();
-                }} style={{fontSize:10,color:T.faint,background:"none",border:`1px solid ${T.border}`,borderRadius:5,padding:"3px 10px",cursor:"pointer"}}>Revoke</button>
-              </div>
-              <div style={{display:"flex",gap:6,fontSize:11}}>
-                <span style={{color:T.muted}}>Next:</span>
-                <button onClick={()=>switchTab("proofs")} style={{color:T.accent,background:"none",border:"none",cursor:"pointer",fontSize:11,fontWeight:600,textDecoration:"underline",padding:0}}>Send Proofs & Invoice</button>
-              </div>
+      {tab==="quote"&&(() => {
+        const sentAt = (job as any).type_meta?.quote_sent_at;
+        const changeReq = (job as any).type_meta?.change_request;
+        const approved = (job as any).quote_approved;
+        const hasProofs = Object.values(proofStatus).some((p:any)=>p?.proofState && p.proofState!=="none");
+        const proofsList = Object.values(proofStatus).filter((p:any)=>p?.proofState && p.proofState!=="none");
+        const allProofsApproved = proofsList.length>0 && proofsList.every((p:any)=>p.proofState==="approved");
+        const openQPSend = () => {
+          const sel: Record<number, boolean> = {};
+          (contacts || []).forEach((c:any, i:number) => { if (c.email) sel[i] = true; });
+          setQpSelected(sel); setQpErr(""); setQpSendOpen(true);
+        };
+        const doSendQP = async () => {
+          const recipients = (contacts || []).filter((_:any, i:number) => qpSelected[i]).map((c:any) => c.email).filter(Boolean);
+          if (recipients.length === 0) { setQpErr("Select at least one recipient."); return; }
+          setSendingQP(true); setQpErr("");
+          try {
+            const [to, ...cc] = recipients;
+            await sendQuoteAndProofs(job, { to, cc, includeProofs: hasProofs, proofsOnly: approved });
+            const { data: fresh } = await supabase.from("jobs").select("type_meta").eq("id", job.id).single();
+            if (fresh) setJob(j => j ? {...j, type_meta: {...(j as any).type_meta, ...fresh.type_meta}} as any : j);
+            setQpSendOpen(false);
+          } catch (e:any) { setQpErr(e.message || "Send failed"); }
+          setSendingQP(false);
+        };
+        // Native quote composition — mirrors the Invoice surface (rail + "This quote" card).
+        const orderInfo = (job as any).costing_data?.orderInfo || {};
+        const quoteNum = orderInfo.invoiceNum || job.job_number;
+        const netTerms = /^net/.test(((job as any).payment_terms||"").toLowerCase());
+        const termsLabel = (job as any).payment_terms ? String((job as any).payment_terms).replace(/_/g," ").replace(/\b\w/g,(c:string)=>c.toUpperCase()) : "—";
+        const qLines = items.map((it:any)=>{const q=tQty(it.qtys||{});const unit=Number(it.sell_per_unit)||0;return {name:it.name,qty:q,unit,line:unit*q};}).filter((l:any)=>l.unit>0);
+        const subtotal = qLines.reduce((a:number,l:any)=>a+l.line,0);
+        const extras = ((job as any).type_meta?.invoice_extra_lines)||[];
+        const extrasTotal = extras.reduce((a:number,l:any)=>a+(Number(l.amount)||0),0);
+        const quoteTotal = subtotal + extrasTotal;
+        const money = (n:number)=>"$"+Math.round(n).toLocaleString();
+        const saveOrderInfo = async (patch:any) => { const cd={...((job as any).costing_data||{})}; cd.orderInfo={...(cd.orderInfo||{}),...patch}; await supabase.from("jobs").update({costing_data:cd}).eq("id",job.id); setJob(j=>j?({...j,costing_data:cd} as any):j); };
+        const saveExtras = async (next:any[]) => { const meta={...((job as any).type_meta||{}),invoice_extra_lines:next}; await supabase.from("jobs").update({type_meta:meta}).eq("id",job.id); setJob(j=>j?({...j,type_meta:meta} as any):j); };
+        const clientPO = (job as any).type_meta?.client_po_number || "";
+        const savePO = async (v:string) => { const meta={...((job as any).type_meta||{}),client_po_number:v.trim()||null}; await supabase.from("jobs").update({type_meta:meta}).eq("id",job.id); setJob(j=>j?({...j,type_meta:meta} as any):j); };
+        const doApprove = async () => { const now=new Date().toISOString(); await supabase.from("jobs").update({quote_approved:true,quote_approved_at:now}).eq("id",job.id); setJob(j=>j?({...j,quote_approved:true,quote_approved_at:now} as any):j); logJobActivity(job.id, clientPO ? `Quote approved via client PO #${clientPO}` : "Quote approved"); notifyTeam(`Quote approved — ${(job.clients as any)?.name || ""} · ${job.title}`,"approval",job.id,"job"); recalcPhase(); };
+        const doRevoke = async () => { await supabase.from("jobs").update({quote_approved:false,quote_approved_at:null}).eq("id",job.id); setJob(j=>j?({...j,quote_approved:false,quote_approved_at:null} as any):j); logJobActivity(job.id,"Quote approval revoked"); recalcPhase(); };
+        const addLine = () => saveExtras([...extras, {id:`xl_${Date.now()}`, description:"", amount:0, qb_item:"Service Fee", type:"fee"}]);
+        const updLine = (id:string,patch:any) => saveExtras(extras.map((l:any)=>l.id===id?{...l,...patch}:l));
+        const rmLine = (id:string) => saveExtras(extras.filter((l:any)=>l.id!==id));
+        const qStep = approved?"approved":sentAt?"sent":"draft";
+        return (
+        <div style={{maxWidth:1080,margin:"0 auto"}}>
+        {/* Combined send + client status */}
+        <div style={{display:"flex",flexWrap:"wrap",gap:12,alignItems:"center",justifyContent:"space-between",marginBottom:14,background:T.card,border:`1px solid ${T.border}`,borderRadius:12,padding:"14px 16px"}}>
+          <div style={{minWidth:0}}>
+            <div style={{fontSize:14,fontWeight:800}}>{allProofsApproved ? "Proofs approved" : approved ? "Proofs" : "Quote + Proofs"}</div>
+            <div style={{fontSize:12,color:T.muted,marginTop:2}}>
+              {allProofsApproved
+                ? "All proofs approved — clear to order blanks & send POs."
+                : approved
+                ? "Quote's approved — send the proofs to the client for approval."
+                : (sentAt ? <>Sent to client {new Date(sentAt).toLocaleDateString("en-US",{month:"short",day:"numeric"})} at {new Date(sentAt).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})}</> : "Send the quote + proofs together — the client gets one portal link to review and approve.")}
+              {allProofsApproved
+                ? <span style={{color:T.green,fontWeight:700}}> · {proofsList.length}/{proofsList.length} approved</span>
+                : approved && <span style={{color:T.green,fontWeight:700}}> · Quote approved{(job as any).type_meta?.approval_snapshot ? " by client" : " internally"}</span>}
+              {!approved && changeReq && <span style={{color:T.amber,fontWeight:700}}> · Changes requested{changeReq.note?`: “${changeReq.note}”`:""}</span>}
             </div>
+            {qpErr && <div style={{fontSize:11.5,color:T.red,marginTop:4}}>{qpErr}</div>}
+          </div>
+          {allProofsApproved ? (
+            <button onClick={openQPSend} disabled={sendingQP}
+              style={{flexShrink:0,background:"transparent",color:T.muted,border:`1px solid ${T.border}`,borderRadius:9,padding:"11px 18px",fontSize:12.5,fontWeight:700,fontFamily:font,cursor:sendingQP?"default":"pointer",opacity:sendingQP?0.6:1}}>
+              {sendingQP ? "Sending…" : "Re-send proofs"}
+            </button>
           ) : (
-            <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:8,padding:"12px 14px",display:"flex",flexDirection:"column",gap:10}}>
-              <div>
-                <div style={{fontSize:13,fontWeight:600,color:T.text}}>Quote pending approval</div>
-                <div style={{fontSize:10,color:T.muted,marginTop:2}}>Approve to advance project to pre-production</div>
+            <button onClick={openQPSend} disabled={sendingQP}
+              style={{flexShrink:0,background:T.accent,color:"#fff",border:"none",borderRadius:9,padding:"12px 22px",fontSize:13.5,fontWeight:800,fontFamily:font,cursor:sendingQP?"default":"pointer",opacity:sendingQP?0.6:1}}>
+              {sendingQP ? "Sending…" : approved ? "Send to client for approval" : sentAt ? "Re-send quote + proofs" : "Send quote + proofs"}
+            </button>
+          )}
+        </div>
+
+        {/* Send modal — client contact selection (mirrors the proofs-tab send) */}
+        {qpSendOpen && (
+          <div onClick={() => !sendingQP && setQpSendOpen(false)}
+            style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"8vh 16px",overflowY:"auto"}}>
+            <div onClick={e=>e.stopPropagation()}
+              style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:12,padding:18,width:"100%",maxWidth:520,boxShadow:"0 8px 40px rgba(0,0,0,0.35)",fontFamily:font}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+                <div style={{fontSize:15,fontWeight:800,color:T.text}}>{approved ? "Send proofs for approval" : "Send quote + proofs"}</div>
+                <button onClick={()=>setQpSendOpen(false)} aria-label="Close" style={{background:"none",border:"none",color:T.muted,fontSize:20,cursor:"pointer",lineHeight:1}}>×</button>
               </div>
-              <button onClick={async()=>{
-                const now=new Date().toISOString();
-                await supabase.from("jobs").update({quote_approved:true,quote_approved_at:now}).eq("id",job.id);
-                setJob(j=>j?{...j,quote_approved:true,quote_approved_at:now} as any:j);
-                logJobActivity(job.id, "Quote approved");
-                notifyTeam(`Quote approved — ${(job.clients as any)?.name || ""} · ${job.title}`, "approval", job.id, "job");
-                recalcPhase();
-              }} style={{display:"block",fontSize:13,fontWeight:700,color:"#fff",background:T.green,border:"none",borderRadius:8,padding:"10px 22px",cursor:"pointer",width:"100%",boxSizing:"border-box",boxShadow:"0 1px 2px rgba(0,0,0,0.06)"}}>Approve Quote</button>
+              <div style={{fontSize:11,color:T.muted,marginBottom:4}}>To</div>
+              <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:12}}>
+                {(contacts||[]).length===0 && <div style={{fontSize:12,color:T.faint}}>No contacts on this job.</div>}
+                {(contacts||[]).map((c:any,i:number)=>(
+                  <label key={i} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 9px",background:qpSelected[i]?T.accentDim:T.surface,borderRadius:7,cursor:c.email?"pointer":"default",opacity:c.email?1:0.5}}>
+                    <input type="checkbox" checked={!!qpSelected[i]} disabled={!c.email}
+                      onChange={e=>setQpSelected(p=>({...p,[i]:e.target.checked}))} style={{accentColor:T.accent}} />
+                    <span style={{flex:1,fontSize:12.5,fontWeight:600,color:T.text}}>{c.name||"Unnamed"}{c.role_on_job?<span style={{fontSize:10,color:T.muted,marginLeft:6}}>{c.role_on_job}</span>:null}</span>
+                    <span style={{fontSize:11,color:T.muted}}>{c.email||"no email"}</span>
+                  </label>
+                ))}
+              </div>
+              <div style={{fontSize:12,color:T.muted,background:T.surface,border:`1px solid ${T.border}`,borderRadius:7,padding:"8px 10px",marginBottom:14,lineHeight:1.5}}>
+                {approved
+                  ? "The client gets a portal link to review + approve the proofs. No quote is sent — it's already approved."
+                  : "The client gets one portal link to review + approve the quote and proofs together."}
+              </div>
+              {qpErr && <div style={{fontSize:11.5,color:T.red,marginBottom:10}}>{qpErr}</div>}
+              <div style={{display:"flex",gap:8,justifyContent:"flex-end",alignItems:"center"}}>
+                <span style={{fontSize:10,color:T.muted,flex:1}}>{Object.values(qpSelected).filter(Boolean).length} recipient{Object.values(qpSelected).filter(Boolean).length===1?"":"s"}</span>
+                <button onClick={()=>setQpSendOpen(false)} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:7,color:T.muted,padding:"8px 14px",fontSize:12,fontFamily:font,cursor:"pointer"}}>Cancel</button>
+                <button onClick={doSendQP} disabled={sendingQP||Object.values(qpSelected).filter(Boolean).length===0}
+                  style={{background:T.accent,color:"#fff",border:"none",borderRadius:7,padding:"8px 20px",fontSize:12.5,fontWeight:800,fontFamily:font,cursor:sendingQP?"default":"pointer",opacity:sendingQP||Object.values(qpSelected).filter(Boolean).length===0?0.6:1}}>
+                  {sendingQP ? "Sending…" : approved ? "Send for approval" : "Send"}
+                </button>
+              </div>
             </div>
-          )}
-          {/* Quote sent log */}
-          {(job as any).type_meta?.quote_sent_at && (
-            <div style={{marginTop:8,padding:"6px 12px",background:T.surface,borderRadius:6,fontSize:11,color:T.muted,display:"flex",alignItems:"center",gap:6}}>
-              <span style={{color:T.green,fontWeight:600}}>Sent</span>
-              <span>Quote emailed {new Date((job as any).type_meta.quote_sent_at).toLocaleDateString("en-US",{month:"short",day:"numeric"})} at {new Date((job as any).type_meta.quote_sent_at).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})}</span>
+          </div>
+        )}
+
+        {/* State rail — Draft → Sent → Approved (mirrors the Invoice surface). */}
+        <div style={{display:"flex",alignItems:"center",flexWrap:"wrap",gap:4,marginBottom:14}}>
+          {([["draft","Draft"],["sent","Sent"],["approved","Approved"]] as [string,string][]).map(([k,l],i,arr)=>{
+            const order=["draft","sent","approved"]; const done=order.indexOf(k)<order.indexOf(qStep); const active=k===qStep;
+            const bg=active?(k==="approved"?T.greenDim:T.accent):done?T.greenDim:T.surface;
+            const fg=active?(k==="approved"?T.green:"#fff"):done?T.green:T.faint;
+            return <span key={k} style={{display:"flex",alignItems:"center"}}><span style={{fontSize:10,fontWeight:800,textTransform:"uppercase",letterSpacing:"0.04em",padding:"6px 12px",borderRadius:8,background:bg,color:fg}}>{l}</span>{i<arr.length-1&&<span style={{color:T.faint,padding:"0 6px"}}>→</span>}</span>;
+          })}
+        </div>
+
+        {/* Unified item gallery — items + proofs together (thumbnail · price · proof status). */}
+        <div style={{marginBottom:14}}>
+          <ApprovalsTab
+            job={job}
+            items={items}
+            contacts={contacts}
+            proofStatus={proofStatus}
+            onUpdateItem={(id: string, updates: any) => {
+              setItems(prev => prev.map(it => it.id === id ? {...it, ...updates} : it));
+              if ("artwork_status" in updates) {
+                setProofStatus(prev => {
+                  const next = { ...prev };
+                  const existing = next[id] || { allApproved: false };
+                  next[id] = { ...existing, allApproved: updates.artwork_status === "approved" || existing.allApproved };
+                  return next;
+                });
+              }
+            }}
+            onRecalcPhase={recalcPhase}
+          />
+        </div>
+
+        <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1.3fr 1fr",gap:14,alignItems:"start"}}>
+          {/* LEFT — This quote */}
+          <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:12,padding:"15px 17px"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+              <span style={{fontSize:10,fontWeight:800,letterSpacing:"0.06em",textTransform:"uppercase",color:T.faint}}>This quote</span>
+              <span style={{fontFamily:mono,fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:6,background:T.surface,color:T.muted}}>#{quoteNum}</span>
             </div>
-          )}
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:12.5,padding:"3px 0"}}><span style={{color:T.muted}}>Terms</span><span style={{fontWeight:700,color:netTerms?T.blue:T.text}}>{termsLabel}</span></div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:12.5,padding:"3px 0"}}><span style={{color:T.muted}}>Valid until</span>
+              {editingValidUntil ? (
+                <input type="date" autoFocus defaultValue={orderInfo.validUntil||""} onBlur={e=>{saveOrderInfo({validUntil:e.target.value||null});setEditingValidUntil(false);}} style={{border:`1px solid ${T.border}`,borderRadius:5,background:T.surface,color:T.text,fontSize:11,padding:"3px 6px",fontFamily:font,outline:"none"}}/>
+              ) : (
+                <span onClick={()=>setEditingValidUntil(true)} title="Click to edit" style={{fontWeight:700,cursor:"pointer",borderBottom:`1px dashed ${T.faint}`}}>{orderInfo.validUntil ? new Date(orderInfo.validUntil+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}) : "Set date"}</span>
+              )}
+            </div>
+            {/* Items live in the gallery above — here just the money. */}
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:12.5,padding:"8px 0 0",marginTop:8,borderTop:`1px solid ${T.border}`}}><span style={{color:T.muted}}>Subtotal · {qLines.length} item{qLines.length===1?"":"s"}</span><span style={{fontFamily:mono,fontWeight:700}}>{money(subtotal)}</span></div>
+            {/* Additional charges */}
+            <div style={{marginTop:10,borderTop:`1px solid ${T.border}`,paddingTop:10}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                <span style={{fontSize:10,fontWeight:800,letterSpacing:"0.06em",textTransform:"uppercase",color:T.faint}}>Additional charges</span>
+                <button onClick={addLine} style={{background:"transparent",border:`1px solid ${T.border}`,color:T.text,fontSize:11,fontWeight:700,padding:"4px 10px",borderRadius:6,cursor:"pointer",fontFamily:font}}>+ Add line</button>
+              </div>
+              {extras.length===0 && <div style={{fontSize:12,color:T.faint}}>No extra charges. Add fees, passthrough, freight, or a discount.</div>}
+              {extras.map((l:any)=><div key={l.id} style={{display:"grid",gridTemplateColumns:"1fr 90px 110px 24px",gap:6,alignItems:"center",marginBottom:6}}>
+                <input defaultValue={l.description} placeholder="e.g. Rush fee" onBlur={e=>updLine(l.id,{description:e.target.value})} style={{width:"100%",padding:"6px 8px",border:`1px solid ${T.border}`,borderRadius:6,background:T.surface,color:T.text,fontSize:12,fontFamily:font,boxSizing:"border-box",outline:"none"}}/>
+                <input defaultValue={l.amount} inputMode="decimal" placeholder="0.00" onBlur={e=>updLine(l.id,{amount:parseFloat(e.target.value)||0})} style={{width:"100%",padding:"6px 8px",border:`1px solid ${T.border}`,borderRadius:6,background:T.surface,color:T.text,fontSize:12,fontFamily:mono,boxSizing:"border-box",outline:"none",textAlign:"right"}}/>
+                <select value={l.type||"fee"} onChange={e=>updLine(l.id,{type:e.target.value})} style={{width:"100%",padding:"6px 8px",border:`1px solid ${T.border}`,borderRadius:6,background:T.surface,color:T.text,fontSize:12,fontFamily:font,boxSizing:"border-box",outline:"none"}}>{["fee","passthru","charge","discount"].map(t=><option key={t} value={t}>{t}</option>)}</select>
+                <button onClick={()=>rmLine(l.id)} title="Remove" style={{background:"transparent",border:"none",color:T.faint,fontSize:16,cursor:"pointer",lineHeight:1}}>×</button>
+              </div>)}
+            </div>
+            {/* Total */}
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:13,fontWeight:800,paddingTop:9,marginTop:8,borderTop:`2px solid ${T.border}`}}><span>Quote total</span><span style={{fontFamily:mono}}>{money(quoteTotal)}</span></div>
+            {/* Actions */}
+            <div style={{display:"flex",gap:8,marginTop:13,flexWrap:"wrap"}}>
+              <button onClick={()=>window.open(`/api/pdf/quote/${job.id}?download=1`,"_blank")} style={{flex:"1 1 auto",height:38,borderRadius:9,border:`1px solid ${T.border}`,background:T.surface,color:T.text,cursor:"pointer",fontSize:12.5,fontWeight:700,fontFamily:font}}>Download PDF</button>
+              <button onClick={()=>window.open(`/portal/${(job as any).portal_token||""}`,"_blank")} style={{flex:"0 0 auto",height:38,borderRadius:9,border:`1px solid ${T.border}`,background:T.surface,color:T.text,cursor:"pointer",fontSize:12.5,fontWeight:700,fontFamily:font,padding:"0 14px"}}>Preview in portal</button>
+              <button onClick={()=>switchTab("costing")} style={{flex:"0 0 auto",height:38,borderRadius:9,border:`1px solid ${T.border}`,background:T.card,color:T.text,cursor:"pointer",fontSize:12.5,fontWeight:700,fontFamily:font,padding:"0 14px"}}>Edit in Costing</button>
+              {approved
+                ? <button onClick={()=>switchTab("invoice")} style={{flex:"0 0 auto",height:38,borderRadius:9,border:"none",background:T.accent,color:"#fff",cursor:"pointer",fontSize:12.5,fontWeight:800,fontFamily:font,padding:"0 16px"}}>Go to Invoice</button>
+                : <button onClick={doApprove} style={{flex:"0 0 auto",height:38,borderRadius:9,border:`1px solid ${T.green}`,background:T.greenDim,color:T.green,cursor:"pointer",fontSize:12.5,fontWeight:800,fontFamily:font,padding:"0 16px"}}>Mark approved</button>}
+            </div>
+          </div>
+
+          {/* RIGHT — approval */}
+          <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:12,padding:"15px 17px"}}>
+            <div style={{fontSize:10,fontWeight:800,letterSpacing:"0.06em",textTransform:"uppercase",color:T.faint,marginBottom:10}}>Approval</div>
+            {approved ? (
+              <>
+                <div style={{fontSize:14,fontWeight:800,color:T.green}}>✓ Approved{(job as any).quote_approved_at?` · ${new Date((job as any).quote_approved_at).toLocaleDateString("en-US",{month:"short",day:"numeric"})}`:""}{clientPO?` · via PO #${clientPO}`:""}</div>
+                <div style={{fontSize:12,color:T.muted,marginTop:6,lineHeight:1.5}}>Cleared to produce.</div>
+                <button onClick={doRevoke} style={{marginTop:12,background:"none",border:`1px solid ${T.border}`,color:T.muted,borderRadius:9,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:font}}>Revoke approval</button>
+              </>
+            ) : (
+              <>
+                <div style={{fontSize:13,color:T.muted,lineHeight:1.5}}>The client approves the quote + proofs in the portal. Or record a <b style={{color:T.text}}>client PO</b> / verbal sign-off with <b style={{color:T.text}}>Mark approved</b>.</div>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginTop:12}}>
+                  <label style={{fontSize:10,fontWeight:800,letterSpacing:"0.06em",textTransform:"uppercase",color:T.faint,flexShrink:0}}>Client PO #</label>
+                  <input defaultValue={clientPO} placeholder="—" onBlur={e=>savePO(e.target.value)} style={{flex:1,minWidth:0,padding:"6px 8px",border:`1px solid ${T.border}`,borderRadius:6,background:T.surface,color:T.text,fontSize:12,fontFamily:mono,outline:"none",boxSizing:"border-box"}}/>
+                </div>
+                {changeReq && <div style={{marginTop:10,borderLeft:`3px solid ${T.amber}`,background:T.amberDim,borderRadius:8,padding:"8px 11px",fontSize:12,color:T.text}}><b style={{color:T.amber}}>Client requested changes</b>{changeReq.note?` — “${changeReq.note}”`:""}</div>}
+              </>
+            )}
+          </div>
         </div>
+
         </div>
-        </>
-      )}
+        );
+      })()}
       {tab==="blanks"&&(
         <BlanksTab items={items} job={job} payments={payments} onRecalcPhase={recalcPhase} onUpdateItem={(id: string, updates: any) => setItems(prev => prev.map(it => it.id === id ? {...it, ...updates} : it))} onTabClick={switchTab} onRegisterSave={(fn: () => Promise<void>) => { saveBlanksRef.current = fn; }} onItemsChanged={reloadItems} />
       )}

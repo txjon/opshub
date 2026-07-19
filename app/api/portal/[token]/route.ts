@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sortSizes } from "@/lib/theme";
+import { approvePackage, requestChanges } from "@/lib/portal/approval-actions";
 // Pricing source of truth: items.sell_per_unit
 
 const admin = () =>
@@ -106,11 +107,26 @@ export async function GET(
       for (const a of (assignments || [])) {
         decByItem[(a as any).item_id] = (a as any).decorator_id || null;
       }
+      // A drop_ship item's ship_tracking must be an OUTBOUND (vendor→client)
+      // shipment. An INBOUND (vendor→HPD) tracking is internal — never surface it.
+      const dsIds = (items || [])
+        .filter((it: any) => ((it.shipping_route || jobRoute) === "drop_ship") && it.ship_tracking)
+        .map((it: any) => it.id);
+      const inboundItems = new Set<string>();
+      if (dsIds.length > 0) {
+        const { data: mv } = await sb.from("movements").select("item_id, shipment_id").in("item_id", dsIds).not("shipment_id", "is", null);
+        const shipIds = [...new Set((mv || []).map((m: any) => m.shipment_id))];
+        if (shipIds.length > 0) {
+          const { data: sh } = await sb.from("shipments").select("id, direction").in("id", shipIds);
+          const inboundShipIds = new Set((sh || []).filter((s: any) => s.direction === "inbound").map((s: any) => s.id));
+          for (const m of (mv || [])) if (inboundShipIds.has((m as any).shipment_id)) inboundItems.add((m as any).item_id);
+        }
+      }
       const grouped: Record<string, { decoratorId: string | null; tracking: string; itemCount: number; forwardTracking?: string }> = {};
       for (const it of (items || [])) {
         const route = (it as any).shipping_route || jobRoute;
         if (route === "drop_ship") {
-          if (it.pipeline_stage !== "shipped" || !it.ship_tracking) continue;
+          if (it.pipeline_stage !== "shipped" || !it.ship_tracking || inboundItems.has(it.id)) continue;
           const decId = decByItem[it.id] || null;
           const key = `ds__${decId || ""}__${it.ship_tracking}`;
           if (!grouped[key]) grouped[key] = { decoratorId: decId, tracking: it.ship_tracking, itemCount: 0 };
@@ -342,6 +358,11 @@ export async function GET(
     // /client/[token]/orders/[jobId] route. Until OpsHub emails the quote,
     // the client portal hides the quote section and the approved badge.
     const isQuoteSent = !!typeMeta.quote_sent_at;
+    // Show the order total whenever the client has been BILLED — not only when
+    // the quote was emailed. A quote approved internally (via client PO) never
+    // sets quote_sent_at, so gating totals on isQuoteSent showed Total: $0 (and
+    // hid the Pay button) on a fully-invoiced order. Mirror the client-hub route.
+    const showTotals = isQuoteSent || !!typeMeta.invoice_sent_at || !!typeMeta.qb_invoice_id || !!typeMeta.stripe_invoice_number;
     const portalQuoteItems = isQuoteSent ? quoteItems : [];
     // Additional charges (fees/passthru/discounts) — shown as their own lines on
     // the quote, folded into the subtotal so it matches the amount due.
@@ -362,6 +383,7 @@ export async function GET(
         shipDate: job.target_ship_date,
         quoteApproved: isQuoteSent ? job.quote_approved : false,
         quoteApprovedAt: isQuoteSent ? job.quote_approved_at : null,
+        changeRequest: (job.type_meta as any)?.change_request || null,
         paymentTerms: job.payment_terms,
       },
       client: { name: clientName },
@@ -370,8 +392,8 @@ export async function GET(
         items: portalQuoteItems,
         extraLines: portalExtraLines,
         subtotal: productsSubtotal + extrasSubtotalOut,
-        tax: isQuoteSent ? (typeMeta.qb_tax_amount || 0) : 0,
-        total: isQuoteSent ? (typeMeta.qb_total_with_tax || (typeMeta.stripe_total_cents ? typeMeta.stripe_total_cents / 100 : 0) || portalQuoteItems.reduce((a: number, qi: any) => a + (qi.total || 0), 0)) : 0,
+        tax: showTotals ? (typeMeta.qb_tax_amount || 0) : 0,
+        total: showTotals ? (typeMeta.qb_total_with_tax || (typeMeta.stripe_total_cents ? typeMeta.stripe_total_cents / 100 : 0) || quoteItems.reduce((a: number, qi: any) => a + (qi.total || 0), 0)) : 0,
       },
       invoiceStale: (() => {
         // Only "stale" when OpsHub actually pushed an invoice to QB
@@ -457,175 +479,20 @@ export async function POST(
     const body = await req.json();
     const { action, fileId, note } = body;
 
-    if (action === "reject-quote") {
-      await sb
-        .from("jobs")
-        .update({ quote_rejection_notes: note || "Client requested changes" })
-        .eq("id", job.id);
-
-      await sb.from("job_activity").insert({
-        job_id: job.id, user_id: null, type: "auto",
-        message: `Quote rejected by client via portal${note ? `: "${note}"` : ""}`,
-      });
-
-      let clientName = "Client";
-      if (job.client_id) {
-        const { data: c } = await sb.from("clients").select("name").eq("id", job.client_id).single();
-        if (c) clientName = c.name;
-      }
-      // Notifications table deprecated — bell UI was removed.
-
+    // ── Blanket package approval (V2) — one Approve + one Request-changes for
+    //    the whole package. Shared logic in lib/portal/approval-actions. ──
+    if (action === "approve-package") {
+      await approvePackage(sb, job.id, { via: token });
+      return NextResponse.json({ success: true });
+    }
+    if (action === "request-changes") {
+      await requestChanges(sb, job.id, note);
       return NextResponse.json({ success: true });
     }
 
-    if (action === "approve-quote") {
-      const now = new Date().toISOString();
-      await sb
-        .from("jobs")
-        .update({ quote_approved: true, quote_approved_at: now, quote_rejection_notes: null })
-        .eq("id", job.id);
-
-      // Log activity
-      await sb.from("job_activity").insert({
-        job_id: job.id,
-        user_id: null,
-        type: "auto",
-        message: "Quote approved by client via portal",
-      });
-
-      // Notify team
-      let clientName = "Client";
-      if (job.client_id) {
-        const { data: c } = await sb
-          .from("clients")
-          .select("name")
-          .eq("id", job.client_id)
-          .single();
-        if (c) clientName = c.name;
-      }
-
-      // Notifications table deprecated — bell UI was removed.
-
-      return NextResponse.json({ success: true });
-    }
-
-    if (action === "approve-all-proofs") {
-      // Approve all pending proofs for this job
-      const { data: jobItems } = await sb.from("items").select("id").eq("job_id", job.id);
-      const itemIds = (jobItems || []).map((it: any) => it.id);
-      if (itemIds.length > 0) {
-        await sb.from("item_files")
-          .update({ approval: "approved", approved_at: new Date().toISOString() })
-          .in("item_id", itemIds)
-          .eq("stage", "proof")
-          .eq("approval", "pending")
-          .is("superseded_at", null);
-
-        // Also mark items as manually approved
-        await sb.from("items")
-          .update({ artwork_status: "approved" })
-          .in("id", itemIds);
-      }
-
-      await sb.from("job_activity").insert({
-        job_id: job.id, user_id: null, type: "auto",
-        message: "All proofs approved by client via portal",
-      });
-
-      return NextResponse.json({ success: true });
-    }
-
-    if (action === "approve-proof" && fileId) {
-      // Guard against acting on a superseded proof (client loaded stale portal)
-      const { data: target } = await sb
-        .from("item_files")
-        .select("id, superseded_at")
-        .eq("id", fileId)
-        .single();
-      if (!target || target.superseded_at) {
-        return NextResponse.json({ error: "This proof is no longer active. Please refresh." }, { status: 400 });
-      }
-
-      await sb
-        .from("item_files")
-        .update({ approval: "approved", approved_at: new Date().toISOString() })
-        .eq("id", fileId);
-
-      // Get item name for logging
-      const { data: file } = await sb
-        .from("item_files")
-        .select("item_id, file_name")
-        .eq("id", fileId)
-        .single();
-      let itemName = "Item";
-      if (file) {
-        const { data: item } = await sb
-          .from("items")
-          .select("name")
-          .eq("id", file.item_id)
-          .single();
-        if (item) itemName = item.name;
-      }
-
-      await sb.from("job_activity").insert({
-        job_id: job.id,
-        user_id: null,
-        type: "auto",
-        message: `Proof approved by client via portal for ${itemName}`,
-      });
-
-      // Notifications table deprecated — bell UI was removed.
-
-      return NextResponse.json({ success: true });
-    }
-
-    if (action === "request-revision" && fileId) {
-      // Guard against acting on a superseded proof
-      const { data: target } = await sb
-        .from("item_files")
-        .select("id, superseded_at")
-        .eq("id", fileId)
-        .single();
-      if (!target || target.superseded_at) {
-        return NextResponse.json({ error: "This proof is no longer active. Please refresh." }, { status: 400 });
-      }
-
-      await sb
-        .from("item_files")
-        .update({
-          approval: "revision_requested",
-          ...(note ? { notes: note } : {}),
-        })
-        .eq("id", fileId);
-
-      const { data: file } = await sb
-        .from("item_files")
-        .select("item_id, file_name")
-        .eq("id", fileId)
-        .single();
-      let itemName = "Item";
-      if (file) {
-        const { data: item } = await sb
-          .from("items")
-          .select("name")
-          .eq("id", file.item_id)
-          .single();
-        if (item) itemName = item.name;
-      }
-
-      const noteText = note ? ` — "${note}"` : "";
-      await sb.from("job_activity").insert({
-        job_id: job.id,
-        user_id: null,
-        type: "auto",
-        message: `Revision requested by client via portal for ${itemName}${noteText}`,
-      });
-
-      // Notifications table deprecated — bell UI was removed.
-
-      return NextResponse.json({ success: true });
-    }
-
+    // (Legacy per-item actions — approve-quote / reject-quote / approve-all-proofs
+    //  / approve-proof / request-revision — removed. Blanket approve-package +
+    //  request-changes above supersede them; shared in lib/portal/approval-actions.)
     return NextResponse.json({ error: "Invalid action" }, { status: 400 });
   } catch (e: any) {
     console.error("Portal POST error:", e);
