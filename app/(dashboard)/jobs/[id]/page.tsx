@@ -747,7 +747,8 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         })()}
       </div>
 
-      <div style={{marginBottom:10}}>
+      <div style={{marginBottom:10,display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:16,flexWrap:"wrap"}}>
+      <div style={{minWidth:0}}>
         {/* H1 row — client name dominates, project title trails as
             subtitle. Inline on desktop; project title drops to a
             second line on mobile so the client name has full width. */}
@@ -838,17 +839,18 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
 
         {/* Quiet metadata strip — single line, wraps if needed. */}
         <div style={{display:"flex",alignItems:"center",gap:12,marginTop:6,flexWrap:"wrap",fontSize:11,color:T.muted}}>
-          <span style={{fontFamily:mono,color:T.muted}}>
-            {(job as any).type_meta?.qb_invoice_number || job.job_number}
-          </span>
-          {(job as any).type_meta?.qb_invoice_number && (
-            <span style={{fontFamily:mono,color:T.faint,fontSize:10}}>{job.job_number}</span>
-          )}
           <span>{totalUnits.toLocaleString()} units</span>
           {/* Phase (and its detail) now live in the status bar — dropped from the metadata line. */}
           {job.priority==="rush" && <span style={{fontSize:10,fontWeight:700,color:T.amber,letterSpacing:"0.06em",textTransform:"uppercase"}}>Rush</span>}
           {job.priority==="hot" && <span style={{fontSize:10,fontWeight:700,color:T.red,letterSpacing:"0.06em",textTransform:"uppercase"}}>Hot</span>}
         </div>
+      </div>
+      <div style={{textAlign:"right",flexShrink:0}}>
+        <div style={{fontFamily:mono,fontSize:isMobile?20:22,fontWeight:800,color:T.text,lineHeight:1.15,letterSpacing:"-0.02em"}}>{(job as any).type_meta?.qb_invoice_number || job.job_number}</div>
+        {(job as any).type_meta?.qb_invoice_number && (
+          <div style={{fontFamily:mono,fontSize:11,color:T.faint,marginTop:2}}>{job.job_number}</div>
+        )}
+      </div>
       </div>
 
       {/* V2 nav: status bar + build tabs. Drives switchTab (the save-and-navigate
