@@ -173,6 +173,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const [confirmDeleteProject, setConfirmDeleteProject] = useState(false);
   const [confirmCancelVoid, setConfirmCancelVoid] = useState(false);
   const [ovMenu, setOvMenu] = useState(false);
+  const [thumbByItem, setThumbByItem] = useState<Record<string, string>>({});
   const [cancelling, setCancelling] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string>("");
   const [teamProfiles, setTeamProfiles] = useState<Record<string,string>>({});
@@ -352,7 +353,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
     if (itemsRes.data) {
       const ids = itemsRes.data.map((it: any) => it.id);
       if (ids.length > 0) {
-        const { data: allFiles } = await supabase.from("item_files").select("item_id, stage, approval").in("item_id", ids).is("superseded_at", null);
+        const { data: allFiles } = await supabase.from("item_files").select("item_id, stage, approval, drive_file_id").in("item_id", ids).is("superseded_at", null);
         // Outbound shipments for this job = the frozen forward packing slips.
         const { data: obLines } = await supabase.from("shipment_lines").select("shipment_id, shipments(id, tracking, created_at, direction)").eq("job_id", params.id);
         const slipMap = new Map<string, { id: string; tracking: string | null; createdAt: string }>();
@@ -375,8 +376,9 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           thumbPerItem[id] = mock?.drive_file_id || null;
         }
         setProofStatus(ps);
-        // Mark items with files + their gallery thumbnail (mockup / proof)
-        setItems(prev => prev.map(it => ({ ...it, hasFiles: filesPerItem[it.id] || false, thumbFileId: thumbPerItem[it.id] || null })));
+        // Persist gallery thumbnails in their own map so reloadItems() can't drop them.
+        setThumbByItem(Object.fromEntries(Object.entries(thumbPerItem).filter(([, v]) => v)) as Record<string, string>);
+        setItems(prev => prev.map(it => ({ ...it, hasFiles: filesPerItem[it.id] || false })));
       }
     }
     setLoading(false);
@@ -1038,8 +1040,8 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                     {items.map((it:any)=>{const st=iStatus(it);const gc=gcolor(it.garment_type||it.name);return (
                       <div key={it.id} onClick={()=>{setOvSection("items");setOvItemsVendor(null);}} style={{border:`1px solid ${T.border}`,borderRadius:11,overflow:"hidden",background:T.card,cursor:"pointer"}}>
                         <div style={{aspectRatio:"1",background:"#f2f2f4",display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden"}}>
-                          {(it as any).thumbFileId
-                            ? <img src={`/api/files/thumbnail?id=${(it as any).thumbFileId}&thumb=1`} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}} />
+                          {thumbByItem[it.id]
+                            ? <img src={`/api/files/thumbnail?id=${thumbByItem[it.id]}&thumb=1`} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}} />
                             : <div style={{width:"62%",height:"62%",borderRadius:14,background:gc,boxShadow:"0 2px 8px rgba(0,0,0,.12)"}} />}
                         </div>
                         <div style={{padding:"9px 11px 11px"}}>
