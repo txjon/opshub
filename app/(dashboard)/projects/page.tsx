@@ -5,7 +5,8 @@ import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
 import { BoardFrame, ToggleSearch, KpiStrip, SliceSortRow } from "@/components/board-kit";
 import { loadJobPhasesBatch } from "@/lib/item-state";
-import { deriveProjectStage, PROJ_MILESTONES, ROUTE_DEAD, type ProjStage } from "@/lib/project-stage";
+import { deriveProjectStage, PROJ_MILESTONES, type ProjStage } from "@/lib/project-stage";
+import { JobStatusBar } from "@/components/JobStatusBar";
 
 // Projects Board V2 — the "find the job that needs action" board, on the shared
 // V2 board-kit (matches /receiving chrome). Each job = a strip with a ticked
@@ -13,9 +14,6 @@ import { deriveProjectStage, PROJ_MILESTONES, ROUTE_DEAD, type ProjStage } from 
 
 type Row = { job: any; stage: ProjStage };
 const routeLabel: Record<string, string> = { drop_ship: "drop-ship", ship_through: "ship-through", stage: "stage" };
-// hatched green = a tail phase's "reached but not yet done" portion (in progress)
-const HATCH_GREEN = "repeating-linear-gradient(45deg,transparent,transparent 3px,rgba(58,154,34,0.5) 3px,rgba(58,154,34,0.5) 4px)";
-const TERMS_LABEL: Record<string, string> = { net_15: "Net 15", net_30: "Net 30", net_45: "Net 45", net_60: "Net 60", prepaid: "Prepaid", deposit_balance: "Deposit" };
 // "at" a stage — quote_sent (the first column) is never a resting milestone, so it
 // represents the pre-quote / quoting jobs; every other column matches its milestone.
 const atStage = (r: Row, k: string) => k === "quote_sent" ? r.stage.preQuote : r.stage.milestone === k;
@@ -115,160 +113,22 @@ export default function ProjectsBoard() {
   );
 }
 
-// Where each milestone's hover peek deep-links on click (layer 2 of the onion).
-// Front stages → the job's tab (?tab= is read on load); tail → the dedicated page.
-const STAGE_TARGET: Record<string, { label: string; href: (j: any) => string }> = {
-  quote_sent:  { label: "Quote tab",        href: j => `/jobs/${j.id}?tab=quote` },
-  quote_appr:  { label: "Proofs & Invoice", href: j => `/jobs/${j.id}?tab=proofs` },
-  invoice:     { label: "Client Quote",     href: j => `/jobs/${j.id}?tab=quote` },
-  paid:        { label: "Proofs & Invoice", href: j => `/jobs/${j.id}?tab=proofs` },
-  order:       { label: "Purchase Order",   href: j => `/jobs/${j.id}?tab=po` },
-  production:  { label: "Production board",  href: () => `/production` },
-  receiving:   { label: "Receiving",         href: () => `/receiving` },
-  shipping:    { label: "Shipping",          href: () => `/shipping` },
-  fulfillment: { label: "Staging",           href: () => `/staging2` },
-};
-
 function Strip({ r, onOpen }: { r: Row; onOpen: () => void }) {
   const { job, stage } = r;
   // Once a QB invoice # is assigned that's the number used everywhere (POs tie to
   // it, it matches QB) — lead with it, fall back to the job number pre-invoice.
   const invNo = (job.type_meta as any)?.qb_invoice_number || job.job_number;
-  const router = useRouter();
-  const [hover, setHover] = useState<string | null>(null);
-  const dead = ROUTE_DEAD[stage.route] || [];
-  const bars = PROJ_MILESTONES.filter(m => !dead.includes(m.k)); // only this route's real milestones — no N/A hatching
-  const cur = bars.findIndex(m => m.k === stage.milestone);
+  const [raised, setRaised] = useState(false); // rise above sibling strips while the peek is open
   const sig = stage.signal;
   const edgeColor = sig === "late" ? T.red : sig === "act" ? T.amber : null; // wait → no edge (recedes)
-  const paidColor = stage.paidState === "paid" ? T.green : stage.paidState === "onaccount" ? T.blue : T.amber;
-  const paidLabel = stage.paidState === "paid" ? "Paid" : (TERMS_LABEL[(job.payment_terms || "") as string] || "Payment") + (stage.paidState === "due" ? " due" : "");
-  const N = bars.length;
-  // Per-segment content for the styled hover popover (layer 1).
-  const statusOf = (m: typeof PROJ_MILESTONES[number], i: number): { label: string; note: string; color: string } => {
-    if (stage.preQuote) return m.k === "quote_sent" ? { label: "Your move", note: stage.now, color: T.amber } : { label: "Upcoming", note: "", color: T.faint };
-    if (m.k === "paid" && i <= cur) return { label: stage.paidState === "onaccount" ? "On account" : stage.paidState === "paid" ? "Paid" : "Due", note: "", color: paidColor };
-    if (cur >= 0 && i < cur) return { label: "Done", note: "", color: T.green };
-    if (i === cur) {
-      const lbl = sig === "late" ? "Late" : sig === "act" ? "Your move" : "Waiting on them";
-      const clr = sig === "late" ? T.red : sig === "act" ? T.amber : T.muted;
-      return { label: lbl, note: stage.reason || stage.detail || stage.now, color: clr };
-    }
-    return { label: "Upcoming", note: "", color: T.faint };
-  };
-  // Rich per-stage hover peek (matches the interaction-map artifact), from loaded job data.
-  const tm = (job.type_meta || {}) as any;
-  const cs = (job.costing_summary || {}) as any;
-  const money = (n: number) => `$${Math.round(n).toLocaleString()}`;
-  const fmtDT = (s?: string) => s ? `${new Date(s).toLocaleDateString("en-US", { month: "short", day: "numeric" })}, ${new Date(s).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}` : "";
-  const pays = (job.payment_records || []) as any[];
-  const paidAmt = pays.filter(p => p.status === "paid").reduce((a, p) => a + (+p.amount || 0), 0);
-  const paidDate = pays.filter(p => p.status === "paid" && p.paid_date).map(p => p.paid_date).sort().pop();
-  const invTotal = tm.qb_total_with_tax || cs.grossRev || 0;
-  const posSent = ((tm.po_sent_vendors || []) as any[]).length;
-  const its = (job.items || []) as any[];
-  const nItems = its.length;
-  const blanksOrdered = nItems > 0 && its.every(it => it.blanks_order_cost != null || it.blanks_order_number);
-  const atVendor = its.filter(it => !it.pipeline_stage || it.pipeline_stage === "in_production").length;
-  const received = its.filter(it => it.received_at_hpd).length;
-  const forwarded = its.filter(it => it.forwarded_at).length;
-  const entered = its.filter(it => it.webstore_entered_at).length; // keyed into Shopify (stage route)
-  const shipped = nItems - atVendor; // items that have left the vendor
-  // per-tail-phase completion fraction (item-level) — drives the partial-fill "half steps"
-  const tailFrac: Record<string, number> = nItems ? { production: shipped / nItems, receiving: received / nItems, shipping: forwarded / nItems, fulfillment: entered / nItems } : {};
-  const peekFor = (k: string): string => {
-    switch (k) {
-      case "quote_sent": return stage.preQuote ? stage.now : [tm.quote_sent_at && `Sent ${fmtDT(tm.quote_sent_at)}`, cs.grossRev && `quote ${money(cs.grossRev)}`].filter(Boolean).join(" · ") || "Quote + proofs";
-      case "quote_appr": return job.quote_approved ? (job.quote_approved_at ? `Approved ${fmtDT(job.quote_approved_at)}` : "Approved by client") : "Awaiting client approval";
-      case "invoice": return tm.qb_invoice_number ? `Invoice #${tm.qb_invoice_number}${invTotal ? ` · ${money(invTotal)}` : ""}${tm.qb_invoice_created_at ? ` · sent ${fmtDT(tm.qb_invoice_created_at)}` : ""}` : "Not invoiced yet";
-      case "paid": return paidAmt > 0 ? `${money(paidAmt)} / ${money(invTotal)} paid${paidDate ? ` · ${fmtDT(paidDate)}` : ""}` : (invTotal ? `${money(invTotal)} due` : (stage.paidState === "onaccount" ? "On account" : "Unpaid"));
-      case "order": return `${posSent} PO${posSent === 1 ? "" : "s"} sent · blanks ${blanksOrdered ? "ordered" : "not ordered"}`;
-      case "production": return nItems ? `${shipped}/${nItems} shipped from vendor` : "In production";
-      case "receiving": return nItems ? `${received}/${nItems} received at HPD` : "Receiving";
-      case "shipping": return nItems ? `${forwarded}/${nItems} forwarded to client` : "Shipping to client";
-      case "fulfillment": return nItems ? `${entered}/${nItems} entered in Shopify` : "Staging";
-      default: return "";
-    }
-  };
-  const segFill = (i: number) => {
-    if (!stage.preQuote && bars[i]?.k === "paid" && i <= cur) return paidColor; // payment truth, not blind green
-    if (!stage.preQuote && cur >= 0 && i < cur) return T.green;
-    if (!stage.preQuote && i === cur) return sig === "wait" ? T.surface : sig === "late" ? T.red : T.amber;
-    return T.surface;
-  };
   return (
-    <div onClick={onOpen} style={{ display: "flex", alignItems: "center", background: T.card, border: `1px solid ${T.border}`, borderLeft: edgeColor ? `4px solid ${edgeColor}` : `1px solid ${T.border}`, borderRadius: 12, padding: edgeColor ? "12px 16px 12px 13px" : "12px 16px", marginTop: 8, cursor: "pointer", position: "relative", zIndex: hover ? 40 : undefined }}>
+    <div onClick={onOpen} style={{ display: "flex", alignItems: "center", background: T.card, border: `1px solid ${T.border}`, borderLeft: edgeColor ? `4px solid ${edgeColor}` : `1px solid ${T.border}`, borderRadius: 12, padding: edgeColor ? "12px 16px 12px 13px" : "12px 16px", marginTop: 8, cursor: "pointer", position: "relative", zIndex: raised ? 40 : undefined }}>
       <div style={{ width: 230, flexShrink: 0, minWidth: 0, paddingRight: 12 }}>
         <div style={{ fontFamily: mono, fontSize: 11.5, fontWeight: 700, color: T.muted }}>{invNo}</div>
         <div style={{ fontSize: 14, fontWeight: 700, lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginTop: 1 }}>{(job.clients as any)?.name || "—"}</div>
         <div style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: T.faint, fontFamily: mono, marginTop: 3 }}>{routeLabel[stage.route] || stage.route}</div>
       </div>
-      <div style={{ flex: 1, minWidth: 0, position: "relative", height: 14 }}>
-          {/* clipped fill + ticks — variable length, only this route's milestones */}
-          <div style={{ position: "absolute", inset: 0, borderRadius: 7, background: T.surface, overflow: "hidden" }}>
-            {bars.map((m, i) => {
-              const base = { position: "absolute" as const, left: `${(i / N) * 100}%`, top: 0, bottom: 0, width: `${100 / N}%` };
-              const tf = tailFrac[m.k]; // each tail phase fills by its OWN item progress (the half-steps)
-              if (!stage.preQuote && tf !== undefined) {
-                // reached phases get a pale-green "in progress" tint so partial fills read as
-                // a track, not a hole; green fills the completed portion on top
-                const reached = i <= cur || tf > 0;
-                return <div key={m.k} style={{ ...base, background: reached ? HATCH_GREEN : "transparent", overflow: "hidden" }}>
-                  {tf > 0 && <div style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: `${Math.round(tf * 100)}%`, background: T.green }} />}
-                </div>;
-              }
-              if (!stage.preQuote && m.k === "paid" && i <= cur) return <div key={m.k} style={{ ...base, background: paidColor }} />;
-              if (!stage.preQuote && cur >= 0 && i < cur) return <div key={m.k} style={{ ...base, background: T.green }} />;
-              if (!stage.preQuote && i === cur) {
-                // wait = hollow (live but passive); act = amber; late = red
-                if (sig === "wait") return <div key={m.k} style={{ ...base, background: T.surface, boxShadow: `inset 0 0 0 1.5px ${T.faint}` }} />;
-                return <div key={m.k} style={{ ...base, background: sig === "late" ? T.red : T.amber }} />;
-              }
-              return null;
-            })}
-            {bars.map((m, i) => {
-              if (i === 0) return null;
-              const prevFilled = !stage.preQuote && ((i - 1) < cur || ((i - 1) === cur && sig !== "wait"));
-              return <div key={"t" + m.k} style={{ position: "absolute", left: `${(i / N) * 100}%`, top: 2, bottom: 2, width: 1, zIndex: 2, background: prevFilled ? "rgba(255,255,255,.85)" : T.faint }} />;
-            })}
-          </div>
-          {/* interaction zones — hover peek (layer 1) + click deep-link (layer 2) */}
-          {bars.map((m, i) => {
-            // Only done / current segments are hoverable — upcoming stages don't peek.
-            const tf = tailFrac[m.k];
-            const hoverable = stage.preQuote ? m.k === "quote_sent" : (tf !== undefined ? (i <= cur || tf > 0) : i <= cur);
-            const st = statusOf(m, i);
-            const tgt = STAGE_TARGET[m.k];
-            const on = hoverable && hover === m.k;
-            return (
-              <div key={"z" + m.k}
-                onMouseEnter={hoverable ? () => setHover(m.k) : undefined} onMouseLeave={hoverable ? () => setHover(h => (h === m.k ? null : h)) : undefined}
-                onClick={hoverable ? (e => { e.stopPropagation(); if (tgt) router.push(tgt.href(job)); }) : undefined}
-                style={{ position: "absolute", left: `${(i / N) * 100}%`, width: `${100 / N}%`, top: -7, bottom: -7, zIndex: 4, cursor: hoverable ? "pointer" : "default" }}>
-                {on && (tf !== undefined
-                  ? <div className="proj-chip" style={{ position: "absolute", left: 1, right: 1, top: 5, bottom: 5, borderRadius: 4, background: (i <= cur || tf > 0) ? HATCH_GREEN : T.surface, boxShadow: "0 3px 10px rgba(0,0,0,.22)", pointerEvents: "none", overflow: "hidden" }}>
-                      {tf > 0 && <div style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: `${Math.round(tf * 100)}%`, background: T.green }} />}
-                    </div>
-                  : <div className="proj-chip" style={{ position: "absolute", left: 1, right: 1, top: 5, bottom: 5, borderRadius: 4, background: segFill(i), boxShadow: "0 3px 10px rgba(0,0,0,.22)", pointerEvents: "none" }} />)}
-                {on && (
-                  <div style={{ position: "absolute", bottom: "calc(100% + 6px)", left: "50%", transform: "translateX(-50%)", zIndex: 30, width: 186, background: T.card, border: `1px solid ${T.border}`, borderRadius: 9, boxShadow: "0 10px 30px rgba(0,0,0,.16)", padding: "10px 12px", pointerEvents: "none", textAlign: "left" }}>
-                    <div style={{ fontSize: 12, fontWeight: 800, color: st.color }}>{m.k === "paid" ? paidLabel : m.label}</div>
-                    <div style={{ fontSize: 11.5, color: T.muted, marginTop: 4, lineHeight: 1.35 }}>{peekFor(m.k)}</div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        {/* dynamic status caption — absolute so the BAR stays vertically centered in the strip */}
-        {(stage.preQuote || cur >= 0) && (() => {
-          const capText = stage.preQuote ? stage.now : (stage.reason || bars[cur].label);
-          const capColor = stage.preQuote ? T.muted : (sig === "late" ? T.red : sig === "act" ? T.amber : T.muted);
-          const pos = stage.preQuote ? { left: 0 as const } : (cur === N - 1 ? { right: 0 as const } : { left: `${((cur + 0.5) / N) * 100}%`, transform: "translateX(-50%)" });
-          return (
-            <div style={{ position: "absolute", top: "calc(100% + 3px)", whiteSpace: "nowrap", fontSize: 9.5, fontWeight: 800, letterSpacing: ".02em", textTransform: "uppercase", color: capColor, ...pos }}>{stage.preQuote ? "" : "▲ "}{capText}</div>
-          );
-        })()}
-      </div>
+      <JobStatusBar job={job} stage={stage} items={job.items} payments={job.payment_records} navigate onHoverChange={setRaised} />
     </div>
   );
 }

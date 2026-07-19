@@ -142,25 +142,31 @@ export async function POST(req: NextRequest) {
     // slug header the route falls back to the request Host, which is
     // the shared opshub-umber.vercel.app URL when called internally —
     // it would render HPD's brand on IHM PDFs.
-    const pdfRes = await fetch(pdfUrl, {
-      headers: {
-        "x-internal-key": process.env.SUPABASE_SERVICE_ROLE_KEY || "",
-        "x-company-slug": slug,
-      },
-    });
-    if (!pdfRes.ok) {
-      const text = await pdfRes.text();
-      return NextResponse.json({ error: `PDF generation failed: ${text}` }, { status: 500 });
-    }
-
-    const pdfBuffer = Buffer.from(await pdfRes.arrayBuffer());
-    // PO attachments reuse the PDF route's canonical filename (from its
-    // Content-Disposition) — the local "po-4398.pdf" fallback named every
-    // vendor's attachment identically on multi-vendor sends.
-    if (type === "po") {
-      const cd = pdfRes.headers.get("content-disposition") || "";
-      const cdName = /filename\*?="?([^";]+)"?/.exec(cd)?.[1];
-      if (cdName && cdName.endsWith(".pdf")) filename = cdName;
+    // Quote emails go out link-only (no attachment) — the client reviews +
+    // approves the quote AND proofs in the portal. Everything else attaches
+    // its PDF (invoice/reminder for AR records, PO/RFQ as the vendor document).
+    const attachPdf = type !== "quote";
+    let pdfBuffer: Buffer | null = null;
+    if (attachPdf) {
+      const pdfRes = await fetch(pdfUrl, {
+        headers: {
+          "x-internal-key": process.env.SUPABASE_SERVICE_ROLE_KEY || "",
+          "x-company-slug": slug,
+        },
+      });
+      if (!pdfRes.ok) {
+        const text = await pdfRes.text();
+        return NextResponse.json({ error: `PDF generation failed: ${text}` }, { status: 500 });
+      }
+      pdfBuffer = Buffer.from(await pdfRes.arrayBuffer());
+      // PO attachments reuse the PDF route's canonical filename (from its
+      // Content-Disposition) — the local "po-4398.pdf" fallback named every
+      // vendor's attachment identically on multi-vendor sends.
+      if (type === "po") {
+        const cd = pdfRes.headers.get("content-disposition") || "";
+        const cdName = /filename\*?="?([^";]+)"?/.exec(cd)?.[1];
+        if (cdName && cdName.endsWith(".pdf")) filename = cdName;
+      }
     }
 
     // Get QB payment link. If missing or the stale admin URL, ask QB to mint
@@ -243,9 +249,8 @@ export async function POST(req: NextRequest) {
             eyebrow: companyName,
             heading: `Quote ${jobNum || ""}`.trim(),
             greeting: `Hi ${clientGreeting},`,
-            bodyHtml: `Your quote ${jobNum || ""} is attached for review. When you're ready to move forward, you can approve it directly in your portal, or request changes if anything needs a second pass.`,
-            cta: portalUrl ? { label: "Approve Quote", url: portalUrl, style: "dark" } : undefined,
-            secondaryCta: portalUrl ? { label: "View in Portal", url: portalUrl } : undefined,
+            bodyHtml: `Your quote ${jobNum || ""} is ready to review in your portal — along with your proofs. When everything looks right, approve it all in one click, or request changes if anything needs a second pass.`,
+            cta: portalUrl ? { label: "Review & Approve", url: portalUrl, style: "dark" } : undefined,
             closing: tenantClosing(slug, companyName),
           })
         : type === "invoice"
@@ -304,12 +309,9 @@ export async function POST(req: NextRequest) {
             hint: `You can confirm receipt, update production status, and enter tracking directly from the portal.`,
             closing: `Thanks,\n${companyName}`,
           }),
-      attachments: [
-        {
-          filename,
-          content: pdfBuffer.toString("base64"),
-        },
-      ],
+      ...(attachPdf && pdfBuffer ? {
+        attachments: [{ filename, content: pdfBuffer.toString("base64") }],
+      } : {}),
     });
 
     if (error) {

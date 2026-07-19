@@ -2,6 +2,7 @@
 import { createClient } from "@/lib/supabase/client";
 import { useState, useEffect, useRef } from "react";
 import { T, font, mono } from "@/lib/theme";
+import { SHIP_METHODS } from "@/lib/ship-methods";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { appBaseUrlSync } from "@/lib/public-url";
 
@@ -33,6 +34,7 @@ type Decorator = {
   transit_days: number | null;
   notes: string | null;
   default_shipping_route: string | null;
+  default_ship_method: string | null;
   pricing_data: PricingData | null;
 };
 
@@ -545,6 +547,14 @@ export default function DecoratorsPage() {
                             <option value="ship_through">Ship through HPD (bulk to us, we forward)</option>
                             <option value="stage">Stage at HPD</option>
                             <option value="drop_ship">Drop ship (vendor → client)</option>
+                          </select>
+                        </div>
+                        <div style={{ display:"flex", flexDirection:"column", gap:3 }}>
+                          <div style={{ fontSize:10, color:T.muted, fontFamily:font, textTransform:"uppercase" as const, letterSpacing:"0.07em" }}>Default ship method</div>
+                          <select value={d.default_ship_method||""} onChange={e=>upd({default_ship_method: e.target.value || null} as any)}
+                            style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:6, color:T.text, fontFamily:font, fontSize:12, padding:"7px 10px", outline:"none", width:"100%", boxSizing:"border-box" as const, cursor:"pointer" }}>
+                            <option value="">— None (pick per send)</option>
+                            {SHIP_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
                           </select>
                         </div>
                       </div>

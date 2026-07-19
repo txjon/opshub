@@ -1,7 +1,7 @@
 "use client";
 import { useState, useMemo, useRef, type CSSProperties } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { daysUntilDay } from "@/lib/dates";
 import { T, font, mono, sortSizes } from "@/lib/theme";
@@ -135,13 +135,16 @@ const nf = (n: number) => n.toLocaleString();
 
 export default function Board({ strips, freightCarriers, shippedBoxes }: { strips: BoardStrip[]; freightCarriers: string[]; shippedBoxes: ShippedBox[] }) {
   const router = useRouter();
+  // Deep-link filter — a job status bar (job detail / projects list) links here
+  // with ?q=<jobNumber> to land pre-filtered to that one job. Seeds the search.
+  const searchParams = useSearchParams();
   const [view, setView] = useState<"production" | "shipped">("production");
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [shipOpen, setShipOpen] = useState(false);
   const [pullFor, setPullFor] = useState<SelItem | null>(null);
   const [closeFor, setCloseFor] = useState<SelItem | null>(null);
   const [adjustFor, setAdjustFor] = useState<SelItem | null>(null);
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(searchParams.get("q") || "");
   const [filterVendor, setFilterVendor] = useState("");
   const [filterClient, setFilterClient] = useState("");
   const [kpi, setKpi] = useState<MetricKey | null>(null);
@@ -203,6 +206,16 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
   // A shipment is ONE vendor. Selection locks to the first picked item's vendor.
   const selVendor = useMemo(() => {
     for (const id of Array.from(sel)) { const it = allItems.get(id); if (it) return it.decoratorId; }
+    return null;
+  }, [sel, allItems]);
+
+  // ...and ONE destination. A shipment has one tracking → one destination, so
+  // selection also locks to the first pick's ROUTE. A drop_ship item (vendor→
+  // client) can't ride the same tracking as a ship_through item (vendor→HPD);
+  // mixing them bundled a drop-ship into the inbound leg and leaked its internal
+  // packing slip to the client portal. (Jon 2026-07-19 — found the hole.)
+  const selRoute = useMemo(() => {
+    for (const id of Array.from(sel)) { const it = allItems.get(id); if (it) return it.route; }
     return null;
   }, [sel, allItems]);
 
@@ -272,7 +285,7 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
                 <div>
                   {strip.items.map((it, idx) => {
                     const checked = sel.has(it.itemId);
-                    const blocked = selVendor !== null && it.decoratorId !== selVendor && !checked;
+                    const blocked = !checked && ((selVendor !== null && it.decoratorId !== selVendor) || (selRoute !== null && it.route !== selRoute));
                     return (
                       <label key={it.itemId}
                         style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", borderTop: `1px solid ${T.border}`, cursor: blocked ? "not-allowed" : "pointer", opacity: blocked ? 0.4 : 1, background: "transparent", boxShadow: checked ? `inset 3px 0 0 0 ${T.text}` : "none" }}>

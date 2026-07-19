@@ -3,9 +3,11 @@ import { useState, useEffect, useRef } from "react";
 import { T, font, mono } from "@/lib/theme";
 import { createClient } from "@/lib/supabase/client";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { useConfirm } from "@/components/useConfirm";
 import { buildMockupClient, preloadTemplate, extractPrintInfoFromPsd } from "@/lib/mockup-client";
 import { uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
 import { generateProofPdfClient, deriveProofSummary, preloadLogo } from "@/lib/proof-client";
+import ProofDocView from "@/components/ProofDocView";
 import { useClientBranding } from "@/lib/branding-client";
 import { logJobActivity } from "@/components/JobActivityPanel";
 import { SendEmailDialog } from "@/components/SendEmailDialog";
@@ -188,6 +190,7 @@ function psdInfoToSpecLocations(info, priorLocations = []) {
       sizeText: (p.widthInches && p.heightInches) ? `${p.widthInches}" × ${p.heightInches}"` : "",
       colors: (p.colors || []).map(c => ({ name: c.name || "", hex: c.hex || null })),
       callout: prior?.callout || DEFAULT_CALLOUTS[p.placement] || "",
+      specialties: Array.isArray(prior?.specialties) ? prior.specialties : [],
     };
   });
 }
@@ -261,6 +264,22 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
 
   // Auto-populate from costing data
   const costProd = (costingData?.costProds || []).find(cp => cp.id === item.id);
+  // The real print spec (feeds the PO) — screen/color counts per location, specialty,
+  // finishing, tag. Drives the proof's per-location colors + the KPI spec bar.
+  const spec = (() => {
+    const cp = costProd || {};
+    const locs = Object.values(cp.printLocations || {}).filter(l => l && l.location);
+    const screensByLoc = {};
+    locs.forEach(l => { screensByLoc[String(l.location).trim().toLowerCase()] = Number(l.screens) || 0; });
+    return {
+      locs,
+      screensByLoc,
+      totalScreens: locs.reduce((a, l) => a + (Number(l.screens) || 0), 0),
+      finishing: Object.entries(cp.finishingQtys || {}).filter(([k, q]) => Number(q) > 0 && k !== "Packaging_on").map(([n]) => n),
+      tagPrint: !!cp.tagPrint,
+      isFleece: !!cp.isFleece,
+    };
+  })();
   const decoType = costProd?.decorationType || "";
   const hasPackaging = costProd?.finishingQtys?.Packaging_on && costProd.finishingQtys.Packaging_on > 0;
   const locations = costProd?.printLocations || {};
@@ -310,6 +329,7 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
   // Ensure tenant logo is loaded for PDF generation
   useEffect(() => { preloadLogo(branding.slug); }, [branding.slug]);
 
+  const [confirm, confirmEl] = useConfirm();
   const [methods, setMethods] = useState([defaultMethod]);
   const [selInstructions, setSelInstructions] = useState(defaultInstructions);
   const [notes, setNotes] = useState("");
@@ -332,6 +352,23 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
   // empty string = omit the bar from the PDF.
   const [summaryOverride, setSummaryOverride] = useState(null);
   const [specLoaded, setSpecLoaded] = useState(false);
+  // EyeDropper API (Chrome/Edge) — lets the swatch open the OS eyedropper
+  // directly to sample a pixel (e.g. off the mockup). Detected post-mount
+  // to avoid SSR mismatch; Safari falls back to the native color input.
+  const [hasEyeDropper, setHasEyeDropper] = useState(false);
+  useEffect(() => { setHasEyeDropper(typeof window !== "undefined" && "EyeDropper" in window); }, []);
+  const [addingMethod, setAddingMethod] = useState(false);
+  const [methodDraft, setMethodDraft] = useState("");
+  // Locations + Colors KPIs count the PROOF SPEC (the manual entries / cards
+  // above), NOT costing — same non-tag rows deriveProofSummary uses, so the
+  // KPI, the cards, and the (auto) Summary Bar always agree.
+  const proofNonTag = specLocations
+    .filter(l => !["tag", "tags"].includes(String(l.placement || "").toLowerCase().trim()));
+  const proofLocationCount = proofNonTag.length;
+  const proofColorCount = proofNonTag.reduce((a, l) => a + ((l.colors || []).length), 0);
+  // Add-ons active in Costing but not yet tagged to a specific location still
+  // show item-level so they "generate"; tagging one moves it under that print.
+  const taggedAddOns = new Set(specLocations.flatMap(l => (l.specialties || [])));
   // The print-ready PSD file row, when one exists — drives the
   // "seeded from PSD" label, the Re-pull button, and the newer-PSD hint.
   const [psdFileMeta, setPsdFileMeta] = useState(null);
@@ -375,6 +412,7 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
         sizeText: l.sizeText || "",
         colors: (l.colors || []).map(c => ({ name: c.name || "", hex: c.hex || null })),
         callout: l.callout || "",
+        specialties: Array.isArray(l.specialties) ? l.specialties : [],
       })));
       if (Array.isArray(saved.methods) && saved.methods.length > 0) setMethods(saved.methods);
       if (Array.isArray(saved.instructions)) setSelInstructions(saved.instructions);
@@ -404,7 +442,7 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
     // No saved spec, no PSD — skeleton from costing's print locations.
     const locs = Object.values(costProd?.printLocations || {})
       .filter(l => l?.location)
-      .map(l => ({ placement: l.location, sizeText: "", colors: [], callout: DEFAULT_CALLOUTS[l.location] || "" }));
+      .map(l => ({ placement: l.location, sizeText: "", colors: [], callout: DEFAULT_CALLOUTS[l.location] || "", specialties: [] }));
     setSpecLocations(locs);
     setSpecLoaded(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -417,7 +455,7 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
     const psdFiles = activePsdFiles(files);
     if (!psdFiles.length || loadingPsd) return;
     const many = psdFiles.length > 1;
-    if (!window.confirm(`Re-pull print locations from ${many ? `all ${psdFiles.length} PSDs` : "the PSD"}?\n\nLocation names, sizes, and colors will be replaced by the PSD parse${many ? " (main art + tag file merged)" : ""}. Placement callouts carry over where names match. Method, instructions, and notes are kept.`)) return;
+    if (!await confirm({ title: "Re-pull from PSD", message: `Re-pull print locations from ${many ? `all ${psdFiles.length} PSDs` : "the PSD"}? Location names, sizes, and colors will be replaced by the PSD parse${many ? " (main art + tag file merged)" : ""}. Placement callouts carry over where names match. Method, instructions, and notes are kept.`, confirmLabel: "Re-pull", confirmColor: T.amber })) return;
     setLoadingPsd(true);
     try {
       const spec = await parsePsdFilesToSpec(psdFiles, specLocations);
@@ -437,6 +475,14 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
     notes,
     summaryText: summaryOverride,
     seededFrom: seededFromRef.current,
+    // Baked display values — so the read-only renderer (proofs tab + client
+    // portal) needs NO costing access. proof_spec is self-contained.
+    finishing: [...(spec?.finishing || []), ...selInstructions],
+    addOns: untaggedAddOns,
+    isFleece: !!spec?.isFleece,
+    colorCount: kpiColors,
+    locationCount: kpiLocations,
+    blankVendor: item.blank_vendor || "",
   });
   useEffect(() => {
     if (!specLoaded) return;
@@ -453,7 +499,7 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
     }, 800);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [specLoaded, specLocations, methods, selInstructions, notes, summaryOverride]);
+  }, [specLoaded, specLocations, methods, selInstructions, notes, summaryOverride, costProd?.finishingQtys, costProd?.specialtyQtys, costProd?.isFleece]);
 
   // Immediate flush for close/save paths — the debounce above could
   // otherwise drop the last edit when the modal unmounts.
@@ -524,10 +570,25 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
         // Tag groups carry one layer per size — only show sizes the
         // order actually includes.
         const colors = (isTag && activeSizesNorm) ? (p.colors || []).filter(c => activeSizesNorm.includes(normalizeSize(c.name))) : (p.colors || []);
-        return { placement: p.placement.trim(), sizeText: (p.sizeText || "").trim(), colors, callout: p.callout || "" };
+        return { placement: p.placement.trim(), sizeText: (p.sizeText || "").trim(), colors, callout: p.callout || "", specialties: p.specialties || [] };
       });
   };
   const derivedSummary = deriveProofSummary(buildPrintInfo(), selInstructions);
+  const summaryText = summaryOverride !== null ? summaryOverride : derivedSummary;
+  // The count KPIs (Colors, Locations) read the Summary Bar: auto-derived from
+  // the proof/costing/PSD by default, but the team can overwrite the summary to
+  // correct a count and the KPIs (and the PDF) follow. Falls back to the raw
+  // proof-spec count if the summary line isn't parseable.
+  const parseSummaryCount = (re) => { const m = String(summaryText || "").match(re); return m ? parseInt(m[1], 10) : null; };
+  const kpiLocations = parseSummaryCount(/(\d+)\s*locations?\b/i) ?? proofLocationCount;
+  const kpiColors = parseSummaryCount(/(\d+)\s*colors?\b/i) ?? proofColorCount;
+  // Active add-ons for this item come from Costing (the specialties already
+  // marked on/charged). The per-location TAG lives on the proof spec; the
+  // money/count stays owned by Costing — we never touch pricing here.
+  const activeSpecialties = Object.keys(costProd?.specialtyQtys || {})
+    .filter(k => k.endsWith("_on") && costProd.specialtyQtys[k] && !k.startsWith("Fleece"))
+    .map(k => k.slice(0, -3));
+  const untaggedAddOns = activeSpecialties.filter(s => !taggedAddOns.has(s));
 
   // Auto-generate preview whenever inputs change (debounced to avoid lag)
   useEffect(() => {
@@ -548,6 +609,12 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
           method: methods.join(", "),
           instructions: selInstructions,
           notes: notes.trim(),
+          // KPI + list data — mirrors the web proof view exactly.
+          finishing: [...spec.finishing, ...selInstructions],
+          addOns: untaggedAddOns,
+          fleece: spec.isFleece,
+          colorCount: kpiColors,
+          locationCount: kpiLocations,
           tenantSlug: branding.slug,
           tenantName: branding.name,
         });
@@ -562,7 +629,7 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
       }
     }, 400);
     return () => clearTimeout(timer);
-  }, [mockupDataUrl, specLocations, methods, selInstructions, notes, summaryOverride]);
+  }, [mockupDataUrl, specLocations, methods, selInstructions, notes, summaryOverride, costProd?.specialtyQtys, costProd?.finishingQtys, costProd?.isFleece]);
 
   async function saveToDrive() {
     if (!pdfDoc) return;
@@ -592,10 +659,10 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
     })();
   }
 
-  function handleClose() {
+  async function handleClose() {
     flushSpecSave();
     if (previewUrl) {
-      if (!window.confirm("Save proof to Drive before closing?")) {
+      if (!await confirm({ title: "Unsaved proof", message: "Save this proof to Drive before closing?", confirmLabel: "Save & close", confirmColor: T.accent })) {
         URL.revokeObjectURL(previewUrl);
         onClose(false);
         return;
@@ -606,10 +673,12 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
     }
   }
 
-  const ic = { width: "100%", padding: "7px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, outline: "none", fontFamily: font, boxSizing: "border-box" };
+  const ic = { width: "100%", padding: "7px 10px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, outline: "none", fontFamily: font, boxSizing: "border-box" };
+  const lbl = { fontSize: 9.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: T.muted, display: "block" };
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "#fff", zIndex: 100, display: "flex", flexDirection: "column" }}>
+        {confirmEl}
         <div style={{ padding: "14px 18px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <span style={{ fontSize: 14, fontWeight: 700, color: T.text, fontFamily: font }}>Product Proof — {item.name}</span>
@@ -621,12 +690,12 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
         </div>
 
         <div style={{ flex: 1, overflow: "auto", display: "flex", flexDirection: isMobile ? "column" : "row" }}>
-          <div style={{ width: isMobile ? "100%" : 320, flexShrink: 0, padding: "14px 18px", overflowY: isMobile ? "visible" : "auto", display: "flex", flexDirection: "column", gap: 14 }}>
+          <div style={{ width: isMobile ? "100%" : 400, flexShrink: 0, padding: "18px 22px", overflowY: isMobile ? "visible" : "auto", display: "flex", flexDirection: "column", gap: 18 }}>
             {/* Method toggle buttons */}
             <div>
-              <label style={{ fontSize: 11, color: T.muted, marginBottom: 6, display: "block" }}>Print Method</label>
-              <div style={{ display: "flex", gap: 4 }}>
-                {METHODS.map(m => {
+              <label style={{ ...lbl, marginBottom: 6 }}>Print Method</label>
+              <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
+                {[...METHODS, ...methods.filter(m => !METHODS.includes(m))].map(m => {
                   const on = methods.includes(m);
                   return (
                     <button key={m} onClick={() => toggleMethod(m)}
@@ -635,6 +704,24 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
                     </button>
                   );
                 })}
+                {addingMethod ? (
+                  <input autoFocus value={methodDraft}
+                    onChange={e => setMethodDraft(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === "Enter") { const v = methodDraft.trim(); if (v) setMethods([v]); setMethodDraft(""); setAddingMethod(false); }
+                      if (e.key === "Escape") { setMethodDraft(""); setAddingMethod(false); }
+                    }}
+                    onBlur={() => { const v = methodDraft.trim(); if (v) setMethods([v]); setMethodDraft(""); setAddingMethod(false); }}
+                    placeholder="Method name…"
+                    style={{ ...ic, fontSize: 12, width: 140 }} />
+                ) : (
+                  <button onClick={() => setAddingMethod(true)}
+                    style={{ padding: "6px 12px", borderRadius: 6, border: `1px dashed ${T.border}`, background: "transparent", color: T.muted, fontSize: 12, fontWeight: 500, cursor: "pointer", fontFamily: font }}
+                    onMouseEnter={e => { e.currentTarget.style.color = T.text; e.currentTarget.style.borderColor = T.accent; }}
+                    onMouseLeave={e => { e.currentTarget.style.color = T.muted; e.currentTarget.style.borderColor = T.border; }}>
+                    + Custom
+                  </button>
+                )}
               </div>
             </div>
 
@@ -642,7 +729,7 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
                 here is what the PDF renders; the PSD only seeds it. */}
             <div>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                <label style={{ fontSize: 11, color: T.muted }}>Print Locations{psdFileMeta && <span style={{ color: T.faint, fontWeight: 400 }}> · seeded from PSD</span>}</label>
+                <label style={{ ...lbl }}>Locations{psdFileMeta && <span style={{ color: T.faint, fontWeight: 400 }}> · seeded from PSD</span>}</label>
                 <div style={{ display: "flex", gap: 5 }}>
                   {psdFileMeta && (
                     <button onClick={repullFromPsd} disabled={loadingPsd}
@@ -653,7 +740,7 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
                       {loadingPsd ? "Reading…" : "Re-pull PSD"}
                     </button>
                   )}
-                  <button onClick={() => setSpecLocations(prev => [...prev, { placement: "", sizeText: "", colors: [], callout: "" }])}
+                  <button onClick={() => setSpecLocations(prev => [...prev, { placement: "", sizeText: "", colors: [], callout: "", specialties: [] }])}
                     style={{ fontSize: 10, fontWeight: 600, color: T.muted, background: "none", border: `1px solid ${T.border}`, borderRadius: 5, padding: "2px 8px", cursor: "pointer", fontFamily: font }}
                     onMouseEnter={e => { e.currentTarget.style.color = T.text; e.currentTarget.style.borderColor = T.accent; }}
                     onMouseLeave={e => { e.currentTarget.style.color = T.muted; e.currentTarget.style.borderColor = T.border; }}>
@@ -677,7 +764,7 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
                 const updColor = (j, patch) => update({ colors: (p.colors || []).map((cc, k) => k === j ? { ...cc, ...patch } : cc) });
                 const remove = () => setSpecLocations(prev => prev.filter((_, i) => i !== idx));
                 return (
-                  <div key={idx} style={{ background: T.surface, borderRadius: 6, padding: "8px 10px", marginBottom: 6, display: "flex", flexDirection: "column", gap: 5 }}>
+                  <div key={idx} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, padding: "9px 11px", marginBottom: 7, display: "flex", flexDirection: "column", gap: 5 }}>
                     <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                       <input value={p.placement} onChange={e => update({ placement: e.target.value })}
                         list={`pi-placement-${idx}`} placeholder="Placement (Front, Back, Tag…)"
@@ -695,13 +782,21 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
                         separations); the swatch opens a color picker. */}
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
                       {(p.colors || []).map((c, j) => (
-                        <span key={j} style={{ display: "inline-flex", alignItems: "center", gap: 4, background: T.card, border: `1px solid ${T.border}`, borderRadius: 5, padding: "2px 5px" }}>
-                          <label title="Swatch color — click to pick"
-                            style={{ width: 16, height: 16, borderRadius: 4, background: c.hex || "#9aa0ae", border: `1px solid ${T.border}`, cursor: "pointer", flexShrink: 0, display: "inline-block", position: "relative", overflow: "hidden" }}>
-                            <input type="color" value={c.hex || "#9aa0ae"}
-                              onChange={e => updColor(j, { hex: e.target.value })}
-                              style={{ position: "absolute", inset: 0, opacity: 0, width: "100%", height: "100%", cursor: "pointer", border: "none", padding: 0 }} />
-                          </label>
+                        <span key={j} style={{ display: "inline-flex", alignItems: "center", gap: 7, background: T.card, border: `1px solid ${T.border}`, borderRadius: 6, padding: "4px 8px" }}>
+                          {hasEyeDropper ? (
+                            <button title="Click to eyedrop a color"
+                              onClick={async () => {
+                                try { const res = await new window.EyeDropper().open(); if (res?.sRGBHex) updColor(j, { hex: res.sRGBHex }); } catch { /* cancelled */ }
+                              }}
+                              style={{ width: 26, height: 26, borderRadius: 6, background: c.hex || "#9aa0ae", border: `1px solid ${T.border}`, cursor: "pointer", flexShrink: 0, padding: 0 }} />
+                          ) : (
+                            <label title="Swatch color — click to pick"
+                              style={{ width: 26, height: 26, borderRadius: 6, background: c.hex || "#9aa0ae", border: `1px solid ${T.border}`, cursor: "pointer", flexShrink: 0, display: "inline-block", position: "relative", overflow: "hidden" }}>
+                              <input type="color" value={c.hex || "#9aa0ae"}
+                                onChange={e => updColor(j, { hex: e.target.value })}
+                                style={{ position: "absolute", inset: 0, opacity: 0, width: "100%", height: "100%", cursor: "pointer", border: "none", padding: 0 }} />
+                            </label>
+                          )}
                           <input value={c.name}
                             onChange={e => {
                               const name = e.target.value;
@@ -711,7 +806,7 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
                               updColor(j, auto ? { name, hex: auto } : { name });
                             }}
                             placeholder="Color"
-                            style={{ background: "transparent", border: "none", outline: "none", color: T.text, fontSize: 10.5, fontFamily: font, width: `${Math.min(Math.max((c.name || "").length + 1, 6), 22)}ch` }} />
+                            style={{ background: "transparent", border: "none", outline: "none", color: T.text, fontSize: 12.5, fontFamily: font, width: `${Math.min(Math.max((c.name || "").length + 1, 6), 22)}ch` }} />
                           <button onClick={() => update({ colors: (p.colors || []).filter((_, k) => k !== j) })} title="Remove color"
                             style={{ background: "none", border: "none", color: T.faint, cursor: "pointer", fontSize: 11, padding: 0, lineHeight: 1 }}
                             onMouseEnter={e => e.currentTarget.style.color = T.red}
@@ -728,6 +823,23 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
                     <input value={p.callout || ""} onChange={e => update({ callout: e.target.value })}
                       placeholder="Placement callout…"
                       style={{ ...ic, fontSize: 11 }} />
+                    {/* Per-location add-ons — options come from Costing's active
+                        specialties; the tag rides on the proof spec only. */}
+                    {activeSpecialties.length > 0 && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
+                        <span style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.05em", marginRight: 2 }}>Add-ons</span>
+                        {activeSpecialties.map(sp => {
+                          const on = (p.specialties || []).includes(sp);
+                          return (
+                            <button key={sp}
+                              onClick={() => update({ specialties: on ? (p.specialties || []).filter(s => s !== sp) : [...(p.specialties || []), sp] })}
+                              style={{ fontSize: 10.5, fontWeight: on ? 700 : 500, color: on ? T.accent : T.muted, background: on ? T.accentDim : "transparent", border: `1px solid ${on ? T.accent : T.border}`, borderRadius: 5, padding: "2px 8px", cursor: "pointer", fontFamily: font, transition: "all 0.12s" }}>
+                              {on ? "✓ " : "+ "}{sp}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -735,7 +847,7 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
 
             {/* Special instructions toggle buttons */}
             <div>
-              <label style={{ fontSize: 11, color: T.muted, marginBottom: 6, display: "block" }}>Special Instructions</label>
+              <label style={{ ...lbl, marginBottom: 6 }}>Special Instructions</label>
               <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
                 {INSTRUCTIONS.map(i => {
                   const on = selInstructions.includes(i);
@@ -754,7 +866,7 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
                 Auto reverts. Clearing the field omits the bar. */}
             <div>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                <label style={{ fontSize: 11, color: T.muted }}>Summary Bar{summaryOverride !== null && <span style={{ color: T.amber, fontWeight: 600 }}> · custom</span>}</label>
+                <label style={{ ...lbl }}>Summary Bar{summaryOverride !== null && <span style={{ color: T.amber, fontWeight: 600 }}> · custom</span>}</label>
                 {summaryOverride !== null && (
                   <button onClick={() => setSummaryOverride(null)}
                     title="Revert to the auto-derived summary (updates live with locations + instructions)"
@@ -773,7 +885,7 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
 
             {/* Notes */}
             <div>
-              <label style={{ fontSize: 11, color: T.muted, marginBottom: 3, display: "block" }}>Special Instructions</label>
+              <label style={{ ...lbl, marginBottom: 3 }}>Special Instructions</label>
               <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} style={{ ...ic, resize: "vertical", lineHeight: 1.4 }} />
             </div>
 
@@ -795,10 +907,15 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
             display: "flex", alignItems: "stretch", justifyContent: "center",
             minHeight: isMobile ? 480 : "auto",
           }}>
-            {previewUrl ? (
-              <PdfCanvasPreview src={previewUrl} />
+            {/* Web-first proof view — a clean on-screen render of the same spec.
+                Fits a laptop, no PDF scrolling. The PDF still generates on Save
+                (that's the vendor's printable document). First step toward web-first. */}
+            {mockupDataUrl || specLocations.length > 0 ? (
+              <div style={{ flex: 1, minWidth: 0, width: "100%", overflowY: "auto", background: "#fff", padding: isMobile ? 16 : 28 }}>
+                <ProofDocView spec={buildSpec()} mockupUrl={mockupDataUrl} clientName={clientName} itemName={item.name} font={font} mono={mono} />
+              </div>
             ) : (
-              <div style={{ fontSize: 11, color: T.faint, alignSelf: "center" }}>Loading preview...</div>
+              <div style={{ fontSize: 11, color: T.faint, alignSelf: "center" }}>Generating preview…</div>
             )}
           </div>
         </div>

@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { sortSizes } from "@/lib/theme";
 import { resolveItemStatus, clientItemStatus, type ItemState } from "@/lib/item-status";
 import { deriveDateChain } from "@/lib/date-chain";
+import { approvePackage, requestChanges } from "@/lib/portal/approval-actions";
 // Client Hub per-order detail.
 // Mirrors /api/portal/[token] (the old per-job portal) but auth'd via the
 // client's portal_token + verifies the jobId belongs to that client.
@@ -162,11 +163,30 @@ export async function GET(
       for (const a of (assignments || [])) {
         decByItem[(a as any).item_id] = (a as any).decorator_id || null;
       }
+      // Belt-and-suspenders: a drop_ship item's ship_tracking must belong to an
+      // OUTBOUND (vendor→client) shipment. If it's an INBOUND (vendor→HPD) leg —
+      // e.g. a drop-ship item wrongly bundled into an inbound multi-select — that
+      // tracking is internal logistics and must NEVER surface to the client.
+      const dsIds = (items || [])
+        .filter((it: any) => ((it.shipping_route || jobRoute) === "drop_ship") && it.ship_tracking)
+        .map((it: any) => it.id);
+      const inboundItems = new Set<string>();
+      if (dsIds.length > 0) {
+        // Link via the LEDGER (shipment_id), not the tracking string — item
+        // ship_tracking and shipments.tracking can differ in case/entry.
+        const { data: mv } = await sb.from("movements").select("item_id, shipment_id").in("item_id", dsIds).not("shipment_id", "is", null);
+        const shipIds = [...new Set((mv || []).map((m: any) => m.shipment_id))];
+        if (shipIds.length > 0) {
+          const { data: sh } = await sb.from("shipments").select("id, direction").in("id", shipIds);
+          const inboundShipIds = new Set((sh || []).filter((s: any) => s.direction === "inbound").map((s: any) => s.id));
+          for (const m of (mv || [])) if (inboundShipIds.has((m as any).shipment_id)) inboundItems.add((m as any).item_id);
+        }
+      }
       const grouped: Record<string, { decoratorId: string | null; tracking: string; itemCount: number; forwardTracking?: string }> = {};
       for (const it of (items || [])) {
         const route = (it as any).shipping_route || jobRoute;
         if (route === "drop_ship") {
-          if (it.pipeline_stage !== "shipped" || !it.ship_tracking) continue;
+          if (it.pipeline_stage !== "shipped" || !it.ship_tracking || inboundItems.has(it.id)) continue;
           const decId = decByItem[it.id] || null;
           const key = `ds__${decId || ""}__${it.ship_tracking}`;
           if (!grouped[key]) grouped[key] = { decoratorId: decId, tracking: it.ship_tracking, itemCount: 0 };
@@ -503,6 +523,7 @@ export async function GET(
         // the quote — gate on quote_sent_at too.
         quoteApproved: isQuoteSent ? job.quote_approved : false,
         quoteApprovedAt: isQuoteSent ? job.quote_approved_at : null,
+        changeRequest: (job.type_meta as any)?.change_request || null,
         paymentTerms: job.payment_terms,
       },
       client: { name: clientName },
@@ -584,108 +605,19 @@ export async function POST(
     const body = await req.json();
     const { action, fileId, note } = body;
 
-    if (action === "reject-quote") {
-      await sb
-        .from("jobs")
-        .update({ quote_rejection_notes: note || "Client requested changes" })
-        .eq("id", job.id);
-      await sb.from("job_activity").insert({
-        job_id: job.id, user_id: null, type: "auto",
-        message: `Quote rejected by client via portal${note ? `: "${note}"` : ""}`,
-      });
+    // ── Blanket package approval (V2) — shared with the per-job portal via
+    //    lib/portal/approval-actions. ──
+    if (action === "approve-package") {
+      await approvePackage(sb, job.id, { via: params.token });
+      return NextResponse.json({ success: true });
+    }
+    if (action === "request-changes") {
+      await requestChanges(sb, job.id, note);
       return NextResponse.json({ success: true });
     }
 
-    if (action === "approve-quote") {
-      const now = new Date().toISOString();
-      await sb
-        .from("jobs")
-        .update({ quote_approved: true, quote_approved_at: now, quote_rejection_notes: null })
-        .eq("id", job.id);
-      await sb.from("job_activity").insert({
-        job_id: job.id, user_id: null, type: "auto",
-        message: "Quote approved by client via portal",
-      });
-      return NextResponse.json({ success: true });
-    }
-
-    if (action === "approve-all-proofs") {
-      const { data: jobItems } = await sb.from("items").select("id").eq("job_id", job.id);
-      const itemIds = (jobItems || []).map((it: any) => it.id);
-      if (itemIds.length > 0) {
-        await sb.from("item_files")
-          .update({ approval: "approved", approved_at: new Date().toISOString() })
-          .in("item_id", itemIds)
-          .eq("stage", "proof")
-          .eq("approval", "pending")
-          .is("superseded_at", null);
-        await sb.from("items")
-          .update({ artwork_status: "approved" })
-          .in("id", itemIds);
-      }
-      await sb.from("job_activity").insert({
-        job_id: job.id, user_id: null, type: "auto",
-        message: "All proofs approved by client via portal",
-      });
-      return NextResponse.json({ success: true });
-    }
-
-    if (action === "approve-proof" && fileId) {
-      const { data: target } = await sb
-        .from("item_files")
-        .select("id, superseded_at, item_id")
-        .eq("id", fileId)
-        .single();
-      if (!target || target.superseded_at) {
-        return NextResponse.json({ error: "This proof is no longer active. Please refresh." }, { status: 400 });
-      }
-      // Guard: verify this file belongs to an item on the job the token
-      // has access to. Prevents a valid client token from approving
-      // proofs on another client's jobs.
-      const { data: fileItem } = await sb.from("items").select("job_id").eq("id", target.item_id).single();
-      if (!fileItem || fileItem.job_id !== job.id) {
-        return NextResponse.json({ error: "Invalid proof" }, { status: 403 });
-      }
-      await sb
-        .from("item_files")
-        .update({ approval: "approved", approved_at: new Date().toISOString() })
-        .eq("id", fileId);
-      const { data: item } = await sb.from("items").select("name").eq("id", target.item_id).single();
-      await sb.from("job_activity").insert({
-        job_id: job.id, user_id: null, type: "auto",
-        message: `Proof approved by client via portal for ${item?.name || "Item"}`,
-      });
-      return NextResponse.json({ success: true });
-    }
-
-    if (action === "request-revision" && fileId) {
-      const { data: target } = await sb
-        .from("item_files")
-        .select("id, superseded_at, item_id")
-        .eq("id", fileId)
-        .single();
-      if (!target || target.superseded_at) {
-        return NextResponse.json({ error: "This proof is no longer active. Please refresh." }, { status: 400 });
-      }
-      const { data: fileItem } = await sb.from("items").select("job_id").eq("id", target.item_id).single();
-      if (!fileItem || fileItem.job_id !== job.id) {
-        return NextResponse.json({ error: "Invalid proof" }, { status: 403 });
-      }
-      await sb
-        .from("item_files")
-        .update({
-          approval: "revision_requested",
-          ...(note ? { notes: note } : {}),
-        })
-        .eq("id", fileId);
-      const { data: item } = await sb.from("items").select("name").eq("id", target.item_id).single();
-      const noteText = note ? ` — "${note}"` : "";
-      await sb.from("job_activity").insert({
-        job_id: job.id, user_id: null, type: "auto",
-        message: `Revision requested by client via portal for ${item?.name || "Item"}${noteText}`,
-      });
-      return NextResponse.json({ success: true });
-    }
+    // (Legacy per-item actions removed — blanket approve-package + request-changes
+    //  above supersede them; shared in lib/portal/approval-actions.)
 
     return NextResponse.json({ error: "Invalid action" }, { status: 400 });
   } catch (e: any) {

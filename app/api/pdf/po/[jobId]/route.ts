@@ -283,10 +283,8 @@ function renderPOHTML(data: any): string {
 
     const thumbHtml = item.mockupThumb ? `<img src="${item.mockupThumb}" style="height:120px;width:auto;object-fit:contain;border-radius:4px;background:#f7f7f7;flex-shrink:0" crossorigin="anonymous" />` : "";
 
-    const routeLabel = item.shipping_route === "drop_ship" ? "Drop ship" : item.shipping_route === "ship_through" ? "Ship through HPD" : item.shipping_route === "stage" ? "Stage at HPD" : "";
-    const routeBadge = item.shipping_route
-      ? `<span style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#9a6400;background:#fff4d6;padding:2px 7px;border-radius:3px;margin-left:8px">→ ${routeLabel}</span>`
-      : "";
+    // Shipping route is an internal HPD concept — the vendor doesn't need it
+    // (the Ship-to on the PO tells them where the goods go). No route badge.
 
     // "NEW" chip — only on revised POs, only for items that don't yet
     // have a sent_to_decorator_date. That stamp is set the first time
@@ -299,7 +297,7 @@ function renderPOHTML(data: any): string {
 
     return `<div style="border-left:3px solid ${isNew ? "#f97316" : "#1a1a1a"};padding-left:16px;margin-bottom:16px;page-break-inside:avoid">
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
-        <div style="font-size:13px;font-weight:700">${item.letter} — ${item.name}${newChip}${routeBadge}</div>
+        <div style="font-size:13px;font-weight:700">${item.letter} — ${item.name}${newChip}</div>
         <div style="font-size:10px;color:#888">${item.totalQty.toLocaleString()} units</div>
       </div>
       <div style="display:flex;gap:12px;margin-bottom:4px;font-size:9px;color:#555">
@@ -328,9 +326,8 @@ function renderPOHTML(data: any): string {
           ${rows}
         </div>` : "";
       })()}
-      ${item.drive_link ? `<div style="font-size:9px;margin-bottom:4px;padding:3px 8px;background:#f0f5ff;border-radius:3px">
-        <span style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#888;margin-right:6px">Production folder</span>
-        <a href="${item.drive_link}" style="color:#1a56db">${item.drive_link}</a>
+      ${item.drive_link ? `<div style="margin-bottom:6px;text-align:right">
+        <a href="${item.drive_link}" style="display:inline-block;text-decoration:none;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:#fff;background:#1a1a1a;padding:6px 14px;border-radius:5px">Production Files ↗</a>
       </div>` : ""}
       <div style="display:flex;gap:16px;align-items:flex-start">
         ${thumbHtml ? `<div style="flex-shrink:0">${thumbHtml}</div>` : ""}
@@ -395,7 +392,7 @@ function renderPOHTML(data: any): string {
     <div>
       ${data.branding.logoSvg}
       <div style="font-size:11px;color:#666;line-height:1.7;margin-top:8px">
-        ${(data.branding.headerAddressHtml || "").replace(/<br\/>/g, " · ")}<br/>${data.branding.fromEmailProduction}
+        ${data.branding.fromEmailProduction}
       </div>
     </div>
     <div style="text-align:right">
@@ -413,7 +410,7 @@ function renderPOHTML(data: any): string {
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:16px;font-size:10px">
     <div>
       <div style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#aaa;margin-bottom:6px">Bill to</div>
-      <div style="line-height:1.7">${data.branding.name}<br/>${data.branding.fromEmailProduction}<br/>${data.branding.billToAddressHtml}</div>
+      <div style="line-height:1.7">${data.branding.name}<br/>${data.branding.billToAddressHtml}<br/>${data.branding.fromEmailBilling}</div>
     </div>
     <div>
       <div style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#aaa;margin-bottom:6px">Ship to</div>
@@ -619,7 +616,9 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
           // warehouse). Falls back to the tenant's own header address
           // for self-fulfilling tenants like HPD. The contact name
           // remains branding.name so the decorator routes correctly.
-          : `${branding.name}\n${((branding.fulfillmentAddressHtml || branding.headerAddressHtml) || "").replace(/<br\/>/g, "\n")}`),
+          // Warehouse receiving contact on the PO ship-to only (all tenants ship
+          // to HPD's 4670 dock — IHM/DMD fulfill through it). Jon 2026-07-19.
+          : `${branding.name}\n${((branding.fulfillmentAddressHtml || branding.headerAddressHtml) || "").replace(/<br\/>/g, "\n")}\nwarehouse@housepartydistro.com`),
       items: vendorItems,
       // Revision metadata — drives the REVISED banner and the per-item
       // NEW chip. is_revision is set when the caller passes ?revised=1

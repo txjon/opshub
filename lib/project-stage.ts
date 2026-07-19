@@ -101,14 +101,21 @@ export function deriveProjectStage(job: any, phaseView: any | undefined, items: 
   const posSent = ((tm.po_sent_vendors || []) as any[]).length > 0;
   const blanksOrdered = items.length > 0 && items.every((it: any) => it.blanks_order_cost != null || it.blanks_order_number);
 
-  if (!quoteSent) return { complete: false, preQuote: true, milestone: null, now: preQuoteStep(job, items), detail: "", signal: "act", reason: "", route, paidState };
+  // Pre-quote only when the quote is neither sent NOR approved. A quote approved
+  // internally (via client PO) never sets quote_sent_at — but it's still approved,
+  // so it must advance past the quote stage, not read as "ready to quote".
+  if (!quoteSent && !approved) return { complete: false, preQuote: true, milestone: null, now: preQuoteStep(job, items), detail: "", signal: "act", reason: "", route, paidState };
   if (!approved) {
     const d = daysSince(tm.quote_sent_at);
     const late = d != null && d >= STALE_QUOTE_DAYS;
     return mk("quote_appr", "Approved", late ? "late" : "wait", late ? `Approval overdue · ${d}d` : "Awaiting approval", "awaiting approval");
   }
   if (!invoiceSent) return mk("invoice", "Invoice", "act", "Ready to invoice", "ready to invoice"); // HPD's move
-  if (!paid) return mk("paid", "Paid", "wait", netTerms ? "On account · net terms" : "Awaiting payment"); // client's move
+  // Payment only BLOCKS production on prepaid/deposit terms (client's money gates
+  // the work). On NET terms it's on-account — HPD orders blanks, produces, and
+  // ships first, then gets paid — so the rail advances to PO/Blanks (HPD's move)
+  // while payment runs parallel (the Paid segment still reads "On account", blue).
+  if (!paid && !netTerms) return mk("paid", "Paid", "wait", "Awaiting payment");
   if (!posSent || !blanksOrdered)
     return mk("order", "PO / Blanks", "act", !blanksOrdered ? "Order blanks" : "Send POs");          // HPD's move
   return mk("production", "Production", "wait", "In production"); // paid + ordered, at the decorator

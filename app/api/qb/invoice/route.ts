@@ -238,6 +238,11 @@ export async function POST(req: NextRequest) {
     const shipAddr = (job.type_meta as any)?.venue_address
       || (job.clients as any)?.shipping_address || undefined;
 
+    // Client's own PO # (their reference) → the QB invoice memo, so it shows on
+    // the invoice they receive. It has its own field, not the job memo.
+    const clientPO = (job.type_meta as any)?.client_po_number;
+    const memoText = `${job.title} — ${job.job_number}${clientPO ? ` · PO #${clientPO}` : ""}`;
+
     // Per-client payment-method flags. Default true if columns are
     // unset (e.g., migration hasn't been applied yet) — preserves the
     // pre-flag behavior.
@@ -248,7 +253,7 @@ export async function POST(req: NextRequest) {
     if (existingInvoiceId) {
       // Update existing QB invoice
       const updated = await updateInvoice(existingInvoiceId, lineItems, {
-        memo: `${job.title} — ${job.job_number}`,
+        memo: memoText,
         shipAddress: shipAddr,
         email: primaryEmail || undefined,
         allowCC,
@@ -311,7 +316,7 @@ export async function POST(req: NextRequest) {
     // Create new invoice in QB
     const result = await createInvoice(customerId, lineItems, {
       terms: job.payment_terms || undefined,
-      memo: `${job.title} — ${job.job_number}`,
+      memo: memoText,
       email: primaryEmail || undefined,
       shipAddress: shipAddr,
       allowCC,

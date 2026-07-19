@@ -23,7 +23,7 @@ const TERMS_LABELS: Record<string, string> = {
 
 function renderInvoiceHTML(data: {
   invoiceNum: string; today: string; terms: string; shipDate: string;
-  clientName: string; shipToAddress: string; notes: string;
+  clientName: string; shipToAddress: string; notes: string; poNumber?: string;
   prods: { name: string; style: string; color: string; sizes: string[]; qtys: Record<string,number>; totalQty: number; sellPerUnit: number; grossRev: number; free?: boolean; }[];
   extraLines: { description: string; amount: number }[];
   quoteTotal: number; taxAmount: number; totalPaid: number; balanceDue: number;
@@ -123,6 +123,7 @@ function renderInvoiceHTML(data: {
       ["Terms", data.terms],
       ["Est. ship date", data.shipDate || "TBD"],
       ["Bill to", data.clientName || "—"],
+      ...(data.poNumber ? [["PO #", data.poNumber]] : []),
       ...(data.shipToAddress ? [["Ship to", data.shipToAddress]] : []),
     ].map(([k, v], i, arr) =>
       `<div style="padding:8px 12px;${i < arr.length - 1 ? "border-right:0.5px solid #e5e7eb" : ""}">
@@ -337,6 +338,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       clientName,
       shipToAddress: job.type_meta?.venue_address || (job.clients as any)?.shipping_address || "",
       notes: orderInfo.notes || job.notes || "",
+      poNumber: (job.type_meta as any)?.client_po_number || "",
       prods,
       extraLines,
       quoteTotal,

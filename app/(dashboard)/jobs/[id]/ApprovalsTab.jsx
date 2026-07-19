@@ -5,6 +5,7 @@ import { T, font, mono } from "@/lib/theme";
 import { SendEmailDialog } from "@/components/SendEmailDialog";
 import { logJobActivity } from "@/components/JobActivityPanel";
 import { ProofModal } from "./ArtTab";
+import ProofDocView from "@/components/ProofDocView";
 import { useIsMobile } from "@/lib/useIsMobile";
 
 export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, onRecalcPhase }) {
@@ -14,11 +15,14 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
   const [proofModalItem, setProofModalItem] = useState(null);
   const [itemFiles, setItemFiles] = useState({});
   const [sendingProofEmail, setSendingProofEmail] = useState(false);
+  const [replacingMockup, setReplacingMockup] = useState(false);
   const [proofEmailSent, setProofEmailSent] = useState(false);
   const [sendingRevised, setSendingRevised] = useState(false);
   const [revisedModalOpen, setRevisedModalOpen] = useState(false);
   const [revisedNote, setRevisedNote] = useState("");
   const [revisedSelected, setRevisedSelected] = useState({});
+  const [proofReviewOpen, setProofReviewOpen] = useState(false);
+  const [proofSelected, setProofSelected] = useState({});
 
   // Open the "Send revised proofs" modal — default-select every contact with an email.
   function openRevisedModal() {
@@ -51,16 +55,26 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
     setSendingRevised(false);
   }
 
-  async function sendProofForReview() {
-    if (!window.confirm("Send a proof-review email to the client? They'll get a link to the portal to approve or request changes.")) return;
+  // Open the "Send proofs for review" modal — default-select every contact with an email.
+  function sendProofForReview() {
+    const sel = {};
+    (contacts || []).forEach((c, i) => { if (c.email) sel[i] = true; });
+    setProofSelected(sel);
+    setProofReviewOpen(true);
+  }
+
+  async function submitProofReview() {
+    const recipients = (contacts || []).filter((_, i) => proofSelected[i]).map(c => c.email).filter(Boolean);
+    if (recipients.length === 0) return;
     setSendingProofEmail(true);
     try {
       await fetch("/api/email/notify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobId: job.id, type: "proof_ready" }),
+        body: JSON.stringify({ jobId: job.id, type: "proof_ready", recipients }),
       });
-      logJobActivity(job.id, "Proof review email sent to client");
+      logJobActivity(job.id, `Proof review email sent to client (${recipients.length} recipient${recipients.length === 1 ? "" : "s"})`);
+      setProofReviewOpen(false);
       setProofEmailSent(true);
       setTimeout(() => setProofEmailSent(false), 3000);
     } catch (e) {
@@ -93,8 +107,8 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
 
   function reloadFiles() {
     const ids = items.map(it => it.id).filter(id => typeof id === "string" && id.length > 20);
-    if (ids.length === 0) return;
-    supabase.from("item_files").select("*").in("item_id", ids).is("superseded_at", null).then(({ data }) => {
+    if (ids.length === 0) return Promise.resolve();
+    return supabase.from("item_files").select("*").in("item_id", ids).is("superseded_at", null).then(({ data }) => {
       const byItem = {};
       for (const f of (data || [])) {
         if (!byItem[f.item_id]) byItem[f.item_id] = [];
@@ -104,7 +118,39 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
     });
   }
 
+  // Replace mockup — upload a new one, supersede the old, then reopen the proof
+  // generator. ProofModal loads the SAVED proof_spec, so print/proof data is
+  // preserved — only the mockup image changes. Closes the "revised proof with an
+  // updated mockup" edge case without a trip back to Product Builder.
+  async function handleReplaceMockup(item, file) {
+    if (!file || replacingMockup) return;
+    setReplacingMockup(true);
+    try {
+      const now = new Date().toISOString();
+      const oldMockups = (itemFiles[item.id] || []).filter(f => f.stage === "mockup" && !f.superseded_at);
+      for (const m of oldMockups) await supabase.from("item_files").update({ superseded_at: now }).eq("id", m.id);
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("itemId", item.id);
+      fd.append("stage", "mockup");
+      fd.append("clientName", job.clients?.name || "");
+      fd.append("projectTitle", job.title || "");
+      fd.append("itemName", item.name || "");
+      const res = await fetch("/api/files", { method: "POST", body: fd });
+      if (!res.ok) throw new Error(await res.text());
+      logJobActivity(job.id, `Mockup replaced for ${item.name}`);
+      await reloadFiles();
+      // Reopen the generator on the new mockup + the saved print spec.
+      setPeekItem(null);
+      setProofModalItem(item);
+    } catch (e) {
+      console.error("Replace mockup failed", e);
+    }
+    setReplacingMockup(false);
+  }
+
   const [previewProofItem, setPreviewProofItem] = useState(null);
+  const [peekItem, setPeekItem] = useState(null);
 
   // Generate All state
   const [generateAllItems, setGenerateAllItems] = useState([]);
@@ -168,7 +214,7 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
       {/* ── Proof Approvals ── */}
       <div style={card}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-          <div style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em" }}>Proof Approvals</div>
+          <div style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em" }}>Order items &amp; proofs</div>
           <span style={{ fontSize: 11, fontWeight: 600, color: allApproved ? T.green : T.amber }}>
             {approvedCount}/{items.length} approved{internalOnlyCount > 0 ? ` · ${internalOnlyCount} internal` : ""}
           </span>
@@ -189,7 +235,7 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
           </div>
         )}
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2,1fr)" : "repeat(4,1fr)", gap: 12 }}>
           {items.map((item, i) => {
             const files = itemFiles[item.id] || [];
             const proofFiles = files.filter(f => f.stage === "proof");
@@ -210,169 +256,126 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
             else if (revisedPendingSend){ pillText = "Revised · send"; pillColor = T.amber; }
             else if (revisionRequested){ pillText = "Revision";        pillColor = T.amber; }
             else if (internalOnly)     { pillText = "Internal";        pillColor = T.green; }
-            else if (pendingClient)    { pillText = "Pending client";  pillColor = T.accent; }
+            else if (pendingClient)    { pillText = "Pending client";  pillColor = T.amber; }
 
-            const metaLink = {
-              padding: 0, background: "transparent", border: "none",
-              color: T.faint, cursor: "pointer", fontFamily: font, fontSize: 10,
-              fontWeight: 500,
-            };
+            const qty = Object.values(item.qtys || {}).reduce((a, v) => a + (Number(v) || 0), 0);
+            const sell = item.sell_per_unit ? Math.round(item.sell_per_unit).toLocaleString() : null;
+            // Mockup first (it exists before a proof does); fall back to the proof.
+            const thumbFile = mockupFile || proofFiles[0];
+            const thumbId = thumbFile?.drive_file_id;
 
-            const statusSpan = (
-              <span style={{
-                fontSize: 11, fontWeight: 700,
-                color: pillColor, letterSpacing: "0.06em", textTransform: "uppercase",
-                whiteSpace: "nowrap", flexShrink: 0,
-                display: "inline-flex", alignItems: "center", gap: 4,
-              }}>
-                {fileApproved || internalOnly ? <span style={{ fontSize: 10 }}>✓</span> : null}
-                {revisionRequested ? <span style={{ fontSize: 10 }}>⚠</span> : null}
-                {pillText}
-              </span>
-            );
-            const primaryAction = hasProof ? (
-              <button onClick={() => setPreviewProofItem(proofFiles[0])}
-                style={{
-                  padding: "7px 14px", borderRadius: 7, fontSize: 11, fontWeight: 600,
-                  border: `1px solid ${T.border}`, cursor: "pointer",
-                  background: T.card, color: T.text, flexShrink: 0,
-                  fontFamily: font, transition: "all 0.15s",
-                }}
-                onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.background = T.accent; e.currentTarget.style.color = "#fff"; }}
-                onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.background = T.card; e.currentTarget.style.color = T.text; }}>
-                View proof
-              </button>
-            ) : mockupFile ? (
-              <button onClick={() => setProofModalItem(item)}
-                style={{
-                  padding: "7px 14px", borderRadius: 7, fontSize: 11, fontWeight: 600,
-                  border: "none", cursor: "pointer",
-                  background: T.amber, color: "#fff", flexShrink: 0,
-                  fontFamily: font,
-                }}>
-                Generate
-              </button>
-            ) : (
-              <span style={{ fontSize: 10, color: T.faint, padding: "6px 10px", flexShrink: 0, whiteSpace: "nowrap" }}>Needs mockup</span>
-            );
-
+            // Gallery chip — whole card opens the peek modal (actions live there).
             return (
-              <div key={item.id}
-                style={{
-                  display: "flex",
-                  flexDirection: isMobile ? "column" : "row",
-                  alignItems: isMobile ? "stretch" : "center",
-                  gap: isMobile ? 8 : 12,
-                  padding: "10px 14px",
-                  background: T.card,
-                  borderRadius: 8,
-                  border: `1px solid ${isApproved ? T.green + "33" : T.border}`,
-                  boxShadow: isApproved ? "none" : "0 1px 2px rgba(0,0,0,0.02)",
-                }}>
-                {/* Row 1 (mobile) / left side (desktop): letter + name + meta */}
-                <div style={{ display: "flex", alignItems: "center", gap: 12, flex: isMobile ? "0 0 auto" : 1, minWidth: 0 }}>
-                  {/* Letter badge — small circle */}
-                  <span style={{
-                    width: 24, height: 24, borderRadius: "50%",
-                    background: isApproved ? T.greenDim : T.surface,
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    fontSize: 10, fontWeight: 700,
-                    color: isApproved ? T.green : T.muted,
-                    fontFamily: mono, flexShrink: 0,
-                  }}>
-                    {String.fromCharCode(65 + i)}
-                  </span>
-
-                  {/* Name + inline meta actions */}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{
-                      fontSize: 12, fontWeight: 600, color: T.text,
-                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                      letterSpacing: "-0.01em",
-                    }} title={item.name}>
-                      {item.name}
-                    </div>
-                    <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 3, flexWrap: "wrap" }}>
-                      {hasProof && mockupFile && (
-                        <button
-                          onClick={() => setProofModalItem(item)}
-                          style={metaLink}
-                          onMouseEnter={e => (e.currentTarget.style.color = T.accent)}
-                          onMouseLeave={e => (e.currentTarget.style.color = T.faint)}
-                        >↻ Regenerate</button>
-                      )}
-                      {!fileApproved && (
-                        <button
-                          onClick={async () => {
-                            const newStatus = manualApproved ? "not_started" : "approved";
-                            await supabase.from("items").update({ artwork_status: newStatus }).eq("id", item.id);
-                            if (onUpdateItem) onUpdateItem(item.id, { artwork_status: newStatus });
-                            if (newStatus === "approved") logJobActivity(job.id, `${item.name} approved internally`);
-                            if (onRecalcPhase) setTimeout(onRecalcPhase, 300);
-                          }}
-                          style={metaLink}
-                          onMouseEnter={e => (e.currentTarget.style.color = manualApproved ? T.red : T.green)}
-                          onMouseLeave={e => (e.currentTarget.style.color = T.faint)}
-                        >{manualApproved ? "Unmark internal" : "Mark internal"}</button>
-                      )}
-                    </div>
-                  </div>
+              <div key={item.id} onClick={() => setPeekItem(item)} style={{ border: `1px solid ${isApproved ? T.green + "44" : T.border}`, borderRadius: 11, overflow: "hidden", background: T.card, display: "flex", flexDirection: "column", cursor: "pointer" }}>
+                <div style={{ aspectRatio: "4 / 3", background: "#f2f2f4", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", position: "relative" }}>
+                  {thumbId
+                    ? <img src={`/api/files/thumbnail?id=${thumbId}&thumb=1`} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+                    : <span style={{ fontSize: 11, color: T.faint }}>No mockup yet</span>}
+                  <span style={{ position: "absolute", top: 6, left: 6, width: 20, height: 20, borderRadius: "50%", background: isApproved ? T.greenDim : "rgba(255,255,255,0.92)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: isApproved ? T.green : T.muted, fontFamily: mono, boxShadow: "0 1px 2px rgba(0,0,0,0.12)" }}>{String.fromCharCode(65 + i)}</span>
                 </div>
-
-                {/* Row 2 (mobile) / right side (desktop): status + action.
-                    Mobile distributes them with space-between so the
-                    status sits left and the action button sits right
-                    aligned under the name. */}
-                <div style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: isMobile ? "space-between" : "flex-end", paddingLeft: isMobile ? 36 : 0 }}>
-                  {statusSpan}
-                  {primaryAction}
+                <div style={{ padding: "9px 11px 11px", display: "flex", flexDirection: "column", gap: 4, flex: 1 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 800, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={item.name}>{item.name}</div>
+                  <div style={{ fontSize: 13, color: T.text, fontFamily: mono, fontWeight: 600 }}>{qty} × {sell ? `$${sell}` : "—"} : {item.sell_per_unit ? `$${Math.round(item.sell_per_unit * qty).toLocaleString()}` : "—"}</div>
+                  <div style={{ fontSize: 10, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.04em", color: pillColor }}>
+                    {fileApproved || internalOnly ? "✓ " : revisionRequested ? "⚠ " : ""}{pillText}
+                  </div>
                 </div>
               </div>
             );
           })}
         </div>
+
+        {/* Batch proof actions — inside the container, matching the quote card's bottom actions */}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 14, paddingTop: 14, borderTop: `1px solid ${T.border}` }}>
+          {(() => {
+            const btn = { height: 38, borderRadius: 9, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12.5, fontWeight: 700, fontFamily: font, padding: "0 16px", cursor: "pointer" };
+            const anyProofs = items.some(it => (itemFiles[it.id] || []).some(f => f.stage === "proof"));
+            return (
+              <>
+                <button onClick={() => { const it = items.find(x => (itemFiles[x.id] || []).some(f => f.stage === "proof")); if (it) setPreviewProofItem(it); }} style={btn}>Preview proofs</button>
+                {itemsWithMockups.length > 0 && <button onClick={startGenerateAll} style={btn}>Generate all ({itemsWithMockups.length})</button>}
+                {anyProofs && (
+                  <button onClick={sendProofForReview} disabled={sendingProofEmail}
+                    style={{ ...btn, background: proofEmailSent ? T.greenDim : T.surface, color: proofEmailSent ? T.green : T.text, cursor: sendingProofEmail ? "default" : "pointer", opacity: sendingProofEmail ? 0.6 : 1 }}>
+                    {sendingProofEmail ? "Sending…" : proofEmailSent ? "✓ Sent to client" : (isMobile ? "Send for review" : "Send proofs for review")}
+                  </button>
+                )}
+              </>
+            );
+          })()}
+        </div>
       </div>
 
-      {/* ── Action Buttons ── */}
-      <div style={{ display: "flex", gap: 8, alignSelf: "flex-start", flexWrap: "wrap" }}>
-        <button onClick={() => {
-          const allProofs = items.flatMap(it => (itemFiles[it.id] || []).filter(f => f.stage === "proof"));
-          if (allProofs.length > 0) setPreviewProofItem(allProofs[0]);
-        }}
-          style={{ padding: "10px 20px", borderRadius: 8, border: "none", cursor: "pointer",
-            background: T.accent, color: "#fff", fontSize: 12, fontWeight: 700, fontFamily: font,
-            transition: "opacity 0.15s" }}
-          onMouseEnter={e => e.currentTarget.style.opacity = "0.9"}
-          onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
-          Preview Proofs
-        </button>
-        {itemsWithMockups.length > 0 && (
-          <button onClick={startGenerateAll}
-            style={{ padding: "10px 20px", borderRadius: 8, border: "none", cursor: "pointer",
-              background: T.amber, color: "#fff", fontSize: 12, fontWeight: 700, fontFamily: font,
-              transition: "opacity 0.15s" }}
-            onMouseEnter={e => e.currentTarget.style.opacity = "0.9"}
-            onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
-            Generate All ({itemsWithMockups.length})
-          </button>
-        )}
-        {(() => {
-          const anyProofs = items.some(it => (itemFiles[it.id] || []).some(f => f.stage === "proof"));
-          if (!anyProofs) return null;
-          return (
-            <button onClick={sendProofForReview} disabled={sendingProofEmail}
-              style={{ padding: "10px 20px", borderRadius: 8, border: "none",
-                cursor: sendingProofEmail ? "default" : "pointer",
-                background: proofEmailSent ? T.greenDim : T.blue,
-                color: proofEmailSent ? T.green : "#fff",
-                fontSize: 12, fontWeight: 700, fontFamily: font,
-                opacity: sendingProofEmail ? 0.6 : 1,
-                transition: "opacity 0.15s" }}>
-              {sendingProofEmail ? "Sending…" : proofEmailSent ? "✓ Sent to client" : (isMobile ? "Send for review" : "Send proofs to client for review")}
-            </button>
-          );
-        })()}
-      </div>
+      {/* ── Item peek — mirrors the Overview gallery peek; proof actions here ── */}
+      {peekItem && (() => {
+        const item = items.find(x => x.id === peekItem.id) || peekItem;
+        const files = itemFiles[item.id] || [];
+        const proofFiles = files.filter(f => f.stage === "proof");
+        const hasProof = proofFiles.length > 0;
+        const mockupFile = files.find(f => f.stage === "mockup") || files.find(f => f.file_name?.toLowerCase().includes("mockup"));
+        const thumbId = (mockupFile || proofFiles[0])?.drive_file_id;
+        const fileApproved = fileApprovedByItem[item.id];
+        const manualApproved = item.artwork_status === "approved";
+        const revisionRequested = proofFiles.some(f => f.approval === "revision_requested");
+        const revisedPendingSend = proofFiles.some(f => f.revision_pending_send);
+        const pendingClient = hasProof && !fileApproved && !revisionRequested && !revisedPendingSend;
+        const internalOnly = !fileApproved && manualApproved;
+        let pillText = "No proof", pillColor = T.faint;
+        if (fileApproved) { pillText = "Client approved"; pillColor = T.green; }
+        else if (revisedPendingSend) { pillText = "Revised · send"; pillColor = T.amber; }
+        else if (revisionRequested) { pillText = "Revision requested"; pillColor = T.amber; }
+        else if (internalOnly) { pillText = "Internal"; pillColor = T.green; }
+        else if (pendingClient) { pillText = "Pending client"; pillColor = T.amber; }
+        else if (mockupFile) { pillText = "Awaiting proof"; pillColor = T.amber; }
+        const qty = Object.values(item.qtys || {}).reduce((a, v) => a + (Number(v) || 0), 0);
+        const sell = item.sell_per_unit ? Math.round(item.sell_per_unit).toLocaleString() : null;
+        const q = item.qtys || {};
+        const sizes = (item.sizes && item.sizes.length) ? item.sizes : Object.keys(q);
+        const btn = { flex: "1 1 auto", padding: "9px 0", borderRadius: 9, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: font };
+        const markInternal = async () => {
+          const newStatus = manualApproved ? "not_started" : "approved";
+          await supabase.from("items").update({ artwork_status: newStatus }).eq("id", item.id);
+          if (onUpdateItem) onUpdateItem(item.id, { artwork_status: newStatus });
+          if (newStatus === "approved") logJobActivity(job.id, `${item.name} approved internally`);
+          if (onRecalcPhase) setTimeout(onRecalcPhase, 300);
+          setPeekItem(null);
+        };
+        return (
+          <div onClick={() => setPeekItem(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 9998, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "48px 16px", overflowY: "auto", fontFamily: font }}>
+            <div onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 14, width: "100%", maxWidth: 480, boxShadow: "0 16px 48px rgba(0,0,0,0.45)", overflow: "hidden" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 18px", borderBottom: `1px solid ${T.border}` }}>
+                <div style={{ fontSize: 14, fontWeight: 800, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.name}</div>
+                <button onClick={() => setPeekItem(null)} aria-label="Close" style={{ background: "none", border: "none", color: T.muted, fontSize: 22, cursor: "pointer", lineHeight: 1 }}>×</button>
+              </div>
+              <div style={{ aspectRatio: "16 / 10", background: "#f2f2f4", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+                {thumbId ? <img src={`/api/files/thumbnail?id=${thumbId}&thumb=1`} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} /> : <span style={{ fontSize: 12, color: T.faint }}>No mockup yet</span>}
+              </div>
+              <div style={{ padding: "14px 18px" }}>
+                <div style={{ fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.04em", color: pillColor }}>{pillText}</div>
+                <div style={{ fontSize: 13, color: T.muted, marginTop: 6, fontFamily: mono }}>{qty} units · {sell ? `$${sell}` : "—"}/unit</div>
+                {sizes.length > 0 && <div style={{ fontSize: 12.5, color: T.text, marginTop: 8, fontFamily: mono, display: "flex", flexWrap: "wrap", gap: "4px 14px" }}>{sizes.map(s => q[s] ? <span key={s}>{s}:{q[s]}</span> : null)}</div>}
+                <div style={{ display: "flex", gap: 8, marginTop: 16, flexWrap: "wrap" }}>
+                  {hasProof ? (
+                    <button onClick={() => { setPreviewProofItem(item); setPeekItem(null); }} style={{ ...btn, background: T.accent, color: "#fff", border: "none" }}>View proof</button>
+                  ) : mockupFile ? (
+                    <button onClick={() => { setProofModalItem(item); setPeekItem(null); }} style={{ ...btn, background: T.amber, color: "#fff", border: "none" }}>Generate proof</button>
+                  ) : null}
+                  {mockupFile && hasProof && <button onClick={() => { setProofModalItem(item); setPeekItem(null); }} style={btn}>↻ Regenerate</button>}
+                  {!fileApproved && <button onClick={markInternal} style={btn}>{manualApproved ? "Unmark internal" : "Mark internal"}</button>}
+                  {mockupFile && (
+                    <label style={{ ...btn, textAlign: "center", opacity: replacingMockup ? 0.6 : 1, cursor: replacingMockup ? "default" : "pointer" }}>
+                      {replacingMockup ? "Uploading…" : "Replace mockup"}
+                      <input type="file" accept="image/*,application/pdf" disabled={replacingMockup} style={{ display: "none" }}
+                        onChange={e => { const f = e.target.files?.[0]; e.target.value = ""; if (f) handleReplaceMockup(item, f); }} />
+                    </label>
+                  )}
+                </div>
+                {!mockupFile && !hasProof && <div style={{ fontSize: 11.5, color: T.faint, marginTop: 10 }}>No mockup yet — add one in Product Builder to generate a proof.</div>}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── Proof Modal (single item) ── */}
       {proofModalItem && !isGenerateAll && (() => {
@@ -414,40 +417,43 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
         );
       })()}
 
-      {/* Fullscreen proof preview with prev/next */}
+      {/* Fullscreen proof preview — the V2 web view (no more PDF-in-web) */}
       {previewProofItem && (()=>{
-        const allProofs = items.flatMap(it => (itemFiles[it.id] || []).filter(f => f.stage === "proof"));
-        const currentIdx = allProofs.findIndex(f => f.id === previewProofItem.id);
-        const prevProof = currentIdx > 0 ? allProofs[currentIdx - 1] : null;
-        const nextProof = currentIdx < allProofs.length - 1 ? allProofs[currentIdx + 1] : null;
-        const itemName = items.find(it => it.id === previewProofItem.item_id)?.name || "";
+        const proofItems = items.filter(it => (itemFiles[it.id] || []).some(f => f.stage === "proof"));
+        const currentIdx = proofItems.findIndex(it => it.id === previewProofItem.id);
+        const cur = proofItems[currentIdx] || previewProofItem;
+        const prevItem = currentIdx > 0 ? proofItems[currentIdx - 1] : null;
+        const nextItem = currentIdx >= 0 && currentIdx < proofItems.length - 1 ? proofItems[currentIdx + 1] : null;
+        const files = itemFiles[cur.id] || [];
+        const mockupFile = files.find(f => f.stage === "mockup") || files.find(f => f.file_name?.toLowerCase().includes("mockup"));
+        const proofFile = files.find(f => f.stage === "proof");
+        const spec = cur.proof_spec;
+        const hasSpec = spec && Array.isArray(spec.locations) && spec.locations.length > 0;
+        const mockupUrl = mockupFile?.drive_file_id ? `/api/files/thumbnail?id=${mockupFile.drive_file_id}` : null;
+        const navBtn = { padding: "8px 16px", borderRadius: 8, background: T.surface, border: `1px solid ${T.border}`, color: T.text, fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: font };
+        const downloadProof = () => { if (proofFile) window.open(`/api/files/view/${encodeURIComponent(proofFile.file_name)}?id=${proofFile.drive_file_id}`, "_blank"); };
         return (
-        <div style={{ position: "fixed", inset: 0, background: "#fff", zIndex: 9999, display: "flex", flexDirection: "column" }}>
-          <div style={{ padding: "12px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
+        <div style={{ position: "fixed", inset: 0, background: "#f4f4f5", zIndex: 9999, display: "flex", flexDirection: "column", fontFamily: font }}>
+          <div style={{ padding: "12px 20px", borderBottom: `1px solid ${T.border}`, background: T.card, display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
             <div>
-              <div style={{ fontSize: 15, fontWeight: 700 }}>{itemName}</div>
-              <div style={{ fontSize: 11, color: T.muted }}>{currentIdx + 1} of {allProofs.length} proofs</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>{cur.name}</div>
+              <div style={{ fontSize: 11, color: T.muted }}>{currentIdx + 1} of {proofItems.length} proofs</div>
             </div>
             <div style={{ display: "flex", gap: 8 }}>
-              {prevProof && <button onClick={() => setPreviewProofItem(prevProof)}
-                style={{ padding: "8px 16px", borderRadius: 8, background: T.surface, border: `1px solid ${T.border}`, color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>← Prev</button>}
-              {nextProof && <button onClick={() => setPreviewProofItem(nextProof)}
-                style={{ padding: "8px 16px", borderRadius: 8, background: T.surface, border: `1px solid ${T.border}`, color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Next →</button>}
-              <button onClick={() => setPreviewProofItem(null)}
-                style={{ padding: "8px 20px", borderRadius: 8, background: T.surface, border: `1px solid ${T.border}`, color: T.text, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-                Close
-              </button>
+              {prevItem && <button onClick={() => setPreviewProofItem(prevItem)} style={navBtn}>← Prev</button>}
+              {nextItem && <button onClick={() => setPreviewProofItem(nextItem)} style={navBtn}>Next →</button>}
+              {proofFile && <button onClick={downloadProof} style={navBtn}>Download proof</button>}
+              <button onClick={() => setPreviewProofItem(null)} style={{ ...navBtn, fontWeight: 700 }}>Close</button>
             </div>
           </div>
-          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", overflow: "auto", background: T.bg, padding: 20 }}>
-            {/\.pdf$/i.test(previewProofItem.file_name) ? (
-              <iframe src={`/api/files/view/${encodeURIComponent(previewProofItem.file_name)}?id=${previewProofItem.drive_file_id}`}
-                style={{ width: "100%", height: "100%", border: "none" }} />
-            ) : (
-              <img src={`/api/files/thumbnail?id=${previewProofItem.drive_file_id}`}
-                alt={previewProofItem.file_name}
-                style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", borderRadius: 8 }} />
-            )}
+          <div style={{ flex: 1, overflow: "auto", padding: "28px 20px", display: "flex", justifyContent: "center" }}>
+            {hasSpec
+              ? <div style={{ width: "100%", maxWidth: 820, height: "fit-content", background: "#fff", borderRadius: 12, padding: 28, boxShadow: "0 2px 16px rgba(0,0,0,0.08)" }}><ProofDocView spec={spec} mockupUrl={mockupUrl} clientName={clientName} itemName={cur.name} font={font} mono={mono} /></div>
+              : proofFile
+                ? (/\.pdf$/i.test(proofFile.file_name)
+                    ? <iframe src={`/api/files/view/${encodeURIComponent(proofFile.file_name)}?id=${proofFile.drive_file_id}`} style={{ width: "100%", height: "100%", border: "none" }} />
+                    : <img src={`/api/files/thumbnail?id=${proofFile.drive_file_id}`} alt="" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />)
+                : <div style={{ fontSize: 13, color: T.muted, alignSelf: "center" }}>No proof to show.</div>}
           </div>
         </div>
         );})()}
@@ -497,6 +503,51 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
               <button onClick={submitRevisedProofs} disabled={sendingRevised || Object.values(revisedSelected).filter(Boolean).length === 0}
                 style={{ background: T.accent, color: "#fff", border: "none", borderRadius: 6, padding: "7px 18px", fontSize: 12, fontWeight: 700, fontFamily: font, cursor: sendingRevised ? "default" : "pointer", opacity: sendingRevised || Object.values(revisedSelected).filter(Boolean).length === 0 ? 0.6 : 1 }}>
                 {sendingRevised ? "Sending…" : "Send"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Send proofs for review modal — client contact selection ── */}
+      {proofReviewOpen && (
+        <div onClick={() => !sendingProofEmail && setProofReviewOpen(false)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 200, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "6vh 16px", overflowY: "auto" }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: 18, width: "100%", maxWidth: 560, boxShadow: "0 8px 40px rgba(0,0,0,0.18)", fontFamily: font }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>Send proofs for review</div>
+              <button onClick={() => setProofReviewOpen(false)} aria-label="Close" style={{ background: "none", border: "none", color: T.muted, fontSize: 20, cursor: "pointer", lineHeight: 1 }}>×</button>
+            </div>
+
+            {/* Recipients */}
+            <label style={{ fontSize: 11, color: T.muted, marginBottom: 4, display: "block" }}>To</label>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 12 }}>
+              {(contacts || []).length === 0 && <div style={{ fontSize: 12, color: T.faint }}>No contacts on this job.</div>}
+              {(contacts || []).map((c, i) => (
+                <label key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 8px", background: proofSelected[i] ? T.accentDim : T.surface, borderRadius: 6, cursor: c.email ? "pointer" : "default", opacity: c.email ? 1 : 0.5 }}>
+                  <input type="checkbox" checked={!!proofSelected[i]} disabled={!c.email}
+                    onChange={e => setProofSelected(p => ({ ...p, [i]: e.target.checked }))} style={{ accentColor: T.accent }} />
+                  <span style={{ flex: 1, fontSize: 12, fontWeight: 600, color: T.text }}>{c.name || "Unnamed"}{c.role_on_job ? <span style={{ fontSize: 10, color: T.muted, marginLeft: 6 }}>{c.role_on_job}</span> : null}</span>
+                  <span style={{ fontSize: 11, color: T.muted }}>{c.email || "no email"}</span>
+                </label>
+              ))}
+            </div>
+
+            {/* Stock message preview */}
+            <label style={{ fontSize: 11, color: T.muted, marginBottom: 4, display: "block" }}>Message</label>
+            <div style={{ fontSize: 12, color: T.muted, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "8px 10px", marginBottom: 14, lineHeight: 1.5 }}>
+              "Your proofs are ready to review — approve or request changes in the portal." <span style={{ color: T.faint }}>+ portal link</span>
+            </div>
+
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center" }}>
+              <span style={{ fontSize: 10, color: T.muted, flex: 1 }}>
+                {Object.values(proofSelected).filter(Boolean).length} recipient{Object.values(proofSelected).filter(Boolean).length === 1 ? "" : "s"}
+              </span>
+              <button onClick={() => setProofReviewOpen(false)} style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 6, color: T.muted, padding: "7px 14px", fontSize: 12, fontFamily: font, cursor: "pointer" }}>Cancel</button>
+              <button onClick={submitProofReview} disabled={sendingProofEmail || Object.values(proofSelected).filter(Boolean).length === 0}
+                style={{ background: T.accent, color: "#fff", border: "none", borderRadius: 6, padding: "7px 18px", fontSize: 12, fontWeight: 700, fontFamily: font, cursor: sendingProofEmail ? "default" : "pointer", opacity: sendingProofEmail || Object.values(proofSelected).filter(Boolean).length === 0 ? 0.6 : 1 }}>
+                {sendingProofEmail ? "Sending…" : "Send for review"}
               </button>
             </div>
           </div>

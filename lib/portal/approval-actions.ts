@@ -1,0 +1,100 @@
+// Blanket package approval — THE shared client-approval logic for both portal API
+// routes (per-job `/api/portal/[token]` and Client-Hub
+// `/api/portal/client/[token]/orders/[jobId]`). One source so the two can't drift.
+//
+// Model (no migration): the client approves the whole package in ONE action.
+//   approvePackage → flips jobs.quote_approved (the phase gate the engine already
+//   reads) + approves every active proof + freezes an accountability snapshot in
+//   jobs.type_meta.approval_snapshot (quote total, terms, exact proof file IDs,
+//   timestamp, channel) — invisible to the client, our record of what they agreed to.
+//   requestChanges → records a job-level change note in type_meta.change_request,
+//   no approval. Both log to job_activity (the notifications table is deprecated).
+// See [[jon-clean-architecture-standard]].
+
+type Sb = any; // service-role supabase client (admin())
+
+const money = (n: number | null) => (n != null ? ` ($${Math.round(n).toLocaleString()})` : "");
+
+// The total the client saw on the quote = product revenue + additional charges.
+// (Tax/QB total isn't known at quote-approval time — the invoice comes later.)
+function quoteTotalOf(job: any): number | null {
+  const tm = job?.type_meta || {};
+  const grossRev = Number(job?.costing_summary?.grossRev) || 0;
+  const extras = (Array.isArray(tm.invoice_extra_lines) ? tm.invoice_extra_lines : [])
+    .reduce((a: number, l: any) => a + (Number(l?.amount) || 0), 0);
+  const total = grossRev + extras;
+  return total > 0 ? Math.round(total * 100) / 100 : null;
+}
+
+export type ApprovalSnapshot = {
+  at: string;
+  quoteTotal: number | null;
+  terms: string | null;
+  proofs: { itemId: string; itemName: string | null; driveFileId: string | null; fileName: string | null }[];
+  via: string; // the token/channel the approval came through
+};
+
+// Approve the whole package. Returns the frozen snapshot.
+export async function approvePackage(sb: Sb, jobId: string, ctx: { via?: string } = {}): Promise<ApprovalSnapshot> {
+  const now = new Date().toISOString();
+  const { data: job } = await sb.from("jobs")
+    .select("id, payment_terms, costing_summary, type_meta")
+    .eq("id", jobId).single();
+  const tm = job?.type_meta || {};
+
+  // Gather items + their active proofs (for the snapshot AND to approve).
+  const { data: items } = await sb.from("items").select("id, name").eq("job_id", jobId);
+  const itemIds = (items || []).map((i: any) => i.id);
+  const nameById: Record<string, string> = Object.fromEntries((items || []).map((i: any) => [i.id, i.name]));
+
+  let proofFiles: any[] = [];
+  if (itemIds.length) {
+    const { data: files } = await sb.from("item_files")
+      .select("id, item_id, file_name, drive_file_id")
+      .in("item_id", itemIds).eq("stage", "proof").is("superseded_at", null);
+    proofFiles = files || [];
+    // Approve every active proof + mark items approved (blanket).
+    await sb.from("item_files")
+      .update({ approval: "approved", approved_at: now })
+      .in("item_id", itemIds).eq("stage", "proof").is("superseded_at", null);
+    await sb.from("items").update({ artwork_status: "approved" }).in("id", itemIds);
+  }
+
+  const snapshot: ApprovalSnapshot = {
+    at: now,
+    quoteTotal: quoteTotalOf(job),
+    terms: job?.payment_terms || null,
+    proofs: proofFiles.map((f: any) => ({ itemId: f.item_id, itemName: nameById[f.item_id] || null, driveFileId: f.drive_file_id, fileName: f.file_name })),
+    via: ctx.via || "portal",
+  };
+
+  // Flip the quote gate + freeze the snapshot + clear any prior change request.
+  await sb.from("jobs").update({
+    quote_approved: true,
+    quote_approved_at: now,
+    quote_rejection_notes: null,
+    type_meta: { ...tm, approval_snapshot: snapshot, change_request: null },
+  }).eq("id", jobId);
+
+  await sb.from("job_activity").insert({
+    job_id: jobId, user_id: null, type: "auto",
+    message: `Package approved by client via portal${money(snapshot.quoteTotal)} — ${proofFiles.length} proof${proofFiles.length === 1 ? "" : "s"}`,
+  });
+
+  return snapshot;
+}
+
+// Record a package-level change request (free-text). No approval. Pre-approval only
+// (the portal hides this once approved).
+export async function requestChanges(sb: Sb, jobId: string, note: string): Promise<void> {
+  const now = new Date().toISOString();
+  const { data: job } = await sb.from("jobs").select("id, type_meta").eq("id", jobId).single();
+  const tm = job?.type_meta || {};
+  await sb.from("jobs").update({
+    type_meta: { ...tm, change_request: { note: note || "", at: now } },
+  }).eq("id", jobId);
+  await sb.from("job_activity").insert({
+    job_id: jobId, user_id: null, type: "auto",
+    message: `Changes requested by client via portal${note ? `: "${note}"` : ""}`,
+  });
+}

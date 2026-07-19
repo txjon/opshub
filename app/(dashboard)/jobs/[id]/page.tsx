@@ -8,7 +8,8 @@ import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { CostingTabWrapper } from "./CostingTab";
 import { POTab } from "./POTab.jsx";
 import { BlanksTab } from "./BlanksTab";
-import { PaymentTab } from "./PaymentTab";
+import { InvoiceSurface } from "./surfaces/InvoiceSurface";
+import { sendQuoteAndProofs, defaultRecipient } from "@/lib/job/quote-actions";
 import { ApprovalsTab } from "./ApprovalsTab";
 import { JobItemsList } from "./JobItemsList.jsx";
 import { useIsMobile } from "@/lib/useIsMobile";
@@ -107,6 +108,8 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const [tab, setTab] = useState(() => {
     if (typeof window !== "undefined") {
       const p = new URLSearchParams(window.location.search).get("tab");
+      // "proofs" merged into the Quote + Proofs surface (tab "quote").
+      if (p === "proofs") return "quote";
       if (p) return p;
     }
     return "overview";
@@ -174,10 +177,28 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const [confirmCancelVoid, setConfirmCancelVoid] = useState(false);
   const [ovMenu, setOvMenu] = useState(false);
   const [thumbByItem, setThumbByItem] = useState<Record<string, string>>({});
+  const [peekItem, setPeekItem] = useState<any | null>(null);
+  const [sendingQP, setSendingQP] = useState(false);
+  const [qpErr, setQpErr] = useState("");
+  const [qpSendOpen, setQpSendOpen] = useState(false);
+  const [qpSelected, setQpSelected] = useState<Record<number, boolean>>({});
+  const [editingValidUntil, setEditingValidUntil] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string>("");
   const [teamProfiles, setTeamProfiles] = useState<Record<string,string>>({});
-  const [proofStatus, setProofStatus] = useState<Record<string,{allApproved:boolean}>>({});
+  const [proofStatus, setProofStatus] = useState<Record<string,{allApproved:boolean;proofState?:"approved"|"revision"|"pending"|"none";note?:string}>>({});
+  // Single source for an item's gallery status — art must clear before "in production".
+  const iStatus = (it:any):{s:string;c:string} => {
+    if(it.forwarded_at) return {s:"Forwarded",c:T.green};
+    if(it.received_at_hpd) return {s:"Received",c:T.green};
+    if(it.pipeline_stage==="shipped") return {s:"Shipped from vendor",c:T.blue};
+    const pf=proofStatus[it.id]?.proofState;
+    if(pf==="revision") return {s:"Proof — revision",c:T.red};
+    if(pf==="pending") return {s:"Awaiting proof",c:T.amber};
+    if(it.pipeline_stage==="in_production") return {s:"In production",c:T.amber};
+    if(it.blanks_order_cost!=null||it.blanks_order_number) return {s:"Blanks ordered",c:T.muted};
+    return {s:"In setup",c:T.faint};
+  };
   const [allClients, setAllClients] = useState<{id:string,name:string}[]>([]);
   const [clientQuery, setClientQuery] = useState("");
   const [showClientDropdown, setShowClientDropdown] = useState(false);
@@ -353,7 +374,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
     if (itemsRes.data) {
       const ids = itemsRes.data.map((it: any) => it.id);
       if (ids.length > 0) {
-        const { data: allFiles } = await supabase.from("item_files").select("item_id, stage, approval, drive_file_id").in("item_id", ids).is("superseded_at", null);
+        const { data: allFiles } = await supabase.from("item_files").select("item_id, stage, approval, drive_file_id, notes").in("item_id", ids).is("superseded_at", null);
         // Outbound shipments for this job = the frozen forward packing slips.
         const { data: obLines } = await supabase.from("shipment_lines").select("shipment_id, shipments(id, tracking, created_at, direction)").eq("job_id", params.id);
         const slipMap = new Map<string, { id: string; tracking: string | null; createdAt: string }>();
@@ -362,7 +383,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           if (s?.direction === "outbound" && !slipMap.has(s.id)) slipMap.set(s.id, { id: s.id, tracking: s.tracking, createdAt: s.created_at });
         }
         setForwardSlips(Array.from(slipMap.values()).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || "")));
-        const ps: Record<string, { allApproved: boolean }> = {};
+        const ps: Record<string, { allApproved: boolean; proofState?: "approved" | "revision" | "pending" | "none"; note?: string }> = {};
         const filesPerItem: Record<string, boolean> = {};
         const thumbPerItem: Record<string, string | null> = {};
         for (const id of ids) {
@@ -370,7 +391,15 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           const manualApproved = item?.artwork_status === "approved";
           const proofs = (allFiles || []).filter((f: any) => f.item_id === id && f.stage === "proof");
           const itemFiles = (allFiles || []).filter((f: any) => f.item_id === id);
-          ps[id] = { allApproved: manualApproved || (proofs.length > 0 && proofs.every((f: any) => f.approval === "approved")) };
+          // proofState feeds the gallery: an unapproved proof blocks "in production".
+          const proofState: "approved" | "revision" | "pending" | "none" =
+            manualApproved ? "approved"
+            : proofs.some((f: any) => f.approval === "revision_requested") ? "revision"
+            : (proofs.length > 0 && proofs.every((f: any) => f.approval === "approved")) ? "approved"
+            : proofs.length > 0 ? "pending"
+            : "none";
+          const revNote = proofState === "revision" ? (proofs.find((f: any) => f.approval === "revision_requested")?.notes || null) : null;
+          ps[id] = { allApproved: proofState === "approved", proofState, note: revNote || undefined };
           filesPerItem[id] = itemFiles.length > 0;
           const mock = itemFiles.find((f: any) => f.stage === "mockup") || itemFiles.find((f: any) => f.stage === "proof") || itemFiles.find((f: any) => f.stage === "print_ready");
           thumbPerItem[id] = mock?.drive_file_id || null;
@@ -510,10 +539,10 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   async function switchTab(t: string) {
     await flushAllSavesWithTimeout();
     // Refresh data for tabs that read from DB
-    if (["quote","overview","proofs"].includes(t)) {
+    if (["quote","overview","proofs","invoice"].includes(t)) {
       const { data: fresh } = await supabase.from("jobs").select("quote_approved, quote_approved_at, type_meta").eq("id", job!.id).single();
       if (fresh) setJob(j => j ? {...j, quote_approved: fresh.quote_approved, quote_approved_at: fresh.quote_approved_at, type_meta: {...(j as any).type_meta, ...fresh.type_meta}} as any : j);
-      if (t === "proofs" || t === "overview") {
+      if (t === "proofs" || t === "overview" || t === "invoice") {
         const { data: freshPay } = await supabase.from("payment_records").select("*").eq("job_id", job!.id).order("created_at");
         if (freshPay) setPayments(freshPay);
       }
@@ -845,11 +874,6 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           gate) so the costing save contract is preserved untouched. Gates map to
           the flow tabs; the warehouse tail routes to its pages. */}
       <JobFlowBar job={job} items={items} payments={payments} phaseView={phaseView} activeTab={tab}
-        onGate={(k) => {
-          const tabFor: Record<string, string> = { quote_sent: "quote", quote_appr: "proofs", invoice: "quote", paid: "proofs", order: "po" };
-          const pageFor: Record<string, string> = { production: "/production", receiving: "/receiving", shipping: "/shipping", fulfillment: "/staging2" };
-          if (tabFor[k]) switchTab(tabFor[k]); else if (pageFor[k]) router.push(pageFor[k]);
-        }}
         onBuild={(t) => switchTab(t)} />
 
       {/* ── Sidebar + Content Layout (Y axis: items | content) ── */}
@@ -999,7 +1023,6 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             const payColor=payState==="Paid"?T.green:payState==="Partial"?T.amber:invoiceTotal>0?T.red:T.muted;
             const units=items.reduce((a:number,it:any)=>a+tQty(it.qtys||{}),0);
             const gcolor=(s:string)=>["#243b6b","#3a9a22","#9a9aa2","#c0392b","#d4930f","#1a1a1a","#3a97ad","#7b4fb5"][(s||"x").split("").reduce((a:number,c:string)=>a+c.charCodeAt(0),0)%8];
-            const iStatus=(it:any)=> it.forwarded_at?{s:"Forwarded",c:T.green}:it.received_at_hpd?{s:"Received",c:T.green}:it.pipeline_stage==="shipped"?{s:"Shipped from vendor",c:T.blue}:it.pipeline_stage==="in_production"?{s:"In production",c:T.amber}:((it as any).blanks_order_cost!=null||(it as any).blanks_order_number)?{s:"Blanks ordered",c:T.muted}:{s:"In setup",c:T.faint};
             const money=(n:number)=>"$"+Math.round(n||0).toLocaleString();
             const panelBtn:React.CSSProperties={textAlign:"left",background:T.card,border:`1px solid ${T.border}`,borderRadius:12,padding:"14px 16px",cursor:"pointer",fontFamily:font,boxShadow:"0 1px 2px rgba(16,18,32,0.05)",transition:"all 0.12s"};
             const hov=(e:any,on:boolean)=>{e.currentTarget.style.borderColor=on?T.accent:T.border;};
@@ -1016,10 +1039,10 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                   {items.length===0 ? <div style={{fontSize:13,color:T.muted}}>No items yet.</div> :
                   <div style={{display:"grid",gridTemplateColumns:isMobile?"repeat(2,1fr)":"repeat(auto-fill,minmax(150px,1fr))",gap:12}}>
                     {items.map((it:any)=>{const st=iStatus(it);const gc=gcolor(it.garment_type||it.name);return (
-                      <div key={it.id} onClick={()=>{setOvSection("items");setOvItemsVendor(null);}} style={{border:`1px solid ${T.border}`,borderRadius:11,overflow:"hidden",background:T.card,cursor:"pointer"}}>
+                      <div key={it.id} onClick={()=>setPeekItem(it)} style={{border:`1px solid ${T.border}`,borderRadius:11,overflow:"hidden",background:T.card,cursor:"pointer"}}>
                         <div style={{aspectRatio:"1",background:"#f2f2f4",display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden"}}>
                           {thumbByItem[it.id]
-                            ? <img src={`/api/files/thumbnail?id=${thumbByItem[it.id]}&thumb=1`} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}} />
+                            ? <img src={`/api/files/thumbnail?id=${thumbByItem[it.id]}&thumb=1`} alt="" style={{width:"100%",height:"100%",objectFit:"contain"}} />
                             : <div style={{width:"62%",height:"62%",borderRadius:14,background:gc,boxShadow:"0 2px 8px rgba(0,0,0,.12)"}} />}
                         </div>
                         <div style={{padding:"9px 11px 11px"}}>
@@ -1420,7 +1443,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px"}}>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
                   <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Payments</div>
-                  <button onClick={()=>switchTab("proofs")} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.accent,fontSize:10,padding:"2px 8px",cursor:"pointer"}}>Manage →</button>
+                  <button onClick={()=>switchTab("quote")} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:5,color:T.accent,fontSize:10,padding:"2px 8px",cursor:"pointer"}}>Manage →</button>
                 </div>
                 <div style={{marginBottom:8}}>
                   <label style={{fontSize:10,color:T.muted,marginBottom:3,display:"block"}}>Payment terms</label>
@@ -1512,6 +1535,44 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             <JobActivityPanel jobId={job.id} currentUserId={currentUserId} profiles={teamProfiles} />
           </OvModal>)}
 
+          {/* Item peek — focused read-view of one gallery item + jump-ins. */}
+          {peekItem && (()=>{
+            const it:any = items.find((x:any)=>x.id===peekItem.id) || peekItem;
+            const st = iStatus(it);
+            const pf = proofStatus[it.id];
+            const q:Record<string,number> = it.qtys||{};
+            const sizes:string[] = (it.sizes&&it.sizes.length?it.sizes:Object.keys(q));
+            const total = tQty(q);
+            const go = (t:string)=>{ setSelectedItemId(it.id); setPeekItem(null); switchTab(t); };
+            const peekBtn:React.CSSProperties={flex:1,padding:"9px 0",borderRadius:9,border:`1px solid ${T.border}`,background:T.bg,color:T.text,fontFamily:font,fontSize:12.5,fontWeight:700,cursor:"pointer"};
+            return (
+              <div onClick={()=>setPeekItem(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:9998,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"48px 16px",overflowY:"auto"}}>
+                <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:14,width:"100%",maxWidth:480,boxShadow:"0 16px 48px rgba(0,0,0,0.45)",overflow:"hidden"}}>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 18px",borderBottom:`1px solid ${T.border}`}}>
+                    <div style={{fontSize:14,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.name||"Item"}</div>
+                    <button onClick={()=>setPeekItem(null)} aria-label="Close" style={{background:"none",border:"none",color:T.muted,fontSize:22,cursor:"pointer",lineHeight:1}}>×</button>
+                  </div>
+                  <div style={{aspectRatio:"16/10",background:"#f2f2f4",display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden"}}>
+                    {thumbByItem[it.id]
+                      ? <img src={`/api/files/thumbnail?id=${thumbByItem[it.id]}&thumb=1`} alt="" style={{width:"100%",height:"100%",objectFit:"contain"}} />
+                      : <div style={{width:"36%",height:"55%",borderRadius:14,background:"#c9c9d0"}} />}
+                  </div>
+                  <div style={{padding:"14px 18px"}}>
+                    <div style={{fontSize:11,fontWeight:800,textTransform:"uppercase",letterSpacing:"0.04em",color:st.c}}>{st.s}</div>
+                    <div style={{fontSize:13,color:T.muted,marginTop:6,fontFamily:mono}}>{total} units · {it.sell_per_unit?("$"+Math.round(it.sell_per_unit).toLocaleString()):"—"}/unit</div>
+                    {sizes.length>0 && <div style={{fontSize:12.5,color:T.text,marginTop:8,fontFamily:mono,display:"flex",flexWrap:"wrap",gap:"4px 14px"}}>{sizes.map((s:string)=>q[s]?<span key={s}>{s}:{q[s]}</span>:null)}</div>}
+                    {pf?.proofState==="revision" && pf?.note && <div style={{fontSize:12.5,color:T.red,marginTop:12,borderLeft:`3px solid ${T.red}`,paddingLeft:11,lineHeight:1.4}}>&ldquo;{pf.note}&rdquo;</div>}
+                    <div style={{display:"flex",gap:8,marginTop:16}}>
+                      <button onClick={()=>go("builder")} style={peekBtn}>Product Builder</button>
+                      <button onClick={()=>go("costing")} style={peekBtn}>Costing</button>
+                      <button onClick={()=>go("quote")} style={peekBtn}>Quote + Proofs</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Client portal preview modal — iframes the client's
               read-only view of this job so you can see exactly what
               they see + copy/open the live URL without leaving. */}
@@ -1581,37 +1642,17 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         />
       )}
 
-      {tab==="proofs"&&(
-        <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"3fr 2fr",gap:20,alignItems:"start"}}>
-          <ApprovalsTab
-            job={job}
-            items={items}
-            contacts={contacts}
-            proofStatus={proofStatus}
-            onUpdateItem={(id: string, updates: any) => {
-              setItems(prev => prev.map(it => it.id === id ? {...it, ...updates} : it));
-              // Keep proofStatus in sync when artwork_status changes (manual approval)
-              if ("artwork_status" in updates) {
-                setProofStatus(prev => {
-                  const next = { ...prev };
-                  const existing = next[id] || { allApproved: false };
-                  next[id] = { ...existing, allApproved: updates.artwork_status === "approved" || existing.allApproved };
-                  return next;
-                });
-              }
-            }}
-            onRecalcPhase={recalcPhase}
-          />
-          <PaymentTab
-            job={job}
-            items={items}
-            contacts={contacts}
-            payments={payments}
-            onReload={loadData}
-            onRecalcPhase={recalcPhase}
-            onUpdateJob={(updates: any) => setJob(j => j ? {...j, ...updates} : j)}
-          />
-        </div>
+      {/* Proofs merged into the Quote + Proofs surface (tab "quote"). */}
+      {tab==="invoice"&&(
+        <InvoiceSurface
+          job={job}
+          items={items}
+          contacts={contacts}
+          payments={payments}
+          onReload={loadData}
+          onRecalcPhase={recalcPhase}
+          onUpdateJob={(updates: any) => setJob(j => j ? {...j, ...updates} : j)}
+        />
       )}
       {/* COSTING */}
             {tab==="costing"&&(
@@ -1634,74 +1675,225 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         />
       )}
 
-      {tab==="quote"&&(
-        <>
-        <div style={{display:"flex",flexDirection:isMobile?"column":"row",gap:12,alignItems:"flex-start",maxWidth:1080,margin:"0 auto"}}>
-        {/* Step 1: Quote details + Send Quote — comes first since you
-            send to the client before they can approve. */}
-        <div style={{flex:isMobile?"0 0 auto":"2 1 460px",minWidth:0,width:isMobile?"100%":undefined}}>
-        <CostingTabWrapper
-          key={"quote-"+items.map(i=>i.id).join(',')}
-          project={job}
-          buyItems={items}
-          contacts={contacts}
-          onUpdateBuyItems={setItems}
-          onRegisterSave={(fn: () => Promise<void>) => { saveCostingRef.current = fn; }}
-          onSaveStatus={(s: string) => handleSaveStatus(s)}
-          onSaved={(data: any) => setJob(j => j ? {...j, ...data} : j)}
-          initialTab="quote"
-          hideSubTabs={true}
-        />
-        </div>
-        {/* Step 2: Approve Quote — internal confirmation once the
-            client signs off on the sent quote. */}
-        <div style={{flex:isMobile?"0 0 auto":"1 1 380px",minWidth:0,width:isMobile?"100%":undefined}}>
-          {(job as any).quote_approved ? (
-            <div style={{background:T.greenDim,border:`1px solid ${T.green}44`,borderRadius:8,padding:"10px 14px"}}>
-              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
-                <div>
-                  <div style={{fontSize:13,fontWeight:600,color:T.green}}>Quote approved</div>
-                  {(job as any).quote_approved_at && <div style={{fontSize:10,color:T.muted,marginTop:2}}>Approved {new Date((job as any).quote_approved_at).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}</div>}
-                </div>
-                <button onClick={async()=>{
-                  await supabase.from("jobs").update({quote_approved:false,quote_approved_at:null}).eq("id",job.id);
-                  setJob(j=>j?{...j,quote_approved:false,quote_approved_at:null} as any:j);
-                  logJobActivity(job.id, "Quote approval revoked");
-                  recalcPhase();
-                }} style={{fontSize:10,color:T.faint,background:"none",border:`1px solid ${T.border}`,borderRadius:5,padding:"3px 10px",cursor:"pointer"}}>Revoke</button>
-              </div>
-              <div style={{display:"flex",gap:6,fontSize:11}}>
-                <span style={{color:T.muted}}>Next:</span>
-                <button onClick={()=>switchTab("proofs")} style={{color:T.accent,background:"none",border:"none",cursor:"pointer",fontSize:11,fontWeight:600,textDecoration:"underline",padding:0}}>Send Proofs & Invoice</button>
-              </div>
+      {tab==="quote"&&(() => {
+        const sentAt = (job as any).type_meta?.quote_sent_at;
+        const changeReq = (job as any).type_meta?.change_request;
+        const approved = (job as any).quote_approved;
+        const hasProofs = Object.values(proofStatus).some((p:any)=>p?.proofState && p.proofState!=="none");
+        const proofsList = Object.values(proofStatus).filter((p:any)=>p?.proofState && p.proofState!=="none");
+        const allProofsApproved = proofsList.length>0 && proofsList.every((p:any)=>p.proofState==="approved");
+        const openQPSend = () => {
+          const sel: Record<number, boolean> = {};
+          (contacts || []).forEach((c:any, i:number) => { if (c.email) sel[i] = true; });
+          setQpSelected(sel); setQpErr(""); setQpSendOpen(true);
+        };
+        const doSendQP = async () => {
+          const recipients = (contacts || []).filter((_:any, i:number) => qpSelected[i]).map((c:any) => c.email).filter(Boolean);
+          if (recipients.length === 0) { setQpErr("Select at least one recipient."); return; }
+          setSendingQP(true); setQpErr("");
+          try {
+            const [to, ...cc] = recipients;
+            await sendQuoteAndProofs(job, { to, cc, includeProofs: hasProofs, proofsOnly: approved });
+            const { data: fresh } = await supabase.from("jobs").select("type_meta").eq("id", job.id).single();
+            if (fresh) setJob(j => j ? {...j, type_meta: {...(j as any).type_meta, ...fresh.type_meta}} as any : j);
+            setQpSendOpen(false);
+          } catch (e:any) { setQpErr(e.message || "Send failed"); }
+          setSendingQP(false);
+        };
+        // Native quote composition — mirrors the Invoice surface (rail + "This quote" card).
+        const orderInfo = (job as any).costing_data?.orderInfo || {};
+        const quoteNum = orderInfo.invoiceNum || job.job_number;
+        const netTerms = /^net/.test(((job as any).payment_terms||"").toLowerCase());
+        const termsLabel = (job as any).payment_terms ? String((job as any).payment_terms).replace(/_/g," ").replace(/\b\w/g,(c:string)=>c.toUpperCase()) : "—";
+        const qLines = items.map((it:any)=>{const q=tQty(it.qtys||{});const unit=Number(it.sell_per_unit)||0;return {name:it.name,qty:q,unit,line:unit*q};}).filter((l:any)=>l.unit>0);
+        const subtotal = qLines.reduce((a:number,l:any)=>a+l.line,0);
+        const extras = ((job as any).type_meta?.invoice_extra_lines)||[];
+        const extrasTotal = extras.reduce((a:number,l:any)=>a+(Number(l.amount)||0),0);
+        const quoteTotal = subtotal + extrasTotal;
+        const money = (n:number)=>"$"+Math.round(n).toLocaleString();
+        const saveOrderInfo = async (patch:any) => { const cd={...((job as any).costing_data||{})}; cd.orderInfo={...(cd.orderInfo||{}),...patch}; await supabase.from("jobs").update({costing_data:cd}).eq("id",job.id); setJob(j=>j?({...j,costing_data:cd} as any):j); };
+        const saveExtras = async (next:any[]) => { const meta={...((job as any).type_meta||{}),invoice_extra_lines:next}; await supabase.from("jobs").update({type_meta:meta}).eq("id",job.id); setJob(j=>j?({...j,type_meta:meta} as any):j); };
+        const clientPO = (job as any).type_meta?.client_po_number || "";
+        const savePO = async (v:string) => { const meta={...((job as any).type_meta||{}),client_po_number:v.trim()||null}; await supabase.from("jobs").update({type_meta:meta}).eq("id",job.id); setJob(j=>j?({...j,type_meta:meta} as any):j); };
+        const doApprove = async () => { const now=new Date().toISOString(); await supabase.from("jobs").update({quote_approved:true,quote_approved_at:now}).eq("id",job.id); setJob(j=>j?({...j,quote_approved:true,quote_approved_at:now} as any):j); logJobActivity(job.id, clientPO ? `Quote approved via client PO #${clientPO}` : "Quote approved"); notifyTeam(`Quote approved — ${(job.clients as any)?.name || ""} · ${job.title}`,"approval",job.id,"job"); recalcPhase(); };
+        const doRevoke = async () => { await supabase.from("jobs").update({quote_approved:false,quote_approved_at:null}).eq("id",job.id); setJob(j=>j?({...j,quote_approved:false,quote_approved_at:null} as any):j); logJobActivity(job.id,"Quote approval revoked"); recalcPhase(); };
+        const addLine = () => saveExtras([...extras, {id:`xl_${Date.now()}`, description:"", amount:0, qb_item:"Service Fee", type:"fee"}]);
+        const updLine = (id:string,patch:any) => saveExtras(extras.map((l:any)=>l.id===id?{...l,...patch}:l));
+        const rmLine = (id:string) => saveExtras(extras.filter((l:any)=>l.id!==id));
+        const qStep = approved?"approved":sentAt?"sent":"draft";
+        return (
+        <div style={{maxWidth:1080,margin:"0 auto"}}>
+        {/* Combined send + client status */}
+        <div style={{display:"flex",flexWrap:"wrap",gap:12,alignItems:"center",justifyContent:"space-between",marginBottom:14,background:T.card,border:`1px solid ${T.border}`,borderRadius:12,padding:"14px 16px"}}>
+          <div style={{minWidth:0}}>
+            <div style={{fontSize:14,fontWeight:800}}>{allProofsApproved ? "Proofs approved" : approved ? "Proofs" : "Quote + Proofs"}</div>
+            <div style={{fontSize:12,color:T.muted,marginTop:2}}>
+              {allProofsApproved
+                ? "All proofs approved — clear to order blanks & send POs."
+                : approved
+                ? "Quote's approved — send the proofs to the client for approval."
+                : (sentAt ? <>Sent to client {new Date(sentAt).toLocaleDateString("en-US",{month:"short",day:"numeric"})} at {new Date(sentAt).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})}</> : "Send the quote + proofs together — the client gets one portal link to review and approve.")}
+              {allProofsApproved
+                ? <span style={{color:T.green,fontWeight:700}}> · {proofsList.length}/{proofsList.length} approved</span>
+                : approved && <span style={{color:T.green,fontWeight:700}}> · Quote approved{(job as any).type_meta?.approval_snapshot ? " by client" : " internally"}</span>}
+              {!approved && changeReq && <span style={{color:T.amber,fontWeight:700}}> · Changes requested{changeReq.note?`: “${changeReq.note}”`:""}</span>}
             </div>
+            {qpErr && <div style={{fontSize:11.5,color:T.red,marginTop:4}}>{qpErr}</div>}
+          </div>
+          {allProofsApproved ? (
+            <button onClick={openQPSend} disabled={sendingQP}
+              style={{flexShrink:0,background:"transparent",color:T.muted,border:`1px solid ${T.border}`,borderRadius:9,padding:"11px 18px",fontSize:12.5,fontWeight:700,fontFamily:font,cursor:sendingQP?"default":"pointer",opacity:sendingQP?0.6:1}}>
+              {sendingQP ? "Sending…" : "Re-send proofs"}
+            </button>
           ) : (
-            <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:8,padding:"12px 14px",display:"flex",flexDirection:"column",gap:10}}>
-              <div>
-                <div style={{fontSize:13,fontWeight:600,color:T.text}}>Quote pending approval</div>
-                <div style={{fontSize:10,color:T.muted,marginTop:2}}>Approve to advance project to pre-production</div>
+            <button onClick={openQPSend} disabled={sendingQP}
+              style={{flexShrink:0,background:T.accent,color:"#fff",border:"none",borderRadius:9,padding:"12px 22px",fontSize:13.5,fontWeight:800,fontFamily:font,cursor:sendingQP?"default":"pointer",opacity:sendingQP?0.6:1}}>
+              {sendingQP ? "Sending…" : approved ? "Send to client for approval" : sentAt ? "Re-send quote + proofs" : "Send quote + proofs"}
+            </button>
+          )}
+        </div>
+
+        {/* Send modal — client contact selection (mirrors the proofs-tab send) */}
+        {qpSendOpen && (
+          <div onClick={() => !sendingQP && setQpSendOpen(false)}
+            style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9999,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"8vh 16px",overflowY:"auto"}}>
+            <div onClick={e=>e.stopPropagation()}
+              style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:12,padding:18,width:"100%",maxWidth:520,boxShadow:"0 8px 40px rgba(0,0,0,0.35)",fontFamily:font}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+                <div style={{fontSize:15,fontWeight:800,color:T.text}}>{approved ? "Send proofs for approval" : "Send quote + proofs"}</div>
+                <button onClick={()=>setQpSendOpen(false)} aria-label="Close" style={{background:"none",border:"none",color:T.muted,fontSize:20,cursor:"pointer",lineHeight:1}}>×</button>
               </div>
-              <button onClick={async()=>{
-                const now=new Date().toISOString();
-                await supabase.from("jobs").update({quote_approved:true,quote_approved_at:now}).eq("id",job.id);
-                setJob(j=>j?{...j,quote_approved:true,quote_approved_at:now} as any:j);
-                logJobActivity(job.id, "Quote approved");
-                notifyTeam(`Quote approved — ${(job.clients as any)?.name || ""} · ${job.title}`, "approval", job.id, "job");
-                recalcPhase();
-              }} style={{display:"block",fontSize:13,fontWeight:700,color:"#fff",background:T.green,border:"none",borderRadius:8,padding:"10px 22px",cursor:"pointer",width:"100%",boxSizing:"border-box",boxShadow:"0 1px 2px rgba(0,0,0,0.06)"}}>Approve Quote</button>
+              <div style={{fontSize:11,color:T.muted,marginBottom:4}}>To</div>
+              <div style={{display:"flex",flexDirection:"column",gap:4,marginBottom:12}}>
+                {(contacts||[]).length===0 && <div style={{fontSize:12,color:T.faint}}>No contacts on this job.</div>}
+                {(contacts||[]).map((c:any,i:number)=>(
+                  <label key={i} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 9px",background:qpSelected[i]?T.accentDim:T.surface,borderRadius:7,cursor:c.email?"pointer":"default",opacity:c.email?1:0.5}}>
+                    <input type="checkbox" checked={!!qpSelected[i]} disabled={!c.email}
+                      onChange={e=>setQpSelected(p=>({...p,[i]:e.target.checked}))} style={{accentColor:T.accent}} />
+                    <span style={{flex:1,fontSize:12.5,fontWeight:600,color:T.text}}>{c.name||"Unnamed"}{c.role_on_job?<span style={{fontSize:10,color:T.muted,marginLeft:6}}>{c.role_on_job}</span>:null}</span>
+                    <span style={{fontSize:11,color:T.muted}}>{c.email||"no email"}</span>
+                  </label>
+                ))}
+              </div>
+              <div style={{fontSize:12,color:T.muted,background:T.surface,border:`1px solid ${T.border}`,borderRadius:7,padding:"8px 10px",marginBottom:14,lineHeight:1.5}}>
+                {approved
+                  ? "The client gets a portal link to review + approve the proofs. No quote is sent — it's already approved."
+                  : "The client gets one portal link to review + approve the quote and proofs together."}
+              </div>
+              {qpErr && <div style={{fontSize:11.5,color:T.red,marginBottom:10}}>{qpErr}</div>}
+              <div style={{display:"flex",gap:8,justifyContent:"flex-end",alignItems:"center"}}>
+                <span style={{fontSize:10,color:T.muted,flex:1}}>{Object.values(qpSelected).filter(Boolean).length} recipient{Object.values(qpSelected).filter(Boolean).length===1?"":"s"}</span>
+                <button onClick={()=>setQpSendOpen(false)} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:7,color:T.muted,padding:"8px 14px",fontSize:12,fontFamily:font,cursor:"pointer"}}>Cancel</button>
+                <button onClick={doSendQP} disabled={sendingQP||Object.values(qpSelected).filter(Boolean).length===0}
+                  style={{background:T.accent,color:"#fff",border:"none",borderRadius:7,padding:"8px 20px",fontSize:12.5,fontWeight:800,fontFamily:font,cursor:sendingQP?"default":"pointer",opacity:sendingQP||Object.values(qpSelected).filter(Boolean).length===0?0.6:1}}>
+                  {sendingQP ? "Sending…" : approved ? "Send for approval" : "Send"}
+                </button>
+              </div>
             </div>
-          )}
-          {/* Quote sent log */}
-          {(job as any).type_meta?.quote_sent_at && (
-            <div style={{marginTop:8,padding:"6px 12px",background:T.surface,borderRadius:6,fontSize:11,color:T.muted,display:"flex",alignItems:"center",gap:6}}>
-              <span style={{color:T.green,fontWeight:600}}>Sent</span>
-              <span>Quote emailed {new Date((job as any).type_meta.quote_sent_at).toLocaleDateString("en-US",{month:"short",day:"numeric"})} at {new Date((job as any).type_meta.quote_sent_at).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})}</span>
+          </div>
+        )}
+
+        {/* State rail — Draft → Sent → Approved (mirrors the Invoice surface). */}
+        <div style={{display:"flex",alignItems:"center",flexWrap:"wrap",gap:4,marginBottom:14}}>
+          {([["draft","Draft"],["sent","Sent"],["approved","Approved"]] as [string,string][]).map(([k,l],i,arr)=>{
+            const order=["draft","sent","approved"]; const done=order.indexOf(k)<order.indexOf(qStep); const active=k===qStep;
+            const bg=active?(k==="approved"?T.greenDim:T.accent):done?T.greenDim:T.surface;
+            const fg=active?(k==="approved"?T.green:"#fff"):done?T.green:T.faint;
+            return <span key={k} style={{display:"flex",alignItems:"center"}}><span style={{fontSize:10,fontWeight:800,textTransform:"uppercase",letterSpacing:"0.04em",padding:"6px 12px",borderRadius:8,background:bg,color:fg}}>{l}</span>{i<arr.length-1&&<span style={{color:T.faint,padding:"0 6px"}}>→</span>}</span>;
+          })}
+        </div>
+
+        {/* Unified item gallery — items + proofs together (thumbnail · price · proof status). */}
+        <div style={{marginBottom:14}}>
+          <ApprovalsTab
+            job={job}
+            items={items}
+            contacts={contacts}
+            proofStatus={proofStatus}
+            onUpdateItem={(id: string, updates: any) => {
+              setItems(prev => prev.map(it => it.id === id ? {...it, ...updates} : it));
+              if ("artwork_status" in updates) {
+                setProofStatus(prev => {
+                  const next = { ...prev };
+                  const existing = next[id] || { allApproved: false };
+                  next[id] = { ...existing, allApproved: updates.artwork_status === "approved" || existing.allApproved };
+                  return next;
+                });
+              }
+            }}
+            onRecalcPhase={recalcPhase}
+          />
+        </div>
+
+        <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1.3fr 1fr",gap:14,alignItems:"start"}}>
+          {/* LEFT — This quote */}
+          <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:12,padding:"15px 17px"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+              <span style={{fontSize:10,fontWeight:800,letterSpacing:"0.06em",textTransform:"uppercase",color:T.faint}}>This quote</span>
+              <span style={{fontFamily:mono,fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:6,background:T.surface,color:T.muted}}>#{quoteNum}</span>
             </div>
-          )}
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:12.5,padding:"3px 0"}}><span style={{color:T.muted}}>Terms</span><span style={{fontWeight:700,color:netTerms?T.blue:T.text}}>{termsLabel}</span></div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:12.5,padding:"3px 0"}}><span style={{color:T.muted}}>Valid until</span>
+              {editingValidUntil ? (
+                <input type="date" autoFocus defaultValue={orderInfo.validUntil||""} onBlur={e=>{saveOrderInfo({validUntil:e.target.value||null});setEditingValidUntil(false);}} style={{border:`1px solid ${T.border}`,borderRadius:5,background:T.surface,color:T.text,fontSize:11,padding:"3px 6px",fontFamily:font,outline:"none"}}/>
+              ) : (
+                <span onClick={()=>setEditingValidUntil(true)} title="Click to edit" style={{fontWeight:700,cursor:"pointer",borderBottom:`1px dashed ${T.faint}`}}>{orderInfo.validUntil ? new Date(orderInfo.validUntil+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}) : "Set date"}</span>
+              )}
+            </div>
+            {/* Items live in the gallery above — here just the money. */}
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:12.5,padding:"8px 0 0",marginTop:8,borderTop:`1px solid ${T.border}`}}><span style={{color:T.muted}}>Subtotal · {qLines.length} item{qLines.length===1?"":"s"}</span><span style={{fontFamily:mono,fontWeight:700}}>{money(subtotal)}</span></div>
+            {/* Additional charges */}
+            <div style={{marginTop:10,borderTop:`1px solid ${T.border}`,paddingTop:10}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                <span style={{fontSize:10,fontWeight:800,letterSpacing:"0.06em",textTransform:"uppercase",color:T.faint}}>Additional charges</span>
+                <button onClick={addLine} style={{background:"transparent",border:`1px solid ${T.border}`,color:T.text,fontSize:11,fontWeight:700,padding:"4px 10px",borderRadius:6,cursor:"pointer",fontFamily:font}}>+ Add line</button>
+              </div>
+              {extras.length===0 && <div style={{fontSize:12,color:T.faint}}>No extra charges. Add fees, passthrough, freight, or a discount.</div>}
+              {extras.map((l:any)=><div key={l.id} style={{display:"grid",gridTemplateColumns:"1fr 90px 110px 24px",gap:6,alignItems:"center",marginBottom:6}}>
+                <input defaultValue={l.description} placeholder="e.g. Rush fee" onBlur={e=>updLine(l.id,{description:e.target.value})} style={{width:"100%",padding:"6px 8px",border:`1px solid ${T.border}`,borderRadius:6,background:T.surface,color:T.text,fontSize:12,fontFamily:font,boxSizing:"border-box",outline:"none"}}/>
+                <input defaultValue={l.amount} inputMode="decimal" placeholder="0.00" onBlur={e=>updLine(l.id,{amount:parseFloat(e.target.value)||0})} style={{width:"100%",padding:"6px 8px",border:`1px solid ${T.border}`,borderRadius:6,background:T.surface,color:T.text,fontSize:12,fontFamily:mono,boxSizing:"border-box",outline:"none",textAlign:"right"}}/>
+                <select value={l.type||"fee"} onChange={e=>updLine(l.id,{type:e.target.value})} style={{width:"100%",padding:"6px 8px",border:`1px solid ${T.border}`,borderRadius:6,background:T.surface,color:T.text,fontSize:12,fontFamily:font,boxSizing:"border-box",outline:"none"}}>{["fee","passthru","charge","discount"].map(t=><option key={t} value={t}>{t}</option>)}</select>
+                <button onClick={()=>rmLine(l.id)} title="Remove" style={{background:"transparent",border:"none",color:T.faint,fontSize:16,cursor:"pointer",lineHeight:1}}>×</button>
+              </div>)}
+            </div>
+            {/* Total */}
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:13,fontWeight:800,paddingTop:9,marginTop:8,borderTop:`2px solid ${T.border}`}}><span>Quote total</span><span style={{fontFamily:mono}}>{money(quoteTotal)}</span></div>
+            {/* Actions */}
+            <div style={{display:"flex",gap:8,marginTop:13,flexWrap:"wrap"}}>
+              <button onClick={()=>window.open(`/api/pdf/quote/${job.id}?download=1`,"_blank")} style={{flex:"1 1 auto",height:38,borderRadius:9,border:`1px solid ${T.border}`,background:T.surface,color:T.text,cursor:"pointer",fontSize:12.5,fontWeight:700,fontFamily:font}}>Download PDF</button>
+              <button onClick={()=>window.open(`/portal/${(job as any).portal_token||""}`,"_blank")} style={{flex:"0 0 auto",height:38,borderRadius:9,border:`1px solid ${T.border}`,background:T.surface,color:T.text,cursor:"pointer",fontSize:12.5,fontWeight:700,fontFamily:font,padding:"0 14px"}}>Preview in portal</button>
+              <button onClick={()=>switchTab("costing")} style={{flex:"0 0 auto",height:38,borderRadius:9,border:`1px solid ${T.border}`,background:T.card,color:T.text,cursor:"pointer",fontSize:12.5,fontWeight:700,fontFamily:font,padding:"0 14px"}}>Edit in Costing</button>
+              {approved
+                ? <button onClick={()=>switchTab("invoice")} style={{flex:"0 0 auto",height:38,borderRadius:9,border:"none",background:T.accent,color:"#fff",cursor:"pointer",fontSize:12.5,fontWeight:800,fontFamily:font,padding:"0 16px"}}>Go to Invoice</button>
+                : <button onClick={doApprove} style={{flex:"0 0 auto",height:38,borderRadius:9,border:`1px solid ${T.green}`,background:T.greenDim,color:T.green,cursor:"pointer",fontSize:12.5,fontWeight:800,fontFamily:font,padding:"0 16px"}}>Mark approved</button>}
+            </div>
+          </div>
+
+          {/* RIGHT — approval */}
+          <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:12,padding:"15px 17px"}}>
+            <div style={{fontSize:10,fontWeight:800,letterSpacing:"0.06em",textTransform:"uppercase",color:T.faint,marginBottom:10}}>Approval</div>
+            {approved ? (
+              <>
+                <div style={{fontSize:14,fontWeight:800,color:T.green}}>✓ Approved{(job as any).quote_approved_at?` · ${new Date((job as any).quote_approved_at).toLocaleDateString("en-US",{month:"short",day:"numeric"})}`:""}{clientPO?` · via PO #${clientPO}`:""}</div>
+                <div style={{fontSize:12,color:T.muted,marginTop:6,lineHeight:1.5}}>Cleared to produce.</div>
+                <button onClick={doRevoke} style={{marginTop:12,background:"none",border:`1px solid ${T.border}`,color:T.muted,borderRadius:9,padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:font}}>Revoke approval</button>
+              </>
+            ) : (
+              <>
+                <div style={{fontSize:13,color:T.muted,lineHeight:1.5}}>The client approves the quote + proofs in the portal. Or record a <b style={{color:T.text}}>client PO</b> / verbal sign-off with <b style={{color:T.text}}>Mark approved</b>.</div>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginTop:12}}>
+                  <label style={{fontSize:10,fontWeight:800,letterSpacing:"0.06em",textTransform:"uppercase",color:T.faint,flexShrink:0}}>Client PO #</label>
+                  <input defaultValue={clientPO} placeholder="—" onBlur={e=>savePO(e.target.value)} style={{flex:1,minWidth:0,padding:"6px 8px",border:`1px solid ${T.border}`,borderRadius:6,background:T.surface,color:T.text,fontSize:12,fontFamily:mono,outline:"none",boxSizing:"border-box"}}/>
+                </div>
+                {changeReq && <div style={{marginTop:10,borderLeft:`3px solid ${T.amber}`,background:T.amberDim,borderRadius:8,padding:"8px 11px",fontSize:12,color:T.text}}><b style={{color:T.amber}}>Client requested changes</b>{changeReq.note?` — “${changeReq.note}”`:""}</div>}
+              </>
+            )}
+          </div>
         </div>
+
         </div>
-        </>
-      )}
+        );
+      })()}
       {tab==="blanks"&&(
         <BlanksTab items={items} job={job} payments={payments} onRecalcPhase={recalcPhase} onUpdateItem={(id: string, updates: any) => setItems(prev => prev.map(it => it.id === id ? {...it, ...updates} : it))} onTabClick={switchTab} onRegisterSave={(fn: () => Promise<void>) => { saveBlanksRef.current = fn; }} onItemsChanged={reloadItems} />
       )}
