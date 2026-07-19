@@ -363,6 +363,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         setForwardSlips(Array.from(slipMap.values()).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || "")));
         const ps: Record<string, { allApproved: boolean }> = {};
         const filesPerItem: Record<string, boolean> = {};
+        const thumbPerItem: Record<string, string | null> = {};
         for (const id of ids) {
           const item = itemsRes.data.find((it: any) => it.id === id);
           const manualApproved = item?.artwork_status === "approved";
@@ -370,10 +371,12 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           const itemFiles = (allFiles || []).filter((f: any) => f.item_id === id);
           ps[id] = { allApproved: manualApproved || (proofs.length > 0 && proofs.every((f: any) => f.approval === "approved")) };
           filesPerItem[id] = itemFiles.length > 0;
+          const mock = itemFiles.find((f: any) => f.stage === "mockup") || itemFiles.find((f: any) => f.stage === "proof") || itemFiles.find((f: any) => f.stage === "print_ready");
+          thumbPerItem[id] = mock?.drive_file_id || null;
         }
         setProofStatus(ps);
-        // Mark items with files
-        setItems(prev => prev.map(it => ({ ...it, hasFiles: filesPerItem[it.id] || false })));
+        // Mark items with files + their gallery thumbnail (mockup / proof)
+        setItems(prev => prev.map(it => ({ ...it, hasFiles: filesPerItem[it.id] || false, thumbFileId: thumbPerItem[it.id] || null })));
       }
     }
     setLoading(false);
@@ -1095,8 +1098,10 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                   <div style={{display:"grid",gridTemplateColumns:isMobile?"repeat(2,1fr)":"repeat(auto-fill,minmax(150px,1fr))",gap:12}}>
                     {items.map((it:any)=>{const st=iStatus(it);const gc=gcolor(it.garment_type||it.name);return (
                       <div key={it.id} onClick={()=>{setOvSection("items");setOvItemsVendor(null);}} style={{border:`1px solid ${T.border}`,borderRadius:11,overflow:"hidden",background:T.card,cursor:"pointer"}}>
-                        <div style={{aspectRatio:"1",background:"#f2f2f4",display:"flex",alignItems:"center",justifyContent:"center"}}>
-                          <div style={{width:"62%",height:"62%",borderRadius:14,background:gc,boxShadow:"0 2px 8px rgba(0,0,0,.12)"}} />
+                        <div style={{aspectRatio:"1",background:"#f2f2f4",display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden"}}>
+                          {(it as any).thumbFileId
+                            ? <img src={`/api/files/thumbnail?id=${(it as any).thumbFileId}&thumb=1`} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}} />
+                            : <div style={{width:"62%",height:"62%",borderRadius:14,background:gc,boxShadow:"0 2px 8px rgba(0,0,0,.12)"}} />}
                         </div>
                         <div style={{padding:"9px 11px 11px"}}>
                           <div style={{fontSize:12.5,fontWeight:800,lineHeight:1.2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{it.name||"Untitled"}</div>
