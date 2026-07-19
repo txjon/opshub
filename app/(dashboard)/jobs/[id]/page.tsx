@@ -757,7 +757,6 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               onMouseLeave={(e:any)=>e.currentTarget.style.color=T.text}
               title="View in client hub">
               {(job.clients as any)?.name||"No client"}
-              <span style={{fontSize:13,fontWeight:500,color:T.muted}}>↗</span>
             </Link>
           ) : (
             <span style={{fontSize:isMobile?20:22,fontWeight:800,color:T.faint,letterSpacing:"-0.02em",lineHeight:1.15}}>No client</span>
@@ -996,43 +995,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             )}
           </div>
 
-          {/* KPI strip — Overview-only so switching to other tabs doesn't
-              jump the layout. 4-up on desktop, 2×2 on mobile so the
-              dollar values don't truncate on a 375px screen.
-              When the job has been intentionally priced (costing saved
-              OR any item.sell_per_unit set) trust totalRev even if it's
-              0 — don't fake a "~1.43× cost" estimate. The estimate is
-              only for jobs that haven't been priced yet. */}
-          <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:12,padding:"12px 18px",margin:"14px 0",display:"flex",flexWrap:"wrap",gap:isMobile?16:30,alignItems:"center"}}>
-            <span style={{fontSize:9.5,fontWeight:800,letterSpacing:"0.08em",textTransform:"uppercase",color:T.faint}}>Costing</span>
-            {(() => {
-              const pricingKnown = !!cs || items.some((it:any) => it.sell_per_unit != null);
-              const estRev = !pricingKnown && totalCost > 0 ? totalCost * 1.43 : null;
-              const effRev = totalRev > 0 ? totalRev : (estRev ?? totalRev);
-              const showRev = totalRev > 0 || pricingKnown || estRev != null;
-              const profit = totalCost > 0 ? effRev - totalCost : 0;
-              const marginPct = effRev > 0 ? (profit / effRev * 100) : 0;
-              // Show full cents — Math.round() was hiding the .46 on
-              // an $80.46 invoice, which led Taylor to mark a partial
-              // $80 payment as "Full Payment" because $80 looked like
-              // the total.
-              const fmt$ = (n: number) => "$" + n.toLocaleString("en-US", { maximumFractionDigits: 0 });
-              const units = items.reduce((a:number,it:any)=>a+tQty(it.qtys||{}),0);
-              return [
-                { label: "Revenue", value: showRev ? fmt$(effRev) : "—", color: T.text },
-                { label: "Cost", value: totalCost > 0 ? fmt$(totalCost) : "—", color: T.muted },
-                { label: "Profit", value: totalCost > 0 ? fmt$(profit) : "—", color: profit >= 0 ? T.green : T.red },
-                { label: "Margin", value: totalCost > 0 && effRev > 0 ? marginPct.toFixed(1) + "%" : "—", color: marginPct >= 30 ? T.green : marginPct >= 20 ? T.amber : T.red },
-                { label: "Units", value: units > 0 ? units.toLocaleString() : "—", color: T.text },
-                { label: "Paid", value: totalPaid > 0 ? fmt$(totalPaid) : "—", color: totalPaid > 0 ? T.green : T.faint },
-              ];
-            })().map(s=>(
-              <div key={s.label} style={{display:"flex",flexDirection:"column",gap:1}}>
-                <span style={{fontSize:9,color:T.faint,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:700}}>{s.label}</span>
-                <span style={{fontSize:17,fontWeight:700,color:(s as any).color||T.text,fontFamily:mono}}>{s.value}</span>
-              </div>
-            ))}
-          </div>
+          {/* Money summary lives on the Costing tab — no KPI/costing strip on the overview. */}
 
           {/* Section tiles — command-center style, packed with as much live
               summary as fits so you rarely open them. Click opens the OvModal

@@ -51,29 +51,32 @@ export function JobFlowBar({ job, items, payments, phaseView, activeTab, onGate,
     return null;
   };
 
+  const pill = (label: string, active: boolean, onClick: () => void, strong?: boolean) =>
+    <button onClick={onClick} style={{ border: `1px solid ${active ? T.accent : T.border}`, background: active ? T.accent : T.card, color: active ? "#fff" : (strong ? T.text : T.muted), borderRadius: 9, padding: "8px 15px", fontSize: 13, fontWeight: strong ? 800 : 700, cursor: "pointer", fontFamily: font }}>{label}</button>;
+
   return (
-    <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 14, padding: "16px 18px 12px", margin: "8px 0 4px" }}>
-      <div style={{ position: "relative", height: 15, borderRadius: 8, background: T.surface, overflow: "hidden", margin: "0 4px" }}>
-        {bars.map((m, i) => seg(m, i))}
-        {bars.map((m, i) => i > 0 ? <div key={"t" + m.k} style={{ position: "absolute", left: `${(i / N) * 100}%`, top: 2, bottom: 2, width: 1, zIndex: 2, background: ((i - 1) < cur || ((i - 1) === cur && stage.signal !== "wait")) ? "rgba(255,255,255,.85)" : T.faint }} /> : null)}
+    <>
+      {/* Status card — labels & zones ABOVE the bar. */}
+      <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 14, padding: "14px 18px", margin: "6px 0 0" }}>
+        <div style={{ display: "flex" }}>
+          {ZONES.map(z => { const n = z.keys.filter(k => bars.some(b => b.k === k)).length; if (!n) return null; return <div key={z.label} style={{ flex: n, textAlign: "center", fontSize: 8.5, fontWeight: 800, letterSpacing: ".06em", textTransform: "uppercase", color: z.blue ? T.blue : T.faint, margin: "0 3px 2px" }}>{z.label}</div>; })}
+        </div>
+        <div style={{ display: "flex", marginBottom: 9 }}>
+          {bars.map(m => { const tail = tailFrac[m.k] !== undefined; return <button key={m.k} onClick={() => onGate(m.k)} style={{ flex: 1, minWidth: 0, textAlign: "center", padding: "2px", background: "transparent", border: "none", cursor: "pointer", fontFamily: font }}><div style={{ fontSize: 9, fontWeight: 800, letterSpacing: ".02em", textTransform: "uppercase", color: tail ? T.blue : T.muted, lineHeight: 1.15, wordBreak: "break-word" }}>{m.label}</div></button>; })}
+        </div>
+        <div style={{ position: "relative", height: 15, borderRadius: 8, background: T.surface, overflow: "hidden", margin: "0 4px" }}>
+          {bars.map((m, i) => seg(m, i))}
+          {bars.map((m, i) => i > 0 ? <div key={"t" + m.k} style={{ position: "absolute", left: `${(i / N) * 100}%`, top: 2, bottom: 2, width: 1, zIndex: 2, background: ((i - 1) < cur || ((i - 1) === cur && stage.signal !== "wait")) ? "rgba(255,255,255,.85)" : T.faint }} /> : null)}
+        </div>
       </div>
-      <div style={{ display: "flex", marginTop: 8 }}>
-        {ZONES.map(z => { const n = z.keys.filter(k => bars.some(b => b.k === k)).length; if (!n) return null; return <div key={z.label} style={{ flex: n, textAlign: "center", fontSize: 8.5, fontWeight: 800, letterSpacing: ".06em", textTransform: "uppercase", color: z.blue ? T.blue : T.faint, borderTop: `2px solid ${z.blue ? T.blue : T.border}`, paddingTop: 4, margin: "0 3px" }}>{z.label}</div>; })}
-      </div>
-      <div style={{ display: "flex", marginTop: 2 }}>
-        {bars.map(m => {
-          const tail = tailFrac[m.k] !== undefined;
-          return <button key={m.k} onClick={() => onGate(m.k)} style={{ flex: 1, minWidth: 0, textAlign: "center", padding: "6px 2px", borderRadius: 7, background: "transparent", border: "none", cursor: "pointer", fontFamily: font }}>
-            <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: ".02em", textTransform: "uppercase", color: tail ? T.blue : T.muted, lineHeight: 1.15, wordBreak: "break-word" }}>{m.label}</div>
-          </button>;
-        })}
-      </div>
-      <div style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "center", flexWrap: "wrap" }}>
-        <button onClick={() => onBuild("overview")} style={{ border: `1px solid ${activeTab === "overview" ? T.accent : T.border}`, background: activeTab === "overview" ? T.accent : T.card, color: activeTab === "overview" ? "#fff" : T.text, borderRadius: 9, padding: "7px 15px", fontSize: 12.5, fontWeight: 800, cursor: "pointer", fontFamily: font }}>Overview</button>
+
+      {/* Nav strip — standalone pills outside the card (matches the V2 toggles). */}
+      <div style={{ display: "flex", gap: 8, margin: "14px 0", alignItems: "center", flexWrap: "wrap" }}>
+        {pill("Overview", activeTab === "overview", () => onBuild("overview"), true)}
         <span style={{ width: 1, alignSelf: "stretch", background: T.border, margin: "2px 4px" }} />
         <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: ".08em", textTransform: "uppercase", color: T.faint }}>Build</span>
-        {BUILD.map(([k, l]) => <button key={k} onClick={() => onBuild(k)} style={{ border: `1px solid ${activeTab === k ? T.accent : T.border}`, background: activeTab === k ? T.accent : T.card, color: activeTab === k ? "#fff" : T.muted, borderRadius: 9, padding: "7px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: font }}>{l}</button>)}
+        {BUILD.map(([k, l]) => pill(l, activeTab === k, () => onBuild(k)))}
       </div>
-    </div>
+    </>
   );
 }
