@@ -754,7 +754,6 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           ) : (
             <span style={{fontSize:isMobile?20:22,fontWeight:800,color:T.faint,letterSpacing:"-0.02em",lineHeight:1.15}}>No client</span>
           )}
-          <button onClick={()=>switchTab("overview")} title="Back to overview" style={{fontSize:isMobile?13:14,color:T.muted,lineHeight:1.2,background:"none",border:"none",padding:0,cursor:"pointer",fontFamily:font}} onMouseEnter={(e:any)=>e.currentTarget.style.color=T.accent} onMouseLeave={(e:any)=>e.currentTarget.style.color=T.muted}>{job.title || "Untitled"}</button>
           {/* Costing actions — only relevant on Product Builder + Costing
               tabs. Pull from PSDs and Request Pricing operate on costing
               state, so when triggered from Builder we jump to Costing
@@ -829,7 +828,6 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
 
         {/* Quiet metadata strip — single line, wraps if needed. */}
         <div style={{display:"flex",alignItems:"center",gap:12,marginTop:6,flexWrap:"wrap",fontSize:11,color:T.muted}}>
-          <span>{totalUnits.toLocaleString()} units</span>
           {/* Phase (and its detail) now live in the status bar — dropped from the metadata line. */}
           {job.priority==="rush" && <span style={{fontSize:10,fontWeight:700,color:T.amber,letterSpacing:"0.06em",textTransform:"uppercase"}}>Rush</span>}
           {job.priority==="hot" && <span style={{fontSize:10,fontWeight:700,color:T.red,letterSpacing:"0.06em",textTransform:"uppercase"}}>Hot</span>}
