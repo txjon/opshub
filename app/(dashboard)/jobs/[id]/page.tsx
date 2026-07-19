@@ -844,32 +844,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             <span style={{fontFamily:mono,color:T.faint,fontSize:10}}>{job.job_number}</span>
           )}
           <span>{totalUnits.toLocaleString()} units</span>
-          {(() => {
-            const label = {fontSize:10,fontWeight:700,letterSpacing:"0.06em",textTransform:"uppercase" as const};
-            const isTerminal = ["complete","cancelled","on_hold"].includes(job.phase);
-            // NEW phase model (additive). Falls back to legacy job.phase until it loads
-            // or for terminal states. Does NOT drive jobs.phase — display only.
-            if (isTerminal || items.length === 0 || !phaseView) {
-              const shown = phaseView?.phase || LEGACY_TO_NEW_PHASE[job.phase] || job.phase.replace(/_/g," ");
-              return <span style={{...label,color:phaseColor.text}}>{shown}</span>;
-            }
-            const pv = phaseView;
-            const { out, total } = pv.fulfillment;
-            const partial = out > 0 && out < total;
-            const clientKey = pv.result.client;
-            return <>
-              <span style={{...label,color:phaseColor.text}}>
-                {pv.phase}
-                {pv.detail && <span style={{fontWeight:600,color:T.muted,textTransform:"none",letterSpacing:0}}> · {pv.detail}</span>}
-              </span>
-              {partial && (
-                <span style={{...label,color:T.blue,whiteSpace:"nowrap"}}>Out the door <span style={{fontFamily:mono,fontWeight:600}}>· {out}/{total}</span></span>
-              )}
-              {clientKey !== "none" && (
-                <span style={{fontSize:10,color:T.faint,letterSpacing:"0.04em",textTransform:"uppercase"}}>Client: {CLIENT_LABEL[clientKey]}</span>
-              )}
-            </>;
-          })()}
+          {/* Phase (and its detail) now live in the status bar — dropped from the metadata line. */}
           {job.priority==="rush" && <span style={{fontSize:10,fontWeight:700,color:T.amber,letterSpacing:"0.06em",textTransform:"uppercase"}}>Rush</span>}
           {job.priority==="hot" && <span style={{fontSize:10,fontWeight:700,color:T.red,letterSpacing:"0.06em",textTransform:"uppercase"}}>Hot</span>}
         </div>
