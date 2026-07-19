@@ -692,7 +692,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const card = {background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"1rem 1.25rem"};
 
   return (
-    <div style={{fontFamily:"var(--font-sans)",color:T.text,maxWidth:1100,margin:"0 auto",paddingBottom:"3rem"}}>
+    <div style={{fontFamily:font,color:T.text,maxWidth:1100,margin:"0 auto",paddingBottom:"3rem"}}>
       {/* ── Project detail header ──
           Compact 3-row layout, client name primary:
             Row 1: Back chevron · ship countdown (one line, right-aligned)
