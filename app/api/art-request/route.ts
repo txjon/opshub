@@ -75,8 +75,10 @@ export async function POST(req: NextRequest) {
     }
 
     const slug = (job as any).companies?.slug || "hpd";
-    const clientName = (job as any).clients?.name || "";
-    const jobLabel = (job as any).title || (job as any).job_number || "your project";
+    // Designer-facing email references the job NUMBER only — never the project
+    // memo/title or client name (Jon 2026-07-20: keep client identity out of
+    // outside-designer emails).
+    const jobLabel = (job as any).job_number || "your project";
 
     // Create the request row.
     const token = randomUUID().replace(/-/g, "");
@@ -104,17 +106,17 @@ export async function POST(req: NextRequest) {
       ? `<p style="margin:0 0 14px;white-space:pre-wrap;">${escapeHtml(message)}</p>`
       : "";
     const bodyHtml =
-      `<p style="margin:0 0 14px;">We'd like a quote for the artwork on <strong>${escapeHtml(String(jobLabel))}</strong>${clientName ? ` (${escapeHtml(clientName)})` : ""}.</p>` +
+      `<p style="margin:0 0 14px;">We'd like a quote for the artwork on <strong>${escapeHtml(String(jobLabel))}</strong>.</p>` +
       noteHtml +
-      `<p style="margin:0 0 14px;">Please review the art at the link below — you can download every file directly, no account needed. Reply to this email with your <strong>price</strong> and <strong>screen count</strong>.</p>`;
+      `<p style="margin:0 0 14px;">Review the art at the link below. You can download every file directly, no account needed. When you're ready, submit your <strong>price</strong> and <strong>screen count</strong> for each item right on that page.</p>`;
 
     const html = renderBrandedEmail({
       eyebrow: tenantName,
       heading: "Art pricing request",
       greeting: designerName ? `Hi ${designerName},` : "Hi,",
       bodyHtml,
-      cta: { label: "View & download art", url: galleryUrl, style: "dark" },
-      hint: "This link stays live so you can pull the files whenever you're ready.",
+      cta: { label: "View art & submit your quote", url: galleryUrl, style: "dark" },
+      hint: "This link stays live so you can pull the files and quote whenever you're ready.",
     });
 
     let emailSent = true;
@@ -122,7 +124,8 @@ export async function POST(req: NextRequest) {
       await resend.emails.send({
         from,
         to: designerEmail,
-        replyTo: "jon@housepartydistro.com",
+        replyTo: from, // production@ — replies go to the production inbox, not Jon
+
         subject: `Art pricing request — ${jobLabel}`,
         html,
       });
