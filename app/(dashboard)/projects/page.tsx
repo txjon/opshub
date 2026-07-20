@@ -61,7 +61,7 @@ export default function ProjectsBoard() {
   useEffect(() => {
     (async () => {
       const { data } = await supabase.from("jobs")
-        .select("id, job_number, title, phase, shipping_route, payment_terms, quote_approved, quote_approved_at, created_at, target_ship_date, type_meta, costing_summary, clients(name), payment_records(amount, status, paid_date), items(id, name, sort_order, pipeline_stage, artwork_status, shipping_route, client_eta, blanks_order_cost, blanks_order_number, received_at_hpd, forwarded_at, webstore_entered_at, buy_sheet_lines(qty_ordered))")
+        .select("id, job_number, title, phase, shipping_route, payment_terms, quote_approved, quote_approved_at, created_at, updated_at, phase_timestamps, target_ship_date, type_meta, costing_summary, clients(name), payment_records(amount, status, paid_date), items(id, name, sort_order, pipeline_stage, artwork_status, shipping_route, client_eta, blanks_order_cost, blanks_order_number, received_at_hpd, forwarded_at, webstore_entered_at, buy_sheet_lines(qty_ordered))")
         .not("phase", "in", "(cancelled)")
         .order("created_at", { ascending: false });
       const js = (data as any[]) || [];
@@ -72,7 +72,9 @@ export default function ProjectsBoard() {
       // mockup files of every active job's items, chunked to keep the .in()
       // URL under limits. Proof logic mirrors the job-detail computation.
       (async () => {
-        const ids = js.filter(j => j.phase !== "complete").flatMap(j => (j.items || []).map((it: any) => it.id));
+        // ALL jobs (completed included) — the completed strips keep the thumb
+        // cluster + items peek, so they need thumbnails too.
+        const ids = js.flatMap(j => (j.items || []).map((it: any) => it.id));
         const ps: Record<string, { allApproved: boolean; state: "approved" | "revision" | "pending" | "none" }> = {};
         const th: Record<string, string> = {};
         for (let i = 0; i < ids.length; i += 150) {
@@ -141,11 +143,10 @@ export default function ProjectsBoard() {
     return list;
   }, [filtered, sortBy]);
 
-  const doneByClient = useMemo(() => {
-    const m: Record<string, Row[]> = {};
-    for (const r of done) (m[clientName(r)] ??= []).push(r);
-    return Object.entries(m).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [done]);
+  // Completed strips sort by close date, most recently finished first.
+  const doneSorted = useMemo(() =>
+    [...done].sort((a, b) => (closedAt(b.job) || "").localeCompare(closedAt(a.job) || "")),
+  [done]);
 
   const kpi = (k: string) => k === "active" ? activeAll.length : k === "action" ? activeAll.filter(r => !r.stage.preQuote && (r.stage.signal === "act" || r.stage.signal === "late")).length : activeAll.filter(r => r.stage.preQuote).length;
 
@@ -182,20 +183,19 @@ export default function ProjectsBoard() {
         </>)
       ) : (
         <div style={{ marginTop: 4 }}>
-          {doneByClient.map(([c, list]) => (
-            <div key={c} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: "12px 16px", marginBottom: 10 }}>
-              <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 8 }}>{c} <span style={{ color: T.faint, fontWeight: 400, fontSize: 12 }}>· {list.length}</span></div>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                {list.map(r => <button key={r.job.id} onClick={() => router.push(`/jobs/${r.job.id}`)} style={{ background: T.surface, border: "none", borderRadius: 8, padding: "5px 10px", fontSize: 11.5, fontFamily: mono, color: T.muted, cursor: "pointer" }}>{r.job.job_number} · {r.job.title}</button>)}
-              </div>
-            </div>
-          ))}
-          {!doneByClient.length && <div style={{ color: T.muted, fontSize: 14, padding: 40, textAlign: "center" }}>No completed projects match.</div>}
+          {doneSorted.map(r => <Strip key={r.job.id} r={r} thumbs={thumbs} proofStatus={proofStatus} completed onOpen={() => router.push(`/jobs/${r.job.id}`)} />)}
+          {!doneSorted.length && <div style={{ color: T.muted, fontSize: 14, padding: 40, textAlign: "center", background: T.card, border: `1px solid ${T.border}`, borderRadius: 12 }}>No completed projects match.</div>}
         </div>
       )}
     </BoardFrame>
   );
 }
+
+// When a completed job actually closed: the lifecycle stamp, else last touch.
+function closedAt(job: any): string | null {
+  return (job.phase_timestamps as any)?.complete || job.updated_at || null;
+}
+const fmtStamp = (iso: string | null) => iso ? new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—";
 
 // Per-item state for the peek — flat uppercase color text (v2 style).
 function itemPeekState(it: any, ps?: { state?: string }): [string, string] {
@@ -208,7 +208,7 @@ function itemPeekState(it: any, ps?: { state?: string }): [string, string] {
   return ["No proof yet", T.faint];
 }
 
-function Strip({ r, thumbs, proofStatus, onOpen }: { r: Row; thumbs: Record<string, string>; proofStatus?: Record<string, { state?: string }>; onOpen: () => void }) {
+function Strip({ r, thumbs, proofStatus, completed = false, onOpen }: { r: Row; thumbs: Record<string, string>; proofStatus?: Record<string, { state?: string }>; completed?: boolean; onOpen: () => void }) {
   const { job, stage } = r;
   const [peek, setPeek] = useState(false); // inline items panel
   const items = ([...(job.items || [])] as any[]).sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
@@ -238,7 +238,37 @@ function Strip({ r, thumbs, proofStatus, onOpen }: { r: Row; thumbs: Record<stri
           <div style={{ fontSize: 14, fontWeight: 700, lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginTop: 1 }}>{(job.clients as any)?.name || "—"}</div>
           {job.title && <div style={{ fontSize: 11, color: T.faint, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginTop: 2 }}>{job.title}</div>}
         </div>
-        <JobStatusBar job={job} stage={stage} items={job.items} payments={job.payment_records} navigate onHoverChange={setRaised} />
+        {completed ? (
+          /* Completed: the run timeline — opened ●──── N DAYS ────● closed. */
+          (() => {
+            const close = closedAt(job);
+            const days = job.created_at && close ? Math.max(0, Math.floor((new Date(close).getTime() - new Date(job.created_at).getTime()) / 86400000)) : null;
+            const endLbl = (date: string | null, label: string, align: "left" | "right") => (
+              <div style={{ textAlign: align, flexShrink: 0 }}>
+                <div style={{ fontFamily: mono, fontSize: 11.5, fontWeight: 700, color: T.text }}>{fmtStamp(date)}</div>
+                <div style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: T.faint, marginTop: 2 }}>{label}</div>
+              </div>
+            );
+            return (
+              <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 12, padding: "0 6px" }}>
+                {endLbl(job.created_at, "Opened", "right")}
+                <div style={{ flex: 1, position: "relative", height: 14, display: "flex", alignItems: "center" }}>
+                  <div style={{ position: "absolute", left: 0, right: 0, top: "50%", height: 2, background: T.border }} />
+                  <div style={{ position: "absolute", left: 0, top: "50%", transform: "translateY(-50%)", width: 7, height: 7, borderRadius: 999, background: T.green }} />
+                  <div style={{ position: "absolute", right: 0, top: "50%", transform: "translateY(-50%)", width: 7, height: 7, borderRadius: 999, background: T.green }} />
+                  {days !== null && (
+                    <div style={{ position: "absolute", left: "50%", transform: "translate(-50%, -50%)", top: "50%", background: T.card, padding: "0 10px", fontFamily: mono, fontSize: 10.5, fontWeight: 800, letterSpacing: ".04em", color: T.muted, whiteSpace: "nowrap" }}>
+                      {days} {days === 1 ? "DAY" : "DAYS"}
+                    </div>
+                  )}
+                </div>
+                {endLbl(close, "Completed", "left")}
+              </div>
+            );
+          })()
+        ) : (
+          <JobStatusBar job={job} stage={stage} items={job.items} payments={job.payment_records} navigate onHoverChange={setRaised} />
+        )}
         {/* Items peek toggle — overlapping mockup thumbs; click expands the panel. */}
         {items.length > 0 && (
           <button onClick={e => { e.stopPropagation(); setPeek(p => !p); }} title={peek ? "Hide items" : `Peek ${items.length} item${items.length === 1 ? "" : "s"}`}
@@ -252,16 +282,19 @@ function Strip({ r, thumbs, proofStatus, onOpen }: { r: Row; thumbs: Record<stri
             <span style={{ fontFamily: mono, fontSize: 10, fontWeight: 800, color: T.muted, marginLeft: 6 }}>{items.length > 4 ? `+${items.length - 4}` : ""}{peek ? "▴" : "▾"}</span>
           </button>
         )}
-        {/* Dates rail — opened date + countdown to expected completion. */}
-        <div style={{ width: 108, flexShrink: 0, textAlign: "right", paddingLeft: 14 }}>
-          <div style={{ fontFamily: mono, fontSize: 16, fontWeight: 800, color: cdColor, fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>
-            {cd ? cd.text : "TBD"}
+        {/* Dates rail — opened date + countdown to expected completion (active only;
+            completed strips carry the timeline instead). */}
+        {!completed && (
+          <div style={{ width: 108, flexShrink: 0, textAlign: "right", paddingLeft: 14 }}>
+            <div style={{ fontFamily: mono, fontSize: 16, fontWeight: 800, color: cdColor, fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>
+              {cd ? cd.text : "TBD"}
+            </div>
+            <div style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: T.faint, marginTop: 3 }}>
+              {firstDue ? <>first item due ~<span style={{ fontFamily: mono }}>{fmtDay(firstDue)}</span></> : "no dates set"}
+            </div>
+            {opened && <div style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: T.faint, marginTop: 3 }}>opened <span style={{ fontFamily: mono }}>{opened}</span></div>}
           </div>
-          <div style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: T.faint, marginTop: 3 }}>
-            {firstDue ? <>first item due ~<span style={{ fontFamily: mono }}>{fmtDay(firstDue)}</span></> : "no dates set"}
-          </div>
-          {opened && <div style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: T.faint, marginTop: 3 }}>opened <span style={{ fontFamily: mono }}>{opened}</span></div>}
-        </div>
+        )}
       </div>
       {/* Items peek — V2 modal (eyebrow → title → summary strip → cards → footer). */}
       {peek && (
@@ -275,7 +308,7 @@ function Strip({ r, thumbs, proofStatus, onOpen }: { r: Row; thumbs: Record<stri
               {[
                 ["Items", String(items.length)],
                 ["Units", String(items.reduce((a: number, it: any) => a + ((it.buy_sheet_lines || []) as any[]).reduce((x: number, l: any) => x + (Number(l.qty_ordered) || 0), 0), 0).toLocaleString())],
-                ["First due", firstDue ? `~${fmtDay(firstDue)}` : "TBD"],
+                completed ? ["Completed", fmtStamp(closedAt(job))] : ["First due", firstDue ? `~${fmtDay(firstDue)}` : "TBD"],
               ].map(([k, v]) => (
                 <div key={k}>
                   <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: T.faint }}>{k}</div>
