@@ -2393,7 +2393,11 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
             if (existing) {
               await supabase.from("decorator_assignments").update({ decorator_id: decoratorId, decoration_type: decoType }).eq("id", existing.id);
             } else {
-              await supabase.from("decorator_assignments").insert({ item_id: cp.id, decorator_id: decoratorId, decoration_type: decoType, pipeline_stage: "blanks_ordered" });
+              // pipeline_stage starts NULL — "blanks_ordered" is a legacy v1 stage
+              // that downstream readers must never see on a fresh assignment (it
+              // used to leak into item stage and read as "shipped" on the boards).
+              // PO send sets in_production; po-actions owns any later markers.
+              await supabase.from("decorator_assignments").insert({ item_id: cp.id, decorator_id: decoratorId, decoration_type: decoType, pipeline_stage: null });
             }
           }
         }
