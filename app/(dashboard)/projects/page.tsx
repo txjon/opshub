@@ -160,13 +160,12 @@ export default function ProjectsBoard() {
           <style>{`@keyframes projChipPop{from{transform:translateY(2px);opacity:.35}to{transform:none;opacity:1}}.proj-chip{animation:projChipPop .13s ease-out}`}</style>
           <KpiStrip metrics={[{ key: "active", label: "Active" }, { key: "action", label: "Need action" }, { key: "prequote", label: "Pre-quote" }]} get={kpi} onClick={() => { }} />
           <SliceSortRow>
-            <span style={{ fontSize: 12, color: T.muted }}>{active.length} {active.length === 1 ? "project" : "projects"}{stageFilter ? <> at <b style={{ color: T.text }}>{PROJ_MILESTONES.find(m => m.k === stageFilter)?.label}</b></> : null}</span>
+            <select value={sortBy} onChange={e => setSortBy(e.target.value as any)} style={selStyle}>
+              <option value="due">First item due</option>
+              <option value="invoice">Invoice #</option>
+              <option value="newest">Newest</option>
+            </select>
             <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-              <select value={sortBy} onChange={e => setSortBy(e.target.value as any)} style={selStyle}>
-                <option value="due">First item due</option>
-                <option value="invoice">Invoice #</option>
-                <option value="newest">Newest</option>
-              </select>
               <select value={clientFilter} onChange={e => setClientFilter(e.target.value)} style={selStyle}>
                 <option value="">All clients</option>
                 {clients.map(c => <option key={c} value={c}>{c}</option>)}
