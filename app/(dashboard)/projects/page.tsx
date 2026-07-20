@@ -56,6 +56,7 @@ export default function ProjectsBoard() {
   const [query, setQuery] = useState("");
   const [stageFilter, setStageFilter] = useState("");
   const [clientFilter, setClientFilter] = useState("");
+  const [sortBy, setSortBy] = useState<"due" | "invoice" | "newest">("due"); // default: first item due
 
   useEffect(() => {
     (async () => {
@@ -111,9 +112,34 @@ export default function ProjectsBoard() {
   const done = base.filter(r => r.stage.complete);
   const activeAll = rows.filter(r => !r.stage.complete);
 
-  // Stage dropdown TRULY filters: only jobs at the picked stage show (newest first).
+  // Stage dropdown TRULY filters: only jobs at the picked stage show.
   const stageCounts = useMemo(() => Object.fromEntries(PROJ_MILESTONES.map(m => [m.k, activeCQ.filter(r => atStage(r, m.k)).length])) as Record<string, number>, [activeCQ]);
-  const active = stageFilter ? activeCQ.filter(r => atStage(r, stageFilter)) : activeCQ;
+  const filtered = stageFilter ? activeCQ.filter(r => atStage(r, stageFilter)) : activeCQ;
+  // Sort (Jon 2026-07-20): default = first item due (soonest first, TBD last);
+  // invoice = highest invoice # first (uninvoiced last); newest = created desc.
+  const active = useMemo(() => {
+    const byCreated = (a: Row, b: Row) => (b.job.created_at || "").localeCompare(a.job.created_at || "");
+    const list = [...filtered];
+    if (sortBy === "due") {
+      list.sort((a, b) => {
+        const da = firstItemDue(a.job), db = firstItemDue(b.job);
+        if (da && db) return da.localeCompare(db) || byCreated(a, b);
+        if (da) return -1;
+        if (db) return 1;
+        return byCreated(a, b);
+      });
+    } else if (sortBy === "invoice") {
+      const inv = (r: Row) => parseInt((r.job.type_meta as any)?.qb_invoice_number, 10);
+      list.sort((a, b) => {
+        const ia = inv(a), ib = inv(b);
+        if (!isNaN(ia) && !isNaN(ib)) return ib - ia;
+        if (!isNaN(ia)) return -1;
+        if (!isNaN(ib)) return 1;
+        return (b.job.job_number || "").localeCompare(a.job.job_number || "");
+      });
+    } else list.sort(byCreated);
+    return list;
+  }, [filtered, sortBy]);
 
   const doneByClient = useMemo(() => {
     const m: Record<string, Row[]> = {};
@@ -134,8 +160,13 @@ export default function ProjectsBoard() {
           <style>{`@keyframes projChipPop{from{transform:translateY(2px);opacity:.35}to{transform:none;opacity:1}}.proj-chip{animation:projChipPop .13s ease-out}`}</style>
           <KpiStrip metrics={[{ key: "active", label: "Active" }, { key: "action", label: "Need action" }, { key: "prequote", label: "Pre-quote" }]} get={kpi} onClick={() => { }} />
           <SliceSortRow>
-            <span style={{ fontSize: 12, color: T.muted }}>{active.length} {active.length === 1 ? "project" : "projects"}{stageFilter ? <> at <b style={{ color: T.text }}>{PROJ_MILESTONES.find(m => m.k === stageFilter)?.label}</b></> : <> · newest first</>}</span>
+            <span style={{ fontSize: 12, color: T.muted }}>{active.length} {active.length === 1 ? "project" : "projects"}{stageFilter ? <> at <b style={{ color: T.text }}>{PROJ_MILESTONES.find(m => m.k === stageFilter)?.label}</b></> : null}</span>
             <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              <select value={sortBy} onChange={e => setSortBy(e.target.value as any)} style={selStyle}>
+                <option value="due">First item due</option>
+                <option value="invoice">Invoice #</option>
+                <option value="newest">Newest</option>
+              </select>
               <select value={clientFilter} onChange={e => setClientFilter(e.target.value)} style={selStyle}>
                 <option value="">All clients</option>
                 {clients.map(c => <option key={c} value={c}>{c}</option>)}
