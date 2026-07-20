@@ -152,6 +152,38 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
 
   const [peekItem, setPeekItem] = useState(null);
 
+  // Preview flipper — "Preview proofs" opens EVERY item's proof in sequence
+  // with prev/next arrows (Jon 2026-07-20; matches the new proofing flow).
+  const [previewList, setPreviewList] = useState([]);
+  const [previewIdx, setPreviewIdx] = useState(0);
+  function openPreviewSequence(startItem) {
+    const withProofs = items.filter(it => (itemFiles[it.id] || []).some(f => f.stage === "proof"));
+    if (withProofs.length === 0) return;
+    const idx = startItem ? Math.max(0, withProofs.findIndex(x => x.id === startItem.id)) : 0;
+    setPreviewList(withProofs);
+    setPreviewIdx(idx);
+    setProofModalMode("preview");
+    setProofModalItem(withProofs[idx]);
+  }
+  const isFlipping = previewList.length > 1 && !!proofModalItem && proofModalMode === "preview";
+  function flipPreview(delta) {
+    if (!isFlipping) return;
+    const n = (previewIdx + delta + previewList.length) % previewList.length;
+    setPreviewIdx(n);
+    setProofModalItem(previewList[n]);
+  }
+  useEffect(() => {
+    if (!isFlipping) return;
+    const h = (e) => {
+      const tag = (e.target?.tagName || "").toLowerCase();
+      if (tag === "input" || tag === "textarea" || e.target?.isContentEditable) return;
+      if (e.key === "ArrowRight") flipPreview(1);
+      else if (e.key === "ArrowLeft") flipPreview(-1);
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  });
+
   // Generate All state
   const [generateAllItems, setGenerateAllItems] = useState([]);
   const [generateAllIndex, setGenerateAllIndex] = useState(0);
@@ -292,7 +324,7 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
             const anyProofs = items.some(it => (itemFiles[it.id] || []).some(f => f.stage === "proof"));
             return (
               <>
-                <button onClick={() => { const it = items.find(x => (itemFiles[x.id] || []).some(f => f.stage === "proof")); if (it) { setProofModalItem(it); setProofModalMode("preview"); } }} style={btn}>Preview proofs</button>
+                <button onClick={() => openPreviewSequence()} style={btn}>Preview proofs</button>
                 {itemsWithMockups.length > 0 && <button onClick={startGenerateAll} style={btn}>Generate all ({itemsWithMockups.length})</button>}
                 {anyProofs && (
                   <button onClick={sendProofForReview} disabled={sendingProofEmail}
@@ -356,11 +388,11 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
                 {sizes.length > 0 && <div style={{ fontSize: 12.5, color: T.text, marginTop: 8, fontFamily: mono, display: "flex", flexWrap: "wrap", gap: "4px 14px" }}>{sizes.map(s => q[s] ? <span key={s}>{s}:{q[s]}</span> : null)}</div>}
                 <div style={{ display: "flex", gap: 8, marginTop: 16, flexWrap: "wrap" }}>
                   {hasProof ? (
-                    <button onClick={() => { setProofModalItem(item); setProofModalMode("preview"); setPeekItem(null); }} style={{ ...btn, background: T.accent, color: "#fff", border: "none" }}>View</button>
+                    <button onClick={() => { openPreviewSequence(item); setPeekItem(null); }} style={{ ...btn, background: T.accent, color: "#fff", border: "none" }}>View</button>
                   ) : mockupFile ? (
-                    <button onClick={() => { setProofModalItem(item); setProofModalMode("edit"); setPeekItem(null); }} style={{ ...btn, background: T.amber, color: "#fff", border: "none" }}>Generate proof</button>
+                    <button onClick={() => { setPreviewList([]); setProofModalItem(item); setProofModalMode("edit"); setPeekItem(null); }} style={{ ...btn, background: T.amber, color: "#fff", border: "none" }}>Generate proof</button>
                   ) : null}
-                  {mockupFile && hasProof && <button onClick={() => { setProofModalItem(item); setProofModalMode("edit"); setPeekItem(null); }} style={btn}>Edit</button>}
+                  {mockupFile && hasProof && <button onClick={() => { setPreviewList([]); setProofModalItem(item); setProofModalMode("edit"); setPeekItem(null); }} style={btn}>Edit</button>}
                   {!fileApproved && <button onClick={markInternal} style={{ ...btn, borderColor: T.blue, color: T.blue }}>{manualApproved ? "Unmark internal" : "Mark internal"}</button>}
                 </div>
                 {!mockupFile && !hasProof && <div style={{ fontSize: 11.5, color: T.faint, marginTop: 10 }}>No mockup yet — add one in Product Builder to generate a proof.</div>}
@@ -375,18 +407,34 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
         const files = itemFiles[proofModalItem.id] || [];
         const mockupFile = files.find(f => f.stage === "mockup") || files.find(f => f.file_name?.toLowerCase().includes("mockup"));
         return (
-          <ProofModal
-            item={proofModalItem}
-            clientName={clientName}
-            projectTitle={projectTitle}
-            mockupFile={mockupFile}
-            files={files}
-            costingData={job.costing_data}
-            onClose={() => setProofModalItem(null)}
-            onSaved={reloadFiles}
-            onUpdateItem={onUpdateItem}
-            initialMode={proofModalMode}
-          />
+          <>
+            <ProofModal
+              key={proofModalItem.id}
+              item={proofModalItem}
+              clientName={clientName}
+              projectTitle={projectTitle}
+              mockupFile={mockupFile}
+              files={files}
+              costingData={job.costing_data}
+              onClose={() => { setProofModalItem(null); setPreviewList([]); }}
+              onSaved={reloadFiles}
+              onUpdateItem={onUpdateItem}
+              initialMode={proofModalMode}
+            />
+            {/* Flip-through chrome — floats above the full-screen ProofModal (z 100). */}
+            {isFlipping && (
+              <>
+                <button onClick={() => flipPreview(-1)} aria-label="Previous proof"
+                  style={{ position: "fixed", left: 14, top: "50%", transform: "translateY(-50%)", zIndex: 120, width: 46, height: 46, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 22, fontWeight: 700, cursor: "pointer", boxShadow: "0 4px 16px rgba(0,0,0,0.18)", fontFamily: font, lineHeight: 1 }}>‹</button>
+                <button onClick={() => flipPreview(1)} aria-label="Next proof"
+                  style={{ position: "fixed", right: 14, top: "50%", transform: "translateY(-50%)", zIndex: 120, width: 46, height: 46, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 22, fontWeight: 700, cursor: "pointer", boxShadow: "0 4px 16px rgba(0,0,0,0.18)", fontFamily: font, lineHeight: 1 }}>›</button>
+                <div style={{ position: "fixed", bottom: 18, left: "50%", transform: "translateX(-50%)", zIndex: 120, background: T.card, border: `1px solid ${T.border}`, borderRadius: 9, padding: "7px 14px", boxShadow: "0 4px 16px rgba(0,0,0,0.18)", display: "flex", alignItems: "baseline", gap: 10, maxWidth: "80vw" }}>
+                  <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 800, color: T.text, whiteSpace: "nowrap" }}>{previewIdx + 1} / {previewList.length}</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: T.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{proofModalItem.name}</span>
+                </div>
+              </>
+            )}
+          </>
         );
       })()}
 

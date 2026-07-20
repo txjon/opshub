@@ -217,7 +217,7 @@ export async function GET(
           totalQty,
           decoLines,
           itemTotal,
-          mockupThumb: mockupByItem[item.id] ? `/api/files/thumbnail?id=${mockupByItem[item.id]}` : null,
+          mockupThumb: mockupByItem[item.id] ? `/api/files/thumbnail?id=${mockupByItem[item.id]}&thumb=1&size=400` : null,
           blanksOrdered: (item as any).blanks_order_cost != null,
           // impressions = units × active print locations (vendor-facing volume)
           impressions: totalQty * Object.values((costProd?.printLocations || {}) as Record<string, any>).filter((l: any) => l?.location).length,
@@ -377,7 +377,7 @@ export async function GET(
           totalQty,
           decoLines,
           itemTotal,
-          mockupThumb: cMockupByItem[item.id] ? `/api/files/thumbnail?id=${cMockupByItem[item.id]}` : null,
+          mockupThumb: cMockupByItem[item.id] ? `/api/files/thumbnail?id=${cMockupByItem[item.id]}&thumb=1&size=400` : null,
           blanksOrdered: (item as any).blanks_order_cost != null,
           // impressions = units × active print locations (vendor-facing volume)
           impressions: totalQty * Object.values((costProd?.printLocations || {}) as Record<string, any>).filter((l: any) => l?.location).length,

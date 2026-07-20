@@ -8,6 +8,7 @@ import { loadJobPhasesBatch } from "@/lib/item-state";
 import { deriveProjectStage, PROJ_MILESTONES, type ProjStage } from "@/lib/project-stage";
 import { JobStatusBar } from "@/components/JobStatusBar";
 import { etaCountdown, resolveEta } from "@/lib/eta";
+import { useIsMobile } from "@/lib/useIsMobile";
 import { fmtDay } from "@/lib/dates";
 
 // An item has finished its lifecycle when its ROUTE says so (item route
@@ -295,9 +296,12 @@ function itemPeekState(it: any, ps?: { state?: string }): [string, string] {
 
 function Strip({ r, thumbs, proofStatus, completed = false, flash = false, onOpen, onRemember }: { r: Row; thumbs: Record<string, string>; proofStatus?: Record<string, { state?: string }>; completed?: boolean; flash?: boolean; onOpen: () => void; onRemember?: () => void }) {
   const { job, stage } = r;
+  const isMobile = useIsMobile();
   const [peek, setPeek] = useState(false); // inline items panel
   const items = ([...(job.items || [])] as any[]).sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
-  const thumbUrl = (id: string, size: number) => `/api/files/thumbnail?id=${thumbs[id]}&size=${size}`;
+  // thumb=1 — serve Drive's pre-rendered thumbnail, NOT the multi-MB original
+  // (these render at 30-52px; the original PNG was the board's slow part).
+  const thumbUrl = (id: string, size: number) => `/api/files/thumbnail?id=${thumbs[id]}&thumb=1&size=${size}`;
   // Once a QB invoice # is assigned that's the number used everywhere (POs tie to
   // it, it matches QB) — lead with it, fall back to the job number pre-invoice.
   const invNo = (job.type_meta as any)?.qb_invoice_number || job.job_number;
@@ -314,8 +318,8 @@ function Strip({ r, thumbs, proofStatus, completed = false, flash = false, onOpe
   const opened = job.created_at ? new Date(job.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : null;
   return (
     <div id={`strip-${job.id}`} onClick={onOpen} style={{ background: T.card, border: `1px solid ${T.border}`, borderLeft: edgeColor ? `4px solid ${edgeColor}` : `1px solid ${T.border}`, borderRadius: 12, padding: edgeColor ? "10px 16px 10px 13px" : "10px 16px", marginTop: 8, cursor: "pointer", position: "relative", zIndex: raised ? 40 : undefined, outline: flash ? `2.5px solid ${T.text}` : "none", outlineOffset: -1, transition: "outline-color 0.5s" }}>
-      <div style={{ display: "flex", alignItems: "center" }}>
-        <div style={{ width: 236, flexShrink: 0, minWidth: 0, paddingRight: 12 }}>
+      <div style={isMobile ? { display: "flex", flexDirection: "column" as const, alignItems: "stretch", gap: 10 } : { display: "flex", alignItems: "center" }}>
+        <div style={{ width: isMobile ? "auto" : 236, flexShrink: 0, minWidth: 0, paddingRight: isMobile ? 0 : 12 }}>
           <div style={{ display: "flex", alignItems: "baseline", gap: 8, minWidth: 0 }}>
             <span style={{ fontFamily: mono, fontSize: 11.5, fontWeight: 700, color: T.muted }}>{invNo}</span>
             <span style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: T.faint, fontFamily: mono }}>{routeLabel[stage.route] || stage.route}</span>
@@ -339,12 +343,12 @@ function Strip({ r, thumbs, proofStatus, completed = false, flash = false, onOpe
               </div>
             );
             return (<>
-              <div style={{ flex: 1, minWidth: 12 }} />
-              <div style={{ width: 112, flexShrink: 0, textAlign: "right", paddingRight: 18 }}>
+              {!isMobile && <div style={{ flex: 1, minWidth: 12 }} />}
+              <div style={{ width: isMobile ? "auto" : 112, flexShrink: 0, textAlign: isMobile ? "left" : "right", paddingRight: isMobile ? 0 : 18 }}>
                 <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: ".05em", textTransform: "uppercase", color: payClr }}>{payLbl}</div>
                 {pay.due > 0 && <div style={{ fontFamily: mono, fontSize: 11, fontWeight: 700, color: payClr, marginTop: 2, fontVariantNumeric: "tabular-nums" }}>${Math.round(pay.due).toLocaleString()} due</div>}
               </div>
-              <div style={{ width: 330, flexShrink: 0, display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ width: isMobile ? "auto" : 330, flexShrink: 0, display: "flex", alignItems: "center", gap: 10 }}>
                 {endLbl(job.created_at, "Opened", "right")}
                 <div style={{ flex: 1, position: "relative", height: 16 }}>
                   <div style={{ position: "absolute", left: 0, right: 0, top: "50%", height: 2, background: T.border }} />
@@ -367,7 +371,7 @@ function Strip({ r, thumbs, proofStatus, completed = false, flash = false, onOpe
         {/* Items peek toggle — overlapping mockup thumbs; click expands the panel. */}
         {items.length > 0 && (
           <button onClick={e => { e.stopPropagation(); setPeek(p => !p); }} title={peek ? "Hide items" : `Peek ${items.length} item${items.length === 1 ? "" : "s"}`}
-            style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", width: 130, flexShrink: 0, marginLeft: 14, padding: 0, background: "none", border: "none", cursor: "pointer" }}>
+            style={{ display: "flex", alignItems: "center", justifyContent: isMobile ? "flex-start" : "flex-end", width: isMobile ? "auto" : 130, flexShrink: 0, marginLeft: isMobile ? 0 : 14, padding: 0, background: "none", border: "none", cursor: "pointer" }}>
             {items.slice(0, 4).map((it: any, i: number) => (
               <div key={it.id} style={{ width: 30, height: 30, borderRadius: 7, border: `2px solid ${peek ? T.text : T.card}`, background: T.surface, overflow: "hidden", marginLeft: i === 0 ? 0 : -9, boxShadow: "0 1px 3px rgba(0,0,0,.12)", flexShrink: 0 }}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -379,7 +383,15 @@ function Strip({ r, thumbs, proofStatus, completed = false, flash = false, onOpe
         )}
         {/* Dates rail — opened date + countdown to expected completion (active only;
             completed strips carry the timeline instead). */}
-        {!completed && (
+        {!completed && (isMobile ? (
+          <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+            <span style={{ fontFamily: mono, fontSize: 15, fontWeight: 800, color: cdColor, fontVariantNumeric: "tabular-nums" }}>{cd ? cd.text : "TBD"}</span>
+            <span style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: T.faint }}>
+              {firstDue ? <>first item due ~<span style={{ fontFamily: mono }}>{fmtDay(firstDue)}</span></> : "no dates set"}
+            </span>
+            {opened && <span style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: T.faint }}>opened <span style={{ fontFamily: mono }}>{opened}</span></span>}
+          </div>
+        ) : (
           <div style={{ width: 108, flexShrink: 0, textAlign: "right", paddingLeft: 14 }}>
             <div style={{ fontFamily: mono, fontSize: 16, fontWeight: 800, color: cdColor, fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>
               {cd ? cd.text : "TBD"}
@@ -389,7 +401,7 @@ function Strip({ r, thumbs, proofStatus, completed = false, flash = false, onOpe
             </div>
             {opened && <div style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: T.faint, marginTop: 3 }}>opened <span style={{ fontFamily: mono }}>{opened}</span></div>}
           </div>
-        )}
+        ))}
       </div>
       {/* Items peek — V2 modal (eyebrow → title → summary strip → cards → footer). */}
       {peek && (
@@ -399,7 +411,7 @@ function Strip({ r, thumbs, proofStatus, completed = false, flash = false, onOpe
               <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: T.faint, fontFamily: mono }}>{invNo} · {routeLabel[stage.route] || stage.route}</div>
               <div style={{ fontSize: 17, fontWeight: 700, marginTop: 3 }}>{(job.clients as any)?.name || "—"}{job.title ? <span style={{ color: T.muted, fontWeight: 400 }}> · {job.title}</span> : null}</div>
             </div>
-            <div style={{ display: "flex", gap: 26, padding: "12px 22px", background: T.surface }}>
+            <div style={{ display: "flex", gap: 26, padding: "12px 22px", background: T.surface, flexWrap: "wrap" }}>
               {[
                 ["Items", String(items.length)],
                 ["Units", String(items.reduce((a: number, it: any) => a + ((it.buy_sheet_lines || []) as any[]).reduce((x: number, l: any) => x + (Number(l.qty_ordered) || 0), 0), 0).toLocaleString())],

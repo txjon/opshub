@@ -31,13 +31,30 @@ export async function GET(
 
   const { data: file } = await admin
     .from("item_files")
-    .select("drive_file_id")
+    .select("drive_file_id, item_id, stage, superseded_at")
     .eq("id", fileId)
     .single();
-  if (!file || !(file as any).drive_file_id) return new NextResponse("Not found", { status: 404 });
+  if (!file) return new NextResponse("Not found", { status: 404 });
+
+  // A proof shared BEFORE a re-bake points at a superseded row whose Drive
+  // file was deleted — serve the item's LIVE file of the same stage instead,
+  // so old request links keep working after proofs refresh.
+  let driveId = (file as any).drive_file_id as string | null;
+  if ((file as any).superseded_at) {
+    const { data: live } = await admin
+      .from("item_files")
+      .select("drive_file_id")
+      .eq("item_id", (file as any).item_id)
+      .eq("stage", (file as any).stage)
+      .is("superseded_at", null)
+      .order("created_at", { ascending: false })
+      .limit(1);
+    if (live?.[0]?.drive_file_id) driveId = live[0].drive_file_id;
+  }
+  if (!driveId) return new NextResponse("Not found", { status: 404 });
 
   try {
-    return await proxyDriveFile((file as any).drive_file_id, {
+    return await proxyDriveFile(driveId, {
       thumb: req.nextUrl.searchParams.get("thumb") === "1",
       download: req.nextUrl.searchParams.get("dl") === "1",
       size: parseInt(req.nextUrl.searchParams.get("size") || "0", 10) || 0,

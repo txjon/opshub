@@ -727,12 +727,16 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
     if (!specLoaded) return null;
     const safeName = (item.name || "Item").replace(/[^\w\s-]/g, "");
     const specSnap = JSON.stringify(buildSpec());
+    // Renderer-forced re-bake of an UNCHANGED proof (layout version bump only):
+    // the document's content is identical, so the client's approval must
+    // survive — only a real edit resets it to pending.
+    const preserveApproval = forceRebakeRef.current && driveBakedSpecRef.current !== null && specSnap === driveBakedSpecRef.current;
     let pdfBlob;
     try { pdfBlob = await buildProofPdfBlob(); }
     catch (err) { console.error("Proof render error:", err); return null; }
     try {
       const driveFile = await uploadToDrive({ blob: pdfBlob, fileName: `${safeName} - Product Proof.pdf`, mimeType: "application/pdf", itemId: item.id, clientName, projectTitle, itemName: item.name || "" });
-      await registerFileInDb({ ...driveFile, itemId: item.id, stage: "proof" });
+      await registerFileInDb({ ...driveFile, itemId: item.id, stage: "proof", preserveApproval });
       logJobActivity(item.job_id, `Product proof updated for ${item.name}`);
       driveBakedSpecRef.current = specSnap;
       forceRebakeRef.current = false;

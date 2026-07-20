@@ -30,9 +30,9 @@ function totalQty(lines) {
 function NoteBox({label,text}) {
   if (!text) return null;
   return (
-    <div style={{background:"#f9f9f9",padding:"7px 10px",borderRadius:3}}>
-      <div style={{fontSize:"7.5px",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",color:"#bbb",marginBottom:3}}>{label}</div>
-      <div style={{fontSize:"9.5px",color:"#444",lineHeight:1.5,whiteSpace:"pre-wrap"}}>{text}</div>
+    <div style={{background:T.bg,padding:"7px 10px",borderRadius:3}}>
+      <div style={{fontSize:"7.5px",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",color:T.faint,marginBottom:3}}>{label}</div>
+      <div style={{fontSize:"9.5px",color:T.muted,lineHeight:1.5,whiteSpace:"pre-wrap"}}>{text}</div>
     </div>
   );
 }
