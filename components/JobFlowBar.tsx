@@ -21,12 +21,13 @@ const NAV: [string, string][] = [
   ["po", "Purchase Order"],
 ];
 
-export function JobFlowBar({ job, items, payments, phaseView, activeTab, onBuild, rightSlot }: {
+export function JobFlowBar({ job, items, payments, phaseView, activeTab, onBuild, rightSlot, proofStatus }: {
   job: any; items: any[]; payments: any[]; phaseView: any; activeTab: string;
   onBuild: (tabKey: string) => void;
   rightSlot?: ReactNode;
+  proofStatus?: Record<string, { allApproved: boolean }>; // per-item proof approvals — gates the Approved milestone
 }) {
-  const stage = deriveProjectStage(job, phaseView, items || [], payments || []);
+  const stage = deriveProjectStage(job, phaseView, items || [], payments || [], proofStatus);
   return (
     <>
       {/* Status bar — status only, identical to the /projects list (hover peek + ▲ caption). */}

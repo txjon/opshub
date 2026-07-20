@@ -317,7 +317,10 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           sizes, qtys, totalQty,
           decorator: assignment?.decorators?.name || null,
           decoration_type: assignment?.decoration_type || null,
-          pipeline_stage: it.pipeline_stage || assignment?.pipeline_stage || null,
+          // Assignment stage heals PO-send race drift, but ONLY for real v2 stage
+          // values — legacy assignment markers (blanks_ordered) must never leak
+          // into item stage (they read as "shipped" downstream).
+          pipeline_stage: it.pipeline_stage || (["in_production", "shipped"].includes(assignment?.pipeline_stage) ? assignment.pipeline_stage : null),
           decorator_assignment_id: assignment?.id || null,
           blankCosts: it.blank_costs || null,
           sizeSubs: it.size_subs || {},
@@ -356,7 +359,10 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           sizes, qtys, totalQty,
           decorator: assignment?.decorators?.name || null,
           decoration_type: assignment?.decoration_type || null,
-          pipeline_stage: it.pipeline_stage || assignment?.pipeline_stage || null,
+          // Assignment stage heals PO-send race drift, but ONLY for real v2 stage
+          // values — legacy assignment markers (blanks_ordered) must never leak
+          // into item stage (they read as "shipped" downstream).
+          pipeline_stage: it.pipeline_stage || (["in_production", "shipped"].includes(assignment?.pipeline_stage) ? assignment.pipeline_stage : null),
           decorator_assignment_id: assignment?.id || null,
           blankCosts: it.blank_costs || null,
           sizeSubs: it.size_subs || {},
@@ -744,8 +750,8 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           // Guarantee navigation even if the flush rejects — otherwise a
           // failed save leaves the button stuck on "Saving…" with no way out.
           try { await flushAllSavesWithTimeout(); } catch (e) { console.error("nav flush failed:", e); }
-          router.push("/jobs");
-          escapeTo("/jobs");
+          router.push("/projects");
+          escapeTo("/projects");
         }} disabled={navigating}
           style={{background:"transparent",border:"none",color:T.accent,fontSize:14,fontWeight:600,cursor:navigating?"default":"pointer",padding:"4px 8px 4px 0",fontFamily:font,display:"inline-flex",alignItems:"center",gap:2,minHeight:36,marginLeft:-4,opacity:navigating?0.55:1,transition:"opacity 0.12s"}}
           onMouseEnter={(e:any)=>{ if (!navigating) e.currentTarget.style.opacity="0.75";}}
@@ -806,7 +812,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       {/* V2 nav: status bar + build tabs. Drives switchTab (the save-and-navigate
           gate) so the costing save contract is preserved untouched. Gates map to
           the flow tabs; the warehouse tail routes to its pages. */}
-      <JobFlowBar job={job} items={items} payments={payments} phaseView={phaseView} activeTab={tab}
+      <JobFlowBar job={job} items={items} payments={payments} phaseView={phaseView} proofStatus={proofStatus} activeTab={tab}
         onBuild={(t) => switchTab(t)}
         rightSlot={isMobile ? null : (() => {
           // Pricing-lock status — the WHOLE chip is the click target
@@ -1992,8 +1998,8 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           await supabase.from("payment_records").delete().eq("job_id", params.id);
           await supabase.from("job_contacts").delete().eq("job_id", params.id);
           await supabase.from("jobs").delete().eq("id", params.id);
-          router.push("/jobs");
-          escapeTo("/jobs");
+          router.push("/projects");
+          escapeTo("/projects");
         }}
         onCancel={() => setConfirmDeleteProject(false)}
       />

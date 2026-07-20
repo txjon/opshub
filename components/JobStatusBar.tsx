@@ -35,11 +35,12 @@ const STAGE_TARGET: Record<string, (j: any) => string> = {
 // (the flat tab-button row owns that nav). See [[opshub-v2-board-ux]].
 const WAREHOUSE_TAIL = new Set(["production", "receiving", "shipping", "fulfillment"]);
 
-export function JobStatusBar({ job, stage, items = [], payments = [], navigate = false, tailNav = false, onHoverChange, showLabels = false }: {
+export function JobStatusBar({ job, stage, items = [], payments = [], navigate = false, tailNav = false, onHoverChange, showLabels = false, onBeforeNavigate }: {
   job: any; stage: ProjStage; items?: any[]; payments?: any[]; navigate?: boolean;
   tailNav?: boolean; // job-detail: make ONLY the warehouse-tail segments clickable (→ their board, filtered to this job)
   onHoverChange?: (hovering: boolean) => void; // parent raises its z-index so the peek isn't clipped
   showLabels?: boolean; // persistent milestone titles above the segments (job detail has the room; the list doesn't)
+  onBeforeNavigate?: () => void; // fires before a segment deep-link — the projects board records scan-resume state here
 }) {
   const router = useRouter();
   const [hover, setHover] = useState<string | null>(null);
@@ -48,17 +49,29 @@ export function JobStatusBar({ job, stage, items = [], payments = [], navigate =
   // Complete → every milestone is done (cur past the end fills the whole bar).
   const cur = stage.complete ? bars.length : bars.findIndex(m => m.k === stage.milestone);
   const sig = stage.signal;
+  // Amber = started but not complete (Jon 2026-07-20): a current segment with
+  // real partial progress fills amber even when the signal is "wait" — e.g.
+  // Approved with the quote signed off but proofs still pending. No progress +
+  // wait stays hollow.
+  const curPartial = stage.milestone === "quote_appr" && !!job.quote_approved;
   const N = bars.length;
-  const paidColor = stage.paidState === "paid" ? T.green : stage.paidState === "onaccount" ? T.blue : T.amber;
-  const paidLabel = stage.paidState === "paid" ? "Paid" : (TERMS_LABEL[(job.payment_terms || "") as string] || "Payment") + (stage.paidState === "due" ? " due" : "");
 
   const statusOf = (m: typeof PROJ_MILESTONES[number], i: number): { label: string; note: string; color: string } => {
     if (stage.preQuote) return m.k === "quote_sent" ? { label: "Your move", note: stage.now, color: T.amber } : { label: "Upcoming", note: "", color: T.faint };
-    if (m.k === "paid" && i <= cur) return { label: stage.paidState === "onaccount" ? "On account" : stage.paidState === "paid" ? "Paid" : "Due", note: "", color: paidColor };
+    // Invoice + Paid read their own state even beyond the current milestone —
+    // a revision can hold the spine at Approved while an invoice/payment exist.
+    if (m.k === "paid" && (i <= cur || paidAmt > 0))
+      return { label: paidFull ? "Paid" : paidPartial ? "Partially paid" : stage.paidState === "onaccount" ? "On account" : "Due", note: "", color: paidColor };
+    if (m.k === "invoice" && invoiced && i !== cur)
+      return invoiceStale ? { label: "Needs update", note: "", color: T.amber } : { label: "Done", note: "", color: T.green };
+    // Warehouse-tail segments read their own item fraction: full = done (green),
+    // partial = in progress (amber) — never green off spine position alone.
+    const tfx = tailFrac[m.k];
+    if (tfx !== undefined && tfx > 0 && i !== cur) return tfx >= 1 ? { label: "Done", note: "", color: T.green } : { label: "In progress", note: "", color: T.amber };
     if (cur >= 0 && i < cur) return { label: "Done", note: "", color: T.green };
     if (i === cur) {
       const lbl = sig === "late" ? "Late" : sig === "act" ? "Your move" : "Waiting on them";
-      const clr = sig === "late" ? T.red : sig === "act" ? T.amber : T.muted;
+      const clr = sig === "late" ? T.red : (sig === "act" || curPartial) ? T.amber : T.muted;
       return { label: lbl, note: stage.reason || stage.detail || stage.now, color: clr };
     }
     return { label: "Upcoming", note: "", color: T.faint };
@@ -72,6 +85,18 @@ export function JobStatusBar({ job, stage, items = [], payments = [], navigate =
   const paidAmt = pays.filter(p => p.status === "paid").reduce((a, p) => a + (+p.amount || 0), 0);
   const paidDate = pays.filter(p => p.status === "paid" && p.paid_date).map(p => p.paid_date).sort().pop();
   const invTotal = tm.qb_total_with_tax || cs.grossRev || 0;
+  // Per-segment truth for Invoice + Paid (Jon 2026-07-20): these render their
+  // OWN state even when the spine holds earlier (e.g. a revision reopens
+  // proofs). "Complete" is measured against the job's CURRENT value — when a
+  // job is revised upward after invoicing, the old invoice/payment no longer
+  // covers it, so both slip back to amber until re-invoiced / topped up.
+  const invoiced = !!(tm.qb_invoice_number || (job as any).invoice_sent);
+  const paidTarget = Math.max(invTotal || 0, cs.grossRev || 0);
+  const paidFull = paidAmt > 0 && paidAmt >= paidTarget - 0.005;
+  const paidPartial = paidAmt > 0 && !paidFull;
+  const invoiceStale = invoiced && (cs.grossRev || 0) > (invTotal || 0) + 0.005;
+  const paidColor = paidFull ? T.green : paidPartial ? T.amber : stage.paidState === "onaccount" ? T.blue : T.amber;
+  const paidLabel = paidFull ? "Paid" : paidPartial ? "Partially paid" : (TERMS_LABEL[(job.payment_terms || "") as string] || "Payment") + (stage.paidState === "due" ? " due" : "");
   const posSent = ((tm.po_sent_vendors || []) as any[]).length;
   const its = (items || []) as any[];
   const nItems = its.length;
@@ -81,19 +106,26 @@ export function JobStatusBar({ job, stage, items = [], payments = [], navigate =
   // "past" receiving AND shipping (it went direct), so it must count as done in
   // those tails — otherwise a mixed-route job reads as stuck at 5/6 forever.
   const isDropShipDone = (it: any) => it.shipping_route === "drop_ship" && it.pipeline_stage === "shipped";
-  const atVendor = its.filter(it => !it.pipeline_stage || it.pipeline_stage === "in_production").length;
   const received = its.filter(it => it.received_at_hpd || isDropShipDone(it)).length;
   const forwarded = its.filter(it => it.forwarded_at || isDropShipDone(it)).length;
   const entered = its.filter(it => it.webstore_entered_at).length;
-  const shipped = nItems - atVendor;
+  // ONLY an explicit "shipped" stage counts — never "anything that isn't
+  // in_production". Legacy assignment stages (e.g. blanks_ordered) used to
+  // leak through the old subtraction and read 6/6 shipped on jobs that never
+  // entered production.
+  const shipped = its.filter(it => it.pipeline_stage === "shipped").length;
   const tailFrac: Record<string, number> = nItems ? { production: shipped / nItems, receiving: received / nItems, shipping: forwarded / nItems, fulfillment: entered / nItems } : {};
 
   const peekFor = (k: string): string => {
     switch (k) {
       case "quote_sent": return stage.preQuote ? stage.now : [tm.quote_sent_at && `Sent ${fmtDT(tm.quote_sent_at)}`, cs.grossRev && `quote ${money(cs.grossRev)}`].filter(Boolean).join(" · ") || "Quote + proofs";
-      case "quote_appr": return job.quote_approved ? (job.quote_approved_at ? `Approved ${fmtDT(job.quote_approved_at)}` : "Approved by client") : "Awaiting client approval";
-      case "invoice": return tm.qb_invoice_number ? `Invoice #${tm.qb_invoice_number}${invTotal ? ` · ${money(invTotal)}` : ""}${tm.qb_invoice_created_at ? ` · sent ${fmtDT(tm.qb_invoice_created_at)}` : ""}` : "Not invoiced yet";
-      case "paid": return paidAmt > 0 ? `${money(paidAmt)} / ${money(invTotal)} paid${paidDate ? ` · ${fmtDT(paidDate)}` : ""}` : (invTotal ? `${money(invTotal)} due` : (stage.paidState === "onaccount" ? "On account" : "Unpaid"));
+      case "quote_appr": {
+        const quotePart = job.quote_approved ? (job.quote_approved_at ? `Quote approved ${fmtDT(job.quote_approved_at)}` : "Quote approved") : "Awaiting quote approval";
+        const p = stage.proofs;
+        return p ? `${quotePart} · ${p.approved}/${p.total} proofs approved` : quotePart;
+      }
+      case "invoice": return tm.qb_invoice_number ? `Invoice #${tm.qb_invoice_number}${invTotal ? ` · ${money(invTotal)}` : ""}${tm.qb_invoice_created_at ? ` · sent ${fmtDT(tm.qb_invoice_created_at)}` : ""}${invoiceStale ? ` · quote now ${money(cs.grossRev)} — needs update` : ""}` : "Not invoiced yet";
+      case "paid": return paidAmt > 0 ? `${money(paidAmt)} / ${money(paidTarget)} paid${paidDate ? ` · ${fmtDT(paidDate)}` : ""}` : (paidTarget ? `${money(paidTarget)} due` : (stage.paidState === "onaccount" ? "On account" : "Unpaid"));
       case "order": return `${posSent} PO${posSent === 1 ? "" : "s"} sent · blanks ${blanksOrdered ? "ordered" : "not ordered"}`;
       case "production": return nItems ? `${shipped}/${nItems} shipped from vendor` : "In production";
       case "receiving": return nItems ? `${received}/${nItems} received at HPD` : "Receiving";
@@ -103,9 +135,10 @@ export function JobStatusBar({ job, stage, items = [], payments = [], navigate =
     }
   };
   const segFill = (i: number) => {
-    if (!stage.preQuote && bars[i]?.k === "paid" && i <= cur) return paidColor;
+    if (!stage.preQuote && bars[i]?.k === "paid" && (i <= cur || paidAmt > 0)) return paidColor;
+    if (!stage.preQuote && bars[i]?.k === "invoice" && invoiced && i !== cur) return invoiceStale ? T.amber : T.green;
     if (!stage.preQuote && cur >= 0 && i < cur) return T.green;
-    if (!stage.preQuote && i === cur) return sig === "wait" ? T.surface : sig === "late" ? T.red : T.amber;
+    if (!stage.preQuote && i === cur) return sig === "late" ? T.red : (sig === "wait" && !curPartial) ? T.surface : T.amber;
     return T.surface;
   };
 
@@ -118,28 +151,32 @@ export function JobStatusBar({ job, stage, items = [], payments = [], navigate =
           const tf = tailFrac[m.k];
           if (!stage.preQuote && tf !== undefined) {
             const reached = i <= cur || tf > 0;
+            // Partial tail = amber fill (in progress); green ONLY at 100%.
             return <div key={m.k} style={{ ...base, background: reached ? HATCH_GREEN : "transparent", overflow: "hidden" }}>
-              {tf > 0 && <div style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: `${Math.round(tf * 100)}%`, background: T.green }} />}
+              {tf > 0 && <div style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: `${Math.round(tf * 100)}%`, background: tf >= 1 ? T.green : T.amber }} />}
             </div>;
           }
-          if (!stage.preQuote && m.k === "paid" && i <= cur) return <div key={m.k} style={{ ...base, background: paidColor }} />;
+          if (!stage.preQuote && m.k === "paid" && (i <= cur || paidAmt > 0)) return <div key={m.k} style={{ ...base, background: paidColor }} />;
+          if (!stage.preQuote && m.k === "invoice" && invoiced && i !== cur) return <div key={m.k} style={{ ...base, background: invoiceStale ? T.amber : T.green }} />;
           if (!stage.preQuote && cur >= 0 && i < cur) return <div key={m.k} style={{ ...base, background: T.green }} />;
           if (!stage.preQuote && i === cur) {
-            if (sig === "wait") return <div key={m.k} style={{ ...base, background: T.surface, boxShadow: `inset 0 0 0 1.5px ${T.faint}` }} />;
+            if (sig === "wait" && !curPartial) return <div key={m.k} style={{ ...base, background: T.surface, boxShadow: `inset 0 0 0 1.5px ${T.faint}` }} />;
             return <div key={m.k} style={{ ...base, background: sig === "late" ? T.red : T.amber }} />;
           }
           return null;
         })}
         {bars.map((m, i) => {
           if (i === 0) return null;
-          const prevFilled = !stage.preQuote && ((i - 1) < cur || ((i - 1) === cur && sig !== "wait"));
+          const prevFilled = !stage.preQuote && ((i - 1) < cur || ((i - 1) === cur && (sig !== "wait" || curPartial)));
           return <div key={"t" + m.k} style={{ position: "absolute", left: `${(i / N) * 100}%`, top: 2, bottom: 2, width: 1, zIndex: 2, background: prevFilled ? "rgba(255,255,255,.85)" : T.faint }} />;
         })}
       </div>
       {/* interaction zones — hover peek + (navigate mode) click deep-link */}
       {bars.map((m, i) => {
         const tf = tailFrac[m.k];
-        const hoverable = stage.preQuote ? m.k === "quote_sent" : (tf !== undefined ? (i <= cur || tf > 0) : i <= cur);
+        const hoverable = stage.preQuote ? m.k === "quote_sent"
+          : (tf !== undefined ? (i <= cur || tf > 0)
+          : (i <= cur || (m.k === "paid" && paidAmt > 0) || (m.k === "invoice" && invoiced)));
         const st = statusOf(m, i);
         const on = hoverable && hover === m.k;
         const tgt = STAGE_TARGET[m.k];
@@ -147,11 +184,11 @@ export function JobStatusBar({ job, stage, items = [], payments = [], navigate =
         return (
           <div key={"z" + m.k}
             onMouseEnter={hoverable ? () => { setHover(m.k); onHoverChange?.(true); } : undefined} onMouseLeave={hoverable ? () => { setHover(h => (h === m.k ? null : h)); onHoverChange?.(false); } : undefined}
-            onClick={clickable ? (e => { e.stopPropagation(); if (tgt) router.push(tgt(job)); }) : undefined}
+            onClick={clickable ? (e => { e.stopPropagation(); if (tgt) { onBeforeNavigate?.(); router.push(tgt(job)); } }) : undefined}
             style={{ position: "absolute", left: `${(i / N) * 100}%`, width: `${100 / N}%`, top: -7, bottom: -7, zIndex: 4, cursor: clickable ? "pointer" : "default" }}>
             {on && (tf !== undefined
               ? <div className="proj-chip" style={{ position: "absolute", left: 1, right: 1, top: 5, bottom: 5, borderRadius: 4, background: (i <= cur || tf > 0) ? HATCH_GREEN : T.surface, boxShadow: "0 3px 10px rgba(0,0,0,.22)", pointerEvents: "none", overflow: "hidden" }}>
-                  {tf > 0 && <div style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: `${Math.round(tf * 100)}%`, background: T.green }} />}
+                  {tf > 0 && <div style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: `${Math.round(tf * 100)}%`, background: tf >= 1 ? T.green : T.amber }} />}
                 </div>
               : <div className="proj-chip" style={{ position: "absolute", left: 1, right: 1, top: 5, bottom: 5, borderRadius: 4, background: segFill(i), boxShadow: "0 3px 10px rgba(0,0,0,.22)", pointerEvents: "none" }} />)}
             {on && (
