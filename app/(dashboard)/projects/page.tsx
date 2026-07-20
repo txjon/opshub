@@ -57,6 +57,7 @@ export default function ProjectsBoard() {
   const [stageFilter, setStageFilter] = useState("");
   const [clientFilter, setClientFilter] = useState("");
   const [sortBy, setSortBy] = useState<"due" | "invoice" | "newest">("due"); // default: first item due
+  const [unpaidOnly, setUnpaidOnly] = useState(false); // completed tab: only jobs with money outstanding
 
   useEffect(() => {
     (async () => {
@@ -105,7 +106,8 @@ export default function ProjectsBoard() {
   })), [jobs, phaseViews, proofStatus]);
 
   const clientName = (r: Row) => (r.job.clients as any)?.name || "—";
-  const clients = useMemo(() => [...new Set(rows.filter(r => !r.stage.complete).map(clientName))].sort(), [rows]);
+  // Client filter options follow the tab — completed clients aren't necessarily active ones.
+  const clients = useMemo(() => [...new Set(rows.filter(r => tab === "completed" ? r.stage.complete : !r.stage.complete).map(clientName))].sort(), [rows, tab]);
 
   const q = query.toLowerCase().trim();
   const matchQ = (r: Row) => !q || `${r.job.job_number} ${clientName(r)} ${r.job.title || ""}`.toLowerCase().includes(q);
@@ -145,8 +147,10 @@ export default function ProjectsBoard() {
 
   // Completed strips sort by close date, most recently finished first.
   const doneSorted = useMemo(() =>
-    [...done].sort((a, b) => (closedAt(b.job) || "").localeCompare(closedAt(a.job) || "")),
-  [done]);
+    [...done]
+      .filter(r => !unpaidOnly || payState(r.job).state !== "paid")
+      .sort((a, b) => (closedAt(b.job) || "").localeCompare(closedAt(a.job) || "")),
+  [done, unpaidOnly]);
 
   const kpi = (k: string) => k === "active" ? activeAll.length : k === "action" ? activeAll.filter(r => !r.stage.preQuote && (r.stage.signal === "act" || r.stage.signal === "late")).length : activeAll.filter(r => r.stage.preQuote).length;
 
@@ -183,8 +187,21 @@ export default function ProjectsBoard() {
         </>)
       ) : (
         <div style={{ marginTop: 4 }}>
+          <SliceSortRow>
+            <span style={{ fontSize: 12, color: T.muted }}>{doneSorted.length} {doneSorted.length === 1 ? "project" : "projects"}{unpaidOnly ? <> with <b style={{ color: T.text }}>money outstanding</b></> : null}</span>
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              <button onClick={() => setUnpaidOnly(u => !u)}
+                style={{ ...selStyle, background: unpaidOnly ? T.text : T.card, color: unpaidOnly ? "#fff" : T.text, border: `1px solid ${unpaidOnly ? T.text : T.border}` }}>
+                Unpaid only
+              </button>
+              <select value={clientFilter} onChange={e => setClientFilter(e.target.value)} style={selStyle}>
+                <option value="">All clients</option>
+                {clients.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+          </SliceSortRow>
           {doneSorted.map(r => <Strip key={r.job.id} r={r} thumbs={thumbs} proofStatus={proofStatus} completed onOpen={() => router.push(`/jobs/${r.job.id}`)} />)}
-          {!doneSorted.length && <div style={{ color: T.muted, fontSize: 14, padding: 40, textAlign: "center", background: T.card, border: `1px solid ${T.border}`, borderRadius: 12 }}>No completed projects match.</div>}
+          {!doneSorted.length && <div style={{ color: T.muted, fontSize: 14, padding: 40, textAlign: "center", background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, marginTop: 8 }}>No completed projects match.</div>}
         </div>
       )}
     </BoardFrame>
@@ -196,6 +213,17 @@ function closedAt(job: any): string | null {
   return (job.phase_timestamps as any)?.complete || job.updated_at || null;
 }
 const fmtStamp = (iso: string | null) => iso ? new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—";
+
+// Money state for a strip: paid against the invoice total (QB with tax, else
+// costing gross). "none" = nothing invoiced and no value to chase.
+function payState(job: any): { state: "paid" | "partial" | "unpaid" | "none"; due: number } {
+  const paid = ((job.payment_records || []) as any[]).filter(p => p.status === "paid").reduce((a, p) => a + (+p.amount || 0), 0);
+  const total = (job.type_meta as any)?.qb_total_with_tax || (job.costing_summary as any)?.grossRev || 0;
+  if (total <= 0) return { state: paid > 0 ? "paid" : "none", due: 0 };
+  const due = Math.max(0, total - paid);
+  if (paid >= total - 0.005) return { state: "paid", due: 0 };
+  return { state: paid > 0 ? "partial" : "unpaid", due };
+}
 
 // Per-item state for the peek — flat uppercase color text (v2 style).
 function itemPeekState(it: any, ps?: { state?: string }): [string, string] {
@@ -239,32 +267,42 @@ function Strip({ r, thumbs, proofStatus, completed = false, onOpen }: { r: Row; 
           {job.title && <div style={{ fontSize: 11, color: T.faint, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginTop: 2 }}>{job.title}</div>}
         </div>
         {completed ? (
-          /* Completed: the run timeline — opened ●──── N DAYS ────● closed. */
+          /* Completed: flex spacer, then a FIXED-WIDTH run block so every strip's
+             dates + rail line up in columns: payment state · opened ●─ Nd hero ─● completed. */
           (() => {
             const close = closedAt(job);
             const days = job.created_at && close ? Math.max(0, Math.floor((new Date(close).getTime() - new Date(job.created_at).getTime()) / 86400000)) : null;
+            const pay = payState(job);
+            const payClr = pay.state === "paid" ? T.green : pay.state === "partial" ? T.amber : pay.state === "unpaid" ? T.red : T.faint;
+            const payLbl = pay.state === "paid" ? "Paid" : pay.state === "partial" ? "Partially paid" : pay.state === "unpaid" ? "Unpaid" : "No invoice";
             const endLbl = (date: string | null, label: string, align: "left" | "right") => (
-              <div style={{ textAlign: align, flexShrink: 0 }}>
-                <div style={{ fontFamily: mono, fontSize: 11.5, fontWeight: 700, color: T.text }}>{fmtStamp(date)}</div>
+              <div style={{ textAlign: align, width: 52, flexShrink: 0 }}>
+                <div style={{ fontFamily: mono, fontSize: 11.5, fontWeight: 700, color: T.text, whiteSpace: "nowrap" }}>{fmtStamp(date)}</div>
                 <div style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: T.faint, marginTop: 2 }}>{label}</div>
               </div>
             );
-            return (
-              <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 12, padding: "0 6px" }}>
+            return (<>
+              <div style={{ flex: 1, minWidth: 12 }} />
+              <div style={{ width: 112, flexShrink: 0, textAlign: "right", paddingRight: 18 }}>
+                <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: ".05em", textTransform: "uppercase", color: payClr }}>{payLbl}</div>
+                {pay.due > 0 && <div style={{ fontFamily: mono, fontSize: 11, fontWeight: 700, color: payClr, marginTop: 2, fontVariantNumeric: "tabular-nums" }}>${Math.round(pay.due).toLocaleString()} due</div>}
+              </div>
+              <div style={{ width: 330, flexShrink: 0, display: "flex", alignItems: "center", gap: 10 }}>
                 {endLbl(job.created_at, "Opened", "right")}
-                <div style={{ flex: 1, position: "relative", height: 14, display: "flex", alignItems: "center" }}>
+                <div style={{ flex: 1, position: "relative", height: 16 }}>
                   <div style={{ position: "absolute", left: 0, right: 0, top: "50%", height: 2, background: T.border }} />
                   <div style={{ position: "absolute", left: 0, top: "50%", transform: "translateY(-50%)", width: 7, height: 7, borderRadius: 999, background: T.green }} />
                   <div style={{ position: "absolute", right: 0, top: "50%", transform: "translateY(-50%)", width: 7, height: 7, borderRadius: 999, background: T.green }} />
                   {days !== null && (
-                    <div style={{ position: "absolute", left: "50%", transform: "translate(-50%, -50%)", top: "50%", background: T.card, padding: "0 10px", fontFamily: mono, fontSize: 10.5, fontWeight: 800, letterSpacing: ".04em", color: T.muted, whiteSpace: "nowrap" }}>
-                      {days} {days === 1 ? "DAY" : "DAYS"}
+                    <div style={{ position: "absolute", left: "50%", top: "50%", transform: "translate(-50%, -50%)", background: T.card, padding: "0 9px", whiteSpace: "nowrap", display: "flex", alignItems: "baseline", gap: 3 }}>
+                      <span style={{ fontFamily: mono, fontSize: 13, fontWeight: 800, color: T.text, fontVariantNumeric: "tabular-nums" }}>{days}</span>
+                      <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: ".06em", textTransform: "uppercase", color: T.faint }}>{days === 1 ? "day" : "days"}</span>
                     </div>
                   )}
                 </div>
                 {endLbl(close, "Completed", "left")}
               </div>
-            );
+            </>);
           })()
         ) : (
           <JobStatusBar job={job} stage={stage} items={job.items} payments={job.payment_records} navigate onHoverChange={setRaised} />
@@ -272,7 +310,7 @@ function Strip({ r, thumbs, proofStatus, completed = false, onOpen }: { r: Row; 
         {/* Items peek toggle — overlapping mockup thumbs; click expands the panel. */}
         {items.length > 0 && (
           <button onClick={e => { e.stopPropagation(); setPeek(p => !p); }} title={peek ? "Hide items" : `Peek ${items.length} item${items.length === 1 ? "" : "s"}`}
-            style={{ display: "flex", alignItems: "center", flexShrink: 0, marginLeft: 14, padding: 0, background: "none", border: "none", cursor: "pointer" }}>
+            style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", width: 130, flexShrink: 0, marginLeft: 14, padding: 0, background: "none", border: "none", cursor: "pointer" }}>
             {items.slice(0, 4).map((it: any, i: number) => (
               <div key={it.id} style={{ width: 30, height: 30, borderRadius: 7, border: `2px solid ${peek ? T.text : T.card}`, background: T.surface, overflow: "hidden", marginLeft: i === 0 ? 0 : -9, boxShadow: "0 1px 3px rgba(0,0,0,.12)", flexShrink: 0 }}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
