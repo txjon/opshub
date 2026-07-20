@@ -47,7 +47,7 @@ export default async function ArtRequestGallery({ params }: { params: Promise<{ 
 
   const { data: job } = await sb
     .from("jobs")
-    .select("id, title, job_number, clients(name), companies:company_id(name)")
+    .select("id, title, job_number, companies:company_id(name)")
     .eq("id", (reqRow as any).job_id)
     .single();
 
@@ -76,8 +76,9 @@ export default async function ArtRequestGallery({ params }: { params: Promise<{ 
   usable.forEach((f: any) => { (byItem[f.item_id] ||= []).push(f); });
 
   const tenantName = (job as any)?.companies?.name || "House Party Distro";
-  const clientName = (job as any)?.clients?.name || "";
-  const jobLabel = (job as any)?.title || (job as any)?.job_number || "Project";
+  // Job NUMBER only — the memo/title and client name stay hidden from outside
+  // designers (matches the request email; Jon 2026-07-20).
+  const jobLabel = (job as any)?.job_number || "Project";
   const totalFiles = usable.length;
 
   const stageLabel = (s: string) =>
@@ -90,7 +91,7 @@ export default async function ArtRequestGallery({ params }: { params: Promise<{ 
         <div style={{ marginBottom: 6, fontSize: 11, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: "0.1em" }}>{tenantName}</div>
         <h1 style={{ margin: "0 0 4px", fontSize: 26, fontWeight: 800, letterSpacing: "-0.02em" }}>Art files for pricing</h1>
         <div style={{ fontSize: 15, color: C.muted, marginBottom: 20 }}>
-          {jobLabel}{clientName ? ` · ${clientName}` : ""}
+          {jobLabel}
         </div>
 
         {/* Request note */}
