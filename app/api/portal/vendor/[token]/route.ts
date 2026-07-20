@@ -261,6 +261,14 @@ export async function GET(
     const completedTotal = vendorCompletedJobs.length;
     const completedJobs = vendorCompletedJobs.slice(completedOffset, completedOffset + completedLimit);
 
+    // Deep link support (?job_id=): the order page needs its job in the payload
+    // even when it's completed and outside the current pagination window.
+    const jobIdParam = req.nextUrl.searchParams.get("job_id");
+    if (jobIdParam && !completedJobs.some((j: any) => j.id === jobIdParam)) {
+      const extra = vendorCompletedJobs.find((j: any) => j.id === jobIdParam);
+      if (extra) completedJobs.unshift(extra);
+    }
+
     // Load any missing client names for completed jobs
     const missingClientIds = (completedJobs || []).map((j: any) => j.client_id).filter((id: string) => id && !clientMap[id]);
     if (missingClientIds.length > 0) {
