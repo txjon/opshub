@@ -4,11 +4,8 @@ import { useRouter } from "next/navigation";
 import { sortSizes } from "@/lib/theme";
 import { daysUntilDay } from "@/lib/dates";
 import SizeGrid from "@/components/SizeGrid";
-import { C, fmtDate, daysUntil } from "./_shared/theme";
-import {
-  StatusPill, vendorStageFor, rollupOrderStatus,
-  type VendorState,
-} from "./_shared/StatusPill";
+import { C, fmtDate, fmtMoney, daysUntil } from "./_shared/theme";
+import { vendorStageFor, rollupOrderStatus } from "./_shared/StatusPill";
 
 // Vendor Hub — mirrors the client hub's polish (KPI strip, tabs, uppercase
 // color-text status, no pills). Clicking an order navigates to its own page
@@ -30,7 +27,7 @@ type OrderItem = {
   packingNotes: string | null; shipTracking: string | null;
   shipQtys: Record<string, number> | null; sizes: string[]; qtys: Record<string, number>;
   totalQty: number; decoLines: DecoLine[]; itemTotal: number;
-  mockupThumb: string | null; blanksOrdered: boolean;
+  mockupThumb: string | null; blanksOrdered: boolean; impressions?: number;
 };
 
 export default function VendorPortalPage({ params }: { params: { token: string } }) {
@@ -52,12 +49,16 @@ export default function VendorPortalPage({ params }: { params: { token: string }
   const [completedOffset, setCompletedOffset] = useState(0);
   const [completedSearch, setCompletedSearch] = useState("");
   const [completedLoading, setCompletedLoading] = useState(false);
+  // Initial hub load skips the (slow) completed-history scan; the Past tab
+  // lazy-loads it on first open. completed[] from the initial payload only
+  // holds this vendor's all-shipped ACTIVE jobs.
+  const [completedLoaded, setCompletedLoaded] = useState(false);
 
   useEffect(() => { loadData(); /* eslint-disable-next-line */ }, [params.token]);
 
   async function loadData() {
     try {
-      const res = await fetch(`/api/portal/vendor/${params.token}`);
+      const res = await fetch(`/api/portal/vendor/${params.token}?skip_completed=1`);
       if (!res.ok) { setError("This link is no longer valid."); return; }
       const d = await res.json();
       setData(d);
@@ -79,6 +80,7 @@ export default function VendorPortalPage({ params }: { params: { token: string }
         setCompletedOrders(prev => append ? [...prev, ...(d.completed || [])] : (d.completed || []));
         setCompletedTotal(d.completedTotal || 0);
         setCompletedOffset(offset);
+        setCompletedLoaded(true);
       }
     } catch {}
     setCompletedLoading(false);
@@ -205,7 +207,7 @@ export default function VendorPortalPage({ params }: { params: { token: string }
               <button key={t}
                 onClick={() => {
                   setTab(t);
-                  if (t === "past" && completedOrders.length === 0) loadCompleted(0, "", false);
+                  if (t === "past" && !completedLoaded) loadCompleted(0, "", false);
                 }}
                 style={{
                   padding: "8px 14px", border: "none", cursor: "pointer", background: "transparent",
@@ -305,6 +307,8 @@ function OrderRow({ order, onOpen }: { order: Order; onOpen: () => void }) {
   // noise — the work is out the door.
   const stillActive = rollup !== "shipped" && rollup !== "complete";
   const shipInfo = stillActive && order.shipDate ? daysUntil(order.shipDate) : null;
+  const letters = order.items.map(it => it.letter).filter(Boolean).join("");
+  const impressions = order.items.reduce((a, it) => a + (it.impressions || 0), 0);
 
   return (
     <button onClick={onOpen}
@@ -322,21 +326,22 @@ function OrderRow({ order, onOpen }: { order: Order; onOpen: () => void }) {
         }}>
           <span style={{ fontSize: 14, fontWeight: 700, fontFamily: C.mono }}>
             {order.jobNumber || "Order"}
+            {letters && <span style={{ fontWeight: 600, color: C.faint, marginLeft: 6, letterSpacing: "0.12em" }}>{letters}</span>}
           </span>
           <span style={{ fontSize: 12, color: C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {order.clientName}
           </span>
         </div>
-        <div style={{ fontSize: 11, color: C.faint, marginTop: 3, display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <div style={{ fontSize: 11.5, color: C.muted, marginTop: 4, display: "flex", gap: 12, flexWrap: "wrap", fontVariantNumeric: "tabular-nums" }}>
           <span>{order.items.length} item{order.items.length !== 1 ? "s" : ""}</span>
-          <span>{order.totalUnits.toLocaleString()} units</span>
-          {order.shipDate && (
-            <span>Ship {fmtDate(order.shipDate)}</span>
-          )}
+          <span><b style={{ fontFamily: C.mono }}>{order.totalUnits.toLocaleString()}</b> units</span>
+          {impressions > 0 && <span><b style={{ fontFamily: C.mono }}>{impressions.toLocaleString()}</b> impressions</span>}
+          {order.grandTotal > 0 && <span style={{ fontFamily: C.mono, fontWeight: 700, color: C.text }}>{fmtMoney(order.grandTotal)}</span>}
         </div>
       </div>
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0 }}>
-        <StatusPill status={rollup} />
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3, flexShrink: 0 }}>
+        <div style={{ fontSize: 9, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: "0.06em" }}>Ship date</div>
+        <div style={{ fontSize: 13, fontWeight: 800, fontFamily: C.mono }}>{order.shipDate ? fmtDate(order.shipDate) : "TBD"}</div>
         {shipInfo && (
           <span style={{
             fontSize: 10, fontWeight: 700, color: shipInfo.color, fontFamily: C.mono,
