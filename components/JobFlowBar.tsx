@@ -3,6 +3,7 @@
 // as the /projects list, navigate=false) over a FLAT button nav. The bar shows
 // where the job is; the buttons are the only navigation. One map each — no more
 // two competing navs. See [[jon-clean-architecture-standard]].
+import type { ReactNode } from "react";
 import { T, font } from "@/lib/theme";
 import { deriveProjectStage } from "@/lib/project-stage";
 import { JobStatusBar } from "@/components/JobStatusBar";
@@ -20,9 +21,10 @@ const NAV: [string, string][] = [
   ["po", "Purchase Order"],
 ];
 
-export function JobFlowBar({ job, items, payments, phaseView, activeTab, onBuild }: {
+export function JobFlowBar({ job, items, payments, phaseView, activeTab, onBuild, rightSlot }: {
   job: any; items: any[]; payments: any[]; phaseView: any; activeTab: string;
   onBuild: (tabKey: string) => void;
+  rightSlot?: ReactNode;
 }) {
   const stage = deriveProjectStage(job, phaseView, items || [], payments || []);
   return (
@@ -43,6 +45,8 @@ export function JobFlowBar({ job, items, payments, phaseView, activeTab, onBuild
             </button>
           );
         })}
+        {/* Far-right slot — pricing-lock status chip (job-level). */}
+        {rightSlot && <div style={{ marginLeft: "auto" }}>{rightSlot}</div>}
       </div>
     </>
   );

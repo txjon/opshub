@@ -6,6 +6,7 @@ import Link from "next/link";
 import { clientShippingRoutes } from "@/lib/tenants";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { CostingTabWrapper } from "./CostingTab";
+import { isCostingLocked, isCostingCommitted } from "@/lib/costing-lock";
 import { POTab } from "./POTab.jsx";
 import { BlanksTab } from "./BlanksTab";
 import { InvoiceSurface } from "./surfaces/InvoiceSurface";
@@ -127,7 +128,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const saveCostingRef = useRef<(() => Promise<void>) | null>(null);
   const saveBlanksRef = useRef<(() => Promise<void>) | null>(null);
   // Costing header actions — wrapper registers these so the project
-  // header can drive Pull from PSDs / Request Pricing / Lock In Pricing
+  // header can drive Pull from PSDs / Request Pricing / Unlock to revise
   // without keeping a duplicate toolbar inside the costing tab itself.
   const costingActionsRef = useRef<{pullFromPsds?: () => Promise<void>; openRfqModal?: () => void}>({});
   const [costingPull, setCostingPull] = useState<{pulling: boolean; result: string | null}>({pulling: false, result: null});
@@ -783,76 +784,8 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           ) : (
             <span style={{fontSize:isMobile?20:22,fontWeight:800,color:T.faint,letterSpacing:"-0.02em",lineHeight:1.15}}>No client</span>
           )}
-          {/* Costing actions — only relevant on Product Builder + Costing
-              tabs. Pull from PSDs and Request Pricing operate on costing
-              state, so when triggered from Builder we jump to Costing
-              first; Lock In Pricing toggles the job directly. */}
-          {(tab === "builder" || tab === "costing") && !isMobile && (() => {
-            // Archived = historic record. Lock is forced + permanent
-            // (mirrors ProductBuilder/CostingTab), so the toolbar
-            // collapses to a status label — no Pull / Request / Lock.
-            const archived = job.phase === "complete" || job.phase === "cancelled";
-            const locked = !!(job as any).type_meta?.costing_locked;
-            const ensureCosting = async () => {
-              if (tab !== "costing") {
-                await switchTab("costing");
-                await new Promise(r => setTimeout(r, 80));
-              }
-            };
-            const onPull = async () => {
-              await ensureCosting();
-              await costingActionsRef.current?.pullFromPsds?.();
-            };
-            const onRequest = async () => {
-              await ensureCosting();
-              setTimeout(() => costingActionsRef.current?.openRfqModal?.(), 40);
-            };
-            const onLock = async () => {
-              try { await saveCostingRef.current?.(); } catch {}
-              const newVal = !locked;
-              const meta = {...((job as any).type_meta || {}), costing_locked: newVal, costing_locked_at: newVal ? new Date().toISOString() : null};
-              await supabase.from("jobs").update({type_meta: meta}).eq("id", job.id);
-              setJob(j => j ? {...j, type_meta: meta} as any : j);
-            };
-            if (archived) {
-              return (
-                <div style={{marginLeft:"auto",display:"flex",flexDirection:"column",alignItems:"flex-end",lineHeight:1.2}}>
-                  <span style={{fontSize:10,fontWeight:700,color:T.green,letterSpacing:"0.06em",textTransform:"uppercase"}}>
-                    Historic record
-                  </span>
-                  <span style={{fontSize:10,color:T.muted}}>
-                    {job.phase === "cancelled" ? "Cancelled" : "Complete"} — read-only
-                  </span>
-                </div>
-              );
-            }
-            return (
-              <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-                <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",lineHeight:1.2}}>
-                  <span style={{fontSize:10,fontWeight:700,color:locked?T.green:T.amber,letterSpacing:"0.06em",textTransform:"uppercase"}}>
-                    {locked?"Pricing locked":"Pricing not locked"}
-                  </span>
-                  <span style={{fontSize:10,color:T.muted}}>
-                    {locked?"Ready to quote":"Lock in when all items are costed"}
-                  </span>
-                </div>
-                <button onClick={onPull} disabled={costingPull.pulling}
-                  style={{height:30,padding:"0 12px",borderRadius:7,fontSize:11,fontWeight:600,cursor:costingPull.pulling?"default":"pointer",background:"transparent",border:`1px solid ${T.border}`,color:T.muted,fontFamily:font,opacity:costingPull.pulling?0.6:1}}
-                  title="Re-scan items' PSD files and populate empty print locations">
-                  {costingPull.pulling ? "Pulling…" : "Pull from PSDs"}
-                </button>
-                <button onClick={onRequest}
-                  style={{height:30,padding:"0 12px",borderRadius:7,fontSize:11,fontWeight:600,cursor:"pointer",background:"transparent",border:`1px solid ${T.accent}`,color:T.accent,fontFamily:font}}
-                  title="Send a quote request to a decorator">
-                  Request Pricing
-                </button>
-                <button onClick={onLock}
-                  style={{height:30,padding:"0 14px",borderRadius:7,fontSize:11,fontWeight:700,cursor:"pointer",border:"none",fontFamily:font,background:locked?T.surface:T.green,color:locked?T.muted:"#fff"}}>
-                  {locked?"Unlock Pricing":"Lock In Pricing"}
-                </button>
-              </div>
-            );
-          })()}
+          {/* Pricing-lock status chip lives at the far right of the flow nav
+              (JobFlowBar rightSlot) now — not in the title row. */}
         </div>
 
         {/* Quiet metadata strip — single line, wraps if needed. */}
@@ -874,7 +807,52 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           gate) so the costing save contract is preserved untouched. Gates map to
           the flow tabs; the warehouse tail routes to its pages. */}
       <JobFlowBar job={job} items={items} payments={payments} phaseView={phaseView} activeTab={tab}
-        onBuild={(t) => switchTab(t)} />
+        onBuild={(t) => switchTab(t)}
+        rightSlot={isMobile ? null : (() => {
+          // Pricing-lock status — the WHOLE chip is the click target
+          // (toggles the revise override); non-interactive for draft /
+          // archived jobs. Job-level, so it shows on every tab.
+          const archived = job.phase === "complete" || job.phase === "cancelled";
+          const locked = isCostingLocked(job);
+          const committed = isCostingCommitted(job); // quote sent/approved
+          const clickable = committed && !archived;
+          const showClosed = locked || archived;
+          const onToggleRevise = async () => {
+            try { await saveCostingRef.current?.(); } catch {}
+            const unlocked = !((job as any).type_meta?.costing_unlocked);
+            const meta = {...((job as any).type_meta || {}), costing_unlocked: unlocked};
+            await supabase.from("jobs").update({type_meta: meta}).eq("id", job.id);
+            setJob(j => j ? {...j, type_meta: meta} as any : j);
+          };
+          const statusColor = archived ? T.green : (locked?T.green:(committed?T.amber:T.muted));
+          const statusLabel = archived ? "Historic record" : (locked?"Pricing locked":(committed?"Revising pricing":"Draft pricing"));
+          const statusHint  = archived
+            ? `${job.phase === "cancelled" ? "Cancelled" : "Complete"} — read-only`
+            : (locked ? "Click to unlock & revise" : (committed ? "Click to re-lock" : "Locks when you send the quote"));
+          const Chip: any = clickable ? "button" : "div";
+          return (
+            <Chip onClick={clickable ? onToggleRevise : undefined}
+              title={clickable ? (locked ? "Reopen pricing to make a revision" : "Re-lock pricing") : undefined}
+              onMouseEnter={clickable ? (e:any)=>{e.currentTarget.style.background=T.surface;} : undefined}
+              onMouseLeave={clickable ? (e:any)=>{e.currentTarget.style.background=T.card;} : undefined}
+              style={{display:"flex",alignItems:"center",gap:9,padding:"6px 12px 6px 8px",borderRadius:10,border:`1px solid ${clickable && !locked ? T.amber : T.border}`,background:T.card,boxShadow:"0 1px 2px rgba(0,0,0,0.03)",cursor:clickable?"pointer":"default",fontFamily:font,textAlign:"left",transition:"background 0.12s"}}>
+              {/* Padlock glyph — closed when locked/archived, open when draft/revising */}
+              <div style={{width:28,height:28,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",background:T.surface,flexShrink:0}}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" style={{display:"block"}}>
+                  <rect x="5" y="11" width="14" height="9" rx="2" stroke={statusColor} strokeWidth="2"/>
+                  {showClosed
+                    ? <path d="M8 11V8a4 4 0 0 1 8 0v3" stroke={statusColor} strokeWidth="2" strokeLinecap="round"/>
+                    : <path d="M8 11V8a4 4 0 0 1 7.5-1.8" stroke={statusColor} strokeWidth="2" strokeLinecap="round"/>}
+                </svg>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",lineHeight:1.25}}>
+                <span style={{fontSize:10.5,fontWeight:800,color:statusColor,letterSpacing:"0.05em",textTransform:"uppercase"}}>{statusLabel}</span>
+                <span style={{fontSize:10,color:T.muted}}>{statusHint}</span>
+              </div>
+              {clickable && <span style={{color:T.faint,fontSize:15,marginLeft:2,lineHeight:1}}>›</span>}
+            </Chip>
+          );
+        })()} />
 
       {/* ── Sidebar + Content Layout (Y axis: items | content) ── */}
       <div style={{display:"flex",gap:0,minHeight:"calc(100vh - 240px)"}}>

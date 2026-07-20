@@ -57,7 +57,8 @@ export async function updateSession(request: NextRequest) {
   // Token-gated public surfaces.
   const isTokenPublic = pathname.startsWith("/portal")
     || pathname.startsWith("/staging/share")
-    || pathname.startsWith("/design/");
+    || pathname.startsWith("/design/")
+    || pathname.startsWith("/art-request/");
   // Public marketing site — exact-match paths so we don't accidentally
   // open the dashboard's /jobs or similar. Add new marketing pages here
   // when each phase ships (Services, Work, Start, Client Portal).
