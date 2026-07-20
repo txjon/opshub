@@ -42,6 +42,7 @@ export type ProjStage = {
   reason: string;                  // blocker / next-move text
   route: string;                   // drop_ship / ship_through / stage
   paidState: PaidState;            // green (paid) / blue (net-terms on account) / amber (due)
+  proofs: { approved: number; total: number } | null; // per-item proof approvals (null = caller has no proof data)
 };
 export type PaidState = "paid" | "onaccount" | "due";
 
@@ -67,7 +68,7 @@ function preQuoteStep(job: any, items: any[]): string {
   return "Art & costing";
 }
 
-export function deriveProjectStage(job: any, phaseView: any | undefined, items: any[], payments: any[]): ProjStage {
+export function deriveProjectStage(job: any, phaseView: any | undefined, items: any[], payments: any[], proofStatus?: Record<string, { allApproved: boolean }>): ProjStage {
   const tm = job.type_meta || {};
   const route = job.shipping_route || "ship_through";
   // Use the STORED job.phase — it carries the detailed lifecycle (production /
@@ -78,11 +79,17 @@ export function deriveProjectStage(job: any, phaseView: any | undefined, items: 
   const paid = (payments || []).some((p: any) => p.status === "paid");
   const netTerms = /^net/.test((job.payment_terms || "").toLowerCase());
   const paidState: PaidState = paid ? "paid" : (netTerms ? "onaccount" : "due"); // net terms → on account (blue)
+  // Proof approvals — mirrors lib/lifecycle's gate (per-item allApproved OR the
+  // manual artwork_status override). proofStatus undefined = the caller has no
+  // proof data → gate off (never falsely hold a job on missing data).
+  const proofOk = (it: any) => !!(proofStatus?.[it.id]?.allApproved || it.artwork_status === "approved");
+  const proofs = proofStatus ? { approved: items.filter(proofOk).length, total: items.length } : null;
+  const allProofsApproved = !proofs || (proofs.total > 0 && proofs.approved === proofs.total);
   const mk = (milestone: ProjMilestone | null, now: string, signal: ProjSignal, reason = "", det = detail): ProjStage =>
-    ({ complete: false, preQuote: false, milestone, now, detail: det, signal, reason, route, paidState });
+    ({ complete: false, preQuote: false, milestone, now, detail: det, signal, reason, route, paidState, proofs });
 
   if (job.phase === "complete" || phaseKey === "complete")
-    return { complete: true, preQuote: false, milestone: null, now: "Complete", detail: "", signal: "act", reason: "", route, paidState };
+    return { complete: true, preQuote: false, milestone: null, now: "Complete", detail: "", signal: "act", reason: "", route, paidState, proofs };
 
   // ── warehouse tail: HPD's move once goods move through the building ──
   // (no overdue rule yet — needs per-phase-enter timestamps + Jon's thresholds)
@@ -104,12 +111,17 @@ export function deriveProjectStage(job: any, phaseView: any | undefined, items: 
   // Pre-quote only when the quote is neither sent NOR approved. A quote approved
   // internally (via client PO) never sets quote_sent_at — but it's still approved,
   // so it must advance past the quote stage, not read as "ready to quote".
-  if (!quoteSent && !approved) return { complete: false, preQuote: true, milestone: null, now: preQuoteStep(job, items), detail: "", signal: "act", reason: "", route, paidState };
+  if (!quoteSent && !approved) return { complete: false, preQuote: true, milestone: null, now: preQuoteStep(job, items), detail: "", signal: "act", reason: "", route, paidState, proofs };
   if (!approved) {
     const d = daysSince(tm.quote_sent_at);
     const late = d != null && d >= STALE_QUOTE_DAYS;
     return mk("quote_appr", "Approved", late ? "late" : "wait", late ? `Approval overdue · ${d}d` : "Awaiting approval", "awaiting approval");
   }
+  // "Approved" isn't complete until the PROOFS are signed off too — blanks
+  // ordering (the next milestone) is gated on proof approval in the lifecycle,
+  // so the spine must not advance past Approved while proofs are pending.
+  if (!allProofsApproved)
+    return mk("quote_appr", "Approved", "wait", `Quote approved · ${proofs!.approved}/${proofs!.total} proofs approved`, "awaiting proof approvals");
   if (!invoiceSent) return mk("invoice", "Invoice", "act", "Ready to invoice", "ready to invoice"); // HPD's move
   // Payment only BLOCKS production on prepaid/deposit terms (client's money gates
   // the work). On NET terms it's on-account — HPD orders blanks, produces, and

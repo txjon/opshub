@@ -24,6 +24,10 @@ export default function ProjectsBoard() {
   const router = useRouter();
   const [jobs, setJobs] = useState<any[]>([]);
   const [phaseViews, setPhaseViews] = useState<Map<string, any>>(new Map());
+  // Per-item proof approvals — gates the Approved milestone. undefined until
+  // loaded so deriveProjectStage's proof gate stays OFF (never flash every job
+  // back to "Approved · 0/N proofs" while the batch query is in flight).
+  const [proofStatus, setProofStatus] = useState<Record<string, { allApproved: boolean }> | undefined>(undefined);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<"active" | "completed">("active");
   const [query, setQuery] = useState("");
@@ -33,19 +37,38 @@ export default function ProjectsBoard() {
   useEffect(() => {
     (async () => {
       const { data } = await supabase.from("jobs")
-        .select("id, job_number, title, phase, shipping_route, payment_terms, quote_approved, quote_approved_at, type_meta, costing_summary, clients(name), payment_records(amount, status, paid_date), items(id, pipeline_stage, blanks_order_cost, blanks_order_number, received_at_hpd, forwarded_at, webstore_entered_at)")
+        .select("id, job_number, title, phase, shipping_route, payment_terms, quote_approved, quote_approved_at, type_meta, costing_summary, clients(name), payment_records(amount, status, paid_date), items(id, pipeline_stage, artwork_status, blanks_order_cost, blanks_order_number, received_at_hpd, forwarded_at, webstore_entered_at)")
         .not("phase", "in", "(cancelled)")
         .order("created_at", { ascending: false });
       const js = (data as any[]) || [];
       setJobs(js);
       loadJobPhasesBatch(supabase, js.filter(j => j.phase !== "complete").map(j => j.id)).then(setPhaseViews).catch(() => {});
+      // Proof approvals for the Approved milestone — one batched pass over the
+      // live (non-superseded) proof files of every active job's items, chunked
+      // to keep the .in() URL under limits. Mirrors the job-detail computation.
+      (async () => {
+        const ids = js.filter(j => j.phase !== "complete").flatMap(j => (j.items || []).map((it: any) => it.id));
+        const ps: Record<string, { allApproved: boolean }> = {};
+        for (let i = 0; i < ids.length; i += 150) {
+          const { data: files } = await supabase.from("item_files")
+            .select("item_id, approval").eq("stage", "proof").is("superseded_at", null)
+            .in("item_id", ids.slice(i, i + 150));
+          const byItem: Record<string, any[]> = {};
+          for (const f of (files || []) as any[]) (byItem[f.item_id] ||= []).push(f);
+          for (const id of ids.slice(i, i + 150)) {
+            const proofs = byItem[id] || [];
+            ps[id] = { allApproved: proofs.length > 0 && proofs.every((f: any) => f.approval === "approved") };
+          }
+        }
+        setProofStatus(ps);
+      })().catch(() => {});
       setLoading(false);
     })();
   }, []); // eslint-disable-line
 
   const rows: Row[] = useMemo(() => jobs.map(job => ({
-    job, stage: deriveProjectStage(job, phaseViews.get(job.id), job.items || [], job.payment_records || []),
-  })), [jobs, phaseViews]);
+    job, stage: deriveProjectStage(job, phaseViews.get(job.id), job.items || [], job.payment_records || [], proofStatus),
+  })), [jobs, phaseViews, proofStatus]);
 
   const clientName = (r: Row) => (r.job.clients as any)?.name || "—";
   const clients = useMemo(() => [...new Set(rows.filter(r => !r.stage.complete).map(clientName))].sort(), [rows]);
