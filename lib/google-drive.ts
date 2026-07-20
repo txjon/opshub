@@ -123,6 +123,15 @@ export async function deleteFile(fileId: string): Promise<void> {
   await drive.files.delete({ fileId });
 }
 
+// Send a file to Drive trash (recoverable ~30 days) instead of permanently
+// deleting it. Used by reference-counted item-file cleanup so that even a
+// last-reference delete can be undone — a permanent delete here once destroyed
+// shared artwork with no recovery path.
+export async function trashFile(fileId: string): Promise<void> {
+  const drive = getDrive();
+  await drive.files.update({ fileId, requestBody: { trashed: true } });
+}
+
 // Create a shortcut (alias) pointing at an existing file. Shortcuts
 // are zero-storage Drive objects whose `shortcutDetails.targetId`
 // points at the real file. Used by job duplication so re-order
