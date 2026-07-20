@@ -13,6 +13,45 @@ const admin = () =>
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
 
+// Batch-prefetch everything the per-job shaping loops need. The loops used to
+// run 3 sequential queries PER JOB (items, mockups, letter map) — ~170 round
+// trips for a busy vendor ≈ 9s. Now it's ~6 chunked queries total.
+async function prefetchJobData(sb: any, jobs: any[], decorator: any) {
+  const wantedIds: string[] = [];
+  const jobIds: string[] = [];
+  for (const job of jobs || []) {
+    const cps = (job.costing_data as any)?.costProds || [];
+    const dec = cps.filter((cp: any) => cp.printVendor === decorator.name || cp.printVendor === decorator.short_code);
+    if (dec.length) { jobIds.push(job.id); for (const cp of dec) if (cp.id) wantedIds.push(cp.id); }
+  }
+  const itemsById: Record<string, any> = {};
+  for (let i = 0; i < wantedIds.length; i += 150) {
+    const { data } = await sb.from("items")
+      .select("id, job_id, name, garment_type, blank_vendor, blank_sku, pipeline_stage, drive_link, incoming_goods, production_notes_po, packing_notes, ship_tracking, ship_qtys, blanks_order_number, blanks_order_cost, sort_order, buy_sheet_lines(size, qty_ordered)")
+      .in("id", wantedIds.slice(i, i + 150));
+    for (const it of (data || [])) itemsById[it.id] = it;
+  }
+  const mockupByItem: Record<string, string> = {};
+  for (let i = 0; i < wantedIds.length; i += 150) {
+    const { data } = await sb.from("item_files").select("item_id, drive_file_id")
+      .in("item_id", wantedIds.slice(i, i + 150)).eq("stage", "mockup")
+      .order("created_at", { ascending: false });
+    for (const f of (data || [])) if (!mockupByItem[f.item_id]) mockupByItem[f.item_id] = f.drive_file_id;
+  }
+  const lettersByJob: Record<string, Record<string, string>> = {};
+  for (let i = 0; i < jobIds.length; i += 150) {
+    const { data } = await sb.from("items").select("id, job_id, sort_order").in("job_id", jobIds.slice(i, i + 150)).order("sort_order");
+    const grouped: Record<string, any[]> = {};
+    for (const it of (data || [])) (grouped[it.job_id] ||= []).push(it);
+    for (const jid of Object.keys(grouped)) {
+      const m: Record<string, string> = {};
+      grouped[jid].forEach((it: any, idx: number) => { m[it.id] = String.fromCharCode(65 + idx); });
+      lettersByJob[jid] = m;
+    }
+  }
+  return { itemsById, mockupByItem, lettersByJob };
+}
+
 // ── GET: All active work for this decorator ──
 export async function GET(
   req: NextRequest,
@@ -42,13 +81,37 @@ export async function GET(
 
     const assignedItemIds = (assignments || []).map((a: any) => a.item_id);
 
+    // Candidate jobs SQL-side: every job that has an item assigned to this
+    // decorator. Replaces the old "load EVERY job's costing_data and filter in
+    // JS" scan that made the portal crawl as history grew. (Assignments are
+    // auto-created whenever costing maps a printVendor, so membership matches
+    // the old costProds check in practice.)
+    const candidateJobIds = new Set<string>();
+    for (let i = 0; i < assignedItemIds.length; i += 200) {
+      const { data: itemJobs } = await sb.from("items").select("job_id").in("id", assignedItemIds.slice(i, i + 200));
+      for (const r of (itemJobs || [])) if ((r as any).job_id) candidateJobIds.add((r as any).job_id);
+    }
+    const candidateIds = Array.from(candidateJobIds);
+
+    // Fast path (?job_id=): the order page needs exactly ONE order — load just
+    // that job (any phase) and skip the company-wide completed scan below.
+    // Without it this endpoint reads every job's costing_data JSONB, which
+    // grows with history and was making the portal crawl.
+    const jobIdParam = req.nextUrl.searchParams.get("job_id");
+    // Hub initial load passes skip_completed=1 — the Past tab lazy-loads its
+    // history on first open instead of paying the scan on every page view.
+    const skipCompleted = req.nextUrl.searchParams.get("skip_completed") === "1";
+
     // Also find items where costing references this decorator by name
     // We query all items from active jobs and check costing_data
-    const { data: activeJobs } = await sb
+    let activeJobsQuery = sb
       .from("jobs")
       .select("id, title, job_number, phase, target_ship_date, type_meta, client_id, costing_data, shipping_route")
-      .in("phase", ["intake", "pending", "ready", "production", "receiving", "fulfillment"])
       .order("target_ship_date", { ascending: true });
+    activeJobsQuery = jobIdParam
+      ? activeJobsQuery.eq("id", jobIdParam)
+      : activeJobsQuery.in("phase", ["intake", "pending", "ready", "production", "receiving", "fulfillment"]).in("id", candidateIds);
+    const { data: activeJobs } = jobIdParam || candidateIds.length ? await activeJobsQuery : { data: [] as any[] };
 
     // Completed pagination params
     const completedOffset = parseInt(req.nextUrl.searchParams.get("completed_offset") || "0");
@@ -66,17 +129,20 @@ export async function GET(
       clientMap = Object.fromEntries((clients || []).map((c: any) => [c.id, c.name]));
     }
 
-    // Load decorator pricing for decoration line calculations
+    // Load decorator pricing for decoration line calculations — only THIS
+    // vendor's rates are ever looked up (items here all print with them).
     const { data: allDecs } = await sb
       .from("decorators")
-      .select("name, short_code, pricing_data");
+      .select("name, short_code, pricing_data")
+      .eq("id", decorator.id);
     const printers = buildPrintersMap(allDecs || []);
 
     // For each active job, find items that belong to this decorator
     const orders: any[] = [];
     const completed: any[] = [];
+    const pre = await prefetchJobData(sb, activeJobs || [], decorator);
 
-    for (const job of activeJobs) {
+    for (const job of activeJobs || []) {
       const costingData = job.costing_data as any;
       if (!costingData?.costProds?.length) continue;
 
@@ -91,12 +157,9 @@ export async function GET(
 
       const itemIds = decItems.map((cp: any) => cp.id);
 
-      // Fetch full item data
-      const { data: items } = await sb
-        .from("items")
-        .select("id, name, garment_type, blank_vendor, blank_sku, pipeline_stage, drive_link, incoming_goods, production_notes_po, packing_notes, ship_tracking, ship_qtys, blanks_order_number, blanks_order_cost, sort_order, buy_sheet_lines(size, qty_ordered)")
-        .in("id", itemIds)
-        .order("sort_order");
+      // Item data / mockups / letters — from the batch prefetch (no per-job queries)
+      const items = itemIds.map((id: string) => pre.itemsById[id]).filter(Boolean)
+        .sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
 
       if (!items?.length) continue;
 
@@ -108,28 +171,8 @@ export async function GET(
       // Only show jobs where PO has been sent to this decorator
       if (!poSent) continue;
 
-      // Fetch mockup thumbnails for items in this order
-      const { data: mockupFiles } = await sb
-        .from("item_files")
-        .select("item_id, drive_file_id")
-        .in("item_id", itemIds)
-        .eq("stage", "mockup")
-        .order("created_at", { ascending: false });
-      const mockupByItem: Record<string, string> = {};
-      for (const f of (mockupFiles || [])) {
-        if (!mockupByItem[f.item_id]) mockupByItem[f.item_id] = f.drive_file_id;
-      }
-
-      // Get all items in this job for letter assignment (sorted by sort_order)
-      const { data: allJobItems } = await sb
-        .from("items")
-        .select("id, sort_order")
-        .eq("job_id", job.id)
-        .order("sort_order");
-      const letterMap: Record<string, string> = {};
-      (allJobItems || []).forEach((it: any, idx: number) => {
-        letterMap[it.id] = String.fromCharCode(65 + idx);
-      });
+      const mockupByItem = pre.mockupByItem;
+      const letterMap: Record<string, string> = pre.lettersByJob[job.id] || {};
 
       // Get ship-to address for this vendor
       const poShipTo = typeMeta.po_ship_to?.[decorator.name] || typeMeta.po_ship_to?.[decorator.short_code]
@@ -176,6 +219,8 @@ export async function GET(
           itemTotal,
           mockupThumb: mockupByItem[item.id] ? `/api/files/thumbnail?id=${mockupByItem[item.id]}` : null,
           blanksOrdered: (item as any).blanks_order_cost != null,
+          // impressions = units × active print locations (vendor-facing volume)
+          impressions: totalQty * Object.values((costProd?.printLocations || {}) as Record<string, any>).filter((l: any) => l?.location).length,
         };
       });
 
@@ -242,13 +287,16 @@ export async function GET(
       .from("jobs")
       .select("id, title, job_number, phase, target_ship_date, type_meta, client_id, costing_data, shipping_route")
       .in("phase", ["complete"])
+      .in("id", candidateIds)
       .order("job_number", { ascending: false });
 
     if (completedSearch) {
       allCompletedQuery = allCompletedQuery.or(`job_number.ilike.%${completedSearch}%,title.ilike.%${completedSearch}%`);
     }
 
-    const { data: allCompletedJobs } = await allCompletedQuery;
+    // job_id fast path / skip_completed: don't scan the whole completed
+    // history (every job's costing_data JSONB — the slow part of this route).
+    const { data: allCompletedJobs } = (jobIdParam || skipCompleted) ? { data: [] as any[] } : await allCompletedQuery;
 
     const vendorCompletedJobs = (allCompletedJobs || []).filter((job: any) => {
       const cps = (job.costing_data as any)?.costProds;
@@ -269,6 +317,7 @@ export async function GET(
     }
 
     const completedOrders: any[] = [];
+    const cPre = await prefetchJobData(sb, completedJobs || [], decorator);
     for (const job of (completedJobs || [])) {
       const costingData = job.costing_data as any;
       if (!costingData?.costProds?.length) continue;
@@ -279,11 +328,8 @@ export async function GET(
       if (decItems.length === 0) continue;
 
       const itemIds = decItems.map((cp: any) => cp.id);
-      const { data: cItems } = await sb
-        .from("items")
-        .select("id, name, garment_type, blank_vendor, blank_sku, pipeline_stage, drive_link, incoming_goods, production_notes_po, packing_notes, ship_tracking, ship_qtys, blanks_order_number, blanks_order_cost, sort_order, buy_sheet_lines(size, qty_ordered)")
-        .in("id", itemIds)
-        .order("sort_order");
+      const cItems = itemIds.map((id: string) => cPre.itemsById[id]).filter(Boolean)
+        .sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
 
       if (!cItems?.length) continue;
 
@@ -291,28 +337,8 @@ export async function GET(
       const poSent = (typeMeta.po_sent_vendors || []).includes(decorator.name) ||
                      (typeMeta.po_sent_vendors || []).includes(decorator.short_code);
 
-      // Fetch mockup thumbnails
-      const { data: cMockups } = await sb
-        .from("item_files")
-        .select("item_id, drive_file_id")
-        .in("item_id", itemIds)
-        .eq("stage", "mockup")
-        .order("created_at", { ascending: false });
-      const cMockupByItem: Record<string, string> = {};
-      for (const f of (cMockups || [])) {
-        if (!cMockupByItem[f.item_id]) cMockupByItem[f.item_id] = f.drive_file_id;
-      }
-
-      // Letter map
-      const { data: cAllJobItems } = await sb
-        .from("items")
-        .select("id, sort_order")
-        .eq("job_id", job.id)
-        .order("sort_order");
-      const cLetterMap: Record<string, string> = {};
-      (cAllJobItems || []).forEach((it: any, idx: number) => {
-        cLetterMap[it.id] = String.fromCharCode(65 + idx);
-      });
+      const cMockupByItem = cPre.mockupByItem;
+      const cLetterMap: Record<string, string> = cPre.lettersByJob[job.id] || {};
 
       const poShipTo = typeMeta.po_ship_to?.[decorator.name] || typeMeta.po_ship_to?.[decorator.short_code]
         || (job.shipping_route === "drop_ship" ? (typeMeta.venue_address || null) : "House Party Distro\n4670 W Silverado Ranch Blvd, STE 120\nLas Vegas, NV 89139");
@@ -353,6 +379,8 @@ export async function GET(
           itemTotal,
           mockupThumb: cMockupByItem[item.id] ? `/api/files/thumbnail?id=${cMockupByItem[item.id]}` : null,
           blanksOrdered: (item as any).blanks_order_cost != null,
+          // impressions = units × active print locations (vendor-facing volume)
+          impressions: totalQty * Object.values((costProd?.printLocations || {}) as Record<string, any>).filter((l: any) => l?.location).length,
         };
       });
 
