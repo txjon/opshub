@@ -46,13 +46,16 @@ export async function renderProofHtml(opts: {
 
   // Static mockup slot — the pre-cropped image in the same 2:1 frame the web
   // MockupFrame uses (contained). No measurement/hooks → server-renderable.
+  // 72% width (centered) on paper — full-width eats half the page height and
+  // pushes a 2-location proof onto a second sheet. Web keeps its full-width
+  // interactive MockupFrame; this slot is the PDF's only divergence.
   const mockupSlot = mockupUrl
     ? React.createElement(
         "div",
-        { style: { padding: "16px 0 12px" } },
+        { style: { padding: "10px 0 8px" } },
         React.createElement(
           "div",
-          { style: { position: "relative", width: "100%", aspectRatio: `${MOCKUP_FRAME_ASPECT}`, overflow: "hidden", borderRadius: 10, background: "#fff" } },
+          { style: { position: "relative", width: "72%", margin: "0 auto", aspectRatio: `${MOCKUP_FRAME_ASPECT}`, overflow: "hidden", borderRadius: 10, background: "#fff" } },
           React.createElement("img", { src: mockupUrl, alt: "", style: { position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain" } })
         )
       )
@@ -82,7 +85,32 @@ export async function renderProofHtml(opts: {
   html, body { margin: 0; padding: 0; }
   body { font-family: ${font}; color: #1a1a1a; -webkit-font-smoothing: antialiased; }
   img { max-width: 100%; }
-  .proof-loc-card { break-inside: avoid; }
+
+  /* ── Print fit ──────────────────────────────────────────────────────────
+     This HTML is rendered ONLY for the Letter PDF (the web proof renders
+     ProofDocBody with its own inline styles untouched). These overrides
+     tighten the layout so a typical 1–3 location proof fits one page, and
+     set pagination rules so longer proofs break cleanly — never inside a
+     card or section, never an orphaned Approval block. !important is
+     required to beat ProofDocBody's inline styles. */
+  .proof-header { padding-bottom: 8px !important; }
+  .proof-titleblock { padding: 12px 0 2px !important; }
+  .proof-title { font-size: 24px !important; }
+  .proof-sub { font-size: 12.5px !important; margin-top: 4px !important; }
+  .proof-notes { padding: 10px 14px !important; }
+  .proof-section { padding-top: 9px !important; margin-top: 12px !important; break-inside: avoid; }
+  /* The locations section may break BETWEEN cards (a 6-card grid can be
+     taller than a page — an unbreakable block would overflow). Cards
+     themselves never split. */
+  .proof-locations { break-inside: auto; }
+  .proof-loc-grid { gap: 9px !important; }
+  .proof-loc-card { break-inside: avoid; padding: 10px 12px !important; }
+  .proof-kpi { padding: 9px 12px !important; }
+  .proof-kpi-val { font-size: 15px !important; }
+  .proof-chip { padding: 7px 11px !important; min-width: 110px !important; }
+  .proof-chip-val { font-size: 12.5px !important; }
+  .proof-approval { break-before: avoid; }
+  .proof-approval-text { font-size: 9.5px !important; }
 </style></head>
 <body>${body}</body></html>`;
 }
