@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
-import { BoardFrame, ToggleSearch, KpiStrip, SliceSortRow } from "@/components/board-kit";
+import { BoardFrame, ToggleSearch, KpiStrip, SliceSortRow, ModalShell } from "@/components/board-kit";
 import { loadJobPhasesBatch } from "@/lib/item-state";
 import { deriveProjectStage, PROJ_MILESTONES, type ProjStage } from "@/lib/project-stage";
 import { JobStatusBar } from "@/components/JobStatusBar";
@@ -233,28 +233,50 @@ function Strip({ r, thumbs, proofStatus, onOpen }: { r: Row; thumbs: Record<stri
           {opened && <div style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: T.faint, marginTop: 3 }}>opened <span style={{ fontFamily: mono }}>{opened}</span></div>}
         </div>
       </div>
-      {/* Inline items peek — v2-style visual cards: thumb, name, units, state. */}
+      {/* Items peek — V2 modal (eyebrow → title → summary strip → cards → footer). */}
       {peek && (
-        <div onClick={e => e.stopPropagation()} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 8, marginTop: 10, paddingTop: 10, borderTop: `1px solid ${T.border}`, cursor: "default" }}>
-          {items.map((it: any) => {
-            const units = ((it.buy_sheet_lines || []) as any[]).reduce((a, l) => a + (Number(l.qty_ordered) || 0), 0);
-            const [lbl, clr] = itemPeekState(it, proofStatus?.[it.id]);
-            return (
-              <div key={it.id} style={{ display: "flex", alignItems: "center", gap: 10, background: T.bg, border: `1px solid ${T.border}`, borderRadius: 10, padding: "8px 10px", minWidth: 0 }}>
-                <div style={{ width: 44, height: 44, borderRadius: 8, background: T.surface, overflow: "hidden", flexShrink: 0 }}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  {thumbs[it.id] && <img src={thumbUrl(it.id, 88)} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} />}
+        <div onClick={e => e.stopPropagation()} style={{ cursor: "default" }}>
+          <ModalShell onClose={() => setPeek(false)} maxWidth={560}>
+            <div style={{ padding: "18px 22px 14px", borderBottom: `1px solid ${T.border}` }}>
+              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: T.faint, fontFamily: mono }}>{invNo} · {routeLabel[stage.route] || stage.route}</div>
+              <div style={{ fontSize: 17, fontWeight: 700, marginTop: 3 }}>{(job.clients as any)?.name || "—"}{job.title ? <span style={{ color: T.muted, fontWeight: 400 }}> · {job.title}</span> : null}</div>
+            </div>
+            <div style={{ display: "flex", gap: 26, padding: "12px 22px", background: T.surface }}>
+              {[
+                ["Items", String(items.length)],
+                ["Units", String(items.reduce((a: number, it: any) => a + ((it.buy_sheet_lines || []) as any[]).reduce((x: number, l: any) => x + (Number(l.qty_ordered) || 0), 0), 0).toLocaleString())],
+                ["First due", firstDue ? `~${fmtDay(firstDue)}` : "TBD"],
+              ].map(([k, v]) => (
+                <div key={k}>
+                  <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: T.faint }}>{k}</div>
+                  <div style={{ fontFamily: mono, fontSize: 14, fontWeight: 700, marginTop: 1, fontVariantNumeric: "tabular-nums" }}>{v}</div>
                 </div>
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{it.name || "Item"}</div>
-                  <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 3, minWidth: 0 }}>
-                    <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: ".05em", textTransform: "uppercase", color: clr, whiteSpace: "nowrap" }}>{lbl}</span>
-                    {units > 0 && <span style={{ fontFamily: mono, fontSize: 10.5, color: T.muted, fontVariantNumeric: "tabular-nums" }}>{units} u</span>}
+              ))}
+            </div>
+            <div style={{ padding: "14px 22px", display: "flex", flexDirection: "column", gap: 8, maxHeight: 420, overflowY: "auto" }}>
+              {items.map((it: any) => {
+                const units = ((it.buy_sheet_lines || []) as any[]).reduce((a, l) => a + (Number(l.qty_ordered) || 0), 0);
+                const [lbl, clr] = itemPeekState(it, proofStatus?.[it.id]);
+                return (
+                  <div key={it.id} style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+                    <div style={{ width: 52, height: 52, borderRadius: 9, background: T.surface, overflow: "hidden", flexShrink: 0, border: `1px solid ${T.border}` }}>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      {thumbs[it.id] && <img src={thumbUrl(it.id, 104)} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} />}
+                    </div>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{it.name || "Item"}</div>
+                      <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: ".05em", textTransform: "uppercase", color: clr, marginTop: 3 }}>{lbl}</div>
+                    </div>
+                    {units > 0 && <div style={{ fontFamily: mono, fontSize: 12, color: T.muted, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>{units} u</div>}
                   </div>
-                </div>
-              </div>
-            );
-          })}
+                );
+              })}
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, padding: "14px 22px", borderTop: `1px solid ${T.border}` }}>
+              <button onClick={() => setPeek(false)} style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "9px 16px", border: `1px solid ${T.border}`, background: T.card, color: T.text, cursor: "pointer", fontFamily: font }}>Close</button>
+              <button onClick={onOpen} style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "9px 18px", border: "none", background: T.text, color: "#fff", cursor: "pointer", fontFamily: font }}>Open project →</button>
+            </div>
+          </ModalShell>
         </div>
       )}
     </div>
