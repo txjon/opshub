@@ -8,7 +8,7 @@ export async function POST(req: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const { fileId, webViewLink, folderLink, fileName, mimeType, fileSize, itemId, stage, notes } = await req.json();
+    const { fileId, webViewLink, folderLink, fileName, mimeType, fileSize, itemId, stage, notes, preserveApproval } = await req.json();
 
     if (!fileId || !itemId || !stage) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
@@ -19,16 +19,27 @@ export async function POST(req: NextRequest) {
     //   delete the old Drive file. Project folder is the physical archive.
     // - mockup: delete DB row + Drive file (no history needed).
     let replacedRevision = false;
+    // preserveApproval (proof only): the caller re-baked an UNCHANGED proof
+    // purely because the PDF renderer version bumped — the client approved
+    // this exact content, so the new row inherits the old approval instead
+    // of resetting to pending (which would silently re-close lifecycle gates
+    // on mid-flight jobs).
+    let carriedApproval: string | null = null;
+    let carriedApprovedAt: string | null = null;
     if (stage === "proof") {
       const { data: existing } = await supabase
         .from("item_files")
-        .select("id, drive_file_id, approval")
+        .select("id, drive_file_id, approval, approved_at")
         .eq("item_id", itemId)
         .eq("stage", "proof")
         .is("superseded_at", null);
       const now = new Date().toISOString();
-      for (const old of (existing || [])) {
+      for (const old of (existing || []) as any[]) {
         if (old.approval === "revision_requested") replacedRevision = true;
+        if (preserveApproval && old.approval && !carriedApproval) {
+          carriedApproval = old.approval;
+          carriedApprovedAt = old.approved_at || null;
+        }
         // Mark superseded FIRST so the ref-count below doesn't count this row,
         // then delete the Drive file ONLY if no OTHER item still shares it
         // (duplicated / re-ordered items share drive_file_ids).
@@ -53,8 +64,10 @@ export async function POST(req: NextRequest) {
       drive_link: webViewLink,
       mime_type: mimeType,
       file_size: fileSize,
-      approval: stage === "proof" ? "pending" : "none",
-      revision_pending_send: replacedRevision,
+      approval: stage === "proof" ? (carriedApproval || "pending") : "none",
+      approved_at: carriedApprovedAt,
+      // A carried-forward proof has no NEW content — nothing to re-send.
+      revision_pending_send: carriedApproval ? false : replacedRevision,
       notes: notes || null,
       uploaded_by: user.id,
     }).select("*").single();
