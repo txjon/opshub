@@ -36,7 +36,7 @@ export default function ArtRequestModal({ open, onClose, project, onSent }) {
       const itemIds = (its || []).map(i => i.id);
       const [fsRes, reqRes] = await Promise.all([
         itemIds.length
-          ? sb.from("item_files").select("id, item_id, drive_file_id, file_name, stage, created_at").in("item_id", itemIds).order("created_at", { ascending: true })
+          ? sb.from("item_files").select("id, item_id, drive_file_id, file_name, stage, created_at").in("item_id", itemIds).is("superseded_at", null).order("created_at", { ascending: true })
           : Promise.resolve({ data: [] }),
         fetch(`/api/art-request?jobId=${project.id}`).then(r => r.ok ? r.json() : { requests: [] }).catch(() => ({ requests: [] })),
       ]);
