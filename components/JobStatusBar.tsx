@@ -54,12 +54,15 @@ export function JobStatusBar({ job, stage, items = [], payments = [], navigate =
   // wait stays hollow.
   const curPartial = stage.milestone === "quote_appr" && !!job.quote_approved;
   const N = bars.length;
-  const paidColor = stage.paidState === "paid" ? T.green : stage.paidState === "onaccount" ? T.blue : T.amber;
-  const paidLabel = stage.paidState === "paid" ? "Paid" : (TERMS_LABEL[(job.payment_terms || "") as string] || "Payment") + (stage.paidState === "due" ? " due" : "");
 
   const statusOf = (m: typeof PROJ_MILESTONES[number], i: number): { label: string; note: string; color: string } => {
     if (stage.preQuote) return m.k === "quote_sent" ? { label: "Your move", note: stage.now, color: T.amber } : { label: "Upcoming", note: "", color: T.faint };
-    if (m.k === "paid" && i <= cur) return { label: stage.paidState === "onaccount" ? "On account" : stage.paidState === "paid" ? "Paid" : "Due", note: "", color: paidColor };
+    // Invoice + Paid read their own state even beyond the current milestone —
+    // a revision can hold the spine at Approved while an invoice/payment exist.
+    if (m.k === "paid" && (i <= cur || paidAmt > 0))
+      return { label: paidFull ? "Paid" : paidPartial ? "Partially paid" : stage.paidState === "onaccount" ? "On account" : "Due", note: "", color: paidColor };
+    if (m.k === "invoice" && invoiced && i !== cur)
+      return invoiceStale ? { label: "Needs update", note: "", color: T.amber } : { label: "Done", note: "", color: T.green };
     // Warehouse-tail segments read their own item fraction: full = done (green),
     // partial = in progress (amber) — never green off spine position alone.
     const tfx = tailFrac[m.k];
@@ -81,6 +84,18 @@ export function JobStatusBar({ job, stage, items = [], payments = [], navigate =
   const paidAmt = pays.filter(p => p.status === "paid").reduce((a, p) => a + (+p.amount || 0), 0);
   const paidDate = pays.filter(p => p.status === "paid" && p.paid_date).map(p => p.paid_date).sort().pop();
   const invTotal = tm.qb_total_with_tax || cs.grossRev || 0;
+  // Per-segment truth for Invoice + Paid (Jon 2026-07-20): these render their
+  // OWN state even when the spine holds earlier (e.g. a revision reopens
+  // proofs). "Complete" is measured against the job's CURRENT value — when a
+  // job is revised upward after invoicing, the old invoice/payment no longer
+  // covers it, so both slip back to amber until re-invoiced / topped up.
+  const invoiced = !!(tm.qb_invoice_number || (job as any).invoice_sent);
+  const paidTarget = Math.max(invTotal || 0, cs.grossRev || 0);
+  const paidFull = paidAmt > 0 && paidAmt >= paidTarget - 0.005;
+  const paidPartial = paidAmt > 0 && !paidFull;
+  const invoiceStale = invoiced && (cs.grossRev || 0) > (invTotal || 0) + 0.005;
+  const paidColor = paidFull ? T.green : paidPartial ? T.amber : stage.paidState === "onaccount" ? T.blue : T.amber;
+  const paidLabel = paidFull ? "Paid" : paidPartial ? "Partially paid" : (TERMS_LABEL[(job.payment_terms || "") as string] || "Payment") + (stage.paidState === "due" ? " due" : "");
   const posSent = ((tm.po_sent_vendors || []) as any[]).length;
   const its = (items || []) as any[];
   const nItems = its.length;
@@ -108,8 +123,8 @@ export function JobStatusBar({ job, stage, items = [], payments = [], navigate =
         const p = stage.proofs;
         return p ? `${quotePart} · ${p.approved}/${p.total} proofs approved` : quotePart;
       }
-      case "invoice": return tm.qb_invoice_number ? `Invoice #${tm.qb_invoice_number}${invTotal ? ` · ${money(invTotal)}` : ""}${tm.qb_invoice_created_at ? ` · sent ${fmtDT(tm.qb_invoice_created_at)}` : ""}` : "Not invoiced yet";
-      case "paid": return paidAmt > 0 ? `${money(paidAmt)} / ${money(invTotal)} paid${paidDate ? ` · ${fmtDT(paidDate)}` : ""}` : (invTotal ? `${money(invTotal)} due` : (stage.paidState === "onaccount" ? "On account" : "Unpaid"));
+      case "invoice": return tm.qb_invoice_number ? `Invoice #${tm.qb_invoice_number}${invTotal ? ` · ${money(invTotal)}` : ""}${tm.qb_invoice_created_at ? ` · sent ${fmtDT(tm.qb_invoice_created_at)}` : ""}${invoiceStale ? ` · quote now ${money(cs.grossRev)} — needs update` : ""}` : "Not invoiced yet";
+      case "paid": return paidAmt > 0 ? `${money(paidAmt)} / ${money(paidTarget)} paid${paidDate ? ` · ${fmtDT(paidDate)}` : ""}` : (paidTarget ? `${money(paidTarget)} due` : (stage.paidState === "onaccount" ? "On account" : "Unpaid"));
       case "order": return `${posSent} PO${posSent === 1 ? "" : "s"} sent · blanks ${blanksOrdered ? "ordered" : "not ordered"}`;
       case "production": return nItems ? `${shipped}/${nItems} shipped from vendor` : "In production";
       case "receiving": return nItems ? `${received}/${nItems} received at HPD` : "Receiving";
@@ -119,7 +134,8 @@ export function JobStatusBar({ job, stage, items = [], payments = [], navigate =
     }
   };
   const segFill = (i: number) => {
-    if (!stage.preQuote && bars[i]?.k === "paid" && i <= cur) return paidColor;
+    if (!stage.preQuote && bars[i]?.k === "paid" && (i <= cur || paidAmt > 0)) return paidColor;
+    if (!stage.preQuote && bars[i]?.k === "invoice" && invoiced && i !== cur) return invoiceStale ? T.amber : T.green;
     if (!stage.preQuote && cur >= 0 && i < cur) return T.green;
     if (!stage.preQuote && i === cur) return sig === "late" ? T.red : (sig === "wait" && !curPartial) ? T.surface : T.amber;
     return T.surface;
@@ -139,7 +155,8 @@ export function JobStatusBar({ job, stage, items = [], payments = [], navigate =
               {tf > 0 && <div style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: `${Math.round(tf * 100)}%`, background: tf >= 1 ? T.green : T.amber }} />}
             </div>;
           }
-          if (!stage.preQuote && m.k === "paid" && i <= cur) return <div key={m.k} style={{ ...base, background: paidColor }} />;
+          if (!stage.preQuote && m.k === "paid" && (i <= cur || paidAmt > 0)) return <div key={m.k} style={{ ...base, background: paidColor }} />;
+          if (!stage.preQuote && m.k === "invoice" && invoiced && i !== cur) return <div key={m.k} style={{ ...base, background: invoiceStale ? T.amber : T.green }} />;
           if (!stage.preQuote && cur >= 0 && i < cur) return <div key={m.k} style={{ ...base, background: T.green }} />;
           if (!stage.preQuote && i === cur) {
             if (sig === "wait" && !curPartial) return <div key={m.k} style={{ ...base, background: T.surface, boxShadow: `inset 0 0 0 1.5px ${T.faint}` }} />;
@@ -156,7 +173,9 @@ export function JobStatusBar({ job, stage, items = [], payments = [], navigate =
       {/* interaction zones — hover peek + (navigate mode) click deep-link */}
       {bars.map((m, i) => {
         const tf = tailFrac[m.k];
-        const hoverable = stage.preQuote ? m.k === "quote_sent" : (tf !== undefined ? (i <= cur || tf > 0) : i <= cur);
+        const hoverable = stage.preQuote ? m.k === "quote_sent"
+          : (tf !== undefined ? (i <= cur || tf > 0)
+          : (i <= cur || (m.k === "paid" && paidAmt > 0) || (m.k === "invoice" && invoiced)));
         const st = statusOf(m, i);
         const on = hoverable && hover === m.k;
         const tgt = STAGE_TARGET[m.k];
