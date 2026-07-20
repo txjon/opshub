@@ -23,12 +23,25 @@ function itemLifecycleDone(it: any, jobRoute: string): boolean {
 
 // The board countdown target: the EARLIEST expected date among items still in
 // flight (per-item client_eta, else the job ship date — resolveEta precedence).
+// Final fallback: the earliest agreed/live vendor ship-by from the PO tab's
+// vendor chips (type_meta.po_ship_live / po_ship_dates) — most jobs carry their
+// dates THERE, not on target_ship_date, and were reading TBD without this.
+function vendorShipFallback(job: any): string | null {
+  const tm = job.type_meta || {};
+  const dates: string[] = [];
+  for (const src of [tm.po_ship_live, tm.po_ship_dates]) {
+    for (const v of Object.values(src || {})) {
+      if (typeof v === "string" && /^\d{4}-\d{2}-\d{2}/.test(v)) dates.push(v.slice(0, 10));
+    }
+  }
+  return dates.length ? dates.sort()[0] : null;
+}
 function firstItemDue(job: any): string | null {
   const dates = ((job.items || []) as any[])
     .filter(it => !itemLifecycleDone(it, job.shipping_route))
     .map(it => resolveEta({ client_eta: it.client_eta, job_target_ship_date: job.target_ship_date })?.date)
     .filter(Boolean) as string[];
-  return dates.length ? dates.sort()[0] : null;
+  return dates.length ? dates.sort()[0] : vendorShipFallback(job);
 }
 
 // Projects Board V2 — the "find the job that needs action" board, on the shared
@@ -181,9 +194,13 @@ export default function ProjectsBoard() {
   // invoice = highest invoice # first (uninvoiced last); newest = created desc.
   const active = useMemo(() => {
     const byCreated = (a: Row, b: Row) => (b.job.created_at || "").localeCompare(a.job.created_at || "");
+    // On-hold jobs always sink to the bottom — their dates aren't live, so they
+    // must never outrank working jobs in any sort mode.
+    const hold = (r: Row) => (r.job.phase === "on_hold" ? 1 : 0);
     const list = [...filtered];
     if (sortBy === "due") {
       list.sort((a, b) => {
+        if (hold(a) !== hold(b)) return hold(a) - hold(b);
         const da = firstItemDue(a.job), db = firstItemDue(b.job);
         if (da && db) return da.localeCompare(db) || byCreated(a, b);
         if (da) return -1;
@@ -193,13 +210,14 @@ export default function ProjectsBoard() {
     } else if (sortBy === "invoice") {
       const inv = (r: Row) => parseInt((r.job.type_meta as any)?.qb_invoice_number, 10);
       list.sort((a, b) => {
+        if (hold(a) !== hold(b)) return hold(a) - hold(b);
         const ia = inv(a), ib = inv(b);
         if (!isNaN(ia) && !isNaN(ib)) return ib - ia;
         if (!isNaN(ia)) return -1;
         if (!isNaN(ib)) return 1;
         return (b.job.job_number || "").localeCompare(a.job.job_number || "");
       });
-    } else list.sort(byCreated);
+    } else list.sort((a, b) => (hold(a) - hold(b)) || byCreated(a, b));
     return list;
   }, [filtered, sortBy]);
 
@@ -307,10 +325,12 @@ function Strip({ r, thumbs, proofStatus, completed = false, flash = false, onOpe
   const invNo = (job.type_meta as any)?.qb_invoice_number || job.job_number;
   const [raised, setRaised] = useState(false); // rise above sibling strips while the peek is open
   const sig = stage.signal;
-  const edgeColor = sig === "late" ? T.red : sig === "act" ? T.amber : null; // wait → no edge (recedes)
+  // On hold: dates aren't live — no countdown, no urgency edge, sinks in sort.
+  const onHold = job.phase === "on_hold";
+  const edgeColor = onHold ? null : sig === "late" ? T.red : sig === "act" ? T.amber : null; // wait → no edge (recedes)
   // Countdown = first item due to complete its lifecycle (Jon 2026-07-20) —
   // earliest resolveEta over in-flight items. "~" = estimate; unset = TBD (R5).
-  const firstDue = firstItemDue(job);
+  const firstDue = onHold ? null : firstItemDue(job);
   const cd = etaCountdown(firstDue);
   const cdColor = cd ? ({ red: T.red, amber: T.amber, muted: T.muted, green: T.green } as const)[cd.band] : T.faint;
   // created_at is a full timestamp — format via new Date(), NOT fmtDay/parseDay
@@ -385,19 +405,19 @@ function Strip({ r, thumbs, proofStatus, completed = false, flash = false, onOpe
             completed strips carry the timeline instead). */}
         {!completed && (isMobile ? (
           <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
-            <span style={{ fontFamily: mono, fontSize: 15, fontWeight: 800, color: cdColor, fontVariantNumeric: "tabular-nums" }}>{cd ? cd.text : "TBD"}</span>
+            <span style={{ fontFamily: mono, fontSize: 15, fontWeight: 800, color: onHold ? T.muted : cdColor, fontVariantNumeric: "tabular-nums" }}>{onHold ? "ON HOLD" : cd ? cd.text : "TBD"}</span>
             <span style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: T.faint }}>
-              {firstDue ? <>first item due ~<span style={{ fontFamily: mono }}>{fmtDay(firstDue)}</span></> : "no dates set"}
+              {onHold ? "dates paused" : firstDue ? <>first item due ~<span style={{ fontFamily: mono }}>{fmtDay(firstDue)}</span></> : "no dates set"}
             </span>
             {opened && <span style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: T.faint }}>opened <span style={{ fontFamily: mono }}>{opened}</span></span>}
           </div>
         ) : (
           <div style={{ width: 108, flexShrink: 0, textAlign: "right", paddingLeft: 14 }}>
-            <div style={{ fontFamily: mono, fontSize: 16, fontWeight: 800, color: cdColor, fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>
-              {cd ? cd.text : "TBD"}
+            <div style={{ fontFamily: mono, fontSize: onHold ? 12 : 16, fontWeight: 800, color: onHold ? T.muted : cdColor, fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>
+              {onHold ? "ON HOLD" : cd ? cd.text : "TBD"}
             </div>
             <div style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: T.faint, marginTop: 3 }}>
-              {firstDue ? <>first item due ~<span style={{ fontFamily: mono }}>{fmtDay(firstDue)}</span></> : "no dates set"}
+              {onHold ? "dates paused" : firstDue ? <>first item due ~<span style={{ fontFamily: mono }}>{fmtDay(firstDue)}</span></> : "no dates set"}
             </div>
             {opened && <div style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: T.faint, marginTop: 3 }}>opened <span style={{ fontFamily: mono }}>{opened}</span></div>}
           </div>
