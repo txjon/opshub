@@ -90,13 +90,14 @@ export default function VendorPortalPage({ params }: { params: { token: string }
   // Computed against active orders only — past orders are by definition
   // already shipped/complete so they don't count toward "pending" or "late".
   const kpi = useMemo(() => {
-    if (!data) return { poReceived: 0, inProduction: 0, shippingThisWeek: 0, late: 0 };
-    let poReceived = 0, inProduction = 0, shippingThisWeek = 0, late = 0;
+    if (!data) return { openPos: 0, items: 0, units: 0, impressions: 0, shippingThisWeek: 0, late: 0 };
+    let items = 0, units = 0, impressions = 0, shippingThisWeek = 0, late = 0;
     for (const o of data.orders) {
       for (const it of o.items) {
         const s = vendorStageFor(it.pipelineStage);
-        if (s === "pending") poReceived++;
-        if (s === "in_production") inProduction++;
+        items++;
+        units += it.totalQty || 0;
+        impressions += it.impressions || 0;
         if (s !== "shipped" && s !== "complete" && o.shipDate) {
           if (o.shipDate === "ASAP") {
             // ASAP counts as "shipping this week" so it shows in the
@@ -112,7 +113,7 @@ export default function VendorPortalPage({ params }: { params: { token: string }
         }
       }
     }
-    return { poReceived, inProduction, shippingThisWeek, late };
+    return { openPos: data.orders.length, items, units, impressions, shippingThisWeek, late };
   }, [data]);
 
   if (loading) return (
@@ -178,10 +179,12 @@ export default function VendorPortalPage({ params }: { params: { token: string }
         {/* KPI strip — 4 cards on desktop, single condensed card on mobile.
             Same condense pattern the client hub Items KPI uses. */}
         <div className="vendor-kpi-grid" style={{
-          display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 18,
+          display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 10, marginBottom: 18,
         }}>
-          <KpiCard label="PO Received" value={kpi.poReceived} />
-          <KpiCard label="In Production" value={kpi.inProduction} color={C.blue} />
+          <KpiCard label="Open POs" value={kpi.openPos} />
+          <KpiCard label="Items" value={kpi.items} />
+          <KpiCard label="Units" value={kpi.units} />
+          <KpiCard label="Impressions" value={kpi.impressions} />
           <KpiCard label="Shipping This Week" value={kpi.shippingThisWeek} color={kpi.shippingThisWeek > 0 ? C.amber : undefined} />
           <KpiCard label="Late" value={kpi.late} color={kpi.late > 0 ? C.red : undefined} />
         </div>
@@ -190,8 +193,10 @@ export default function VendorPortalPage({ params }: { params: { token: string }
           padding: 12, marginBottom: 16,
         }}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <CondensedKpi label="PO Received" value={kpi.poReceived} />
-            <CondensedKpi label="In Production" value={kpi.inProduction} color={C.blue} />
+            <CondensedKpi label="Open POs" value={kpi.openPos} />
+            <CondensedKpi label="Items" value={kpi.items} />
+            <CondensedKpi label="Units" value={kpi.units} />
+            <CondensedKpi label="Impressions" value={kpi.impressions} />
             <CondensedKpi label="Shipping This Week" value={kpi.shippingThisWeek} color={kpi.shippingThisWeek > 0 ? C.amber : undefined} />
             <CondensedKpi label="Late" value={kpi.late} color={kpi.late > 0 ? C.red : undefined} />
           </div>
@@ -283,8 +288,8 @@ function KpiCard({ label, value, color }: { label: string; value: number; color?
       }}>{label}</div>
       <div style={{
         fontSize: 22, fontWeight: 800, marginTop: 4, fontFamily: C.mono,
-        color: color || C.text,
-      }}>{value}</div>
+        color: color || C.text, fontVariantNumeric: "tabular-nums",
+      }}>{value.toLocaleString()}</div>
     </div>
   );
 }
@@ -293,7 +298,7 @@ function CondensedKpi({ label, value, color }: { label: string; value: number; c
   return (
     <div>
       <div style={{ fontSize: 9, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}</div>
-      <div style={{ fontSize: 18, fontWeight: 800, fontFamily: C.mono, color: color || C.text, marginTop: 2 }}>{value}</div>
+      <div style={{ fontSize: 18, fontWeight: 800, fontFamily: C.mono, color: color || C.text, marginTop: 2, fontVariantNumeric: "tabular-nums" }}>{value.toLocaleString()}</div>
     </div>
   );
 }
