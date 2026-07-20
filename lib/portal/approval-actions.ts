@@ -84,17 +84,44 @@ export async function approvePackage(sb: Sb, jobId: string, ctx: { via?: string 
   return snapshot;
 }
 
-// Record a package-level change request (free-text). No approval. Pre-approval only
-// (the portal hides this once approved).
-export async function requestChanges(sb: Sb, jobId: string, note: string): Promise<void> {
+// Record a package-level change request: one free-text note + OPTIONAL item tags
+// (Jon 2026-07-20). Tagged items get their live proofs flipped to
+// revision_requested (which drives the internal Revision states + the
+// "Send revised proofs" nudge) and their blanket internal approval cleared so
+// the lifecycle gate genuinely re-closes for them. Untagged = note applies to
+// the whole order, nothing is flipped. Never approves anything.
+export async function requestChanges(sb: Sb, jobId: string, note: string, itemIds?: string[]): Promise<void> {
   const now = new Date().toISOString();
   const { data: job } = await sb.from("jobs").select("id, type_meta").eq("id", jobId).single();
   const tm = job?.type_meta || {};
+
+  let taggedIds: string[] = [];
+  let taggedNames: string[] = [];
+  const requested = (itemIds || []).filter(Boolean);
+  if (requested.length) {
+    // Only items that actually belong to this job — the token authorizes the
+    // job, never arbitrary item ids.
+    const { data: its } = await sb.from("items").select("id, name").eq("job_id", jobId).in("id", requested);
+    taggedIds = (its || []).map((i: any) => i.id);
+    taggedNames = (its || []).map((i: any) => i.name).filter(Boolean);
+    if (taggedIds.length) {
+      // The note rides on the proof file — that's where the team's revision
+      // nudge + the ApprovalsTab revision note read from.
+      await sb.from("item_files")
+        .update({ approval: "revision_requested", notes: note || null })
+        .in("item_id", taggedIds).eq("stage", "proof").is("superseded_at", null);
+      // approvePackage blanket-set artwork_status=approved; a client revision
+      // must reopen the gate for these items (other statuses untouched).
+      await sb.from("items").update({ artwork_status: "not_started" })
+        .in("id", taggedIds).eq("artwork_status", "approved");
+    }
+  }
+
   await sb.from("jobs").update({
-    type_meta: { ...tm, change_request: { note: note || "", at: now } },
+    type_meta: { ...tm, change_request: { note: note || "", at: now, itemIds: taggedIds, itemNames: taggedNames } },
   }).eq("id", jobId);
   await sb.from("job_activity").insert({
     job_id: jobId, user_id: null, type: "auto",
-    message: `Changes requested by client via portal${note ? `: "${note}"` : ""}`,
+    message: `Changes requested by client via portal${taggedNames.length ? ` on ${taggedNames.join(", ")}` : ""}${note ? `: "${note}"` : ""}`,
   });
 }

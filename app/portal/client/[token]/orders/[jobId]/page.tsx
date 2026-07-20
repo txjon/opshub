@@ -641,7 +641,10 @@ export function OrderDetailView({ token, jobId, onClose, suppressOwnChrome }: { 
           <div style={{ marginTop: 16 }}>
             <PackageApproval c={C} approved={project.quoteApproved} approvedAt={project.quoteApprovedAt}
               changeRequest={(project as any).changeRequest} quoteTotal={quote.total}
-              terms={(project as any).terms} projectName={project.title} onAction={doAction} />
+              terms={(project as any).terms} projectName={project.title}
+              items={items.map(i => ({ id: i.id, name: i.name }))}
+              pendingReapproval={project.quoteApproved && hasProofs && !allProofsApproved}
+              onAction={doAction} />
           </div>
 
           <button

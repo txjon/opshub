@@ -486,7 +486,7 @@ export async function POST(
       return NextResponse.json({ success: true });
     }
     if (action === "request-changes") {
-      await requestChanges(sb, job.id, note);
+      await requestChanges(sb, job.id, note, body.itemIds);
       return NextResponse.json({ success: true });
     }
 
