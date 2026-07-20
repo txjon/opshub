@@ -3,7 +3,8 @@ export const maxDuration = 60;
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { getItemFolderId, uploadFile, deleteFile } from "@/lib/google-drive";
+import { getItemFolderId, uploadFile } from "@/lib/google-drive";
+import { deleteDriveFileIfUnreferenced } from "@/lib/google-drive-refs";
 
 // Upload a file
 export async function POST(req: NextRequest) {
@@ -48,8 +49,10 @@ export async function POST(req: NextRequest) {
       const now = new Date().toISOString();
       for (const old of (existing || [])) {
         if (old.approval === "revision_requested") replacedRevision = true;
-        if (old.drive_file_id) { try { await deleteFile(old.drive_file_id); } catch {} }
+        // Supersede FIRST, then delete the Drive file only if no OTHER item
+        // still references it (duplicated / re-ordered items share files).
         await supabase.from("item_files").update({ superseded_at: now }).eq("id", old.id);
+        if (old.drive_file_id) await deleteDriveFileIfUnreferenced(old.drive_file_id, old.id);
       }
     }
 
@@ -120,11 +123,11 @@ export async function GET(req: NextRequest) {
         }));
         const gone = new Set(checks.filter(c => !c.exists).map(c => c.id));
         if (gone.size > 0) {
-          // Clean up orphaned DB records
-          const orphanIds = files.filter(f => gone.has(f.drive_file_id)).map(f => f.id);
-          if (orphanIds.length > 0) {
-            await supabase.from("item_files").delete().in("id", orphanIds);
-          }
+          // Hide files whose Drive object is missing from THIS response, but do
+          // NOT delete the item_files rows. Auto-deleting on a Drive-existence
+          // check is how a shared file's disappearance permanently erased the
+          // record (and a transient Drive 404 / rate-limit could too). Keep the
+          // row; a re-upload or admin restore can re-link it.
           return NextResponse.json({ files: files.filter(f => !gone.has(f.drive_file_id)) });
         }
       } catch { /* Drive check failed — return files as-is */ }
@@ -146,9 +149,11 @@ export async function DELETE(req: NextRequest) {
     const { fileId, driveFileId } = await req.json();
     if (!fileId) return NextResponse.json({ error: "Missing fileId" }, { status: 400 });
 
-    // Delete from Google Drive
+    // Delete the Drive file only if no OTHER item_files row still references it
+    // (duplicated / re-ordered items share drive_file_ids). Exclude this row so
+    // its own reference doesn't block its deletion.
     if (driveFileId) {
-      try { await deleteFile(driveFileId); } catch (e) { /* file may already be gone */ }
+      await deleteDriveFileIfUnreferenced(driveFileId, fileId);
     }
 
     // Delete from database

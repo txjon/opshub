@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { deleteFile } from "@/lib/google-drive";
+import { deleteDriveFileIfUnreferenced } from "@/lib/google-drive-refs";
 
 export async function POST(req: NextRequest) {
   try {
@@ -29,13 +29,18 @@ export async function POST(req: NextRequest) {
       const now = new Date().toISOString();
       for (const old of (existing || [])) {
         if (old.approval === "revision_requested") replacedRevision = true;
-        if (old.drive_file_id) { try { await deleteFile(old.drive_file_id); } catch {} }
+        // Mark superseded FIRST so the ref-count below doesn't count this row,
+        // then delete the Drive file ONLY if no OTHER item still shares it
+        // (duplicated / re-ordered items share drive_file_ids).
         await supabase.from("item_files").update({ superseded_at: now }).eq("id", old.id);
+        if (old.drive_file_id) await deleteDriveFileIfUnreferenced(old.drive_file_id, old.id);
       }
     } else if (stage === "mockup") {
       const { data: existing } = await supabase.from("item_files").select("id, drive_file_id").eq("item_id", itemId).eq("stage", "mockup");
       for (const old of (existing || [])) {
-        if (old.drive_file_id) { try { await deleteFile(old.drive_file_id); } catch {} }
+        // Delete the Drive file only if no other item shares it — otherwise a
+        // new mockup on a DUPLICATE would wipe the original's mockup.
+        if (old.drive_file_id) await deleteDriveFileIfUnreferenced(old.drive_file_id, old.id);
         await supabase.from("item_files").delete().eq("id", old.id);
       }
     }
