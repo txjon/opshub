@@ -6,7 +6,8 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useConfirm } from "@/components/useConfirm";
 import { buildMockupClient, preloadTemplate, extractPrintInfoFromPsd } from "@/lib/mockup-client";
 import { uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
-import { generateProofPdfClient, deriveProofSummary, preloadLogo } from "@/lib/proof-client";
+import { deriveProofSummary, preloadLogo, PROOF_RENDERER_VERSION } from "@/lib/proof-client";
+import { computeMockupLayout, MOCKUP_FRAME_ASPECT } from "@/lib/mockup-crop";
 import ProofDocView from "@/components/ProofDocView";
 import { useClientBranding } from "@/lib/branding-client";
 import { logJobActivity } from "@/components/JobActivityPanel";
@@ -114,12 +115,12 @@ export function FileCard({ file, onDelete, onApproval, onSendToClient, stageLabe
 // per-category lists — see project_proof_category_lists.md.
 const PROOF_DEFAULTS_BY_TYPE = {
   // Apparel — fold + ink note are the standard
-  tee:        { method: "Screen Print", instructions: ["Bulk Fold", "Smooth Plastisol Ink"] },
-  crewneck:   { method: "Screen Print", instructions: ["Bulk Fold", "Smooth Plastisol Ink"] },
-  hoodie:     { method: "Screen Print", instructions: ["Bulk Fold", "Smooth Plastisol Ink"] },
-  longsleeve: { method: "Screen Print", instructions: ["Bulk Fold", "Smooth Plastisol Ink"] },
-  tank:       { method: "Screen Print", instructions: ["Bulk Fold", "Smooth Plastisol Ink"] },
-  crop:       { method: "Screen Print", instructions: ["Bulk Fold", "Smooth Plastisol Ink"] },
+  tee:        { method: "Screen Print", instructions: ["Bulk Fold"] },
+  crewneck:   { method: "Screen Print", instructions: ["Bulk Fold"] },
+  hoodie:     { method: "Screen Print", instructions: ["Bulk Fold"] },
+  longsleeve: { method: "Screen Print", instructions: ["Bulk Fold"] },
+  tank:       { method: "Screen Print", instructions: ["Bulk Fold"] },
+  crop:       { method: "Screen Print", instructions: ["Bulk Fold"] },
   jacket:     { method: "Embroidery",   instructions: ["Bulk Fold"] },
   // Headwear — embroidery default, no fold
   hat:        { method: "Embroidery",   instructions: [] },
@@ -204,7 +205,10 @@ async function parsePsdFileToInfo(fileRow) {
   const buf = await res.arrayBuffer();
   const { readPsd } = await import("ag-psd");
   const psd = readPsd(new Uint8Array(buf));
-  return extractPrintInfoFromPsd(psd);
+  // Proof spec: keep a print location even when its art layer is toggled off in
+  // the PSD (a location shouldn't vanish from a client proof over layer
+  // visibility). The mockup path calls this WITHOUT the flag.
+  return extractPrintInfoFromPsd(psd, { keepHiddenLocations: true });
 }
 
 // A PSD whose filename reads like a tag/neck-label file is treated as the tag
@@ -257,10 +261,25 @@ function activePsdFiles(files) {
   return ready.length ? ready : psds;
 }
 
-export function ProofModal({ item, clientName, projectTitle, mockupFile, files, costingData, onClose, onUpdateItem, onSaved, generateAllCounter }) {
+// Tag prints are almost always one ink (black / grey / white). Remember the
+// last ink used across proofs (localStorage) so "+ Tag" pre-colors its size
+// chips and a batch of proofs doesn't need re-coloring one size at a time.
+// Placeholder approval disclaimer — wording NOT finalized (Jon 2026-07-19).
+// Editable per proof; carried on proof_spec.disclaimer. TODO: make this a
+// company-level default once the legal wording is locked.
+const DEFAULT_DISCLAIMER = "This proof is provided for your review and approval prior to production. Please review all artwork, spelling, ink colors, print placement, and garment sizing carefully — approval authorizes production exactly as shown. Colors are reproduced as accurately as the display and printing process allow and may vary from the final printed inks; refer to Pantone references for precise color matching. Production timelines commence upon written approval, and changes requested thereafter may affect pricing and delivery.";
+
+const TAG_INK_KEY = "opshub_last_tag_ink";
+const getLastTagInk = () => { try { return (typeof localStorage !== "undefined" && localStorage.getItem(TAG_INK_KEY)) || "#000000"; } catch { return "#000000"; } };
+const setLastTagInk = (hex) => { try { if (typeof localStorage !== "undefined") localStorage.setItem(TAG_INK_KEY, hex); } catch {} };
+
+export function ProofModal({ item, clientName, projectTitle, mockupFile, files, costingData, onClose, onUpdateItem, onSaved, generateAllCounter, initialMode = "edit" }) {
   const isMobile = useIsMobile();
-  const METHODS = ["Screen Print", "DTF", "Embroidery"];
-  const INSTRUCTIONS = ["Bulk Fold", "Piece Package", "Back Design Facing Out", "Smooth Plastisol Ink"];
+  const METHODS = ["Screen Print", "Embroidery", "PVC", "DTF"];
+  // Ink/print TYPE — a child of Method (Product Spec pill), pick-list + custom.
+  const TYPE_OPTIONS = ["Water Based", "Discharge", "Thin Vintage Print", "Smooth Plastisol Ink", "Blocker Ink"];
+  // Finishing/handling chips — Smooth Plastisol Ink moved out (it's a Type now).
+  const INSTRUCTIONS = ["Bulk Fold", "Piece Package", "Back Design Facing Out"];
 
   // Auto-populate from costing data
   const costProd = (costingData?.costProds || []).find(cp => cp.id === item.id);
@@ -321,9 +340,11 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
     } else {
       instr.push("Bulk Fold");
     }
-    if (defaultMethod === "Screen Print") instr.push("Smooth Plastisol Ink");
     return instr;
   })();
+  // Smooth Plastisol Ink used to be a default finishing chip on screen-print
+  // garments; it's now the default Type (ink) instead.
+  const defaultType = defaultMethod === "Screen Print" ? "Smooth Plastisol Ink" : "";
 
   const branding = useClientBranding();
   // Ensure tenant logo is loaded for PDF generation
@@ -334,12 +355,69 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
   const [selInstructions, setSelInstructions] = useState(defaultInstructions);
   const [notes, setNotes] = useState("");
   const [previewUrl, setPreviewUrl] = useState(null);
-  const [pdfDoc, setPdfDoc] = useState(null);
-  const [generating, setGenerating] = useState(false);
+  // The proof editor is the inline document (the sidebar layout was retired
+  // 2026-07-19). previewMode strips the edit chrome = the exact client view.
+  const [previewMode, setPreviewMode] = useState(initialMode === "preview");
+  // Tracks the spec last baked to the Drive PDF, so exit/Download re-bake ONLY
+  // when the proof actually changed (view-only exit is a no-op). Assumes the
+  // loaded proof_spec already matches the Drive PDF (they save together).
+  const driveBakedSpecRef = useRef(null);
+  // Forces a re-bake on exit even when the spec is unchanged — set on load when
+  // the Drive PDF was baked with an older renderer (or never baked). Cleared
+  // after a successful bake. Keeps view-only exits of CURRENT-version proofs a
+  // no-op (so they don't reset an approved proof), while a renderer bump still
+  // reaches Drive. See PROOF_RENDERER_VERSION.
+  const forceRebakeRef = useRef(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [loadingPsd, setLoadingPsd] = useState(false);
   const [mockupDataUrl, setMockupDataUrl] = useState(null);
+  const [replacingMockup, setReplacingMockup] = useState(false);
+  // Inline mockup replace — upload a new mockup, supersede the old, update the
+  // live preview (which drives BOTH the web proof and the PDF, so it's WYSIWYG).
+  async function replaceMockupInline(file) {
+    if (!file || replacingMockup) return;
+    setReplacingMockup(true);
+    try {
+      const dataUrl = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(file); });
+      setMockupDataUrl(dataUrl); // instant preview
+      const supabase = createClient();
+      const now = new Date().toISOString();
+      const { data: old } = await supabase.from("item_files").select("id").eq("item_id", item.id).eq("stage", "mockup").is("superseded_at", null);
+      for (const m of (old || [])) await supabase.from("item_files").update({ superseded_at: now }).eq("id", m.id);
+      const driveFile = await uploadToDrive({ blob: file, fileName: file.name, mimeType: file.type, itemId: item.id, clientName, projectTitle, itemName: item.name });
+      await registerFileInDb({ ...driveFile, itemId: item.id, stage: "mockup" });
+      logJobActivity(item.job_id, `Mockup replaced for ${item.name}`);
+      if (onSaved) onSaved();
+    } catch (e) { setError("Mockup replace failed: " + (e?.message || e)); }
+    setReplacingMockup(false);
+  }
+  // Non-destructive mockup crop transform { zoom, offsetX, offsetY } (spec field).
+  const [mockupCrop, setMockupCrop] = useState(null);
+  // Bake the crop into a MOCKUP_FRAME_ASPECT canvas for the PDF (web + portal
+  // apply the SAME math via CSS in ProofDocView). Original mockup never touched.
+  const [croppedMockupUrl, setCroppedMockupUrl] = useState(null);
+  useEffect(() => {
+    if (!mockupDataUrl) { setCroppedMockupUrl(null); return; }
+    let cancelled = false;
+    const im = new Image();
+    im.onload = () => {
+      if (cancelled) return;
+      try {
+        const cw = 1200, ch = Math.round(cw / MOCKUP_FRAME_ASPECT);
+        const canvas = document.createElement("canvas");
+        canvas.width = cw; canvas.height = ch;
+        const ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, cw, ch);
+        const lay = computeMockupLayout(im.naturalWidth, im.naturalHeight, cw, ch, mockupCrop);
+        ctx.drawImage(im, lay.left, lay.top, lay.dispW, lay.dispH);
+        setCroppedMockupUrl(canvas.toDataURL("image/jpeg", 0.92));
+      } catch (e) { setCroppedMockupUrl(mockupDataUrl); }
+    };
+    im.onerror = () => { if (!cancelled) setCroppedMockupUrl(mockupDataUrl); };
+    im.src = mockupDataUrl;
+    return () => { cancelled = true; };
+  }, [mockupDataUrl, mockupCrop]);
 
   // The proof spec — single editable source for everything the PDF
   // renders below the mockup. Hydrated from items.proof_spec when
@@ -351,6 +429,11 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
   // instructions (stays live as they change); string = custom text;
   // empty string = omit the bar from the PDF.
   const [summaryOverride, setSummaryOverride] = useState(null);
+  // Manual overrides for the Product Spec count pills (null = auto-derived).
+  const [colorCountOverride, setColorCountOverride] = useState(null);
+  const [locationCountOverride, setLocationCountOverride] = useState(null);
+  const [disclaimer, setDisclaimer] = useState(DEFAULT_DISCLAIMER);
+  const [printType, setPrintType] = useState(defaultType);
   const [specLoaded, setSpecLoaded] = useState(false);
   // EyeDropper API (Chrome/Edge) — lets the swatch open the OS eyedropper
   // directly to sample a pixel (e.g. off the mockup). Detected post-mount
@@ -405,6 +488,12 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
     const psdFile = psdFiles[0]; // primary — drives the re-pull button + newness hint
     if (psdFile) setPsdFileMeta(psdFile);
 
+    // Drive freshness vs. renderer version: if the Drive PDF was baked with an
+    // older renderer (or the proof was never baked), force a re-bake on exit so
+    // the current layout reaches Drive without requiring an edit.
+    const bakedVer = item.proof_spec?.bakedRendererVersion;
+    forceRebakeRef.current = (bakedVer == null || bakedVer < PROOF_RENDERER_VERSION);
+
     const saved = item.proof_spec;
     if (saved && Array.isArray(saved.locations) && saved.locations.length > 0) {
       setSpecLocations(saved.locations.map(l => ({
@@ -415,9 +504,20 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
         specialties: Array.isArray(l.specialties) ? l.specialties : [],
       })));
       if (Array.isArray(saved.methods) && saved.methods.length > 0) setMethods(saved.methods);
-      if (Array.isArray(saved.instructions)) setSelInstructions(saved.instructions);
+      if (Array.isArray(saved.instructions)) {
+        // Migrate old proofs: any ink Type that was saved as a finishing chip
+        // (e.g. Smooth Plastisol Ink) moves out of finishing → the Type pill.
+        const typeInInstr = saved.instructions.find(x => TYPE_OPTIONS.includes(x));
+        setSelInstructions(saved.instructions.filter(x => !TYPE_OPTIONS.includes(x)));
+        if (typeInInstr && !saved.printType) setPrintType(typeInInstr);
+      }
       if (typeof saved.notes === "string") setNotes(saved.notes);
       if (typeof saved.summaryText === "string") setSummaryOverride(saved.summaryText);
+      if (typeof saved.disclaimer === "string") setDisclaimer(saved.disclaimer);
+      if (typeof saved.printType === "string") setPrintType(saved.printType);
+      if (saved.mockupCrop && typeof saved.mockupCrop === "object") setMockupCrop(saved.mockupCrop);
+      if (saved.colorCountOverride != null) setColorCountOverride(String(saved.colorCountOverride));
+      if (saved.locationCountOverride != null) setLocationCountOverride(String(saved.locationCountOverride));
       seededFromRef.current = saved.seededFrom || null;
       // Any PSD uploaded since this spec was seeded → surface a re-pull hint.
       if (saved.seededFrom?.at && psdFiles.some(f => f.created_at && new Date(f.created_at) > new Date(saved.seededFrom.at))) {
@@ -482,7 +582,11 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
     isFleece: !!spec?.isFleece,
     colorCount: kpiColors,
     locationCount: kpiLocations,
+    disclaimer,
+    printType,
+    mockupCrop,
     blankVendor: item.blank_vendor || "",
+    blankColor: item.blank_sku || "", // shirt color lives in blank_sku (no items.color column)
   });
   useEffect(() => {
     if (!specLoaded) return;
@@ -499,7 +603,7 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
     }, 800);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [specLoaded, specLocations, methods, selInstructions, notes, summaryOverride, costProd?.finishingQtys, costProd?.specialtyQtys, costProd?.isFleece]);
+  }, [specLoaded, specLocations, methods, selInstructions, notes, summaryOverride, colorCountOverride, locationCountOverride, disclaimer, printType, mockupCrop, costProd?.finishingQtys, costProd?.specialtyQtys, costProd?.isFleece]);
 
   // Immediate flush for close/save paths — the debounce above could
   // otherwise drop the last edit when the modal unmounts.
@@ -552,26 +656,19 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
   // the PDF render and the derived summary-bar text, so the sidebar
   // shows exactly the line the PDF will print.
   const buildPrintInfo = () => {
-    const activeSizes = item.qtys ? Object.keys(item.qtys).filter(sz => item.qtys[sz] > 0) : null;
-    const hasActiveSizes = activeSizes && activeSizes.length > 0;
-    const normalizeSize = (s) => {
-      const u = (s || "").toUpperCase().trim();
-      if (u === "XXL" || u === "2X") return "2XL";
-      if (u === "XXXL" || u === "3X") return "3XL";
-      if (u === "XXXXL" || u === "4X") return "4XL";
-      if (u === "XXXXXL" || u === "5X") return "5XL";
-      return u;
-    };
-    const activeSizesNorm = hasActiveSizes ? activeSizes.map(normalizeSize) : null;
+    // WYSIWYG: the PDF renders EXACTLY the edited proof locations — no re-filter.
+    // (Tag sizes used to be re-filtered to the order's active sizes here, which
+    // diverged from the web view. Tag sizes are now controlled directly by the
+    // editor: + Tag seeds them from the item's size set, then add/remove chips.)
     return (specLocations || [])
       .filter(p => (p.placement || "").trim())
-      .map(p => {
-        const isTag = (p.placement || "").toLowerCase().trim() === "tag" || (p.placement || "").toLowerCase().trim() === "tags";
-        // Tag groups carry one layer per size — only show sizes the
-        // order actually includes.
-        const colors = (isTag && activeSizesNorm) ? (p.colors || []).filter(c => activeSizesNorm.includes(normalizeSize(c.name))) : (p.colors || []);
-        return { placement: p.placement.trim(), sizeText: (p.sizeText || "").trim(), colors, callout: p.callout || "", specialties: p.specialties || [] };
-      });
+      .map(p => ({
+        placement: p.placement.trim(),
+        sizeText: (p.sizeText || "").trim(),
+        colors: p.colors || [],
+        callout: p.callout || "",
+        specialties: p.specialties || [],
+      }));
   };
   const derivedSummary = deriveProofSummary(buildPrintInfo(), selInstructions);
   const summaryText = summaryOverride !== null ? summaryOverride : derivedSummary;
@@ -580,8 +677,12 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
   // correct a count and the KPIs (and the PDF) follow. Falls back to the raw
   // proof-spec count if the summary line isn't parseable.
   const parseSummaryCount = (re) => { const m = String(summaryText || "").match(re); return m ? parseInt(m[1], 10) : null; };
-  const kpiLocations = parseSummaryCount(/(\d+)\s*locations?\b/i) ?? proofLocationCount;
-  const kpiColors = parseSummaryCount(/(\d+)\s*colors?\b/i) ?? proofColorCount;
+  // Count live from the Locations section — NOT parsed from the (now-removed)
+  // summary text, which went stale and froze the Locations pill. Locations
+  // counts EVERY card incl. tags (+ location and + tag both increment); colors
+  // stay non-tag (tags carry size chips, not ink colors).
+  const kpiLocations = specLocations.length;
+  const kpiColors = proofColorCount;
   // Active add-ons for this item come from Costing (the specialties already
   // marked on/charged). The per-location TAG lives on the proof spec; the
   // money/count stays owned by Costing — we never touch pricing here.
@@ -590,91 +691,144 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
     .map(k => k.slice(0, -3));
   const untaggedAddOns = activeSpecialties.filter(s => !taggedAddOns.has(s));
 
-  // Auto-generate preview whenever inputs change (debounced to avoid lag)
-  useEffect(() => {
-    if (!mockupDataUrl) return;
-    const timer = setTimeout(() => {
-      try {
-        const printInfo = buildPrintInfo();
-
-        const doc = generateProofPdfClient({
-          mockupDataUrl,
-          printInfo,
-          summaryText: summaryOverride === null ? undefined : summaryOverride,
-          clientName: clientName || "",
-          itemName: item.name || "",
-          blankVendor: item.blank_vendor || "",
-          blankStyle: item.blank_sku || "",
-          blankColor: item.color || "",
-          method: methods.join(", "),
-          instructions: selInstructions,
-          notes: notes.trim(),
-          // KPI + list data — mirrors the web proof view exactly.
-          finishing: [...spec.finishing, ...selInstructions],
-          addOns: untaggedAddOns,
-          fleece: spec.isFleece,
-          colorCount: kpiColors,
-          locationCount: kpiLocations,
-          tenantSlug: branding.slug,
-          tenantName: branding.name,
-        });
-
-        const pdfBlob = doc.output("blob");
-        if (previewUrl) URL.revokeObjectURL(previewUrl);
-        const url = URL.createObjectURL(pdfBlob);
-        setPreviewUrl(url);
-        setPdfDoc(doc);
-      } catch (err) {
-        setError(err.message);
-      }
-    }, 400);
-    return () => clearTimeout(timer);
-  }, [mockupDataUrl, specLocations, methods, selInstructions, notes, summaryOverride, costProd?.specialtyQtys, costProd?.finishingQtys, costProd?.isFleece]);
-
-  async function saveToDrive() {
-    if (!pdfDoc) return;
-    flushSpecSave();
-    // Close modal immediately, upload in background
-    const pdfBlob = pdfDoc.output("blob");
-    const safeName = (item.name || "Item").replace(/[^\w\s-]/g, "");
-    onClose(true);
-    // Background upload — onSaved refreshes file list when upload completes
-    (async () => {
-      try {
-        const driveFile = await uploadToDrive({
-          blob: pdfBlob,
-          fileName: `${safeName} - Product Proof.pdf`,
-          mimeType: "application/pdf",
-          itemId: item.id,
-          clientName,
-          projectTitle,
-          itemName: item.name || "",
-        });
-        await registerFileInDb({ ...driveFile, itemId: item.id, stage: "proof" });
-        logJobActivity(item.job_id, `Product proof generated for ${item.name}`);
-        if (onSaved) onSaved();
-      } catch (err) {
-        console.error("Proof upload error:", err);
-      }
-    })();
+  // THE CURE (2026-07-20): the PDF is rendered from ProofDocView (the same
+  // component as the web proof) on the server via /api/pdf/proof → Browserless.
+  // No more jsPDF second renderer — the web layout IS the PDF layout. Generated
+  // on demand (download / exit-bake), not on every keystroke, so Browserless is
+  // only hit when a PDF is actually needed. The mockup is pre-cropped to the
+  // 2:1 frame here (croppedMockupUrl) and mockupCrop is stripped server-side.
+  async function buildProofPdfBlob() {
+    const res = await fetch("/api/pdf/proof", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        spec: buildSpec(),
+        itemName: item.name || "",
+        clientName: clientName || "",
+        brandName: branding.name || "",
+        logoSvg: branding.logoSvg || "",
+        mockupUrl: croppedMockupUrl || null,
+        font, mono,
+      }),
+    });
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({}));
+      throw new Error(e.error || "PDF generation failed");
+    }
+    return await res.blob();
   }
 
-  async function handleClose() {
+  // Set once the spec is loaded — assume the Drive PDF matches the loaded spec.
+  useEffect(() => { if (specLoaded && driveBakedSpecRef.current === null) driveBakedSpecRef.current = JSON.stringify(buildSpec()); }, [specLoaded]);
+  // Bake the current live PDF into the Drive art folder (supersede-safe via the
+  // ref-counted delete). Does NOT close — exit/Download call it. One file: the
+  // Drive PDF, the client, the vendor, and Download all read this.
+  async function bakeToDrive() {
+    if (!specLoaded) return null;
+    const safeName = (item.name || "Item").replace(/[^\w\s-]/g, "");
+    const specSnap = JSON.stringify(buildSpec());
+    let pdfBlob;
+    try { pdfBlob = await buildProofPdfBlob(); }
+    catch (err) { console.error("Proof render error:", err); return null; }
+    try {
+      const driveFile = await uploadToDrive({ blob: pdfBlob, fileName: `${safeName} - Product Proof.pdf`, mimeType: "application/pdf", itemId: item.id, clientName, projectTitle, itemName: item.name || "" });
+      await registerFileInDb({ ...driveFile, itemId: item.id, stage: "proof" });
+      logJobActivity(item.job_id, `Product proof updated for ${item.name}`);
+      driveBakedSpecRef.current = specSnap;
+      forceRebakeRef.current = false;
+      // Stamp the renderer version onto proof_spec so a future layout bump
+      // re-bakes exactly once. (An edit afterward drops the stamp via autosave,
+      // which is fine — an edit makes the proof dirty and re-bakes anyway.)
+      try {
+        const stamped = { ...JSON.parse(specSnap), bakedRendererVersion: PROOF_RENDERER_VERSION };
+        await createClient().from("items").update({ proof_spec: stamped }).eq("id", item.id);
+        if (onUpdateItem) onUpdateItem(item.id, { proof_spec: stamped });
+      } catch (e) { /* stamp is best-effort */ }
+      if (onSaved) onSaved();
+      return pdfBlob;
+    } catch (err) { console.error("Proof upload error:", err); return null; }
+  }
+  // Dirty since last Drive bake. forceRebakeRef covers the "same spec, stale
+  // renderer / never baked" case; otherwise compare the spec snapshot.
+  const isDriveDirty = () => driveBakedSpecRef.current !== null && (forceRebakeRef.current || JSON.stringify(buildSpec()) !== driveBakedSpecRef.current);
+
+  // Exit IS the save: bake to Drive if the proof changed, then close. No prompt.
+  function handleClose() {
     flushSpecSave();
-    if (previewUrl) {
-      if (!await confirm({ title: "Unsaved proof", message: "Save this proof to Drive before closing?", confirmLabel: "Save & close", confirmColor: T.accent })) {
-        URL.revokeObjectURL(previewUrl);
-        onClose(false);
-        return;
-      }
-      saveToDrive();
-    } else {
-      onClose(false);
-    }
+    if (specLoaded && isDriveDirty()) bakeToDrive(); // fire-and-forget; finishes in background
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    onClose(false);
+  }
+
+  // Download = the same file that's in Drive. Bake first if there are unbaked
+  // edits (reusing that blob), so Download and Drive are provably identical.
+  const [downloading, setDownloading] = useState(false);
+  async function downloadProof() {
+    if (!specLoaded || downloading) return;
+    setDownloading(true);
+    flushSpecSave();
+    try {
+      let blob = null;
+      if (isDriveDirty()) blob = await bakeToDrive();
+      if (!blob) blob = await buildProofPdfBlob();
+      const safeName = (item.name || "Item").replace(/[^\w\s-]/g, "");
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `${safeName} - Product Proof.pdf`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e) { setError(e.message || "Download failed"); }
+    setDownloading(false);
   }
 
   const ic = { width: "100%", padding: "7px 10px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, outline: "none", fontFamily: font, boxSizing: "border-box" };
   const lbl = { fontSize: 9.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: T.muted, display: "block" };
+
+  // ── Inline editor: map ProofDocView's edit callbacks onto the SAME state +
+  // handlers the classic sidebar uses. No new data path — edits flow through
+  // setSpecLocations / setSelInstructions / etc., so the debounced proof_spec
+  // save + PDF regen are identical whichever layout you edit in.
+  const costingFinishing = (spec && Array.isArray(spec.finishing)) ? spec.finishing : [];
+  const proofEdit = {
+    setNotes,
+    methodOptions: METHODS,
+    setMethod: (v) => setMethods(v ? [v] : []),
+    finishingOptions: INSTRUCTIONS,
+    // The first N finishing entries are Costing-derived (not removable here — fix
+    // in Costing); only the chip picks after them get a delete ×.
+    costingFinishingCount: costingFinishing.length,
+    addFinishing: (v) => setSelInstructions(prev => prev.includes(v) ? prev : [...prev, v]),
+    // The doc shows [costing finishing, ...chips]; only the chip picks are removable.
+    removeFinishing: (i) => { if (i < costingFinishing.length) return; const chip = selInstructions[i - costingFinishing.length]; if (chip != null) setSelInstructions(prev => prev.filter(x => x !== chip)); },
+    updateLocation: (i, patch) => setSpecLocations(prev => prev.map((r, k) => k === i ? { ...r, ...patch } : r)),
+    addLocation: () => setSpecLocations(prev => [...prev, { placement: "", sizeText: "", colors: [], callout: "", specialties: [] }]),
+    addTag: () => { const _tagAll = (item.sizes && item.sizes.length) ? item.sizes : Object.keys(item.qtys || {}); const _tagQ = _tagAll.filter(sz => (item.qtys?.[sz] || 0) > 0); const tagSizes = _tagQ.length ? _tagQ : _tagAll; const ink = getLastTagInk(); setSpecLocations(prev => [...prev, { placement: "Tag", sizeText: "", colors: tagSizes.map(sz => ({ name: sz, hex: ink })), callout: DEFAULT_CALLOUTS["Tag"] || "", specialties: [] }]); },
+    removeLocation: (i) => setSpecLocations(prev => prev.filter((_, k) => k !== i)),
+    addColor: (i) => setSpecLocations(prev => prev.map((r, k) => k === i ? { ...r, colors: [...(r.colors || []), { name: "", hex: null }] } : r)),
+    updateColor: (i, j, patch) => setSpecLocations(prev => prev.map((r, k) => k === i ? { ...r, colors: (r.colors || []).map((c, m) => m === j ? { ...c, ...patch } : c) } : r)),
+    removeColor: (i, j) => setSpecLocations(prev => prev.map((r, k) => k === i ? { ...r, colors: (r.colors || []).filter((_, m) => m !== j) } : r)),
+    setAllInk: (i, hex) => { setSpecLocations(prev => prev.map((r, k) => k === i ? { ...r, colors: (r.colors || []).map(c => ({ ...c, hex })) } : r)); setLastTagInk(hex); },
+    setSummary: (v) => setSummaryOverride(v),
+    // Colors pill removed; Locations is now a derived sum (not editable). New
+    // Type pill = ink/print type (a child of Method), pick-list + custom.
+    typeOptions: TYPE_OPTIONS,
+    setType: setPrintType,
+    setDisclaimer,
+    // Per-location add-on picker — options come LIVE from Costing's applied
+    // specialties (activeSpecialties re-derives each render), so ticking one in
+    // Costing surfaces it here on reopen with no re-pull. Assignment (which print
+    // it belongs to) is stored per location; display-only, no pricing effect.
+    addOnOptions: activeSpecialties,
+    toggleSpecialty: (i, sp) => setSpecLocations(prev => prev.map((r, k) => k === i ? { ...r, specialties: (r.specialties || []).includes(sp) ? (r.specialties || []).filter(s => s !== sp) : [...(r.specialties || []), sp] } : r)),
+    onReplaceMockup: replaceMockupInline,
+    mockupReplacing: replacingMockup,
+    setMockupCrop,
+    resolveHex,
+  };
+  // Editor sees the effective summary (override ?? auto) so the auto text is
+  // visible + editable; Preview/client use the raw buildSpec (auto stays omitted
+  // unless committed) — so Preview matches exactly what the client gets.
+  const editorSpec = { ...buildSpec(), summaryText: summaryOverride !== null ? summaryOverride : derivedSummary };
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "#fff", zIndex: 100, display: "flex", flexDirection: "column" }}>
@@ -686,237 +840,34 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
               <span style={{ fontSize: 11, fontWeight: 600, color: T.muted, background: T.surface, padding: "3px 10px", borderRadius: 10 }}>{generateAllCounter}</span>
             )}
           </div>
-          <button onClick={handleClose} style={{ background: "none", border: "none", color: T.muted, cursor: "pointer", fontSize: 18 }}>×</button>
-        </div>
-
-        <div style={{ flex: 1, overflow: "auto", display: "flex", flexDirection: isMobile ? "column" : "row" }}>
-          <div style={{ width: isMobile ? "100%" : 400, flexShrink: 0, padding: "18px 22px", overflowY: isMobile ? "visible" : "auto", display: "flex", flexDirection: "column", gap: 18 }}>
-            {/* Method toggle buttons */}
-            <div>
-              <label style={{ ...lbl, marginBottom: 6 }}>Print Method</label>
-              <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
-                {[...METHODS, ...methods.filter(m => !METHODS.includes(m))].map(m => {
-                  const on = methods.includes(m);
-                  return (
-                    <button key={m} onClick={() => toggleMethod(m)}
-                      style={{ padding: "6px 14px", borderRadius: 6, border: `1px solid ${on ? T.accent : T.border}`, background: on ? T.accentDim : "transparent", color: on ? T.accent : T.faint, fontSize: 12, fontWeight: on ? 600 : 400, cursor: "pointer", fontFamily: font, transition: "all 0.12s" }}>
-                      {m}
-                    </button>
-                  );
-                })}
-                {addingMethod ? (
-                  <input autoFocus value={methodDraft}
-                    onChange={e => setMethodDraft(e.target.value)}
-                    onKeyDown={e => {
-                      if (e.key === "Enter") { const v = methodDraft.trim(); if (v) setMethods([v]); setMethodDraft(""); setAddingMethod(false); }
-                      if (e.key === "Escape") { setMethodDraft(""); setAddingMethod(false); }
-                    }}
-                    onBlur={() => { const v = methodDraft.trim(); if (v) setMethods([v]); setMethodDraft(""); setAddingMethod(false); }}
-                    placeholder="Method name…"
-                    style={{ ...ic, fontSize: 12, width: 140 }} />
-                ) : (
-                  <button onClick={() => setAddingMethod(true)}
-                    style={{ padding: "6px 12px", borderRadius: 6, border: `1px dashed ${T.border}`, background: "transparent", color: T.muted, fontSize: 12, fontWeight: 500, cursor: "pointer", fontFamily: font }}
-                    onMouseEnter={e => { e.currentTarget.style.color = T.text; e.currentTarget.style.borderColor = T.accent; }}
-                    onMouseLeave={e => { e.currentTarget.style.color = T.muted; e.currentTarget.style.borderColor = T.border; }}>
-                    + Custom
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Print locations — the editable proof spec. Everything
-                here is what the PDF renders; the PSD only seeds it. */}
-            <div>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                <label style={{ ...lbl }}>Locations{psdFileMeta && <span style={{ color: T.faint, fontWeight: 400 }}> · seeded from PSD</span>}</label>
-                <div style={{ display: "flex", gap: 5 }}>
-                  {psdFileMeta && (
-                    <button onClick={repullFromPsd} disabled={loadingPsd}
-                      title="Replace locations with a fresh parse of the print-ready PSD (callouts carry over)"
-                      style={{ fontSize: 10, fontWeight: 600, color: T.muted, background: "none", border: `1px solid ${T.border}`, borderRadius: 5, padding: "2px 8px", cursor: loadingPsd ? "default" : "pointer", fontFamily: font, opacity: loadingPsd ? 0.6 : 1 }}
-                      onMouseEnter={e => { e.currentTarget.style.color = T.text; e.currentTarget.style.borderColor = T.accent; }}
-                      onMouseLeave={e => { e.currentTarget.style.color = T.muted; e.currentTarget.style.borderColor = T.border; }}>
-                      {loadingPsd ? "Reading…" : "Re-pull PSD"}
-                    </button>
-                  )}
-                  <button onClick={() => setSpecLocations(prev => [...prev, { placement: "", sizeText: "", colors: [], callout: "", specialties: [] }])}
-                    style={{ fontSize: 10, fontWeight: 600, color: T.muted, background: "none", border: `1px solid ${T.border}`, borderRadius: 5, padding: "2px 8px", cursor: "pointer", fontFamily: font }}
-                    onMouseEnter={e => { e.currentTarget.style.color = T.text; e.currentTarget.style.borderColor = T.accent; }}
-                    onMouseLeave={e => { e.currentTarget.style.color = T.muted; e.currentTarget.style.borderColor = T.border; }}>
-                    + Add
-                  </button>
-                </div>
-              </div>
-              {psdNewer && (
-                <div style={{ fontSize: 10, color: T.amber, background: T.amberDim, borderRadius: 5, padding: "5px 8px", marginBottom: 6, lineHeight: 1.4 }}>
-                  A newer PSD was uploaded after these locations were seeded — Re-pull to refresh.
-                </div>
-              )}
-              {loadingPsd && specLocations.length === 0 && <div style={{ fontSize: 11, color: T.muted }}>Reading PSD print data...</div>}
-              {!loadingPsd && specLocations.length === 0 && (
-                <div style={{ fontSize: 11, color: T.faint, padding: "8px 10px", background: T.surface, borderRadius: 6, textAlign: "center" }}>
-                  Click + Add to enter a placement.
-                </div>
-              )}
-              {specLocations.map((p, idx) => {
-                const update = (patch) => setSpecLocations(prev => prev.map((row, i) => i === idx ? { ...row, ...patch } : row));
-                const updColor = (j, patch) => update({ colors: (p.colors || []).map((cc, k) => k === j ? { ...cc, ...patch } : cc) });
-                const remove = () => setSpecLocations(prev => prev.filter((_, i) => i !== idx));
-                return (
-                  <div key={idx} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, padding: "9px 11px", marginBottom: 7, display: "flex", flexDirection: "column", gap: 5 }}>
-                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                      <input value={p.placement} onChange={e => update({ placement: e.target.value })}
-                        list={`pi-placement-${idx}`} placeholder="Placement (Front, Back, Tag…)"
-                        style={{ ...ic, fontSize: 12, fontWeight: 600, flex: 1 }} />
-                      <datalist id={`pi-placement-${idx}`}>{["Front","Full Front","Back","Full Back","Left Chest","Right Chest","Left Sleeve","Right Sleeve","Hood","Pocket","Tag","Tags","Neck"].map(o => <option key={o} value={o} />)}</datalist>
-                      <input value={p.sizeText} onChange={e => update({ sizeText: e.target.value })}
-                        placeholder={`W" × H"`} title="Print size — freeform, flows to the PDF as-is"
-                        style={{ ...ic, fontSize: 11, width: 92, fontFamily: mono }} />
-                      <button onClick={remove} title="Remove placement"
-                        style={{ background: "none", border: "none", color: T.faint, cursor: "pointer", fontSize: 14, padding: "0 2px" }}
-                        onMouseEnter={e => e.currentTarget.style.color = T.red}
-                        onMouseLeave={e => e.currentTarget.style.color = T.faint}>✕</button>
-                    </div>
-                    {/* Color chips — freeform names (pantones, "Base",
-                        separations); the swatch opens a color picker. */}
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
-                      {(p.colors || []).map((c, j) => (
-                        <span key={j} style={{ display: "inline-flex", alignItems: "center", gap: 7, background: T.card, border: `1px solid ${T.border}`, borderRadius: 6, padding: "4px 8px" }}>
-                          {hasEyeDropper ? (
-                            <button title="Click to eyedrop a color"
-                              onClick={async () => {
-                                try { const res = await new window.EyeDropper().open(); if (res?.sRGBHex) updColor(j, { hex: res.sRGBHex }); } catch { /* cancelled */ }
-                              }}
-                              style={{ width: 26, height: 26, borderRadius: 6, background: c.hex || "#9aa0ae", border: `1px solid ${T.border}`, cursor: "pointer", flexShrink: 0, padding: 0 }} />
-                          ) : (
-                            <label title="Swatch color — click to pick"
-                              style={{ width: 26, height: 26, borderRadius: 6, background: c.hex || "#9aa0ae", border: `1px solid ${T.border}`, cursor: "pointer", flexShrink: 0, display: "inline-block", position: "relative", overflow: "hidden" }}>
-                              <input type="color" value={c.hex || "#9aa0ae"}
-                                onChange={e => updColor(j, { hex: e.target.value })}
-                                style={{ position: "absolute", inset: 0, opacity: 0, width: "100%", height: "100%", cursor: "pointer", border: "none", padding: 0 }} />
-                            </label>
-                          )}
-                          <input value={c.name}
-                            onChange={e => {
-                              const name = e.target.value;
-                              // Auto-resolve a swatch from recognized names
-                              // until the user explicitly picks one.
-                              const auto = !c.hex ? resolveHex(name) : null;
-                              updColor(j, auto ? { name, hex: auto } : { name });
-                            }}
-                            placeholder="Color"
-                            style={{ background: "transparent", border: "none", outline: "none", color: T.text, fontSize: 12.5, fontFamily: font, width: `${Math.min(Math.max((c.name || "").length + 1, 6), 22)}ch` }} />
-                          <button onClick={() => update({ colors: (p.colors || []).filter((_, k) => k !== j) })} title="Remove color"
-                            style={{ background: "none", border: "none", color: T.faint, cursor: "pointer", fontSize: 11, padding: 0, lineHeight: 1 }}
-                            onMouseEnter={e => e.currentTarget.style.color = T.red}
-                            onMouseLeave={e => e.currentTarget.style.color = T.faint}>×</button>
-                        </span>
-                      ))}
-                      <button onClick={() => update({ colors: [...(p.colors || []), { name: "", hex: null }] })}
-                        style={{ fontSize: 10, fontWeight: 600, color: T.muted, background: "none", border: `1px dashed ${T.border}`, borderRadius: 5, padding: "2px 8px", cursor: "pointer", fontFamily: font }}
-                        onMouseEnter={e => { e.currentTarget.style.color = T.text; e.currentTarget.style.borderColor = T.accent; }}
-                        onMouseLeave={e => { e.currentTarget.style.color = T.muted; e.currentTarget.style.borderColor = T.border; }}>
-                        + color
-                      </button>
-                    </div>
-                    <input value={p.callout || ""} onChange={e => update({ callout: e.target.value })}
-                      placeholder="Placement callout…"
-                      style={{ ...ic, fontSize: 11 }} />
-                    {/* Per-location add-ons — options come from Costing's active
-                        specialties; the tag rides on the proof spec only. */}
-                    {activeSpecialties.length > 0 && (
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
-                        <span style={{ fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.05em", marginRight: 2 }}>Add-ons</span>
-                        {activeSpecialties.map(sp => {
-                          const on = (p.specialties || []).includes(sp);
-                          return (
-                            <button key={sp}
-                              onClick={() => update({ specialties: on ? (p.specialties || []).filter(s => s !== sp) : [...(p.specialties || []), sp] })}
-                              style={{ fontSize: 10.5, fontWeight: on ? 700 : 500, color: on ? T.accent : T.muted, background: on ? T.accentDim : "transparent", border: `1px solid ${on ? T.accent : T.border}`, borderRadius: 5, padding: "2px 8px", cursor: "pointer", fontFamily: font, transition: "all 0.12s" }}>
-                              {on ? "✓ " : "+ "}{sp}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                );
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ display: "inline-flex", border: `1px solid ${T.border}`, borderRadius: 8, overflow: "hidden" }}>
+              {[["edit", "Edit"], ["preview", "Preview"]].map(([v, l]) => {
+                const on = (v === "preview") === previewMode;
+                return <button key={v} onClick={() => setPreviewMode(v === "preview")}
+                  style={{ border: "none", background: on ? T.text : "transparent", color: on ? "#fff" : T.muted, fontSize: 11, fontWeight: 600, padding: "6px 12px", cursor: "pointer", fontFamily: font }}>{l}</button>;
               })}
             </div>
-
-            {/* Special instructions toggle buttons */}
-            <div>
-              <label style={{ ...lbl, marginBottom: 6 }}>Special Instructions</label>
-              <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                {INSTRUCTIONS.map(i => {
-                  const on = selInstructions.includes(i);
-                  return (
-                    <button key={i} onClick={() => toggleInstruction(i)}
-                      style={{ padding: "6px 12px", borderRadius: 6, border: `1px solid ${on ? T.accent : T.border}`, background: on ? T.accentDim : "transparent", color: on ? T.accent : T.faint, fontSize: 11, fontWeight: on ? 600 : 400, cursor: "pointer", fontFamily: font, transition: "all 0.12s" }}>
-                      {i}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Summary bar — pre-loaded with the derived line ("2
-                locations · 6 colors · …"); typing makes it custom,
-                Auto reverts. Clearing the field omits the bar. */}
-            <div>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                <label style={{ ...lbl }}>Summary Bar{summaryOverride !== null && <span style={{ color: T.amber, fontWeight: 600 }}> · custom</span>}</label>
-                {summaryOverride !== null && (
-                  <button onClick={() => setSummaryOverride(null)}
-                    title="Revert to the auto-derived summary (updates live with locations + instructions)"
-                    style={{ fontSize: 10, fontWeight: 600, color: T.muted, background: "none", border: `1px solid ${T.border}`, borderRadius: 5, padding: "2px 8px", cursor: "pointer", fontFamily: font }}
-                    onMouseEnter={e => { e.currentTarget.style.color = T.text; e.currentTarget.style.borderColor = T.accent; }}
-                    onMouseLeave={e => { e.currentTarget.style.color = T.muted; e.currentTarget.style.borderColor = T.border; }}>
-                    ↺ Auto
-                  </button>
-                )}
-              </div>
-              <textarea value={summaryOverride !== null ? summaryOverride : derivedSummary}
-                onChange={e => setSummaryOverride(e.target.value)}
-                rows={2} placeholder="Leave empty to omit the bar"
-                style={{ ...ic, fontSize: 11, resize: "vertical", lineHeight: 1.4, color: summaryOverride !== null ? T.text : T.muted }} />
-            </div>
-
-            {/* Notes */}
-            <div>
-              <label style={{ ...lbl, marginBottom: 3 }}>Special Instructions</label>
-              <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} style={{ ...ic, resize: "vertical", lineHeight: 1.4 }} />
-            </div>
-
-            {error && <div style={{ fontSize: 11, color: T.red, padding: "6px 8px", background: T.redDim, borderRadius: 4 }}>{error}</div>}
-
-            <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
-              <button onClick={saveToDrive} disabled={saving || !pdfDoc}
-                style={{ flex: 1, padding: "8px", borderRadius: 6, border: "none", background: pdfDoc ? T.green : T.surface, color: pdfDoc ? "#fff" : T.faint, fontSize: 12, fontWeight: 600, cursor: pdfDoc ? "pointer" : "default", fontFamily: font, opacity: saving ? 0.5 : 1 }}>
-                {saving ? "Saving..." : "Save to Drive"}
+            {psdFileMeta && (
+              <button onClick={repullFromPsd} disabled={loadingPsd} title="Merge in the PSD locations (+ live costing items) — keeps your callouts & notes"
+                style={{ border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 12, fontWeight: 600, padding: "7px 12px", borderRadius: 8, cursor: loadingPsd ? "default" : "pointer", fontFamily: font, opacity: loadingPsd ? 0.6 : 1 }}>
+                {loadingPsd ? "Filling…" : "↻ Auto-fill"}
               </button>
-            </div>
-          </div>
-
-          <div style={{
-            flex: 1,
-            borderLeft: isMobile ? "none" : `1px solid ${T.border}`,
-            borderTop: isMobile ? `1px solid ${T.border}` : "none",
-            background: T.surface,
-            display: "flex", alignItems: "stretch", justifyContent: "center",
-            minHeight: isMobile ? 480 : "auto",
-          }}>
-            {/* Web-first proof view — a clean on-screen render of the same spec.
-                Fits a laptop, no PDF scrolling. The PDF still generates on Save
-                (that's the vendor's printable document). First step toward web-first. */}
-            {mockupDataUrl || specLocations.length > 0 ? (
-              <div style={{ flex: 1, minWidth: 0, width: "100%", overflowY: "auto", background: "#fff", padding: isMobile ? 16 : 28 }}>
-                <ProofDocView spec={buildSpec()} mockupUrl={mockupDataUrl} clientName={clientName} itemName={item.name} font={font} mono={mono} />
-              </div>
-            ) : (
-              <div style={{ fontSize: 11, color: T.faint, alignSelf: "center" }}>Generating preview…</div>
             )}
+            <button onClick={downloadProof} disabled={downloading || !specLoaded} title="Download this proof PDF (same file that's saved to Drive)"
+              style={{ border: `1px solid ${T.border}`, background: T.card, color: specLoaded ? T.text : T.faint, fontSize: 12, fontWeight: 600, padding: "7px 14px", borderRadius: 8, cursor: specLoaded ? "pointer" : "default", fontFamily: font, opacity: downloading ? 0.6 : 1 }}>
+              {downloading ? "Preparing…" : "Download"}
+            </button>
+            <button onClick={handleClose} title="Exit — saves the proof to Drive"
+              style={{ border: "none", background: T.text, color: "#fff", fontSize: 12, fontWeight: 700, padding: "7px 16px", borderRadius: 8, cursor: "pointer", fontFamily: font }}>Exit</button>
+          </div>
+        </div>
+
+        <div style={{ flex: 1, overflowY: "auto", background: T.surface, padding: isMobile ? 16 : "26px 20px" }}>
+          <div style={{ maxWidth: 880, margin: "0 auto", background: "#fff", border: `1px solid ${T.border}`, borderRadius: 14, padding: isMobile ? 20 : 40 }}>
+            {previewMode
+              ? <ProofDocView spec={buildSpec()} mockupUrl={mockupDataUrl} clientName={clientName} itemName={item.name} brandName={branding.name} logoSvg={branding.logoSvg} font={font} mono={mono} />
+              : <ProofDocView spec={editorSpec} edit={proofEdit} mockupUrl={mockupDataUrl} clientName={clientName} itemName={item.name} brandName={branding.name} logoSvg={branding.logoSvg} font={font} mono={mono} />}
           </div>
         </div>
       </div>

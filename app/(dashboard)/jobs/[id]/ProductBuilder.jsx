@@ -14,6 +14,8 @@ import { DriveFileLink } from "@/components/DriveFileLink";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { useClientBranding } from "@/lib/branding-client";
 import { isCutSewOnly } from "@/lib/tenants";
+import { isCostingLocked } from "@/lib/costing-lock";
+import ArtRequestModal from "@/components/ArtRequestModal";
 import { MobileBlankPicker } from "./MobileBlankPicker";
 // ItemArtSection from ArtTab is no longer rendered — removed after workflow merge
 import {
@@ -55,12 +57,13 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
   // ═══════════════════════════════════════════════════════════════
   // BUY SHEET SAVE INFRASTRUCTURE — copied verbatim from BuySheetTab
   // ═══════════════════════════════════════════════════════════════
-  // Effective lock = manual "Lock In Pricing" OR archived phase.
+  // Effective lock = DERIVED from workflow (quote sent/approved) OR archived —
+  // no manual "Lock In Pricing" flag anymore. See lib/costing-lock.ts.
   // Complete/cancelled jobs are historic records — the builder stays
   // viewable (nav unhidden in ProjectProgress) but force-locks so
   // history can't be edited. Same flag drives every gate below.
   const isArchivedJob = project?.phase === "complete" || project?.phase === "cancelled";
-  const costingLocked = !!project?.type_meta?.costing_locked || isArchivedJob;
+  const costingLocked = isCostingLocked(project);
   const [localItems, setLocalItems] = useState(null);
   const [savedSnapshot, setSavedSnapshot] = useState(JSON.stringify(items || []));
   const onSaveRef = useRef(null);
@@ -391,12 +394,17 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
   useEffect(() => { setMounted(true); }, []);
   const [expandedId, setExpandedId] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
+  // Bulk create = names only: a textarea of item names → N blank item cards
+  // (blank / sizes / costing get filled in per card afterward). A modal.
   const [showBulkCreate, setShowBulkCreate] = useState(false);
-  const BULK_SIZES = ["XS","S","M","L","XL","2XL","3XL","4XL","5XL"];
-  const bulkEmptyRow = () => ({ name: "", vendor: "", style: "", color: "", type: "tee", xs:0,s:0,m:0,l:0,xl:0,"2xl":0,"3xl":0,"4xl":0,"5xl":0 });
-  const [bulkRows, setBulkRows] = useState([bulkEmptyRow(), bulkEmptyRow(), bulkEmptyRow(), bulkEmptyRow(), bulkEmptyRow()]);
-  const [bulkSaving, setBulkSaving] = useState(false);
-  const bulkGridRef = useRef(null);
+  const [bulkNames, setBulkNames] = useState("");
+  // Bulk edit = the Quantities view: a page-swap (NOT a modal) that lays every
+  // item out as a compact row for rapid qty entry, each with its own
+  // blank-driven sizes. Reuses the detail card's qty commit + autosave path.
+  const [qtyView, setQtyView] = useState(false);
+  const [showArtReqModal, setShowArtReqModal] = useState(false);
+  // Per-item draft for the Quantities view "total → curve" field, keyed by item id.
+  const [qtyTotalDraft, setQtyTotalDraft] = useState({});
   const [showPicker, setShowPicker] = useState(false);
   const [showASColour, setShowASColour] = useState(false);
   const [showLAApparel, setShowLAApparel] = useState(false);
@@ -448,6 +456,14 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
   const [fileSummary, setFileSummary] = useState({}); // { itemId: { printReady: bool, fileCount: number, hasProof: bool } }
   const [mockupMap, setMockupMap] = useState({}); // { itemId: drive_file_id } — preloaded so thumbnail renders instantly on switch
   const [psdProcessing, setPsdProcessing] = useState(null);
+  // While an upload is in flight, warn on tab-close / refresh / back (the
+  // blocking overlay stops in-app nav; this covers browser-level exits).
+  useEffect(() => {
+    if (!psdProcessing || psdProcessing.error) return;
+    const h = (e) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", h);
+    return () => window.removeEventListener("beforeunload", h);
+  }, [psdProcessing]);
   const [distRow, setDistRow] = useState(null);
   const [distTotal, setDistTotal] = useState("");
   // EditSizesModal — opens from the size grid's "Edit sizes" button.
@@ -595,6 +611,20 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
     updateLocal((workingItems || []).map((it, i) => i !== rowIdx ? it : { ...it, qtys: dist, totalQty: Object.values(dist).reduce((a, v) => a + v, 0) }));
     setDistRow(null); setDistTotal("");
   };
+  // Quantities view: type a TOTAL for an item → auto-distribute across ITS OWN
+  // sizes by the garment-appropriate curve (waist/inseam for bottoms, else the
+  // standard curve). Reuses distribute(); writes via updateLocal so it autosaves
+  // through the canonical path. Clears the item's pending per-size buffer so the
+  // freshly distributed values render instead of stale keystrokes.
+  const applyQtyCurve = (idx, item, totalStr) => {
+    const total = parseInt(totalStr, 10);
+    const sizes = item.sizes || [];
+    if (!total || total <= 0 || sizes.length === 0) return;
+    const curve = parseSizeMatrix(sizes, null) ? WAIST_INSEAM_CURVE : (item.curve || DEFAULT_CURVE);
+    const dist = distribute(total, sizes, curve);
+    updateLocal((workingItems || []).map((it, i) => i !== idx ? it : { ...it, qtys: dist, totalQty: Object.values(dist).reduce((a, v) => a + (v || 0), 0) }));
+    setLocalQtys(prev => { const n = { ...prev }; sizes.forEach(sz => delete n[item.id + "_" + sz]); return n; });
+  };
 
   // ═══════════════════════════════════════════════════════════════
   // FILE DROP — creates items from PSDs + pairs mockup images
@@ -645,6 +675,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
 
     const supabase = createClient();
     let created = 0;
+    const failed = [];
 
     for (let g = 0; g < groupList.length; g++) {
       const group = groupList[g];
@@ -698,16 +729,22 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
           if (group.mockup) parts.push("mockup");
           logJobActivity(project.id, `Item "${itemName}" created — ${parts.join(", ") || "no files"}`);
         }
-      } catch (err) { console.error("File drop error:", err); }
+      } catch (err) { console.error("File drop error:", err); failed.push(itemName); }
     }
 
-    setPsdProcessing(null);
     // Force-save any pending edits before reloading, so sizes/qtys aren't lost
     if (isDirtyRef.current) await onSaveRef.current?.();
     // Clear local state so fresh items prop takes over
     setLocalItems(null);
     setSavedSnapshot("");
     if (onItemsChanged) onItemsChanged();
+    if (failed.length) {
+      // Keep the overlay up with an error — a partial/aborted upload must NOT
+      // look like success (the item + Drive folder are already created empty).
+      setPsdProcessing({ error: `${failed.length} upload${failed.length !== 1 ? "s" : ""} didn't finish: ${failed.join(", ")}. Those items may have empty folders — delete and re-drop.`, status: "", fileName: "", done: 0, total: 0 });
+    } else {
+      setPsdProcessing(null);
+    }
   }
 
   // Legacy single PSD processor (for backwards compat)
@@ -721,8 +758,127 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
   const isEmpty = safeItems.length === 0;
   const ic = { padding: "5px 8px", border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface, color: T.text, fontSize: 12, fontFamily: mono, outline: "none", boxSizing: "border-box" };
 
+  // ══ Quantities view — bulk-edit qtys across every item ══
+  // A page-swap (not a modal): each item is a compact row with its OWN
+  // blank-driven sizes. Inputs reuse the detail card's commit/autosave
+  // (getLocalQty/setLocalQty/commitQty), keyed by item INDEX so the arrow/Tab
+  // nav walks the whole list. No new write path — same debounced save.
+  if (qtyView) {
+    return (
+      <div style={{ fontFamily: font, color: T.text, display: "flex", flexDirection: "column", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingBottom: 10, borderBottom: `1px solid ${T.border}` }}>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 800 }}>Quantities</div>
+            <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>Enter quantities, or type a total on the right to auto-fill by size curve. Arrow / Tab move between cells. Saves automatically.</div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+            <div style={{ textAlign: "right" }}>
+              <div style={{ fontSize: 18, fontWeight: 800, fontFamily: mono }}>{grandTotal.toLocaleString()}</div>
+              <div style={{ fontSize: 9, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em" }}>total units</div>
+            </div>
+            <button onClick={() => setQtyView(false)}
+              style={{ background: T.text, color: "#fff", border: "none", borderRadius: 8, padding: "9px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: font }}>Done</button>
+          </div>
+        </div>
+
+        {safeItems.length === 0 && <div style={{ padding: 30, textAlign: "center", color: T.faint, fontSize: 13 }}>No items yet.</div>}
+
+        {safeItems.map((item, idx) => {
+          const sizes = item.sizes || [];
+          const hasBlank = !!item.blank_vendor;
+          const spec = [item.blank_vendor, item.blank_sku, item.color].filter(Boolean).join(" · ");
+          return (
+            <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 14, background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 14px" }}>
+              <div style={{ width: 210, flexShrink: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.name || "Untitled"}</div>
+                <div style={{ fontSize: 11, color: hasBlank ? T.muted : T.amber, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{hasBlank ? spec : "No blank yet"}</div>
+              </div>
+              {sizes.length === 0 ? (
+                <div style={{ flex: 1, fontSize: 12, color: T.faint, fontStyle: "italic" }}>
+                  {hasBlank ? "No size breakdown — set sizes on the item card" : "Assign a blank on the item card to set sizes"}
+                </div>
+              ) : (
+                <div style={{ flex: 1, display: "flex", alignItems: "flex-end", gap: 8, flexWrap: "wrap" }}>
+                  {sizes.map((sz, ci) => {
+                    const lv = getLocalQty(item.id, sz);
+                    const displayVal = lv !== null ? lv : (item.qtys?.[sz] || 0);
+                    return (
+                      <div key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+                        <span style={{ fontSize: 10, fontWeight: 600, fontFamily: mono, color: T.faint }}>{sz}</span>
+                        <input
+                          ref={el => { inputRefs.current[`${idx}_${ci}`] = el; }}
+                          type="text" inputMode="numeric" value={displayVal} disabled={costingLocked}
+                          onChange={e => { if (costingLocked) return; setLocalQty(item.id, sz, e.target.value); scheduleCommit(idx, item.id, sz); }}
+                          onFocus={e => e.target.select()}
+                          onBlur={() => commitQty(idx, item.id, sz)}
+                          onKeyDown={e => {
+                            if (costingLocked) return;
+                            if (e.key === "Enter" || e.key === "ArrowDown") { commitQty(idx, item.id, sz); const n = inputRefs.current[`${idx + 1}_${ci}`]; if (n) n.focus(); }
+                            else if (e.key === "ArrowUp") { commitQty(idx, item.id, sz); const p = inputRefs.current[`${idx - 1}_${ci}`]; if (p) p.focus(); }
+                            else if (e.key === "Tab" && !e.shiftKey) { e.preventDefault(); commitQty(idx, item.id, sz); const n = inputRefs.current[`${idx}_${ci + 1}`] || inputRefs.current[`${idx + 1}_0`]; if (n) n.focus(); }
+                            else if (e.key === "Tab" && e.shiftKey) { e.preventDefault(); commitQty(idx, item.id, sz); const p = inputRefs.current[`${idx}_${ci - 1}`] || inputRefs.current[`${idx - 1}_0`]; if (p) p.focus(); }
+                          }}
+                          style={{ ...ic, width: 46, height: 34, textAlign: "center", fontSize: 14, fontWeight: 600, padding: "4px", opacity: costingLocked ? 0.5 : 1 }}
+                        />
+                      </div>
+                    );
+                  })}
+                  <div style={{ marginLeft: "auto", textAlign: "right", minWidth: 72 }}>
+                    <input
+                      type="text" inputMode="numeric" disabled={costingLocked}
+                      value={qtyTotalDraft[item.id] !== undefined ? qtyTotalDraft[item.id] : (item.totalQty || 0)}
+                      onChange={e => { if (costingLocked) return; setQtyTotalDraft(p => ({ ...p, [item.id]: e.target.value })); }}
+                      onFocus={e => e.target.select()}
+                      onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); applyQtyCurve(idx, item, e.target.value); setQtyTotalDraft(p => { const n = { ...p }; delete n[item.id]; return n; }); } }}
+                      onBlur={e => { if (qtyTotalDraft[item.id] !== undefined) { applyQtyCurve(idx, item, e.target.value); setQtyTotalDraft(p => { const n = { ...p }; delete n[item.id]; return n; }); } }}
+                      title="Type a total → auto-fill across sizes by curve"
+                      style={{ ...ic, width: 70, height: 32, textAlign: "right", fontSize: 15, fontWeight: 800, fontFamily: mono, padding: "2px 7px", opacity: costingLocked ? 0.5 : 1 }}
+                    />
+                    <div style={{ fontSize: 9, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em", marginTop: 2 }}>total → curve</div>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
   return (
     <div style={{ fontFamily: font, color: T.text, display: "flex", flexDirection: "column", gap: 6 }}>
+      {/* Blocking upload overlay — covers the page so you can't navigate away
+          mid-upload (the exact failure Jon hit). Autocloses when done; on
+          failure it stays up with an error instead of looking like success. */}
+      {psdProcessing && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 10000, background: "rgba(20,20,24,0.55)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: font }}>
+          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 14, padding: "24px 26px", width: 440, maxWidth: "90vw", boxShadow: "0 12px 48px rgba(0,0,0,0.3)" }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: psdProcessing.error ? T.red : T.text }}>
+              {psdProcessing.error ? "Upload didn’t finish" : "Uploading — don’t navigate away"}
+            </div>
+            {!psdProcessing.error && psdProcessing.status && <div style={{ fontSize: 12, color: T.muted, marginTop: 6 }}>{psdProcessing.status}</div>}
+            {!psdProcessing.error && psdProcessing.fileName && <div style={{ fontSize: 11, color: T.faint, marginTop: 2, fontFamily: mono, wordBreak: "break-all" }}>{psdProcessing.fileName}</div>}
+            {!psdProcessing.error && psdProcessing.total > 0 && (() => {
+              const pct = Math.min(100, Math.round((psdProcessing.done / psdProcessing.total) * 100 + (psdProcessing.uploadPct || 0) / psdProcessing.total));
+              return (
+                <div style={{ marginTop: 14 }}>
+                  <div style={{ height: 8, background: T.surface, borderRadius: 99, overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${pct}%`, background: T.accent, borderRadius: 99, transition: "width 0.2s" }} />
+                  </div>
+                  <div style={{ fontSize: 11, color: T.faint, marginTop: 6, textAlign: "right", fontFamily: mono }}>{pct}%</div>
+                </div>
+              );
+            })()}
+            {psdProcessing.error && (
+              <>
+                <div style={{ fontSize: 12.5, color: T.text, background: T.redDim, borderRadius: 8, padding: "10px 12px", lineHeight: 1.45, marginTop: 10 }}>{psdProcessing.error}</div>
+                <button onClick={() => setPsdProcessing(null)}
+                  style={{ marginTop: 14, width: "100%", padding: "9px", borderRadius: 8, border: "none", background: T.text, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>Dismiss</button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {costingLocked && (
         <div style={{ display: "flex", alignItems: "center", gap: 10, paddingBottom: 8, borderBottom: `1px solid ${T.border}` }}>
@@ -893,126 +1049,63 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
       )}
 
 
-      {/* ══ Bulk Create Modal ══ */}
-      {showBulkCreate && (()=>{
-        const updateRow = (idx, field, val) => setBulkRows(prev => prev.map((r, i) => i === idx ? { ...r, [field]: val } : r));
-
-        const doSave = async () => {
-          const validRows = bulkRows.filter(r => r.name.trim());
-          if (validRows.length === 0) return;
-          setBulkSaving(true);
-          const supabase = createClient();
-          for (let ri = 0; ri < validRows.length; ri++) {
-            const r = validRows[ri];
-            const sizes = BULK_SIZES.filter(sz => (r[sz.toLowerCase()] || 0) > 0);
-            const qtys = {};
-            sizes.forEach(sz => { qtys[sz] = r[sz.toLowerCase()] || 0; });
-            const totalQty = Object.values(qtys).reduce((a, v) => a + v, 0);
-            const sortOrder = (items || []).length + ri;
-            const garmentType = detectGarmentType("", r.name + " " + r.vendor + " " + r.type) || r.type || "tee";
-            await supabase.from("items").insert({
-              job_id: project.id, name: r.name.trim(), blank_vendor: r.vendor.trim() || null, blank_sku: r.color.trim() || null,
-              status: "tbd", artwork_status: "not_started", sort_order: sortOrder,
-              garment_type: garmentType,
-              is_fleece: FLEECE_GARMENTS.includes(garmentType),
-            }).select("id").single().then(async ({ data: newItem }) => {
-              if (newItem && sizes.length > 0) {
-                await supabase.from("buy_sheet_lines").insert(
-                  sizes.map(sz => ({ item_id: newItem.id, size: sz, qty_ordered: qtys[sz] || 0, qty_shipped_from_vendor: 0, qty_received_at_hpd: 0, qty_shipped_to_customer: 0 }))
-                );
-              }
-            });
-          }
-          setBulkSaving(false);
+      {/* ══ Bulk Create modal — names only ══
+          Fast entry: one item name per line (type or paste). Each becomes a
+          blank item card; blank / sizes / costing are filled in per card after.
+          New items route through the canonical debounced save (updateLocal →
+          onSaveRef.doSave) — same path as "Add an item", no forked write. */}
+      {showBulkCreate && (() => {
+        const names = bulkNames.split("\n").map(n => n.trim()).filter(Boolean);
+        const createNames = () => {
+          if (names.length === 0) return;
+          const base = workingItems || [];
+          const newItems = names.map((nm, i) => {
+            const gt = detectGarmentType("", nm) || "tee";
+            return {
+              id: Date.now() + Math.random() + i,
+              name: nm, blank_vendor: "", blank_sku: "",
+              garment_type: gt, ...fleeceFlag(gt),
+              sizes: [], qtys: {}, totalQty: 0,
+              curve: DEFAULT_CURVE, blankCosts: {}, cost_per_unit: 0,
+            };
+          });
+          updateLocal([...base, ...newItems]);
+          setBulkNames("");
           setShowBulkCreate(false);
-          if (onItemsChanged) onItemsChanged();
         };
-
         return (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
-          onClick={() => setShowBulkCreate(false)}>
-          <div onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 12, border: `1px solid ${T.border}`, width: "95vw", maxWidth: 1200, maxHeight: "85vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-            {/* Header */}
-            <div style={{ padding: "14px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div>
-                <div style={{ fontSize: 16, fontWeight: 700 }}>Bulk Create Items</div>
-                <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>Tab between cells. Enter on last row adds a new row.</div>
-              </div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={() => setBulkRows(prev => [...prev, bulkEmptyRow()])}
-                  style={{ padding: "8px 16px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>+ Row</button>
-                <button onClick={doSave} disabled={bulkSaving || !bulkRows.some(r => r.name.trim())}
-                  style={{ padding: "8px 20px", borderRadius: 6, border: "none", background: T.accent, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", opacity: (bulkSaving || !bulkRows.some(r => r.name.trim())) ? 0.5 : 1 }}>
-                  {bulkSaving ? "Creating..." : `Create ${bulkRows.filter(r => r.name.trim()).length} Items`}
-                </button>
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
+            onClick={() => setShowBulkCreate(false)}>
+            <div onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 12, border: `1px solid ${T.border}`, width: "95vw", maxWidth: 520, maxHeight: "85vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+              <div style={{ padding: "14px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div>
+                  <div style={{ fontSize: 16, fontWeight: 700 }}>Bulk Create Items</div>
+                  <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>One item name per line. Type or paste a list — each becomes a card.</div>
+                </div>
                 <button onClick={() => setShowBulkCreate(false)}
                   style={{ background: "none", border: "none", color: T.muted, fontSize: 18, cursor: "pointer" }}>×</button>
               </div>
-            </div>
-
-            {/* Grid */}
-            <div ref={bulkGridRef} style={{ flex: 1, overflowX: "auto", overflowY: "auto" }}>
-              <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12 }}>
-                <thead>
-                  <tr style={{ background: T.surface, position: "sticky", top: 0, zIndex: 1 }}>
-                    <th style={{ padding: "8px 6px", textAlign: "left", fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em", borderBottom: `1px solid ${T.border}`, width: 30 }}>#</th>
-                    <th style={{ padding: "8px 6px", textAlign: "left", fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em", borderBottom: `1px solid ${T.border}`, minWidth: 180 }}>Item Name</th>
-                    <th style={{ padding: "8px 6px", textAlign: "left", fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em", borderBottom: `1px solid ${T.border}`, minWidth: 120 }}>Vendor / Style</th>
-                    <th style={{ padding: "8px 6px", textAlign: "left", fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em", borderBottom: `1px solid ${T.border}`, minWidth: 100 }}>Color</th>
-                    {BULK_SIZES.map(sz => (
-                      <th key={sz} style={{ padding: "8px 4px", textAlign: "center", fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", borderBottom: `1px solid ${T.border}`, width: 50 }}>{sz}</th>
-                    ))}
-                    <th style={{ padding: "8px 6px", textAlign: "right", fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", borderBottom: `1px solid ${T.border}`, width: 50 }}>Total</th>
-                    <th style={{ width: 30, borderBottom: `1px solid ${T.border}` }} />
-                  </tr>
-                </thead>
-                <tbody>
-                  {bulkRows.map((row, ri) => {
-                    const total = BULK_SIZES.reduce((a, sz) => a + (row[sz.toLowerCase()] || 0), 0);
-                    return (
-                      <tr key={ri} style={{ borderBottom: `1px solid ${T.border}22` }}>
-                        <td style={{ padding: "4px 6px", color: T.faint, fontSize: 10, fontFamily: mono }}>{ri + 1}</td>
-                        <td style={{ padding: "2px 2px" }}>
-                          <input value={row.name} onChange={e => updateRow(ri, "name", e.target.value)}
-                            onKeyDown={e => { if (e.key === "Enter" && ri === bulkRows.length - 1) setBulkRows(prev => [...prev, bulkEmptyRow()]); }}
-                            placeholder="Item name" autoFocus={ri === 0}
-                            style={{ width: "100%", padding: "6px 8px", border: "none", outline: "none", background: "transparent", color: T.text, fontSize: 12, fontWeight: 600 }} />
-                        </td>
-                        <td style={{ padding: "2px 2px" }}>
-                          <input value={row.vendor} onChange={e => updateRow(ri, "vendor", e.target.value)}
-                            placeholder="S&S 1717, AS 5026..."
-                            style={{ width: "100%", padding: "6px 8px", border: "none", outline: "none", background: "transparent", color: T.text, fontSize: 12 }} />
-                        </td>
-                        <td style={{ padding: "2px 2px" }}>
-                          <input value={row.color} onChange={e => updateRow(ri, "color", e.target.value)}
-                            placeholder="Black, Navy..."
-                            style={{ width: "100%", padding: "6px 8px", border: "none", outline: "none", background: "transparent", color: T.text, fontSize: 12 }} />
-                        </td>
-                        {BULK_SIZES.map(sz => (
-                          <td key={sz} style={{ padding: "2px 1px" }}>
-                            <input type="text" inputMode="numeric" value={row[sz.toLowerCase()] || ""}
-                              onChange={e => updateRow(ri, sz.toLowerCase(), parseInt(e.target.value) || 0)}
-                              onFocus={e => e.target.select()}
-                              placeholder="0"
-                              style={{ width: "100%", padding: "6px 2px", border: "none", outline: "none", background: "transparent", color: T.text, fontSize: 12, fontFamily: mono, textAlign: "center" }} />
-                          </td>
-                        ))}
-                        <td style={{ padding: "4px 6px", textAlign: "right", fontFamily: mono, fontWeight: 700, color: total > 0 ? T.text : T.faint, fontSize: 12 }}>{total || "—"}</td>
-                        <td style={{ padding: "2px" }}>
-                          {bulkRows.length > 1 && <button onClick={() => setBulkRows(prev => prev.filter((_, i) => i !== ri))}
-                            style={{ background: "none", border: "none", color: T.faint, cursor: "pointer", fontSize: 11 }}
-                            onMouseEnter={e => e.currentTarget.style.color = T.red} onMouseLeave={e => e.currentTarget.style.color = T.faint}>×</button>}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+              <div style={{ padding: 20 }}>
+                <textarea value={bulkNames} onChange={e => setBulkNames(e.target.value)} autoFocus
+                  placeholder={"Kill Em Vintage Tee\nTour Hoodie\nStaff Crewneck"}
+                  rows={10}
+                  style={{ width: "100%", resize: "vertical", padding: "12px 14px", border: `1px solid ${T.border}`, borderRadius: 8, background: T.surface, color: T.text, fontSize: 14, fontFamily: font, lineHeight: 1.6, outline: "none", boxSizing: "border-box" }} />
+              </div>
+              <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span style={{ fontSize: 12, color: T.muted }}>{names.length} item{names.length === 1 ? "" : "s"}</span>
+                <button onClick={createNames} disabled={names.length === 0}
+                  style={{ padding: "9px 20px", borderRadius: 8, border: "none", background: T.accent, color: "#fff", fontSize: 13, fontWeight: 700, cursor: names.length === 0 ? "default" : "pointer", opacity: names.length === 0 ? 0.5 : 1, fontFamily: font }}>
+                  Create {names.length || ""} {names.length === 1 ? "item" : "items"}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
         );
       })()}
+
+      {/* Art pricing request — outside-costing designer quote (email-back v1),
+          scoped to selected files. Available pre-costing. */}
+      <ArtRequestModal open={showArtReqModal} onClose={() => setShowArtReqModal(false)} project={project} />
 
       {/* ══ Above-the-list region ══
           Three rendering modes:
@@ -1047,18 +1140,37 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
                 <span style={{ flex: 1 }}>Add an item</span>
                 <span style={{ fontSize: 10, color: "rgba(255,255,255,0.65)", fontWeight: 500 }}>Pick a blank</span>
               </button>
-              <button disabled title="Bulk create — coming soon"
+              <button onClick={() => (safeItems.length > 0 ? setQtyView(true) : setShowBulkCreate(true))}
+                title={safeItems.length > 0 ? "Edit quantities across every item" : "Create items from a list of names"}
                 style={{
-                  background: T.surface, color: T.muted, border: `1px solid ${T.border}`,
+                  background: T.surface, color: T.text, border: `1px solid ${T.border}`,
                   padding: "12px 16px", borderRadius: 10, fontSize: 13, fontWeight: 700,
-                  cursor: "default", fontFamily: font, textAlign: "left",
-                  display: "flex", alignItems: "center", gap: 10, opacity: 0.85,
-                }}>
+                  cursor: "pointer", fontFamily: font, textAlign: "left",
+                  display: "flex", alignItems: "center", gap: 10,
+                  transition: "border-color 0.15s, background 0.15s",
+                }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.background = T.card; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.background = T.surface; }}>
                 <span style={{ fontSize: 16, lineHeight: 1 }}>⊞</span>
-                <span style={{ flex: 1 }}>Bulk create</span>
-                <span style={{ fontSize: 10, color: T.faint, fontWeight: 500 }}>Soon</span>
+                <span style={{ flex: 1 }}>{safeItems.length > 0 ? "Bulk edit" : "Bulk create"}</span>
+                <span style={{ fontSize: 10, color: T.faint, fontWeight: 500 }}>{safeItems.length > 0 ? "Quantities" : "Names"}</span>
               </button>
             </div>
+
+            {/* Outside-costing art pricing — send a graphic artist a private
+                gallery of SELECTED files to quote. Lives here so it can fire
+                before costing exists (Jon, 2026-07-20). */}
+            {safeItems.length > 0 && (
+              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: -4 }}>
+                <button onClick={() => setShowArtReqModal(true)}
+                  style={{ background: "none", border: "none", color: T.muted, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font, display: "inline-flex", alignItems: "center", gap: 6, padding: "2px 4px" }}
+                  onMouseEnter={e => { e.currentTarget.style.color = T.accent; }}
+                  onMouseLeave={e => { e.currentTarget.style.color = T.muted; }}
+                  title="Send a graphic artist a private link to download selected art and quote the design">
+                  Request art pricing →
+                </button>
+              </div>
+            )}
 
             {/* Drop zone — bigger when it's the focus of the surface */}
             <div
@@ -1908,9 +2020,18 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
   const [files, setFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(null);
+  const [uploadError, setUploadError] = useState(null);
   const fileInputRef = useRef(null);
 
   useEffect(() => { loadFiles(); }, [item.id]);
+  // Warn on tab-close / refresh while a file upload is in flight (the blocking
+  // overlay stops in-app nav; this covers browser-level exits).
+  useEffect(() => {
+    if (!uploading) return;
+    const h = (e) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", h);
+    return () => window.removeEventListener("beforeunload", h);
+  }, [uploading]);
 
   async function loadFiles() {
     try {
@@ -1942,19 +2063,23 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
   async function handleFileDrop(fileList) {
     const allFiles = Array.from(fileList);
     if (allFiles.length === 0) return;
+    setUploadError(null);
     setUploading(true);
+    const failed = [];
     for (let i = 0; i < allFiles.length; i++) {
       setUploadProgress({ total: allFiles.length, done: i, current: allFiles[i].name });
       const stage = detectStage(allFiles[i].name);
       try {
         const driveFile = await uploadToDrive({ blob: allFiles[i], fileName: allFiles[i].name, mimeType: allFiles[i].type || "application/octet-stream", itemId: item.id, clientName, projectTitle, itemName: item.name });
         await registerFileInDb({ ...driveFile, itemId: item.id, stage });
-      } catch (err) { console.error("Upload error:", err); }
+      } catch (err) { console.error("Upload error:", err); failed.push(allFiles[i].name); }
     }
     setUploading(false); setUploadProgress(null);
     loadFiles();
     if (onFilesChanged) onFilesChanged();
-    logJobActivity(project.id, `${allFiles.length} file${allFiles.length > 1 ? "s" : ""} uploaded for ${item.name}`);
+    // Surface failures instead of hiding them (a folder can exist with no file).
+    if (failed.length) setUploadError(`${failed.length} file${failed.length !== 1 ? "s" : ""} didn't upload: ${failed.join(", ")}. Re-drop to retry.`);
+    else logJobActivity(project.id, `${allFiles.length} file${allFiles.length > 1 ? "s" : ""} uploaded for ${item.name}`);
   }
 
   async function deleteFile(file) {
@@ -1971,6 +2096,34 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
   const thumbSize = isMobile ? "min(78vw, 320px)" : 160;
   return (
     <div style={{ padding: isMobile ? "16px 14px" : "24px", position: "relative" }}>
+      {/* Blocking upload overlay — covers the page so you can't navigate away
+          mid-upload (that abort is what left an empty Drive folder). Autocloses
+          on completion; stays with an error on failure instead of hiding it. */}
+      {(uploading || uploadError) && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 10000, background: "rgba(20,20,24,0.55)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: font }}>
+          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 14, padding: "24px 26px", width: 440, maxWidth: "90vw", boxShadow: "0 12px 48px rgba(0,0,0,0.3)" }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: uploadError ? T.red : T.text }}>
+              {uploadError ? "Upload didn’t finish" : "Uploading — don’t navigate away"}
+            </div>
+            {!uploadError && uploadProgress && (
+              <>
+                <div style={{ fontSize: 12, color: T.muted, marginTop: 6 }}>{`File ${Math.min(uploadProgress.done + 1, uploadProgress.total)} of ${uploadProgress.total}`}</div>
+                <div style={{ fontSize: 11, color: T.faint, marginTop: 2, fontFamily: mono, wordBreak: "break-all" }}>{uploadProgress.current}</div>
+                <div style={{ height: 8, background: T.surface, borderRadius: 99, overflow: "hidden", marginTop: 14 }}>
+                  <div style={{ height: "100%", width: `${Math.round((uploadProgress.done / uploadProgress.total) * 100)}%`, background: T.accent, borderRadius: 99, transition: "width 0.2s" }} />
+                </div>
+              </>
+            )}
+            {uploadError && (
+              <>
+                <div style={{ fontSize: 12.5, color: T.text, background: T.redDim, borderRadius: 8, padding: "10px 12px", lineHeight: 1.45, marginTop: 10 }}>{uploadError}</div>
+                <button onClick={() => setUploadError(null)}
+                  style={{ marginTop: 14, width: "100%", padding: "9px", borderRadius: 8, border: "none", background: T.text, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>Dismiss</button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
       {/* Row 1: Thumbnail + Info — stacks vertically on mobile */}
       <div style={{ display: "flex", gap: isMobile ? 16 : 24, marginBottom: 20, flexDirection: isMobile ? "column" : "row", alignItems: isMobile ? "stretch" : "flex-start" }}>
         {/* Thumbnail — full-width centered block on mobile, fixed 160px on desktop. */}

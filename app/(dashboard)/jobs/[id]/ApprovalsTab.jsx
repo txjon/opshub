@@ -13,6 +13,7 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
   const isMobile = useIsMobile();
   const [showProofEmail, setShowProofEmail] = useState(false);
   const [proofModalItem, setProofModalItem] = useState(null);
+  const [proofModalMode, setProofModalMode] = useState("edit"); // "preview" (View) | "edit" (Edit/Generate)
   const [itemFiles, setItemFiles] = useState({});
   const [sendingProofEmail, setSendingProofEmail] = useState(false);
   const [replacingMockup, setReplacingMockup] = useState(false);
@@ -149,7 +150,6 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
     setReplacingMockup(false);
   }
 
-  const [previewProofItem, setPreviewProofItem] = useState(null);
   const [peekItem, setPeekItem] = useState(null);
 
   // Generate All state
@@ -292,7 +292,7 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
             const anyProofs = items.some(it => (itemFiles[it.id] || []).some(f => f.stage === "proof"));
             return (
               <>
-                <button onClick={() => { const it = items.find(x => (itemFiles[x.id] || []).some(f => f.stage === "proof")); if (it) setPreviewProofItem(it); }} style={btn}>Preview proofs</button>
+                <button onClick={() => { const it = items.find(x => (itemFiles[x.id] || []).some(f => f.stage === "proof")); if (it) { setProofModalItem(it); setProofModalMode("preview"); } }} style={btn}>Preview proofs</button>
                 {itemsWithMockups.length > 0 && <button onClick={startGenerateAll} style={btn}>Generate all ({itemsWithMockups.length})</button>}
                 {anyProofs && (
                   <button onClick={sendProofForReview} disabled={sendingProofEmail}
@@ -356,19 +356,12 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
                 {sizes.length > 0 && <div style={{ fontSize: 12.5, color: T.text, marginTop: 8, fontFamily: mono, display: "flex", flexWrap: "wrap", gap: "4px 14px" }}>{sizes.map(s => q[s] ? <span key={s}>{s}:{q[s]}</span> : null)}</div>}
                 <div style={{ display: "flex", gap: 8, marginTop: 16, flexWrap: "wrap" }}>
                   {hasProof ? (
-                    <button onClick={() => { setPreviewProofItem(item); setPeekItem(null); }} style={{ ...btn, background: T.accent, color: "#fff", border: "none" }}>View proof</button>
+                    <button onClick={() => { setProofModalItem(item); setProofModalMode("preview"); setPeekItem(null); }} style={{ ...btn, background: T.accent, color: "#fff", border: "none" }}>View</button>
                   ) : mockupFile ? (
-                    <button onClick={() => { setProofModalItem(item); setPeekItem(null); }} style={{ ...btn, background: T.amber, color: "#fff", border: "none" }}>Generate proof</button>
+                    <button onClick={() => { setProofModalItem(item); setProofModalMode("edit"); setPeekItem(null); }} style={{ ...btn, background: T.amber, color: "#fff", border: "none" }}>Generate proof</button>
                   ) : null}
-                  {mockupFile && hasProof && <button onClick={() => { setProofModalItem(item); setPeekItem(null); }} style={btn}>↻ Regenerate</button>}
-                  {!fileApproved && <button onClick={markInternal} style={btn}>{manualApproved ? "Unmark internal" : "Mark internal"}</button>}
-                  {mockupFile && (
-                    <label style={{ ...btn, textAlign: "center", opacity: replacingMockup ? 0.6 : 1, cursor: replacingMockup ? "default" : "pointer" }}>
-                      {replacingMockup ? "Uploading…" : "Replace mockup"}
-                      <input type="file" accept="image/*,application/pdf" disabled={replacingMockup} style={{ display: "none" }}
-                        onChange={e => { const f = e.target.files?.[0]; e.target.value = ""; if (f) handleReplaceMockup(item, f); }} />
-                    </label>
-                  )}
+                  {mockupFile && hasProof && <button onClick={() => { setProofModalItem(item); setProofModalMode("edit"); setPeekItem(null); }} style={btn}>Edit</button>}
+                  {!fileApproved && <button onClick={markInternal} style={{ ...btn, borderColor: T.blue, color: T.blue }}>{manualApproved ? "Unmark internal" : "Mark internal"}</button>}
                 </div>
                 {!mockupFile && !hasProof && <div style={{ fontSize: 11.5, color: T.faint, marginTop: 10 }}>No mockup yet — add one in Product Builder to generate a proof.</div>}
               </div>
@@ -392,6 +385,7 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
             onClose={() => setProofModalItem(null)}
             onSaved={reloadFiles}
             onUpdateItem={onUpdateItem}
+            initialMode={proofModalMode}
           />
         );
       })()}
@@ -417,46 +411,6 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
         );
       })()}
 
-      {/* Fullscreen proof preview — the V2 web view (no more PDF-in-web) */}
-      {previewProofItem && (()=>{
-        const proofItems = items.filter(it => (itemFiles[it.id] || []).some(f => f.stage === "proof"));
-        const currentIdx = proofItems.findIndex(it => it.id === previewProofItem.id);
-        const cur = proofItems[currentIdx] || previewProofItem;
-        const prevItem = currentIdx > 0 ? proofItems[currentIdx - 1] : null;
-        const nextItem = currentIdx >= 0 && currentIdx < proofItems.length - 1 ? proofItems[currentIdx + 1] : null;
-        const files = itemFiles[cur.id] || [];
-        const mockupFile = files.find(f => f.stage === "mockup") || files.find(f => f.file_name?.toLowerCase().includes("mockup"));
-        const proofFile = files.find(f => f.stage === "proof");
-        const spec = cur.proof_spec;
-        const hasSpec = spec && Array.isArray(spec.locations) && spec.locations.length > 0;
-        const mockupUrl = mockupFile?.drive_file_id ? `/api/files/thumbnail?id=${mockupFile.drive_file_id}` : null;
-        const navBtn = { padding: "8px 16px", borderRadius: 8, background: T.surface, border: `1px solid ${T.border}`, color: T.text, fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: font };
-        const downloadProof = () => { if (proofFile) window.open(`/api/files/view/${encodeURIComponent(proofFile.file_name)}?id=${proofFile.drive_file_id}`, "_blank"); };
-        return (
-        <div style={{ position: "fixed", inset: 0, background: "#f4f4f5", zIndex: 9999, display: "flex", flexDirection: "column", fontFamily: font }}>
-          <div style={{ padding: "12px 20px", borderBottom: `1px solid ${T.border}`, background: T.card, display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
-            <div>
-              <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>{cur.name}</div>
-              <div style={{ fontSize: 11, color: T.muted }}>{currentIdx + 1} of {proofItems.length} proofs</div>
-            </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              {prevItem && <button onClick={() => setPreviewProofItem(prevItem)} style={navBtn}>← Prev</button>}
-              {nextItem && <button onClick={() => setPreviewProofItem(nextItem)} style={navBtn}>Next →</button>}
-              {proofFile && <button onClick={downloadProof} style={navBtn}>Download proof</button>}
-              <button onClick={() => setPreviewProofItem(null)} style={{ ...navBtn, fontWeight: 700 }}>Close</button>
-            </div>
-          </div>
-          <div style={{ flex: 1, overflow: "auto", padding: "28px 20px", display: "flex", justifyContent: "center" }}>
-            {hasSpec
-              ? <div style={{ width: "100%", maxWidth: 820, height: "fit-content", background: "#fff", borderRadius: 12, padding: 28, boxShadow: "0 2px 16px rgba(0,0,0,0.08)" }}><ProofDocView spec={spec} mockupUrl={mockupUrl} clientName={clientName} itemName={cur.name} font={font} mono={mono} /></div>
-              : proofFile
-                ? (/\.pdf$/i.test(proofFile.file_name)
-                    ? <iframe src={`/api/files/view/${encodeURIComponent(proofFile.file_name)}?id=${proofFile.drive_file_id}`} style={{ width: "100%", height: "100%", border: "none" }} />
-                    : <img src={`/api/files/thumbnail?id=${proofFile.drive_file_id}`} alt="" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />)
-                : <div style={{ fontSize: 13, color: T.muted, alignSelf: "center" }}>No proof to show.</div>}
-          </div>
-        </div>
-        );})()}
 
       {/* ── Send revised proofs modal — contacts + stock message + note ── */}
       {revisedModalOpen && (

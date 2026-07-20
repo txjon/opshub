@@ -5,6 +5,8 @@ import { createClient } from "@/lib/supabase/client";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 import { parseSizeMatrix, splitColHead } from "@/lib/size-grid";
 import SizeGridInput from "@/components/SizeGridInput";
+import { isCostingLocked, isCostingCommitted } from "@/lib/costing-lock";
+import ArtRequestModal from "@/components/ArtRequestModal";
 import { SendEmailDialog } from "@/components/SendEmailDialog";
 import { logJobActivity } from "@/components/JobActivityPanel";
 import { DecorationPanel } from "./DecorationPanel";
@@ -273,12 +275,14 @@ function PassthroughToggle({ on, disabled, onToggle }) {
 const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,setCostProds,qtyEditedRef,notesEditedRef,isGod,costMargin,setCostMargin,inclShip,setInclShip,inclCC,setInclCC,orderInfo,setOrderInfo,invoiceExtraLines=[],setInvoiceExtraLines,decoratorRecords=[],onRefreshDecorators,costingDirty,onSave,saveStatus,initialTab,hideSubTabs,selectedItemId,onSelectItem,onUpdateProject,onPullFromPsds,pullingPsds,pullResult,hideToolbar=false,openRfqRef,hideQuoteSend=false})=>{
   const branding=useClientBranding();
   const isMobile=useIsMobile();
-  // Effective lock = manual "Lock In Pricing" OR archived phase.
+  // Effective lock = DERIVED from workflow (quote sent/approved) OR archived —
+  // no manual "Lock In Pricing" flag anymore. See lib/costing-lock.ts.
   // Complete/cancelled projects are historic records — costing stays
   // viewable but read-only, with no unlock. The raw type_meta flag is
   // still what the Lock/Unlock toggle flips (hidden when archived).
   const isArchivedJob=project?.phase==="complete"||project?.phase==="cancelled";
-  const costingLocked=!!project?.type_meta?.costing_locked||isArchivedJob;
+  const costingLocked=isCostingLocked(project);
+  const isCommitted=isCostingCommitted(project); // quote sent/approved — pricing auto-locked
   const [costTab,setCostTab]=useState(initialTab||"calc");
   // Portal target for the right rail. Resolved after mount so the
   // host page (which renders the rail in its outer flex) has had a
@@ -304,6 +308,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
   const [shipModalOpen,setShipModalOpen]=useState(false);
   const [shipDraft,setShipDraft]=useState({});
   const [showRfqModal,setShowRfqModal]=useState(false);
+  const [showArtReqModal,setShowArtReqModal]=useState(false);
   const [rfqVendor,setRfqVendor]=useState("");
   const [rfqSelected,setRfqSelected]=useState({});         // { itemId: bool }
   const [rfqRecipientSel,setRfqRecipientSel]=useState({}); // { contactIdx: bool }
@@ -570,19 +575,19 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
 
       {/* margin/toggles moved to project totals sidebar */}
 
-      {/* Lock In Pricing — hidden when the project header is rendering
+      {/* Costing status + revise toggle — hidden when the project header is rendering
           the unified toolbar (hideToolbar prop). Kept inline as a
           fallback for any caller that still mounts the tab without
           piping through actionsRef/onPullStateChange. */}
       {costTab==="calc"&&!hideToolbar&&(
         <div style={{display:"flex",flexDirection:isMobile?"column":"row",alignItems:isMobile?"stretch":"center",justifyContent:"space-between",gap:isMobile?10:0,marginBottom:12,paddingBottom:8,borderBottom:`1px solid ${T.border}`}}>
           <div>
-            <span style={{fontSize:isMobile?10:11,fontWeight:700,color:costingLocked?T.green:T.amber,letterSpacing:"0.06em",textTransform:"uppercase"}}>
-              {isArchivedJob?"Historic record":costingLocked?"Pricing locked":"Pricing not locked"}
+            <span style={{fontSize:isMobile?10:11,fontWeight:700,color:costingLocked?T.green:(isCommitted?T.amber:T.muted),letterSpacing:"0.06em",textTransform:"uppercase"}}>
+              {isArchivedJob?"Historic record":costingLocked?"Pricing locked":(isCommitted?"Revising pricing":"Draft pricing")}
             </span>
             {!isMobile && (
               <span style={{fontSize:11,color:T.muted,marginLeft:10}}>
-                {isArchivedJob?`This project is ${project?.phase==="cancelled"?"cancelled":"complete"} — pricing is read-only`:costingLocked?"Ready to quote":"Lock in pricing when all items are costed"}
+                {isArchivedJob?`This project is ${project?.phase==="cancelled"?"cancelled":"complete"} — pricing is read-only`:costingLocked?"Locked when the quote was sent — unlock to revise":(isCommitted?"Editing after send — re-send the quote to update the client":"Saves automatically · locks when you send the quote")}
               </span>
             )}
           </div>
@@ -612,21 +617,21 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
               title="Send a quote request to a decorator for selected items">
               {isMobile ? "Request" : "Request Pricing"}
             </button>
-            {/* Lock toggle flips the raw type_meta flag — hidden on
-                archived jobs where the lock is forced + permanent. */}
-            {!isArchivedJob && <button onClick={async ()=>{
+            {/* No manual "Lock In" — pricing auto-locks on quote send. Once
+                committed, this toggles a revise override (re-send re-locks). */}
+            {!isArchivedJob && isCommitted && <button onClick={async ()=>{
               if (onSave) await onSave();
               const { createClient: cc } = await import("@/lib/supabase/client");
               const sb = cc();
-              const newVal = !project?.type_meta?.costing_locked;
-              const meta = {...(project?.type_meta||{}), costing_locked: newVal, costing_locked_at: newVal ? new Date().toISOString() : null};
+              const unlocked = !project?.type_meta?.costing_unlocked;
+              const meta = {...(project?.type_meta||{}), costing_unlocked: unlocked};
               await sb.from("jobs").update({type_meta: meta}).eq("id", project.id);
               if (onUpdateProject) onUpdateProject({ type_meta: meta });
             }}
-              style={{height:34,padding:isMobile?0:"0 16px",borderRadius:8,fontSize:isMobile?11:12,fontWeight:700,cursor:"pointer",border:"none",fontFamily:font,display:"inline-flex",alignItems:"center",justifyContent:"center",flex:isMobile?1:"none",
-                background:project?.type_meta?.costing_locked?T.surface:T.green,
-                color:project?.type_meta?.costing_locked?T.muted:"#fff"}}>
-              {project?.type_meta?.costing_locked?(isMobile?"Unlock":"Unlock Pricing"):(isMobile?"Lock In":"Lock In Pricing")}
+              style={{height:34,padding:isMobile?0:"0 16px",borderRadius:8,fontSize:isMobile?11:12,fontWeight:700,cursor:"pointer",border:`1px solid ${T.border}`,fontFamily:font,display:"inline-flex",alignItems:"center",justifyContent:"center",flex:isMobile?1:"none",
+                background:costingLocked?T.card:T.amber,
+                color:costingLocked?T.text:"#fff"}}>
+              {costingLocked?(isMobile?"Unlock":"Unlock to revise"):(isMobile?"Re-lock":"Re-lock")}
             </button>}
           </div>
         </div>
@@ -1324,6 +1329,34 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                   </div>
                 );
               })()}
+              {/* Costing actions — relocated out of the project header (Jon,
+                  2026-07-20) so the header carries pricing status only. These
+                  are job-level: re-scan PSDs for print locations, or send an
+                  RFQ to a decorator. Uses the same handlers the old toolbar did. */}
+              <div style={{display:"flex",flexDirection:"column",gap:6,marginTop:2}}>
+                {onPullFromPsds && (
+                  <button onClick={onPullFromPsds} disabled={pullingPsds}
+                    style={{height:32,borderRadius:8,fontSize:11.5,fontWeight:600,cursor:pullingPsds?"default":"pointer",background:"transparent",border:`1px solid ${T.border}`,color:T.muted,fontFamily:font,opacity:pullingPsds?0.6:1,width:"100%"}}
+                    title="Re-scan items' PSD files and populate empty print locations">
+                    {pullingPsds ? "Pulling…" : "Pull from PSDs"}
+                  </button>
+                )}
+                <button onClick={openRfqModal}
+                  style={{height:32,borderRadius:8,fontSize:11.5,fontWeight:600,cursor:"pointer",background:"transparent",border:`1px solid ${T.accent}`,color:T.accent,fontFamily:font,width:"100%"}}
+                  title="Send a quote request to a decorator for selected items">
+                  Request Pricing
+                </button>
+                {/* Art pricing — outside the decorator flow. Sends a graphic
+                    artist a private gallery link to download the art + quote it. */}
+                <button onClick={()=>setShowArtReqModal(true)}
+                  style={{height:32,borderRadius:8,fontSize:11.5,fontWeight:600,cursor:"pointer",background:"transparent",border:`1px solid ${T.border}`,color:T.muted,fontFamily:font,width:"100%"}}
+                  title="Send a graphic artist a private link to download the art and quote the design">
+                  Request Art Pricing
+                </button>
+                {pullResult && (
+                  <span style={{fontSize:10.5,color:T.muted,fontFamily:font,textAlign:"center"}}>{pullResult}</span>
+                )}
+              </div>
             </div>
             );
             return portalTarget ? createPortal(rightCol, portalTarget) : rightCol;
@@ -1469,6 +1502,9 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
       })()}
 
       {/* PO */}
+
+      {/* Art pricing request — outside-costing designer quote (email-back v1). */}
+      <ArtRequestModal open={showArtReqModal} onClose={()=>setShowArtReqModal(false)} project={project} />
 
       {/* RFQ — step 1: pick decorator + items */}
       {showRfqModal && (() => {
@@ -1761,7 +1797,7 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
   // writes costing_data / items / buy_sheet_lines on an archived job —
   // opening the tab to view history must never mutate it.
   const isArchivedJob = project?.phase === "complete" || project?.phase === "cancelled";
-  const effectiveLock = !!project?.type_meta?.costing_locked || isArchivedJob;
+  const effectiveLock = isCostingLocked(project);
   // Item ids whose per-size qtys were edited IN Costing's blanks chip. ONLY these
   // get their qtys written back to buy_sheet_lines on save. Qtys for every other
   // item are owned by Product Builder (which persists its own) — Costing must never
@@ -2239,8 +2275,9 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
   const costingSaveInFlight = React.useRef(false);
   const onSave = async () => {
     // Hard write-gate for historic records. Gated on archived only —
-    // NOT on costing_locked, because the Lock/Unlock toggle calls
-    // onSave() while still locked as part of its own flow.
+    // the derived costing lock (isCostingLocked) is a UI read-only
+    // affordance, not a save gate; it makes inputs read-only so no edits
+    // reach here, but autosave itself must stay live for any allowed path.
     if (isArchivedJob) return;
     if (costingSaveInFlight.current) return;
     costingSaveInFlight.current = true;

@@ -1,6 +1,7 @@
 "use client";
 import { T, font, mono } from "@/lib/theme";
 import { poSentToItem, isItemInProduction } from "@/lib/item-status";
+import { isCostingLocked } from "@/lib/costing-lock";
 
 type Step = {
   id: string;
@@ -32,7 +33,7 @@ export function ProjectProgress({ job, items, payments, proofStatus, onTabClick,
   };
   const builderComplete = hasItems && items.every(itemReady);
   const hasCosting = items.some(it => it.decorator);
-  const costingLocked = !!(job.type_meta as any)?.costing_locked;
+  const costingLocked = isCostingLocked(job);
   const quoteApproved = job.quote_approved;
   const allProofsApproved = items.length > 0 && items.every(it => proofStatus[it.id]?.allApproved || it.artwork_status === "approved");
   const hasProofs = items.some(it => (it as any).hasFiles);

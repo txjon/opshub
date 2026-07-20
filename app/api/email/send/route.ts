@@ -355,7 +355,9 @@ export async function POST(req: NextRequest) {
         const tsKey = type === "quote" ? "quote_sent_at" : "invoice_sent_at";
         const { data: jd } = await adminClient.from("jobs").select("type_meta").eq("id", jobId).single();
         const updateData: any = { type_meta: { ...(jd?.type_meta || {}), [tsKey]: new Date().toISOString() } };
-        if (type === "quote") updateData.quote_rejection_notes = null;
+        // Sending the quote re-commits pricing: clear any "unlock to revise"
+        // override so the revision re-locks on send (see lib/costing-lock.ts).
+        if (type === "quote") { updateData.quote_rejection_notes = null; updateData.type_meta.costing_unlocked = false; }
         await adminClient.from("jobs").update(updateData).eq("id", jobId);
       }
       // Reminders don't move invoice_sent_at (the original send date
