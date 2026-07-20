@@ -7,6 +7,8 @@ import { BoardFrame, ToggleSearch, KpiStrip, SliceSortRow } from "@/components/b
 import { loadJobPhasesBatch } from "@/lib/item-state";
 import { deriveProjectStage, PROJ_MILESTONES, type ProjStage } from "@/lib/project-stage";
 import { JobStatusBar } from "@/components/JobStatusBar";
+import { etaCountdown } from "@/lib/eta";
+import { fmtDay } from "@/lib/dates";
 
 // Projects Board V2 — the "find the job that needs action" board, on the shared
 // V2 board-kit (matches /receiving chrome). Each job = a strip with a ticked
@@ -37,7 +39,7 @@ export default function ProjectsBoard() {
   useEffect(() => {
     (async () => {
       const { data } = await supabase.from("jobs")
-        .select("id, job_number, title, phase, shipping_route, payment_terms, quote_approved, quote_approved_at, type_meta, costing_summary, clients(name), payment_records(amount, status, paid_date), items(id, pipeline_stage, artwork_status, blanks_order_cost, blanks_order_number, received_at_hpd, forwarded_at, webstore_entered_at)")
+        .select("id, job_number, title, phase, shipping_route, payment_terms, quote_approved, quote_approved_at, created_at, target_ship_date, type_meta, costing_summary, clients(name), payment_records(amount, status, paid_date), items(id, pipeline_stage, artwork_status, blanks_order_cost, blanks_order_number, received_at_hpd, forwarded_at, webstore_entered_at)")
         .not("phase", "in", "(cancelled)")
         .order("created_at", { ascending: false });
       const js = (data as any[]) || [];
@@ -144,14 +146,34 @@ function Strip({ r, onOpen }: { r: Row; onOpen: () => void }) {
   const [raised, setRaised] = useState(false); // rise above sibling strips while the peek is open
   const sig = stage.signal;
   const edgeColor = sig === "late" ? T.red : sig === "act" ? T.amber : null; // wait → no edge (recedes)
+  // Expected OpsHub completion = jobs.target_ship_date (in-hands, human-entered
+  // → "~" estimate per the date standard; R5: unset shows TBD, never a guess).
+  const cd = etaCountdown(job.target_ship_date);
+  const cdColor = cd ? ({ red: T.red, amber: T.amber, muted: T.muted, green: T.green } as const)[cd.band] : T.faint;
+  // created_at is a full timestamp — format via new Date(), NOT fmtDay/parseDay
+  // (slicing a UTC timestamp shows the previous day for Vegas evenings).
+  const opened = job.created_at ? new Date(job.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : null;
   return (
-    <div onClick={onOpen} style={{ display: "flex", alignItems: "center", background: T.card, border: `1px solid ${T.border}`, borderLeft: edgeColor ? `4px solid ${edgeColor}` : `1px solid ${T.border}`, borderRadius: 12, padding: edgeColor ? "12px 16px 12px 13px" : "12px 16px", marginTop: 8, cursor: "pointer", position: "relative", zIndex: raised ? 40 : undefined }}>
-      <div style={{ width: 230, flexShrink: 0, minWidth: 0, paddingRight: 12 }}>
-        <div style={{ fontFamily: mono, fontSize: 11.5, fontWeight: 700, color: T.muted }}>{invNo}</div>
+    <div onClick={onOpen} style={{ display: "flex", alignItems: "center", background: T.card, border: `1px solid ${T.border}`, borderLeft: edgeColor ? `4px solid ${edgeColor}` : `1px solid ${T.border}`, borderRadius: 12, padding: edgeColor ? "10px 16px 10px 13px" : "10px 16px", marginTop: 8, cursor: "pointer", position: "relative", zIndex: raised ? 40 : undefined }}>
+      <div style={{ width: 236, flexShrink: 0, minWidth: 0, paddingRight: 12 }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 8, minWidth: 0 }}>
+          <span style={{ fontFamily: mono, fontSize: 11.5, fontWeight: 700, color: T.muted }}>{invNo}</span>
+          <span style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: T.faint, fontFamily: mono }}>{routeLabel[stage.route] || stage.route}</span>
+        </div>
         <div style={{ fontSize: 14, fontWeight: 700, lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginTop: 1 }}>{(job.clients as any)?.name || "—"}</div>
-        <div style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: T.faint, fontFamily: mono, marginTop: 3 }}>{routeLabel[stage.route] || stage.route}</div>
+        {job.title && <div style={{ fontSize: 11, color: T.faint, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginTop: 2 }}>{job.title}</div>}
       </div>
       <JobStatusBar job={job} stage={stage} items={job.items} payments={job.payment_records} navigate onHoverChange={setRaised} />
+      {/* Dates rail — opened date + countdown to expected completion. */}
+      <div style={{ width: 108, flexShrink: 0, textAlign: "right", paddingLeft: 14 }}>
+        <div style={{ fontFamily: mono, fontSize: 16, fontWeight: 800, color: cdColor, fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>
+          {cd ? cd.text : "TBD"}
+        </div>
+        <div style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: T.faint, marginTop: 3 }}>
+          {job.target_ship_date ? <>in hands ~<span style={{ fontFamily: mono }}>{fmtDay(job.target_ship_date)}</span></> : "no in-hands set"}
+        </div>
+        {opened && <div style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: T.faint, marginTop: 3 }}>opened <span style={{ fontFamily: mono }}>{opened}</span></div>}
+      </div>
     </div>
   );
 }
