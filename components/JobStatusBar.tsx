@@ -35,11 +35,12 @@ const STAGE_TARGET: Record<string, (j: any) => string> = {
 // (the flat tab-button row owns that nav). See [[opshub-v2-board-ux]].
 const WAREHOUSE_TAIL = new Set(["production", "receiving", "shipping", "fulfillment"]);
 
-export function JobStatusBar({ job, stage, items = [], payments = [], navigate = false, tailNav = false, onHoverChange, showLabels = false }: {
+export function JobStatusBar({ job, stage, items = [], payments = [], navigate = false, tailNav = false, onHoverChange, showLabels = false, onBeforeNavigate }: {
   job: any; stage: ProjStage; items?: any[]; payments?: any[]; navigate?: boolean;
   tailNav?: boolean; // job-detail: make ONLY the warehouse-tail segments clickable (→ their board, filtered to this job)
   onHoverChange?: (hovering: boolean) => void; // parent raises its z-index so the peek isn't clipped
   showLabels?: boolean; // persistent milestone titles above the segments (job detail has the room; the list doesn't)
+  onBeforeNavigate?: () => void; // fires before a segment deep-link — the projects board records scan-resume state here
 }) {
   const router = useRouter();
   const [hover, setHover] = useState<string | null>(null);
@@ -183,7 +184,7 @@ export function JobStatusBar({ job, stage, items = [], payments = [], navigate =
         return (
           <div key={"z" + m.k}
             onMouseEnter={hoverable ? () => { setHover(m.k); onHoverChange?.(true); } : undefined} onMouseLeave={hoverable ? () => { setHover(h => (h === m.k ? null : h)); onHoverChange?.(false); } : undefined}
-            onClick={clickable ? (e => { e.stopPropagation(); if (tgt) router.push(tgt(job)); }) : undefined}
+            onClick={clickable ? (e => { e.stopPropagation(); if (tgt) { onBeforeNavigate?.(); router.push(tgt(job)); } }) : undefined}
             style={{ position: "absolute", left: `${(i / N) * 100}%`, width: `${100 / N}%`, top: -7, bottom: -7, zIndex: 4, cursor: clickable ? "pointer" : "default" }}>
             {on && (tf !== undefined
               ? <div className="proj-chip" style={{ position: "absolute", left: 1, right: 1, top: 5, bottom: 5, borderRadius: 4, background: (i <= cur || tf > 0) ? HATCH_GREEN : T.surface, boxShadow: "0 3px 10px rgba(0,0,0,.22)", pointerEvents: "none", overflow: "hidden" }}>

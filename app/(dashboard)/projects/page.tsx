@@ -88,9 +88,14 @@ export default function ProjectsBoard() {
     try { sessionStorage.setItem(BOARD_STATE_KEY, JSON.stringify({ tab, query, stageFilter, clientFilter, sortBy, unpaidOnly, returnTo })); } catch {}
   };
   useEffect(() => { persistBoardState(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [tab, query, stageFilter, clientFilter, sortBy, unpaidOnly]);
-  const openJob = (r: Row) => {
+  // Record the strip we're leaving through — called on strip click AND by the
+  // status bar right before its segment deep-links (which do their own push).
+  const rememberJob = (r: Row) => {
     returnRef.current = { jobId: r.job.id, scrollY: window.scrollY };
     persistBoardState(returnRef.current);
+  };
+  const openJob = (r: Row) => {
+    rememberJob(r);
     router.push(`/jobs/${r.job.id}`);
   };
   // After the rows land, jump back to the strip we left through (once).
@@ -234,7 +239,7 @@ export default function ProjectsBoard() {
             </div>
           </SliceSortRow>
 
-          {active.map(r => <Strip key={r.job.id} r={r} thumbs={thumbs} proofStatus={proofStatus} flash={flashId === r.job.id} onOpen={() => openJob(r)} />)}
+          {active.map(r => <Strip key={r.job.id} r={r} thumbs={thumbs} proofStatus={proofStatus} flash={flashId === r.job.id} onOpen={() => openJob(r)} onRemember={() => rememberJob(r)} />)}
           {active.length === 0 && <div style={{ color: T.muted, fontSize: 14, padding: 40, textAlign: "center", background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, marginTop: 8 }}>No active projects match.</div>}
         </>)
       ) : (
@@ -252,7 +257,7 @@ export default function ProjectsBoard() {
               </select>
             </div>
           </SliceSortRow>
-          {doneSorted.map(r => <Strip key={r.job.id} r={r} thumbs={thumbs} proofStatus={proofStatus} completed flash={flashId === r.job.id} onOpen={() => openJob(r)} />)}
+          {doneSorted.map(r => <Strip key={r.job.id} r={r} thumbs={thumbs} proofStatus={proofStatus} completed flash={flashId === r.job.id} onOpen={() => openJob(r)} onRemember={() => rememberJob(r)} />)}
           {!doneSorted.length && <div style={{ color: T.muted, fontSize: 14, padding: 40, textAlign: "center", background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, marginTop: 8 }}>No completed projects match.</div>}
         </div>
       )}
@@ -288,7 +293,7 @@ function itemPeekState(it: any, ps?: { state?: string }): [string, string] {
   return ["No proof yet", T.faint];
 }
 
-function Strip({ r, thumbs, proofStatus, completed = false, flash = false, onOpen }: { r: Row; thumbs: Record<string, string>; proofStatus?: Record<string, { state?: string }>; completed?: boolean; flash?: boolean; onOpen: () => void }) {
+function Strip({ r, thumbs, proofStatus, completed = false, flash = false, onOpen, onRemember }: { r: Row; thumbs: Record<string, string>; proofStatus?: Record<string, { state?: string }>; completed?: boolean; flash?: boolean; onOpen: () => void; onRemember?: () => void }) {
   const { job, stage } = r;
   const [peek, setPeek] = useState(false); // inline items panel
   const items = ([...(job.items || [])] as any[]).sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
@@ -357,7 +362,7 @@ function Strip({ r, thumbs, proofStatus, completed = false, flash = false, onOpe
             </>);
           })()
         ) : (
-          <JobStatusBar job={job} stage={stage} items={job.items} payments={job.payment_records} navigate onHoverChange={setRaised} />
+          <JobStatusBar job={job} stage={stage} items={job.items} payments={job.payment_records} navigate onHoverChange={setRaised} onBeforeNavigate={onRemember} />
         )}
         {/* Items peek toggle — overlapping mockup thumbs; click expands the panel. */}
         {items.length > 0 && (
