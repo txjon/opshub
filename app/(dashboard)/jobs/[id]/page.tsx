@@ -750,8 +750,8 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           // Guarantee navigation even if the flush rejects — otherwise a
           // failed save leaves the button stuck on "Saving…" with no way out.
           try { await flushAllSavesWithTimeout(); } catch (e) { console.error("nav flush failed:", e); }
-          router.push("/jobs");
-          escapeTo("/jobs");
+          router.push("/projects");
+          escapeTo("/projects");
         }} disabled={navigating}
           style={{background:"transparent",border:"none",color:T.accent,fontSize:14,fontWeight:600,cursor:navigating?"default":"pointer",padding:"4px 8px 4px 0",fontFamily:font,display:"inline-flex",alignItems:"center",gap:2,minHeight:36,marginLeft:-4,opacity:navigating?0.55:1,transition:"opacity 0.12s"}}
           onMouseEnter={(e:any)=>{ if (!navigating) e.currentTarget.style.opacity="0.75";}}
@@ -1998,8 +1998,8 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           await supabase.from("payment_records").delete().eq("job_id", params.id);
           await supabase.from("job_contacts").delete().eq("job_id", params.id);
           await supabase.from("jobs").delete().eq("id", params.id);
-          router.push("/jobs");
-          escapeTo("/jobs");
+          router.push("/projects");
+          escapeTo("/projects");
         }}
         onCancel={() => setConfirmDeleteProject(false)}
       />

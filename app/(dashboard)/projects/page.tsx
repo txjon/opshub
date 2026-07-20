@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
@@ -41,6 +41,17 @@ const routeLabel: Record<string, string> = { drop_ship: "drop-ship", ship_throug
 const atStage = (r: Row, k: string) => k === "quote_sent" ? r.stage.preQuote : r.stage.milestone === k;
 const selStyle = { padding: "9px 14px", borderRadius: 12, border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 13, fontWeight: 700, fontFamily: font, outline: "none", cursor: "pointer" } as const;
 
+// Scan-resume state (Jon 2026-07-20): the board remembers how you left it —
+// tab, sort, filters, search, and WHICH strip you clicked into — so "‹ Projects"
+// from a job detail puts you back mid-scan: same order, scrolled to the same
+// strip, briefly ink-outlined. Session-scoped (survives navigation, not a new tab).
+const BOARD_STATE_KEY = "projectsBoardState.v1";
+type BoardReturn = { jobId: string; scrollY: number } | null;
+function readBoardState(): any {
+  if (typeof window === "undefined") return null;
+  try { return JSON.parse(sessionStorage.getItem(BOARD_STATE_KEY) || "null"); } catch { return null; }
+}
+
 export default function ProjectsBoard() {
   const supabase = createClient();
   const router = useRouter();
@@ -58,6 +69,47 @@ export default function ProjectsBoard() {
   const [clientFilter, setClientFilter] = useState("");
   const [sortBy, setSortBy] = useState<"due" | "invoice" | "newest">("due"); // default: first item due
   const [unpaidOnly, setUnpaidOnly] = useState(false); // completed tab: only jobs with money outstanding
+  const returnRef = useRef<BoardReturn>(null); // strip we left through, for scroll-back
+  const [flashId, setFlashId] = useState<string | null>(null); // strip to ink-outline after return
+
+  // Restore the saved board state on mount (post-hydration so SSR markup matches).
+  useEffect(() => {
+    const s = readBoardState();
+    if (!s) return;
+    if (s.tab === "active" || s.tab === "completed") setTab(s.tab);
+    if (typeof s.query === "string") setQuery(s.query);
+    if (typeof s.stageFilter === "string") setStageFilter(s.stageFilter);
+    if (typeof s.clientFilter === "string") setClientFilter(s.clientFilter);
+    if (s.sortBy === "due" || s.sortBy === "invoice" || s.sortBy === "newest") setSortBy(s.sortBy);
+    setUnpaidOnly(!!s.unpaidOnly);
+    returnRef.current = s.returnTo || null;
+  }, []);
+  const persistBoardState = (returnTo: BoardReturn = returnRef.current) => {
+    try { sessionStorage.setItem(BOARD_STATE_KEY, JSON.stringify({ tab, query, stageFilter, clientFilter, sortBy, unpaidOnly, returnTo })); } catch {}
+  };
+  useEffect(() => { persistBoardState(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [tab, query, stageFilter, clientFilter, sortBy, unpaidOnly]);
+  const openJob = (r: Row) => {
+    returnRef.current = { jobId: r.job.id, scrollY: window.scrollY };
+    persistBoardState(returnRef.current);
+    router.push(`/jobs/${r.job.id}`);
+  };
+  // After the rows land, jump back to the strip we left through (once).
+  useEffect(() => {
+    if (loading) return;
+    const rt = returnRef.current;
+    if (!rt) return;
+    returnRef.current = null;
+    persistBoardState(null);
+    requestAnimationFrame(() => {
+      const el = document.getElementById(`strip-${rt.jobId}`);
+      if (el) {
+        el.scrollIntoView({ block: "center" });
+        setFlashId(rt.jobId);
+        setTimeout(() => setFlashId(null), 1700);
+      } else if (rt.scrollY) window.scrollTo(0, rt.scrollY);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading]);
 
   useEffect(() => {
     (async () => {
@@ -182,7 +234,7 @@ export default function ProjectsBoard() {
             </div>
           </SliceSortRow>
 
-          {active.map(r => <Strip key={r.job.id} r={r} thumbs={thumbs} proofStatus={proofStatus} onOpen={() => router.push(`/jobs/${r.job.id}`)} />)}
+          {active.map(r => <Strip key={r.job.id} r={r} thumbs={thumbs} proofStatus={proofStatus} flash={flashId === r.job.id} onOpen={() => openJob(r)} />)}
           {active.length === 0 && <div style={{ color: T.muted, fontSize: 14, padding: 40, textAlign: "center", background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, marginTop: 8 }}>No active projects match.</div>}
         </>)
       ) : (
@@ -200,7 +252,7 @@ export default function ProjectsBoard() {
               </select>
             </div>
           </SliceSortRow>
-          {doneSorted.map(r => <Strip key={r.job.id} r={r} thumbs={thumbs} proofStatus={proofStatus} completed onOpen={() => router.push(`/jobs/${r.job.id}`)} />)}
+          {doneSorted.map(r => <Strip key={r.job.id} r={r} thumbs={thumbs} proofStatus={proofStatus} completed flash={flashId === r.job.id} onOpen={() => openJob(r)} />)}
           {!doneSorted.length && <div style={{ color: T.muted, fontSize: 14, padding: 40, textAlign: "center", background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, marginTop: 8 }}>No completed projects match.</div>}
         </div>
       )}
@@ -236,7 +288,7 @@ function itemPeekState(it: any, ps?: { state?: string }): [string, string] {
   return ["No proof yet", T.faint];
 }
 
-function Strip({ r, thumbs, proofStatus, completed = false, onOpen }: { r: Row; thumbs: Record<string, string>; proofStatus?: Record<string, { state?: string }>; completed?: boolean; onOpen: () => void }) {
+function Strip({ r, thumbs, proofStatus, completed = false, flash = false, onOpen }: { r: Row; thumbs: Record<string, string>; proofStatus?: Record<string, { state?: string }>; completed?: boolean; flash?: boolean; onOpen: () => void }) {
   const { job, stage } = r;
   const [peek, setPeek] = useState(false); // inline items panel
   const items = ([...(job.items || [])] as any[]).sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
@@ -256,7 +308,7 @@ function Strip({ r, thumbs, proofStatus, completed = false, onOpen }: { r: Row; 
   // (slicing a UTC timestamp shows the previous day for Vegas evenings).
   const opened = job.created_at ? new Date(job.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : null;
   return (
-    <div onClick={onOpen} style={{ background: T.card, border: `1px solid ${T.border}`, borderLeft: edgeColor ? `4px solid ${edgeColor}` : `1px solid ${T.border}`, borderRadius: 12, padding: edgeColor ? "10px 16px 10px 13px" : "10px 16px", marginTop: 8, cursor: "pointer", position: "relative", zIndex: raised ? 40 : undefined }}>
+    <div id={`strip-${job.id}`} onClick={onOpen} style={{ background: T.card, border: `1px solid ${T.border}`, borderLeft: edgeColor ? `4px solid ${edgeColor}` : `1px solid ${T.border}`, borderRadius: 12, padding: edgeColor ? "10px 16px 10px 13px" : "10px 16px", marginTop: 8, cursor: "pointer", position: "relative", zIndex: raised ? 40 : undefined, outline: flash ? `2.5px solid ${T.text}` : "none", outlineOffset: -1, transition: "outline-color 0.5s" }}>
       <div style={{ display: "flex", alignItems: "center" }}>
         <div style={{ width: 236, flexShrink: 0, minWidth: 0, paddingRight: 12 }}>
           <div style={{ display: "flex", alignItems: "baseline", gap: 8, minWidth: 0 }}>
