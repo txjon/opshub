@@ -12,6 +12,8 @@ const V2_LEGACY_REDIRECT: Record<string, string> = {
   "/receiving": "/receiving2",
   "/shipping": "/shipping2",
   "/fulfillment": "/staging2",
+  // Projects board v2 (exact match only — /jobs/[id] job details stay put).
+  "/jobs": "/projects",
 };
 
 export async function updateSession(request: NextRequest) {
