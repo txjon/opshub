@@ -82,10 +82,14 @@ export default function ProofDocBody({
     </div>
   );
 
+  // NOTE: the "proof-*" classNames are styling hooks for the PDF ONLY — the
+  // print stylesheet in lib/proof-html.ts tightens spacing/sizes and sets page
+  // break rules through them. Nothing in the app targets these classes, so the
+  // web render is untouched. Keep them when editing this layout.
   return (
-    <div style={{ maxWidth: 760, margin: "0 auto", fontFamily: font, color: "#1a1a1a" }}>
+    <div className="proof-doc" style={{ maxWidth: 760, margin: "0 auto", fontFamily: font, color: "#1a1a1a" }}>
       {/* Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", borderBottom: "2px solid #1a1a1a", paddingBottom: 10 }}>
+      <div className="proof-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", borderBottom: "2px solid #1a1a1a", paddingBottom: 10 }}>
         {logoSvg
           ? <span style={{ display: "inline-block", lineHeight: 0 }} dangerouslySetInnerHTML={{ __html: logoSvg }} />
           : <div style={{ fontSize: 21, fontWeight: 800 }}>{brandName || clientName || "—"}</div>}
@@ -96,11 +100,11 @@ export default function ProofDocBody({
       </div>
 
       {/* Item title + blank — document style (no boxes, no labels) */}
-      <div style={{ padding: "18px 0 4px" }}>
-        <div style={{ fontSize: 30, fontWeight: 800, letterSpacing: "-0.015em", lineHeight: 1.12, overflowWrap: "break-word" }}>{itemName || "—"}</div>
+      <div className="proof-titleblock" style={{ padding: "18px 0 4px" }}>
+        <div className="proof-title" style={{ fontSize: 30, fontWeight: 800, letterSpacing: "-0.015em", lineHeight: 1.12, overflowWrap: "break-word" }}>{itemName || "—"}</div>
         {(() => {
           const sub = [blankVendor === "—" ? "" : blankVendor, blankColor].filter(Boolean).join(" · ");
-          return sub ? <div style={{ fontSize: 14, color: "#6b6b78", marginTop: 6 }}>{sub}</div> : null;
+          return sub ? <div className="proof-sub" style={{ fontSize: 14, color: "#6b6b78", marginTop: 6 }}>{sub}</div> : null;
         })()}
       </div>
 
@@ -109,7 +113,7 @@ export default function ProofDocBody({
 
       {/* Special instructions notice — shows in edit even when empty (so it's addable) */}
       {(notes || E?.setNotes) && (
-        <div style={{ borderLeft: "4px solid #1a1a1a", background: "#f4f4f5", borderRadius: "0 8px 8px 0", padding: "13px 16px", marginTop: 4 }}>
+        <div className="proof-notes" style={{ borderLeft: "4px solid #1a1a1a", background: "#f4f4f5", borderRadius: "0 8px 8px 0", padding: "13px 16px", marginTop: 4 }}>
           <div style={{ fontSize: 9, fontWeight: 800, color: "#1a1a1a", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>Special Instructions</div>
           <div style={{ fontSize: 14.5, fontWeight: 600, color: "#1a1a1a", whiteSpace: "pre-wrap", lineHeight: 1.45 }}>
             <Ed value={notes} onChange={E?.setNotes} placeholder="Add special instructions…" multiline style={{ fontSize: 14.5, fontWeight: 600 }} />
@@ -118,7 +122,7 @@ export default function ProofDocBody({
       )}
 
       {/* Locations */}
-      <div style={{ borderTop: "2px solid #1a1a1a", paddingTop: 12, marginTop: hasMockup ? 0 : 14 }}>
+      <div className="proof-section proof-locations" style={{ borderTop: "2px solid #1a1a1a", paddingTop: 12, marginTop: hasMockup ? 0 : 14 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
           <div style={SEC}>Locations</div>
           {E && (
@@ -129,11 +133,11 @@ export default function ProofDocBody({
           )}
         </div>
         {locations.length === 0 && !E ? <div style={{ fontSize: 12, color: "#a0a0ad" }}>No print locations yet.</div> : (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
+          <div className="proof-loc-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
             {locations.map((p, i) => {
               const tag = isTag(p.placement);
               return (
-                <div key={i} style={{ border: "1px solid #e0e0e4", borderRadius: 10, padding: "12px 14px", position: "relative", breakInside: "avoid" }}>
+                <div key={i} className="proof-loc-card" style={{ border: "1px solid #e0e0e4", borderRadius: 10, padding: "12px 14px", position: "relative", breakInside: "avoid" }}>
                   <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, paddingBottom: 8, marginBottom: 10, borderBottom: "1px solid #eee" }}>
                     <div style={{ fontSize: 13.5, fontWeight: 800 }}>
                       <Ed value={p.placement} onChange={E?.updateLocation ? (v) => E.updateLocation(i, { placement: v }) : null} placeholder="Placement" style={{ fontSize: 13.5, fontWeight: 800 }} widthCh={E ? 12 : undefined} />
@@ -199,7 +203,7 @@ export default function ProofDocBody({
       </div>
 
       {/* Product spec KPIs */}
-      <div style={{ borderTop: "2px solid #1a1a1a", paddingTop: 12, marginTop: 18 }}>
+      <div className="proof-section" style={{ borderTop: "2px solid #1a1a1a", paddingTop: 12, marginTop: 18 }}>
         <div style={{ ...SEC, marginBottom: 10 }}>Product spec</div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10 }}>
           {[
@@ -210,9 +214,9 @@ export default function ProofDocBody({
           ].map(([k, v, onChange, opts]) => {
             const dlId = `pv-opts-${k.toLowerCase()}`;
             return (
-              <div key={k} style={{ border: "1px solid #e0e0e4", borderRadius: 10, padding: "12px 14px" }}>
+              <div key={k} className="proof-kpi" style={{ border: "1px solid #e0e0e4", borderRadius: 10, padding: "12px 14px" }}>
                 <div style={{ ...LBL, fontSize: 8.5 }}>{k}</div>
-                <div style={{ fontSize: 17, fontWeight: 800, marginTop: 4, lineHeight: 1.2 }}>
+                <div className="proof-kpi-val" style={{ fontSize: 17, fontWeight: 800, marginTop: 4, lineHeight: 1.2 }}>
                   {onChange ? (
                     <>
                       <input list={opts ? dlId : undefined} value={v === "—" ? "" : v} onChange={(e) => onChange(e.target.value)} placeholder={k}
@@ -229,12 +233,12 @@ export default function ProofDocBody({
 
       {/* Finishing & handling — KPI-style chip cards */}
       {(finishing.length > 0 || E?.addFinishing) && (
-        <div style={{ borderTop: "2px solid #1a1a1a", paddingTop: 12, marginTop: 18 }}>
+        <div className="proof-section" style={{ borderTop: "2px solid #1a1a1a", paddingTop: 12, marginTop: 18 }}>
           <div style={{ ...SEC, marginBottom: 10 }}>Finishing &amp; handling</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
             {finishing.map((it, i) => (
-              <div key={i} style={{ border: "1px solid #e0e0e4", borderRadius: 10, padding: "10px 14px", minWidth: 130, position: "relative", display: "flex", alignItems: "center", gap: 8 }}>
-                <div style={{ fontSize: 14, fontWeight: 800 }}>{it}</div>
+              <div key={i} className="proof-chip" style={{ border: "1px solid #e0e0e4", borderRadius: 10, padding: "10px 14px", minWidth: 130, position: "relative", display: "flex", alignItems: "center", gap: 8 }}>
+                <div className="proof-chip-val" style={{ fontSize: 14, fontWeight: 800 }}>{it}</div>
                 {E?.removeFinishing && i >= (E.costingFinishingCount || 0) && <button onClick={() => E.removeFinishing(i)} title="Remove" style={{ background: "none", border: "none", color: "#c3c3cc", cursor: "pointer", fontSize: 12, padding: 0, lineHeight: 1 }}>×</button>}
               </div>
             ))}
@@ -253,7 +257,7 @@ export default function ProofDocBody({
 
       {/* Legacy item-level add-ons (kept for older specs) */}
       {addOns.length > 0 && (
-        <div style={{ borderTop: "1px solid #e0e0e4", paddingTop: 12, marginTop: 18 }}>
+        <div className="proof-section" style={{ borderTop: "1px solid #e0e0e4", paddingTop: 12, marginTop: 18 }}>
           <div style={{ ...SEC, marginBottom: 6 }}>Add-ons</div>
           <ul style={{ margin: 0, padding: "0 0 0 16px", listStyle: "disc" }}>
             {addOns.map((s2, i) => <li key={i} style={{ fontSize: 13.5, fontWeight: 700, color: "#1a1a1a", lineHeight: 1.35, marginBottom: 3 }}>{s2}</li>)}
@@ -263,9 +267,9 @@ export default function ProofDocBody({
 
       {/* Approval disclaimer */}
       {(disclaimer || E?.setDisclaimer) && (
-        <div style={{ borderTop: "1px solid #e0e0e4", paddingTop: 12, marginTop: 18 }}>
+        <div className="proof-section proof-approval" style={{ borderTop: "1px solid #e0e0e4", paddingTop: 12, marginTop: 18 }}>
           <div style={{ ...SEC, marginBottom: 6 }}>Approval</div>
-          <div style={{ fontSize: 11, color: "#6b6b78", lineHeight: 1.5 }}>
+          <div className="proof-approval-text" style={{ fontSize: 11, color: "#6b6b78", lineHeight: 1.5 }}>
             <Ed value={disclaimer} onChange={E?.setDisclaimer} placeholder="Approval disclaimer…" multiline fill style={{ fontSize: 11, color: "#6b6b78" }} />
           </div>
         </div>
