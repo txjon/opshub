@@ -493,6 +493,31 @@ function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClo
     pre.src = fullUrl;
   }, [item.thumb_id]);
 
+  // Pull request — any stage; team fulfills when goods land.
+  const [pullOpen, setPullOpen] = useState(false);
+  const [pullQtys, setPullQtys] = useState<Record<string, string>>({});
+  const [pullDest, setPullDest] = useState("");
+  const [pullBy, setPullBy] = useState("");
+  const [pullNote, setPullNote] = useState("");
+  const [pullBusy, setPullBusy] = useState(false);
+  const [pullDone, setPullDone] = useState<string | null>(null);
+  const pullSizes = (item.sizes && item.sizes.length > 0) ? item.sizes.map(s => s.size) : ["OSFA"];
+  async function submitPull() {
+    setPullBusy(true); setPullDone(null);
+    try {
+      const qtys: Record<string, number> = {};
+      for (const [k, v] of Object.entries(pullQtys)) { const n = Math.round(Number(v) || 0); if (n > 0) qtys[k] = n; }
+      const res = await fetch(`/api/portal/client/${token}/pulls`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itemId: item.id, qtys, destination: pullDest.trim(), neededBy: pullBy || undefined, note: pullNote.trim() || undefined }),
+      });
+      const data = await res.json();
+      if (res.ok) { setPullDone("Request received. We'll pull it as soon as the goods allow and confirm with you."); setPullOpen(false); setPullQtys({}); setPullDest(""); setPullBy(""); setPullNote(""); }
+      else setPullDone(data.error || "Couldn't send the request.");
+    } catch { setPullDone("Couldn't send the request."); }
+    setPullBusy(false);
+  }
+
   // Adds this piece to the shared reorder cart (same localStorage the
   // Reorder tab reads), prefilled with this run's sizes, then jumps there.
   function reorder() {
@@ -532,6 +557,10 @@ function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClo
           <button onClick={onClose}
             style={{ padding: "10px 16px", background: "transparent", color: C.muted, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: C.font, minHeight: 44 }}>
             Close
+          </button>
+          <button onClick={() => { setPullOpen(o => !o); setPullDone(null); }}
+            style={{ padding: "10px 16px", background: "transparent", color: C.text, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: C.font, minHeight: 44 }}>
+            {pullOpen ? "Cancel pull" : "Request a pull"}
           </button>
           <button onClick={reorder}
             style={{
@@ -683,6 +712,43 @@ function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClo
         </div>
       </div>
 
+
+      {pullDone && (
+        <div style={{ marginTop: 16, padding: "10px 14px", background: pullDone.startsWith("Request received") ? C.greenBg : C.redBg, border: `1px solid ${pullDone.startsWith("Request received") ? C.greenBorder : C.redBorder}`, borderRadius: 8, color: pullDone.startsWith("Request received") ? C.green : C.red, fontSize: 12, fontWeight: 600 }}>
+          {pullDone}
+        </div>
+      )}
+      {pullOpen && (
+        <div style={{ marginTop: 16, borderTop: `1px solid ${C.border}`, paddingTop: 14 }}>
+          <div style={{ fontSize: 10, color: C.faint, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 8 }}>Request a pull</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: "4px 14px", marginBottom: 12 }}>
+            {pullSizes.map(sz => (
+              <label key={sz} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, borderBottom: `1px solid ${C.border}`, padding: "4px 0" }}>
+                <span style={{ fontSize: 10.5, fontWeight: 700, color: C.muted, fontFamily: C.mono }}>{sz}</span>
+                <input type="text" inputMode="numeric" value={pullQtys[sz] ?? ""} placeholder="0"
+                  onFocus={e => e.currentTarget.select()}
+                  onChange={e => setPullQtys(prev => ({ ...prev, [sz]: e.target.value.replace(/[^0-9]/g, "") }))}
+                  style={{ width: 52, padding: "7px 0", textAlign: "center", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, color: C.text, fontFamily: C.mono, fontSize: 13, fontWeight: 700, outline: "none" }} />
+              </label>
+            ))}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <input value={pullDest} onChange={e => setPullDest(e.target.value)} placeholder="Where's it going? (name + address or 'our office')"
+              style={{ padding: "10px 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, color: C.text, fontSize: 13, fontFamily: C.font, outline: "none" }} />
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <span style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>Need by</span>
+              <input type="date" value={pullBy} onChange={e => setPullBy(e.target.value)}
+                style={{ padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, color: C.text, fontSize: 12.5, fontFamily: C.font, outline: "none", colorScheme: "dark" }} />
+            </div>
+            <textarea value={pullNote} onChange={e => setPullNote(e.target.value)} rows={2} placeholder="Anything else we should know?"
+              style={{ padding: "10px 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, color: C.text, fontSize: 13, fontFamily: C.font, outline: "none", resize: "vertical" }} />
+            <button onClick={submitPull} disabled={pullBusy}
+              style={{ alignSelf: "flex-start", padding: "11px 22px", background: C.accent, color: "#0a0a0a", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 800, cursor: pullBusy ? "wait" : "pointer", fontFamily: C.font, opacity: pullBusy ? 0.6 : 1 }}>
+              {pullBusy ? "Sending…" : "Send pull request"}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Full-screen viewer — portals to document.body, so it sits
           above the sheet regardless of where it renders in this tree. */}
