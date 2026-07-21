@@ -231,7 +231,9 @@ export default function ProjectsBoard() {
   const kpi = (k: string) => k === "active" ? activeAll.length : k === "action" ? activeAll.filter(r => !r.stage.preQuote && (r.stage.signal === "act" || r.stage.signal === "late")).length : activeAll.filter(r => r.stage.preQuote).length;
 
   return (
-    <BoardFrame title="Projects">
+    <BoardFrame title="Projects" action={
+      <a href="/jobs/new" style={{ background: T.accent, color: "#fff", borderRadius: 8, padding: "9px 16px", fontSize: 13, fontFamily: font, fontWeight: 600, textDecoration: "none", whiteSpace: "nowrap" }}>+ New Project</a>
+    }>
       <ToggleSearch
         options={[["active", `Active · ${activeAll.length}`], ["completed", `Completed · ${rows.filter(r => r.stage.complete).length}`]]}
         value={tab} onChange={setTab} query={query} setQuery={setQuery} placeholder="Search client, job #, or title…" />
