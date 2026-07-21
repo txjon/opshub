@@ -1,135 +1,140 @@
 "use client";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useClientPortal } from "./_shared/context";
-import { C, daysUntil, fmtDate } from "./_shared/theme";
-import { clientStateFor, isDoneForClient } from "./_shared/state-labels";
+import { C, fmtDate } from "./_shared/theme";
 
-// Overview — the hub's front page, editorial shop treatment (Jul 20 2026):
-// client name as the hero, needs-you line, big numerals over hairlines
-// instead of system stat cards, then the activity feed. Same data as the
-// old card layout — presentation only.
+// HOME — the hub's front door (reworked Jul 21 2026). Answers exactly three
+// things and nothing else: what needs me, what's dropping next, what's new.
+// Studio (Product Development) is hidden pending rethink, so no design
+// pills or brief feeds here. Data: orders + items APIs (same as tabs).
 
-export default function OverviewPage() {
+export default function HomePage() {
   const { data, token } = useClientPortal();
+  const base = `/portal/client/${token}`;
+  const [orders, setOrders] = useState<any[] | null>(null);
+  const [items, setItems] = useState<any[] | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [o, i] = await Promise.all([
+          fetch(`/api/portal/client/${token}/orders`).then(r => r.json()).catch(() => ({})),
+          fetch(`/api/portal/client/${token}/items`).then(r => r.json()).catch(() => ({})),
+        ]);
+        setOrders(o.orders || []);
+        setItems(i.items || []);
+      } catch { setOrders([]); setItems([]); }
+    })();
+    // eslint-disable-next-line
+  }, [token]);
+
   if (!data) return null;
 
-  const base = `/portal/client/${token}`;
-  const briefs = data.briefs;
-  const unreadCount = briefs.filter(b => b.has_unread_external).length;
-  const activeBriefsCount = briefs.filter(b => !isDoneForClient(b)).length;
-  const summary = data.orders_summary || { active_count: 0, delivered_recent_count: 0, unpaid_count: 0, next_ship_date: null };
+  const unpaid = (orders || []).filter(o => o.payment_status === "unpaid" || o.payment_status === "partial");
+  const needsAction = (orders || []).filter(o => o.phase === "pending");
+  const active = (items || []).filter(it => !["complete", "archived", "cancelled", "on_hold"].includes(it.status));
+  const landing = active
+    .filter(it => it.eta && it.status !== "in_stock")
+    .sort((a, b) => String(a.eta).localeCompare(String(b.eta)))
+    .slice(0, 6);
+  const storeReady = active.filter(it => it.status === "in_stock").slice(0, 6);
+  const loadingData = orders === null || items === null;
 
-  const recentBriefs = [...briefs]
-    .sort((a, b) => (b.last_activity_at || b.updated_at || "").localeCompare(a.last_activity_at || a.updated_at || ""))
-    .slice(0, 8);
+  const pills: { label: string; href: string }[] = [];
+  if (needsAction.length > 0) pills.push({ label: `${needsAction.length} order${needsAction.length === 1 ? "" : "s"} awaiting your approval`, href: `${base}/orders` });
+  if (unpaid.length > 0) pills.push({ label: `${unpaid.length} unpaid invoice${unpaid.length === 1 ? "" : "s"}`, href: `${base}/orders?filter=unpaid` });
 
-  const needsYou: { label: string; href: string }[] = [];
-  if (unreadCount > 0) needsYou.push({ label: `${unreadCount} design${unreadCount === 1 ? "" : "s"} to review`, href: `${base}/designs` });
-  if (summary.unpaid_count > 0) needsYou.push({ label: `${summary.unpaid_count} unpaid invoice${summary.unpaid_count === 1 ? "" : "s"}`, href: `${base}/orders?filter=unpaid` });
+  const thumb = (id: string) => `/api/files/thumbnail?id=${id}&thumb=1&size=500`;
 
-  const stats: { label: string; value: number; hint: string; href: string; accent?: string }[] = [
-    { label: "Active orders", value: summary.active_count, hint: summary.next_ship_date ? `Next ship ${fmtDate(summary.next_ship_date)}` : "In motion", href: `${base}/orders` },
-    { label: "Active designs", value: activeBriefsCount, hint: activeBriefsCount === 0 ? "Studio quiet" : "In the studio", href: `${base}/designs` },
-    { label: "Design updates", value: unreadCount, hint: unreadCount === 0 ? "All caught up" : "Tap to review", href: `${base}/designs`, accent: unreadCount > 0 ? C.purple : undefined },
-    { label: "Unpaid invoices", value: summary.unpaid_count, hint: summary.unpaid_count === 0 ? "Nothing due" : "Tap to review", href: `${base}/orders?filter=unpaid`, accent: summary.unpaid_count > 0 ? C.amber : undefined },
-  ];
+  const Strip = ({ title, sub, list, badge }: { title: string; sub: string; list: any[]; badge: (it: any) => string }) => (
+    <section style={{ marginBottom: 38 }}>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+        <h2 style={{ margin: 0, fontSize: 17, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em" }}>{title}</h2>
+        <Link href={`${base}/items`} style={{ fontSize: 10, color: C.muted, textDecoration: "none", fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase" }}>{sub} →</Link>
+      </div>
+      <div className="hm-strip">
+        {list.map(it => (
+          <Link key={it.id} href={`${base}/items`} className="hm-card"
+            style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, overflow: "hidden", textDecoration: "none", color: C.text, display: "block" }}>
+            <div style={{ background: "#fff", aspectRatio: "1", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              {it.thumb_id
+                ? <img src={thumb(it.thumb_id)} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "contain" }} onError={(e: any) => { e.target.style.display = "none"; }} />
+                : <span style={{ color: "#bbb", fontSize: 11 }}>No preview</span>}
+            </div>
+            <div style={{ padding: "10px 12px 12px" }}>
+              <div style={{ fontSize: 11.5, fontWeight: 800, textTransform: "uppercase", lineHeight: 1.25, overflow: "hidden", display: "-webkit-box", WebkitBoxOrient: "vertical" as any, WebkitLineClamp: 2 }}>{it.name}</div>
+              <div style={{ fontSize: 9.5, fontFamily: C.mono, color: C.muted, marginTop: 5 }}>{badge(it)}</div>
+            </div>
+          </Link>
+        ))}
+      </div>
+    </section>
+  );
 
   return (
     <div style={{ paddingTop: "clamp(8px, 3vw, 28px)" }}>
       <style dangerouslySetInnerHTML={{ __html: `
-        .ov-stats{display:grid;grid-template-columns:repeat(2,1fr);gap:0;border-top:1px solid ${C.border}}
-        @media(min-width:720px){.ov-stats{grid-template-columns:repeat(4,1fr)}}
-        .ov-stat{border-bottom:1px solid ${C.border};padding:22px 4px 20px;text-decoration:none;display:block;transition:background .15s}
-        .ov-stat:hover{background:${C.card}}
+        .hm-strip{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px}
+        @media(min-width:720px){.hm-strip{grid-template-columns:repeat(auto-fill,minmax(180px,1fr))}}
+        .hm-card{transition:transform .15s ease,border-color .15s ease}
+        .hm-card:hover{transform:translateY(-3px);border-color:rgba(255,255,255,.3)}
+        @media(prefers-reduced-motion:reduce){.hm-card,.hm-card:hover{transition:none;transform:none}}
       ` }} />
 
-      {/* Hero — the client's name, the website way */}
+      {/* Hero */}
       <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase", color: C.faint, textAlign: "center" }}>
         Welcome back
       </div>
-      <h1 style={{ fontSize: "clamp(30px,6.5vw,60px)", fontWeight: 900, lineHeight: 0.98, letterSpacing: "-0.02em", textTransform: "uppercase", margin: "8px 0 12px", textWrap: "balance" as any, textAlign: "center" }}>
+      <h1 style={{ fontSize: "clamp(30px,6.5vw,60px)", fontWeight: 900, lineHeight: 0.98, letterSpacing: "-0.02em", textTransform: "uppercase", margin: "8px 0 14px", textWrap: "balance" as any, textAlign: "center" }}>
         {data.client.name}.
       </h1>
 
-      {/* Needs-you line */}
-      {needsYou.length > 0 ? (
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", margin: "0 0 30px", justifyContent: "center" }}>
-          {needsYou.map(n => (
+      {/* What needs you */}
+      {pills.length > 0 ? (
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", margin: "0 0 36px", justifyContent: "center" }}>
+          {pills.map(n => (
             <Link key={n.label} href={n.href}
-              style={{ background: "#fff", color: C.bg, borderRadius: 999, padding: "10px 20px", fontSize: 11, fontWeight: 800, letterSpacing: "0.09em", textTransform: "uppercase", textDecoration: "none" }}>
+              style={{ background: "#fff", color: C.bg, borderRadius: 999, padding: "11px 22px", fontSize: 11, fontWeight: 800, letterSpacing: "0.09em", textTransform: "uppercase", textDecoration: "none" }}>
               {n.label} →
             </Link>
           ))}
         </div>
+      ) : !loadingData ? (
+        <div style={{ fontSize: 14, color: C.muted, margin: "0 0 36px", lineHeight: 1.6, textAlign: "center" }}>
+          Nothing needs you right now. Here&rsquo;s what&rsquo;s moving.
+        </div>
+      ) : <div style={{ height: 36 }} />}
+
+      {loadingData ? (
+        <div style={{ color: C.faint, fontSize: 13, padding: "30px 0", textAlign: "center" }}>Loading…</div>
       ) : (
-        <div style={{ fontSize: 14, color: C.muted, margin: "0 0 30px", lineHeight: 1.6, textAlign: "center" }}>
-          All caught up. Here&rsquo;s where everything stands.
-        </div>
+        <>
+          {landing.length > 0 && (
+            <Strip title="Dropping next." sub="Full pipeline" list={landing}
+              badge={(it) => `lands ${fmtDate(it.eta)}`} />
+          )}
+          {storeReady.length > 0 && (
+            <Strip title="Live-ready." sub="See all" list={storeReady}
+              badge={(it) => `${(it.qty || 0).toLocaleString()} pcs ready`} />
+          )}
+          {landing.length === 0 && storeReady.length === 0 && (
+            <div style={{ color: C.muted, fontSize: 13, textAlign: "center", padding: "20px 0 40px" }}>
+              Nothing in production right now. Tap Reorder to run something back.
+            </div>
+          )}
+
+          {/* Quick doors */}
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "center", margin: "6px 0 20px" }}>
+            {[{ label: "Reorder", href: `${base}/reorder` }, { label: "Orders", href: `${base}/orders` }, { label: "Pipeline", href: `${base}/items` }].map(d => (
+              <Link key={d.label} href={d.href}
+                style={{ border: `1px solid ${C.border}`, color: C.muted, borderRadius: 999, padding: "10px 20px", fontSize: 10.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", textDecoration: "none" }}>
+                {d.label}
+              </Link>
+            ))}
+          </div>
+        </>
       )}
-
-      {/* Stat band — big numerals over hairlines */}
-      <div className="ov-stats" style={{ marginBottom: 34 }}>
-        {stats.map(s => (
-          <Link key={s.label} href={s.href} className="ov-stat">
-            <div style={{ fontSize: 9.5, fontWeight: 800, color: C.faint, letterSpacing: "0.14em", textTransform: "uppercase" }}>{s.label}</div>
-            <div style={{ fontSize: "clamp(30px,4vw,44px)", fontWeight: 900, color: s.accent || C.text, lineHeight: 1.05, marginTop: 6, fontFamily: C.font, letterSpacing: "-0.02em" }}>{s.value}</div>
-            <div style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>{s.hint}</div>
-          </Link>
-        ))}
-      </div>
-
-      {/* Recent activity */}
-      <section>
-        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 6 }}>
-          <h2 style={{ margin: 0, fontSize: 15, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em" }}>The latest.</h2>
-          <Link href={`${base}/designs`} style={{ fontSize: 10.5, color: C.muted, textDecoration: "none", fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase" }}>
-            All designs →
-          </Link>
-        </div>
-
-        {recentBriefs.length === 0 ? (
-          <div style={{ padding: "28px 0", color: C.muted, fontSize: 13 }}>
-            No activity yet. We&rsquo;ll send you a link when something&rsquo;s ready to review.
-          </div>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column" }}>
-            {recentBriefs.map((b) => {
-              const meta = clientStateFor(b);
-              const due = daysUntil(b.deadline);
-              return (
-                <Link key={b.id} href={`${base}/designs?brief=${b.id}`}
-                  style={{
-                    display: "flex", gap: 14, alignItems: "center",
-                    padding: "13px 0",
-                    borderBottom: `1px solid ${C.border}`,
-                    textDecoration: "none", color: C.text,
-                    minHeight: 56,
-                  }}>
-                  {b.has_unread_external ? (
-                    <div style={{ width: 42, minWidth: 42, textAlign: "center", padding: "3px 6px", background: C.purple, color: "#fff", fontSize: 9, fontWeight: 800, letterSpacing: "0.06em", borderRadius: 3 }}>NEW</div>
-                  ) : (
-                    <div style={{ width: 42, minWidth: 42, display: "flex", justifyContent: "center" }}>
-                      <span style={{ width: 8, height: 8, borderRadius: 99, background: meta.color }} />
-                    </div>
-                  )}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13.5, fontWeight: b.has_unread_external ? 800 : 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {b.title || "Untitled design"}
-                    </div>
-                    <div style={{ fontSize: 11.5, color: C.muted, marginTop: 2 }}>
-                      {b.preview_line || meta.label}
-                      {due && <span style={{ color: due.color, marginLeft: 8 }}>· {due.text}</span>}
-                    </div>
-                  </div>
-                  <div style={{ fontSize: 10.5, color: C.faint, whiteSpace: "nowrap", fontFamily: C.mono }}>
-                    {b.last_activity_at ? fmtDate(b.last_activity_at) : ""}
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
-        )}
-      </section>
     </div>
   );
 }
