@@ -56,6 +56,22 @@ export async function PATCH(req: NextRequest, { params }: { params: { token: str
       const n = body.run_size === null || body.run_size === "" ? null : Math.max(0, Math.min(1000000, Math.round(Number(body.run_size) || 0)));
       if (n !== (spec.run_size ?? null)) { spec.run_size = n; if (n) changes.push(`~${n.toLocaleString()} pcs`); }
     }
+    // Multi-product line items — same artwork, N sellable versions (tee /
+    // hoodie / LS…), each with its own retail + stock-vs-preorder + run.
+    if (body.products !== undefined && Array.isArray(body.products)) {
+      const clean = body.products.slice(0, 10).map((x: any) => ({
+        id: String(x.id || "").slice(0, 40) || Math.random().toString(36).slice(2, 10),
+        format: String(x.format || "").trim().slice(0, 60) || null,
+        retail: x.retail === null || x.retail === "" || x.retail === undefined ? null : Math.max(0, Math.min(100000, Number(x.retail) || 0)),
+        model: ["stock", "preorder"].includes(x.model) ? x.model : null,
+        run_size: x.run_size === null || x.run_size === "" || x.run_size === undefined ? null : Math.max(0, Math.min(1000000, Math.round(Number(x.run_size) || 0))),
+      }));
+      if (JSON.stringify(clean) !== JSON.stringify(spec.products || [])) {
+        spec.products = clean;
+        const summary = clean.map((x: any) => [x.format || "item", x.retail != null ? `$${x.retail}` : null, x.model === "preorder" ? "pre-order" : x.model === "stock" ? "fixed run" : null].filter(Boolean).join(" ")).join(" · ");
+        if (summary) changes.push(summary.slice(0, 260));
+      }
+    }
     if (body.spec_notes !== undefined) {
       const sn = String(body.spec_notes || "").trim().slice(0, 1000) || null;
       if (sn !== (spec.spec_notes ?? null)) { spec.spec_notes = sn; }

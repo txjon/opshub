@@ -238,11 +238,14 @@ export default function StudioPage() {
                         <span style={{ fontSize: 9.5, color: C.faint, fontFamily: C.mono }}>{b.last_activity_at ? fmtDate(b.last_activity_at) : ""}</span>
                         {b.has_unread_external && <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.08em", color: C.purple }}>NEW</span>}
                       </div>
-                      {(b.product_spec?.retail != null || b.product_spec?.model) && (
-                        <div style={{ fontSize: 9.5, fontFamily: C.mono, color: C.muted, marginTop: 4 }}>
-                          {[b.product_spec?.retail != null ? `$${b.product_spec.retail} retail` : null, b.product_spec?.model === "preorder" ? "pre-order" : b.product_spec?.model === "stock" ? "fixed run" : null, b.product_spec?.format || null].filter(Boolean).join(" · ")}
-                        </div>
-                      )}
+                      {(() => {
+                        const ps = Array.isArray(b.product_spec?.products) && b.product_spec.products.length ? b.product_spec.products
+                          : (b.product_spec?.retail != null || b.product_spec?.model || b.product_spec?.format) ? [b.product_spec] : [];
+                        if (!ps.length) return null;
+                        const bits = ps.slice(0, 3).map((x: any) => [x.format || "item", x.retail != null ? `$${x.retail}` : null].filter(Boolean).join(" "));
+                        if (ps.length > 3) bits.push(`+${ps.length - 3}`);
+                        return <div style={{ fontSize: 9.5, fontFamily: C.mono, color: C.muted, marginTop: 4 }}>{bits.join(" · ")}</div>;
+                      })()}
                     </div>
                   </button>
                 );
@@ -279,11 +282,24 @@ function BriefSheet({ brief, token, onClose, onActed }: { brief: any; token: str
   // saves on blur/tap, changes echo into the thread as ✎ markers.
   const spec0 = brief.product_spec || {};
   const [specTitle, setSpecTitle] = useState<string>(brief.title || "");
-  const [retail, setRetail] = useState<string>(spec0.retail != null ? String(spec0.retail) : "");
-  const [model, setModel] = useState<string>(spec0.model || "");
-  const [format, setFormat] = useState<string>(spec0.format || "");
-  const [runSize, setRunSize] = useState<string>(spec0.run_size != null ? String(spec0.run_size) : "");
+  // One artwork, N sellable versions. Legacy single-spec briefs migrate to
+  // one line on open.
+  const [products, setProducts] = useState<any[]>(() => {
+    if (Array.isArray(spec0.products) && spec0.products.length) return spec0.products;
+    if (spec0.format || spec0.retail != null || spec0.model || spec0.run_size != null) {
+      return [{ id: "legacy1", format: spec0.format || "", retail: spec0.retail ?? null, model: spec0.model || null, run_size: spec0.run_size ?? null }];
+    }
+    return [];
+  });
   const [specSaved, setSpecSaved] = useState(false);
+  function pushProducts(next: any[]) {
+    setProducts(next);
+    saveSpec({ products: next.map(x => ({ id: x.id, format: x.format || null, retail: x.retail === "" ? null : x.retail, model: x.model || null, run_size: x.run_size === "" ? null : x.run_size })) });
+  }
+  function patchLine(id: string, patch: any, save = true) {
+    const next = products.map(x => x.id === id ? { ...x, ...patch } : x);
+    if (save) pushProducts(next); else setProducts(next);
+  }
   async function saveSpec(patch: any) {
     try {
       const res = await fetch(`/api/portal/client/${token}/briefs/${brief.id}/spec`, {
@@ -400,46 +416,54 @@ function BriefSheet({ brief, token, onClose, onActed }: { brief: any; token: str
             <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: C.faint }}>Build it out</span>
             {specSaved && <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: C.green }}>Saved</span>}
           </div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
-            {[["stock", "Fixed run"], ["preorder", "Pre-order drop"]].map(([k, label]) => (
-              <button key={k} onClick={() => { const next = model === k ? "" : k; setModel(next); saveSpec({ model: next || null }); }}
-                style={{ borderRadius: 999, border: model === k ? "1px solid #fff" : `1px solid ${C.border}`, background: model === k ? "#fff" : "transparent", color: model === k ? C.bg : C.muted, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", padding: "9px 16px", cursor: "pointer", fontFamily: C.font }}>
-                {label}
-              </button>
-            ))}
-          </div>
-          <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 12 }}>
-            <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: C.faint }}>Retail it at</span>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 9, padding: "0 10px" }}>
-                <span style={{ color: C.faint, fontFamily: C.mono, fontSize: 13 }}>$</span>
-                <input type="text" inputMode="decimal" value={retail} placeholder="—"
-                  onFocus={e => e.currentTarget.select()}
-                  onChange={e => setRetail(e.target.value.replace(/[^0-9.]/g, ""))}
-                  onBlur={() => saveSpec({ retail: retail === "" ? null : Number(retail) })}
-                  style={{ width: 64, padding: "9px 0", background: "transparent", border: "none", outline: "none", color: C.text, fontFamily: C.mono, fontSize: 13.5, fontWeight: 700 }} />
-              </span>
-            </label>
-            <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: C.faint }}>What is it?</span>
-              <input type="text" value={format} placeholder="Tee, hoodie, hat…"
-                onChange={e => setFormat(e.target.value)}
-                onBlur={() => saveSpec({ format })}
-                style={{ width: 130, padding: "9px 10px", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 9, outline: "none", color: C.text, fontFamily: C.font, fontSize: 12.5 }} />
-            </label>
-            {model === "stock" && (
+          {products.map((ln) => (
+            <div key={ln.id} style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end", marginTop: 12, paddingBottom: 12, borderBottom: `1px solid ${C.border}` }}>
               <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: C.faint }}>Rough run size</span>
-                <input type="text" inputMode="numeric" value={runSize} placeholder="—"
-                  onFocus={e => e.currentTarget.select()}
-                  onChange={e => setRunSize(e.target.value.replace(/[^0-9]/g, ""))}
-                  onBlur={() => saveSpec({ run_size: runSize === "" ? null : Number(runSize) })}
-                  style={{ width: 90, padding: "9px 10px", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 9, outline: "none", color: C.text, fontFamily: C.mono, fontSize: 13, fontWeight: 700 }} />
+                <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: C.faint }}>What is it?</span>
+                <input type="text" value={ln.format || ""} placeholder="Tee, hoodie, LS…"
+                  onChange={e => patchLine(ln.id, { format: e.target.value }, false)}
+                  onBlur={() => pushProducts(products)}
+                  style={{ width: 118, padding: "9px 10px", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 9, outline: "none", color: C.text, fontFamily: C.font, fontSize: 12.5 }} />
               </label>
-            )}
-            {model === "preorder" && (
-              <span style={{ alignSelf: "flex-end", fontSize: 10.5, color: C.faint, maxWidth: "26ch", lineHeight: 1.45, paddingBottom: 6 }}>Pre-order sets the run — demand decides the buy.</span>
-            )}
+              <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: C.faint }}>Retail</span>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 9, padding: "0 10px" }}>
+                  <span style={{ color: C.faint, fontFamily: C.mono, fontSize: 13 }}>$</span>
+                  <input type="text" inputMode="decimal" value={ln.retail ?? ""} placeholder="—"
+                    onFocus={e => e.currentTarget.select()}
+                    onChange={e => patchLine(ln.id, { retail: e.target.value.replace(/[^0-9.]/g, "") }, false)}
+                    onBlur={() => pushProducts(products.map(x => x.id === ln.id ? { ...x, retail: x.retail === "" || x.retail == null ? null : Number(x.retail) } : x))}
+                    style={{ width: 52, padding: "9px 0", background: "transparent", border: "none", outline: "none", color: C.text, fontFamily: C.mono, fontSize: 13.5, fontWeight: 700 }} />
+                </span>
+              </label>
+              <span style={{ display: "inline-flex", gap: 6 }}>
+                {[["stock", "Fixed"], ["preorder", "Pre-order"]].map(([k, label]) => (
+                  <button key={k} onClick={() => patchLine(ln.id, { model: ln.model === k ? null : k })}
+                    style={{ borderRadius: 999, border: ln.model === k ? "1px solid #fff" : `1px solid ${C.border}`, background: ln.model === k ? "#fff" : "transparent", color: ln.model === k ? C.bg : C.muted, fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", padding: "10px 13px", cursor: "pointer", fontFamily: C.font }}>
+                    {label}
+                  </button>
+                ))}
+              </span>
+              {ln.model === "stock" && (
+                <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: C.faint }}>Run size</span>
+                  <input type="text" inputMode="numeric" value={ln.run_size ?? ""} placeholder="—"
+                    onFocus={e => e.currentTarget.select()}
+                    onChange={e => patchLine(ln.id, { run_size: e.target.value.replace(/[^0-9]/g, "") }, false)}
+                    onBlur={() => pushProducts(products.map(x => x.id === ln.id ? { ...x, run_size: x.run_size === "" || x.run_size == null ? null : Number(x.run_size) } : x))}
+                    style={{ width: 78, padding: "9px 10px", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 9, outline: "none", color: C.text, fontFamily: C.mono, fontSize: 13, fontWeight: 700 }} />
+                </label>
+              )}
+              <button onClick={() => pushProducts(products.filter(x => x.id !== ln.id))} aria-label="Remove version"
+                style={{ marginLeft: "auto", background: "none", border: "none", color: C.faint, fontSize: 18, cursor: "pointer", lineHeight: 1, padding: "8px 2px" }}>×</button>
+            </div>
+          ))}
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 12, flexWrap: "wrap" }}>
+            <button onClick={() => pushProducts([...products, { id: Math.random().toString(36).slice(2, 10), format: "", retail: null, model: null, run_size: null }])}
+              style={{ borderRadius: 999, border: `1px solid ${C.border}`, background: "transparent", color: C.muted, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", padding: "10px 18px", cursor: "pointer", fontFamily: C.font }}>
+              {products.length === 0 ? "+ Add a version — tee, hoodie, LS…" : "+ Another version"}
+            </button>
+            {products.length > 0 && <span style={{ fontSize: 10.5, color: C.faint }}>same artwork — each version gets its own retail &amp; run</span>}
           </div>
         </div>
 
