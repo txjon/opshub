@@ -9,6 +9,27 @@ import { useClientPortal } from "../_shared/context";
 import { C, fmtDate } from "../_shared/theme";
 import { clientStateFor } from "../_shared/state-labels";
 
+// The creative process isn't a pipeline — it's a conversation. So the feed
+// buckets by WHOSE MOVE it is + freshness, not by internal process stage
+// (Jon: "make it better than how I originally and rigidly tried to
+// systemize the creative process").
+const QUIET_DAYS = 30;
+type StudioBucket = "your_move" | "working" | "ready" | "quiet";
+function studioBucket(b: any): StudioBucket {
+  const done = ["final_approved", "pending_prep", "production_ready", "delivered"].includes(b.state);
+  if (done) return "ready";
+  if (b.state === "client_review" || b.has_unread_external) return "your_move";
+  const last = b.last_activity_at || b.updated_at || "";
+  const stale = last && (Date.now() - new Date(last).getTime()) > QUIET_DAYS * 86400000;
+  return stale ? "quiet" : "working";
+}
+const BUCKETS: { key: StudioBucket; title: string; hint: string }[] = [
+  { key: "your_move", title: "Your move.", hint: "Fresh work waiting on your eyes" },
+  { key: "working", title: "In the works.", hint: "We're sketching — sit tight" },
+  { key: "ready", title: "Ready to run.", hint: "Approved and waiting on a green light" },
+  { key: "quiet", title: "Been quiet.", hint: "No motion in a while — revive or shelve" },
+];
+
 const thumbSrc = (b: any): string | null => {
   const t = (b.thumbs || []).find((x: any) => x.preview_drive_file_id || x.drive_file_id);
   const id = t?.preview_drive_file_id || t?.drive_file_id;
@@ -23,6 +44,7 @@ export default function StudioPage() {
   const [expanded, setExpanded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(false);
+  const [openBrief, setOpenBrief] = useState<any>(null);
   const [error, setError] = useState("");
 
   const briefs = useMemo(() => {
@@ -64,7 +86,16 @@ export default function StudioPage() {
         .st-card{transition:transform .15s ease,border-color .15s ease}
         .st-card:hover{transform:translateY(-3px);border-color:rgba(255,255,255,.3)}
         .st-input{width:100%;box-sizing:border-box;background:transparent;border:none;outline:none;color:${C.text};font-family:${C.font}}
-        @media(prefers-reduced-motion:reduce){.st-card,.st-card:hover{transition:none;transform:none}}
+        .st-back{position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:120;display:flex;align-items:flex-start;justify-content:center;padding:24px 12px;overflow-y:auto}
+        .st-sheet{background:${C.card};border:1px solid ${C.border};border-radius:20px;max-width:620px;width:100%;overflow:hidden}
+        .st-handle{display:none}
+        @media(max-width:640px){
+          .st-back{align-items:flex-end;padding:0;overflow-y:hidden}
+          .st-sheet{border-radius:18px 18px 0 0;border-bottom:none;max-height:92dvh;overflow-y:auto;animation:stUp .3s cubic-bezier(.32,.72,0,1)}
+          .st-handle{display:block;width:38px;height:4px;border-radius:999px;background:rgba(255,255,255,0.25);margin:10px auto 0}
+        }
+        @keyframes stUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+        @media(prefers-reduced-motion:reduce){.st-card,.st-card:hover{transition:none;transform:none}.st-sheet{animation:none}}
       ` }} />
 
       <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase", color: C.faint, textAlign: "center" }}>Studio</div>
@@ -102,42 +133,146 @@ export default function StudioPage() {
         {error && <div style={{ marginTop: 12, fontSize: 12.5, fontWeight: 700, color: C.red }}>{error}</div>}
       </div>
 
-      {/* ── The feed — everything in the studio, image-first ── */}
-      {briefs.length > 0 && (
-        <>
-          <h2 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 900, textTransform: "uppercase" }}>In the studio.</h2>
-          <div className="st-grid">
-            {briefs.map((b: any) => {
-              const meta = clientStateFor(b);
-              const src = thumbSrc(b);
-              return (
-                <div key={b.id} className="st-card"
-                  style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, overflow: "hidden" }}>
-                  {src ? (
-                    <div style={{ background: "#fff", aspectRatio: "1", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      <img src={src} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />
+      {/* ── The feed — conversation buckets, image-first ── */}
+      {BUCKETS.map(bucket => {
+        const list = briefs.filter((b: any) => studioBucket(b) === bucket.key);
+        if (list.length === 0) return null;
+        return (
+          <div key={bucket.key} style={{ marginBottom: 36 }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+              <h2 style={{ margin: 0, fontSize: 17, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", color: bucket.key === "your_move" ? C.amber : C.text }}>{bucket.title}</h2>
+              <span style={{ fontSize: 10, fontWeight: 800, color: C.faint, fontFamily: C.mono }}>{list.length}</span>
+              <span style={{ fontSize: 10.5, color: C.faint }}>{bucket.hint}</span>
+            </div>
+            <div className="st-grid">
+              {list.map((b: any) => {
+                const meta = clientStateFor(b);
+                const src = thumbSrc(b);
+                return (
+                  <button key={b.id} className="st-card" onClick={() => setOpenBrief(b)}
+                    style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, overflow: "hidden", padding: 0, textAlign: "left", cursor: "pointer", color: C.text, fontFamily: C.font }}>
+                    {src ? (
+                      <div style={{ background: "#fff", aspectRatio: "1", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <img src={src} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />
+                      </div>
+                    ) : (
+                      <div style={{ aspectRatio: "1", display: "flex", alignItems: "center", justifyContent: "center", padding: 18, background: C.surface }}>
+                        <span style={{ fontSize: 13, color: C.muted, lineHeight: 1.5, textAlign: "center", display: "-webkit-box", WebkitBoxOrient: "vertical" as any, WebkitLineClamp: 6, overflow: "hidden" }}>
+                          {b.concept || "Sketching soon."}
+                        </span>
+                      </div>
+                    )}
+                    <div style={{ padding: "11px 13px 13px" }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", lineHeight: 1.25, overflow: "hidden", display: "-webkit-box", WebkitBoxOrient: "vertical" as any, WebkitLineClamp: 2 }}>{b.title || "Untitled idea"}</div>
+                      <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 6, flexWrap: "wrap" }}>
+                        <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: meta.color }}>{meta.label}</span>
+                        <span style={{ fontSize: 9.5, color: C.faint, fontFamily: C.mono }}>{b.last_activity_at ? fmtDate(b.last_activity_at) : ""}</span>
+                        {b.has_unread_external && <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.08em", color: C.purple }}>NEW</span>}
+                      </div>
                     </div>
-                  ) : (
-                    <div style={{ aspectRatio: "1", display: "flex", alignItems: "center", justifyContent: "center", padding: 18, background: C.surface }}>
-                      <span style={{ fontSize: 13, color: C.muted, lineHeight: 1.5, textAlign: "center", display: "-webkit-box", WebkitBoxOrient: "vertical" as any, WebkitLineClamp: 6, overflow: "hidden" }}>
-                        {b.concept || "Sketching soon."}
-                      </span>
-                    </div>
-                  )}
-                  <div style={{ padding: "11px 13px 13px" }}>
-                    <div style={{ fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", lineHeight: 1.25, overflow: "hidden", display: "-webkit-box", WebkitBoxOrient: "vertical" as any, WebkitLineClamp: 2 }}>{b.title || "Untitled idea"}</div>
-                    <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 6, flexWrap: "wrap" }}>
-                      <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: meta.color }}>{meta.label}</span>
-                      <span style={{ fontSize: 9.5, color: C.faint, fontFamily: C.mono }}>{b.last_activity_at ? fmtDate(b.last_activity_at) : ""}</span>
-                      {b.has_unread_external && <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.08em", color: C.purple }}>NEW</span>}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+                  </button>
+                );
+              })}
+            </div>
           </div>
-        </>
+        );
+      })}
+
+      {openBrief && (
+        <BriefSheet brief={openBrief} token={token}
+          onClose={() => setOpenBrief(null)}
+          onActed={() => { setOpenBrief(null); refetch(); }} />
       )}
+    </div>
+  );
+}
+
+// ── Brief sheet: latest art big + the conversation actions ──
+function BriefSheet({ brief, token, onClose, onActed }: { brief: any; token: string; onClose: () => void; onActed: () => void }) {
+  const bucket = studioBucket(brief);
+  const meta = clientStateFor(brief);
+  const src = thumbSrc(brief);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
+  const [msg, setMsg] = useState("");
+
+  async function act(kind: "approve" | "abort") {
+    setBusy(kind); setMsg("");
+    try {
+      const res = await fetch(`/api/portal/client/${token}/briefs/${brief.id}/action`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: kind }),
+      });
+      const b = await res.json();
+      if (!res.ok) { setMsg(b.error || "Couldn't do that."); setBusy(null); return; }
+      onActed();
+    } catch { setMsg("Couldn't do that."); setBusy(null); }
+  }
+  async function sendNote(text: string) {
+    if (!text.trim()) return;
+    setBusy("note"); setMsg("");
+    try {
+      const res = await fetch(`/api/portal/client/${token}/briefs/${brief.id}/messages`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: text.trim() }),
+      });
+      if (!res.ok) { setMsg("Couldn't send that."); setBusy(null); return; }
+      onActed();
+    } catch { setMsg("Couldn't send that."); setBusy(null); }
+  }
+
+  const pill: React.CSSProperties = { background: "#fff", color: C.bg, border: "none", borderRadius: 999, padding: "12px 22px", fontSize: 11.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: C.font };
+  const ghost: React.CSSProperties = { background: "transparent", color: C.text, border: `1px solid ${C.border}`, borderRadius: 999, padding: "12px 20px", fontSize: 11.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: C.font };
+
+  return (
+    <div className="st-back" onClick={e => { if (e.target === e.currentTarget && !busy) onClose(); }}>
+      <div className="st-sheet">
+        <div className="st-handle" />
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, padding: "16px 20px 4px" }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 17, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", lineHeight: 1.2 }}>{brief.title || "Untitled idea"}</div>
+            <div style={{ display: "flex", gap: 8, alignItems: "baseline", marginTop: 4 }}>
+              <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: meta.color }}>{meta.label}</span>
+              <span style={{ fontSize: 10, color: C.faint, fontFamily: C.mono }}>{brief.last_activity_at ? fmtDate(brief.last_activity_at) : ""}</span>
+            </div>
+          </div>
+          <button onClick={onClose} aria-label="Close" style={{ background: "none", border: "none", color: C.muted, fontSize: 26, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>
+        </div>
+        {src && (
+          <div style={{ background: "#fff", marginTop: 12 }}>
+            <img src={src.replace("size=700", "size=1200")} alt="" referrerPolicy="no-referrer" style={{ width: "100%", maxHeight: "46vh", objectFit: "contain", display: "block", margin: "0 auto" }} onError={(e: any) => { e.target.style.display = "none"; }} />
+          </div>
+        )}
+        {brief.concept && !src && (
+          <div style={{ padding: "12px 20px 0", fontSize: 13.5, color: C.muted, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{brief.concept}</div>
+        )}
+        <div style={{ padding: "16px 20px 20px", display: "flex", flexDirection: "column", gap: 12 }}>
+          <textarea value={note} onChange={e => setNote(e.target.value)} rows={2}
+            placeholder={bucket === "your_move" ? "Thoughts on this one? We read every word." : "Add a note, a reference, a direction…"}
+            style={{ width: "100%", boxSizing: "border-box", padding: "11px 13px", borderRadius: 10, border: `1px solid ${C.border}`, background: C.surface, color: C.text, fontSize: 13, fontFamily: C.font, outline: "none", resize: "vertical" }} />
+          {msg && <div style={{ fontSize: 12, fontWeight: 700, color: C.red }}>{msg}</div>}
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+            {bucket === "your_move" && brief.state === "client_review" && (
+              <button style={pill} disabled={!!busy} onClick={() => act("approve")}>{busy === "approve" ? "Approving…" : "Love it — approve"}</button>
+            )}
+            {bucket === "ready" && (
+              <button style={pill} disabled={!!busy} onClick={() => sendNote(note.trim() ? `Let's make this one real. ${note.trim()}` : "Let's make this one real — what's the move?")}>
+                {busy === "note" ? "Sending…" : "Make it real"}
+              </button>
+            )}
+            {bucket === "quiet" && (
+              <button style={pill} disabled={!!busy} onClick={() => sendNote(note.trim() ? `Still into this one. ${note.trim()}` : "Still into this one — let's get it moving again.")}>
+                {busy === "note" ? "Sending…" : "Revive it"}
+              </button>
+            )}
+            <button style={ghost} disabled={!!busy || !note.trim()} onClick={() => sendNote(note)}>{busy === "note" ? "Sending…" : "Send note"}</button>
+            {(bucket === "quiet" || brief.state === "draft") && (
+              <button style={{ ...ghost, color: C.faint, borderColor: "transparent", marginLeft: "auto" }} disabled={!!busy}
+                onClick={() => { if (confirm("Shelve this idea? We'll set it aside — you can always bring it back with your rep.")) act("abort"); }}>
+                {busy === "abort" ? "Shelving…" : "Shelve it"}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
