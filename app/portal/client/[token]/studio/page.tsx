@@ -118,9 +118,13 @@ export default function StudioPage() {
         } catch { failed++; }
       }
       if (failed > 0) setError(`Idea sent, but ${failed} attachment${failed === 1 ? "" : "s"} didn't make it — try adding ${failed === 1 ? "it" : "them"} from the idea's thread.`);
+      const sentTitle = title.trim(); const sentNotes = notes.trim();
       setSent(true); setTitle(""); setNotes(""); setFiles([]); setExpanded(false);
       setTimeout(() => setSent(false), 5000);
       refetch();
+      // Straight into shaping — open the fresh idea's sheet (Build It Out,
+      // attachments, thread) instead of dropping them back at the form.
+      setOpenBrief({ id: briefId, title: sentTitle, concept: sentNotes, state: "draft", product_spec: {}, thumbs: [], created_at: new Date().toISOString(), last_activity_at: null });
     } catch { setError("Couldn't save the idea."); }
     finally { setBusy(false); setSendState(""); }
   }
