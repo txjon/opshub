@@ -65,6 +65,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { token: str
         retail: x.retail === null || x.retail === "" || x.retail === undefined ? null : Math.max(0, Math.min(100000, Number(x.retail) || 0)),
         model: ["stock", "preorder"].includes(x.model) ? x.model : null,
         run_size: x.run_size === null || x.run_size === "" || x.run_size === undefined ? null : Math.max(0, Math.min(1000000, Math.round(Number(x.run_size) || 0))),
+        notes: String(x.notes || "").trim().slice(0, 600) || null,
       }));
       if (JSON.stringify(clean) !== JSON.stringify(spec.products || [])) {
         spec.products = clean;

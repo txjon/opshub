@@ -298,7 +298,7 @@ function BriefSheet({ brief, token, onClose, onActed }: { brief: any; token: str
   const [specSaved, setSpecSaved] = useState(false);
   function pushProducts(next: any[]) {
     setProducts(next);
-    saveSpec({ products: next.map(x => ({ id: x.id, format: x.format || null, retail: x.retail === "" ? null : x.retail, model: x.model || null, run_size: x.run_size === "" ? null : x.run_size })) });
+    saveSpec({ products: next.map(x => ({ id: x.id, format: x.format || null, retail: x.retail === "" ? null : x.retail, model: x.model || null, run_size: x.run_size === "" ? null : x.run_size, notes: x.notes || null })) });
   }
   function patchLine(id: string, patch: any, save = true) {
     const next = products.map(x => x.id === id ? { ...x, ...patch } : x);
@@ -460,6 +460,10 @@ function BriefSheet({ brief, token, onClose, onActed }: { brief: any; token: str
               )}
               <button onClick={() => pushProducts(products.filter(x => x.id !== ln.id))} aria-label="Remove version"
                 style={{ marginLeft: "auto", background: "none", border: "none", color: C.faint, fontSize: 18, cursor: "pointer", lineHeight: 1, padding: "8px 2px" }}>×</button>
+              <input type="text" value={ln.notes || ""} placeholder="Notes for this item — blank, colors, fit, anything…"
+                onChange={e => patchLine(ln.id, { notes: e.target.value }, false)}
+                onBlur={() => pushProducts(products)}
+                style={{ flexBasis: "100%", padding: "9px 11px", background: "transparent", border: "none", borderTop: `1px dashed ${C.border}`, outline: "none", color: C.text, fontFamily: C.font, fontSize: 12, marginTop: 2 }} />
             </div>
           ))}
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 12, flexWrap: "wrap" }}>
