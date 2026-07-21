@@ -88,7 +88,8 @@ const ICONS: Record<string, TabIcon> = {
 // Pipeline. Routes unchanged — /designs and /items keep their URLs.
 const TABS: { label: keyof typeof ICONS; path: string; display: string; unreadKey?: "designs" }[] = [
   { label: "Overview", display: "Home", path: "" },
-  { label: "Designs", display: "Product Development", path: "/designs", unreadKey: "designs" },
+  // Product Development (the /designs studio) hidden Jul 20 pending a
+  // simpler rethink — route stays live for bookmarks, just unlisted.
   { label: "Orders", display: "Orders", path: "/orders" },
   { label: "Items", display: "Pipeline", path: "/items" },
   { label: "Reorder", display: "Reorder", path: "/reorder" },
