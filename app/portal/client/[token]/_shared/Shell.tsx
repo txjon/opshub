@@ -292,36 +292,34 @@ export default function Shell({ children }: { children: ReactNode }) {
             <Link key={t.label} href={href}
               style={{
                 flex: 1,
-                display: "flex", flexDirection: "column",
-                alignItems: "center", justifyContent: "center",
-                gap: 3,
-                padding: "8px 4px 10px",
-                minHeight: 56,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                padding: "16px 4px",
+                minHeight: 58,
                 color: active ? C.text : C.muted,
                 textDecoration: "none",
                 position: "relative",
                 transition: "color 0.15s",
               }}>
-              <div style={{ position: "relative", lineHeight: 0 }}>
-                {ICONS[t.label](active)}
+              <span style={{
+                fontSize: 12, fontWeight: 800,
+                letterSpacing: "0.1em", textTransform: "uppercase",
+                position: "relative",
+              }}>
+                {t.display}
                 {unread > 0 && (
                   <span style={{
-                    position: "absolute", top: -3, right: -8,
+                    position: "absolute", top: -7, right: -14,
                     background: C.purple, color: "#fff",
                     fontSize: 9, fontWeight: 800,
-                    minWidth: 16, height: 16, padding: "0 4px",
+                    minWidth: 15, height: 15, padding: "0 4px",
                     borderRadius: 8, display: "inline-flex",
                     alignItems: "center", justifyContent: "center",
-                    lineHeight: 1, border: `2px solid ${C.card}`,
+                    lineHeight: 1,
                   }}>
                     {unread > 9 ? "9+" : unread}
                   </span>
                 )}
-              </div>
-              <span style={{
-                fontSize: 10, fontWeight: active ? 700 : 600,
-                letterSpacing: "0.01em",
-              }}>{t.display}</span>
+              </span>
             </Link>
           );
         })}
