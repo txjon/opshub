@@ -182,7 +182,10 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
       // Real moves only (messages/uploads by role). NEVER updated_at — a mere
       // look bumps it and reorders the whole field with no actual action
       // (the old model's most annoying habit).
-      const latestAt = [clientAt, designerAt, hpdAt].filter(Boolean).sort().pop() || b.created_at;
+      // Feed order: REAL moves only. clientAt folds in client_last_seen_at
+      // (needed for the unread math above) — but a mere look must never
+      // reorder the field, so latestAt uses actual client activity instead.
+      const latestAt = [clientActivityAt, designerAt, hpdAt].filter(Boolean).sort().pop() || b.created_at;
       return {
         id: b.id,
         title: b.title || null,
