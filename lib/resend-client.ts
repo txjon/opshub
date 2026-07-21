@@ -7,7 +7,7 @@ import { Resend } from "resend";
 //
 // Env vars:
 //   RESEND_API_KEY_HPD — restricted to housepartydistro.com
-//   RESEND_API_KEY_IHM — restricted to inhousemerchandise.com
+//   RESEND_API_KEY_DMD — restricted to darkmatterdynamics.co
 //   RESEND_API_KEY     — legacy / fallback (used if a tenant-specific
 //                        key isn't set, or for non-tenant contexts)
 //

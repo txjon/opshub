@@ -46,7 +46,6 @@ export function tenantClosing(
   tenantName: string,
   hpdLine: string = "Welcome to the party,",
 ): string {
-  if (slug === "ihm") return `Thank you for keeping it In House,\n${tenantName}`;
   return `${hpdLine}\n${tenantName}`;
 }
 

@@ -110,11 +110,7 @@ export default function JobsPage() {
   const supabase = createClient();
   const isMobile = useIsMobile();
   const branding = useClientBranding();
-  // IHM doesn't push QB invoices, so the leading 68px invoice-number
-  // column on the project list always renders empty for them — that
-  // space gets reclaimed by the client/title block. HPD keeps the
-  // existing layout.
-  const showInvoiceCol = branding.slug !== "ihm";
+  const showInvoiceCol = true;
   const [jobs, setJobs] = useState<Job[]>([]);
   // NEW phase model per job (additive display) — legacy job.phase still drives
   // the filters/counts/sort below; this only relabels the phase cell.

@@ -12,9 +12,6 @@ export const DEFAULT_SLUG = "hpd";
 // Anything not listed falls back to DEFAULT_SLUG (HPD) — preserves the
 // original single-tenant behavior for the Vercel preview URL + bare localhost.
 const HOST_TO_SLUG: Record<string, string> = {
-  "app.inhousemerchandise.com": "ihm",
-  "inhousemerchandise.com": "ihm",
-  "ihm.localhost": "ihm",
   "app.darkmatterdynamics.co": "dmd",
   "darkmatterdynamics.co": "dmd",
   "dmd.localhost": "dmd",
@@ -29,7 +26,6 @@ export function resolveSlugFromHost(host: string | null | undefined): string {
 // Canonical public origin per tenant (outgoing email links, portal URLs).
 export const TENANT_URLS: Record<string, string> = {
   hpd: "https://app.housepartydistro.com",
-  ihm: "https://app.inhousemerchandise.com",
   dmd: "https://app.darkmatterdynamics.co",
 };
 
@@ -42,7 +38,6 @@ export function urlForSlug(slug: string): string {
 // pre-fetch placeholder.
 export const TENANT_NAMES: Record<string, string> = {
   hpd: "House Party Distro",
-  ihm: "In House Merchandise",
   dmd: "Dark Matter Dynamics",
 };
 

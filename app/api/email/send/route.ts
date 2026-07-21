@@ -27,10 +27,9 @@ export async function POST(req: NextRequest) {
     const { type, jobId, vendor, recipientEmail, ccEmails, recipientName, subject, customBody, rfqItemIds, revised } = await req.json();
 
     // Pull the active tenant's branding (name + from-addresses) so emails
-    // ship as "In House Merchandise <info@inhousemerchandise.com>" on
-    // app.inhousemerchandise.com and "House Party Distro <hello@...>"
-    // on HPD's URL. The Resend API key is also slug-scoped — each
-    // tenant has its own restricted key for its verified domain.
+    // ship under the tenant whose subdomain the request came from. The
+    // Resend API key is also slug-scoped — each tenant has its own
+    // restricted key for its verified domain.
     const slug = resolveCompanySlugFromRequest(req);
     const resend = resendForSlug(slug);
     const adminForCompany = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
@@ -216,9 +215,8 @@ export async function POST(req: NextRequest) {
     }
 
     // Reply-to with plus-addressing for Gmail poller matching. Domain +
-    // local part are derived from the active tenant's from-addresses
-    // so IHM replies route to info+c.JOB@inhousemerchandise.com and
-    // HPD's stay on housepartydistro.com.
+    // local part are derived from the active tenant's from-addresses so
+    // each tenant's replies route back to its own domain.
     let replyTo: string | undefined;
     if (type === "po" && jobId) {
       replyTo = `${productionLocalPart}+po.${jobId}@${emailDomain}`;

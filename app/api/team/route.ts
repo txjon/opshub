@@ -40,8 +40,8 @@ export async function POST(req: NextRequest) {
     const admin = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
     // Resolve which tenant this invite is for — based on the subdomain
-    // the inviter is currently using. Inviting from app.inhousemerchandise.com
-    // creates a membership in IHM; inviting from HPD creates one in HPD.
+    // the inviter is currently using. Inviting from a tenant subdomain
+    // creates a membership in that tenant.
     const slug = resolveCompanySlugFromRequest(req);
     const { data: company } = await admin.from("companies").select("id").eq("slug", slug).single();
     if (!company) return NextResponse.json({ error: `No company row for slug "${slug}"` }, { status: 500 });
