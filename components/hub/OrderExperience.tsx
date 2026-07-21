@@ -177,7 +177,7 @@ export function OrderExperience({ data, token, onAction }: {
             changeRequest={project.changeRequest} quoteTotal={total > 0 ? total : null} terms={project.paymentTerms}
             items={items.map((i: any) => ({ id: i.id, name: i.name }))}
             pendingReapproval={!!project.quoteApproved && hasProofs && !allProofsApproved}
-            invoiceState={totalPaid >= total - 0.005 && total > 0 ? (revisedUp ? "settled" : "paid") : payBand?.cta ? "ready" : "pending"}
+            invoiceState={totalPaid >= total - 0.005 && total > 0 ? (revisedUp ? "settled" : "paid") : payBand?.cta ? "ready" : (invoiceNumber || totalPaid > 0) ? "settled" : "pending"}
             openApproveSignal={approveSignal}
             onAction={onAction} />
         </div>

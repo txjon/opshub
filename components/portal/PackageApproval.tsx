@@ -61,20 +61,11 @@ export function PackageApproval({ c, approved, approvedAt, changeRequest, quoteT
   }
   const taggedIds = Object.keys(tagged).filter(k => tagged[k]);
 
-  // ── Approved and nothing revised since: locked confirmation, no live actions ──
-  if (approved && !pendingReapproval) {
-    return (
-      <div style={{ background: c.greenBg, border: `1px solid ${c.greenBorder}`, borderRadius: 12, padding: "16px 18px", fontFamily: c.font }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ color: c.green, fontSize: 16 }}>✓</span>
-          <span style={{ fontSize: 15, fontWeight: 700, color: c.green }}>Approved{approvedAt ? ` · ${fmtDate(approvedAt)}` : ""}</span>
-        </div>
-        <div style={{ fontSize: 13, color: c.muted, marginTop: 6, lineHeight: 1.5 }}>
-          Thanks! Everything's approved for production{invoiceState === "settled" ? "" : (total ? ` at ${total}` : "")}.{(() => { const l = invoiceLine(terms, invoiceState); return l ? ` ${l}` : ""; })()} Need a change? Just reply to your rep and we'll help.
-        </div>
-      </div>
-    );
-  }
+  // ── Approved and nothing revised since: render NOTHING. The status rail
+  // already says Approved and the payment band owns the money story — a
+  // greeting banner here kept contradicting one or the other (Jon, Jul 21:
+  // "let's get rid of them"). ──
+  if (approved && !pendingReapproval) return null;
 
   const btnPrimary: React.CSSProperties = { flex: "1 1 auto", padding: "13px 22px", borderRadius: 999, border: "none", background: c.accent, color: c.accentText || "#fff", fontSize: 12, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: c.font };
   const btnGhost: React.CSSProperties = { flex: "0 0 auto", padding: "13px 20px", borderRadius: 999, border: `1px solid ${c.border}`, background: "transparent", color: c.text, fontSize: 12, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: c.font };
