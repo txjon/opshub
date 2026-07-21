@@ -355,6 +355,8 @@ export async function GET(
         units: lines.reduce((a: number, l: any) => a + (Number(l.qty_ordered) || 0), 0),
         sizes: Object.fromEntries(lines.filter((l: any) => l.qty_ordered > 0).map((l: any) => [l.size, l.qty_ordered])),
         sellPerUnit: item.sell_per_unit ?? null,
+        blankVendor: item.blank_vendor || null,
+        blankSku: item.blank_sku || null,
         pipelineStage: item.pipeline_stage || null,
         eta: etaMap[item.id] || null,
         shippingRoute: item.shipping_route || job.shipping_route || "ship_through",

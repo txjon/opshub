@@ -480,6 +480,8 @@ export async function GET(
         units: qty,
         sizes: Object.fromEntries(lines.filter((l: any) => l.qty_ordered > 0 && l.size).map((l: any) => [l.size, l.qty_ordered])),
         sellPerUnit: item.sell_per_unit ?? null,
+        blankVendor: item.blank_vendor || null,
+        blankSku: item.blank_sku || null,
         pipelineStage: item.pipeline_stage || null,
         shippingRoute: item.shipping_route || (job as any).shipping_route || "ship_through",
         receivedAtHpd: !!item.received_at_hpd,

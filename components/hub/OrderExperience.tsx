@@ -209,7 +209,7 @@ export function OrderExperience({ data, token, onAction }: {
           {items.map((it: any) => {
             const phase = itemClientPhase(it);
             const m = mockupOf(it);
-            const clickable = phase.label === "Awaiting your approval";
+            const clickable = true; // sheet = the item's expanded view (spec + invoice line), not just proof review
             const sizes = Object.entries(it.sizes || {}).map(([s, q]) => `${s}:${q}`).join("  ");
             return (
               <div key={it.id} className="hx-card" onClick={clickable ? () => setProofItem(it) : undefined}
@@ -276,8 +276,13 @@ export function OrderExperience({ data, token, onAction }: {
             className="hx-proof-back">
             <div className="hx-proof-sheet">
               <div className="hx-sheet-handle" />
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 18px" }}>
-                <div style={{ fontSize: 16, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em" }}>{it.name}</div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", padding: "14px 18px", gap: 10 }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 16, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em" }}>{it.name}</div>
+                  {(it.blankVendor || it.blankSku) && (
+                    <div style={{ fontSize: 11, color: H.faint, marginTop: 3 }}>{[it.blankVendor, it.blankSku].filter(Boolean).join(" · ")}</div>
+                  )}
+                </div>
                 <button onClick={() => setProofItem(null)} aria-label="Close" style={{ background: "none", border: "none", color: H.dim, fontSize: 26, cursor: "pointer", lineHeight: 1 }}>×</button>
               </div>
               {/* Production spec, store-style (Jon: "we're not limited to
@@ -335,6 +340,33 @@ export function OrderExperience({ data, token, onAction }: {
                         <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: H.faint }}>Finishing</span>
                         {finishing.map((f: string, i: number) => <span key={i} style={{ fontSize: 11, color: H.dim }}>{f}{i < finishing.length - 1 ? " ·" : ""}</span>)}
                       </div>
+                    )}
+                  </div>
+                );
+              })()}
+              {/* ── Order line: sizes, pricing, status — the invoice data for this piece ── */}
+              {(() => {
+                const phase = itemClientPhase(it);
+                const lineTotal = it.sellPerUnit != null && it.units ? it.sellPerUnit * it.units : null;
+                const sizeEntries = Object.entries(it.sizes || {}) as [string, number][];
+                return (
+                  <div style={{ margin: "14px 18px 2px", borderTop: `1px solid ${H.line}`, paddingTop: 14, display: "flex", flexDirection: "column", gap: 11 }}>
+                    <div style={{ display: "flex", gap: 22, flexWrap: "wrap" }}>
+                      <span><span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: H.faint, display: "block" }}>Status</span><span style={{ fontSize: 12, fontWeight: 800, textTransform: "uppercase", color: TONE[phase.tone] }}>{phase.label}</span></span>
+                      <span><span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: H.faint, display: "block" }}>Quantity</span><span style={{ fontSize: 12, fontWeight: 800, fontFamily: H.mono }}>{(it.units || 0).toLocaleString()} pcs</span></span>
+                      {it.sellPerUnit != null && <span><span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: H.faint, display: "block" }}>Unit price</span><span style={{ fontSize: 12, fontWeight: 800, fontFamily: H.mono }}>{"$" + Number(it.sellPerUnit).toFixed(2)}</span></span>}
+                      {lineTotal != null && <span><span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: H.faint, display: "block" }}>Line total</span><span style={{ fontSize: 12, fontWeight: 800, fontFamily: H.mono }}>{fmtMoney(lineTotal)}</span></span>}
+                      {it.eta && <span><span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: H.faint, display: "block" }}>Est. delivery</span><span style={{ fontSize: 12, fontWeight: 800, fontFamily: H.mono }}>{new Date(it.eta + "T00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span></span>}
+                    </div>
+                    {sizeEntries.length > 0 && (
+                      <div style={{ fontSize: 11.5, fontFamily: H.mono, color: H.dim, lineHeight: 1.7 }}>
+                        {sizeEntries.map(([sz, q], i) => (
+                          <span key={sz}><span style={{ color: H.faint, fontWeight: 700 }}>{sz}</span> <span style={{ color: H.text }}>{q}</span>{i < sizeEntries.length - 1 ? <span style={{ color: H.faint }}>{"  ·  "}</span> : null}</span>
+                        ))}
+                      </div>
+                    )}
+                    {it.shipTracking && (
+                      <div style={{ fontSize: 11, fontFamily: H.mono, color: H.dim }}>Tracking <span style={{ color: H.text, fontWeight: 700 }}>{it.shipTracking}</span></div>
                     )}
                   </div>
                 );
