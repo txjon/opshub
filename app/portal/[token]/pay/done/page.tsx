@@ -89,7 +89,7 @@ export default function PayDonePage({ params }: { params: { token: string } }) {
               <div style={{ fontSize: 40, color: C.amber, marginBottom: 12 }}>…</div>
               <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 8 }}>Payment processing</div>
               <div style={{ fontSize: 14, color: C.muted, lineHeight: 1.6 }}>
-                Your payment is processing. We&apos;ll email you when it clears — usually within a few minutes.
+                Your payment is processing. We&apos;ll email you when it clears, usually within a few minutes.
               </div>
             </>
           )}

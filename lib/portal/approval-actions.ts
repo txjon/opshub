@@ -11,6 +11,8 @@
 //   no approval. Both log to job_activity (the notifications table is deprecated).
 // See [[jon-clean-architecture-standard]].
 
+import { recalcJobPhase } from "@/lib/job-phase-recalc";
+
 type Sb = any; // service-role supabase client (admin())
 
 const money = (n: number | null) => (n != null ? ` ($${Math.round(n).toLocaleString()})` : "");
@@ -81,6 +83,12 @@ export async function approvePackage(sb: Sb, jobId: string, ctx: { via?: string 
     message: `Package approved by client via portal${money(snapshot.quoteTotal)} — ${proofFiles.length} proof${proofFiles.length === 1 ? "" : "s"}`,
   });
 
+  // The approval changes the gates — recalc the stored phase NOW so every
+  // board reflects the client's action immediately (it used to wait until
+  // someone opened the job in OpsHub). Best-effort: an approval must never
+  // fail because the recalc hiccuped.
+  try { await recalcJobPhase(sb, jobId); } catch (e) { console.error("[approvePackage] phase recalc failed", (e as any)?.message); }
+
   return snapshot;
 }
 
@@ -124,4 +132,8 @@ export async function requestChanges(sb: Sb, jobId: string, note: string, itemId
     job_id: jobId, user_id: null, type: "auto",
     message: `Changes requested by client via portal${taggedNames.length ? ` on ${taggedNames.join(", ")}` : ""}${note ? `: "${note}"` : ""}`,
   });
+
+  // Tagged revisions can re-close gates (proofs no longer all approved) —
+  // reflect that on the boards immediately.
+  try { await recalcJobPhase(sb, jobId); } catch (e) { console.error("[requestChanges] phase recalc failed", (e as any)?.message); }
 }

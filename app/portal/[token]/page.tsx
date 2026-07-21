@@ -236,7 +236,6 @@ export default function PortalPage({ params }: { params: { token: string } }) {
                   style={{ padding: "12px 16px", cursor: p.portalToken ? "pointer" : "default", borderBottom: `1px solid ${C.border}`,
                     background: selected ? C.bg : C.card, borderLeft: selected ? `3px solid ${C.text}` : "3px solid transparent" }}>
                   <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{p.invoiceNumber ? `#${p.invoiceNumber}` : p.jobNumber}</div>
-                  <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>{p.title}</div>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 4 }}>
                     <span style={{ fontSize: 10, color: C.faint }}>{p.itemCount || 0} item{p.itemCount !== 1 ? "s" : ""} · {p.unitCount || 0} units</span>
                     {shipInfo && <span style={{ fontSize: 10, fontWeight: 600, color: shipInfo.color, fontFamily: C.mono }}>{shipInfo.text}</span>}
@@ -254,7 +253,6 @@ export default function PortalPage({ params }: { params: { token: string } }) {
                     onClick={() => { if (p.portalToken) setActiveToken(p.portalToken); }}
                     style={{ padding: "10px 16px", cursor: "pointer", borderBottom: `1px solid ${C.border}`, opacity: 0.6 }}>
                     <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>{p.invoiceNumber ? `#${p.invoiceNumber}` : p.jobNumber}</div>
-                    <div style={{ fontSize: 10, color: C.muted }}>{p.title}</div>
                   </div>
                 ))}
               </>
@@ -270,8 +268,8 @@ export default function PortalPage({ params }: { params: { token: string } }) {
         {/* ── Project Header ── */}
         <div style={{ marginBottom: 24 }}>
           <h1 style={{ fontSize: isMobile ? 22 : 26, fontWeight: 800, color: C.text, margin: 0, lineHeight: 1.2 }}>{client.name}</h1>
-          <div style={{ fontSize: 14, color: C.muted, fontWeight: 500, marginTop: 4 }}>
-            {project.title} {(invoiceNumber || project.jobNumber) && <span style={{ fontFamily: C.mono, fontSize: 12, color: C.faint }}>· {invoiceNumber || project.jobNumber}</span>}
+          <div style={{ fontSize: 14, color: C.muted, fontWeight: 500, marginTop: 4, fontFamily: C.mono }}>
+            Order {invoiceNumber ? `#${invoiceNumber}` : project.jobNumber}
           </div>
           {project.shipDate && (
             <div style={{ fontSize: 12, color: C.muted, marginTop: 6 }}>
@@ -356,7 +354,7 @@ export default function PortalPage({ params }: { params: { token: string } }) {
             {/* Pay button — hidden when invoice is stale */}
             {invoiceStale ? (
               <div style={{ textAlign: "center", padding: "12px 0", fontSize: 12, color: C.muted, background: C.surface, borderRadius: 8 }}>
-                Your invoice is being updated — you'll be notified when it's ready.
+                Your invoice is being updated. You'll be notified when it's ready.
               </div>
             ) : paymentLink && balance > 0 && (
               // Payment is its own step now — approval (quote + proofs) happens
@@ -368,7 +366,7 @@ export default function PortalPage({ params }: { params: { token: string } }) {
                   background: C.accent, color: "#fff",
                   fontSize: 15, fontWeight: 700,
                 }}>
-                Pay Now — {fmtD(balance)}
+                Pay Now · {fmtD(balance)}
               </a>
             )}
 
@@ -561,7 +559,7 @@ export default function PortalPage({ params }: { params: { token: string } }) {
             <div style={{ marginTop: 16 }}>
               <PackageApproval c={C} approved={project.quoteApproved} approvedAt={project.quoteApprovedAt}
                 changeRequest={(project as any).changeRequest} quoteTotal={quote.total}
-                terms={(project as any).terms} projectName={project.title}
+                terms={(project as any).terms}
                 items={items.map(i => ({ id: i.id, name: i.name }))}
                 pendingReapproval={project.quoteApproved && hasProofs && !allProofsApproved}
                 onAction={doAction} />

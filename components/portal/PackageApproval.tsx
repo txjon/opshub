@@ -14,20 +14,19 @@ const fmtMoney = (n?: number | null) => (n != null ? "$" + Math.round(n).toLocal
 // The acceptance line shown on the approve prompt, tuned to the client's terms.
 function invoiceLine(terms?: string | null): string {
   const t = (terms || "").toLowerCase();
-  if (t === "prepaid") return "We'll send your invoice shortly — production begins once it's paid.";
-  if (t === "deposit_balance") return "We'll send your deposit invoice shortly — production begins once it's received.";
+  if (t === "prepaid") return "We'll send your invoice shortly. Production begins once it's paid.";
+  if (t === "deposit_balance") return "We'll send your deposit invoice shortly. Production begins once it's received.";
   if (/^net/.test(t)) return "We'll send your invoice shortly (due per your terms); production begins now.";
   return "We'll send your invoice shortly.";
 }
 
-export function PackageApproval({ c, approved, approvedAt, changeRequest, quoteTotal, terms, projectName, items, pendingReapproval, onAction }: {
+export function PackageApproval({ c, approved, approvedAt, changeRequest, quoteTotal, terms, items, pendingReapproval, onAction }: {
   c: Theme;
   approved: boolean;
   approvedAt?: string | null;
   changeRequest?: { note: string; at: string } | null;
   quoteTotal?: number | null;
   terms?: string | null;
-  projectName?: string;
   items?: { id: string; name: string }[]; // for optional per-item tags on Request changes
   pendingReapproval?: boolean; // quote approved but proofs were revised → offer "Approve updated proofs"
   onAction: (action: string, body?: any) => Promise<void>;
@@ -56,7 +55,7 @@ export function PackageApproval({ c, approved, approvedAt, changeRequest, quoteT
           <span style={{ fontSize: 15, fontWeight: 700, color: c.green }}>Approved{approvedAt ? ` · ${fmtDate(approvedAt)}` : ""}</span>
         </div>
         <div style={{ fontSize: 13, color: c.muted, marginTop: 6, lineHeight: 1.5 }}>
-          Thanks — everything's approved for production{total ? ` at ${total}` : ""}. {invoiceLine(terms)} Need a change? Just reply to your rep and we'll help.
+          Thanks! Everything's approved for production{total ? ` at ${total}` : ""}. {invoiceLine(terms)} Need a change? Just reply to your rep and we'll help.
         </div>
       </div>
     );
@@ -70,13 +69,13 @@ export function PackageApproval({ c, approved, approvedAt, changeRequest, quoteT
       <div style={{ fontSize: 15, fontWeight: 700, color: c.text }}>{approved ? "Updated proofs are ready" : "Ready to move forward?"}</div>
       <div style={{ fontSize: 13, color: c.muted, marginTop: 5, lineHeight: 1.5 }}>
         {approved
-          ? "We've revised your proofs since your approval. Take a look above, then approve the updates in one click — or send us more notes."
-          : <>Review your quote{total ? ` (${total})` : ""} and proofs above. When everything looks right, approve it all in one click — or tell us what to change.</>}
+          ? "We've revised your proofs since your approval. Take a look above, then approve the updates in one click, or send us more notes."
+          : <>Review your quote{total ? ` (${total})` : ""} and proofs above. When everything looks right, approve it all in one click, or tell us what to change.</>}
       </div>
 
       {changeRequest && (
         <div style={{ marginTop: 12, borderLeft: `3px solid ${c.amber}`, background: c.amberBg, borderRadius: 8, padding: "9px 12px", fontSize: 12.5, color: c.text, lineHeight: 1.45 }}>
-          <b style={{ color: c.amber }}>Changes requested</b> {changeRequest.at ? `· ${fmtDate(changeRequest.at)}` : ""} — our team is on it. You can still approve below if you'd like to proceed as-is.
+          <b style={{ color: c.amber }}>Changes requested</b> {changeRequest.at ? `· ${fmtDate(changeRequest.at)}` : ""} · our team is on it. You can still approve below if you'd like to proceed as-is.
           {changeRequest.note && <div style={{ color: c.muted, marginTop: 4 }}>&ldquo;{changeRequest.note}&rdquo;</div>}
         </div>
       )}
@@ -89,7 +88,7 @@ export function PackageApproval({ c, approved, approvedAt, changeRequest, quoteT
       {/* ── Approve prompt: acceptance disclaimer ── */}
       {modal === "approve" && (
         <Overlay c={c} onClose={() => !busy && setModal(null)}>
-          <div style={{ fontSize: 16, fontWeight: 800, color: c.text }}>{approved ? "Approve the updated proofs?" : `Approve ${projectName || "this order"}?`}</div>
+          <div style={{ fontSize: 16, fontWeight: 800, color: c.text }}>{approved ? "Approve the updated proofs?" : "Approve this order?"}</div>
           <div style={{ fontSize: 13.5, color: c.text, marginTop: 10, lineHeight: 1.55 }}>
             By approving, you confirm all products and artwork shown are <b>correct and approved for production</b>. Changes requested after approval may not be able to be accommodated and could incur re-stocking or re-print charges.
           </div>
@@ -106,12 +105,12 @@ export function PackageApproval({ c, approved, approvedAt, changeRequest, quoteT
       {modal === "changes" && (
         <Overlay c={c} onClose={() => !busy && setModal(null)}>
           <div style={{ fontSize: 16, fontWeight: 800, color: c.text }}>Request changes</div>
-          <div style={{ fontSize: 13.5, color: c.muted, marginTop: 8, lineHeight: 1.5 }}>Tell us what you'd like changed — pricing, artwork, sizes, anything. We'll revise and send it back for another look. This won't approve your order.</div>
+          <div style={{ fontSize: 13.5, color: c.muted, marginTop: 8, lineHeight: 1.5 }}>Tell us what you'd like changed: pricing, artwork, sizes, anything. We'll revise and send it back for another look. This won't approve your order.</div>
           <textarea value={note} onChange={e => setNote(e.target.value)} autoFocus rows={5} placeholder="What would you like us to change?"
             style={{ width: "100%", marginTop: 12, padding: "10px 12px", borderRadius: 8, border: `1px solid ${c.border}`, background: c.surface, color: c.text, fontSize: 13.5, fontFamily: c.font, outline: "none", resize: "vertical", boxSizing: "border-box" }} />
           {(items || []).length > 1 && (
             <div style={{ marginTop: 12 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: c.text }}>Which items? <span style={{ fontWeight: 400, color: c.muted }}>Optional — leave blank if it applies to the whole order.</span></div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: c.text }}>Which items? <span style={{ fontWeight: 400, color: c.muted }}>Optional. Leave blank if it applies to the whole order.</span></div>
               <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 8, maxHeight: 170, overflowY: "auto" }}>
                 {(items || []).map(it => (
                   <label key={it.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 9px", borderRadius: 7, background: tagged[it.id] ? c.surface : "transparent", cursor: "pointer", fontSize: 13, color: c.text }}>
