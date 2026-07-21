@@ -19,6 +19,38 @@ function admin() {
   return createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 }
 
+// GET — the client's open pull requests (pending/partial), newest first.
+export async function GET(_req: NextRequest, { params }: { params: { token: string } }) {
+  try {
+    const db = admin();
+    const { data: client } = await db.from("clients").select("id").eq("portal_token", params.token).single();
+    if (!client) return NextResponse.json({ error: "Invalid link" }, { status: 404 });
+    const { data: jobs } = await db.from("jobs").select("id").eq("client_id", client.id);
+    const jobIds = (jobs || []).map((j: any) => j.id);
+    if (jobIds.length === 0) return NextResponse.json({ pulls: [] });
+    const { data: pulls } = await db
+      .from("pull_requests")
+      .select("id, item_id, qtys, fulfilled_qtys, reason, status, created_at, items(name)")
+      .in("job_id", jobIds)
+      .in("status", ["pending", "partial"])
+      .order("created_at", { ascending: false })
+      .limit(30);
+    return NextResponse.json({
+      pulls: (pulls || []).map((p: any) => ({
+        id: p.id,
+        itemName: p.items?.name || "Item",
+        units: Object.values(p.qtys || {}).reduce((a: number, b: any) => a + (Number(b) || 0), 0),
+        qtys: p.qtys || {},
+        reason: p.reason || "",
+        status: p.status,
+        createdAt: p.created_at,
+      })),
+    });
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message || "Failed" }, { status: 500 });
+  }
+}
+
 export async function POST(req: NextRequest, { params }: { params: { token: string } }) {
   try {
     const db = admin();

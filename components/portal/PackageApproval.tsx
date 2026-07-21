@@ -14,8 +14,9 @@ const fmtMoney = (n?: number | null) => (n != null ? "$" + Math.round(n).toLocal
 // The acceptance line shown on the approve prompt + approved banner, tuned to
 // the client's terms AND the actual invoice state — "we'll send your invoice
 // shortly" next to a live Pay Now button reads as broken.
-function invoiceLine(terms?: string | null, invoiceState?: "pending" | "ready" | "paid"): string {
+function invoiceLine(terms?: string | null, invoiceState?: "pending" | "ready" | "paid" | "settled"): string {
   if (invoiceState === "paid") return "Your invoice is paid. Thank you!";
+  if (invoiceState === "settled") return "Nothing currently due. Any updated total will come as a separate invoice.";
   const t = (terms || "").toLowerCase();
   if (invoiceState === "ready") {
     if (t === "deposit_balance") return "Your deposit invoice is ready below. Production begins once it's received.";
@@ -36,7 +37,7 @@ export function PackageApproval({ c, approved, approvedAt, changeRequest, quoteT
   terms?: string | null;
   items?: { id: string; name: string }[]; // for optional per-item tags on Request changes
   pendingReapproval?: boolean; // quote approved but proofs were revised → offer "Approve updated proofs"
-  invoiceState?: "pending" | "ready" | "paid"; // ready = payment band below is showing a live pay link
+  invoiceState?: "pending" | "ready" | "paid" | "settled"; // ready = live pay link below; settled = paid vs invoiced but total revised up
   onAction: (action: string, body?: any) => Promise<void>;
 }) {
   const [modal, setModal] = useState<null | "approve" | "changes">(null);
@@ -69,8 +70,8 @@ export function PackageApproval({ c, approved, approvedAt, changeRequest, quoteT
     );
   }
 
-  const btnPrimary: React.CSSProperties = { flex: "1 1 auto", padding: "12px 18px", borderRadius: 10, border: "none", background: c.accent, color: c.accentText || "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: c.font };
-  const btnGhost: React.CSSProperties = { flex: "0 0 auto", padding: "12px 18px", borderRadius: 10, border: `1px solid ${c.border}`, background: c.card, color: c.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: c.font };
+  const btnPrimary: React.CSSProperties = { flex: "1 1 auto", padding: "13px 22px", borderRadius: 999, border: "none", background: c.accent, color: c.accentText || "#fff", fontSize: 12, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: c.font };
+  const btnGhost: React.CSSProperties = { flex: "0 0 auto", padding: "13px 20px", borderRadius: 999, border: `1px solid ${c.border}`, background: "transparent", color: c.text, fontSize: 12, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: c.font };
 
   return (
     <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 12, padding: "16px 18px", fontFamily: c.font }}>
@@ -96,14 +97,14 @@ export function PackageApproval({ c, approved, approvedAt, changeRequest, quoteT
       {/* ── Approve prompt: acceptance disclaimer ── */}
       {modal === "approve" && (
         <Overlay c={c} onClose={() => !busy && setModal(null)}>
-          <div style={{ fontSize: 16, fontWeight: 800, color: c.text }}>{approved ? "Approve the updated proofs?" : "Approve this order?"}</div>
+          <div style={{ fontSize: 17, fontWeight: 900, color: c.text, textTransform: "uppercase", letterSpacing: "-0.01em" }}>{approved ? "Approve the updated proofs?" : "Approve this order?"}</div>
           <div style={{ fontSize: 13.5, color: c.text, marginTop: 10, lineHeight: 1.55 }}>
             By approving, you confirm all products and artwork shown are <b>correct and approved for production</b>. Changes requested after approval may not be able to be accommodated and could incur re-stocking or re-print charges.
           </div>
           <div style={{ fontSize: 13, color: c.muted, marginTop: 10, lineHeight: 1.5 }}>{invoiceLine(terms, invoiceState)}</div>
           {total && <div style={{ fontSize: 13, color: c.muted, marginTop: 8 }}>Approved total: <b style={{ color: c.text }}>{total}</b></div>}
           <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
-            <button onClick={() => submit("approve-package")} disabled={busy} style={{ ...btnPrimary, background: c.green, color: "#fff", opacity: busy ? 0.6 : 1 }}>{busy ? "Approving…" : "Approve for production"}</button>
+            <button onClick={() => submit("approve-package")} disabled={busy} style={{ ...btnPrimary, opacity: busy ? 0.6 : 1 }}>{busy ? "Approving…" : "Approve for production"}</button>
             <button onClick={() => setModal(null)} disabled={busy} style={btnGhost}>Cancel</button>
           </div>
         </Overlay>
@@ -112,7 +113,7 @@ export function PackageApproval({ c, approved, approvedAt, changeRequest, quoteT
       {/* ── Request-changes prompt: free note ── */}
       {modal === "changes" && (
         <Overlay c={c} onClose={() => !busy && setModal(null)}>
-          <div style={{ fontSize: 16, fontWeight: 800, color: c.text }}>Request changes</div>
+          <div style={{ fontSize: 17, fontWeight: 900, color: c.text, textTransform: "uppercase", letterSpacing: "-0.01em" }}>Request changes</div>
           <div style={{ fontSize: 13.5, color: c.muted, marginTop: 8, lineHeight: 1.5 }}>Tell us what you'd like changed: pricing, artwork, sizes, anything. We'll revise and send it back for another look. This won't approve your order.</div>
           <textarea value={note} onChange={e => setNote(e.target.value)} autoFocus rows={5} placeholder="What would you like us to change?"
             style={{ width: "100%", marginTop: 12, padding: "10px 12px", borderRadius: 8, border: `1px solid ${c.border}`, background: c.surface, color: c.text, fontSize: 13.5, fontFamily: c.font, outline: "none", resize: "vertical", boxSizing: "border-box" }} />

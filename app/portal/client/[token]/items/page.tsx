@@ -171,8 +171,13 @@ export default function ItemsPage() {
   const [detail, setDetail] = useState<Item | null>(null);
   const [view, setView] = useState<"active" | "history" | "on_hold">("active");
   const [cat, setCat] = useState<string>("all");
+  const [pulls, setPulls] = useState<any[]>([]);
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
+  useEffect(() => {
+    load();
+    fetch(`/api/portal/client/${token}/pulls`).then(r => r.json()).then(b => setPulls(b.pulls || [])).catch(() => {});
+    // eslint-disable-next-line
+  }, []);
 
   async function load() {
     setLoading(true);
@@ -384,6 +389,23 @@ export default function ItemsPage() {
                   {tbd.length} piece{tbd.length === 1 ? "" : "s"} awaiting a delivery estimate — shown in the gallery below.
                 </div>
               )}
+            </div>
+          )}
+
+          {/* ── Open pull requests — the client can see what they've asked us to pull ── */}
+          {pulls.length > 0 && (
+            <div style={{ marginBottom: 34 }}>
+              <h2 style={{ margin: "0 0 10px", fontSize: 15, fontWeight: 900, textTransform: "uppercase" }}>Requested pulls.</h2>
+              <div style={{ display: "flex", flexDirection: "column" }}>
+                {pulls.map(pr => (
+                  <div key={pr.id} style={{ display: "flex", alignItems: "baseline", gap: 12, borderBottom: `1px solid ${C.border}`, padding: "10px 0", flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", minWidth: 0, flex: "1 1 200px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pr.itemName}</span>
+                    <span style={{ fontSize: 11, fontFamily: C.mono, color: C.muted }}>{pr.units.toLocaleString()} pcs</span>
+                    <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: pr.status === "partial" ? C.blue : C.amber }}>{pr.status === "partial" ? "Partially pulled" : "Requested"}</span>
+                    <span style={{ fontSize: 10, fontFamily: C.mono, color: C.faint }}>{fmtDate(pr.createdAt)}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
