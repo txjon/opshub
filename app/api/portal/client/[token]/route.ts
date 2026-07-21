@@ -179,7 +179,10 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         }
       }
       // Sort timestamp — "latest activity by anyone", newest to top
-      const latestAt = [clientAt, designerAt, hpdAt].filter(Boolean).sort().pop() || b.updated_at || b.created_at;
+      // Real moves only (messages/uploads by role). NEVER updated_at — a mere
+      // look bumps it and reorders the whole field with no actual action
+      // (the old model's most annoying habit).
+      const latestAt = [clientAt, designerAt, hpdAt].filter(Boolean).sort().pop() || b.created_at;
       return {
         id: b.id,
         title: b.title || null,

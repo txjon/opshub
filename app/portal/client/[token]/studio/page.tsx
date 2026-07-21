@@ -19,7 +19,7 @@ function studioBucket(b: any): StudioBucket {
   const done = ["final_approved", "pending_prep", "production_ready", "delivered"].includes(b.state);
   if (done) return "ready";
   if (b.state === "client_review" || b.has_unread_external) return "your_move";
-  const last = b.last_activity_at || b.updated_at || "";
+  const last = b.last_activity_at || b.created_at || "";
   const stale = last && (Date.now() - new Date(last).getTime()) > QUIET_DAYS * 86400000;
   return stale ? "quiet" : "working";
 }
@@ -66,7 +66,7 @@ export default function StudioPage() {
 
   const briefs = useMemo(() => {
     const list = [...((data?.briefs as any[]) || [])];
-    return list.sort((a, b) => (b.last_activity_at || b.updated_at || "").localeCompare(a.last_activity_at || a.updated_at || ""));
+    return list.sort((a, b) => (b.last_activity_at || b.created_at || "").localeCompare(a.last_activity_at || a.created_at || ""));
   }, [data]);
 
   if (data && !hasStudio) {
