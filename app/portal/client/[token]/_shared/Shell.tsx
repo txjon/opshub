@@ -1,5 +1,5 @@
 "use client";
-import { ReactNode } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { C } from "./theme";
@@ -108,10 +108,21 @@ export default function Shell({ children }: { children: ReactNode }) {
   const isActive = (path: string) =>
     path === "" ? pathname === base || pathname === base + "/" : !!pathname?.startsWith(base + path);
 
+  // Website header behavior: full header at top of page; once you scroll,
+  // a fixed compact bar takes over — centered wordmark + hamburger.
+  const [scrolled, setScrolled] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 130);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
   return (
     <div className="portal-shell" style={{ minHeight: "100vh", background: C.bg, fontFamily: C.font, color: C.text }}>
       <style>{`
-        .portal-siderail { display: none; }
+        .portal-desk-head, .portal-fixed-head { display: none; }
         @media (max-width: 640px) {
           .portal-top-tabs { display: none !important; }
           .portal-main { padding-bottom: calc(72px + env(safe-area-inset-bottom)) !important; }
@@ -120,51 +131,67 @@ export default function Shell({ children }: { children: ReactNode }) {
           .portal-bottom-nav { display: none !important; }
           .portal-mobile-head { display: none !important; }
           .portal-top-tabs { display: none !important; }
-          .portal-shell { display: flex; align-items: stretch; }
-          .portal-siderail { display: flex; }
-          .portal-content { flex: 1; min-width: 0; }
+          .portal-desk-head { display: flex; }
+          .portal-fixed-head { display: flex; }
         }
         .portal-tab-active-pill {
           background: ${C.surface};
         }
       `}</style>
 
-      {/* Desktop side rail — the website's left-stacked nav. */}
-      <aside className="portal-siderail" style={{
-        width: 216, flexShrink: 0, flexDirection: "column",
-        borderRight: `1px solid ${C.border}`,
-        padding: "30px 26px",
-        position: "sticky", top: 0, height: "100vh", boxSizing: "border-box",
-      }}>
-        <Link href={base} style={{ color: C.text, textDecoration: "none" }}><LogoMark width={160} /></Link>
-        <div style={{ fontSize: 9.5, fontWeight: 800, marginTop: 14, color: C.faint, letterSpacing: "0.16em", textTransform: "uppercase" }}>
-          {data.client.name}
-        </div>
-        <nav style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 34 }}>
+      {/* Desktop header — the website's: nav list top-left, wordmark top-right. */}
+      <div className="portal-desk-head" style={{ justifyContent: "space-between", alignItems: "flex-start", padding: "30px 38px 8px", gap: 24 }}>
+        <nav style={{ display: "flex", flexDirection: "column", gap: 9 }}>
           {TABS.map(t => {
             const active = isActive(t.path);
             const unread = t.unreadKey ? unreadCounts[t.unreadKey] : 0;
             return (
               <Link key={t.label} href={base + t.path}
-                style={{
-                  display: "flex", alignItems: "center", gap: 8,
-                  padding: "9px 0", fontSize: 12, fontWeight: 800,
-                  letterSpacing: "0.14em", textTransform: "uppercase",
-                  color: active ? C.text : C.muted, textDecoration: "none",
-                  transition: "color 0.15s",
-                }}>
+                style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: active ? C.text : C.muted, textDecoration: "none", transition: "color 0.15s" }}>
                 {t.label}
-                {unread > 0 && (
-                  <span style={{ background: C.purple, color: "#fff", fontSize: 9, fontWeight: 800, minWidth: 16, height: 16, padding: "0 4px", borderRadius: 8, display: "inline-flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>{unread > 9 ? "9+" : unread}</span>
-                )}
+                {unread > 0 && <span style={{ background: C.purple, color: "#fff", fontSize: 9, fontWeight: 800, minWidth: 16, height: 16, padding: "0 4px", borderRadius: 8, display: "inline-flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>{unread > 9 ? "9+" : unread}</span>}
               </Link>
             );
           })}
+          <div style={{ fontSize: 9, fontWeight: 800, marginTop: 8, color: C.faint, letterSpacing: "0.16em", textTransform: "uppercase" }}>{data.client.name}</div>
         </nav>
-        <div style={{ marginTop: "auto", fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: C.faint }}>
-          Built in Las Vegas
+        <Link href={base} style={{ flexShrink: 0 }}><LogoMark width={300} /></Link>
+      </div>
+
+      {/* Fixed compact header once scrolled — hamburger + centered wordmark */}
+      {scrolled && (
+        <div className="portal-fixed-head" style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 90, alignItems: "center", padding: "12px 20px", background: "rgba(10,10,10,0.92)", backdropFilter: "blur(10px)", borderBottom: `1px solid ${C.border}` }}>
+          <button onClick={() => setMenuOpen(true)} aria-label="Menu"
+            style={{ background: "none", border: "none", cursor: "pointer", padding: 6, display: "flex", flexDirection: "column", gap: 5 }}>
+            <span style={{ width: 22, height: 2, background: C.text, display: "block" }} />
+            <span style={{ width: 22, height: 2, background: C.text, display: "block" }} />
+          </button>
+          <div style={{ flex: 1, display: "flex", justifyContent: "center" }}>
+            <Link href={base}><LogoMark width={168} /></Link>
+          </div>
+          <div style={{ width: 34 }} />
         </div>
-      </aside>
+      )}
+
+      {/* Hamburger menu overlay */}
+      {menuOpen && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 200, background: C.bg, display: "flex", flexDirection: "column", padding: "26px 38px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <button onClick={() => setMenuOpen(false)} aria-label="Close menu" style={{ background: "none", border: "none", color: C.text, fontSize: 30, cursor: "pointer", lineHeight: 1, padding: 4 }}>×</button>
+            <LogoMark width={168} />
+            <div style={{ width: 38 }} />
+          </div>
+          <nav style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 48 }}>
+            {TABS.map(t => (
+              <Link key={t.label} href={base + t.path} onClick={() => setMenuOpen(false)}
+                style={{ fontSize: "clamp(26px,4vw,40px)", fontWeight: 900, letterSpacing: "-0.01em", textTransform: "uppercase", color: isActive(t.path) ? C.text : C.muted, textDecoration: "none", padding: "8px 0" }}>
+                {t.label}
+              </Link>
+            ))}
+          </nav>
+          <div style={{ marginTop: "auto", fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: C.faint }}>Built in Las Vegas</div>
+        </div>
+      )}
 
       <div className="portal-content">
 
