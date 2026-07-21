@@ -235,6 +235,13 @@ function OrderRow({ order, expanded, onToggle, onOpenModal, token }: {
   const isFulfillment = order.kind === "fulfillment";
   const handleRowClick = isFulfillment ? onToggle : () => onOpenModal(order.id);
   const ref = order.invoice_number || order.qb_invoice_number;
+  // What exactly needs the client — the row says it, not just the filter.
+  const rowDone = ["complete", "cancelled"].includes(order.phase);
+  const proofsN = (order as any).proofs_pending || 0;
+  const needBit = rowDone ? null
+    : proofsN > 0 ? `${proofsN} proof${proofsN === 1 ? "" : "s"} to approve`
+    : order.phase === "pending" ? "approval needed"
+    : null;
 
   const paidBit = (() => {
     if (order.payment_status === "none") return null;
@@ -261,6 +268,10 @@ function OrderRow({ order, expanded, onToggle, onOpenModal, token }: {
             {isFulfillment
               ? `${order.total_qty.toLocaleString()} units sold${order.period_label ? ` · ${order.period_label}` : ""}`
               : `${order.total_qty.toLocaleString()} ${order.total_qty === 1 ? "pc" : "pcs"}`}
+            {needBit && <span style={{ color: H.amber, fontWeight: 800 }}> · {needBit}</span>}
+            {!rowDone && !isFulfillment && (order.payment_status === "unpaid" || order.payment_status === "partial") && order.pricing_visible !== false && order.balance > 0.01 && (
+              <span style={{ color: H.dim, fontWeight: 700 }}> · {money(order.balance)} due</span>
+            )}
           </div>
         </div>
 

@@ -47,7 +47,6 @@ export default function HomePage() {
     // One order -> open it directly; several -> the needs-approval filter.
     href: needsAction.length === 1 ? `${base}/orders?open=${needsAction[0].id}` : `${base}/orders?filter=pending`,
   });
-  if (unpaid.length > 0) pills.push({ label: `${unpaid.length} unpaid invoice${unpaid.length === 1 ? "" : "s"}`, href: `${base}/orders?filter=unpaid` });
 
   const thumb = (id: string) => `/api/files/thumbnail?id=${id}&thumb=1&size=500`;
 
