@@ -61,6 +61,15 @@ const ICONS: Record<string, TabIcon> = {
       <path d="M8 13h8M8 17h5" />
     </svg>
   ),
+  Reorder: (active) => (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth={active ? 2 : 1.6}
+      strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="9" cy="20" r="1.5" />
+      <circle cx="18" cy="20" r="1.5" />
+      <path d="M2.5 3.5h2.5l2.4 12.2a1.5 1.5 0 0 0 1.47 1.2h8.9a1.5 1.5 0 0 0 1.46-1.16L21.5 8H6" />
+    </svg>
+  ),
 };
 
 const TABS: { label: keyof typeof ICONS; path: string; unreadKey?: "designs" }[] = [
@@ -68,6 +77,7 @@ const TABS: { label: keyof typeof ICONS; path: string; unreadKey?: "designs" }[]
   { label: "Designs", path: "/designs", unreadKey: "designs" },
   { label: "Orders", path: "/orders" },
   { label: "Items", path: "/items" },
+  { label: "Reorder", path: "/reorder" },
 ];
 
 export default function Shell({ children }: { children: ReactNode }) {
