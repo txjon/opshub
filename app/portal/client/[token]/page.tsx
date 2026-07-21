@@ -113,13 +113,13 @@ export default function HomePage() {
         <div style={{ color: C.faint, fontSize: 13, padding: "30px 0", textAlign: "center" }}>Loading…</div>
       ) : (
         <>
-          {landing.length > 0 && (
-            <Strip title="Dropping next." sub="Full pipeline" list={landing}
-              badge={(it) => `lands ${fmtDate(it.eta)}`} />
-          )}
           {storeReady.length > 0 && (
             <Strip title="Live-ready." sub="See all" list={storeReady}
               badge={(it) => `${(it.qty || 0).toLocaleString()} pcs ready`} />
+          )}
+          {landing.length > 0 && (
+            <Strip title="Coming soon." sub="Full pipeline" list={landing}
+              badge={(it) => `lands ${fmtDate(it.eta)}`} />
           )}
           {landing.length === 0 && storeReady.length === 0 && (
             <div style={{ color: C.muted, fontSize: 13, textAlign: "center", padding: "20px 0 40px" }}>
