@@ -4,6 +4,18 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { C } from "./theme";
 import { useClientPortal } from "./context";
+import { getLogoSvgForSlug } from "@/lib/branding-client";
+
+// The real wordmark, recolored for the dark ground (the branding SVG is
+// black-filled for PDFs) and sized for chrome.
+function LogoMark({ width = 170 }: { width?: number }) {
+  const { data } = useClientPortal();
+  const svg = getLogoSvgForSlug(data?.company?.slug || "hpd")
+    .replace(/#000000/g, "#ffffff")
+    .replace(/#161616/g, "#ffffff")
+    .replace(/style="[^"]*"/, `style="width:${width}px;max-width:100%;height:auto;display:block"`);
+  return <span style={{ display: "inline-block", lineHeight: 0, maxWidth: "100%" }} dangerouslySetInnerHTML={{ __html: svg }} />;
+}
 
 // The visual shell — header, tab nav, toast stack, mobile layout.
 // Renders {children} (the current tab's page).
@@ -97,19 +109,64 @@ export default function Shell({ children }: { children: ReactNode }) {
     path === "" ? pathname === base || pathname === base + "/" : !!pathname?.startsWith(base + path);
 
   return (
-    <div style={{ minHeight: "100vh", background: C.bg, fontFamily: C.font, color: C.text }}>
+    <div className="portal-shell" style={{ minHeight: "100vh", background: C.bg, fontFamily: C.font, color: C.text }}>
       <style>{`
+        .portal-siderail { display: none; }
         @media (max-width: 640px) {
           .portal-top-tabs { display: none !important; }
           .portal-main { padding-bottom: calc(72px + env(safe-area-inset-bottom)) !important; }
         }
         @media (min-width: 641px) {
           .portal-bottom-nav { display: none !important; }
+          .portal-mobile-head { display: none !important; }
+          .portal-top-tabs { display: none !important; }
+          .portal-shell { display: flex; align-items: stretch; }
+          .portal-siderail { display: flex; }
+          .portal-content { flex: 1; min-width: 0; }
         }
         .portal-tab-active-pill {
           background: ${C.surface};
         }
       `}</style>
+
+      {/* Desktop side rail — the website's left-stacked nav. */}
+      <aside className="portal-siderail" style={{
+        width: 216, flexShrink: 0, flexDirection: "column",
+        borderRight: `1px solid ${C.border}`,
+        padding: "30px 26px",
+        position: "sticky", top: 0, height: "100vh", boxSizing: "border-box",
+      }}>
+        <Link href={base} style={{ color: C.text, textDecoration: "none" }}><LogoMark width={160} /></Link>
+        <div style={{ fontSize: 9.5, fontWeight: 800, marginTop: 14, color: C.faint, letterSpacing: "0.16em", textTransform: "uppercase" }}>
+          {data.client.name}
+        </div>
+        <nav style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 34 }}>
+          {TABS.map(t => {
+            const active = isActive(t.path);
+            const unread = t.unreadKey ? unreadCounts[t.unreadKey] : 0;
+            return (
+              <Link key={t.label} href={base + t.path}
+                style={{
+                  display: "flex", alignItems: "center", gap: 8,
+                  padding: "9px 0", fontSize: 12, fontWeight: 800,
+                  letterSpacing: "0.14em", textTransform: "uppercase",
+                  color: active ? C.text : C.muted, textDecoration: "none",
+                  transition: "color 0.15s",
+                }}>
+                {t.label}
+                {unread > 0 && (
+                  <span style={{ background: C.purple, color: "#fff", fontSize: 9, fontWeight: 800, minWidth: 16, height: 16, padding: "0 4px", borderRadius: 8, display: "inline-flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>{unread > 9 ? "9+" : unread}</span>
+                )}
+              </Link>
+            );
+          })}
+        </nav>
+        <div style={{ marginTop: "auto", fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: C.faint }}>
+          Built in Las Vegas
+        </div>
+      </aside>
+
+      <div className="portal-content">
 
       {/* Toasts — polling-driven, dismissable */}
       <div style={{
@@ -133,15 +190,13 @@ export default function Shell({ children }: { children: ReactNode }) {
 
       {/* Header — site chrome: lowercase wordmark centered, client name
           small and tracked beneath, nav as wide-tracked uppercase links. */}
-      <header style={{
+      <header className="portal-mobile-head" style={{
         background: C.bg, borderBottom: `1px solid ${C.border}`,
-        padding: "22px 20px 0",
+        padding: "20px 20px 14px",
       }}>
         <div style={{ textAlign: "center" }}>
-          <div style={{ fontSize: 21, fontWeight: 800, letterSpacing: "-0.01em", textTransform: "lowercase", color: C.text }}>
-            {(data.company?.name || "House Party Distro").toLowerCase()}
-          </div>
-          <div style={{ fontSize: 10, fontWeight: 800, marginTop: 5, color: C.faint, letterSpacing: "0.16em", textTransform: "uppercase" }}>
+          <LogoMark width={170} />
+          <div style={{ fontSize: 10, fontWeight: 800, marginTop: 8, color: C.faint, letterSpacing: "0.16em", textTransform: "uppercase" }}>
             {data.client.name}
           </div>
         </div>
@@ -251,6 +306,7 @@ export default function Shell({ children }: { children: ReactNode }) {
           );
         })}
       </nav>
+      </div>
     </div>
   );
 }

@@ -134,8 +134,7 @@ export default function ReorderPage() {
   return (
     <div style={{
       // Full-bleed dark canvas escaping the light shell's centered main.
-      width: "100vw", marginLeft: "calc(50% - 50vw)",
-      marginTop: "calc(clamp(16px, 4vw, 32px) * -1)", marginBottom: -60,
+      margin: "calc(clamp(16px, 4vw, 32px) * -1) calc(clamp(12px, 3vw, 24px) * -1) -60px",
       background: H.ink, color: H.text, fontFamily: H.font, minHeight: "70vh",
     }}>
       <style dangerouslySetInnerHTML={{ __html: `
