@@ -80,7 +80,9 @@ export default function OrdersPage() {
   }
 
   const isUnpaid = (o: Order) => o.payment_status === "unpaid" || o.payment_status === "partial";
-  const isPending = (o: Order) => o.phase === "pending" || ((o as any).proofs_pending || 0) > 0;
+  // Stale pending proofs on finished orders are moot — only live orders count.
+  const isDone = (o: Order) => ["complete", "cancelled"].includes(o.phase);
+  const isPending = (o: Order) => !isDone(o) && (o.phase === "pending" || ((o as any).proofs_pending || 0) > 0);
   const attentionCount = (orders || []).filter(o => isPending(o) || isUnpaid(o)).length;
   // "Needs you" is the default landing — approvals first, payments second.
   // With nothing needing them, fall through to All so the page isn't empty.
