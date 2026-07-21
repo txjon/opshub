@@ -47,7 +47,11 @@ export function OrderExperience({ data, token, onAction }: {
 
   const actualProofs = items.flatMap((i: any) => (i.proofs || []).filter((p: any) => p.stage === "proof"));
   const hasProofs = actualProofs.length > 0;
-  const allProofsApproved = hasProofs && actualProofs.every((p: any) => p.approval === "approved");
+  // An internally-approved item (client PO / verbal sign-off recorded by the
+  // team) settles its proofs — same rule as the internal lifecycle gate.
+  const itemProofsSettled = (i: any) => i.internalApproved
+    || (i.proofs || []).filter((p: any) => p.stage === "proof").every((p: any) => p.approval === "approved");
+  const allProofsApproved = hasProofs && items.every(itemProofsSettled);
   const needsYou = items.filter((it: any) => itemClientPhase(it).label === "Awaiting your approval");
   const railIdx = orderRailIndex(project.phase, !!project.quoteApproved);
 

@@ -68,7 +68,7 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
     // shipping_route override, decorator assignment for po_sent lookup).
     const { data: items } = await db
       .from("items")
-      .select("id, job_id, name, garment_type, mockup_color, sell_per_unit, ship_qtys, received_qtys, drive_link, sort_order, pipeline_stage, received_at_hpd, blanks_order_cost, archived_at, completed_at, shipping_route, forwarded_at, decorator_assignments(decorators(name, short_code))")
+      .select("id, job_id, name, garment_type, mockup_color, artwork_status, sell_per_unit, ship_qtys, received_qtys, drive_link, sort_order, pipeline_stage, received_at_hpd, blanks_order_cost, archived_at, completed_at, shipping_route, forwarded_at, decorator_assignments(decorators(name, short_code))")
       .in("job_id", jobIds)
       .order("sort_order", { nullsFirst: false });
 
@@ -94,6 +94,7 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
     const thumbByItem: Record<string, string | null> = {};
     const jobIdByItem: Record<string, string> = {};
     for (const i of (items || [])) jobIdByItem[(i as any).id] = (i as any).job_id;
+    const internallyApprovedItems = new Set((items || []).filter((i: any) => i.artwork_status === "approved").map((i: any) => i.id));
     const pendingProofsByJob: Record<string, number> = {};
     if (itemIds.length > 0) {
       const { data: files } = await db
@@ -105,10 +106,12 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
         .not("drive_file_id", "is", null)
         .order("created_at", { ascending: false });
       // Live proofs still awaiting client approval, rolled up per job —
-      // powers the hub's Needs-you surfacing (a job can be past 'pending'
-      // phase and STILL have revised proofs waiting on the client).
+      // powers the hub's Needs-you surfacing. An item marked approved
+      // INTERNALLY (artwork_status — client PO / verbal / email sign-off)
+      // settles its proofs too: same disjunction the internal lifecycle
+      // gate uses, never a parallel state machine.
       for (const f of (files || [])) {
-        if (f.stage === "proof" && f.approval === "pending") {
+        if (f.stage === "proof" && f.approval === "pending" && !internallyApprovedItems.has(f.item_id)) {
           const jid = jobIdByItem[f.item_id];
           if (jid) pendingProofsByJob[jid] = (pendingProofsByJob[jid] || 0) + 1;
         }
