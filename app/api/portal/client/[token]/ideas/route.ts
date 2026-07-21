@@ -22,6 +22,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     const title = String(body.title || "").trim().slice(0, 140);
     const notes = String(body.notes || "").trim().slice(0, 4000);
     if (!title) return NextResponse.json({ error: "Give it a name" }, { status: 400 });
+    if (!notes) return NextResponse.json({ error: "Tell us a little more first" }, { status: 400 });
 
     const { data: client } = await db
       .from("clients").select("id, name, portal_features").eq("portal_token", params.token).single();

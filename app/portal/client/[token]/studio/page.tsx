@@ -78,13 +78,14 @@ export default function StudioPage() {
   }
   if (!data) return null;
 
+  const canSend = !!title.trim() && !!notes.trim();
   async function submit() {
-    if (!title.trim()) return;
+    if (!canSend) return;
     setBusy(true); setError("");
     try {
       const res = await fetch(`/api/portal/client/${token}/ideas`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: title.trim(), notes: notes.trim() || undefined }),
+        body: JSON.stringify({ title: title.trim(), notes: notes.trim() }),
       });
       const bodyJson = await res.json();
       if (!res.ok) { setError(bodyJson.error || "Couldn't save the idea."); return; }
@@ -138,8 +139,8 @@ export default function StudioPage() {
               onChange={e => setNotes(e.target.value)}
               style={{ fontSize: 14, lineHeight: 1.6, resize: "vertical" }} />
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 12, flexWrap: "wrap" }}>
-              <button onClick={submit} disabled={busy || !title.trim()}
-                style={{ background: "#fff", color: C.bg, border: "none", borderRadius: 999, padding: "12px 24px", fontSize: 11.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: busy || !title.trim() ? "default" : "pointer", opacity: busy || !title.trim() ? 0.5 : 1, fontFamily: C.font }}>
+              <button onClick={submit} disabled={busy || !canSend}
+                style={{ background: "#fff", color: C.bg, border: "none", borderRadius: 999, padding: "12px 24px", fontSize: 11.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: busy || !canSend ? "default" : "pointer", opacity: busy || !canSend ? 0.5 : 1, fontFamily: C.font }}>
                 {busy ? "Sending…" : "Send it"}
               </button>
               <span style={{ fontSize: 11, color: C.faint }}>Lands with our team — we&rsquo;ll take it from there.</span>
