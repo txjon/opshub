@@ -42,7 +42,7 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
     let jobsQuery = db
       .from("jobs")
       .select(`
-        id, job_number, title, phase, target_ship_date,
+        id, job_number, title, phase, quote_approved, target_ship_date,
         created_at, updated_at, payment_terms, type_meta,
         portal_token, costing_summary,
         shipping_route, phase_timestamps
@@ -359,6 +359,7 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
         }),
         total_qty: totalQty,
         proofs_pending: pendingProofsByJob[j.id] || 0,
+        quote_approved: !!j.quote_approved,
         // total / paid_amount / balance gated on isPricingVisible —
         // before quote/invoice has been sent, client sees the order
         // and items but no dollar amount.

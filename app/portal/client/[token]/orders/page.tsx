@@ -82,7 +82,11 @@ export default function OrdersPage() {
   const isUnpaid = (o: Order) => o.payment_status === "unpaid" || o.payment_status === "partial";
   // Stale pending proofs on finished orders are moot — only live orders count.
   const isDone = (o: Order) => ["complete", "cancelled"].includes(o.phase);
-  const isPending = (o: Order) => !isDone(o) && (o.phase === "pending" || ((o as any).proofs_pending || 0) > 0);
+  // Client action exists only when the QUOTE still needs them or live
+  // proofs await them. Phase 'pending' with quote approved + no pending
+  // proofs = waiting on US (proofs not sent yet) — never "approval needed"
+  // (the #4359 case: client pre-paid, nothing to approve yet).
+  const isPending = (o: Order) => !isDone(o) && ((o.phase === "pending" && !(o as any).quote_approved) || ((o as any).proofs_pending || 0) > 0);
   const attentionCount = (orders || []).filter(o => isPending(o) || isUnpaid(o)).length;
   // "Needs you" is the default landing — approvals first, payments second.
   // With nothing needing them, fall through to All so the page isn't empty.
@@ -240,8 +244,10 @@ function OrderRow({ order, expanded, onToggle, onOpenModal, token }: {
   const proofsN = (order as any).proofs_pending || 0;
   const needBit = rowDone ? null
     : proofsN > 0 ? `${proofsN} proof${proofsN === 1 ? "" : "s"} to approve`
-    : order.phase === "pending" ? "approval needed"
+    : order.phase === "pending" && !(order as any).quote_approved ? "approval needed"
     : null;
+  // Quote approved, nothing pending, still pre-production = our move.
+  const usBit = !rowDone && !needBit && order.phase === "pending" ? "proofs on the way" : null;
 
   const paidBit = (() => {
     if (order.payment_status === "none") return null;
@@ -269,6 +275,7 @@ function OrderRow({ order, expanded, onToggle, onOpenModal, token }: {
               ? `${order.total_qty.toLocaleString()} units sold${order.period_label ? ` · ${order.period_label}` : ""}`
               : `${order.total_qty.toLocaleString()} ${order.total_qty === 1 ? "pc" : "pcs"}`}
             {needBit && <span style={{ color: H.amber, fontWeight: 800 }}> · {needBit}</span>}
+            {usBit && <span style={{ color: H.dim, fontWeight: 700 }}> · {usBit}</span>}
             {!rowDone && !isFulfillment && (order.payment_status === "unpaid" || order.payment_status === "partial") && order.pricing_visible !== false && order.balance > 0.01 && (
               <span style={{ color: H.dim, fontWeight: 700 }}> · {money(order.balance)} due</span>
             )}

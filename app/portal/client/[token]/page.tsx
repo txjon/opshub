@@ -32,7 +32,7 @@ export default function HomePage() {
   if (!data) return null;
 
   const unpaid = (orders || []).filter(o => o.payment_status === "unpaid" || o.payment_status === "partial");
-  const needsAction = (orders || []).filter(o => !["complete", "cancelled"].includes(o.phase) && (o.phase === "pending" || (o.proofs_pending || 0) > 0));
+  const needsAction = (orders || []).filter(o => !["complete", "cancelled"].includes(o.phase) && ((o.phase === "pending" && !o.quote_approved) || (o.proofs_pending || 0) > 0));
   const active = (items || []).filter(it => !["complete", "archived", "cancelled", "on_hold"].includes(it.status));
   const landing = active
     .filter(it => it.eta && it.status !== "in_stock")
