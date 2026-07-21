@@ -82,6 +82,17 @@ function friendlyColor(raw: string | null): string | null {
 // default #ffffff) that isn't a real product attribute — it's a stray
 // default the Buy Sheet wrote. Mirrors NON_GARMENT in lib/pricing.ts /
 // lib/lifecycle.ts.
+const ITEM_CATS: { key: string; label: string; match: (g: string) => boolean }[] = [
+  { key: "tees", label: "Tees", match: g => g.includes("tee") || g === "tank" || g.includes("shirt") },
+  { key: "hoodies", label: "Hoodies", match: g => g.includes("hoodie") || g.includes("crewneck") || g.includes("sweat") },
+  { key: "hats", label: "Hats", match: g => g.includes("hat") || g.includes("beanie") || g.includes("cap") },
+  { key: "patches", label: "Patches", match: g => g.includes("patch") },
+];
+const itemCatOf = (g: string | null) => {
+  const x = (g || "").toLowerCase();
+  return ITEM_CATS.find(c => c.match(x))?.key || "other";
+};
+
 const NON_GARMENT_TYPES = new Set([
   "accessory","patch","sticker","poster","pin","koozie","banner","flag",
   "lighter","towel","water_bottle","samples","custom","key_chain",
@@ -159,6 +170,7 @@ export default function ItemsPage() {
   const [query, setQuery] = useState("");
   const [detail, setDetail] = useState<Item | null>(null);
   const [view, setView] = useState<"active" | "history" | "on_hold">("active");
+  const [cat, setCat] = useState<string>("all");
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
 
@@ -179,7 +191,8 @@ export default function ItemsPage() {
 
   const q = query.trim().toLowerCase();
   const matches = (it: Item) => !q || it.name.toLowerCase().includes(q) || (it.job.job_number || "").toLowerCase().includes(q);
-  const inView = (view === "history" ? historyItems : view === "on_hold" ? onHoldItems : activeItems).filter(matches);
+  const catMatch = (it: Item) => cat === "all" || itemCatOf(it.garment_type) === cat;
+  const inView = (view === "history" ? historyItems : view === "on_hold" ? onHoldItems : activeItems).filter(it => matches(it) && catMatch(it));
 
   // ── Financial rollup (same math as the old worksheet table) ──
   const rollup = (list: Item[]) => {
@@ -253,6 +266,12 @@ export default function ItemsPage() {
         {([["active", `Active · ${activeItems.length}`], ["history", `History · ${historyItems.length}`], ["on_hold", `On hold · ${onHoldItems.length}`]] as const).map(([k, label]) => (
           <button key={k} className={`px-chip${view === k ? " on" : ""}`} onClick={() => setView(k)}>{label}</button>
         ))}
+        {[{ key: "all", label: "All types" }, ...ITEM_CATS, { key: "other", label: "Everything else" }].map(c => {
+          const base = view === "history" ? historyItems : view === "on_hold" ? onHoldItems : activeItems;
+          const n = c.key === "all" ? base.length : base.filter(x => itemCatOf(x.garment_type) === c.key).length;
+          if (n === 0 && c.key !== "all") return null;
+          return <button key={c.key} className={`px-chip${cat === c.key ? " on" : ""}`} onClick={() => setCat(c.key)}>{(c as any).label} · {n}</button>;
+        })}
         <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search pieces…"
           style={{ marginLeft: "auto", flex: "1 1 170px", maxWidth: 300, padding: "9px 14px", fontSize: 12.5, background: C.card, border: `1px solid ${C.border}`, borderRadius: 999, outline: "none", color: C.text, fontFamily: C.font, boxSizing: "border-box" }} />
       </div>

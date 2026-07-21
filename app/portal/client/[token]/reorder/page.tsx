@@ -17,6 +17,7 @@ type CatalogEntry = {
   itemId: string;          // most recent instance — the one we clone from
   name: string;
   vendor: string | null;
+  cat: string;
   sku: string | null;
   thumbId: string | null;
   lastQty: number;
@@ -27,6 +28,19 @@ type CatalogEntry = {
 };
 
 type CartLine = { sizes: Record<string, number> };
+
+// Product category buckets from garment_type (the QB category each item
+// gets in Product Builder). Substring match keeps the 30+ types manageable.
+const CATS: { key: string; label: string; match: (g: string) => boolean }[] = [
+  { key: "tees", label: "Tees", match: g => g.includes("tee") || g === "tank" || g.includes("shirt") },
+  { key: "hoodies", label: "Hoodies", match: g => g.includes("hoodie") || g.includes("crewneck") || g.includes("sweat") },
+  { key: "hats", label: "Hats", match: g => g.includes("hat") || g.includes("beanie") || g.includes("cap") },
+  { key: "patches", label: "Patches", match: g => g.includes("patch") },
+];
+const catOf = (g: string | null) => {
+  const x = (g || "").toLowerCase();
+  return CATS.find(c => c.match(x))?.key || "other";
+};
 
 const thumb = (id: string, size = 500) => `/api/files/thumbnail?id=${id}&thumb=1&size=${size}`;
 const sortSizes = (arr: { size: string; qty: number }[]) =>
@@ -42,6 +56,7 @@ export default function ReorderPage() {
   const { token } = useClientPortal();
   const [items, setItems] = useState<any[] | null>(null);
   const [detail, setDetail] = useState<CatalogEntry | null>(null);
+  const [cat, setCat] = useState<string>("all");
   const [cart, setCart] = useState<Record<string, CartLine>>({});
   const [reviewing, setReviewing] = useState(false);
   // Edit-from-cart swaps the review sheet for the item sheet and returns
@@ -98,6 +113,7 @@ export default function ReorderPage() {
         itemId: it.id,
         name: it.name,
         vendor: it.blank_vendor || null,
+        cat: catOf(it.garment_type),
         sku: it.blank_sku || null,
         thumbId: it.thumb_id || null,
         lastQty: it.qty || 0,
@@ -198,13 +214,27 @@ export default function ReorderPage() {
               We&rsquo;ll confirm pricing and timing before anything goes into production.
             </div>
 
+            {catalog.length > 0 && (
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center", marginBottom: 24 }}>
+                {[{ key: "all", label: "All" }, ...CATS, { key: "other", label: "Everything else" }].map(c => {
+                  const n = c.key === "all" ? catalog.length : catalog.filter(x => x.cat === c.key).length;
+                  if (n === 0 && c.key !== "all") return null;
+                  return (
+                    <button key={c.key} onClick={() => setCat(c.key)}
+                      style={{ borderRadius: 999, border: cat === c.key ? "1px solid #fff" : `1px solid ${H.line}`, background: cat === c.key ? "#fff" : "transparent", color: cat === c.key ? H.ink : H.dim, fontFamily: H.mono, fontSize: 11, fontWeight: 700, padding: "8px 15px", cursor: "pointer", whiteSpace: "nowrap" }}>
+                      {(c as any).label} · {n}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
             {items === null ? (
               <div style={{ color: H.faint, fontSize: 13, padding: "40px 0" }}>Loading your pieces…</div>
             ) : catalog.length === 0 ? (
               <div style={{ color: H.dim, fontSize: 13, padding: "40px 0" }}>No past pieces yet. Once your first order runs, everything lands here for easy reordering.</div>
             ) : (
               <div className="rx-grid">
-                {catalog.map(c => {
+                {catalog.filter(c => cat === "all" || c.cat === cat).map(c => {
                   const inCart = !!cart[c.itemId];
                   return (
                     <button key={c.key} className="rx-card" onClick={() => setDetail(c)}
