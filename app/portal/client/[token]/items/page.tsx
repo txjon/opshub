@@ -450,7 +450,6 @@ function Gallery({ items, onOpen, empty }: { items: Item[]; onOpen: (it: Item) =
 function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClose: () => void }) {
   const { data: portalData } = useClientPortal();
   const tenantLabel = (portalData?.company?.slug || "hpd").toUpperCase();
-  const [reordering, setReordering] = useState(false);
   // Progressive image load — the thumbnail is already cached from the
   // item row preview, so it paints instantly when the sheet opens.
   // The full-res file fetches in parallel; once it lands we swap the
@@ -474,23 +473,20 @@ function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClo
     pre.onload = () => setImgSrc(fullUrl);
     pre.src = fullUrl;
   }, [item.thumb_id]);
-  const [reorderResult, setReorderResult] = useState<string | null>(null);
 
-  async function reorder() {
-    setReordering(true);
-    setReorderResult(null);
+  // Adds this piece to the shared reorder cart (same localStorage the
+  // Reorder tab reads), prefilled with this run's sizes, then jumps there.
+  function reorder() {
     try {
-      const res = await fetch(`/api/portal/client/${token}/items/${item.id}/reorder`, { method: "POST" });
-      const data = await res.json();
-      if (res.ok) {
-        setReorderResult(`Re-order request created — ${tenantLabel} will be in touch.`);
-      } else {
-        setReorderResult(data.error || "Couldn't start re-order");
-      }
-    } catch {
-      setReorderResult("Couldn't start re-order");
-    }
-    setReordering(false);
+      const key = `hx-cart-${token}`;
+      const cart = JSON.parse(localStorage.getItem(key) || "{}");
+      const sizes: Record<string, number> = {};
+      for (const sq of item.sizes || []) if (sq.qty > 0) sizes[sq.size] = sq.qty;
+      if (Object.keys(sizes).length === 0) sizes["OSFA"] = item.qty || 0;
+      cart[item.id] = { sizes };
+      localStorage.setItem(key, JSON.stringify(cart));
+    } catch {}
+    window.location.href = `/portal/client/${token}/reorder`;
   }
 
   // Renders inside MobileSheet — slides up from the bottom on phone
@@ -518,16 +514,16 @@ function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClo
             style={{ padding: "10px 16px", background: "transparent", color: C.muted, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: C.font, minHeight: 44 }}>
             Close
           </button>
-          <button onClick={reorder} disabled={reordering}
+          <button onClick={reorder}
             style={{
               padding: "10px 20px",
-              background: reordering ? C.border : C.accent,
+              background: C.accent,
               color: "#0a0a0a", border: "none", borderRadius: 8,
               fontSize: 13, fontWeight: 700,
-              cursor: reordering ? "wait" : "pointer", fontFamily: C.font,
+              cursor: "pointer", fontFamily: C.font,
               minHeight: 44,
             }}>
-            {reordering ? "Requesting…" : "Re-order this item"}
+            Add to reorder cart
           </button>
         </>
       }
@@ -668,19 +664,6 @@ function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClo
         </div>
       </div>
 
-      {reorderResult && (
-        <div style={{
-          marginTop: 16,
-          padding: "10px 14px",
-          background: reorderResult.startsWith("Re-order request") ? C.greenBg : C.redBg,
-          border: `1px solid ${reorderResult.startsWith("Re-order request") ? C.greenBorder : C.redBorder}`,
-          borderRadius: 8,
-          color: reorderResult.startsWith("Re-order request") ? C.green : C.red,
-          fontSize: 12, fontWeight: 600,
-        }}>
-          {reorderResult}
-        </div>
-      )}
 
       {/* Full-screen viewer — portals to document.body, so it sits
           above the sheet regardless of where it renders in this tree. */}

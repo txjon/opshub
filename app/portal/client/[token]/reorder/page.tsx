@@ -49,7 +49,10 @@ export default function ReorderPage() {
   const [submitted, setSubmitted] = useState<{ jobNumber: string | null; itemCount: number } | null>(null);
   const [error, setError] = useState("");
 
-  // Cart survives refresh — keyed per portal token.
+  // Cart survives refresh — keyed per portal token. The persist effect
+  // must not run until the load effect has read storage, or the initial
+  // empty state wipes a cart handed off from another tab (StrictMode
+  // double-mount makes this a real race in dev).
   useEffect(() => {
     try {
       const raw = localStorage.getItem(`hx-cart-${token}`);
@@ -57,10 +60,13 @@ export default function ReorderPage() {
     } catch {}
     // eslint-disable-next-line
   }, [token]);
-  useEffect(() => {
-    try { localStorage.setItem(`hx-cart-${token}`, JSON.stringify(cart)); } catch {}
-    // eslint-disable-next-line
-  }, [cart]);
+  // Persist at mutation time, never via effect — an effect's first run
+  // writes the initial empty state over a cart handed off from another
+  // tab (StrictMode double-mount makes that wipe reliable in dev).
+  function persistCart(next: Record<string, CartLine>) {
+    setCart(next);
+    try { localStorage.setItem(`hx-cart-${token}`, JSON.stringify(next)); } catch {}
+  }
 
   useEffect(() => {
     (async () => {
@@ -120,7 +126,7 @@ export default function ReorderPage() {
       const body = await res.json();
       if (!res.ok) { setError(body.error || "Couldn't submit your order."); return; }
       setSubmitted({ jobNumber: body.jobNumber, itemCount: body.itemCount });
-      setCart({});
+      persistCart({});
       setNote("");
       setReviewing(false);
       try { localStorage.removeItem(`hx-cart-${token}`); } catch {}
@@ -255,12 +261,10 @@ export default function ReorderPage() {
           onClose={() => setDetail(null)}
           onSave={(sizes) => {
             const total = Object.values(sizes).reduce((a, q) => a + (Number(q) || 0), 0);
-            setCart(prev => {
-              const next = { ...prev };
-              if (total > 0) next[detail.itemId] = { sizes };
-              else delete next[detail.itemId];
-              return next;
-            });
+            const next = { ...cart };
+            if (total > 0) next[detail.itemId] = { sizes };
+            else delete next[detail.itemId];
+            persistCart(next);
             setDetail(null);
           }}
         />
