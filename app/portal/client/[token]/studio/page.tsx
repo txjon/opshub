@@ -26,9 +26,26 @@ function studioBucket(b: any): StudioBucket {
 const BUCKETS: { key: StudioBucket; title: string; hint: string }[] = [
   { key: "your_move", title: "Your move.", hint: "Fresh work waiting on your eyes" },
   { key: "working", title: "In the works.", hint: "We're sketching — sit tight" },
-  { key: "ready", title: "Ready to run.", hint: "Approved and waiting on a green light" },
+  { key: "ready", title: "Ready to run.", hint: "Greenlit — say the word and it becomes product" },
   { key: "quiet", title: "Been quiet.", hint: "No motion in a while — revive or shelve" },
 ];
+
+// Studio-local state words (Jon, Jul 21): "approve" is a KEEP-GOING nudge
+// here, not a sign-off ceremony — most cards are point-of-entry ideas.
+// Looser vocabulary than clientStateFor's; internal states unchanged.
+const STATE_WORDS: Record<string, { label: string; color: string }> = {
+  draft: { label: "On the wall", color: C.muted },
+  sent: { label: "Sketching", color: C.blue },
+  in_progress: { label: "Sketching", color: C.blue },
+  wip_review: { label: "Sketching", color: C.blue },
+  client_review: { label: "Fresh look in", color: C.purple },
+  revisions: { label: "Reworking", color: C.blue },
+  final_approved: { label: "Greenlit", color: C.green },
+  pending_prep: { label: "Greenlit", color: C.green },
+  production_ready: { label: "Greenlit", color: C.green },
+  delivered: { label: "Delivered", color: C.green },
+};
+const stateWord = (b: any) => STATE_WORDS[b.state] || { label: clientStateFor(b).label, color: C.muted };
 
 const thumbSrc = (b: any): string | null => {
   const t = (b.thumbs || []).find((x: any) => x.preview_drive_file_id || x.drive_file_id);
@@ -146,7 +163,7 @@ export default function StudioPage() {
             </div>
             <div className="st-grid">
               {list.map((b: any) => {
-                const meta = clientStateFor(b);
+                const meta = stateWord(b);
                 const src = thumbSrc(b);
                 return (
                   <button key={b.id} className="st-card" onClick={() => setOpenBrief(b)}
@@ -190,7 +207,7 @@ export default function StudioPage() {
 // ── Brief sheet: latest art big + the conversation actions ──
 function BriefSheet({ brief, token, onClose, onActed }: { brief: any; token: string; onClose: () => void; onActed: () => void }) {
   const bucket = studioBucket(brief);
-  const meta = clientStateFor(brief);
+  const meta = stateWord(brief);
   const src = thumbSrc(brief);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
@@ -251,7 +268,7 @@ function BriefSheet({ brief, token, onClose, onActed }: { brief: any; token: str
           {msg && <div style={{ fontSize: 12, fontWeight: 700, color: C.red }}>{msg}</div>}
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
             {bucket === "your_move" && brief.state === "client_review" && (
-              <button style={pill} disabled={!!busy} onClick={() => act("approve")}>{busy === "approve" ? "Approving…" : "Love it — approve"}</button>
+              <button style={pill} disabled={!!busy} onClick={() => act("approve")}>{busy === "approve" ? "Sending…" : "Love it — keep going"}</button>
             )}
             {bucket === "ready" && (
               <button style={pill} disabled={!!busy} onClick={() => sendNote(note.trim() ? `Let's make this one real. ${note.trim()}` : "Let's make this one real — what's the move?")}>
