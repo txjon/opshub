@@ -682,8 +682,11 @@ function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClo
           <div>
             <div style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Quantity</div>
             <div style={{ fontSize: 14, color: C.text, fontWeight: 700 }}>{item.qty ? `${item.qty.toLocaleString()} pcs` : "—"}</div>
+            {/* flex-wrap, NOT margin-joined inline spans — those had no
+                whitespace between them, read as one unbreakable word, and
+                dragged the whole sheet into horizontal scroll on phones. */}
             {item.sizes && item.sizes.length > 0 && (
-              <div style={{ marginTop: 6, fontSize: 12, color: C.muted, fontFamily: C.mono, lineHeight: 1.6 }}>
+              <div style={{ marginTop: 6, fontSize: 12, color: C.muted, fontFamily: C.mono, lineHeight: 1.6, display: "flex", flexWrap: "wrap", gap: "2px 14px" }}>
                 {[...item.sizes]
                   .sort((a, b) => {
                     const ai = SIZE_ORDER.indexOf(a.size), bi = SIZE_ORDER.indexOf(b.size);
@@ -692,11 +695,10 @@ function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClo
                     if (bi === -1) return -1;
                     return ai - bi;
                   })
-                  .map((s, i, arr) => (
-                    <span key={s.size}>
+                  .map((s) => (
+                    <span key={s.size} style={{ whiteSpace: "nowrap" }}>
                       <span style={{ color: C.faint, fontWeight: 700 }}>{s.size}</span>
                       <span style={{ marginLeft: 6, color: C.text }}>{s.qty}</span>
-                      {i < arr.length - 1 && <span style={{ color: C.faint, margin: "0 10px" }}>·</span>}
                     </span>
                   ))}
               </div>
