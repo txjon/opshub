@@ -85,7 +85,7 @@ export async function GET(
     const { data: items } = await sb
       .from("items")
       .select(
-        "id, name, sell_per_unit, pipeline_stage, sort_order, artwork_status, ship_qtys, received_qtys, blank_vendor, blank_sku, ship_tracking, forward_tracking, shipping_route, received_at_hpd, forwarded_at, webstore_entered_at, proof_spec, buy_sheet_lines(size, qty_ordered)"
+        "id, name, sell_per_unit, pipeline_stage, sort_order, artwork_status, ship_qtys, received_qtys, blank_vendor, blank_sku, ship_tracking, forward_tracking, shipping_route, received_at_hpd, forwarded_at, webstore_entered_at, proof_spec, client_eta, expected_arrival, buy_sheet_lines(size, qty_ordered)"
       )
       .eq("job_id", job.id)
       .order("sort_order");
@@ -323,6 +323,14 @@ export async function GET(
 
     // Build items with their proof files
     // Respect both file-level approval AND item-level artwork_status override
+    // Chain-resolved per-item ETAs (shared helper) — feeds the order's
+    // estimated completion. Best-effort; never blocks the payload.
+    let etaMap: Record<string, string | null> = {};
+    try {
+      const { etaByItemForJob } = await import("@/lib/portal/item-eta");
+      etaMap = await etaByItemForJob(sb, { id: job.id, shipping_route: (job as any).shipping_route, type_meta: (job as any).type_meta }, items || []);
+    } catch {}
+
     const itemsWithProofs = (items || []).map((item: any) => {
       const manualApproved = item.artwork_status === "approved";
       const itemProofs = proofFiles
@@ -348,6 +356,7 @@ export async function GET(
         sizes: Object.fromEntries(lines.filter((l: any) => l.qty_ordered > 0).map((l: any) => [l.size, l.qty_ordered])),
         sellPerUnit: item.sell_per_unit ?? null,
         pipelineStage: item.pipeline_stage || null,
+        eta: etaMap[item.id] || null,
         shippingRoute: item.shipping_route || job.shipping_route || "ship_through",
         receivedAtHpd: !!item.received_at_hpd,
         forwardedAt: item.forwarded_at || null,

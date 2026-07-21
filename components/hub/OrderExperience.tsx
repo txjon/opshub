@@ -50,6 +50,17 @@ export function OrderExperience({ data, token, onAction }: {
   const allProofsApproved = hasProofs && actualProofs.every((p: any) => p.approval === "approved");
   const needsYou = items.filter((it: any) => itemClientPhase(it).label === "Awaiting your approval");
   const railIdx = orderRailIndex(project.phase, !!project.quoteApproved);
+
+  // Order-level estimated completion = latest ETA across unfinished items.
+  // Any unfinished item WITHOUT a date makes the order honestly TBD.
+  const estCompletion = (() => {
+    const unfinished = items.filter((it: any) => itemClientPhase(it).label !== "Delivered");
+    if (unfinished.length === 0) return null;
+    const etas = unfinished.map((it: any) => it.eta).filter(Boolean) as string[];
+    if (etas.length < unfinished.length) return "TBD";
+    return etas.sort().slice(-1)[0];
+  })();
+  const fmtEta = (iso: string) => new Date(iso + "T00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
   const fullyApproved = !!project.quoteApproved && (!hasProofs || allProofsApproved);
 
   // ── Payment band per the terms matrix (locked Jul 20; derives from the same
@@ -122,7 +133,7 @@ export function OrderExperience({ data, token, onAction }: {
         </h1>
         <div style={{ fontSize: 13, color: H.dim, marginTop: 14 }}>
           <b style={{ color: H.text, fontFamily: H.mono, fontWeight: 700 }}>Order {invoiceNumber ? `#${invoiceNumber}` : project.jobNumber}</b>
-          {" · "}{items.length} item{items.length === 1 ? "" : "s"} · {units.toLocaleString("en-US")} units{termsLabel ? ` · ${termsLabel}` : ""}
+          {" · "}{items.length} item{items.length === 1 ? "" : "s"} · {units.toLocaleString("en-US")} units{termsLabel ? ` · ${termsLabel}` : ""}{estCompletion ? <span style={{ color: estCompletion === "TBD" ? H.faint : H.dim, fontWeight: 700 }}> · est. completion {estCompletion === "TBD" ? "TBD" : fmtEta(estCompletion)}</span> : null}
         </div>
 
         {/* Client-safe status rail */}
