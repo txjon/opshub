@@ -4,7 +4,8 @@
 // ("Call it something." → "What else?") plus a magazine feed of everything
 // in the studio, image-first. Ideas land as draft art_briefs — the team's
 // existing studio machinery picks them up. 'studio' grant only.
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { uploadFileToDriveSession } from "@/lib/upload-drive-client";
 import { useClientPortal } from "../_shared/context";
 import { C, fmtDate } from "../_shared/theme";
 import { clientStateFor } from "../_shared/state-labels";
@@ -63,6 +64,12 @@ export default function StudioPage() {
   const [sent, setSent] = useState(false);
   const [openBrief, setOpenBrief] = useState<any>(null);
   const [error, setError] = useState("");
+  // Photos / docs attached before sending — held locally, uploaded after
+  // the idea creates its brief (session → Drive → register, the same path
+  // the old designs surface used).
+  const [files, setFiles] = useState<File[]>([]);
+  const [sendState, setSendState] = useState("");
+  const fileInput = useRef<HTMLInputElement | null>(null);
 
   const briefs = useMemo(() => {
     const list = [...((data?.briefs as any[]) || [])];
@@ -81,7 +88,7 @@ export default function StudioPage() {
   const canSend = !!title.trim() && !!notes.trim();
   async function submit() {
     if (!canSend) return;
-    setBusy(true); setError("");
+    setBusy(true); setError(""); setSendState("Sending…");
     try {
       const res = await fetch(`/api/portal/client/${token}/ideas`, {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -89,11 +96,33 @@ export default function StudioPage() {
       });
       const bodyJson = await res.json();
       if (!res.ok) { setError(bodyJson.error || "Couldn't save the idea."); return; }
-      setSent(true); setTitle(""); setNotes(""); setExpanded(false);
+      const briefId = bodyJson.briefId;
+      // Attach files to the fresh brief — best-effort per file; a failed
+      // attachment never sinks the idea itself.
+      let failed = 0;
+      for (let i = 0; i < files.length; i++) {
+        setSendState(`Uploading ${i + 1} of ${files.length}…`);
+        try {
+          const f = files[i];
+          const sess = await fetch(`/api/portal/client/${token}/briefs/${briefId}/upload-session`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ file_name: f.name, mime_type: f.type || "application/octet-stream" }),
+          });
+          if (!sess.ok) throw new Error("session");
+          const { uploadUrl } = await sess.json();
+          const { drive_file_id } = await uploadFileToDriveSession(uploadUrl, f);
+          await fetch(`/api/portal/client/${token}/briefs/${briefId}/upload-session/complete`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ drive_file_id, file_name: f.name, mime_type: f.type || "application/octet-stream", file_size: f.size }),
+          });
+        } catch { failed++; }
+      }
+      if (failed > 0) setError(`Idea sent, but ${failed} attachment${failed === 1 ? "" : "s"} didn't make it — try adding ${failed === 1 ? "it" : "them"} from the idea's thread.`);
+      setSent(true); setTitle(""); setNotes(""); setFiles([]); setExpanded(false);
       setTimeout(() => setSent(false), 5000);
       refetch();
     } catch { setError("Couldn't save the idea."); }
-    finally { setBusy(false); }
+    finally { setBusy(false); setSendState(""); }
   }
 
   return (
@@ -138,10 +167,32 @@ export default function StudioPage() {
               placeholder="What else? Vibe, references, garment, timing — anything."
               onChange={e => setNotes(e.target.value)}
               style={{ fontSize: 14, lineHeight: 1.6, resize: "vertical" }} />
+            {/* Attachments — photos, art files, docs */}
+            <input ref={fileInput} type="file" multiple accept="image/*,.pdf,.ai,.eps,.psd,.svg,.zip" style={{ display: "none" }}
+              onChange={e => { const list = Array.from(e.target.files || []); if (list.length) setFiles(prev => [...prev, ...list].slice(0, 10)); e.target.value = ""; }} />
+            {files.length > 0 && (
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
+                {files.map((f, i) => (
+                  <span key={i} style={{ position: "relative", display: "inline-flex" }}>
+                    {f.type.startsWith("image/") ? (
+                      <img src={URL.createObjectURL(f)} alt="" style={{ width: 58, height: 58, objectFit: "cover", borderRadius: 9, background: "#fff" }} />
+                    ) : (
+                      <span style={{ width: 58, height: 58, borderRadius: 9, background: C.surface, border: `1px solid ${C.border}`, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 8.5, fontWeight: 800, color: C.muted, textTransform: "uppercase", padding: 4, textAlign: "center", overflow: "hidden" }}>{(f.name.split(".").pop() || "file").slice(0, 4)}</span>
+                    )}
+                    <button onClick={() => setFiles(prev => prev.filter((_, x) => x !== i))} aria-label="Remove"
+                      style={{ position: "absolute", top: -6, right: -6, width: 18, height: 18, borderRadius: 999, background: "#fff", color: C.bg, border: "none", fontSize: 11, fontWeight: 800, lineHeight: 1, cursor: "pointer", padding: 0 }}>×</button>
+                  </span>
+                ))}
+              </div>
+            )}
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 12, flexWrap: "wrap" }}>
+              <button onClick={() => fileInput.current?.click()}
+                style={{ background: "transparent", color: C.muted, border: `1px solid ${C.border}`, borderRadius: 999, padding: "12px 18px", fontSize: 11.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: C.font }}>
+                + Photos &amp; files
+              </button>
               <button onClick={submit} disabled={busy || !canSend}
                 style={{ background: "#fff", color: C.bg, border: "none", borderRadius: 999, padding: "12px 24px", fontSize: 11.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: busy || !canSend ? "default" : "pointer", opacity: busy || !canSend ? 0.5 : 1, fontFamily: C.font }}>
-                {busy ? "Sending…" : "Send it"}
+                {busy ? (sendState || "Sending…") : "Send it"}
               </button>
               <span style={{ fontSize: 11, color: C.faint }}>Lands with our team — we&rsquo;ll take it from there.</span>
             </div>
