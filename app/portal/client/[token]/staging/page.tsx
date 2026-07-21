@@ -503,7 +503,7 @@ export default function StagingPage() {
           <button onClick={() => setCreatingRelease(true)}
             style={{
               padding: "10px 18px", minHeight: 44,
-              background: C.text, color: "#fff",
+              background: C.accent, color: "#0a0a0a",
               border: "none", borderRadius: 8,
               fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: C.font,
             }}>
@@ -1109,7 +1109,7 @@ function UploadDialog({ token, onClose, onCreated }: {
             ) : (
               <>
                 <div style={{ fontSize: 13, color: C.muted }}>Drag a file here, or</div>
-                <label style={{ padding: "6px 14px", fontSize: 12, fontWeight: 600, background: C.text, color: "#fff", borderRadius: 6, cursor: "pointer" }}>
+                <label style={{ padding: "6px 14px", fontSize: 12, fontWeight: 600, background: C.accent, color: "#0a0a0a", borderRadius: 6, cursor: "pointer" }}>
                   Choose file
                   <input type="file" accept="image/*,application/pdf" hidden
                     onChange={e => setFile(e.target.files?.[0] || null)} />

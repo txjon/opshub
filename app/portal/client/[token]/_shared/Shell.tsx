@@ -131,34 +131,26 @@ export default function Shell({ children }: { children: ReactNode }) {
         ))}
       </div>
 
-      {/* Header */}
+      {/* Header — site chrome: lowercase wordmark centered, client name
+          small and tracked beneath, nav as wide-tracked uppercase links. */}
       <header style={{
-        background: C.card, borderBottom: `1px solid ${C.border}`,
-        padding: "14px 20px",
+        background: C.bg, borderBottom: `1px solid ${C.border}`,
+        padding: "22px 20px 0",
       }}>
-        <div style={{
-          maxWidth: 1200, margin: "0 auto",
-          display: "flex", alignItems: "center", justifyContent: "space-between",
-          gap: 12, flexWrap: "wrap",
-        }}>
-          <div>
-            <div style={{
-              fontSize: 10, color: C.muted, fontWeight: 700,
-              letterSpacing: "0.1em", textTransform: "uppercase",
-            }}>
-              {data.company?.name || "House Party Distro"}
-            </div>
-            <div style={{ fontSize: 18, fontWeight: 700, marginTop: 2 }}>
-              {data.client.name}
-            </div>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 21, fontWeight: 800, letterSpacing: "-0.01em", textTransform: "lowercase", color: C.text }}>
+            {(data.company?.name || "House Party Distro").toLowerCase()}
+          </div>
+          <div style={{ fontSize: 10, fontWeight: 800, marginTop: 5, color: C.faint, letterSpacing: "0.16em", textTransform: "uppercase" }}>
+            {data.client.name}
           </div>
         </div>
 
         {/* Desktop tab nav — hidden on mobile via CSS. */}
         <nav className="portal-top-tabs" style={{
-          maxWidth: 1200, margin: "12px auto 0",
-          display: "flex", gap: 4, overflowX: "auto",
-          scrollbarWidth: "none",
+          margin: "16px auto 0",
+          display: "flex", gap: 26, overflowX: "auto",
+          scrollbarWidth: "none", justifyContent: "center",
         }}>
           {TABS.map(t => {
             const href = base + t.path;
@@ -167,9 +159,10 @@ export default function Shell({ children }: { children: ReactNode }) {
             return (
               <Link key={t.label} href={href}
                 style={{
-                  padding: "8px 16px", minHeight: 44,
+                  padding: "10px 2px 12px", minHeight: 44,
                   display: "flex", alignItems: "center", gap: 6,
-                  fontSize: 13, fontWeight: 700,
+                  fontSize: 11, fontWeight: 800,
+                  letterSpacing: "0.14em", textTransform: "uppercase",
                   color: active ? C.text : C.muted,
                   textDecoration: "none",
                   borderBottom: active ? `2px solid ${C.text}` : "2px solid transparent",

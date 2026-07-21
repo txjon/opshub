@@ -723,8 +723,8 @@ function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClo
           <button onClick={reorder} disabled={reordering}
             style={{
               padding: "10px 20px",
-              background: reordering ? C.border : C.text,
-              color: "#fff", border: "none", borderRadius: 8,
+              background: reordering ? C.border : C.accent,
+              color: "#0a0a0a", border: "none", borderRadius: 8,
               fontSize: 13, fontWeight: 700,
               cursor: reordering ? "wait" : "pointer", fontFamily: C.font,
               minHeight: 44,

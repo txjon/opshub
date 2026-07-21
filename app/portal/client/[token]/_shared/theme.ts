@@ -1,36 +1,37 @@
 import { parseDay, daysUntilDay } from "@/lib/dates";
 
 // Shared theme + formatting helpers for the client portal shell and tabs.
-// Mirrors OpsHub's T palette from lib/theme.ts so portals look like
-// extensions of the dashboard, not their own brand. Borders are derived
-// from each color's *Dim background tone.
+// SHOP SKIN (Jul 20 2026): the client-facing hub follows the website's
+// dark storefront — same world as components/hub/theme (H tokens). This
+// C object keeps its historical KEYS so every tab restyles in one move;
+// the VALUES are now the dark palette. Internal OpsHub stays light.
 
 export const C = {
-  bg: "#f4f4f6",        // T.bg
-  card: "#ffffff",      // T.card
-  surface: "#eaeaee",   // T.surface
-  border: "#dcdce0",    // T.border
-  text: "#1a1a1a",      // T.text
-  muted: "#6b6b78",     // T.muted
-  faint: "#a0a0ad",     // T.faint
-  accent: "#000000",    // T.accent
-  green: "#47b12b",     // T.green
-  greenBg: "#e5f9ed",   // T.greenDim
-  greenBorder: "#bdebd0",
-  amber: "#f4b22b",     // T.amber
-  amberBg: "#fef5e0",   // T.amberDim
-  amberBorder: "#f5dfa8",
-  red: "#ff324d",       // T.red
-  redBg: "#ffe8ec",     // T.redDim
-  redBorder: "#ffc3cc",
-  purple: "#fd3aa3",    // T.purple
-  purpleBg: "#fee8f4",  // T.purpleDim
-  purpleBorder: "#fbc3df",
-  blue: "#73b6c9",      // T.blue
-  blueBg: "#e3f1f5",    // T.blueDim
-  blueBorder: "#bbdde6",
-  font: "'IBM Plex Sans', 'Helvetica Neue', Arial, sans-serif",
-  mono: "'IBM Plex Mono', 'Courier New', monospace",
+  bg: "#0a0a0a",                      // H.ink
+  card: "#131313",                    // H.panel
+  surface: "#1e1e1e",                 // H.surface
+  border: "rgba(255,255,255,0.13)",   // H.line
+  text: "#ffffff",
+  muted: "rgba(255,255,255,0.6)",     // H.dim
+  faint: "rgba(255,255,255,0.35)",    // H.faint
+  accent: "#ffffff",
+  green: "#58c93c",
+  greenBg: "rgba(88,201,60,0.10)",
+  greenBorder: "rgba(88,201,60,0.35)",
+  amber: "#f4b22b",
+  amberBg: "rgba(244,178,43,0.10)",
+  amberBorder: "rgba(244,178,43,0.4)",
+  red: "#ff5a6e",
+  redBg: "rgba(255,90,110,0.12)",
+  redBorder: "rgba(255,90,110,0.4)",
+  purple: "#fd3aa3",
+  purpleBg: "rgba(253,58,163,0.12)",
+  purpleBorder: "rgba(253,58,163,0.4)",
+  blue: "#8fc7d8",
+  blueBg: "rgba(143,199,216,0.12)",
+  blueBorder: "rgba(143,199,216,0.4)",
+  font: "Inter, -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif",
+  mono: "ui-monospace, 'SF Mono', Menlo, monospace",
 };
 
 // Date-only values (client_eta, target_ship_date, paid_date, target_date,
