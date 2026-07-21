@@ -158,7 +158,7 @@ export default function Shell({ children }: { children: ReactNode }) {
           <nav style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 48 }}>
             {TABS.map(t => (
               <Link key={t.label} href={base + t.path} onClick={() => setMenuOpen(false)}
-                style={{ fontSize: "clamp(26px,4vw,40px)", fontWeight: 900, letterSpacing: "-0.01em", textTransform: "uppercase", color: isActive(t.path) ? C.text : C.muted, textDecoration: "none", padding: "8px 0" }}>
+                style={{ fontSize: "clamp(17px,2vw,22px)", fontWeight: 900, letterSpacing: "-0.01em", textTransform: "uppercase", color: isActive(t.path) ? C.text : C.muted, textDecoration: "none", padding: "8px 0" }}>
                 {t.label}
               </Link>
             ))}

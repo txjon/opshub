@@ -58,6 +58,7 @@ export function OrderDetailView({ token, jobId, onClose, suppressOwnChrome }: {
 
   return (
     <div style={frame}>
+      {!suppressOwnChrome && (
       <div style={{ display: "flex", justifyContent: onClose ? "flex-end" : "flex-start", padding: "16px 18px 0" }}>
         {onClose ? (
           <button onClick={onClose} aria-label="Close"
@@ -71,6 +72,7 @@ export function OrderDetailView({ token, jobId, onClose, suppressOwnChrome }: {
           </a>
         )}
       </div>
+      )}
       <OrderExperience data={data} token={data.jobPortalToken || token} onAction={doAction} />
     </div>
   );
