@@ -81,6 +81,14 @@ const ICONS: Record<string, TabIcon> = {
       <path d="M19 15l.9 2.6L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.4L19 15Z" />
     </svg>
   ),
+  Drops: (active) => (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth={active ? 2 : 1.6}
+      strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3c3.5 1.8 5.5 5.2 5.5 9.2L12 21l-5.5-8.8C6.5 8.2 8.5 4.8 12 3Z" />
+      <circle cx="12" cy="10" r="1.8" />
+    </svg>
+  ),
   Reorder: (active) => (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
       stroke="currentColor" strokeWidth={active ? 2 : 1.6}
@@ -99,6 +107,7 @@ const TABS: { label: keyof typeof ICONS; path: string; display: string; unreadKe
   // Product Development (the old /designs surface) stays unlisted; the
   // Studio (grant 'studio') is its stripped-down replacement.
   { label: "Studio", display: "Studio", path: "/studio" },
+  { label: "Drops", display: "Drops", path: "/drops" },
   { label: "Orders", display: "Orders", path: "/orders" },
   { label: "Items", display: "Pipeline", path: "/items" },
   { label: "Reorder", display: "Reorder", path: "/reorder" },
@@ -122,7 +131,8 @@ export default function Shell({ children }: { children: ReactNode }) {
   const features: string[] = (data as any).features || [];
   const visibleTabs = TABS.filter(t =>
     (t.path !== "/items" || features.includes("pipeline")) &&
-    (t.path !== "/studio" || features.includes("studio")));
+    (t.path !== "/studio" || features.includes("studio")) &&
+    (t.path !== "/drops" || features.includes("studio")));
 
   const isActive = (path: string) =>
     path === "" ? pathname === base || pathname === base + "/" : !!pathname?.startsWith(base + path);
