@@ -254,7 +254,7 @@ export function OrderDetailView({ token, jobId, onClose, suppressOwnChrome }: { 
         <h1 style={{ fontSize: isMobile ? 22 : 26, fontWeight: 800, color: C.text, margin: 0, lineHeight: 1.2 }}>
           {invoiceNumber
             ? `Invoice #${invoiceNumber}`
-            : (project.jobNumber || project.title || "Order")}
+            : (project.jobNumber || "Order")}
         </h1>
         <div style={{ fontSize: 14, color: C.muted, fontWeight: 500, marginTop: 4 }}>
           {client.name}
@@ -641,7 +641,7 @@ export function OrderDetailView({ token, jobId, onClose, suppressOwnChrome }: { 
           <div style={{ marginTop: 16 }}>
             <PackageApproval c={C} approved={project.quoteApproved} approvedAt={project.quoteApprovedAt}
               changeRequest={(project as any).changeRequest} quoteTotal={quote.total}
-              terms={(project as any).terms} projectName={project.title}
+              terms={(project as any).terms}
               items={items.map(i => ({ id: i.id, name: i.name }))}
               pendingReapproval={project.quoteApproved && hasProofs && !allProofsApproved}
               onAction={doAction} />

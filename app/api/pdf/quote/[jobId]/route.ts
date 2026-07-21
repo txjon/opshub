@@ -356,9 +356,11 @@ export async function GET(_req: NextRequest, { params }: { params: { jobId: stri
     });
 
     const pdfBuffer = await generatePDF(html);
-    const slug = (job.title || jobId).replace(/\s+/g, "-");
+    // Filename = client name + number — the job memo is internal and never
+    // rides along in a client-downloaded file name.
+    const clientSlug = ((job as any).clients?.name || "").replace(/[^\w\s-]/g, "").trim().replace(/\s+/g, "-");
     const qNum = orderInfo.invoiceNum || job.job_number || jobId.slice(0, 8);
-    const rawName = `HPD-Quote-${qNum}-${slug}.pdf`;
+    const rawName = `HPD-Quote-${qNum}${clientSlug ? `-${clientSlug}` : ""}.pdf`;
     const isDownload = _req.nextUrl.searchParams.get("download");
 
     return new NextResponse(pdfBuffer, {

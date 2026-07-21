@@ -135,14 +135,14 @@ export async function POST(req: NextRequest) {
         // filename so client can tell shipments apart without seeing vendor names
         const partialCount = existing.filter(r => r.type === "drop_ship_vendor").length;
         const suffix = partialCount > 0 ? `-${partialCount + 1}` : "";
-        subject = `Part of your order has shipped — ${clientName} · Invoice ${invoiceNum} · ${projectTitle}`;
+        subject = `Part of your order has shipped · ${clientName} · Invoice ${invoiceNum}`;
         heading = "Part of your order has shipped";
-        bodyHtml = `Part of your order for <strong>Invoice ${invoiceNum} · ${projectTitle}</strong> has shipped. The packing slip is attached.`;
+        bodyHtml = `Part of your order for <strong>Invoice ${invoiceNum}</strong> has shipped. The packing slip is attached.`;
         pdfFilename = `HPD-PackingSlip-${invoiceNum}${suffix}.pdf`;
       } else {
-        subject = `Your order has shipped — ${clientName} · Invoice ${invoiceNum} · ${projectTitle}`;
+        subject = `Your order has shipped · ${clientName} · Invoice ${invoiceNum}`;
         heading = "Your order has shipped";
-        bodyHtml = `Your order for <strong>Invoice ${invoiceNum} · ${projectTitle}</strong> has shipped. The packing slip is attached.`;
+        bodyHtml = `Your order for <strong>Invoice ${invoiceNum}</strong> has shipped. The packing slip is attached.`;
         pdfFilename = `HPD-PackingSlip-${invoiceNum}.pdf`;
       }
 
@@ -273,7 +273,7 @@ export async function POST(req: NextRequest) {
       const html = renderBrandedEmail({
         heading: "Production complete",
         greeting: `Hi ${clientName || "there"},`,
-        bodyHtml: `Production for <strong>Invoice ${invoiceNum} · ${projectTitle}</strong> is complete. All items are at our facility and ready for fulfillment.`,
+        bodyHtml: `Production for <strong>Invoice ${invoiceNum}</strong> is complete. All items are at our facility and ready for fulfillment.`,
         cta: portalUrl ? { label: "View in Portal", url: portalUrl, style: "outline" } : undefined,
         eyebrow: tenantName,
         closing: tenantClosing(_slug, tenantName),
@@ -282,7 +282,7 @@ export async function POST(req: NextRequest) {
       const _r2 = await resend.emails.send({
         from: tenantFromQuotes,
         to: clientEmail,
-        subject: `Production complete — ${clientName} · Invoice ${invoiceNum} · ${projectTitle}`,
+        subject: `Production complete · ${clientName} · Invoice ${invoiceNum}`,
         html,
       });
       if ((_r2 as any)?.error) throw new Error((_r2 as any).error.message || "Resend rejected the send");
@@ -335,7 +335,7 @@ export async function POST(req: NextRequest) {
         eyebrow: tenantName,
         heading: `Revised Invoice #${invoiceNum}`,
         greeting: `Hi ${clientName || "there"},`,
-        bodyHtml: `Your invoice for <strong>Invoice ${invoiceNum} · ${projectTitle}</strong> has been updated with final shipped quantities. The revised copy is attached and waiting in your portal.`,
+        bodyHtml: `Your invoice for <strong>Invoice ${invoiceNum}</strong> has been updated with final shipped quantities. The revised copy is attached and waiting in your portal.`,
         cta: qbPaymentLink ? { label: "Pay Online", url: qbPaymentLink, style: "green" } : undefined,
         secondaryCta: portalUrl ? { label: "View in Portal", url: portalUrl } : undefined,
         closing: `Thanks,\n${tenantName}`,
@@ -347,7 +347,6 @@ export async function POST(req: NextRequest) {
         subject: [
           `Revised Invoice${invoiceNum ? ` ${invoiceNum}` : ""}`,
           clientName,
-          projectTitle,
         ].filter(Boolean).join(" · ").trim(),
         html,
         attachments: [{ filename: `HPD-Invoice-${invoiceNum}-Revised.pdf`, content: pdfBuffer.toString("base64") }],
@@ -518,7 +517,7 @@ export async function POST(req: NextRequest) {
         };
         const sizesStr = sizes.map((sz: string) => `${sz}(${finalForSize(sz)})`).join(" ");
         const total = sizes.reduce((sum: number, sz: string) => sum + finalForSize(sz), 0);
-        return `<li style="margin:4px 0;font-size:13px;color:#444;">${it.name} — <span style="font-family:'SF Mono',Menlo,monospace;color:#666;">${sizesStr}</span> — <strong>${total} units</strong></li>`;
+        return `<li style="margin:4px 0;font-size:13px;color:#444;">${it.name} · <span style="font-family:'SF Mono',Menlo,monospace;color:#666;">${sizesStr}</span> · <strong>${total} units</strong></li>`;
       }).join("");
       const itemsBlock = `<ul style="margin:8px 0 16px;padding-left:20px;">${itemListHtml}</ul>`;
 
@@ -538,8 +537,8 @@ export async function POST(req: NextRequest) {
             const sizeStr = Object.entries(p.qtys || {})
               .filter(([, n]) => (Number(n) || 0) > 0)
               .map(([s, n]) => `${s}-${n}`).join(", ");
-            const why = [p.kind && p.kind !== "sample" ? p.kind : null, p.reason].filter(Boolean).join(" — ");
-            return `<li style="margin:4px 0;font-size:13px;color:#8a5c0d;"><strong>${nameOf(p.item_id)}</strong> — ${sizeStr}${why ? ` — ${String(why).replace(/</g, "&lt;")}` : ""}</li>`;
+            const why = [p.kind && p.kind !== "sample" ? p.kind : null, p.reason].filter(Boolean).join(" · ");
+            return `<li style="margin:4px 0;font-size:13px;color:#8a5c0d;"><strong>${nameOf(p.item_id)}</strong> · ${sizeStr}${why ? ` · ${String(why).replace(/</g, "&lt;")}` : ""}</li>`;
           }).join("");
           pullsBlock = `<div style="margin:8px 0 16px;padding:10px 14px;background:#fdf6e9;border-left:3px solid #d99a2b;border-radius:4px;">
             <div style="font-size:11px;font-weight:800;letter-spacing:0.05em;text-transform:uppercase;color:#a06010;margin-bottom:4px;">⚑ Pull these before forwarding</div>
@@ -557,12 +556,12 @@ export async function POST(req: NextRequest) {
       let closing: string;
 
       if (route === "drop_ship") {
-        subject = customSubject || `Your order has shipped — ${invoiceNum} — ${projectTitle}`;
+        subject = customSubject || `Your order has shipped · Invoice ${invoiceNum}`;
         heading = "Your order has shipped";
         greeting = `Hi ${clientName || "there"},`;
-        bodyHtml = `Good news — your order is on the way.${itemsBlock}A packing slip is attached for your records.`;
+        bodyHtml = `Good news: your order is on the way.${itemsBlock}A packing slip is attached for your records.`;
         fromAddr = tenantFromQuotes;
-        closing = `If anything looks off when it arrives, just reply here — we'll get you sorted.\n\n— The ${tenantName} team\n${tenantFromQuotes}`;
+        closing = `If anything looks off when it arrives, just reply here and we'll get you sorted.\n\nThe ${tenantName} team\n${tenantFromQuotes}`;
       } else {
         subject = customSubject || `Incoming: ${vendorName || "Vendor"} — ${clientName} — ${trackingNumber}`;
         heading = "Incoming shipment";

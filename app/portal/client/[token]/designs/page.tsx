@@ -389,9 +389,9 @@ function clientNextStep(
     // No draft yet = HPD forwarded a WIP for a direction check; comments
     // are the only action available.
     if (ctx?.hasLatestDraft === false) {
-      return { text: "Direction check — your design team shared a work-in-progress. Leave a comment with your thoughts.", tone: "action" };
+      return { text: "Direction check: your design team shared a work-in-progress. Leave a comment with your thoughts.", tone: "action" };
     }
-    return { text: "Draft ready — review it below and approve or comment.", tone: "action" };
+    return { text: "Draft ready. Review it below and approve or comment.", tone: "action" };
   }
   if (state === "revisions") {
     return { text: "We're working on your revisions. Updated version coming soon.", tone: "info" };

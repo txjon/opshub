@@ -330,7 +330,7 @@ function OrderRow({ order, expanded, onToggle, onOpenModal, token }: {
           }}>
             {(order.invoice_number || order.qb_invoice_number)
               ? `Invoice #${(order.invoice_number || order.qb_invoice_number)}`
-              : (order.job_number || order.title || "Untitled")}
+              : (order.job_number || "Order")}
           </div>
           <div style={{
             fontSize: 11, color: C.muted, marginTop: 3,

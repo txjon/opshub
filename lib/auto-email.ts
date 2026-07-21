@@ -109,13 +109,15 @@ export async function sendClientNotification(params: NotifyParams) {
     const hasQbInvoice = !!qbInvoiceNum;
     const invoiceNum = qbInvoiceNum || job.job_number || "";
     const invoiceSuffix = hasQbInvoice ? ` · Invoice ${qbInvoiceNum}` : "";
+    // Client-safe order reference: invoice number when it exists, else the job
+    // number. The job memo/title is INTERNAL and never reaches clients.
     const bodyRef = hasQbInvoice
-      ? `<strong>Invoice ${qbInvoiceNum} · ${job.title}</strong>`
-      : `<strong>${job.title}</strong>`;
+      ? `<strong>Invoice ${qbInvoiceNum}</strong>`
+      : `<strong>order ${job.job_number || ""}</strong>`;
 
     switch (params.type) {
       case "proof_ready":
-        subject = `Proof ready for review — ${clientName}${invoiceSuffix} · ${job.title}`;
+        subject = `Proof ready for review · ${clientName}${invoiceSuffix}`;
         html = renderBrandedEmail({
           eyebrow: tenantName,
           heading: "Proof ready for review",
@@ -130,12 +132,12 @@ export async function sendClientNotification(params: NotifyParams) {
         const noteBlock = params.note && params.note.trim()
           ? `<div style="margin:16px 0;padding:14px 16px;background:#f7f7f7;border-left:3px solid #222;border-radius:4px;font-size:14px;color:#333;line-height:1.55;white-space:pre-wrap;">${params.note.trim().replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c] || c))}</div>`
           : "";
-        subject = `Revised proof ready — ${clientName}${invoiceSuffix} · ${job.title}`;
+        subject = `Revised proof ready · ${clientName}${invoiceSuffix}`;
         html = renderBrandedEmail({
           eyebrow: tenantName,
           heading: "Revised proof ready for review",
           greeting: `Hi ${clientName},`,
-          bodyHtml: `We've made the changes you requested — an updated proof for ${bodyRef} is ready for another look in the portal. Approve when it's good, or request further changes.${noteBlock}`,
+          bodyHtml: `We've made the changes you requested: an updated proof for ${bodyRef} is ready for another look in the portal. Approve when it's good, or request further changes.${noteBlock}`,
           cta: portalUrl ? { label: "Review revised proof", url: portalUrl, style: "outline" } : undefined,
           closing: tenantClosing(tenantSlug, tenantName),
         });
@@ -143,12 +145,12 @@ export async function sendClientNotification(params: NotifyParams) {
       }
 
       case "payment_received":
-        subject = `Payment received — ${clientName} · Invoice ${invoiceNum} · ${job.title}`;
+        subject = `Payment received · ${clientName} · Invoice ${invoiceNum}`;
         html = renderBrandedEmail({
           eyebrow: tenantName,
           heading: "Payment received",
           greeting: `Hi ${clientName},`,
-          bodyHtml: `Payment${params.amount ? ` of <strong>$${params.amount.toLocaleString("en-US", { minimumFractionDigits: 2 })}</strong>` : ""} received for <strong>Invoice ${invoiceNum} · ${job.title}</strong>. Thank you!`,
+          bodyHtml: `Payment${params.amount ? ` of <strong>$${params.amount.toLocaleString("en-US", { minimumFractionDigits: 2 })}</strong>` : ""} received for <strong>Invoice ${invoiceNum}</strong>. Thank you!`,
           cta: portalUrl ? { label: "View in Portal", url: portalUrl, style: "outline" } : undefined,
           closing: `Thanks,\n${tenantName}`,
         });

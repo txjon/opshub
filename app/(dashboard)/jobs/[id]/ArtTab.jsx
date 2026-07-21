@@ -267,7 +267,7 @@ function activePsdFiles(files) {
 // Placeholder approval disclaimer — wording NOT finalized (Jon 2026-07-19).
 // Editable per proof; carried on proof_spec.disclaimer. TODO: make this a
 // company-level default once the legal wording is locked.
-const DEFAULT_DISCLAIMER = "This proof is provided for your review and approval prior to production. Please review all artwork, spelling, ink colors, print placement, and garment sizing carefully — approval authorizes production exactly as shown. Colors are reproduced as accurately as the display and printing process allow and may vary from the final printed inks; refer to Pantone references for precise color matching. Production timelines commence upon written approval, and changes requested thereafter may affect pricing and delivery.";
+const DEFAULT_DISCLAIMER = "This proof is provided for your review and approval prior to production. Please review all artwork, spelling, ink colors, print placement, and garment sizing carefully: approval authorizes production exactly as shown. Colors are reproduced as accurately as the display and printing process allow and may vary from the final printed inks; refer to Pantone references for precise color matching. Production timelines commence upon written approval, and changes requested thereafter may affect pricing and delivery.";
 
 const TAG_INK_KEY = "opshub_last_tag_ink";
 const getLastTagInk = () => { try { return (typeof localStorage !== "undefined" && localStorage.getItem(TAG_INK_KEY)) || "#000000"; } catch { return "#000000"; } };

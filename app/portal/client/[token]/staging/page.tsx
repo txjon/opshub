@@ -163,7 +163,7 @@ export default function StagingPage() {
       if (!r.ok) {
         const err = await r.json().catch(() => ({}));
         console.error("[staging] assignTile failed", r.status, err);
-        alert(`Couldn't move "${tile.name}" — ${err.error || `status ${r.status}`}. Refreshing.`);
+        alert(`Couldn't move "${tile.name}": ${err.error || `status ${r.status}`}. Refreshing.`);
         load();
       }
     } catch (e: any) {
@@ -186,7 +186,7 @@ export default function StagingPage() {
       if (!r.ok) {
         const err = await r.json().catch(() => ({}));
         console.error("[staging] removeTile failed", r.status, err);
-        alert(`Couldn't remove "${tile.name}" — ${err.error || `status ${r.status}`}. Refreshing.`);
+        alert(`Couldn't remove "${tile.name}": ${err.error || `status ${r.status}`}. Refreshing.`);
         load();
       }
     } catch (e: any) {
@@ -410,7 +410,7 @@ export default function StagingPage() {
       if (!r.ok) {
         const err = await r.json().catch(() => ({}));
         console.error("[staging] cross-release assign failed", r.status, err);
-        alert(`Couldn't move "${tile.name}" — ${err.error || `status ${r.status}`}. Refreshing.`);
+        alert(`Couldn't move "${tile.name}": ${err.error || `status ${r.status}`}. Refreshing.`);
         load();
         return;
       }
@@ -454,7 +454,7 @@ export default function StagingPage() {
 
   async function setReleaseDate(release: Release) {
     const current = release.target_date || "";
-    const next = window.prompt("Target date (YYYY-MM-DD) — blank to clear", current);
+    const next = window.prompt("Target date (YYYY-MM-DD), blank to clear", current);
     if (next === null) return;
     const clean = next.trim() || null;
     setReleases(prev => prev.map(r => r.id === release.id ? { ...r, target_date: clean } : r));
