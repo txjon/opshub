@@ -49,12 +49,12 @@ export default function OrdersPage() {
   const { token, data: portalData } = useClientPortal();
   const tenantLabel = (portalData?.company?.slug || "hpd").toUpperCase();
   const search = useSearchParams();
-  const filterParam = (search?.get("filter") as "all" | "unpaid" | "on_hold" | "pending" | null) || "all";
+  const filterParam = (search?.get("filter") as "all" | "unpaid" | "on_hold" | "pending" | "attention" | null) || "attention";
   const [orders, setOrders] = useState<Order[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [archive, setArchive] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [filter, setFilter] = useState<"all" | "unpaid" | "on_hold" | "pending">(filterParam === "unpaid" || filterParam === "on_hold" || filterParam === "pending" ? filterParam : "all");
+  const [filter, setFilter] = useState<"all" | "unpaid" | "on_hold" | "pending" | "attention">(["unpaid","on_hold","pending","all"].includes(filterParam) ? filterParam as any : "attention");
   // Project orders open the shared OrderExperience in a dark modal —
   // keeps scroll position + filter state intact.
   const [modalJobId, setModalJobId] = useState<string | null>(null);
@@ -79,20 +79,27 @@ export default function OrdersPage() {
     setLoading(false);
   }
 
+  const isUnpaid = (o: Order) => o.payment_status === "unpaid" || o.payment_status === "partial";
+  const isPending = (o: Order) => o.phase === "pending";
+  const attentionCount = (orders || []).filter(o => isPending(o) || isUnpaid(o)).length;
+  // "Needs you" is the default landing — approvals first, payments second.
+  // With nothing needing them, fall through to All so the page isn't empty.
+  const effFilter = filter === "attention" && orders !== null && attentionCount === 0 ? "all" : filter;
   const filtered = (orders || []).filter(o => {
-    if (filter === "pending") return o.phase === "pending";
-    if (filter === "unpaid") return o.payment_status === "unpaid" || o.payment_status === "partial";
-    if (filter === "on_hold") return o.phase === "on_hold";
+    if (effFilter === "attention") return isPending(o) || isUnpaid(o);
+    if (effFilter === "pending") return isPending(o);
+    if (effFilter === "unpaid") return isUnpaid(o);
+    if (effFilter === "on_hold") return o.phase === "on_hold";
     return true;
-  });
+  }).sort((a, b) => effFilter === "attention" ? Number(isPending(b)) - Number(isPending(a)) : 0);
 
   const unpaidTotal = (orders || []).filter(o => o.payment_status === "unpaid" || o.payment_status === "partial").length;
   const onHoldTotal = (orders || []).filter(o => o.phase === "on_hold").length;
 
   const pendingTotal = (orders || []).filter(o => o.phase === "pending").length;
-  const chips: { key: "all" | "unpaid" | "on_hold" | "pending"; label: string; count: number | null }[] = [
+  const chips: { key: "all" | "unpaid" | "on_hold" | "pending" | "attention"; label: string; count: number | null }[] = [
+    ...(attentionCount > 0 ? [{ key: "attention" as const, label: "Needs you", count: attentionCount }] : []),
     { key: "all", label: "All", count: orders ? (orders || []).length : null },
-    ...(pendingTotal > 0 ? [{ key: "pending" as const, label: "Needs approval", count: pendingTotal }] : []),
     { key: "unpaid", label: "Unpaid", count: orders ? unpaidTotal : null },
     { key: "on_hold", label: "On hold", count: orders ? onHoldTotal : null },
   ];
@@ -125,7 +132,7 @@ export default function OrdersPage() {
         {/* Filters + history toggle */}
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 20 }}>
           {chips.map(c => (
-            <button key={c.key} className={`ox-chip${filter === c.key ? " on" : ""}`} onClick={() => setFilter(c.key)}>
+            <button key={c.key} className={`ox-chip${effFilter === c.key ? " on" : ""}`} onClick={() => setFilter(c.key)}>
               {c.label}{c.count != null ? ` · ${c.count}` : ""}
             </button>
           ))}
@@ -145,14 +152,20 @@ export default function OrdersPage() {
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {filtered.map(o => (
-              <OrderRow key={o.id} order={o}
+            {filtered.map((o, i) => (<div key={o.id}>
+              {effFilter === "attention" && isPending(o) && (i === 0) && (
+                <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.amber, margin: "2px 0 8px" }}>Needs approval</div>
+              )}
+              {effFilter === "attention" && !isPending(o) && (i === 0 || isPending(filtered[i - 1])) && (
+                <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.dim, margin: i === 0 ? "2px 0 8px" : "16px 0 8px" }}>Payment due</div>
+              )}
+              <OrderRow order={o}
                 expanded={expanded === o.id}
                 onToggle={() => setExpanded(expanded === o.id ? null : o.id)}
                 onOpenModal={(id) => setModalJobId(id)}
                 token={token}
               />
-            ))}
+            </div>))}
           </div>
         )}
       </div>
