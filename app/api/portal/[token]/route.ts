@@ -85,7 +85,7 @@ export async function GET(
     const { data: items } = await sb
       .from("items")
       .select(
-        "id, name, sell_per_unit, pipeline_stage, sort_order, artwork_status, ship_qtys, received_qtys, blank_vendor, blank_sku, ship_tracking, forward_tracking, shipping_route, received_at_hpd, forwarded_at, webstore_entered_at, buy_sheet_lines(size, qty_ordered)"
+        "id, name, sell_per_unit, pipeline_stage, sort_order, artwork_status, ship_qtys, received_qtys, blank_vendor, blank_sku, ship_tracking, forward_tracking, shipping_route, received_at_hpd, forwarded_at, webstore_entered_at, proof_spec, buy_sheet_lines(size, qty_ordered)"
       )
       .eq("job_id", job.id)
       .order("sort_order");
@@ -355,6 +355,9 @@ export async function GET(
         shipTracking: item.ship_tracking || null,
         forwardTracking: (item as any).forward_tracking || null,
         internalApproved: manualApproved,
+        // The proof document's content — the overlay renders the REAL proof
+        // (ProofDocView, same single source as the PDF), not a flat image.
+        proofSpec: item.proof_spec || null,
       };
     });
 
@@ -416,6 +419,17 @@ export async function GET(
         tax: showTotals ? (typeMeta.qb_tax_amount || 0) : 0,
         total: showTotals ? (typeMeta.qb_total_with_tax || (typeMeta.stripe_total_cents ? typeMeta.stripe_total_cents / 100 : 0) || quoteItems.reduce((a: number, qi: any) => a + (qi.total || 0), 0)) : 0,
       },
+      // The order's CURRENT value: live costing gross + additional charges.
+      // When it outgrows the invoiced total (revised-after-paid jobs), the
+      // payment band shows "Updated total" honestly — same math as the
+      // internal status bar.
+      currentTotal: (() => {
+        const extrasTotal = (Array.isArray(typeMeta.invoice_extra_lines) ? typeMeta.invoice_extra_lines : [])
+          .reduce((a: number, l: any) => a + (Number(l?.amount) || 0), 0);
+        const gross = Number(costingSummary?.grossRev) || 0;
+        const t = gross + extrasTotal;
+        return showTotals && t > 0 ? Math.round(t * 100) / 100 : null;
+      })(),
       invoiceStale: (() => {
         // Only "stale" when OpsHub actually pushed an invoice to QB
         // (qb_invoice_id set) AND costing drifted vs. the QB totals.

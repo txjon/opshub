@@ -13,6 +13,8 @@ import { useState } from "react";
 import { H, H_APPROVAL_THEME, fmtMoney } from "./theme";
 import { PackageApproval } from "@/components/portal/PackageApproval";
 import { itemClientPhase, CLIENT_RAIL, orderRailIndex, type ClientTone } from "@/lib/portal/client-phase";
+import ProofDocView from "@/components/ProofDocView";
+import { getLogoSvgForSlug } from "@/lib/branding-client";
 
 const TONE: Record<ClientTone, string> = { warn: H.amber, move: H.blue, done: H.green, dim: H.faint };
 const TERMS: Record<string, string> = { net_15: "Net 15", net_30: "Net 30", net_45: "Net 45", net_60: "Net 60", prepaid: "Prepaid", deposit_balance: "Deposit" };
@@ -31,8 +33,13 @@ export function OrderExperience({ data, token, onAction }: {
 
   const units = items.reduce((a: number, it: any) => a + (it.units || 0), 0);
   const totalPaid = payments.filter((p: any) => p.status === "paid").reduce((s: number, p: any) => s + p.amount, 0);
-  const total = quote?.total || 0;
-  const balance = total - totalPaid;
+  const invoiced = quote?.total || 0;
+  // The order's live value (costing gross + extras) — when it outgrows the
+  // invoiced total, the band shows "Updated total" (revised-after-paid rule).
+  const current = Math.max(invoiced, data.currentTotal || 0);
+  const total = invoiced;
+  const revisedUp = current > invoiced + 0.005;
+  const balance = invoiced - totalPaid;
   const termsRaw = (project.paymentTerms || "").toLowerCase();
   const netTerms = /^net/.test(termsRaw);
   const termsLabel = TERMS[termsRaw] || (project.paymentTerms ? String(project.paymentTerms).replace(/_/g, " ") : "");
@@ -47,9 +54,13 @@ export function OrderExperience({ data, token, onAction }: {
   // ── Payment band per the terms matrix (locked Jul 20; derives from the same
   //    totals + payment records the internal status bar reads). ──
   const payBand = (() => {
-    if (total <= 0 && totalPaid <= 0) return null;
+    if (current <= 0 && totalPaid <= 0) return null;
     let note: string; let cta: { label: string; href: string } | null = null;
-    if (invoiceStale) {
+    if (revisedUp) {
+      // Revised-after-invoice (locked matrix row): show paid vs the CURRENT
+      // value; the delta bills via an updated invoice. Never auto-charge.
+      note = `Your order grew since invoice ${invoiceNumber ? `#${invoiceNumber}` : "was sent"}. An updated invoice for the difference is on its way${netTerms && termsLabel ? `, billed on your ${termsLabel} terms` : ""}. Nothing to pay right now.`;
+    } else if (invoiceStale) {
       note = "Your invoice is being updated. You'll be notified when the new copy is ready.";
     } else if (totalPaid >= total - 0.005 && total > 0) {
       note = totalPaid > total + 0.005 && balance < -0.005
@@ -145,7 +156,7 @@ export function OrderExperience({ data, token, onAction }: {
             <div style={{ ...LBL, marginBottom: 10 }}>Payment</div>
             <div style={{ display: "flex", gap: 26, flexWrap: "wrap", alignItems: "flex-end" }}>
               {totalPaid > 0 && <div><div style={LBL}>Paid</div><div style={{ fontFamily: H.mono, fontSize: 22, fontWeight: 800, marginTop: 4, fontVariantNumeric: "tabular-nums" }}>{fmtMoney(totalPaid)}</div></div>}
-              {total > 0 && <div><div style={LBL}>{totalPaid > 0 && balance > 0.005 ? "Updated total" : "Total"}</div><div style={{ fontFamily: H.mono, fontSize: 22, fontWeight: 800, marginTop: 4, color: totalPaid > 0 && balance > 0.005 ? H.dim : H.text, fontVariantNumeric: "tabular-nums" }}>{fmtMoney(total)}</div></div>}
+              {current > 0 && <div><div style={LBL}>{revisedUp ? "Updated total" : "Total"}</div><div style={{ fontFamily: H.mono, fontSize: 22, fontWeight: 800, marginTop: 4, color: revisedUp ? H.dim : H.text, fontVariantNumeric: "tabular-nums" }}>{fmtMoney(current)}</div></div>}
               <div style={{ flex: 1, minWidth: 220, fontSize: 12.5, color: H.dim, lineHeight: 1.55 }}>{payBand.note}</div>
               {payBand.cta && (
                 <a href={payBand.cta.href} target="_blank" rel="noopener noreferrer"
@@ -236,9 +247,17 @@ export function OrderExperience({ data, token, onAction }: {
                 <div style={{ fontSize: 16, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em" }}>{it.name}</div>
                 <button onClick={() => setProofItem(null)} aria-label="Close" style={{ background: "none", border: "none", color: H.dim, fontSize: 26, cursor: "pointer", lineHeight: 1 }}>×</button>
               </div>
-              <div style={{ background: "#fff", aspectRatio: "4 / 3" }}>
-                {m && <img src={thumbSrc(m.driveFileId, 1000)} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} />}
-              </div>
+              {it.proofSpec ? (
+                <div style={{ background: "#fff", color: "#1a1a1a", padding: "clamp(14px,3vw,28px)", maxHeight: "62vh", overflowY: "auto" }}>
+                  <ProofDocView spec={it.proofSpec} mockupUrl={m ? thumbSrc(m.driveFileId, 1000) : null}
+                    clientName={data.client?.name || ""} itemName={it.name}
+                    brandName={data.company?.name || ""} logoSvg={getLogoSvgForSlug(data.company?.slug || "hpd") || ""} />
+                </div>
+              ) : (
+                <div style={{ background: "#fff", aspectRatio: "4 / 3" }}>
+                  {m && <img src={thumbSrc(m.driveFileId, 1000)} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} />}
+                </div>
+              )}
               <div style={{ display: "flex", gap: 12, alignItems: "center", padding: "16px 18px 18px", flexWrap: "wrap" }}>
                 <button onClick={() => {
                     setProofItem(null);
