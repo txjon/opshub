@@ -264,7 +264,7 @@ export default function ItemsPage() {
         .px-card{transition:transform .15s ease,border-color .15s ease}
         .px-card:hover{transform:translateY(-3px);border-color:rgba(255,255,255,.3)}
         .px-timeline{display:none}
-        @media(min-width:720px){.px-timeline{display:block}}
+        @media(min-width:720px){.px-timeline{display:block}.px-timeline-mobile{display:none}}
         .px-tl-name{width:150px}
         @media(min-width:720px){.px-tl-name{width:220px}}
         @media(prefers-reduced-motion:reduce){.px-card,.px-card:hover{transition:none;transform:none}}
@@ -415,6 +415,62 @@ export default function ItemsPage() {
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* ── Landing schedule, mobile: vertical agenda down a date rail ── */}
+          {timed.length > 0 && (
+            <div className="px-timeline-mobile" style={{ marginBottom: 34 }}>
+              <h2 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 900, textTransform: "uppercase" }}>Landing schedule.</h2>
+              <div style={{ fontSize: 10, color: C.faint, fontWeight: 700, marginBottom: 14 }}>arrival at warehouse · ~{WEB_PREP_DAYS}d prep after landing before web-ready</div>
+              {(() => {
+                // Group arrivals by landing date, chronological.
+                const byDate = new Map<string, typeof timed>();
+                for (const x of timed) {
+                  if (!byDate.has(x.eta.date)) byDate.set(x.eta.date, [] as any);
+                  (byDate.get(x.eta.date) as any).push(x);
+                }
+                const dates = Array.from(byDate.keys()).sort();
+                return (
+                  <div style={{ position: "relative", paddingLeft: 18 }}>
+                    {/* the rail */}
+                    <div style={{ position: "absolute", left: 4, top: 6, bottom: 6, width: 2, background: C.border, borderRadius: 2 }} />
+                    {dates.map(d => {
+                      const group = byDate.get(d)!;
+                      const dd = daysOut(d);
+                      const soon = dd <= 7;
+                      return (
+                        <div key={d} style={{ position: "relative", marginBottom: 18 }}>
+                          <span style={{ position: "absolute", left: -18, top: 4, width: 10, height: 10, borderRadius: 999, background: soon ? "#fff" : C.border, border: soon ? "none" : `2px solid ${C.bg}` }} />
+                          <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 8 }}>
+                            <span style={{ fontSize: 12.5, fontWeight: 900, textTransform: "uppercase", fontFamily: C.mono }}>{fmtShort(d)}</span>
+                            <span style={{ fontSize: 10, fontFamily: C.mono, color: dd <= 3 ? C.amber : C.faint, fontWeight: 700 }}>{dd <= 0 ? "landing" : `${dd}d out`}</span>
+                            <span style={{ fontSize: 10, color: C.faint }}>· web-ready ~{fmtShort(new Date(new Date(d + "T00:00").getTime() + WEB_PREP_DAYS * DAY).toISOString().slice(0, 10))}</span>
+                          </div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                            {group.map(({ it }) => {
+                              const color = it.status === "shipped" ? C.purple : it.status === "in_production" ? C.blue : C.muted;
+                              return (
+                                <button key={it.id} onClick={() => setDetail(it)}
+                                  style={{ display: "flex", alignItems: "center", gap: 10, background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: "8px 10px", cursor: "pointer", textAlign: "left", fontFamily: C.font, color: C.text, width: "100%" }}>
+                                  <span style={{ width: 34, height: 34, background: "#fff", borderRadius: 7, overflow: "hidden", flexShrink: 0 }}>
+                                    {it.thumb_id && <img src={`/api/files/thumbnail?id=${it.thumb_id}&thumb=1`} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "contain" }} onError={(e: any) => { e.target.style.display = "none"; }} />}
+                                  </span>
+                                  <span style={{ minWidth: 0, flex: 1 }}>
+                                    <span style={{ display: "block", fontSize: 12, fontWeight: 800, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.name}</span>
+                                    <span style={{ display: "block", fontSize: 9.5, fontFamily: C.mono, color: C.faint, marginTop: 2 }}>{it.qty.toLocaleString()} pcs</span>
+                                  </span>
+                                  <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", color, whiteSpace: "nowrap", flexShrink: 0 }}>{STATUS_META[it.status]?.label || it.status}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
             </div>
           )}
 
