@@ -42,7 +42,11 @@ export default function HomePage() {
   const loadingData = orders === null || items === null;
 
   const pills: { label: string; href: string }[] = [];
-  if (needsAction.length > 0) pills.push({ label: `${needsAction.length} order${needsAction.length === 1 ? "" : "s"} awaiting your approval`, href: `${base}/orders` });
+  if (needsAction.length > 0) pills.push({
+    label: `${needsAction.length} order${needsAction.length === 1 ? "" : "s"} awaiting your approval`,
+    // One order -> open it directly; several -> the needs-approval filter.
+    href: needsAction.length === 1 ? `${base}/orders?open=${needsAction[0].id}` : `${base}/orders?filter=pending`,
+  });
   if (unpaid.length > 0) pills.push({ label: `${unpaid.length} unpaid invoice${unpaid.length === 1 ? "" : "s"}`, href: `${base}/orders?filter=unpaid` });
 
   const thumb = (id: string) => `/api/files/thumbnail?id=${id}&thumb=1&size=500`;

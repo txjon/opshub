@@ -49,15 +49,20 @@ export default function OrdersPage() {
   const { token, data: portalData } = useClientPortal();
   const tenantLabel = (portalData?.company?.slug || "hpd").toUpperCase();
   const search = useSearchParams();
-  const filterParam = (search?.get("filter") as "all" | "unpaid" | "on_hold" | null) || "all";
+  const filterParam = (search?.get("filter") as "all" | "unpaid" | "on_hold" | "pending" | null) || "all";
   const [orders, setOrders] = useState<Order[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [archive, setArchive] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [filter, setFilter] = useState<"all" | "unpaid" | "on_hold">(filterParam === "unpaid" || filterParam === "on_hold" ? filterParam : "all");
+  const [filter, setFilter] = useState<"all" | "unpaid" | "on_hold" | "pending">(filterParam === "unpaid" || filterParam === "on_hold" || filterParam === "pending" ? filterParam : "all");
   // Project orders open the shared OrderExperience in a dark modal —
   // keeps scroll position + filter state intact.
   const [modalJobId, setModalJobId] = useState<string | null>(null);
+
+  // Deep-link: /orders?open=<jobId> opens that order's experience directly
+  // (Home's "awaiting your approval" pill uses this for single orders).
+  const openParam = search?.get("open");
+  useEffect(() => { if (openParam) setModalJobId(openParam); }, [openParam]);
 
   useEffect(() => {
     load();
@@ -75,6 +80,7 @@ export default function OrdersPage() {
   }
 
   const filtered = (orders || []).filter(o => {
+    if (filter === "pending") return o.phase === "pending";
     if (filter === "unpaid") return o.payment_status === "unpaid" || o.payment_status === "partial";
     if (filter === "on_hold") return o.phase === "on_hold";
     return true;
@@ -83,8 +89,10 @@ export default function OrdersPage() {
   const unpaidTotal = (orders || []).filter(o => o.payment_status === "unpaid" || o.payment_status === "partial").length;
   const onHoldTotal = (orders || []).filter(o => o.phase === "on_hold").length;
 
-  const chips: { key: "all" | "unpaid" | "on_hold"; label: string; count: number | null }[] = [
+  const pendingTotal = (orders || []).filter(o => o.phase === "pending").length;
+  const chips: { key: "all" | "unpaid" | "on_hold" | "pending"; label: string; count: number | null }[] = [
     { key: "all", label: "All", count: orders ? (orders || []).length : null },
+    ...(pendingTotal > 0 ? [{ key: "pending" as const, label: "Needs approval", count: pendingTotal }] : []),
     { key: "unpaid", label: "Unpaid", count: orders ? unpaidTotal : null },
     { key: "on_hold", label: "On hold", count: orders ? onHoldTotal : null },
   ];
