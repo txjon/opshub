@@ -44,6 +44,9 @@ export default function ReorderPage() {
   const [detail, setDetail] = useState<CatalogEntry | null>(null);
   const [cart, setCart] = useState<Record<string, CartLine>>({});
   const [reviewing, setReviewing] = useState(false);
+  // Edit-from-cart swaps the review sheet for the item sheet and returns
+  // after save/close — stacking them rendered the editor underneath.
+  const [returnToReview, setReturnToReview] = useState(false);
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState<{ jobNumber: string | null; itemCount: number } | null>(null);
@@ -258,7 +261,7 @@ export default function ReorderPage() {
         <ItemSheet
           entry={detail}
           line={cart[detail.itemId] || null}
-          onClose={() => setDetail(null)}
+          onClose={() => { setDetail(null); if (returnToReview) { setReturnToReview(false); setReviewing(true); } }}
           onSave={(sizes) => {
             const total = Object.values(sizes).reduce((a, q) => a + (Number(q) || 0), 0);
             const next = { ...cart };
@@ -266,6 +269,7 @@ export default function ReorderPage() {
             else delete next[detail.itemId];
             persistCart(next);
             setDetail(null);
+            if (returnToReview) { setReturnToReview(false); setReviewing(true); }
           }}
         />
       )}
@@ -295,7 +299,7 @@ export default function ReorderPage() {
                       <div style={{ fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</div>
                       <div style={{ fontSize: 10.5, color: H.dim, fontFamily: H.mono, marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{units.toLocaleString()} pcs{sizeText ? ` · ${sizeText}` : ""}</div>
                     </div>
-                    <button onClick={() => setDetail(c)} style={{ background: "transparent", border: `1px solid ${H.line}`, color: H.dim, borderRadius: 999, padding: "7px 13px", fontSize: 10, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font, flexShrink: 0 }}>Edit</button>
+                    <button onClick={() => { setReturnToReview(true); setReviewing(false); setDetail(c); }} style={{ background: "transparent", border: `1px solid ${H.line}`, color: H.dim, borderRadius: 999, padding: "7px 13px", fontSize: 10, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font, flexShrink: 0 }}>Edit</button>
                   </div>
                 );
               })}
@@ -374,16 +378,31 @@ function ItemSheet({ entry, line, onClose, onSave }: {
             <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: H.faint, marginBottom: 8 }}>
               Quantities <span style={{ color: H.dim, fontWeight: 600, textTransform: "none", letterSpacing: 0 }}>· prefilled from your last run</span>
             </div>
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              {orderedSizes.map(size => (
-                <label key={size} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 5 }}>
-                  <span style={{ fontSize: 10, fontWeight: 800, color: H.dim, fontFamily: H.mono, letterSpacing: "0.05em" }}>{size}</span>
-                  <input className="rx-qty" type="text" inputMode="numeric" value={qtys[size] ?? "0"}
-                    onFocus={e => e.currentTarget.select()}
-                    onChange={e => setQtys(p => ({ ...p, [size]: e.target.value.replace(/[^0-9]/g, "") }))} />
-                </label>
-              ))}
-            </div>
+            {orderedSizes.length <= 8 ? (
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                {orderedSizes.map(size => (
+                  <label key={size} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 5 }}>
+                    <span style={{ fontSize: 10, fontWeight: 800, color: H.dim, fontFamily: H.mono, letterSpacing: "0.05em" }}>{size}</span>
+                    <input className="rx-qty" type="text" inputMode="numeric" value={qtys[size] ?? "0"}
+                      onFocus={e => e.currentTarget.select()}
+                      onChange={e => setQtys(p => ({ ...p, [size]: e.target.value.replace(/[^0-9]/g, "") }))} />
+                  </label>
+                ))}
+              </div>
+            ) : (
+              /* Dimensional runs (waist/inseam pants etc.) — aligned rows,
+                 label left / qty right, wrapping into columns on wide screens. */
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: "4px 18px", maxHeight: 320, overflowY: "auto", paddingRight: 4 }}>
+                {orderedSizes.map(size => (
+                  <label key={size} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, borderBottom: `1px solid ${H.line}`, padding: "5px 0" }}>
+                    <span style={{ fontSize: 10.5, fontWeight: 700, color: H.dim, fontFamily: H.mono, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{size}</span>
+                    <input className="rx-qty" style={{ width: 58, flexShrink: 0 }} type="text" inputMode="numeric" value={qtys[size] ?? "0"}
+                      onFocus={e => e.currentTarget.select()}
+                      onChange={e => setQtys(p => ({ ...p, [size]: e.target.value.replace(/[^0-9]/g, "") }))} />
+                  </label>
+                ))}
+              </div>
+            )}
           </div>
           {entry.lastUnit != null && (
             <div style={{ fontSize: 11.5, color: H.faint, lineHeight: 1.5 }}>
