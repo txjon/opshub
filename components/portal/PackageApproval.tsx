@@ -5,7 +5,7 @@
 // disclaimer (our record + expectation-setting); Request-changes takes a free note.
 // Theme + the POST action are passed in so this stays portal-agnostic. Server side
 // = lib/portal/approval-actions. See [[jon-clean-architecture-standard]].
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 type Theme = any; // the portal's document-style `C` theme object
 
@@ -28,7 +28,7 @@ function invoiceLine(terms?: string | null, invoiceState?: "pending" | "ready" |
   return "We'll send your invoice shortly.";
 }
 
-export function PackageApproval({ c, approved, approvedAt, changeRequest, quoteTotal, terms, items, pendingReapproval, invoiceState, onAction }: {
+export function PackageApproval({ c, approved, approvedAt, changeRequest, quoteTotal, terms, items, pendingReapproval, invoiceState, openApproveSignal, onAction }: {
   c: Theme;
   approved: boolean;
   approvedAt?: string | null;
@@ -38,12 +38,18 @@ export function PackageApproval({ c, approved, approvedAt, changeRequest, quoteT
   items?: { id: string; name: string }[]; // for optional per-item tags on Request changes
   pendingReapproval?: boolean; // quote approved but proofs were revised → offer "Approve updated proofs"
   invoiceState?: "pending" | "ready" | "paid" | "settled"; // ready = live pay link below; settled = paid vs invoiced but total revised up
+  openApproveSignal?: number; // increment to open the approve confirm from outside (proof overlay)
   onAction: (action: string, body?: any) => Promise<void>;
 }) {
   const [modal, setModal] = useState<null | "approve" | "changes">(null);
   const [note, setNote] = useState("");
   const [tagged, setTagged] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (openApproveSignal && openApproveSignal > 0) setModal("approve");
+    // eslint-disable-next-line
+  }, [openApproveSignal]);
 
   const fmtDate = (iso?: string | null) => iso ? new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "";
   const total = fmtMoney(quoteTotal);

@@ -28,6 +28,9 @@ export function OrderExperience({ data, token, onAction }: {
 }) {
   const { project, client, quote, items, payments, paymentLink, invoiceNumber, invoiceStale } = data;
   const [proofItem, setProofItem] = useState<any>(null);
+  // Incremented by the proof overlay's Approve button — PackageApproval
+  // listens and opens its confirm directly (scroll alone read as a dead end).
+  const [approveSignal, setApproveSignal] = useState(0);
 
   const units = items.reduce((a: number, it: any) => a + (it.units || 0), 0);
   const totalPaid = payments.filter((p: any) => p.status === "paid").reduce((s: number, p: any) => s + p.amount, 0);
@@ -160,6 +163,7 @@ export function OrderExperience({ data, token, onAction }: {
             items={items.map((i: any) => ({ id: i.id, name: i.name }))}
             pendingReapproval={!!project.quoteApproved && hasProofs && !allProofsApproved}
             invoiceState={totalPaid >= total - 0.005 && total > 0 ? (revisedUp ? "settled" : "paid") : payBand?.cta ? "ready" : "pending"}
+            openApproveSignal={approveSignal}
             onAction={onAction} />
         </div>
 
@@ -323,8 +327,9 @@ export function OrderExperience({ data, token, onAction }: {
               <div style={{ display: "flex", gap: 12, alignItems: "center", padding: "16px 18px 18px", flexWrap: "wrap" }}>
                 <button onClick={() => {
                     setProofItem(null);
+                    setApproveSignal(n => n + 1);
                     const el = document.getElementById("hx-approval");
-                    if (el) { el.scrollIntoView({ behavior: "smooth", block: "center" }); el.classList.remove("hx-approve-pulse"); void el.offsetWidth; el.classList.add("hx-approve-pulse"); }
+                    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
                   }}
                   style={{ background: "#fff", color: H.ink, border: "none", borderRadius: 999, padding: "13px 24px", fontSize: 12.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>
                   Approve all proofs
