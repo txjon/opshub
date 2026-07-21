@@ -179,6 +179,20 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
       }
     }
 
+    // Announce internally — the reorder landed in Intake; without this it
+    // sits silent until someone browses the projects board.
+    try {
+      const { Resend } = await import("resend");
+      const resend = new Resend(process.env.RESEND_API_KEY!);
+      const jobNo = (newJob as any).job_number || "new job";
+      await resend.emails.send({
+        from: "OpsHub <production@housepartydistro.com>",
+        to: "production@housepartydistro.com",
+        subject: `Client reorder request — ${jobNo} (${client.name})`,
+        text: `${client.name} submitted a reorder from the client hub.\n\nJob: ${jobNo} — ${title}\nItems: ${itemCount}\n${note ? `Note: ${note}\n` : ""}\nReview: https://app.housepartydistro.com/jobs/${newJobId}`,
+      });
+    } catch {}
+
     try {
       await logJobActivityServer(newJobId,
         `Reorder request submitted from the client hub (${itemCount} item${itemCount === 1 ? "" : "s"})${note ? ` — note: "${note.slice(0, 200)}"` : ""}`);

@@ -84,12 +84,14 @@ const ICONS: Record<string, TabIcon> = {
   ),
 };
 
-const TABS: { label: keyof typeof ICONS; path: string; unreadKey?: "designs" }[] = [
-  { label: "Overview", path: "" },
-  { label: "Designs", path: "/designs", unreadKey: "designs" },
-  { label: "Orders", path: "/orders" },
-  { label: "Items", path: "/items" },
-  { label: "Reorder", path: "/reorder" },
+// display labels renamed Jul 20 (Jon): Home / Product Development /
+// Pipeline. Routes unchanged — /designs and /items keep their URLs.
+const TABS: { label: keyof typeof ICONS; path: string; display: string; unreadKey?: "designs" }[] = [
+  { label: "Overview", display: "Home", path: "" },
+  { label: "Designs", display: "Product Development", path: "/designs", unreadKey: "designs" },
+  { label: "Orders", display: "Orders", path: "/orders" },
+  { label: "Items", display: "Pipeline", path: "/items" },
+  { label: "Reorder", display: "Reorder", path: "/reorder" },
 ];
 
 export default function Shell({ children }: { children: ReactNode }) {
@@ -159,7 +161,7 @@ export default function Shell({ children }: { children: ReactNode }) {
             {TABS.map(t => (
               <Link key={t.label} href={base + t.path} onClick={() => setMenuOpen(false)}
                 style={{ fontSize: "clamp(17px,2vw,22px)", fontWeight: 900, letterSpacing: "-0.01em", textTransform: "uppercase", color: isActive(t.path) ? C.text : C.muted, textDecoration: "none", padding: "8px 0" }}>
-                {t.label}
+                {t.display}
               </Link>
             ))}
           </nav>
@@ -225,7 +227,7 @@ export default function Shell({ children }: { children: ReactNode }) {
                   whiteSpace: "nowrap",
                   transition: "color 0.15s",
                 }}>
-                {t.label}
+                {t.display}
                 {unread > 0 && (
                   <span style={{
                     background: C.purple, color: "#fff",
@@ -302,7 +304,7 @@ export default function Shell({ children }: { children: ReactNode }) {
               <span style={{
                 fontSize: 10, fontWeight: active ? 700 : 600,
                 letterSpacing: "0.01em",
-              }}>{t.label}</span>
+              }}>{t.display}</span>
             </Link>
           );
         })}
