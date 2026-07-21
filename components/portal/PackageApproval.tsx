@@ -20,7 +20,7 @@ function invoiceLine(terms?: string | null): string {
   return "We'll send your invoice shortly.";
 }
 
-export function PackageApproval({ c, approved, approvedAt, changeRequest, quoteTotal, terms, projectName, onAction }: {
+export function PackageApproval({ c, approved, approvedAt, changeRequest, quoteTotal, terms, projectName, items, pendingReapproval, onAction }: {
   c: Theme;
   approved: boolean;
   approvedAt?: string | null;
@@ -28,10 +28,13 @@ export function PackageApproval({ c, approved, approvedAt, changeRequest, quoteT
   quoteTotal?: number | null;
   terms?: string | null;
   projectName?: string;
+  items?: { id: string; name: string }[]; // for optional per-item tags on Request changes
+  pendingReapproval?: boolean; // quote approved but proofs were revised → offer "Approve updated proofs"
   onAction: (action: string, body?: any) => Promise<void>;
 }) {
   const [modal, setModal] = useState<null | "approve" | "changes">(null);
   const [note, setNote] = useState("");
+  const [tagged, setTagged] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState(false);
 
   const fmtDate = (iso?: string | null) => iso ? new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "";
@@ -39,12 +42,13 @@ export function PackageApproval({ c, approved, approvedAt, changeRequest, quoteT
 
   async function submit(action: string, body?: any) {
     setBusy(true);
-    try { await onAction(action, body); setModal(null); setNote(""); }
+    try { await onAction(action, body); setModal(null); setNote(""); setTagged({}); }
     finally { setBusy(false); }
   }
+  const taggedIds = Object.keys(tagged).filter(k => tagged[k]);
 
-  // ── Approved: locked confirmation, no live actions ──
-  if (approved) {
+  // ── Approved and nothing revised since: locked confirmation, no live actions ──
+  if (approved && !pendingReapproval) {
     return (
       <div style={{ background: c.greenBg, border: `1px solid ${c.greenBorder}`, borderRadius: 12, padding: "16px 18px", fontFamily: c.font }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -63,9 +67,11 @@ export function PackageApproval({ c, approved, approvedAt, changeRequest, quoteT
 
   return (
     <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 12, padding: "16px 18px", fontFamily: c.font }}>
-      <div style={{ fontSize: 15, fontWeight: 700, color: c.text }}>Ready to move forward?</div>
+      <div style={{ fontSize: 15, fontWeight: 700, color: c.text }}>{approved ? "Updated proofs are ready" : "Ready to move forward?"}</div>
       <div style={{ fontSize: 13, color: c.muted, marginTop: 5, lineHeight: 1.5 }}>
-        Review your quote{total ? ` (${total})` : ""} and proofs above. When everything looks right, approve it all in one click — or tell us what to change.
+        {approved
+          ? "We've revised your proofs since your approval. Take a look above, then approve the updates in one click — or send us more notes."
+          : <>Review your quote{total ? ` (${total})` : ""} and proofs above. When everything looks right, approve it all in one click — or tell us what to change.</>}
       </div>
 
       {changeRequest && (
@@ -76,14 +82,14 @@ export function PackageApproval({ c, approved, approvedAt, changeRequest, quoteT
       )}
 
       <div style={{ display: "flex", gap: 10, marginTop: 14, flexWrap: "wrap" }}>
-        <button onClick={() => setModal("approve")} style={btnPrimary}>Approve</button>
+        <button onClick={() => setModal("approve")} style={btnPrimary}>{approved ? "Approve updated proofs" : "Approve"}</button>
         <button onClick={() => setModal("changes")} style={btnGhost}>Request changes</button>
       </div>
 
       {/* ── Approve prompt: acceptance disclaimer ── */}
       {modal === "approve" && (
         <Overlay c={c} onClose={() => !busy && setModal(null)}>
-          <div style={{ fontSize: 16, fontWeight: 800, color: c.text }}>Approve {projectName || "this order"}?</div>
+          <div style={{ fontSize: 16, fontWeight: 800, color: c.text }}>{approved ? "Approve the updated proofs?" : `Approve ${projectName || "this order"}?`}</div>
           <div style={{ fontSize: 13.5, color: c.text, marginTop: 10, lineHeight: 1.55 }}>
             By approving, you confirm all products and artwork shown are <b>correct and approved for production</b>. Changes requested after approval may not be able to be accommodated and could incur re-stocking or re-print charges.
           </div>
@@ -103,8 +109,21 @@ export function PackageApproval({ c, approved, approvedAt, changeRequest, quoteT
           <div style={{ fontSize: 13.5, color: c.muted, marginTop: 8, lineHeight: 1.5 }}>Tell us what you'd like changed — pricing, artwork, sizes, anything. We'll revise and send it back for another look. This won't approve your order.</div>
           <textarea value={note} onChange={e => setNote(e.target.value)} autoFocus rows={5} placeholder="What would you like us to change?"
             style={{ width: "100%", marginTop: 12, padding: "10px 12px", borderRadius: 8, border: `1px solid ${c.border}`, background: c.surface, color: c.text, fontSize: 13.5, fontFamily: c.font, outline: "none", resize: "vertical", boxSizing: "border-box" }} />
+          {(items || []).length > 1 && (
+            <div style={{ marginTop: 12 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: c.text }}>Which items? <span style={{ fontWeight: 400, color: c.muted }}>Optional — leave blank if it applies to the whole order.</span></div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 8, maxHeight: 170, overflowY: "auto" }}>
+                {(items || []).map(it => (
+                  <label key={it.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 9px", borderRadius: 7, background: tagged[it.id] ? c.surface : "transparent", cursor: "pointer", fontSize: 13, color: c.text }}>
+                    <input type="checkbox" checked={!!tagged[it.id]} onChange={e => setTagged(p => ({ ...p, [it.id]: e.target.checked }))} />
+                    <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.name}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
           <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
-            <button onClick={() => submit("request-changes", { note: note.trim() })} disabled={busy || !note.trim()} style={{ ...btnPrimary, background: c.accent, opacity: busy || !note.trim() ? 0.5 : 1 }}>{busy ? "Sending…" : "Submit change request"}</button>
+            <button onClick={() => submit("request-changes", { note: note.trim(), itemIds: taggedIds })} disabled={busy || !note.trim()} style={{ ...btnPrimary, background: c.accent, opacity: busy || !note.trim() ? 0.5 : 1 }}>{busy ? "Sending…" : "Submit change request"}</button>
             <button onClick={() => setModal(null)} disabled={busy} style={btnGhost}>Cancel</button>
           </div>
         </Overlay>

@@ -357,7 +357,11 @@ export async function GET(
     // Quote visibility is gated on quote_sent_at — same rule as the
     // /client/[token]/orders/[jobId] route. Until OpsHub emails the quote,
     // the client portal hides the quote section and the approved badge.
-    const isQuoteSent = !!typeMeta.quote_sent_at;
+    // "Sent" for portal purposes = the client legitimately has this quote in
+    // front of them. Jobs approved INTERNALLY (client PO by email/phone) never
+    // set quote_sent_at — without this OR, the portal hid the quote AND the
+    // whole approval panel, leaving revised proofs unapprovable (HPD-2606-038).
+    const isQuoteSent = !!typeMeta.quote_sent_at || !!job.quote_approved;
     // Show the order total whenever the client has been BILLED — not only when
     // the quote was emailed. A quote approved internally (via client PO) never
     // sets quote_sent_at, so gating totals on isQuoteSent showed Total: $0 (and
@@ -486,7 +490,7 @@ export async function POST(
       return NextResponse.json({ success: true });
     }
     if (action === "request-changes") {
-      await requestChanges(sb, job.id, note);
+      await requestChanges(sb, job.id, note, body.itemIds);
       return NextResponse.json({ success: true });
     }
 

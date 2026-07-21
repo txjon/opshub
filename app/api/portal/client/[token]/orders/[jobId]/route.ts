@@ -498,7 +498,11 @@ export async function GET(
     // quote or the invoice has been sent — otherwise the Payment block
     // on a skip-the-quote invoice would show Total: $0 even when the
     // client has been billed. Track that gate separately.
-    const isQuoteSent = !!typeMeta.quote_sent_at;
+    // "Sent" for portal purposes = the client legitimately has this quote in
+    // front of them. Jobs approved INTERNALLY (client PO by email/phone) never
+    // set quote_sent_at — without this OR, the portal hid the quote AND the
+    // whole approval panel, leaving revised proofs unapprovable (HPD-2606-038).
+    const isQuoteSent = !!typeMeta.quote_sent_at || !!job.quote_approved;
     const isInvoiceSent = !!typeMeta.invoice_sent_at;
     // A pushed QB invoice (or Stripe invoice) means the client has been billed,
     // so the total must show even if OpsHub never emailed the quote/invoice
@@ -612,7 +616,7 @@ export async function POST(
       return NextResponse.json({ success: true });
     }
     if (action === "request-changes") {
-      await requestChanges(sb, job.id, note);
+      await requestChanges(sb, job.id, note, body.itemIds);
       return NextResponse.json({ success: true });
     }
 
