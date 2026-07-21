@@ -109,8 +109,8 @@ export default function OrdersPage() {
       ` }} />
 
       <div style={{ maxWidth: 1200, margin: "0 auto", padding: "clamp(28px,5vw,56px) clamp(14px,3vw,24px) 100px" }}>
-        <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase", color: H.faint }}>Orders</div>
-        <h1 style={{ fontSize: "clamp(30px,7vw,64px)", fontWeight: 900, lineHeight: 0.98, letterSpacing: "-0.02em", textTransform: "uppercase", margin: "8px 0 22px" }}>
+        <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase", color: H.faint, textAlign: "center" }}>Orders</div>
+        <h1 style={{ fontSize: "clamp(30px,7vw,64px)", fontWeight: 900, lineHeight: 0.98, letterSpacing: "-0.02em", textTransform: "uppercase", margin: "8px 0 22px", textAlign: "center" }}>
           Your orders.
         </h1>
 

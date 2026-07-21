@@ -44,16 +44,16 @@ export default function OverviewPage() {
       ` }} />
 
       {/* Hero — the client's name, the website way */}
-      <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase", color: C.faint }}>
+      <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase", color: C.faint, textAlign: "center" }}>
         Welcome back
       </div>
-      <h1 style={{ fontSize: "clamp(30px,6.5vw,60px)", fontWeight: 900, lineHeight: 0.98, letterSpacing: "-0.02em", textTransform: "uppercase", margin: "8px 0 12px", textWrap: "balance" as any }}>
+      <h1 style={{ fontSize: "clamp(30px,6.5vw,60px)", fontWeight: 900, lineHeight: 0.98, letterSpacing: "-0.02em", textTransform: "uppercase", margin: "8px 0 12px", textWrap: "balance" as any, textAlign: "center" }}>
         {data.client.name}.
       </h1>
 
       {/* Needs-you line */}
       {needsYou.length > 0 ? (
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", margin: "0 0 30px" }}>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", margin: "0 0 30px", justifyContent: "center" }}>
           {needsYou.map(n => (
             <Link key={n.label} href={n.href}
               style={{ background: "#fff", color: C.bg, borderRadius: 999, padding: "10px 20px", fontSize: 11, fontWeight: 800, letterSpacing: "0.09em", textTransform: "uppercase", textDecoration: "none" }}>
@@ -62,7 +62,7 @@ export default function OverviewPage() {
           ))}
         </div>
       ) : (
-        <div style={{ fontSize: 14, color: C.muted, margin: "0 0 30px", lineHeight: 1.6 }}>
+        <div style={{ fontSize: 14, color: C.muted, margin: "0 0 30px", lineHeight: 1.6, textAlign: "center" }}>
           All caught up. Here&rsquo;s where everything stands.
         </div>
       )}

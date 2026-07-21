@@ -1,5 +1,5 @@
 "use client";
-import { ReactNode, useEffect, useState } from "react";
+import { ReactNode, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { C } from "./theme";
@@ -108,16 +108,9 @@ export default function Shell({ children }: { children: ReactNode }) {
   const isActive = (path: string) =>
     path === "" ? pathname === base || pathname === base + "/" : !!pathname?.startsWith(base + path);
 
-  // Website header behavior: full header at top of page; once you scroll,
-  // a fixed compact bar takes over — centered wordmark + hamburger.
-  const [scrolled, setScrolled] = useState(false);
+  // Website header: one slim fixed bar, wordmark always centered,
+  // nav lives in the hamburger. Content starts right beneath it.
   const [menuOpen, setMenuOpen] = useState(false);
-  useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 130);
-    onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
 
   return (
     <div className="portal-shell" style={{ minHeight: "100vh", background: C.bg, fontFamily: C.font, color: C.text }}>
@@ -131,35 +124,16 @@ export default function Shell({ children }: { children: ReactNode }) {
           .portal-bottom-nav { display: none !important; }
           .portal-mobile-head { display: none !important; }
           .portal-top-tabs { display: none !important; }
-          .portal-desk-head { display: flex; }
           .portal-fixed-head { display: flex; }
+          .portal-main { padding-top: 78px !important; }
         }
         .portal-tab-active-pill {
           background: ${C.surface};
         }
       `}</style>
 
-      {/* Desktop header — the website's: nav list top-left, wordmark top-right. */}
-      <div className="portal-desk-head" style={{ justifyContent: "space-between", alignItems: "flex-start", padding: "30px 38px 8px", gap: 24 }}>
-        <nav style={{ display: "flex", flexDirection: "column", gap: 9 }}>
-          {TABS.map(t => {
-            const active = isActive(t.path);
-            const unread = t.unreadKey ? unreadCounts[t.unreadKey] : 0;
-            return (
-              <Link key={t.label} href={base + t.path}
-                style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: active ? C.text : C.muted, textDecoration: "none", transition: "color 0.15s" }}>
-                {t.label}
-                {unread > 0 && <span style={{ background: C.purple, color: "#fff", fontSize: 9, fontWeight: 800, minWidth: 16, height: 16, padding: "0 4px", borderRadius: 8, display: "inline-flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>{unread > 9 ? "9+" : unread}</span>}
-              </Link>
-            );
-          })}
-          <div style={{ fontSize: 9, fontWeight: 800, marginTop: 8, color: C.faint, letterSpacing: "0.16em", textTransform: "uppercase" }}>{data.client.name}</div>
-        </nav>
-        <Link href={base} style={{ flexShrink: 0 }}><LogoMark width={300} /></Link>
-      </div>
-
-      {/* Fixed compact header once scrolled — hamburger + centered wordmark */}
-      {scrolled && (
+      {/* Fixed header — hamburger + centered wordmark, always on */}
+      {(
         <div className="portal-fixed-head" style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 90, alignItems: "center", padding: "12px 20px", background: "rgba(10,10,10,0.92)", backdropFilter: "blur(10px)", borderBottom: `1px solid ${C.border}` }}>
           <button onClick={() => setMenuOpen(true)} aria-label="Menu"
             style={{ background: "none", border: "none", cursor: "pointer", padding: 6, display: "flex", flexDirection: "column", gap: 5 }}>

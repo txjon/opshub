@@ -189,11 +189,11 @@ export default function ReorderPage() {
           </div>
         ) : (
           <>
-            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase", color: H.faint }}>Reorder</div>
-            <h1 style={{ fontSize: "clamp(30px,7vw,64px)", fontWeight: 900, lineHeight: 0.98, letterSpacing: "-0.02em", textTransform: "uppercase", margin: "8px 0 10px", textWrap: "balance" as any }}>
+            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase", color: H.faint, textAlign: "center" }}>Reorder</div>
+            <h1 style={{ fontSize: "clamp(30px,7vw,64px)", fontWeight: 900, lineHeight: 0.98, letterSpacing: "-0.02em", textTransform: "uppercase", margin: "8px 0 10px", textWrap: "balance" as any, textAlign: "center" }}>
               Run it back.
             </h1>
-            <div style={{ fontSize: 14, color: H.dim, maxWidth: "52ch", lineHeight: 1.6, marginBottom: 28 }}>
+            <div style={{ fontSize: 14, color: H.dim, maxWidth: "52ch", lineHeight: 1.6, margin: "0 auto 28px", textAlign: "center" }}>
               Every piece from your past runs. Tap one, set your quantities, and send it our way.
               We&rsquo;ll confirm pricing and timing before anything goes into production.
             </div>

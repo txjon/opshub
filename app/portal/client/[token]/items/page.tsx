@@ -243,8 +243,8 @@ export default function ItemsPage() {
         @media(prefers-reduced-motion:reduce){.px-card,.px-card:hover{transition:none;transform:none}}
       ` }} />
 
-      <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase", color: C.faint }}>Items</div>
-      <h1 style={{ fontSize: "clamp(30px,6.5vw,60px)", fontWeight: 900, lineHeight: 0.98, letterSpacing: "-0.02em", textTransform: "uppercase", margin: "8px 0 18px" }}>
+      <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase", color: C.faint, textAlign: "center" }}>Items</div>
+      <h1 style={{ fontSize: "clamp(30px,6.5vw,60px)", fontWeight: 900, lineHeight: 0.98, letterSpacing: "-0.02em", textTransform: "uppercase", margin: "8px 0 18px", textAlign: "center" }}>
         The pipeline.
       </h1>
 
