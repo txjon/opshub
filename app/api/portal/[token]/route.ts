@@ -85,7 +85,7 @@ export async function GET(
     const { data: items } = await sb
       .from("items")
       .select(
-        "id, name, sell_per_unit, pipeline_stage, sort_order, artwork_status, ship_qtys, received_qtys, blank_vendor, blank_sku, ship_tracking, forward_tracking, shipping_route"
+        "id, name, sell_per_unit, pipeline_stage, sort_order, artwork_status, ship_qtys, received_qtys, blank_vendor, blank_sku, ship_tracking, forward_tracking, shipping_route, received_at_hpd, forwarded_at, webstore_entered_at, buy_sheet_lines(size, qty_ordered)"
       )
       .eq("job_id", job.id)
       .order("sort_order");
@@ -338,7 +338,24 @@ export async function GET(
           driveFileId: f.drive_file_id,
           createdAt: f.created_at,
         }));
-      return { id: item.id, name: item.name, proofs: itemProofs };
+      // Per-item lifecycle fields — the client-safe phase labels derive from
+      // the SAME truth the internal engine reads (Jon's rule: never a parallel
+      // state machine). Units/sizes feed the P1 item cards.
+      const lines = (item.buy_sheet_lines || []) as any[];
+      return {
+        id: item.id, name: item.name, proofs: itemProofs,
+        units: lines.reduce((a: number, l: any) => a + (Number(l.qty_ordered) || 0), 0),
+        sizes: Object.fromEntries(lines.filter((l: any) => l.qty_ordered > 0).map((l: any) => [l.size, l.qty_ordered])),
+        sellPerUnit: item.sell_per_unit ?? null,
+        pipelineStage: item.pipeline_stage || null,
+        shippingRoute: item.shipping_route || job.shipping_route || "ship_through",
+        receivedAtHpd: !!item.received_at_hpd,
+        forwardedAt: item.forwarded_at || null,
+        webstoreEnteredAt: item.webstore_entered_at || null,
+        shipTracking: item.ship_tracking || null,
+        forwardTracking: (item as any).forward_tracking || null,
+        internalApproved: manualApproved,
+      };
     });
 
     // Phase display names

@@ -61,7 +61,7 @@ export function PackageApproval({ c, approved, approvedAt, changeRequest, quoteT
     );
   }
 
-  const btnPrimary: React.CSSProperties = { flex: "1 1 auto", padding: "12px 18px", borderRadius: 10, border: "none", background: c.accent, color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: c.font };
+  const btnPrimary: React.CSSProperties = { flex: "1 1 auto", padding: "12px 18px", borderRadius: 10, border: "none", background: c.accent, color: c.accentText || "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: c.font };
   const btnGhost: React.CSSProperties = { flex: "0 0 auto", padding: "12px 18px", borderRadius: 10, border: `1px solid ${c.border}`, background: c.card, color: c.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: c.font };
 
   return (
@@ -95,7 +95,7 @@ export function PackageApproval({ c, approved, approvedAt, changeRequest, quoteT
           <div style={{ fontSize: 13, color: c.muted, marginTop: 10, lineHeight: 1.5 }}>{invoiceLine(terms)}</div>
           {total && <div style={{ fontSize: 13, color: c.muted, marginTop: 8 }}>Approved total: <b style={{ color: c.text }}>{total}</b></div>}
           <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
-            <button onClick={() => submit("approve-package")} disabled={busy} style={{ ...btnPrimary, background: c.green, opacity: busy ? 0.6 : 1 }}>{busy ? "Approving…" : "Approve for production"}</button>
+            <button onClick={() => submit("approve-package")} disabled={busy} style={{ ...btnPrimary, background: c.green, color: "#fff", opacity: busy ? 0.6 : 1 }}>{busy ? "Approving…" : "Approve for production"}</button>
             <button onClick={() => setModal(null)} disabled={busy} style={btnGhost}>Cancel</button>
           </div>
         </Overlay>
@@ -122,7 +122,7 @@ export function PackageApproval({ c, approved, approvedAt, changeRequest, quoteT
             </div>
           )}
           <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
-            <button onClick={() => submit("request-changes", { note: note.trim(), itemIds: taggedIds })} disabled={busy || !note.trim()} style={{ ...btnPrimary, background: c.accent, opacity: busy || !note.trim() ? 0.5 : 1 }}>{busy ? "Sending…" : "Submit change request"}</button>
+            <button onClick={() => submit("request-changes", { note: note.trim(), itemIds: taggedIds })} disabled={busy || !note.trim()} style={{ ...btnPrimary, opacity: busy || !note.trim() ? 0.5 : 1 }}>{busy ? "Sending…" : "Submit change request"}</button>
             <button onClick={() => setModal(null)} disabled={busy} style={btnGhost}>Cancel</button>
           </div>
         </Overlay>

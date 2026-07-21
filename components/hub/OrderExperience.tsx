@@ -1,0 +1,259 @@
+"use client";
+// Client Hub V2 — the ORDER EXPERIENCE (P1, greenlit Jul 20 2026). The client's
+// view of one order in the shop skin: hero (CLIENT NAME big — the job memo is
+// internal and never renders here), client-safe status rail, "Your move"
+// approval band, payment band driven by the terms matrix, item cards with
+// per-item phases from lib/portal/client-phase, image-first proof overlay, and
+// paperwork as DOWNLOADS ONLY (Jon's rule: PDFs are never the viewing surface).
+//
+// Mobile-first: single column, full-width tap targets, type via clamp(). The
+// same component will serve the Client Hub order page at P3 — keep it free of
+// route-specific assumptions (everything arrives via props).
+import { useState } from "react";
+import { H, H_APPROVAL_THEME, fmtMoney } from "./theme";
+import { PackageApproval } from "@/components/portal/PackageApproval";
+import { itemClientPhase, CLIENT_RAIL, orderRailIndex, type ClientTone } from "@/lib/portal/client-phase";
+
+const TONE: Record<ClientTone, string> = { warn: H.amber, move: H.blue, done: H.green, dim: H.faint };
+const TERMS: Record<string, string> = { net_15: "Net 15", net_30: "Net 30", net_45: "Net 45", net_60: "Net 60", prepaid: "Prepaid", deposit_balance: "Deposit" };
+const LBL: React.CSSProperties = { fontSize: 10, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.faint };
+
+const thumbSrc = (driveId: string, size = 500) => `/api/files/thumbnail?id=${driveId}&thumb=1&size=${size}`;
+const mockupOf = (it: any) => (it.proofs || []).find((f: any) => f.stage === "mockup") || (it.proofs || []).find((f: any) => f.stage === "proof") || null;
+
+export function OrderExperience({ data, token, onAction }: {
+  data: any;               // the /api/portal/[token] payload
+  token: string;           // active portal token (PDF links, actions)
+  onAction: (action: string, body?: any) => Promise<void>;
+}) {
+  const { project, client, quote, items, payments, paymentLink, invoiceNumber, invoiceStale } = data;
+  const [proofItem, setProofItem] = useState<any>(null);
+
+  const units = items.reduce((a: number, it: any) => a + (it.units || 0), 0);
+  const totalPaid = payments.filter((p: any) => p.status === "paid").reduce((s: number, p: any) => s + p.amount, 0);
+  const total = quote?.total || 0;
+  const balance = total - totalPaid;
+  const termsRaw = (project.paymentTerms || "").toLowerCase();
+  const netTerms = /^net/.test(termsRaw);
+  const termsLabel = TERMS[termsRaw] || (project.paymentTerms ? String(project.paymentTerms).replace(/_/g, " ") : "");
+
+  const actualProofs = items.flatMap((i: any) => (i.proofs || []).filter((p: any) => p.stage === "proof"));
+  const hasProofs = actualProofs.length > 0;
+  const allProofsApproved = hasProofs && actualProofs.every((p: any) => p.approval === "approved");
+  const needsYou = items.filter((it: any) => itemClientPhase(it).label === "Awaiting your approval");
+  const railIdx = orderRailIndex(project.phase, !!project.quoteApproved);
+  const fullyApproved = !!project.quoteApproved && (!hasProofs || allProofsApproved);
+
+  // ── Payment band per the terms matrix (locked Jul 20; derives from the same
+  //    totals + payment records the internal status bar reads). ──
+  const payBand = (() => {
+    if (total <= 0 && totalPaid <= 0) return null;
+    let note: string; let cta: { label: string; href: string } | null = null;
+    if (invoiceStale) {
+      note = "Your invoice is being updated. You'll be notified when the new copy is ready.";
+    } else if (totalPaid >= total - 0.005 && total > 0) {
+      note = totalPaid > total + 0.005 && balance < -0.005
+        ? "Paid in full. Thank you!"
+        : "Paid in full. Thank you!";
+    } else if (totalPaid > 0 && balance > 0.005) {
+      note = `Your order total grew since invoice ${invoiceNumber ? `#${invoiceNumber}` : "was sent"}. An updated invoice for the difference is on its way${netTerms && termsLabel ? `, billed on your ${termsLabel} terms` : ""}. Nothing to pay right now.`;
+      if (!netTerms && paymentLink) { note = `Balance remaining on invoice ${invoiceNumber ? `#${invoiceNumber}` : ""}.`; cta = { label: `Pay Now · ${fmtMoney(balance)}`, href: paymentLink }; }
+    } else if (netTerms) {
+      note = `You're on ${termsLabel || "net terms"}. Production proceeds now; your invoice follows on your terms.`;
+    } else if (paymentLink && balance > 0.005) {
+      note = termsRaw === "deposit_balance" ? "Your deposit invoice is ready. Production begins once it's received." : "Your invoice is ready. Production begins once it's paid.";
+      cta = { label: `Pay Now · ${fmtMoney(balance)}`, href: paymentLink };
+    } else {
+      note = "Your invoice is on its way. We'll email your payment link.";
+    }
+    return { note, cta };
+  })();
+
+  const dl = (label: string, href: string) => (
+    <a key={label} href={href} target="_blank" rel="noopener noreferrer"
+      style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: H.dim, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 7 }}
+      onMouseEnter={e => (e.currentTarget.style.color = H.text)} onMouseLeave={e => (e.currentTarget.style.color = H.dim)}>
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3v13m0 0l-5-5m5 5l5-5M4 21h16" /></svg>{label}
+    </a>
+  );
+
+  return (
+    <div style={{ fontFamily: H.font, color: H.text }}>
+      <style dangerouslySetInnerHTML={{ __html: `
+        .hx-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px}
+        @media(min-width:720px){.hx-grid{grid-template-columns:repeat(auto-fill,minmax(230px,1fr))}}
+        .hx-card{transition:transform .15s ease,border-color .15s ease}
+        .hx-card:hover{transform:translateY(-3px);border-color:rgba(255,255,255,.3)}
+        @media(prefers-reduced-motion:reduce){.hx-card,.hx-card:hover{transition:none;transform:none}}
+        .hx-approve-pulse{animation:hxpulse 1.2s ease 2}
+        @keyframes hxpulse{0%,100%{box-shadow:0 0 0 0 rgba(255,255,255,0)}50%{box-shadow:0 0 0 4px rgba(255,255,255,.25)}}
+      ` }} />
+
+      {/* ── Hero: CLIENT NAME. Order number is the identifier; memo never renders. ── */}
+      <header style={{ textAlign: "center", padding: "clamp(26px,5vw,48px) 16px 10px" }}>
+        <h1 style={{ fontSize: "clamp(30px,7vw,72px)", fontWeight: 900, lineHeight: 0.98, letterSpacing: "-0.02em", textTransform: "uppercase", margin: 0, textWrap: "balance" as any }}>
+          {client?.name || "Your order"}.
+        </h1>
+        <div style={{ fontSize: 13, color: H.dim, marginTop: 14 }}>
+          <b style={{ color: H.text, fontFamily: H.mono, fontWeight: 700 }}>Order {invoiceNumber ? `#${invoiceNumber}` : project.jobNumber}</b>
+          {" · "}{items.length} item{items.length === 1 ? "" : "s"} · {units.toLocaleString("en-US")} units{termsLabel ? ` · ${termsLabel}` : ""}
+        </div>
+
+        {/* Client-safe status rail */}
+        <div style={{ maxWidth: 620, margin: "26px auto 0", display: "flex", alignItems: "flex-start", padding: "0 8px" }}>
+          {CLIENT_RAIL.map((lbl, i) => {
+            const done = i < railIdx, on = i === railIdx;
+            return (
+              <div key={lbl} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 8, position: "relative" }}>
+                {i > 0 && <div style={{ position: "absolute", top: 5, left: "-50%", right: "50%", height: 1.5, background: done || on ? H.text : H.line }} />}
+                <div style={{ width: 11, height: 11, borderRadius: "50%", zIndex: 1, background: done ? H.text : H.ink, border: `1.5px solid ${done || on ? H.text : H.line}`, boxShadow: on ? "0 0 0 4px rgba(255,255,255,0.15)" : "none" }} />
+                <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: done || on ? H.text : H.faint, whiteSpace: "nowrap" }}>{lbl}</div>
+              </div>
+            );
+          })}
+        </div>
+      </header>
+
+      <main style={{ maxWidth: 1080, margin: "0 auto", padding: "22px 14px 60px", display: "flex", flexDirection: "column", gap: 14 }}>
+
+        {/* ── Your move: pending proof thumbs + the blanket approval panel ── */}
+        {!fullyApproved && needsYou.length > 0 && (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", padding: "2px 4px" }}>
+            <span style={{ ...LBL, marginRight: 4 }}>Needs you</span>
+            {needsYou.map((it: any) => {
+              const m = mockupOf(it);
+              return (
+                <button key={it.id} onClick={() => setProofItem(it)} title={it.name}
+                  style={{ width: 54, height: 54, borderRadius: 12, background: "#fff", overflow: "hidden", border: `2px solid ${H.amber}`, padding: 0, cursor: "pointer", flexShrink: 0 }}>
+                  {m && <img src={thumbSrc(m.driveFileId, 120)} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} />}
+                </button>
+              );
+            })}
+          </div>
+        )}
+        <div id="hx-approval">
+          <PackageApproval c={H_APPROVAL_THEME} approved={!!project.quoteApproved} approvedAt={project.quoteApprovedAt}
+            changeRequest={project.changeRequest} quoteTotal={total > 0 ? total : null} terms={project.paymentTerms}
+            items={items.map((i: any) => ({ id: i.id, name: i.name }))}
+            pendingReapproval={!!project.quoteApproved && hasProofs && !allProofsApproved}
+            onAction={onAction} />
+        </div>
+
+        {/* ── Payment ── */}
+        {payBand && (
+          <div style={{ background: H.panel, border: `1px solid ${H.line}`, borderRadius: 16, padding: "18px 20px" }}>
+            <div style={{ ...LBL, marginBottom: 10 }}>Payment</div>
+            <div style={{ display: "flex", gap: 26, flexWrap: "wrap", alignItems: "flex-end" }}>
+              {totalPaid > 0 && <div><div style={LBL}>Paid</div><div style={{ fontFamily: H.mono, fontSize: 22, fontWeight: 800, marginTop: 4, fontVariantNumeric: "tabular-nums" }}>{fmtMoney(totalPaid)}</div></div>}
+              {total > 0 && <div><div style={LBL}>{totalPaid > 0 && balance > 0.005 ? "Updated total" : "Total"}</div><div style={{ fontFamily: H.mono, fontSize: 22, fontWeight: 800, marginTop: 4, color: totalPaid > 0 && balance > 0.005 ? H.dim : H.text, fontVariantNumeric: "tabular-nums" }}>{fmtMoney(total)}</div></div>}
+              <div style={{ flex: 1, minWidth: 220, fontSize: 12.5, color: H.dim, lineHeight: 1.55 }}>{payBand.note}</div>
+              {payBand.cta && (
+                <a href={payBand.cta.href} target="_blank" rel="noopener noreferrer"
+                  style={{ background: "#fff", color: H.ink, borderRadius: 999, padding: "13px 24px", fontSize: 12.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", textDecoration: "none", whiteSpace: "nowrap" }}>
+                  {payBand.cta.label}
+                </a>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── The pieces ── */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 8, padding: "10px 4px 0" }}>
+          <h2 style={{ fontSize: "clamp(20px,3.4vw,30px)", fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", margin: 0 }}>The pieces.</h2>
+          {needsYou.length > 0 && <span style={{ ...LBL, color: H.amber }}>Amber pieces need you</span>}
+        </div>
+        <div className="hx-grid">
+          {items.map((it: any) => {
+            const phase = itemClientPhase(it);
+            const m = mockupOf(it);
+            const clickable = phase.label === "Awaiting your approval";
+            const sizes = Object.entries(it.sizes || {}).map(([s, q]) => `${s}:${q}`).join("  ");
+            return (
+              <div key={it.id} className="hx-card" onClick={clickable ? () => setProofItem(it) : undefined}
+                style={{ background: H.panel, border: `1px solid ${H.line}`, borderRadius: 16, overflow: "hidden", cursor: clickable ? "pointer" : "default" }}>
+                <div style={{ aspectRatio: "1 / 1", background: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  {m ? <img src={thumbSrc(m.driveFileId)} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+                    : <span style={{ fontSize: 11, color: "#999" }}>Art coming soon</span>}
+                </div>
+                <div style={{ padding: "12px 14px 14px" }}>
+                  <div style={{ fontSize: 14, fontWeight: 800, letterSpacing: "-0.01em" }}>{it.name}</div>
+                  <div style={{ fontFamily: H.mono, fontSize: 11, color: H.dim, marginTop: 4, fontVariantNumeric: "tabular-nums" }}>
+                    {(it.units || 0).toLocaleString("en-US")} units{it.sellPerUnit ? ` · ${fmtMoney(it.sellPerUnit)}/unit` : ""}
+                  </div>
+                  {sizes && <div style={{ fontFamily: H.mono, fontSize: 9.5, color: H.faint, marginTop: 5, letterSpacing: "0.02em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sizes}</div>}
+                  <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.11em", textTransform: "uppercase", marginTop: 9, color: TONE[phase.tone] }}>
+                    {phase.label}{clickable ? " →" : ""}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* ── Shipments (when goods are moving) ── */}
+        {(data.shipments || []).length > 0 && (
+          <div style={{ background: H.panel, border: `1px solid ${H.line}`, borderRadius: 16, padding: "18px 20px" }}>
+            <div style={{ ...LBL, marginBottom: 10 }}>Shipments</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {data.shipments.map((s: any, i: number) => {
+                const params = new URLSearchParams({ portal: token, download: "1" });
+                if (s.forwardTracking) params.set("forwardTracking", s.forwardTracking);
+                else { if (s.decoratorId) params.set("decoratorId", s.decoratorId); if (s.tracking) params.set("tracking", s.tracking); }
+                return (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", padding: "10px 12px", background: H.surface, borderRadius: 10 }}>
+                    <div style={{ flex: 1, minWidth: 160 }}>
+                      <div style={{ fontFamily: H.mono, fontSize: 13, fontWeight: 700 }}>{s.tracking}</div>
+                      <div style={{ fontSize: 11, color: H.faint, marginTop: 2 }}>{s.itemCount} item{s.itemCount === 1 ? "" : "s"}</div>
+                    </div>
+                    {dl("Packing slip", `/api/pdf/packing-slip/${project.id}?${params.toString()}`)}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* ── Paperwork: downloads only, never the view ── */}
+        <div style={{ background: H.panel, border: `1px solid ${H.line}`, borderRadius: 16, padding: "18px 20px" }}>
+          <div style={{ ...LBL, marginBottom: 12 }}>Paperwork</div>
+          <div style={{ display: "flex", gap: 22, flexWrap: "wrap", alignItems: "center" }}>
+            {quote.items.length > 0 && dl("Quote PDF", `/api/pdf/quote/${project.id}?portal=${token}&download=1`)}
+            {invoiceNumber && dl(`Invoice #${invoiceNumber}`, `/api/pdf/invoice/${project.id}?portal=${token}&download=1`)}
+          </div>
+        </div>
+      </main>
+
+      {/* ── Proof review: image first, full-bleed; PDF is a download link ── */}
+      {proofItem && (() => {
+        const it = proofItem;
+        const m = mockupOf(it);
+        const proofFile = (it.proofs || []).find((f: any) => f.stage === "proof");
+        return (
+          <div onClick={e => { if (e.target === e.currentTarget) setProofItem(null); }}
+            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 60, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "20px 12px", overflowY: "auto" }}>
+            <div style={{ background: H.panel, border: `1px solid ${H.line}`, borderRadius: 20, maxWidth: 700, width: "100%", overflow: "hidden" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 18px" }}>
+                <div style={{ fontSize: 16, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em" }}>{it.name}</div>
+                <button onClick={() => setProofItem(null)} aria-label="Close" style={{ background: "none", border: "none", color: H.dim, fontSize: 26, cursor: "pointer", lineHeight: 1 }}>×</button>
+              </div>
+              <div style={{ background: "#fff", aspectRatio: "4 / 3" }}>
+                {m && <img src={thumbSrc(m.driveFileId, 1000)} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} />}
+              </div>
+              <div style={{ display: "flex", gap: 12, alignItems: "center", padding: "16px 18px 18px", flexWrap: "wrap" }}>
+                <button onClick={() => {
+                    setProofItem(null);
+                    const el = document.getElementById("hx-approval");
+                    if (el) { el.scrollIntoView({ behavior: "smooth", block: "center" }); el.classList.remove("hx-approve-pulse"); void el.offsetWidth; el.classList.add("hx-approve-pulse"); }
+                  }}
+                  style={{ background: "#fff", color: H.ink, border: "none", borderRadius: 999, padding: "13px 24px", fontSize: 12.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>
+                  Approve your proofs
+                </button>
+                {proofFile && <span style={{ marginLeft: "auto" }}>{dl("Proof PDF", `/api/files/thumbnail?id=${proofFile.driveFileId}&dl=1`)}</span>}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+    </div>
+  );
+}
