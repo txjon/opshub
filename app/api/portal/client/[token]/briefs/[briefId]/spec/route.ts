@@ -87,13 +87,28 @@ export async function PATCH(req: NextRequest, { params }: { params: { token: str
 
     if (changes.length > 0) {
       try {
-        await db.from("art_brief_messages").insert({
-          brief_id: (brief as any).id,
-          sender_role: "client",
-          sender_name: (client as any).name,
-          message: `✎ ${changes.join(" · ")}`,
-          visibility: "all",
-        });
+        // One evolving marker, not a play-by-play: field-level autosave
+        // means many PATCHes per shaping session — if the LATEST message
+        // on the thread is already a client ✎ marker, update it in place
+        // with the current full summary instead of stacking bubbles.
+        const marker = `✎ ${changes.join(" · ")}`.slice(0, 300);
+        const { data: last } = await db.from("art_brief_messages")
+          .select("id, sender_role, message")
+          .eq("brief_id", (brief as any).id)
+          .order("created_at", { ascending: false })
+          .limit(1);
+        const lm = (last || [])[0];
+        if (lm && lm.sender_role === "client" && String(lm.message || "").startsWith("✎")) {
+          await db.from("art_brief_messages").update({ message: marker }).eq("id", lm.id);
+        } else {
+          await db.from("art_brief_messages").insert({
+            brief_id: (brief as any).id,
+            sender_role: "client",
+            sender_name: (client as any).name,
+            message: marker,
+            visibility: "all",
+          });
+        }
       } catch {}
     }
 
