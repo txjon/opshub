@@ -261,7 +261,7 @@ export default function StudioPage() {
 
       {openBrief && (
         <BriefSheet brief={openBrief} token={token}
-          onClose={() => setOpenBrief(null)}
+          onClose={() => { setOpenBrief(null); refetch(); }}
           onActed={() => { setOpenBrief(null); refetch(); }} />
       )}
     </div>
@@ -365,7 +365,9 @@ function BriefSheet({ brief, token, onClose, onActed }: { brief: any; token: str
   const ghost: React.CSSProperties = { background: "transparent", color: C.text, border: `1px solid ${C.border}`, borderRadius: 999, padding: "12px 20px", fontSize: 11.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: C.font };
 
   return (
-    <div className="st-back" onClick={e => { if (e.target === e.currentTarget && !busy) onClose(); }}>
+    // Hard exit only — a backdrop tap mid-notes read as data loss (it wasn't:
+    // blur saves first, but the reopen was stale). The × is the only door.
+    <div className="st-back">
       <div className="st-sheet">
         <div className="st-handle" />
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, padding: "16px 20px 4px" }}>

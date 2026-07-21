@@ -183,7 +183,7 @@ function DropSheet({ drop, token, briefs, onChanged, onClose }: {
   }
 
   return (
-    <div className="dx-back" onClick={e => { if (e.target === e.currentTarget && !busy) onClose(); }}>
+    <div className="dx-back">{/* hard exit only — × closes, backdrop does not */}
       <div className="dx-sheet">
         <div className="dx-handle" />
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, padding: "16px 20px 6px" }}>
