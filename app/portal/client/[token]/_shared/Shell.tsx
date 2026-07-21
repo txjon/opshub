@@ -73,6 +73,14 @@ const ICONS: Record<string, TabIcon> = {
       <path d="M8 13h8M8 17h5" />
     </svg>
   ),
+  Studio: (active) => (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth={active ? 2 : 1.6}
+      strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3l1.9 5.6L20 10l-6.1 1.4L12 17l-1.9-5.6L4 10l6.1-1.4L12 3Z" />
+      <path d="M19 15l.9 2.6L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.4L19 15Z" />
+    </svg>
+  ),
   Reorder: (active) => (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
       stroke="currentColor" strokeWidth={active ? 2 : 1.6}
@@ -88,8 +96,9 @@ const ICONS: Record<string, TabIcon> = {
 // Pipeline. Routes unchanged — /designs and /items keep their URLs.
 const TABS: { label: keyof typeof ICONS; path: string; display: string; unreadKey?: "designs" }[] = [
   { label: "Overview", display: "Home", path: "" },
-  // Product Development (the /designs studio) hidden Jul 20 pending a
-  // simpler rethink — route stays live for bookmarks, just unlisted.
+  // Product Development (the old /designs surface) stays unlisted; the
+  // Studio (grant 'studio') is its stripped-down replacement.
+  { label: "Studio", display: "Studio", path: "/studio" },
   { label: "Orders", display: "Orders", path: "/orders" },
   { label: "Items", display: "Pipeline", path: "/items" },
   { label: "Reorder", display: "Reorder", path: "/reorder" },
@@ -111,7 +120,9 @@ export default function Shell({ children }: { children: ReactNode }) {
   // Feature grants (mig 132): Pipeline is a granted surface — standard-tier
   // clients see Home / Orders / Reorder only.
   const features: string[] = (data as any).features || [];
-  const visibleTabs = TABS.filter(t => t.path !== "/items" || features.includes("pipeline"));
+  const visibleTabs = TABS.filter(t =>
+    (t.path !== "/items" || features.includes("pipeline")) &&
+    (t.path !== "/studio" || features.includes("studio")));
 
   const isActive = (path: string) =>
     path === "" ? pathname === base || pathname === base + "/" : !!pathname?.startsWith(base + path);
