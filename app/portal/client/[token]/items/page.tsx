@@ -497,7 +497,6 @@ function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClo
   const [pullOpen, setPullOpen] = useState(false);
   const [pullQtys, setPullQtys] = useState<Record<string, string>>({});
   const [pullDest, setPullDest] = useState("");
-  const [pullBy, setPullBy] = useState("");
   const [pullNote, setPullNote] = useState("");
   const [pullBusy, setPullBusy] = useState(false);
   const [pullDone, setPullDone] = useState<string | null>(null);
@@ -509,10 +508,10 @@ function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClo
       for (const [k, v] of Object.entries(pullQtys)) { const n = Math.round(Number(v) || 0); if (n > 0) qtys[k] = n; }
       const res = await fetch(`/api/portal/client/${token}/pulls`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ itemId: item.id, qtys, destination: pullDest.trim(), neededBy: pullBy || undefined, note: pullNote.trim() || undefined }),
+        body: JSON.stringify({ itemId: item.id, qtys, destination: pullDest.trim(), note: pullNote.trim() || undefined }),
       });
       const data = await res.json();
-      if (res.ok) { setPullDone("Request received. We'll pull it as soon as the goods allow and confirm with you."); setPullOpen(false); setPullQtys({}); setPullDest(""); setPullBy(""); setPullNote(""); }
+      if (res.ok) { setPullDone("Request received. We'll pull it as soon as the goods allow and confirm with you."); setPullOpen(false); setPullQtys({}); setPullDest(""); setPullNote(""); }
       else setPullDone(data.error || "Couldn't send the request.");
     } catch { setPullDone("Couldn't send the request."); }
     setPullBusy(false);
@@ -735,12 +734,7 @@ function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClo
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             <input value={pullDest} onChange={e => setPullDest(e.target.value)} placeholder="Where's it going? (name + address or 'our office')"
               style={{ padding: "10px 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, color: C.text, fontSize: 13, fontFamily: C.font, outline: "none" }} />
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <span style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>Need by</span>
-              <input type="date" value={pullBy} onChange={e => setPullBy(e.target.value)}
-                style={{ padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, color: C.text, fontSize: 12.5, fontFamily: C.font, outline: "none", colorScheme: "dark" }} />
-            </div>
-            <textarea value={pullNote} onChange={e => setPullNote(e.target.value)} rows={2} placeholder="Anything else we should know?"
+            <textarea value={pullNote} onChange={e => setPullNote(e.target.value)} rows={2} placeholder="Anything else? Date you need it by, special instructions…"
               style={{ padding: "10px 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, color: C.text, fontSize: 13, fontFamily: C.font, outline: "none", resize: "vertical" }} />
             <button onClick={submitPull} disabled={pullBusy}
               style={{ alignSelf: "flex-start", padding: "11px 22px", background: C.accent, color: "#0a0a0a", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 800, cursor: pullBusy ? "wait" : "pointer", fontFamily: C.font, opacity: pullBusy ? 0.6 : 1 }}>
