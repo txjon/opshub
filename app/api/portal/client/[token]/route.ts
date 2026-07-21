@@ -26,7 +26,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     const { data: briefs } = await db
       .from("art_briefs")
       .select(
-        "id, title, concept, state, deadline, purpose, audience, mood_words, no_gos, sent_to_designer_at, created_at, updated_at, client_aborted_at, job_id, client_last_seen_at, jobs(title, job_number)"
+        "id, title, concept, state, deadline, purpose, audience, mood_words, no_gos, product_spec, sent_to_designer_at, created_at, updated_at, client_aborted_at, job_id, client_last_seen_at, jobs(title, job_number)"
       )
       .eq("client_id", client.id)
       // Delivered briefs stay in the response — they bucket as "Approved"
@@ -190,6 +190,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         id: b.id,
         title: b.title || null,
         concept: b.concept || null,
+        product_spec: (b as any).product_spec || {},
         state: b.state,
         deadline: b.deadline,
         job_title: b.jobs?.title || null,

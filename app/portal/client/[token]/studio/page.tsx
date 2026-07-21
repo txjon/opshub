@@ -238,6 +238,11 @@ export default function StudioPage() {
                         <span style={{ fontSize: 9.5, color: C.faint, fontFamily: C.mono }}>{b.last_activity_at ? fmtDate(b.last_activity_at) : ""}</span>
                         {b.has_unread_external && <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.08em", color: C.purple }}>NEW</span>}
                       </div>
+                      {(b.product_spec?.retail != null || b.product_spec?.model) && (
+                        <div style={{ fontSize: 9.5, fontFamily: C.mono, color: C.muted, marginTop: 4 }}>
+                          {[b.product_spec?.retail != null ? `$${b.product_spec.retail} retail` : null, b.product_spec?.model === "preorder" ? "pre-order" : b.product_spec?.model === "stock" ? "fixed run" : null, b.product_spec?.format || null].filter(Boolean).join(" · ")}
+                        </div>
+                      )}
                     </div>
                   </button>
                 );
@@ -270,6 +275,23 @@ function BriefSheet({ brief, token, onClose, onActed }: { brief: any; token: str
   // (The old machinery scattered notes across four stores; this renders
   // the client-visible spine and every client note is always visible.)
   const [thread, setThread] = useState<any[] | null>(null);
+  // Build it out — the client shapes their own idea. Prompts, not forms;
+  // saves on blur/tap, changes echo into the thread as ✎ markers.
+  const spec0 = brief.product_spec || {};
+  const [specTitle, setSpecTitle] = useState<string>(brief.title || "");
+  const [retail, setRetail] = useState<string>(spec0.retail != null ? String(spec0.retail) : "");
+  const [model, setModel] = useState<string>(spec0.model || "");
+  const [format, setFormat] = useState<string>(spec0.format || "");
+  const [runSize, setRunSize] = useState<string>(spec0.run_size != null ? String(spec0.run_size) : "");
+  const [specSaved, setSpecSaved] = useState(false);
+  async function saveSpec(patch: any) {
+    try {
+      const res = await fetch(`/api/portal/client/${token}/briefs/${brief.id}/spec`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch),
+      });
+      if (res.ok) { setSpecSaved(true); setTimeout(() => setSpecSaved(false), 1800); }
+    } catch {}
+  }
   // Evolution scrubbing: latest drop is the hero; earlier drops become a
   // filmstrip of thumbs (old → new). Tap a thumb to swap it into the hero.
   const [heroIdx, setHeroIdx] = useState<number | null>(null);
@@ -328,7 +350,10 @@ function BriefSheet({ brief, token, onClose, onActed }: { brief: any; token: str
         <div className="st-handle" />
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, padding: "16px 20px 4px" }}>
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 17, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", lineHeight: 1.2 }}>{brief.title || "Untitled idea"}</div>
+            <input value={specTitle} onChange={e => setSpecTitle(e.target.value)}
+              onBlur={() => { if (specTitle.trim() && specTitle.trim() !== brief.title) saveSpec({ title: specTitle.trim() }); }}
+              placeholder="Untitled idea"
+              style={{ fontSize: 17, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", lineHeight: 1.2, background: "transparent", border: "none", outline: "none", color: C.text, width: "100%", fontFamily: C.font, padding: 0 }} />
             <div style={{ display: "flex", gap: 8, alignItems: "baseline", marginTop: 4 }}>
               <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: meta.color }}>{meta.label}</span>
               <span style={{ fontSize: 10, color: C.faint, fontFamily: C.mono }}>{brief.last_activity_at ? fmtDate(brief.last_activity_at) : ""}</span>
@@ -368,6 +393,55 @@ function BriefSheet({ brief, token, onClose, onActed }: { brief: any; token: str
             </div>
           );
         })()}
+
+        {/* ── Build it out — the client shapes the product ── */}
+        <div style={{ padding: "16px 20px 2px" }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+            <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: C.faint }}>Build it out</span>
+            {specSaved && <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: C.green }}>Saved</span>}
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+            {[["stock", "Fixed run"], ["preorder", "Pre-order drop"]].map(([k, label]) => (
+              <button key={k} onClick={() => { const next = model === k ? "" : k; setModel(next); saveSpec({ model: next || null }); }}
+                style={{ borderRadius: 999, border: model === k ? "1px solid #fff" : `1px solid ${C.border}`, background: model === k ? "#fff" : "transparent", color: model === k ? C.bg : C.muted, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", padding: "9px 16px", cursor: "pointer", fontFamily: C.font }}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 12 }}>
+            <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: C.faint }}>Retail it at</span>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 9, padding: "0 10px" }}>
+                <span style={{ color: C.faint, fontFamily: C.mono, fontSize: 13 }}>$</span>
+                <input type="text" inputMode="decimal" value={retail} placeholder="—"
+                  onFocus={e => e.currentTarget.select()}
+                  onChange={e => setRetail(e.target.value.replace(/[^0-9.]/g, ""))}
+                  onBlur={() => saveSpec({ retail: retail === "" ? null : Number(retail) })}
+                  style={{ width: 64, padding: "9px 0", background: "transparent", border: "none", outline: "none", color: C.text, fontFamily: C.mono, fontSize: 13.5, fontWeight: 700 }} />
+              </span>
+            </label>
+            <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: C.faint }}>What is it?</span>
+              <input type="text" value={format} placeholder="Tee, hoodie, hat…"
+                onChange={e => setFormat(e.target.value)}
+                onBlur={() => saveSpec({ format })}
+                style={{ width: 130, padding: "9px 10px", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 9, outline: "none", color: C.text, fontFamily: C.font, fontSize: 12.5 }} />
+            </label>
+            {model === "stock" && (
+              <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: C.faint }}>Rough run size</span>
+                <input type="text" inputMode="numeric" value={runSize} placeholder="—"
+                  onFocus={e => e.currentTarget.select()}
+                  onChange={e => setRunSize(e.target.value.replace(/[^0-9]/g, ""))}
+                  onBlur={() => saveSpec({ run_size: runSize === "" ? null : Number(runSize) })}
+                  style={{ width: 90, padding: "9px 10px", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 9, outline: "none", color: C.text, fontFamily: C.mono, fontSize: 13, fontWeight: 700 }} />
+              </label>
+            )}
+            {model === "preorder" && (
+              <span style={{ alignSelf: "flex-end", fontSize: 10.5, color: C.faint, maxWidth: "26ch", lineHeight: 1.45, paddingBottom: 6 }}>Pre-order sets the run — demand decides the buy.</span>
+            )}
+          </div>
+        </div>
 
         {/* ── The exchange — notes only; images live in the strip above ── */}
         <div style={{ padding: "14px 20px 4px", display: "flex", flexDirection: "column", gap: 10, maxHeight: "34vh", overflowY: "auto" }}>
