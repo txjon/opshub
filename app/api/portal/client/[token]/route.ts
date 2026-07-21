@@ -17,7 +17,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     const db = admin();
     const { data: client } = await db
       .from("clients")
-      .select("id, name, companies:company_id(name, slug)")
+      .select("id, name, portal_features, companies:company_id(name, slug)")
       .eq("portal_token", params.token)
       .single();
     if (!client) return NextResponse.json({ error: "Invalid link" }, { status: 404 });
@@ -179,7 +179,13 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         }
       }
       // Sort timestamp — "latest activity by anyone", newest to top
-      const latestAt = [clientAt, designerAt, hpdAt].filter(Boolean).sort().pop() || b.updated_at || b.created_at;
+      // Real moves only (messages/uploads by role). NEVER updated_at — a mere
+      // look bumps it and reorders the whole field with no actual action
+      // (the old model's most annoying habit).
+      // Feed order: REAL moves only. clientAt folds in client_last_seen_at
+      // (needed for the unread math above) — but a mere look must never
+      // reorder the field, so latestAt uses actual client activity instead.
+      const latestAt = [clientActivityAt, designerAt, hpdAt].filter(Boolean).sort().pop() || b.created_at;
       return {
         id: b.id,
         title: b.title || null,
@@ -280,6 +286,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
 
     return NextResponse.json({
       client: { name: client.name },
+      features: (client as any).portal_features || [],
       company: { name: tenant.name, slug: tenant.slug },
       briefs: out,
       orders_summary: {

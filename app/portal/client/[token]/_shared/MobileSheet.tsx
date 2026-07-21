@@ -93,7 +93,7 @@ export function MobileSheet({
           </div>
         )}
 
-        <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px" }}>
+        <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: "16px 20px" }}>
           {children}
         </div>
 

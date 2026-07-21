@@ -46,7 +46,7 @@ export default function LoginPage() {
               onChange={e => setEmail(e.target.value)}
               required
               className="w-full px-3 py-2 rounded-md bg-card border border-border text-foreground text-sm outline-none focus:border-primary transition-colors"
-              placeholder="you@inhousemerchandise.com"
+              placeholder="you@housepartydistro.com"
             />
           </div>
           <div className="space-y-1">

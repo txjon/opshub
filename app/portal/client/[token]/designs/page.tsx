@@ -115,7 +115,7 @@ export default function DesignsPage() {
         <button onClick={() => setShowNew(true)}
           style={{
             padding: "10px 18px", minHeight: 44,
-            background: C.text, color: "#fff",
+            background: C.accent, color: "#0a0a0a",
             border: "none", borderRadius: 8,
             fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: C.font,
             whiteSpace: "nowrap",
@@ -175,7 +175,7 @@ function ClientFilterPill({ label, count, active, onClick, accent }: {
   onClick: () => void;
   accent?: string;
 }) {
-  const fg = active ? "#fff" : (accent || C.text);
+  const fg = active ? (accent ? "#fff" : "#0a0a0a") : (accent || C.text);
   const bg = active ? (accent || C.text) : "transparent";
   const border = accent || C.border;
   return (
@@ -361,7 +361,7 @@ const KIND_META: Record<string, { short: string; bg: string; fg: string }> = {
   final:       { short: "FINAL", bg: C.green,  fg: "#fff" },
   revision:    { short: "REV",   bg: C.amber,  fg: "#fff" },
   first_draft: { short: "1ST",   bg: C.blue,   fg: "#fff" },
-  wip:         { short: "WIP",   bg: C.accent, fg: "#fff" },
+  wip:         { short: "WIP",   bg: C.accent, fg: "#0a0a0a" },
   reference:   { short: "REF",   bg: C.purple, fg: "#fff" },
   print_ready: { short: "PRINT", bg: C.green, fg: "#fff" },
 };

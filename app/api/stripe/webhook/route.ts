@@ -9,13 +9,13 @@ function admin() {
   return createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 }
 
-// POST /api/stripe/webhook?company=ihm
+// POST /api/stripe/webhook?company=<slug>
 //
 // Stripe webhook endpoint. The active company is passed via query
 // param so we can look up the right webhook secret (each tenant has
 // its own Stripe account + signing secret). Configure the endpoint URL
 // in each company's Stripe Dashboard:
-//   https://app.inhousemerchandise.com/api/stripe/webhook?company=ihm
+//   https://app.darkmatterdynamics.co/api/stripe/webhook?company=dmd
 //
 // Events handled:
 //   invoice.paid             — record payment, mark invoice paid

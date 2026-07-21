@@ -82,6 +82,17 @@ function friendlyColor(raw: string | null): string | null {
 // default #ffffff) that isn't a real product attribute — it's a stray
 // default the Buy Sheet wrote. Mirrors NON_GARMENT in lib/pricing.ts /
 // lib/lifecycle.ts.
+const ITEM_CATS: { key: string; label: string; match: (g: string) => boolean }[] = [
+  { key: "tees", label: "Tees", match: g => g.includes("tee") || g === "tank" || g.includes("shirt") },
+  { key: "hoodies", label: "Hoodies", match: g => g.includes("hoodie") || g.includes("crewneck") || g.includes("sweat") },
+  { key: "hats", label: "Hats", match: g => g.includes("hat") || g.includes("beanie") || g.includes("cap") },
+  { key: "patches", label: "Patches", match: g => g.includes("patch") },
+];
+const itemCatOf = (g: string | null) => {
+  const x = (g || "").toLowerCase();
+  return ITEM_CATS.find(c => c.match(x))?.key || "other";
+};
+
 const NON_GARMENT_TYPES = new Set([
   "accessory","patch","sticker","poster","pin","koozie","banner","flag",
   "lighter","towel","water_bottle","samples","custom","key_chain",
@@ -153,23 +164,21 @@ const FILTERS: Array<{ key: string; label: string; matches: (s: ItemState) => bo
 ];
 
 export default function ItemsPage() {
-  const { token } = useClientPortal();
+  const { token, data } = useClientPortal();
+  const hasPipeline = ((data as any)?.features || []).includes("pipeline");
   const [items, setItems] = useState<Item[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState("in_production");
   const [detail, setDetail] = useState<Item | null>(null);
-  // Current orders (default) vs History. Past orders (delivered 30+ days
-  // ago, or items the team manually archived) live in History so they
-  // don't crowd live orders. Fixes the "wait, are my new belts already
-  // delivered?" confusion when the same item ships more than once.
-  // Three top-level buckets — Active (the work in flight), History
-  // (anything past completion or manually archived), and On Hold (a
-  // paused project's items, surfaced separately so they're findable
-  // without polluting the active stage filters).
   const [view, setView] = useState<"active" | "history" | "on_hold">("active");
+  const [cat, setCat] = useState<string>("all");
+  const [pulls, setPulls] = useState<any[]>([]);
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
+  useEffect(() => {
+    load();
+    fetch(`/api/portal/client/${token}/pulls`).then(r => r.json()).then(b => setPulls(b.pulls || [])).catch(() => {});
+    // eslint-disable-next-line
+  }, []);
 
   async function load() {
     setLoading(true);
@@ -181,313 +190,328 @@ export default function ItemsPage() {
     setLoading(false);
   }
 
-  // Partition first by current vs history. The detailed status filters
-  // apply within whichever bucket is showing.
   const all = items || [];
   const historyItems = all.filter(isItemArchived);
   const onHoldItems = all.filter(it => it.status === "on_hold");
   const activeItems = all.filter(it => !isItemArchived(it) && it.status !== "on_hold");
-  // Per-view sort. Active = ETA ascending (next-due first; items with
-  // no ETA sink to the bottom). History + On Hold = alphabetical by
-  // item name (case-insensitive). The API hands them back newest-
-  // first by created_at, which we override here.
-  const byEtaAsc = (a: Item, b: Item) => {
-    const ae = resolveItemEta(a)?.date || null;
-    const be = resolveItemEta(b)?.date || null;
-    if (!ae && !be) return (a.name || "").localeCompare(b.name || "");
-    if (!ae) return 1;
-    if (!be) return -1;
-    return ae.localeCompare(be);
-  };
-  const byNameAsc = (a: Item, b: Item) =>
-    (a.name || "").localeCompare(b.name || "", undefined, { sensitivity: "base" });
-  const inView = view === "history" ? [...historyItems].sort(byNameAsc)
-    : view === "on_hold" ? [...onHoldItems].sort(byNameAsc)
-    : [...activeItems].sort(byEtaAsc);
 
-  const active = FILTERS.find(f => f.key === filter) || FILTERS[0];
   const q = query.trim().toLowerCase();
-  // Status filters only apply in Current Orders — every History item
-  // is archived/complete/cancelled by definition, so the per-stage
-  // filter rows would always return zero. In History we just search.
-  const filtered = inView.filter(it => {
-    if (view === "active" && !active.matches(it.status)) return false;
-    if (!q) return true;
-    return (
-      it.name.toLowerCase().includes(q) ||
-      (it.garment_type || "").toLowerCase().includes(q) ||
-      (it.job.title || "").toLowerCase().includes(q) ||
-      (it.job.job_number || "").toLowerCase().includes(q)
-    );
-  });
+  const matches = (it: Item) => !q || it.name.toLowerCase().includes(q) || (it.job.job_number || "").toLowerCase().includes(q);
+  const catMatch = (it: Item) => cat === "all" || itemCatOf(it.garment_type) === cat;
+  const inView = (view === "history" ? historyItems : view === "on_hold" ? onHoldItems : activeItems).filter(it => matches(it) && catMatch(it));
 
-  const counts: Record<string, number> = { all: inView.length };
-  for (const f of FILTERS) counts[f.key] = inView.filter(it => f.matches(it.status)).length;
-
-  // KPI rollup — mirrors the worksheet's Phase/Items/Qty/Cost/Gross/Profit
-  // table. Computed against the items in the active top-level view
-  // (Current Orders or History).
+  // ── Financial rollup (same math as the old worksheet table) ──
   const rollup = (list: Item[]) => {
     let count = 0, qty = 0, cost = 0, gross = 0;
     for (const it of list) {
-      const c = Number(it.cost) || 0;
-      const r = Number(it.retail) || 0;
       count++; qty += it.qty;
-      cost += c * it.qty;
-      gross += r * it.qty;
+      cost += (Number(it.cost) || 0) * it.qty;
+      gross += (Number(it.retail) || 0) * it.qty;
     }
     return { count, qty, cost, gross, profit: gross - cost };
   };
-  const rollups = {
-    setup: rollup(inView.filter(it => it.status === "setup")),
-    in_production: rollup(inView.filter(it => it.status === "in_production")),
-    shipped: rollup(inView.filter(it => it.status === "shipped")),
-    in_stock: rollup(inView.filter(it => it.status === "in_stock")),
-    total: rollup(inView),
-  };
-  const ROLLUP_ROWS: { key: "setup"|"in_production"|"shipped"|"in_stock"; color: string }[] = [
-    { key: "setup", color: C.muted },
-    { key: "in_production", color: C.blue },
-    { key: "shipped", color: C.purple },
-    { key: "in_stock", color: "#14b8a6" },
+  const PHASES: { key: ItemState; label: string; color: string }[] = [
+    { key: "setup", label: "Setup", color: C.faint },
+    { key: "in_production", label: "In Production", color: C.blue },
+    { key: "shipped", label: "In Transit", color: C.purple },
+    { key: "in_stock", label: "In Stock", color: "#14b8a6" },
   ];
+  const byPhase = PHASES.map(p => ({ ...p, r: rollup(activeItems.filter(it => it.status === p.key)) }));
+  const total = rollup(activeItems);
+
+  // ── Timeline: every active item with a resolved ETA, today → last arrival ──
+  const WEB_PREP_DAYS = 3; // prep window after landing before webstore-ready
+  const timed = activeItems
+    .map(it => ({ it, eta: resolveItemEta(it) }))
+    .filter((x): x is { it: Item; eta: { date: string; isOverride: boolean } } => !!x.eta)
+    .sort((a, b) => a.eta.date.localeCompare(b.eta.date));
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const DAY = 86400000;
+  const spanEnd = timed.length
+    ? Math.max(today.getTime() + 14 * DAY, Math.max(...timed.map(x => new Date(x.eta.date + "T00:00").getTime())) + (WEB_PREP_DAYS + 3) * DAY)
+    : today.getTime() + 14 * DAY;
+  const spanMs = spanEnd - today.getTime();
+  const pct = (t: number) => Math.max(0, Math.min(100, ((t - today.getTime()) / spanMs) * 100));
+  const weeks: { x: number; label: string }[] = [];
+  for (let t = today.getTime(); t <= spanEnd; t += 7 * DAY) {
+    weeks.push({ x: pct(t), label: new Date(t).toLocaleDateString("en-US", { month: "short", day: "numeric" }) });
+  }
+  const tbd = activeItems.filter(it => isEtaTbd(it));
+  const inStock = activeItems.filter(it => it.status === "in_stock");
+  const landingSoon = timed.filter(x => new Date(x.eta.date + "T00:00").getTime() - today.getTime() <= 7 * DAY).length;
+
+  const fmtShort = (iso: string) => new Date(iso + "T00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const daysOut = (iso: string) => Math.round((new Date(iso + "T00:00").getTime() - today.getTime()) / DAY);
+
+  if (data && !hasPipeline) {
+    return (
+      <div style={{ padding: "60px 0", textAlign: "center", color: C.muted, fontSize: 13 }}>
+        This page isn&rsquo;t enabled for your account. Reach out to your rep if you&rsquo;d like production visibility here.
+      </div>
+    );
+  }
 
   return (
-    <div>
-      {/* Top tabs: Active · History · On Hold */}
-      <div style={{ display: "flex", gap: 4, borderBottom: `1px solid ${C.border}`, marginBottom: 16 }}>
-        {(["active", "history", "on_hold"] as const).map(v => {
-          const isActive = view === v;
-          const count = v === "history" ? historyItems.length
-            : v === "on_hold" ? onHoldItems.length
-            : activeItems.length;
-          const label = v === "active" ? "Active" : v === "history" ? "History" : "On Hold";
-          return (
-            <button key={v}
-              onClick={() => { setView(v); setFilter("in_production"); }}
-              style={{
-                background: "transparent", border: "none",
-                padding: "10px 16px", marginBottom: -1,
-                borderBottom: isActive ? `2px solid ${C.text}` : "2px solid transparent",
-                color: isActive ? C.text : C.muted,
-                fontSize: 14, fontWeight: isActive ? 800 : 600,
-                cursor: "pointer", fontFamily: C.font,
-              }}>
-              {label}
-              <span style={{ marginLeft: 6, fontSize: 11, color: isActive ? C.muted : C.faint, fontWeight: 600 }}>{count}</span>
-            </button>
-          );
+    <div style={{ paddingTop: "clamp(8px, 3vw, 28px)" }}>
+      <style dangerouslySetInnerHTML={{ __html: `
+        .px-chip{flex-shrink:0;border-radius:999px;border:1px solid ${C.border};background:transparent;color:${C.muted};font-family:${C.mono};font-size:11px;font-weight:700;padding:8px 15px;cursor:pointer;white-space:nowrap}
+        .px-chip.on{background:#fff;color:${C.bg};border-color:#fff}
+        .px-kpis{display:grid;grid-template-columns:repeat(2,1fr);border-top:1px solid ${C.border}}
+        @media(min-width:720px){.px-kpis{grid-template-columns:repeat(4,1fr)}}
+        .px-kpi{border-bottom:1px solid ${C.border};padding:20px 4px 18px}
+        .px-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(158px,1fr));gap:12px}
+        @media(min-width:720px){.px-grid{grid-template-columns:repeat(auto-fill,minmax(210px,1fr))}}
+        .px-card{transition:transform .15s ease,border-color .15s ease}
+        .px-card:hover{transform:translateY(-3px);border-color:rgba(255,255,255,.3)}
+        .px-timeline{display:none}
+        @media(min-width:720px){.px-timeline{display:block}.px-timeline-mobile{display:none}}
+        .px-tl-name{width:150px}
+        @media(min-width:720px){.px-tl-name{width:220px}}
+        @media(prefers-reduced-motion:reduce){.px-card,.px-card:hover{transition:none;transform:none}}
+      ` }} />
+
+      <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase", color: C.faint, textAlign: "center" }}>Items</div>
+      <h1 style={{ fontSize: "clamp(30px,6.5vw,60px)", fontWeight: 900, lineHeight: 0.98, letterSpacing: "-0.02em", textTransform: "uppercase", margin: "8px 0 18px", textAlign: "center" }}>
+        The pipeline.
+      </h1>
+
+      {/* View chips + search */}
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 22 }}>
+        {([["active", `Active · ${activeItems.length}`], ["history", `History · ${historyItems.length}`], ["on_hold", `On hold · ${onHoldItems.length}`]] as const).map(([k, label]) => (
+          <button key={k} className={`px-chip${view === k ? " on" : ""}`} onClick={() => setView(k)}>{label}</button>
+        ))}
+        {[{ key: "all", label: "All types" }, ...ITEM_CATS, { key: "other", label: "Everything else" }].map(c => {
+          const base = view === "history" ? historyItems : view === "on_hold" ? onHoldItems : activeItems;
+          const n = c.key === "all" ? base.length : base.filter(x => itemCatOf(x.garment_type) === c.key).length;
+          if (n === 0 && c.key !== "all") return null;
+          return <button key={c.key} className={`px-chip${cat === c.key ? " on" : ""}`} onClick={() => setCat(c.key)}>{(c as any).label} · {n}</button>;
         })}
+        <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search pieces…"
+          style={{ marginLeft: "auto", flex: "1 1 170px", maxWidth: 300, padding: "9px 14px", fontSize: 12.5, background: C.card, border: `1px solid ${C.border}`, borderRadius: 999, outline: "none", color: C.text, fontFamily: C.font, boxSizing: "border-box" }} />
       </div>
 
-      {/* KPI rollup — two layouts.
-            • Desktop (≥641px): full table with every column (Phase /
-              Items / Qty / Cost / Gross / Profit) so the back-office
-              gets the same scan Jon sees in the internal worksheet.
-            • Mobile (≤640px): one bold "Total" header showing Gross +
-              Profit, then a vertical stack of phase cards. Drops
-              Items / Qty / Cost from the mobile read since clients
-              care about value + margin at-a-glance. */}
-      {!loading && inView.length > 0 && view === "active" && (
+      {loading ? (
+        <div style={{ color: C.faint, fontSize: 13, padding: "40px 0" }}>Loading your pipeline…</div>
+      ) : view !== "active" ? (
+        <Gallery items={inView} onOpen={setDetail} empty={q ? "No pieces match that search." : view === "history" ? "Nothing in history yet." : "Nothing on hold."} />
+      ) : (
         <>
-          <style>{`
-            @media (max-width: 640px) { .portal-kpi-table { display: none !important; } }
-            @media (min-width: 641px) { .portal-kpi-cards { display: none !important; } }
-          `}</style>
-
-          {/* Desktop table */}
-          <div className="portal-kpi-table" style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14, marginBottom: 14, overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 580 }}>
-              <thead>
-                <tr style={{ borderBottom: `1px solid ${C.border}` }}>
-                  {["Phase", "Items", "Qty", "Cost", "Gross", "Profit"].map((h, i) => (
-                    <th key={h} style={{ padding: "6px 10px", fontSize: 9, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: "0.07em", textAlign: i === 0 ? "left" : "right" }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {ROLLUP_ROWS.map(({ key, color }) => {
-                  const r = rollups[key];
-                  return (
-                    <tr key={key}>
-                      <td style={{ padding: "6px 10px", fontSize: 11, fontWeight: 700, color, textTransform: "uppercase", letterSpacing: "0.07em" }}>{CLIENT_STATE_LABELS[key]}</td>
-                      <td style={{ padding: "6px 10px", fontSize: 12, fontFamily: C.mono, color: C.muted, textAlign: "right" }}>{r.count}</td>
-                      <td style={{ padding: "6px 10px", fontSize: 12, fontFamily: C.mono, color: C.text, textAlign: "right" }}>{r.qty.toLocaleString()}</td>
-                      <td style={{ padding: "6px 10px", fontSize: 12, fontFamily: C.mono, color: C.text, textAlign: "right" }}>{fmtMoneyShort(r.cost)}</td>
-                      <td style={{ padding: "6px 10px", fontSize: 12, fontFamily: C.mono, color: C.text, textAlign: "right" }}>{fmtMoneyShort(r.gross)}</td>
-                      <td style={{ padding: "6px 10px", fontSize: 12, fontFamily: C.mono, fontWeight: 600, color: C.green, textAlign: "right" }}>{fmtMoneyShort(r.profit)}</td>
-                    </tr>
-                  );
-                })}
-                <tr style={{ borderTop: `1px solid ${C.border}`, background: C.surface }}>
-                  <td style={{ padding: "8px 10px", fontSize: 11, fontWeight: 700, color: C.text, textTransform: "uppercase", letterSpacing: "0.07em" }}>Total</td>
-                  <td style={{ padding: "8px 10px", fontSize: 13, fontFamily: C.mono, fontWeight: 700, color: C.text, textAlign: "right" }}>{rollups.total.count}</td>
-                  <td style={{ padding: "8px 10px", fontSize: 13, fontFamily: C.mono, fontWeight: 700, color: C.text, textAlign: "right" }}>{rollups.total.qty.toLocaleString()}</td>
-                  <td style={{ padding: "8px 10px", fontSize: 13, fontFamily: C.mono, fontWeight: 700, color: C.text, textAlign: "right" }}>{fmtMoneyShort(rollups.total.cost)}</td>
-                  <td style={{ padding: "8px 10px", fontSize: 13, fontFamily: C.mono, fontWeight: 700, color: C.text, textAlign: "right" }}>{fmtMoneyShort(rollups.total.gross)}</td>
-                  <td style={{ padding: "8px 10px", fontSize: 13, fontFamily: C.mono, fontWeight: 800, color: C.green, textAlign: "right" }}>{fmtMoneyShort(rollups.total.profit)}</td>
-                </tr>
-              </tbody>
-            </table>
+          {/* KPI numerals */}
+          <div className="px-kpis" style={{ marginBottom: 30 }}>
+            <div className="px-kpi">
+              <div style={{ fontSize: 9.5, fontWeight: 800, color: C.faint, letterSpacing: "0.14em", textTransform: "uppercase" }}>Units in flight</div>
+              <div style={{ fontSize: "clamp(28px,3.6vw,40px)", fontWeight: 900, lineHeight: 1.05, marginTop: 6, letterSpacing: "-0.02em" }}>{total.qty.toLocaleString()}</div>
+              <div style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>{total.count} pieces</div>
+            </div>
+            <div className="px-kpi">
+              <div style={{ fontSize: 9.5, fontWeight: 800, color: C.faint, letterSpacing: "0.14em", textTransform: "uppercase" }}>Landing this week</div>
+              <div style={{ fontSize: "clamp(28px,3.6vw,40px)", fontWeight: 900, lineHeight: 1.05, marginTop: 6, letterSpacing: "-0.02em", color: landingSoon > 0 ? C.purple : C.text }}>{landingSoon}</div>
+              <div style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>{inStock.length} already in stock</div>
+            </div>
+            <div className="px-kpi">
+              <div style={{ fontSize: 9.5, fontWeight: 800, color: C.faint, letterSpacing: "0.14em", textTransform: "uppercase" }}>Pipeline value</div>
+              <div style={{ fontSize: "clamp(28px,3.6vw,40px)", fontWeight: 900, lineHeight: 1.05, marginTop: 6, letterSpacing: "-0.02em" }}>{fmtMoneyShort(total.gross)}</div>
+              <div style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>at retail</div>
+            </div>
+            <div className="px-kpi">
+              <div style={{ fontSize: 9.5, fontWeight: 800, color: C.faint, letterSpacing: "0.14em", textTransform: "uppercase" }}>Projected profit</div>
+              <div style={{ fontSize: "clamp(28px,3.6vw,40px)", fontWeight: 900, lineHeight: 1.05, marginTop: 6, letterSpacing: "-0.02em", color: C.green }}>{fmtMoneyShort(total.profit)}</div>
+              <div style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>{fmtMoneyShort(total.cost)} cost</div>
+            </div>
           </div>
 
-          {/* Mobile card — single tight card with the Total headline
-              on top and one ~24px row per phase beneath. Cuts the
-              footprint roughly in half vs. one card per phase while
-              keeping the at-a-glance Gross + Profit signal. */}
-          <div className="portal-kpi-cards" style={{ marginBottom: 14 }}>
-            <div style={{
-              background: C.card, border: `1px solid ${C.border}`, borderRadius: 12,
-              padding: "12px 14px",
-            }}>
-              {/* Total headline */}
-              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 14 }}>
-                <div>
-                  <div style={{ fontSize: 9, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: "0.08em" }}>Total · {rollups.total.count} item{rollups.total.count === 1 ? "" : "s"}</div>
-                  <div style={{ fontSize: 18, fontWeight: 800, color: C.text, fontFamily: C.mono, lineHeight: 1.15, marginTop: 2 }}>{fmtMoneyShort(rollups.total.gross)}</div>
+          {/* Phase value bar */}
+          {total.gross > 0 && (
+            <div style={{ marginBottom: 34 }}>
+              <div style={{ fontSize: 9.5, fontWeight: 800, color: C.faint, letterSpacing: "0.14em", textTransform: "uppercase", marginBottom: 10 }}>Where the value sits</div>
+              <div style={{ display: "flex", height: 14, borderRadius: 999, overflow: "hidden", background: C.card }}>
+                {byPhase.map(p => p.r.gross > 0 && (
+                  <div key={p.key} style={{ width: `${(p.r.gross / total.gross) * 100}%`, background: p.color }} title={`${p.label}: ${fmtMoneyShort(p.r.gross)}`} />
+                ))}
+              </div>
+              <div style={{ display: "flex", gap: 18, flexWrap: "wrap", marginTop: 10 }}>
+                {byPhase.map(p => p.r.count > 0 && (
+                  <span key={p.key} style={{ display: "inline-flex", alignItems: "baseline", gap: 6, fontSize: 10.5 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: 2, background: p.color, alignSelf: "center" }} />
+                    <span style={{ fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: C.muted }}>{p.label}</span>
+                    <span style={{ fontFamily: C.mono, color: C.text }}>{fmtMoneyShort(p.r.gross)}</span>
+                    <span style={{ fontFamily: C.mono, color: C.faint }}>· {p.r.qty.toLocaleString()} pcs</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ── Arrival timeline (desktop) — the drop-planning overview ── */}
+          {timed.length > 0 && (
+            <div className="px-timeline" style={{ marginBottom: 36 }}>
+              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10, marginBottom: 4 }}>
+                <h2 style={{ margin: 0, fontSize: 15, fontWeight: 900, textTransform: "uppercase" }}>Landing schedule.</h2>
+                <span style={{ fontSize: 10, color: C.faint, fontWeight: 700, letterSpacing: "0.06em" }}>solid = arrival at warehouse · soft = ~{WEB_PREP_DAYS}d web prep</span>
+              </div>
+              <div style={{ position: "relative", borderTop: `1px solid ${C.border}`, paddingTop: 6 }}>
+                {/* Week gridlines */}
+                <div style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
+                  {weeks.map((w, i) => (
+                    <div key={i} style={{ position: "absolute", left: `calc(${w.x}% * (100% - 150px) / 100% + 150px)`, top: 0, bottom: 0 }} />
+                  ))}
                 </div>
-                <div style={{ textAlign: "right" }}>
-                  <div style={{ fontSize: 9, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: "0.08em" }}>Profit</div>
-                  <div style={{ fontSize: 18, fontWeight: 800, color: C.green, fontFamily: C.mono, lineHeight: 1.15, marginTop: 2 }}>{fmtMoneyShort(rollups.total.profit)}</div>
+                {timed.map(({ it, eta }) => {
+                  const etaT = new Date(eta.date + "T00:00").getTime();
+                  const barEnd = pct(etaT);
+                  const prepEnd = pct(etaT + WEB_PREP_DAYS * DAY);
+                  const color = it.status === "shipped" ? C.purple : it.status === "in_production" ? C.blue : it.status === "in_stock" ? "#14b8a6" : C.muted;
+                  const d = daysOut(eta.date);
+                  return (
+                    <button key={it.id} onClick={() => setDetail(it)}
+                      style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", background: "transparent", border: "none", borderBottom: `1px solid ${C.border}`, padding: "9px 0", cursor: "pointer", fontFamily: C.font, color: C.text, textAlign: "left" }}>
+                      <div className="px-tl-name" style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
+                        <div style={{ width: 30, height: 30, background: "#fff", borderRadius: 6, overflow: "hidden", flexShrink: 0 }}>
+                          {it.thumb_id && <img src={`/api/files/thumbnail?id=${it.thumb_id}&thumb=1`} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "contain" }} onError={(e: any) => { e.target.style.display = "none"; }} />}
+                        </div>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: 11.5, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.name}</div>
+                          <div style={{ fontSize: 9.5, color: C.faint, fontFamily: C.mono }}>{it.qty.toLocaleString()} pcs</div>
+                        </div>
+                      </div>
+                      <div style={{ flex: 1, position: "relative", height: 22, minWidth: 0 }}>
+                        <div style={{ position: "absolute", left: 0, right: 0, top: 10, height: 2, background: C.card, borderRadius: 2 }} />
+                        <div style={{ position: "absolute", left: 0, width: `${barEnd}%`, top: 8, height: 6, borderRadius: 3, background: color }} />
+                        <div style={{ position: "absolute", left: `${barEnd}%`, width: `${Math.max(0, prepEnd - barEnd)}%`, top: 8, height: 6, borderRadius: 3, background: color, opacity: 0.28 }} />
+                        <div style={{ position: "absolute", left: `${barEnd}%`, top: 4, width: 2, height: 14, background: "#fff", borderRadius: 1 }} />
+                      </div>
+                      <div style={{ flexShrink: 0, width: 92, textAlign: "right" }}>
+                        <div style={{ fontSize: 11, fontWeight: 800, fontFamily: C.mono, color }}>{fmtShort(eta.date)}</div>
+                        <div style={{ fontSize: 9.5, color: d <= 3 ? C.amber : C.faint, fontFamily: C.mono }}>{d <= 0 ? "landing" : `${d}d out`}</div>
+                      </div>
+                    </button>
+                  );
+                })}
+                {/* Axis */}
+                <div style={{ display: "flex", justifyContent: "space-between", paddingLeft: 162, paddingTop: 8, fontSize: 9, fontFamily: C.mono, color: C.faint }}>
+                  <span>today</span>
+                  {weeks.slice(1).map((w, i) => <span key={i}>{w.label}</span>)}
                 </div>
               </div>
-              {/* Per-phase rows — only show phases with content. Each
-                  row is name · count on the left, gross / profit on
-                  the right, all on a single line. */}
-              {ROLLUP_ROWS.some(({ key }) => rollups[key].count > 0) && (
-                <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${C.border}`, display: "flex", flexDirection: "column", gap: 4 }}>
-                  {ROLLUP_ROWS.map(({ key, color }) => {
-                    const r = rollups[key];
-                    if (r.count === 0) return null;
-                    return (
-                      <div key={key} style={{
-                        display: "flex", alignItems: "baseline", justifyContent: "space-between",
-                        gap: 10, fontSize: 12,
-                      }}>
-                        <span style={{ minWidth: 0, display: "flex", alignItems: "baseline", gap: 6 }}>
-                          <span style={{ fontSize: 10, fontWeight: 700, color, textTransform: "uppercase", letterSpacing: "0.06em", whiteSpace: "nowrap" }}>{CLIENT_STATE_LABELS[key]}</span>
-                          <span style={{ fontSize: 10, color: C.faint, fontFamily: C.mono }}>{r.count}</span>
-                        </span>
-                        <span style={{ display: "flex", alignItems: "baseline", gap: 6, fontFamily: C.mono, whiteSpace: "nowrap" }}>
-                          <span style={{ color: C.muted, fontWeight: 600 }}>{fmtMoneyShort(r.gross)}</span>
-                          <span style={{ color: C.faint }}>/</span>
-                          <span style={{ color: C.green, fontWeight: 700 }}>{fmtMoneyShort(r.profit)}</span>
-                        </span>
-                      </div>
-                    );
-                  })}
+              {tbd.length > 0 && (
+                <div style={{ marginTop: 10, fontSize: 11, color: C.faint }}>
+                  {tbd.length} piece{tbd.length === 1 ? "" : "s"} awaiting a delivery estimate — shown in the gallery below.
                 </div>
               )}
             </div>
-          </div>
-        </>
-      )}
+          )}
 
-      {/* Filters + search on one row — stage filters only render in
-          Current Orders. History is by definition everything past
-          completion; there's no useful sub-stage to filter on, so the
-          row collapses to just the search input. */}
-      <div style={{ display: "flex", gap: 18, flexWrap: "wrap", borderBottom: `1px solid ${C.border}`, paddingBottom: 6, alignItems: "center", marginBottom: 14 }}>
-        {view === "active" && FILTERS.map(f => {
-          const isActive = filter === f.key;
-          const n = counts[f.key] || 0;
-          return (
-            <button key={f.key}
-              onClick={() => setFilter(f.key)}
-              style={{
-                padding: "8px 0", minHeight: 40,
-                background: "transparent",
-                color: isActive ? C.text : C.muted,
-                border: "none",
-                borderBottom: isActive ? `2px solid ${C.text}` : "2px solid transparent",
-                fontSize: 13, fontWeight: isActive ? 800 : 600, cursor: "pointer",
-                fontFamily: C.font, marginBottom: -7,
-              }}>
-              {f.label} {n > 0 && <span style={{ opacity: 0.7 }}>· {n}</span>}
-            </button>
-          );
-        })}
-        <input
-          value={query}
-          onChange={e => setQuery(e.target.value)}
-          placeholder={view === "history" ? "Search past orders…" : view === "on_hold" ? "Search paused items…" : "Search items, garment, or project…"}
-          style={{
-            marginLeft: "auto", flex: "1 1 220px", maxWidth: 360,
-            padding: "8px 12px", fontSize: 13,
-            background: C.card, border: `1px solid ${C.border}`,
-            borderRadius: 6, outline: "none",
-            fontFamily: C.font, boxSizing: "border-box",
-            marginBottom: 6,
-          }}
-        />
-      </div>
+          {/* ── Open pull requests — the client can see what they've asked us to pull ── */}
+          {pulls.length > 0 && (
+            <div style={{ marginBottom: 34 }}>
+              <h2 style={{ margin: "0 0 10px", fontSize: 15, fontWeight: 900, textTransform: "uppercase" }}>Requested pulls.</h2>
+              <div style={{ display: "flex", flexDirection: "column" }}>
+                {pulls.map(pr => (
+                  <div key={pr.id} style={{ display: "flex", alignItems: "baseline", gap: 12, borderBottom: `1px solid ${C.border}`, padding: "10px 0", flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", minWidth: 0, flex: "1 1 200px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pr.itemName}</span>
+                    <span style={{ fontSize: 11, fontFamily: C.mono, color: C.muted }}>{pr.units.toLocaleString()} pcs</span>
+                    <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: pr.status === "partial" ? C.blue : C.amber }}>{pr.status === "partial" ? "Partially pulled" : "Requested"}</span>
+                    <span style={{ fontSize: 10, fontFamily: C.mono, color: C.faint }}>{fmtDate(pr.createdAt)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
-      {/* Grid */}
-      {loading ? (
-        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 40, textAlign: "center", color: C.muted }}>
-          Loading items…
-        </div>
-      ) : filtered.length === 0 ? (
-        <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: 50, textAlign: "center", color: C.muted, fontSize: 13 }}>
-          {(items || []).length === 0
-            ? "No items yet. Once a design turns into an order, it'll land here."
-            : q ? "No items match that search." : "Nothing in this filter."}
-        </div>
-      ) : (
-        <div className="portal-items-list" style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          {/* Column header — desktop-only. On mobile each row stands
-              alone as a card with its own visual hierarchy. */}
-          <div className="portal-items-header" style={{ display: "grid", gridTemplateColumns: view === "active" ? "minmax(0, 1fr) 60px 80px 80px 84px 110px 78px 44px" : "minmax(0, 1fr) 60px 80px 80px 44px", gap: 8, padding: "4px 10px", fontSize: 9, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: "0.07em" }}>
-            <div>Item</div>
-            <div style={{ textAlign: "right" }}>Qty</div>
-            <div style={{ textAlign: "right" }}>Cost</div>
-            <div style={{ textAlign: "right" }}>Retail</div>
-            {view === "active" && <div style={{ textAlign: "right" }}>Profit</div>}
-            {view === "active" && <div>Status</div>}
-            {view === "active" && <div>ETA</div>}
-            <div style={{ textAlign: "center" }}>Paid</div>
-          </div>
-          {/* Responsive: at ≤640px the row grid collapses to a single
-              column. The Item cell hosts everything — thumb (scaled up
-              from 36 → 84), name, job line, and a mobile summary row
-              with status pill + qty + cost + ETA. Secondary columns
-              hide entirely since the summary covers them. */}
-          <style>{`
-            @media (max-width: 640px) {
-              .portal-items-header { display: none !important; }
-              .portal-item-row {
-                grid-template-columns: 1fr !important;
-                padding: 12px !important;
-                gap: 0 !important;
-              }
-              .portal-item-row__cell--name {
-                align-items: flex-start !important;
-                gap: 14px !important;
-              }
-              .portal-item-row__thumb-box {
-                width: 84px !important; height: 84px !important;
-                border-radius: 10px !important;
-              }
-              .portal-item-row__cell--qty,
-              .portal-item-row__cell--cost,
-              .portal-item-row__cell--retail,
-              .portal-item-row__cell--profit,
-              .portal-item-row__cell--status,
-              .portal-item-row__cell--eta,
-              .portal-item-row__cell--paid { display: none !important; }
-              .portal-item-row__mobile-summary { display: flex !important; }
-              .portal-item-row__name-text {
-                font-size: 15px !important;
-                -webkit-line-clamp: 2 !important;
-              }
-              .portal-item-row__job-line { font-size: 12px !important; }
+          {/* ── Landing schedule, mobile: vertical agenda down a date rail ── */}
+          {timed.length > 0 && (
+            <div className="px-timeline-mobile" style={{ marginBottom: 34 }}>
+              <h2 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 900, textTransform: "uppercase" }}>Landing schedule.</h2>
+              <div style={{ fontSize: 10, color: C.faint, fontWeight: 700, marginBottom: 14 }}>arrival at warehouse · ~{WEB_PREP_DAYS}d prep after landing before web-ready</div>
+              {(() => {
+                // Group arrivals by landing date, chronological.
+                const byDate = new Map<string, typeof timed>();
+                for (const x of timed) {
+                  if (!byDate.has(x.eta.date)) byDate.set(x.eta.date, [] as any);
+                  (byDate.get(x.eta.date) as any).push(x);
+                }
+                const dates = Array.from(byDate.keys()).sort();
+                return (
+                  <div style={{ position: "relative", paddingLeft: 18 }}>
+                    {/* the rail */}
+                    <div style={{ position: "absolute", left: 4, top: 6, bottom: 6, width: 2, background: C.border, borderRadius: 2 }} />
+                    {dates.map(d => {
+                      const group = byDate.get(d)!;
+                      const dd = daysOut(d);
+                      const soon = dd <= 7;
+                      return (
+                        <div key={d} style={{ position: "relative", marginBottom: 18 }}>
+                          <span style={{ position: "absolute", left: -18, top: 4, width: 10, height: 10, borderRadius: 999, background: soon ? "#fff" : C.border, border: soon ? "none" : `2px solid ${C.bg}` }} />
+                          <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 8 }}>
+                            <span style={{ fontSize: 12.5, fontWeight: 900, textTransform: "uppercase", fontFamily: C.mono }}>{fmtShort(d)}</span>
+                            <span style={{ fontSize: 10, fontFamily: C.mono, color: dd <= 3 ? C.amber : C.faint, fontWeight: 700 }}>{dd <= 0 ? "landing" : `${dd}d out`}</span>
+                            <span style={{ fontSize: 10, color: C.faint }}>· web-ready ~{fmtShort(new Date(new Date(d + "T00:00").getTime() + WEB_PREP_DAYS * DAY).toISOString().slice(0, 10))}</span>
+                          </div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                            {group.map(({ it }) => {
+                              const color = it.status === "shipped" ? C.purple : it.status === "in_production" ? C.blue : C.muted;
+                              return (
+                                <button key={it.id} onClick={() => setDetail(it)}
+                                  style={{ display: "flex", alignItems: "center", gap: 10, background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: "8px 10px", cursor: "pointer", textAlign: "left", fontFamily: C.font, color: C.text, width: "100%" }}>
+                                  <span style={{ width: 34, height: 34, background: "#fff", borderRadius: 7, overflow: "hidden", flexShrink: 0 }}>
+                                    {it.thumb_id && <img src={`/api/files/thumbnail?id=${it.thumb_id}&thumb=1`} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "contain" }} onError={(e: any) => { e.target.style.display = "none"; }} />}
+                                  </span>
+                                  <span style={{ minWidth: 0, flex: 1 }}>
+                                    <span style={{ display: "block", fontSize: 12, fontWeight: 800, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.name}</span>
+                                    <span style={{ display: "block", fontSize: 9.5, fontFamily: C.mono, color: C.faint, marginTop: 2 }}>{it.qty.toLocaleString()} pcs</span>
+                                  </span>
+                                  <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", color, whiteSpace: "nowrap", flexShrink: 0 }}>{STATUS_META[it.status]?.label || it.status}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+
+          {/* ── Drop planner: pieces grouped by when they're web-ready ── */}
+          {(() => {
+            const groups: { key: string; title: string; hint: string; items: Item[] }[] = [
+              { key: "now", title: "Ready now.", hint: "In stock, drop whenever", items: [] },
+              { key: "week", title: "This week.", hint: `Web-ready inside 7 days (arrival + ~${WEB_PREP_DAYS}d prep)`, items: [] },
+              { key: "twoweeks", title: "Next two weeks.", hint: "Web-ready in 8 to 14 days", items: [] },
+              { key: "month", title: "This month.", hint: "Web-ready in 2 to 5 weeks", items: [] },
+              { key: "months", title: "One to three months.", hint: "The mid-range runs", items: [] },
+              { key: "far", title: "Three months plus.", hint: "The long builds", items: [] },
+              { key: "tbd", title: "Date pending.", hint: "No delivery estimate yet, we're on it", items: [] },
+            ];
+            const g = (k: string) => groups.find(x => x.key === k)!;
+            for (const it of inView) {
+              if (it.status === "in_stock") { g("now").items.push(it); continue; }
+              const eta = resolveItemEta(it);
+              if (!eta) { g("tbd").items.push(it); continue; }
+              const ready = new Date(eta.date + "T00:00").getTime() + WEB_PREP_DAYS * DAY;
+              const d = Math.round((ready - today.getTime()) / DAY);
+              if (d <= 7) g("week").items.push(it);
+              else if (d <= 14) g("twoweeks").items.push(it);
+              else if (d <= 35) g("month").items.push(it);
+              else if (d <= 92) g("months").items.push(it);
+              else g("far").items.push(it);
             }
-            .portal-item-row__mobile-summary { display: none; }
-          `}</style>
-          {filtered.map(it => (
-            <ItemRow key={it.id} item={it} compact={view !== "active"} onOpen={() => setDetail(it)} />
-          ))}
-        </div>
+            const visible = groups.filter(x => x.items.length > 0);
+            if (visible.length === 0) return <div style={{ color: C.muted, fontSize: 13, padding: "26px 0" }}>{q ? "No pieces match that search." : "No active pieces right now."}</div>;
+            return visible.map(grp => (
+              <div key={grp.key} style={{ marginBottom: 34 }}>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+                  <h2 style={{ margin: 0, fontSize: 17, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em" }}>{grp.title}</h2>
+                  <span style={{ fontSize: 10, fontWeight: 800, color: C.faint, fontFamily: C.mono }}>{grp.items.length} piece{grp.items.length === 1 ? "" : "s"} · {grp.items.reduce((a, x) => a + x.qty, 0).toLocaleString()} pcs</span>
+                  <span style={{ fontSize: 10.5, color: C.faint }}>{grp.hint}</span>
+                </div>
+                <Gallery items={grp.items} onOpen={setDetail} empty="" />
+              </div>
+            ));
+          })()}
+        </>
       )}
 
       {detail && <ItemDetail item={detail} token={token} onClose={() => setDetail(null)} />}
@@ -495,164 +519,43 @@ export default function ItemsPage() {
   );
 }
 
-// Row layout matches the internal Working Sheet — same grid columns
-// (Item / Qty / Cost / Retail / Profit / Status / ETA / Paid), same
-// uppercase color-text status, same thumb in the name cell. Read-only
-// on the client side; clicking opens the ItemDetail modal for fuller
-// info + Reorder.
-//
-// `compact` mode (used in History) drops Profit / Status / ETA — every
-// historical row sits past those columns by definition, so showing
-// them is noise.
-function ItemRow({ item, onOpen, compact = false }: { item: Item; onOpen: () => void; compact?: boolean }) {
-  const status = STATUS_META[item.status];
-  const cost = item.cost ?? null;
-  const retail = item.retail ?? null;
-  const profit = cost != null && retail != null ? (retail - cost) * item.qty : null;
-  const eta = resolveItemEta(item);
-  const cd = eta ? daysUntil(eta.date) : null;
+function Gallery({ items, onOpen, empty }: { items: Item[]; onOpen: (it: Item) => void; empty: string }) {
+  if (items.length === 0) return <div style={{ color: C.muted, fontSize: 13, padding: "26px 0" }}>{empty}</div>;
   return (
-    <button onClick={onOpen}
-      className="portal-item-row"
-      style={{
-        background: C.card, border: `1px solid ${C.border}`, borderRadius: 8,
-        padding: "10px 12px",
-        display: "grid",
-        gridTemplateColumns: compact ? "minmax(0, 1fr) 60px 80px 80px 44px" : "minmax(0, 1fr) 60px 80px 80px 84px 110px 78px 44px",
-        gap: 8, alignItems: "center",
-        cursor: "pointer", textAlign: "left", fontFamily: C.font,
-        transition: "border-color 0.15s, box-shadow 0.15s",
-      }}
-      onMouseEnter={e => { e.currentTarget.style.borderColor = C.text; e.currentTarget.style.boxShadow = "0 2px 12px rgba(0,0,0,0.05)"; }}
-      onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.boxShadow = "none"; }}
-    >
-      {/* Item cell — thumb nested inside on desktop so the 8-column
-          grid template stays intact. On mobile the parent grid drops
-          to 1fr and the thumb scales up via CSS (see <style> block in
-          the parent). */}
-      <div className="portal-item-row__cell--name"
-        style={{ minWidth: 0, display: "flex", alignItems: "center", gap: 10 }}>
-        <div className="portal-item-row__thumb-box"
-          style={{
-            width: 36, height: 36, flexShrink: 0,
-            background: "#fff", borderRadius: 6, overflow: "hidden",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            border: `1px solid ${C.border}`,
-          }}>
-          {item.thumb_id ? (
-            <img src={`/api/files/thumbnail?id=${item.thumb_id}&thumb=1`}
-              alt="" referrerPolicy="no-referrer" loading="lazy"
-              style={{ width: "100%", height: "100%", objectFit: "contain" }}
-              onError={(e: any) => { e.target.style.display = "none"; }} />
-          ) : (
-            <span style={{ color: C.faint, fontSize: 8 }}>—</span>
-          )}
-        </div>
-        <div style={{ minWidth: 0, flex: 1 }}>
-          <div className="portal-item-row__name-text" style={{
-            fontSize: 12, fontWeight: 600, color: C.text, lineHeight: 1.3,
-            display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: 2,
-            overflow: "hidden", wordBreak: "break-word",
-          }}>{item.name}</div>
-          {/* Reference label — single soft line under the item name.
-              Prefer the QB/Stripe invoice # once it exists (that's
-              what the client recognizes), fall back to the OpsHub
-              job number while the order is still pre-bill. Project
-              title dropped — the item name + invoice/job # is enough
-              identification and reads cleaner. */}
-          <div className="portal-item-row__job-line" style={{ fontSize: 10, color: C.muted, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {item.invoice_number
-              ? `Invoice #${item.invoice_number}`
-              : item.job.job_number || ""}
-          </div>
-          {/* Mobile-only summary — status pill + qty + (cost) + ETA
-              chip. Tucked under the name so the row reads top-down on
-              a phone instead of left-right. Hidden on desktop by the
-              parent style block. */}
-          <div className="portal-item-row__mobile-summary"
-            style={{
-              marginTop: 8, gap: 8, alignItems: "center", flexWrap: "wrap",
-            }}>
-            <StatusPill status={item.status} size="sm" />
-            {item.qty > 0 && (
-              <span style={{ fontSize: 11, color: C.muted, fontFamily: C.mono }}>
-                {item.qty.toLocaleString()} pc{item.qty === 1 ? "" : "s"}
-              </span>
-            )}
-            {!compact && eta && (
-              <span style={{ fontSize: 11, color: cd?.color || C.muted, fontWeight: 600 }}>
-                · {fmtDate(eta.date)}{cd ? ` (${cd.text})` : ""}
-              </span>
-            )}
-            {!compact && !eta && isEtaTbd(item) && (
-              <span style={{ fontSize: 11, color: C.faint, fontWeight: 700, letterSpacing: "0.05em" }}>· TBD</span>
-            )}
-            {item.paid && (
-              <span style={{ fontSize: 11, color: C.green, fontWeight: 700 }}>· Paid</span>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Qty */}
-      <div className="portal-item-row__cell--qty" style={{ fontSize: 12, fontFamily: C.mono, color: C.text, textAlign: "right" }}>
-        {item.qty > 0 ? item.qty.toLocaleString() : "—"}
-      </div>
-
-      {/* Cost */}
-      <div className="portal-item-row__cell--cost" style={{ fontSize: 12, fontFamily: C.mono, color: cost != null ? C.text : C.faint, textAlign: "right" }}>
-        {fmtMoney(cost)}
-      </div>
-
-      {/* Retail */}
-      <div className="portal-item-row__cell--retail" style={{ fontSize: 12, fontFamily: C.mono, color: retail != null ? C.text : C.faint, textAlign: "right" }}>
-        {fmtMoney(retail)}
-      </div>
-
-      {!compact && (
-        <>
-          {/* Profit (derived) */}
-          <div className="portal-item-row__cell--profit" style={{ fontSize: 12, fontFamily: C.mono, fontWeight: 600, color: profit != null && profit > 0 ? C.green : C.faint, textAlign: "right" }}>
-            {profit != null && profit !== 0 ? fmtMoneyShort(profit) : "—"}
-          </div>
-
-          {/* Status — uppercase color text, no pill */}
-          <div className="portal-item-row__cell--status" style={{ fontSize: 10, fontWeight: 700, color: status.color, textTransform: "uppercase", letterSpacing: "0.06em", whiteSpace: "nowrap" }}>
-            {status.label}
-          </div>
-
-          {/* ETA */}
-          <div className="portal-item-row__cell--eta" style={{ fontSize: 11, fontFamily: C.mono, color: C.muted, textAlign: "left" }}>
-            {eta ? (
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 1 }}>
-                <span style={{ color: eta.isOverride ? C.text : C.muted, fontWeight: eta.isOverride ? 600 : 500 }}>
-                  {fmtDate(eta.date)}
-                </span>
-                {cd && (
-                  <span style={{ fontSize: 9, color: cd.color, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                    {cd.text}
-                  </span>
-                )}
+    <div className="px-grid">
+      {items.map(it => {
+        const meta = STATUS_META[it.status];
+        const eta = resolveItemEta(it);
+        const profit = it.cost != null && it.retail != null ? (Number(it.retail) - Number(it.cost)) * it.qty : null;
+        return (
+          <button key={it.id} className="px-card" onClick={() => onOpen(it)}
+            style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: 0, overflow: "hidden", cursor: "pointer", textAlign: "left", fontFamily: C.font, color: C.text }}>
+            <div style={{ background: "#fff", aspectRatio: "1", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              {it.thumb_id
+                ? <img src={`/api/files/thumbnail?id=${it.thumb_id}&thumb=1&size=500`} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "contain" }} onError={(e: any) => { e.target.style.display = "none"; }} />
+                : <span style={{ color: "#bbb", fontSize: 11 }}>No preview</span>}
+            </div>
+            <div style={{ padding: "11px 13px 13px" }}>
+              <div style={{ fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", lineHeight: 1.25, overflow: "hidden", display: "-webkit-box", WebkitBoxOrient: "vertical" as any, WebkitLineClamp: 2 }}>{it.name}</div>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 7, marginTop: 6, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: meta.color }}>{meta.label}</span>
+                <span style={{ fontSize: 9.5, color: C.faint, fontFamily: C.mono }}>{it.qty.toLocaleString()} pcs</span>
+                {eta && <span style={{ fontSize: 9.5, color: C.muted, fontFamily: C.mono }}>· lands {new Date(eta.date + "T00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>}
               </div>
-            ) : isEtaTbd(item) ? (
-              <span style={{ color: C.faint, fontWeight: 700, letterSpacing: "0.05em", fontFamily: C.font }}>TBD</span>
-            ) : "—"}
-          </div>
-        </>
-      )}
-
-      {/* Paid */}
-      <div className="portal-item-row__cell--paid" style={{ textAlign: "center", fontSize: 14, color: item.paid ? C.green : C.faint }}>
-        {item.paid ? "✓" : "—"}
-      </div>
-    </button>
+              {profit != null && profit !== 0 && (
+                <div style={{ fontSize: 10, fontFamily: C.mono, color: C.green, fontWeight: 700, marginTop: 5 }}>+{fmtMoneyShort(profit)} projected</div>
+              )}
+            </div>
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
 function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClose: () => void }) {
   const { data: portalData } = useClientPortal();
   const tenantLabel = (portalData?.company?.slug || "hpd").toUpperCase();
-  const [reordering, setReordering] = useState(false);
   // Progressive image load — the thumbnail is already cached from the
   // item row preview, so it paints instantly when the sheet opens.
   // The full-res file fetches in parallel; once it lands we swap the
@@ -676,23 +579,44 @@ function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClo
     pre.onload = () => setImgSrc(fullUrl);
     pre.src = fullUrl;
   }, [item.thumb_id]);
-  const [reorderResult, setReorderResult] = useState<string | null>(null);
 
-  async function reorder() {
-    setReordering(true);
-    setReorderResult(null);
+  // Pull request — any stage; team fulfills when goods land.
+  const [pullOpen, setPullOpen] = useState(false);
+  const [pullQtys, setPullQtys] = useState<Record<string, string>>({});
+  const [pullDest, setPullDest] = useState("");
+  const [pullNote, setPullNote] = useState("");
+  const [pullBusy, setPullBusy] = useState(false);
+  const [pullDone, setPullDone] = useState<string | null>(null);
+  const pullSizes = (item.sizes && item.sizes.length > 0) ? item.sizes.map(s => s.size) : ["OSFA"];
+  async function submitPull() {
+    setPullBusy(true); setPullDone(null);
     try {
-      const res = await fetch(`/api/portal/client/${token}/items/${item.id}/reorder`, { method: "POST" });
+      const qtys: Record<string, number> = {};
+      for (const [k, v] of Object.entries(pullQtys)) { const n = Math.round(Number(v) || 0); if (n > 0) qtys[k] = n; }
+      const res = await fetch(`/api/portal/client/${token}/pulls`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itemId: item.id, qtys, destination: pullDest.trim(), note: pullNote.trim() || undefined }),
+      });
       const data = await res.json();
-      if (res.ok) {
-        setReorderResult(`Re-order request created — ${tenantLabel} will be in touch.`);
-      } else {
-        setReorderResult(data.error || "Couldn't start re-order");
-      }
-    } catch {
-      setReorderResult("Couldn't start re-order");
-    }
-    setReordering(false);
+      if (res.ok) { setPullDone("Request received. We'll pull it as soon as the goods allow and confirm with you."); setPullOpen(false); setPullQtys({}); setPullDest(""); setPullNote(""); }
+      else setPullDone(data.error || "Couldn't send the request.");
+    } catch { setPullDone("Couldn't send the request."); }
+    setPullBusy(false);
+  }
+
+  // Adds this piece to the shared reorder cart (same localStorage the
+  // Reorder tab reads), prefilled with this run's sizes, then jumps there.
+  function reorder() {
+    try {
+      const key = `hx-cart-${token}`;
+      const cart = JSON.parse(localStorage.getItem(key) || "{}");
+      const sizes: Record<string, number> = {};
+      for (const sq of item.sizes || []) if (sq.qty > 0) sizes[sq.size] = sq.qty;
+      if (Object.keys(sizes).length === 0) sizes["OSFA"] = item.qty || 0;
+      cart[item.id] = { sizes };
+      localStorage.setItem(key, JSON.stringify(cart));
+    } catch {}
+    window.location.href = `/portal/client/${token}/reorder`;
   }
 
   // Renders inside MobileSheet — slides up from the bottom on phone
@@ -720,16 +644,20 @@ function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClo
             style={{ padding: "10px 16px", background: "transparent", color: C.muted, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: C.font, minHeight: 44 }}>
             Close
           </button>
-          <button onClick={reorder} disabled={reordering}
+          <button onClick={() => { setPullOpen(o => !o); setPullDone(null); }}
+            style={{ padding: "10px 16px", background: "transparent", color: C.text, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: C.font, minHeight: 44 }}>
+            {pullOpen ? "Cancel pull" : "Request a pull"}
+          </button>
+          <button onClick={reorder}
             style={{
               padding: "10px 20px",
-              background: reordering ? C.border : C.text,
-              color: "#fff", border: "none", borderRadius: 8,
+              background: C.accent,
+              color: "#0a0a0a", border: "none", borderRadius: 8,
               fontSize: 13, fontWeight: 700,
-              cursor: reordering ? "wait" : "pointer", fontFamily: C.font,
+              cursor: "pointer", fontFamily: C.font,
               minHeight: 44,
             }}>
-            {reordering ? "Requesting…" : "Re-order this item"}
+            Add to reorder cart
           </button>
         </>
       }
@@ -819,8 +747,11 @@ function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClo
           <div>
             <div style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Quantity</div>
             <div style={{ fontSize: 14, color: C.text, fontWeight: 700 }}>{item.qty ? `${item.qty.toLocaleString()} pcs` : "—"}</div>
+            {/* flex-wrap, NOT margin-joined inline spans — those had no
+                whitespace between them, read as one unbreakable word, and
+                dragged the whole sheet into horizontal scroll on phones. */}
             {item.sizes && item.sizes.length > 0 && (
-              <div style={{ marginTop: 6, fontSize: 12, color: C.muted, fontFamily: C.mono, lineHeight: 1.6 }}>
+              <div style={{ marginTop: 6, fontSize: 12, color: C.muted, fontFamily: C.mono, lineHeight: 1.6, display: "flex", flexWrap: "wrap", gap: "2px 14px" }}>
                 {[...item.sizes]
                   .sort((a, b) => {
                     const ai = SIZE_ORDER.indexOf(a.size), bi = SIZE_ORDER.indexOf(b.size);
@@ -829,11 +760,10 @@ function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClo
                     if (bi === -1) return -1;
                     return ai - bi;
                   })
-                  .map((s, i, arr) => (
-                    <span key={s.size}>
+                  .map((s) => (
+                    <span key={s.size} style={{ whiteSpace: "nowrap" }}>
                       <span style={{ color: C.faint, fontWeight: 700 }}>{s.size}</span>
                       <span style={{ marginLeft: 6, color: C.text }}>{s.qty}</span>
-                      {i < arr.length - 1 && <span style={{ color: C.faint, margin: "0 10px" }}>·</span>}
                     </span>
                   ))}
               </div>
@@ -870,17 +800,36 @@ function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClo
         </div>
       </div>
 
-      {reorderResult && (
-        <div style={{
-          marginTop: 16,
-          padding: "10px 14px",
-          background: reorderResult.startsWith("Re-order request") ? C.greenBg : C.redBg,
-          border: `1px solid ${reorderResult.startsWith("Re-order request") ? C.greenBorder : C.redBorder}`,
-          borderRadius: 8,
-          color: reorderResult.startsWith("Re-order request") ? C.green : C.red,
-          fontSize: 12, fontWeight: 600,
-        }}>
-          {reorderResult}
+
+      {pullDone && (
+        <div style={{ marginTop: 16, padding: "10px 14px", background: pullDone.startsWith("Request received") ? C.greenBg : C.redBg, border: `1px solid ${pullDone.startsWith("Request received") ? C.greenBorder : C.redBorder}`, borderRadius: 8, color: pullDone.startsWith("Request received") ? C.green : C.red, fontSize: 12, fontWeight: 600 }}>
+          {pullDone}
+        </div>
+      )}
+      {pullOpen && (
+        <div style={{ marginTop: 16, borderTop: `1px solid ${C.border}`, paddingTop: 14 }}>
+          <div style={{ fontSize: 10, color: C.faint, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 8 }}>Request a pull</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: "4px 14px", marginBottom: 12 }}>
+            {pullSizes.map(sz => (
+              <label key={sz} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, borderBottom: `1px solid ${C.border}`, padding: "4px 0" }}>
+                <span style={{ fontSize: 10.5, fontWeight: 700, color: C.muted, fontFamily: C.mono }}>{sz}</span>
+                <input type="text" inputMode="numeric" value={pullQtys[sz] ?? ""} placeholder="0"
+                  onFocus={e => e.currentTarget.select()}
+                  onChange={e => setPullQtys(prev => ({ ...prev, [sz]: e.target.value.replace(/[^0-9]/g, "") }))}
+                  style={{ width: 52, padding: "7px 0", textAlign: "center", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, color: C.text, fontFamily: C.mono, fontSize: 13, fontWeight: 700, outline: "none" }} />
+              </label>
+            ))}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <input value={pullDest} onChange={e => setPullDest(e.target.value)} placeholder="Where's it going? (name + address or 'our office')"
+              style={{ padding: "10px 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, color: C.text, fontSize: 13, fontFamily: C.font, outline: "none" }} />
+            <textarea value={pullNote} onChange={e => setPullNote(e.target.value)} rows={2} placeholder="Anything else? Date you need it by, special instructions…"
+              style={{ padding: "10px 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.surface, color: C.text, fontSize: 13, fontFamily: C.font, outline: "none", resize: "vertical" }} />
+            <button onClick={submitPull} disabled={pullBusy}
+              style={{ alignSelf: "flex-start", padding: "11px 22px", background: C.accent, color: "#0a0a0a", border: "none", borderRadius: 8, fontSize: 12.5, fontWeight: 800, cursor: pullBusy ? "wait" : "pointer", fontFamily: C.font, opacity: pullBusy ? 0.6 : 1 }}>
+              {pullBusy ? "Sending…" : "Send pull request"}
+            </button>
+          </div>
         </div>
       )}
 

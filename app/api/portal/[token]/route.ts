@@ -85,7 +85,7 @@ export async function GET(
     const { data: items } = await sb
       .from("items")
       .select(
-        "id, name, sell_per_unit, pipeline_stage, sort_order, artwork_status, ship_qtys, received_qtys, blank_vendor, blank_sku, ship_tracking, forward_tracking, shipping_route"
+        "id, name, sell_per_unit, pipeline_stage, sort_order, artwork_status, ship_qtys, received_qtys, blank_vendor, blank_sku, ship_tracking, forward_tracking, shipping_route, received_at_hpd, forwarded_at, webstore_entered_at, proof_spec, client_eta, expected_arrival, buy_sheet_lines(size, qty_ordered)"
       )
       .eq("job_id", job.id)
       .order("sort_order");
@@ -323,6 +323,14 @@ export async function GET(
 
     // Build items with their proof files
     // Respect both file-level approval AND item-level artwork_status override
+    // Chain-resolved per-item ETAs (shared helper) — feeds the order's
+    // estimated completion. Best-effort; never blocks the payload.
+    let etaMap: Record<string, string | null> = {};
+    try {
+      const { etaByItemForJob } = await import("@/lib/portal/item-eta");
+      etaMap = await etaByItemForJob(sb, { id: job.id, shipping_route: (job as any).shipping_route, type_meta: (job as any).type_meta }, items || []);
+    } catch {}
+
     const itemsWithProofs = (items || []).map((item: any) => {
       const manualApproved = item.artwork_status === "approved";
       const itemProofs = proofFiles
@@ -338,7 +346,30 @@ export async function GET(
           driveFileId: f.drive_file_id,
           createdAt: f.created_at,
         }));
-      return { id: item.id, name: item.name, proofs: itemProofs };
+      // Per-item lifecycle fields — the client-safe phase labels derive from
+      // the SAME truth the internal engine reads (Jon's rule: never a parallel
+      // state machine). Units/sizes feed the P1 item cards.
+      const lines = (item.buy_sheet_lines || []) as any[];
+      return {
+        id: item.id, name: item.name, proofs: itemProofs,
+        units: lines.reduce((a: number, l: any) => a + (Number(l.qty_ordered) || 0), 0),
+        sizes: Object.fromEntries(lines.filter((l: any) => l.qty_ordered > 0).map((l: any) => [l.size, l.qty_ordered])),
+        sellPerUnit: item.sell_per_unit ?? null,
+        blankVendor: item.blank_vendor || null,
+        blankSku: item.blank_sku || null,
+        pipelineStage: item.pipeline_stage || null,
+        eta: etaMap[item.id] || null,
+        shippingRoute: item.shipping_route || job.shipping_route || "ship_through",
+        receivedAtHpd: !!item.received_at_hpd,
+        forwardedAt: item.forwarded_at || null,
+        webstoreEnteredAt: item.webstore_entered_at || null,
+        shipTracking: item.ship_tracking || null,
+        forwardTracking: (item as any).forward_tracking || null,
+        internalApproved: manualApproved,
+        // The proof document's content — the overlay renders the REAL proof
+        // (ProofDocView, same single source as the PDF), not a flat image.
+        proofSpec: item.proof_spec || null,
+      };
     });
 
     // Phase display names
@@ -399,6 +430,17 @@ export async function GET(
         tax: showTotals ? (typeMeta.qb_tax_amount || 0) : 0,
         total: showTotals ? (typeMeta.qb_total_with_tax || (typeMeta.stripe_total_cents ? typeMeta.stripe_total_cents / 100 : 0) || quoteItems.reduce((a: number, qi: any) => a + (qi.total || 0), 0)) : 0,
       },
+      // The order's CURRENT value: live costing gross + additional charges.
+      // When it outgrows the invoiced total (revised-after-paid jobs), the
+      // payment band shows "Updated total" honestly — same math as the
+      // internal status bar.
+      currentTotal: (() => {
+        const extrasTotal = (Array.isArray(typeMeta.invoice_extra_lines) ? typeMeta.invoice_extra_lines : [])
+          .reduce((a: number, l: any) => a + (Number(l?.amount) || 0), 0);
+        const gross = Number(costingSummary?.grossRev) || 0;
+        const t = gross + extrasTotal;
+        return showTotals && t > 0 ? Math.round(t * 100) / 100 : null;
+      })(),
       invoiceStale: (() => {
         // Only "stale" when OpsHub actually pushed an invoice to QB
         // (qb_invoice_id set) AND costing drifted vs. the QB totals.

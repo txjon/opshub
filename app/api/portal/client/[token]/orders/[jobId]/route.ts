@@ -88,7 +88,7 @@ export async function GET(
     const { data: items } = await sb
       .from("items")
       .select(
-        "id, name, sell_per_unit, pipeline_stage, sort_order, artwork_status, ship_qtys, received_qtys, blank_vendor, blank_sku, ship_tracking, forward_tracking, archived_at, completed_at, received_at_hpd, blanks_order_cost, shipping_route, forwarded_at, client_eta, client_eta_note, expected_arrival, decorator_assignments(decorators(name, short_code, lead_time_days, transit_defaults)), buy_sheet_lines(qty_ordered)"
+        "id, name, sell_per_unit, pipeline_stage, sort_order, artwork_status, ship_qtys, received_qtys, blank_vendor, blank_sku, ship_tracking, forward_tracking, archived_at, completed_at, received_at_hpd, blanks_order_cost, shipping_route, forwarded_at, webstore_entered_at, client_eta, client_eta_note, expected_arrival, proof_spec, decorator_assignments(decorators(name, short_code, lead_time_days, transit_defaults)), buy_sheet_lines(size, qty_ordered)"
       )
       .eq("job_id", job.id)
       .order("sort_order");
@@ -465,6 +465,7 @@ export async function GET(
         }).clientEta;
       })();
       const eta_tbd = !etaCutOff && !etaDate;
+      const lines = (item.buy_sheet_lines || []) as any[];
       return {
         id: item.id,
         name: item.name,
@@ -474,6 +475,21 @@ export async function GET(
         eta_tbd,
         eta_note: item.client_eta_note || null,
         proofs: itemProofs,
+        // OrderExperience fields (shop-skin order view) — same shapes as the
+        // per-job portal API so the shared component serves both doors.
+        units: qty,
+        sizes: Object.fromEntries(lines.filter((l: any) => l.qty_ordered > 0 && l.size).map((l: any) => [l.size, l.qty_ordered])),
+        sellPerUnit: item.sell_per_unit ?? null,
+        blankVendor: item.blank_vendor || null,
+        blankSku: item.blank_sku || null,
+        pipelineStage: item.pipeline_stage || null,
+        shippingRoute: item.shipping_route || (job as any).shipping_route || "ship_through",
+        receivedAtHpd: !!item.received_at_hpd,
+        forwardedAt: item.forwarded_at || null,
+        webstoreEnteredAt: item.webstore_entered_at || null,
+        shipTracking: item.ship_tracking || null,
+        internalApproved: manualApproved,
+        proofSpec: item.proof_spec || null,
       };
     });
 
@@ -544,6 +560,15 @@ export async function GET(
           ? (typeMeta.qb_total_with_tax || (typeMeta.stripe_total_cents ? typeMeta.stripe_total_cents / 100 : 0) || quoteItems.reduce((a: number, qi: any) => a + (qi.total || 0), 0))
           : 0,
       },
+      currentTotal: (() => {
+        // Live order value (costing gross + extras) — powers the payment
+        // band's "Updated total" on revised-after-invoice jobs.
+        const extrasTotal = (Array.isArray(typeMeta.invoice_extra_lines) ? typeMeta.invoice_extra_lines : [])
+          .reduce((a: number, l: any) => a + (Number(l?.amount) || 0), 0);
+        const gross = Number(costingSummary?.grossRev) || 0;
+        const t = gross + extrasTotal;
+        return showTotals && t > 0 ? Math.round(t * 100) / 100 : null;
+      })(),
       invoiceStale: (() => {
         // Only "stale" when OpsHub actually pushed an invoice to QB.
         // Manually-entered invoice numbers have no OpsHub-side QB totals

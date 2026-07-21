@@ -6,13 +6,12 @@ import { resolveSlugFromHost } from "@/lib/tenants";
 
 const inter = Inter({ subsets: ["latin"] });
 
-// Per-tenant favicon + browser tab title so HPD vs IHM tabs are
+// Per-tenant favicon + browser tab title so tenant tabs are
 // visually distinguishable when both are open. Slug resolution
 // mirrors lib/company.ts — Host header → slug map. Falls back to
 // HPD when nothing matches.
 const TENANT_TAB_META: Record<string, { title: string; icon: string }> = {
   hpd: { title: "OpsHub · HPD", icon: "/favicon-hpd.svg" },
-  ihm: { title: "OpsHub · IHM", icon: "/favicon-ihm.svg" },
   dmd: { title: "OpsHub · DMD", icon: "/favicon-dmd.png" },
 };
 

@@ -1,9 +1,21 @@
 "use client";
-import { ReactNode } from "react";
+import { ReactNode, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { C } from "./theme";
 import { useClientPortal } from "./context";
+import { getLogoSvgForSlug } from "@/lib/branding-client";
+
+// The real wordmark, recolored for the dark ground (the branding SVG is
+// black-filled for PDFs) and sized for chrome.
+function LogoMark({ width = 170 }: { width?: number }) {
+  const { data } = useClientPortal();
+  const svg = getLogoSvgForSlug(data?.company?.slug || "hpd")
+    .replace(/#000000/g, "#ffffff")
+    .replace(/#161616/g, "#ffffff")
+    .replace(/style="[^"]*"/, `style="width:${width}px;max-width:100%;height:auto;display:block"`);
+  return <span style={{ display: "inline-block", lineHeight: 0, maxWidth: "100%" }} dangerouslySetInnerHTML={{ __html: svg }} />;
+}
 
 // The visual shell — header, tab nav, toast stack, mobile layout.
 // Renders {children} (the current tab's page).
@@ -61,13 +73,35 @@ const ICONS: Record<string, TabIcon> = {
       <path d="M8 13h8M8 17h5" />
     </svg>
   ),
+  Studio: (active) => (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth={active ? 2 : 1.6}
+      strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3l1.9 5.6L20 10l-6.1 1.4L12 17l-1.9-5.6L4 10l6.1-1.4L12 3Z" />
+      <path d="M19 15l.9 2.6L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.4L19 15Z" />
+    </svg>
+  ),
+  Reorder: (active) => (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth={active ? 2 : 1.6}
+      strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="9" cy="20" r="1.5" />
+      <circle cx="18" cy="20" r="1.5" />
+      <path d="M2.5 3.5h2.5l2.4 12.2a1.5 1.5 0 0 0 1.47 1.2h8.9a1.5 1.5 0 0 0 1.46-1.16L21.5 8H6" />
+    </svg>
+  ),
 };
 
-const TABS: { label: keyof typeof ICONS; path: string; unreadKey?: "designs" }[] = [
-  { label: "Overview", path: "" },
-  { label: "Designs", path: "/designs", unreadKey: "designs" },
-  { label: "Orders", path: "/orders" },
-  { label: "Items", path: "/items" },
+// display labels renamed Jul 20 (Jon): Home / Product Development /
+// Pipeline. Routes unchanged — /designs and /items keep their URLs.
+const TABS: { label: keyof typeof ICONS; path: string; display: string; unreadKey?: "designs" }[] = [
+  { label: "Overview", display: "Home", path: "" },
+  // Product Development (the old /designs surface) stays unlisted; the
+  // Studio (grant 'studio') is its stripped-down replacement.
+  { label: "Studio", display: "Studio", path: "/studio" },
+  { label: "Orders", display: "Orders", path: "/orders" },
+  { label: "Items", display: "Pipeline", path: "/items" },
+  { label: "Reorder", display: "Reorder", path: "/reorder" },
 ];
 
 export default function Shell({ children }: { children: ReactNode }) {
@@ -83,23 +117,76 @@ export default function Shell({ children }: { children: ReactNode }) {
     designs: data.briefs.filter(b => b.has_unread_external).length,
   };
 
+  // Feature grants (mig 132): Pipeline is a granted surface — standard-tier
+  // clients see Home / Orders / Reorder only.
+  const features: string[] = (data as any).features || [];
+  const visibleTabs = TABS.filter(t =>
+    (t.path !== "/items" || features.includes("pipeline")) &&
+    (t.path !== "/studio" || features.includes("studio")));
+
   const isActive = (path: string) =>
     path === "" ? pathname === base || pathname === base + "/" : !!pathname?.startsWith(base + path);
 
+  // Website header: one slim fixed bar, wordmark always centered,
+  // nav lives in the hamburger. Content starts right beneath it.
+  const [menuOpen, setMenuOpen] = useState(false);
+
   return (
-    <div style={{ minHeight: "100vh", background: C.bg, fontFamily: C.font, color: C.text }}>
+    <div className="portal-shell" style={{ minHeight: "100vh", background: C.bg, fontFamily: C.font, color: C.text }}>
       <style>{`
+        .portal-desk-head, .portal-fixed-head { display: none; }
         @media (max-width: 640px) {
           .portal-top-tabs { display: none !important; }
           .portal-main { padding-bottom: calc(72px + env(safe-area-inset-bottom)) !important; }
         }
         @media (min-width: 641px) {
           .portal-bottom-nav { display: none !important; }
+          .portal-mobile-head { display: none !important; }
+          .portal-top-tabs { display: none !important; }
+          .portal-fixed-head { display: flex; }
+          .portal-main { padding-top: 78px !important; }
         }
         .portal-tab-active-pill {
           background: ${C.surface};
         }
       `}</style>
+
+      {/* Fixed header — hamburger + centered wordmark, always on */}
+      {(
+        <div className="portal-fixed-head" style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 90, alignItems: "center", padding: "12px 20px", background: "rgba(10,10,10,0.92)", backdropFilter: "blur(10px)", borderBottom: `1px solid ${C.border}` }}>
+          <button onClick={() => setMenuOpen(true)} aria-label="Menu"
+            style={{ background: "none", border: "none", cursor: "pointer", padding: 6, display: "flex", flexDirection: "column", gap: 5 }}>
+            <span style={{ width: 22, height: 2, background: C.text, display: "block" }} />
+            <span style={{ width: 22, height: 2, background: C.text, display: "block" }} />
+          </button>
+          <div style={{ flex: 1, display: "flex", justifyContent: "center" }}>
+            <Link href={base}><LogoMark width={168} /></Link>
+          </div>
+          <div style={{ width: 34 }} />
+        </div>
+      )}
+
+      {/* Hamburger menu overlay */}
+      {menuOpen && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 200, background: C.bg, display: "flex", flexDirection: "column", padding: "26px 38px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <button onClick={() => setMenuOpen(false)} aria-label="Close menu" style={{ background: "none", border: "none", color: C.text, fontSize: 30, cursor: "pointer", lineHeight: 1, padding: 4 }}>×</button>
+            <LogoMark width={168} />
+            <div style={{ width: 38 }} />
+          </div>
+          <nav style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 48 }}>
+            {visibleTabs.map(t => (
+              <Link key={t.label} href={base + t.path} onClick={() => setMenuOpen(false)}
+                style={{ fontSize: "clamp(17px,2vw,22px)", fontWeight: 900, letterSpacing: "-0.01em", textTransform: "uppercase", color: isActive(t.path) ? C.text : C.muted, textDecoration: "none", padding: "8px 0" }}>
+                {t.display}
+              </Link>
+            ))}
+          </nav>
+          <div style={{ marginTop: "auto", fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: C.faint }}>Built in Las Vegas</div>
+        </div>
+      )}
+
+      <div className="portal-content">
 
       {/* Toasts — polling-driven, dismissable */}
       <div style={{
@@ -121,34 +208,24 @@ export default function Shell({ children }: { children: ReactNode }) {
         ))}
       </div>
 
-      {/* Header */}
-      <header style={{
-        background: C.card, borderBottom: `1px solid ${C.border}`,
-        padding: "14px 20px",
+      {/* Header — site chrome: lowercase wordmark centered, client name
+          small and tracked beneath, nav as wide-tracked uppercase links. */}
+      <header className="portal-mobile-head" style={{
+        background: C.bg, borderBottom: `1px solid ${C.border}`,
+        padding: "20px 20px 14px",
       }}>
-        <div style={{
-          maxWidth: 1200, margin: "0 auto",
-          display: "flex", alignItems: "center", justifyContent: "space-between",
-          gap: 12, flexWrap: "wrap",
-        }}>
-          <div>
-            <div style={{
-              fontSize: 10, color: C.muted, fontWeight: 700,
-              letterSpacing: "0.1em", textTransform: "uppercase",
-            }}>
-              {data.company?.name || "House Party Distro"}
-            </div>
-            <div style={{ fontSize: 18, fontWeight: 700, marginTop: 2 }}>
-              {data.client.name}
-            </div>
+        <div style={{ textAlign: "center" }}>
+          <LogoMark width={170} />
+          <div style={{ fontSize: 10, fontWeight: 800, marginTop: 8, color: C.faint, letterSpacing: "0.16em", textTransform: "uppercase" }}>
+            {data.client.name}
           </div>
         </div>
 
         {/* Desktop tab nav — hidden on mobile via CSS. */}
         <nav className="portal-top-tabs" style={{
-          maxWidth: 1200, margin: "12px auto 0",
-          display: "flex", gap: 4, overflowX: "auto",
-          scrollbarWidth: "none",
+          margin: "16px auto 0",
+          display: "flex", gap: 26, overflowX: "auto",
+          scrollbarWidth: "none", justifyContent: "center",
         }}>
           {TABS.map(t => {
             const href = base + t.path;
@@ -157,16 +234,17 @@ export default function Shell({ children }: { children: ReactNode }) {
             return (
               <Link key={t.label} href={href}
                 style={{
-                  padding: "8px 16px", minHeight: 44,
+                  padding: "10px 2px 12px", minHeight: 44,
                   display: "flex", alignItems: "center", gap: 6,
-                  fontSize: 13, fontWeight: 700,
+                  fontSize: 11, fontWeight: 800,
+                  letterSpacing: "0.14em", textTransform: "uppercase",
                   color: active ? C.text : C.muted,
                   textDecoration: "none",
                   borderBottom: active ? `2px solid ${C.text}` : "2px solid transparent",
                   whiteSpace: "nowrap",
                   transition: "color 0.15s",
                 }}>
-                {t.label}
+                {t.display}
                 {unread > 0 && (
                   <span style={{
                     background: C.purple, color: "#fff",
@@ -206,7 +284,7 @@ export default function Shell({ children }: { children: ReactNode }) {
         justifyContent: "space-around",
         boxShadow: "0 -2px 12px rgba(0,0,0,0.04)",
       }}>
-        {TABS.map(t => {
+        {visibleTabs.map(t => {
           const href = base + t.path;
           const active = isActive(t.path);
           const unread = t.unreadKey ? unreadCounts[t.unreadKey] : 0;
@@ -243,11 +321,12 @@ export default function Shell({ children }: { children: ReactNode }) {
               <span style={{
                 fontSize: 10, fontWeight: active ? 700 : 600,
                 letterSpacing: "0.01em",
-              }}>{t.label}</span>
+              }}>{t.display}</span>
             </Link>
           );
         })}
       </nav>
+      </div>
     </div>
   );
 }

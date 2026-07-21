@@ -71,9 +71,7 @@ export async function POST(req: NextRequest) {
 
     // Build a single email listing all matched portals — cleaner than
     // multiple emails when one person is on multiple client accounts.
-    const fromAddress = slug === "ihm"
-      ? "In House Merchandise <hello@inhousemerchandise.com>"
-      : "House Party Distro <hello@housepartydistro.com>";
+    const fromAddress = "House Party Distro <hello@housepartydistro.com>";
 
     const subject = finalMatches.length === 1
       ? `Your ${finalMatches[0].name} portal access`

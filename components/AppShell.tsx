@@ -187,17 +187,10 @@ export function AppShell({
   // names and drop the legacy twins from the nav (legacy pages stay reachable by
   // URL for rollback). Flag off → nav is exactly as before.
   const navItems = swapV2Nav(navItemsRaw);
-  // Tenant override for the "Labs" department label. IHM doesn't think
-  // of itself as a "Labs" production shop — it's just the IHM brand —
-  // so show "IHM" in the sidebar + cross-link instead. HPD keeps Labs.
-  const labsLabel = companySlug === "ihm" ? "IHM" : "Labs";
-  const deptIcons: Record<Department, { Icon: any; label: string }> = {
-    ...DEPT_ICONS,
-    labs: { ...DEPT_ICONS.labs, label: labsLabel },
-  };
+  const deptIcons: Record<Department, { Icon: any; label: string }> = DEPT_ICONS;
   const rawCrossLink = DEPT_CROSSLINKS[activeDept];
   const crossLink = rawCrossLink && hasDept(rawCrossLink.dept)
-    ? (rawCrossLink.dept === "labs" ? { ...rawCrossLink, label: `← ${labsLabel}` } : rawCrossLink)
+    ? (rawCrossLink.dept === "labs" ? { ...rawCrossLink, label: "← Labs" } : rawCrossLink)
     : null;
 
   return (

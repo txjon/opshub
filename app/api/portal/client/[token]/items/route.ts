@@ -29,7 +29,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     // 1. Resolve client from token.
     const { data: client } = await db
       .from("clients")
-      .select("id, name")
+      .select("id, name, portal_features")
       .eq("portal_token", params.token)
       .single();
     if (!client) return NextResponse.json({ error: "Invalid link" }, { status: 404 });
@@ -167,6 +167,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
       for (const b of (byItem || [])) briefByItem[b.item_id] = b;
     }
 
+    const hasPipeline = Array.isArray((client as any).portal_features) && (client as any).portal_features.includes("pipeline");
     // 7. Build the output — one row per item, sanitized for client view.
     const out = (items || []).map((it: any) => {
       const job = jobById[it.job_id] || {};
@@ -252,7 +253,9 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         // retail is what the client charges their end customer.
         // Profit derived on the client side for consistency.
         cost: it.sell_per_unit != null ? Number(it.sell_per_unit) : null,
-        retail: it.client_retail_per_unit != null ? Number(it.client_retail_per_unit) : null,
+        // Margin insight is a 'pipeline' grant — standard-tier clients use
+        // this API only for the Reorder catalog and never see retail.
+        retail: hasPipeline && it.client_retail_per_unit != null ? Number(it.client_retail_per_unit) : null,
         notes: it.notes || null,
         paid: paidJobs.has(it.job_id),
         payment_status: paymentByJob[it.job_id]?.status || "none",
