@@ -13,8 +13,6 @@ import { useState } from "react";
 import { H, H_APPROVAL_THEME, fmtMoney } from "./theme";
 import { PackageApproval } from "@/components/portal/PackageApproval";
 import { itemClientPhase, CLIENT_RAIL, orderRailIndex, type ClientTone } from "@/lib/portal/client-phase";
-import ProofDocView from "@/components/ProofDocView";
-import { getLogoSvgForSlug } from "@/lib/branding-client";
 
 const TONE: Record<ClientTone, string> = { warn: H.amber, move: H.blue, done: H.green, dim: H.faint };
 const TERMS: Record<string, string> = { net_15: "Net 15", net_30: "Net 30", net_45: "Net 45", net_60: "Net 60", prepaid: "Prepaid", deposit_balance: "Deposit" };
@@ -247,17 +245,65 @@ export function OrderExperience({ data, token, onAction }: {
                 <div style={{ fontSize: 16, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em" }}>{it.name}</div>
                 <button onClick={() => setProofItem(null)} aria-label="Close" style={{ background: "none", border: "none", color: H.dim, fontSize: 26, cursor: "pointer", lineHeight: 1 }}>×</button>
               </div>
-              {it.proofSpec ? (
-                <div style={{ background: "#fff", color: "#1a1a1a", padding: "clamp(14px,3vw,28px)", maxHeight: "62vh", overflowY: "auto" }}>
-                  <ProofDocView spec={it.proofSpec} mockupUrl={m ? thumbSrc(m.driveFileId, 1000) : null}
-                    clientName={data.client?.name || ""} itemName={it.name}
-                    brandName={data.company?.name || ""} logoSvg={getLogoSvgForSlug(data.company?.slug || "hpd") || ""} />
-                </div>
-              ) : (
-                <div style={{ background: "#fff", aspectRatio: "4 / 3" }}>
-                  {m && <img src={thumbSrc(m.driveFileId, 1000)} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} />}
-                </div>
-              )}
+              {/* Production spec, store-style (Jon: "we're not limited to
+                  documents") — full-bleed mockup, spec CHIPS, then the proof's
+                  substance (inks, placements, notes, finishing) as native dark
+                  UI. Same proof_spec source as the editor + PDF; only the
+                  presentation is native. */}
+              <div style={{ background: "#fff" }}>
+                {m && <img src={thumbSrc(m.driveFileId, 1200)} alt="" style={{ width: "100%", maxHeight: "58vh", objectFit: "contain", display: "block", margin: "0 auto" }} />}
+              </div>
+              {(() => {
+                const spec = it.proofSpec || {};
+                const locs = (Array.isArray(spec.locations) ? spec.locations : []).filter((l: any) => l?.placement);
+                const isTag = (l: any) => ["tag", "tags"].includes(String(l.placement || "").toLowerCase().trim());
+                const method = (Array.isArray(spec.methods) && spec.methods[0]) || null;
+                const finishing = Array.isArray(spec.finishing) ? spec.finishing : [];
+                const chip = (txt: string, solid = false, key?: string) => (
+                  <span key={key || txt} style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: "0.09em", textTransform: "uppercase", whiteSpace: "nowrap", borderRadius: 999, padding: "7px 14px", background: solid ? "#fff" : "transparent", color: solid ? H.ink : H.dim, border: solid ? "1px solid #fff" : `1px solid ${H.line}`, fontFamily: H.mono }}>{txt}</span>
+                );
+                return (
+                  <div style={{ padding: "14px 18px 4px", display: "flex", flexDirection: "column", gap: 12 }}>
+                    {(method || locs.length > 0) && (
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        {method && chip(method, true)}
+                        {locs.map((l: any, i: number) => chip(
+                          isTag(l) ? `Tag${l.sizeText ? ` · ${l.sizeText}` : ""}` : `${l.placement}${l.sizeText ? ` · ${l.sizeText}` : ""}`,
+                          false, `loc${i}`))}
+                      </div>
+                    )}
+                    {locs.some((l: any) => (l.colors || []).length > 0 || l.callout) && (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        {locs.map((l: any, i: number) => (
+                          ((l.colors || []).length > 0 || l.callout) ? (
+                            <div key={i} style={{ display: "flex", gap: 12, alignItems: "baseline", flexWrap: "wrap", fontSize: 12 }}>
+                              <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: H.faint, minWidth: 86 }}>{l.placement}</span>
+                              {(l.colors || []).map((c: any, j: number) => (
+                                <span key={j} style={{ display: "inline-flex", alignItems: "center", gap: 5, color: H.dim, fontFamily: H.mono, fontSize: 11 }}>
+                                  <span style={{ width: 11, height: 11, borderRadius: 3, background: c.hex || "#9aa0ae", border: "1px solid rgba(255,255,255,0.25)", display: "inline-block" }} />{c.name || ""}
+                                </span>
+                              ))}
+                              {l.callout && <span style={{ color: H.faint, fontSize: 11.5 }}>{l.callout}</span>}
+                            </div>
+                          ) : null
+                        ))}
+                      </div>
+                    )}
+                    {spec.notes && (
+                      <div style={{ borderLeft: `3px solid ${H.amber}`, padding: "5px 12px", fontSize: 12.5, color: H.text, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>
+                        <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: H.amber, display: "block", marginBottom: 2 }}>Special instructions</span>
+                        {spec.notes}
+                      </div>
+                    )}
+                    {finishing.length > 0 && (
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                        <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: H.faint }}>Finishing</span>
+                        {finishing.map((f: string, i: number) => <span key={i} style={{ fontSize: 11, color: H.dim }}>{f}{i < finishing.length - 1 ? " ·" : ""}</span>)}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
               <div style={{ display: "flex", gap: 12, alignItems: "center", padding: "16px 18px 18px", flexWrap: "wrap" }}>
                 <button onClick={() => {
                     setProofItem(null);
@@ -265,7 +311,15 @@ export function OrderExperience({ data, token, onAction }: {
                     if (el) { el.scrollIntoView({ behavior: "smooth", block: "center" }); el.classList.remove("hx-approve-pulse"); void el.offsetWidth; el.classList.add("hx-approve-pulse"); }
                   }}
                   style={{ background: "#fff", color: H.ink, border: "none", borderRadius: 999, padding: "13px 24px", fontSize: 12.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>
-                  Approve your proofs
+                  Approve all proofs
+                </button>
+                <button onClick={() => {
+                    setProofItem(null);
+                    const el = document.getElementById("hx-approval");
+                    if (el) { el.scrollIntoView({ behavior: "smooth", block: "center" }); }
+                  }}
+                  style={{ background: "transparent", color: H.text, border: `1px solid rgba(255,255,255,0.35)`, borderRadius: 999, padding: "13px 22px", fontSize: 12.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>
+                  Request changes
                 </button>
                 {proofFile && <span style={{ marginLeft: "auto" }}>{dl("Proof PDF", `/api/files/thumbnail?id=${proofFile.driveFileId}&dl=1`)}</span>}
               </div>

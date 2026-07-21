@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useClientPortal } from "../_shared/context";
 import { C, fmtDate } from "../_shared/theme";
-import { OrderDetailView } from "./[jobId]/page";
+import { OrderDetailView } from "./[jobId]/OrderDetailView";
 import { CLIENT_STATE_LABELS, type ItemState } from "@/lib/item-status";
 
 
