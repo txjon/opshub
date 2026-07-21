@@ -16,7 +16,7 @@ const fmtMoney = (n?: number | null) => (n != null ? "$" + Math.round(n).toLocal
 // shortly" next to a live Pay Now button reads as broken.
 function invoiceLine(terms?: string | null, invoiceState?: "pending" | "ready" | "paid" | "settled"): string {
   if (invoiceState === "paid") return "Your invoice is paid. Thank you!";
-  if (invoiceState === "settled") return "Nothing currently due. Any updated total will come as a separate invoice.";
+  if (invoiceState === "settled") return ""; // payment band below owns the money story — saying it twice conflicted
   const t = (terms || "").toLowerCase();
   if (invoiceState === "ready") {
     if (t === "deposit_balance") return "Your deposit invoice is ready below. Production begins once it's received.";
@@ -70,7 +70,7 @@ export function PackageApproval({ c, approved, approvedAt, changeRequest, quoteT
           <span style={{ fontSize: 15, fontWeight: 700, color: c.green }}>Approved{approvedAt ? ` · ${fmtDate(approvedAt)}` : ""}</span>
         </div>
         <div style={{ fontSize: 13, color: c.muted, marginTop: 6, lineHeight: 1.5 }}>
-          Thanks! Everything's approved for production{total ? ` at ${total}` : ""}. {invoiceLine(terms, invoiceState)} Need a change? Just reply to your rep and we'll help.
+          Thanks! Everything's approved for production{invoiceState === "settled" ? "" : (total ? ` at ${total}` : "")}.{(() => { const l = invoiceLine(terms, invoiceState); return l ? ` ${l}` : ""; })()} Need a change? Just reply to your rep and we'll help.
         </div>
       </div>
     );

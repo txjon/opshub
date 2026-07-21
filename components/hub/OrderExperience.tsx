@@ -372,6 +372,12 @@ export function OrderExperience({ data, token, onAction }: {
                 );
               })()}
               <div style={{ display: "flex", gap: 12, alignItems: "center", padding: "16px 18px 18px", flexWrap: "wrap" }}>
+                {fullyApproved ? (
+                  // Post-approval: changes go through the rep (per the approve
+                  // disclaimer) — dead approve/change buttons here just closed
+                  // the sheet and confused people.
+                  <span style={{ fontSize: 11.5, color: H.faint, lineHeight: 1.5 }}>Approved for production. Need a change? Reply to your rep and we&rsquo;ll help.</span>
+                ) : (<>
                 <button onClick={() => {
                     setProofItem(null);
                     setApproveSignal(n => n + 1);
@@ -389,6 +395,7 @@ export function OrderExperience({ data, token, onAction }: {
                   style={{ background: "transparent", color: H.text, border: `1px solid rgba(255,255,255,0.35)`, borderRadius: 999, padding: "13px 22px", fontSize: 12.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>
                   Request changes
                 </button>
+                </>)}
                 {proofFile && <span style={{ marginLeft: "auto" }}>{dl("Proof PDF", `/api/files/thumbnail?id=${proofFile.driveFileId}&dl=1`)}</span>}
               </div>
             </div>
