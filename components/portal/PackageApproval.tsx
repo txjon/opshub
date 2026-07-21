@@ -11,16 +11,23 @@ type Theme = any; // the portal's document-style `C` theme object
 
 const fmtMoney = (n?: number | null) => (n != null ? "$" + Math.round(n).toLocaleString() : null);
 
-// The acceptance line shown on the approve prompt, tuned to the client's terms.
-function invoiceLine(terms?: string | null): string {
+// The acceptance line shown on the approve prompt + approved banner, tuned to
+// the client's terms AND the actual invoice state — "we'll send your invoice
+// shortly" next to a live Pay Now button reads as broken.
+function invoiceLine(terms?: string | null, invoiceState?: "pending" | "ready" | "paid"): string {
+  if (invoiceState === "paid") return "Your invoice is paid. Thank you!";
   const t = (terms || "").toLowerCase();
+  if (invoiceState === "ready") {
+    if (t === "deposit_balance") return "Your deposit invoice is ready below. Production begins once it's received.";
+    return "Your invoice is ready below.";
+  }
   if (t === "prepaid") return "We'll send your invoice shortly. Production begins once it's paid.";
   if (t === "deposit_balance") return "We'll send your deposit invoice shortly. Production begins once it's received.";
   if (/^net/.test(t)) return "We'll send your invoice shortly (due per your terms); production begins now.";
   return "We'll send your invoice shortly.";
 }
 
-export function PackageApproval({ c, approved, approvedAt, changeRequest, quoteTotal, terms, items, pendingReapproval, onAction }: {
+export function PackageApproval({ c, approved, approvedAt, changeRequest, quoteTotal, terms, items, pendingReapproval, invoiceState, onAction }: {
   c: Theme;
   approved: boolean;
   approvedAt?: string | null;
@@ -29,6 +36,7 @@ export function PackageApproval({ c, approved, approvedAt, changeRequest, quoteT
   terms?: string | null;
   items?: { id: string; name: string }[]; // for optional per-item tags on Request changes
   pendingReapproval?: boolean; // quote approved but proofs were revised → offer "Approve updated proofs"
+  invoiceState?: "pending" | "ready" | "paid"; // ready = payment band below is showing a live pay link
   onAction: (action: string, body?: any) => Promise<void>;
 }) {
   const [modal, setModal] = useState<null | "approve" | "changes">(null);
@@ -55,7 +63,7 @@ export function PackageApproval({ c, approved, approvedAt, changeRequest, quoteT
           <span style={{ fontSize: 15, fontWeight: 700, color: c.green }}>Approved{approvedAt ? ` · ${fmtDate(approvedAt)}` : ""}</span>
         </div>
         <div style={{ fontSize: 13, color: c.muted, marginTop: 6, lineHeight: 1.5 }}>
-          Thanks! Everything's approved for production{total ? ` at ${total}` : ""}. {invoiceLine(terms)} Need a change? Just reply to your rep and we'll help.
+          Thanks! Everything's approved for production{total ? ` at ${total}` : ""}. {invoiceLine(terms, invoiceState)} Need a change? Just reply to your rep and we'll help.
         </div>
       </div>
     );
@@ -92,7 +100,7 @@ export function PackageApproval({ c, approved, approvedAt, changeRequest, quoteT
           <div style={{ fontSize: 13.5, color: c.text, marginTop: 10, lineHeight: 1.55 }}>
             By approving, you confirm all products and artwork shown are <b>correct and approved for production</b>. Changes requested after approval may not be able to be accommodated and could incur re-stocking or re-print charges.
           </div>
-          <div style={{ fontSize: 13, color: c.muted, marginTop: 10, lineHeight: 1.5 }}>{invoiceLine(terms)}</div>
+          <div style={{ fontSize: 13, color: c.muted, marginTop: 10, lineHeight: 1.5 }}>{invoiceLine(terms, invoiceState)}</div>
           {total && <div style={{ fontSize: 13, color: c.muted, marginTop: 8 }}>Approved total: <b style={{ color: c.text }}>{total}</b></div>}
           <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
             <button onClick={() => submit("approve-package")} disabled={busy} style={{ ...btnPrimary, background: c.green, color: "#fff", opacity: busy ? 0.6 : 1 }}>{busy ? "Approving…" : "Approve for production"}</button>

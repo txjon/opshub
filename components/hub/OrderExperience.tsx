@@ -70,7 +70,12 @@ export function OrderExperience({ data, token, onAction }: {
     } else if (netTerms) {
       note = `You're on ${termsLabel || "net terms"}. Production proceeds now; your invoice follows on your terms.`;
     } else if (paymentLink && balance > 0.005) {
-      note = termsRaw === "deposit_balance" ? "Your deposit invoice is ready. Production begins once it's received." : "Your invoice is ready. Production begins once it's paid.";
+      // "Production begins once it's paid" is only true pre-production — past
+      // that the rail above contradicts it, so drop the clause.
+      const preProduction = railIdx < 1;
+      note = termsRaw === "deposit_balance"
+        ? `Your deposit invoice is ready.${preProduction ? " Production begins once it's received." : ""}`
+        : `Your invoice is ready.${preProduction ? " Production begins once it's paid." : ""}`;
       cta = { label: `Pay Now · ${fmtMoney(balance)}`, href: paymentLink };
     } else {
       note = "Your invoice is on its way. We'll email your payment link.";
@@ -145,6 +150,7 @@ export function OrderExperience({ data, token, onAction }: {
             changeRequest={project.changeRequest} quoteTotal={total > 0 ? total : null} terms={project.paymentTerms}
             items={items.map((i: any) => ({ id: i.id, name: i.name }))}
             pendingReapproval={!!project.quoteApproved && hasProofs && !allProofsApproved}
+            invoiceState={totalPaid >= total - 0.005 && total > 0 ? "paid" : payBand?.cta ? "ready" : "pending"}
             onAction={onAction} />
         </div>
 
