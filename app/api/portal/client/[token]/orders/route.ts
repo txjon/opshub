@@ -92,15 +92,27 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
     // on items themselves isn't thumb-able.
     const itemIds = (items || []).map((i: any) => i.id);
     const thumbByItem: Record<string, string | null> = {};
+    const jobIdByItem: Record<string, string> = {};
+    for (const i of (items || [])) jobIdByItem[(i as any).id] = (i as any).job_id;
+    const pendingProofsByJob: Record<string, number> = {};
     if (itemIds.length > 0) {
       const { data: files } = await db
         .from("item_files")
-        .select("item_id, stage, drive_file_id, created_at")
+        .select("item_id, stage, drive_file_id, created_at, approval")
         .in("item_id", itemIds)
         .in("stage", ["mockup", "proof", "print_ready"])
         .is("superseded_at", null)
         .not("drive_file_id", "is", null)
         .order("created_at", { ascending: false });
+      // Live proofs still awaiting client approval, rolled up per job —
+      // powers the hub's Needs-you surfacing (a job can be past 'pending'
+      // phase and STILL have revised proofs waiting on the client).
+      for (const f of (files || [])) {
+        if (f.stage === "proof" && f.approval === "pending") {
+          const jid = jobIdByItem[f.item_id];
+          if (jid) pendingProofsByJob[jid] = (pendingProofsByJob[jid] || 0) + 1;
+        }
+      }
       const rank: Record<string, number> = { mockup: 3, proof: 2, print_ready: 1 };
       const bestRank: Record<string, number> = {};
       for (const f of (files || [])) {
@@ -207,6 +219,7 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
         updated_at: r.sent_at || r.created_at,
         items: [],
         total_qty: totalQty,
+        proofs_pending: 0,
         total,
         paid_amount: paidAmount,
         balance,
@@ -342,6 +355,7 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
           };
         }),
         total_qty: totalQty,
+        proofs_pending: pendingProofsByJob[j.id] || 0,
         // total / paid_amount / balance gated on isPricingVisible —
         // before quote/invoice has been sent, client sees the order
         // and items but no dollar amount.
