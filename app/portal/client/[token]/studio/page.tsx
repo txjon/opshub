@@ -218,6 +218,9 @@ function BriefSheet({ brief, token, onClose, onActed }: { brief: any; token: str
   // (The old machinery scattered notes across four stores; this renders
   // the client-visible spine and every client note is always visible.)
   const [thread, setThread] = useState<any[] | null>(null);
+  // Evolution scrubbing: latest drop is the hero; earlier drops become a
+  // filmstrip of thumbs (old → new). Tap a thumb to swap it into the hero.
+  const [heroIdx, setHeroIdx] = useState<number | null>(null);
   useEffect(() => {
     (async () => {
       try {
@@ -281,20 +284,47 @@ function BriefSheet({ brief, token, onClose, onActed }: { brief: any; token: str
           </div>
           <button onClick={onClose} aria-label="Close" style={{ background: "none", border: "none", color: C.muted, fontSize: 26, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>
         </div>
-        {/* ── The exchange ── */}
-        <div style={{ padding: "14px 20px 4px", display: "flex", flexDirection: "column", gap: 10, maxHeight: "48vh", overflowY: "auto" }}>
+        {/* ── Latest drop big + evolution filmstrip ── */}
+        {(() => {
+          const images = (thread || []).filter(e => e.type === "image");
+          if (images.length === 0) return null;
+          const hero = images[heroIdx == null ? images.length - 1 : Math.min(heroIdx, images.length - 1)];
+          const heroDate = hero.at ? fmtDate(hero.at) : "";
+          return (
+            <div style={{ marginTop: 12 }}>
+              <div style={{ background: "#fff", position: "relative" }}>
+                <img src={`/api/files/thumbnail?id=${hero.driveId}&thumb=1&size=700`} alt="" referrerPolicy="no-referrer"
+                  style={{ width: "100%", maxHeight: "40vh", objectFit: "contain", display: "block", margin: "0 auto" }}
+                  onError={(ev: any) => { ev.target.parentElement.style.display = "none"; }} />
+                {heroDate && <span style={{ position: "absolute", right: 10, bottom: 8, fontSize: 9, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: "#999", background: "rgba(255,255,255,0.85)", borderRadius: 999, padding: "3px 9px" }}>{(heroIdx == null || heroIdx === images.length - 1) ? "Latest" : heroDate}</span>}
+              </div>
+              {images.length > 1 && (
+                <div style={{ display: "flex", gap: 8, padding: "10px 20px 0", overflowX: "auto", scrollbarWidth: "none" as any }}>
+                  {images.map((im, i) => {
+                    const active = (heroIdx == null ? images.length - 1 : heroIdx) === i;
+                    return (
+                      <button key={i} onClick={() => setHeroIdx(i)}
+                        style={{ flexShrink: 0, width: 54, height: 54, borderRadius: 9, overflow: "hidden", background: "#fff", border: active ? "2px solid #fff" : `1px solid ${C.border}`, padding: 0, cursor: "pointer", opacity: active ? 1 : 0.65 }}>
+                        <img src={`/api/files/thumbnail?id=${im.driveId}&thumb=1&size=200`} alt="" loading="lazy" referrerPolicy="no-referrer"
+                          style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                          onError={(ev: any) => { ev.target.style.display = "none"; }} />
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
+        {/* ── The exchange — notes only; images live in the strip above ── */}
+        <div style={{ padding: "14px 20px 4px", display: "flex", flexDirection: "column", gap: 10, maxHeight: "34vh", overflowY: "auto" }}>
           {thread === null ? (
             <div style={{ color: C.faint, fontSize: 12, padding: "10px 0" }}>Loading the thread…</div>
-          ) : thread.length === 0 ? (
-            <div style={{ color: C.faint, fontSize: 12.5, padding: "6px 0" }}>Nothing here yet — say the first thing.</div>
-          ) : thread.map((e, i) => (
-            e.type === "image" ? (
-              <div key={i} style={{ alignSelf: "stretch", background: "#fff", borderRadius: 12, overflow: "hidden" }}>
-                <img src={`/api/files/thumbnail?id=${e.driveId}&thumb=1&size=1000`} alt="" loading="lazy" referrerPolicy="no-referrer"
-                  style={{ width: "100%", maxHeight: "38vh", objectFit: "contain", display: "block", margin: "0 auto" }}
-                  onError={(ev: any) => { ev.target.parentElement.style.display = "none"; }} />
-              </div>
-            ) : e.system ? (
+          ) : thread.filter(e => e.type !== "image").length === 0 ? (
+            <div style={{ color: C.faint, fontSize: 12.5, padding: "6px 0" }}>No notes yet — say the first thing.</div>
+          ) : thread.filter(e => e.type !== "image").map((e, i) => (
+            e.system ? (
               <div key={i} style={{ alignSelf: "center", fontSize: 10, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: C.green }}>{e.body}</div>
             ) : (
               <div key={i} style={{
