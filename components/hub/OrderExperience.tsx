@@ -98,7 +98,16 @@ export function OrderExperience({ data, token, onAction }: {
         @media(min-width:720px){.hx-grid{grid-template-columns:repeat(auto-fill,minmax(230px,1fr))}}
         .hx-card{transition:transform .15s ease,border-color .15s ease}
         .hx-card:hover{transform:translateY(-3px);border-color:rgba(255,255,255,.3)}
-        @media(prefers-reduced-motion:reduce){.hx-card,.hx-card:hover{transition:none;transform:none}}
+        .hx-proof-back{position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:60;display:flex;align-items:flex-start;justify-content:center;padding:20px 12px;overflow-y:auto}
+        .hx-proof-sheet{background:${H.panel};border:1px solid ${H.line};border-radius:20px;max-width:700px;width:100%;overflow:hidden}
+        .hx-sheet-handle{display:none}
+        @media(max-width:640px){
+          .hx-proof-back{align-items:flex-end;padding:0;overflow-y:hidden}
+          .hx-proof-sheet{border-radius:18px 18px 0 0;border-bottom:none;max-height:92dvh;overflow-y:auto;animation:hxSheetUp .3s cubic-bezier(.32,.72,0,1)}
+          .hx-sheet-handle{display:block;width:38px;height:4px;border-radius:999px;background:rgba(255,255,255,0.25);margin:10px auto 0}
+        }
+        @keyframes hxSheetUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+        @media(prefers-reduced-motion:reduce){.hx-card,.hx-card:hover{transition:none;transform:none}.hx-proof-sheet{animation:none}}
         .hx-approve-pulse{animation:hxpulse 1.2s ease 2}
         @keyframes hxpulse{0%,100%{box-shadow:0 0 0 0 rgba(255,255,255,0)}50%{box-shadow:0 0 0 4px rgba(255,255,255,.25)}}
       ` }} />
@@ -245,8 +254,9 @@ export function OrderExperience({ data, token, onAction }: {
         const proofFile = (it.proofs || []).find((f: any) => f.stage === "proof");
         return (
           <div onClick={e => { if (e.target === e.currentTarget) setProofItem(null); }}
-            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 60, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "20px 12px", overflowY: "auto" }}>
-            <div style={{ background: H.panel, border: `1px solid ${H.line}`, borderRadius: 20, maxWidth: 700, width: "100%", overflow: "hidden" }}>
+            className="hx-proof-back">
+            <div className="hx-proof-sheet">
+              <div className="hx-sheet-handle" />
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 18px" }}>
                 <div style={{ fontSize: 16, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em" }}>{it.name}</div>
                 <button onClick={() => setProofItem(null)} aria-label="Close" style={{ background: "none", border: "none", color: H.dim, fontSize: 26, cursor: "pointer", lineHeight: 1 }}>×</button>
