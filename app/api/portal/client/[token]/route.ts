@@ -17,7 +17,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     const db = admin();
     const { data: client } = await db
       .from("clients")
-      .select("id, name, companies:company_id(name, slug)")
+      .select("id, name, portal_features, companies:company_id(name, slug)")
       .eq("portal_token", params.token)
       .single();
     if (!client) return NextResponse.json({ error: "Invalid link" }, { status: 404 });
@@ -280,6 +280,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
 
     return NextResponse.json({
       client: { name: client.name },
+      features: (client as any).portal_features || [],
       company: { name: tenant.name, slug: tenant.slug },
       briefs: out,
       orders_summary: {

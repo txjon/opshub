@@ -164,7 +164,8 @@ const FILTERS: Array<{ key: string; label: string; matches: (s: ItemState) => bo
 ];
 
 export default function ItemsPage() {
-  const { token } = useClientPortal();
+  const { token, data } = useClientPortal();
+  const hasPipeline = ((data as any)?.features || []).includes("pipeline");
   const [items, setItems] = useState<Item[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
@@ -241,6 +242,14 @@ export default function ItemsPage() {
 
   const fmtShort = (iso: string) => new Date(iso + "T00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
   const daysOut = (iso: string) => Math.round((new Date(iso + "T00:00").getTime() - today.getTime()) / DAY);
+
+  if (data && !hasPipeline) {
+    return (
+      <div style={{ padding: "60px 0", textAlign: "center", color: C.muted, fontSize: 13 }}>
+        This page isn&rsquo;t enabled for your account. Reach out to your rep if you&rsquo;d like production visibility here.
+      </div>
+    );
+  }
 
   return (
     <div style={{ paddingTop: "clamp(8px, 3vw, 28px)" }}>

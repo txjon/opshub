@@ -108,6 +108,11 @@ export default function Shell({ children }: { children: ReactNode }) {
     designs: data.briefs.filter(b => b.has_unread_external).length,
   };
 
+  // Feature grants (mig 132): Pipeline is a granted surface — standard-tier
+  // clients see Home / Orders / Reorder only.
+  const features: string[] = (data as any).features || [];
+  const visibleTabs = TABS.filter(t => t.path !== "/items" || features.includes("pipeline"));
+
   const isActive = (path: string) =>
     path === "" ? pathname === base || pathname === base + "/" : !!pathname?.startsWith(base + path);
 
@@ -159,7 +164,7 @@ export default function Shell({ children }: { children: ReactNode }) {
             <div style={{ width: 38 }} />
           </div>
           <nav style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 48 }}>
-            {TABS.map(t => (
+            {visibleTabs.map(t => (
               <Link key={t.label} href={base + t.path} onClick={() => setMenuOpen(false)}
                 style={{ fontSize: "clamp(17px,2vw,22px)", fontWeight: 900, letterSpacing: "-0.01em", textTransform: "uppercase", color: isActive(t.path) ? C.text : C.muted, textDecoration: "none", padding: "8px 0" }}>
                 {t.display}
@@ -268,7 +273,7 @@ export default function Shell({ children }: { children: ReactNode }) {
         justifyContent: "space-around",
         boxShadow: "0 -2px 12px rgba(0,0,0,0.04)",
       }}>
-        {TABS.map(t => {
+        {visibleTabs.map(t => {
           const href = base + t.path;
           const active = isActive(t.path);
           const unread = t.unreadKey ? unreadCounts[t.unreadKey] : 0;

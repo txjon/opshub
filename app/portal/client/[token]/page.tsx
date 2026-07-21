@@ -14,6 +14,7 @@ export default function HomePage() {
   const base = `/portal/client/${token}`;
   const [orders, setOrders] = useState<any[] | null>(null);
   const [items, setItems] = useState<any[] | null>(null);
+  const hasPipeline = ((data as any)?.features || []).includes("pipeline");
 
   useEffect(() => {
     (async () => {
@@ -113,15 +114,15 @@ export default function HomePage() {
         <div style={{ color: C.faint, fontSize: 13, padding: "30px 0", textAlign: "center" }}>Loading…</div>
       ) : (
         <>
-          {storeReady.length > 0 && (
+          {hasPipeline && storeReady.length > 0 && (
             <Strip title="Live-ready." sub="See all" list={storeReady}
               badge={(it) => `${(it.qty || 0).toLocaleString()} pcs ready`} />
           )}
-          {landing.length > 0 && (
+          {hasPipeline && landing.length > 0 && (
             <Strip title="Coming soon." sub="Full pipeline" list={landing}
               badge={(it) => `lands ${fmtDate(it.eta)}`} />
           )}
-          {landing.length === 0 && storeReady.length === 0 && (
+          {hasPipeline && landing.length === 0 && storeReady.length === 0 && (
             <div style={{ color: C.muted, fontSize: 13, textAlign: "center", padding: "20px 0 40px" }}>
               Nothing in production right now. Tap Reorder to run something back.
             </div>
@@ -129,7 +130,7 @@ export default function HomePage() {
 
           {/* Quick doors */}
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "center", margin: "6px 0 20px" }}>
-            {[{ label: "Reorder", href: `${base}/reorder` }, { label: "Orders", href: `${base}/orders` }, { label: "Pipeline", href: `${base}/items` }].map(d => (
+            {[{ label: "Reorder", href: `${base}/reorder` }, { label: "Orders", href: `${base}/orders` }, ...(hasPipeline ? [{ label: "Pipeline", href: `${base}/items` }] : [])].map(d => (
               <Link key={d.label} href={d.href}
                 style={{ border: `1px solid ${C.border}`, color: C.muted, borderRadius: 999, padding: "10px 20px", fontSize: 10.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", textDecoration: "none" }}>
                 {d.label}
