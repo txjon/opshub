@@ -4,7 +4,7 @@
 // ("Call it something." → "What else?") plus a magazine feed of everything
 // in the studio, image-first. Ideas land as draft art_briefs — the team's
 // existing studio machinery picks them up. 'studio' grant only.
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useClientPortal } from "../_shared/context";
 import { C, fmtDate } from "../_shared/theme";
 import { clientStateFor } from "../_shared/state-labels";
@@ -213,6 +213,34 @@ function BriefSheet({ brief, token, onClose, onActed }: { brief: any; token: str
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
 
+  // The thread IS the brief — one ping-pong exchange: the opening idea,
+  // every note from either side, every shared image drop, chronological.
+  // (The old machinery scattered notes across four stores; this renders
+  // the client-visible spine and every client note is always visible.)
+  const [thread, setThread] = useState<any[] | null>(null);
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`/api/portal/client/${token}/briefs/${brief.id}`);
+        const body = await res.json();
+        if (!res.ok) { setThread([]); return; }
+        const entries: any[] = [];
+        if (brief.concept) entries.push({ at: brief.created_at || "", who: "you", type: "text", body: brief.concept });
+        for (const m of (body.messages || [])) {
+          entries.push({ at: m.created_at, who: m.sender_role === "client" ? "you" : "us", type: "text", body: m.message, system: (m.message || "").startsWith("✓") });
+        }
+        for (const f of (body.files || [])) {
+          const id = f.preview_drive_file_id || f.drive_file_id;
+          if (!id) continue;
+          entries.push({ at: f.created_at, who: f.uploader_role === "client" ? "you" : "us", type: "image", driveId: id, kind: f.kind });
+        }
+        entries.sort((a, b) => String(a.at).localeCompare(String(b.at)));
+        setThread(entries);
+      } catch { setThread([]); }
+    })();
+    // eslint-disable-next-line
+  }, [brief.id]);
+
   async function act(kind: "approve" | "abort") {
     setBusy(kind); setMsg("");
     try {
@@ -253,17 +281,34 @@ function BriefSheet({ brief, token, onClose, onActed }: { brief: any; token: str
           </div>
           <button onClick={onClose} aria-label="Close" style={{ background: "none", border: "none", color: C.muted, fontSize: 26, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>
         </div>
-        {src && (
-          <div style={{ background: "#fff", marginTop: 12 }}>
-            <img src={src.replace("size=700", "size=1200")} alt="" referrerPolicy="no-referrer" style={{ width: "100%", maxHeight: "46vh", objectFit: "contain", display: "block", margin: "0 auto" }} onError={(e: any) => { e.target.style.display = "none"; }} />
-          </div>
-        )}
-        {brief.concept && !src && (
-          <div style={{ padding: "12px 20px 0", fontSize: 13.5, color: C.muted, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{brief.concept}</div>
-        )}
+        {/* ── The exchange ── */}
+        <div style={{ padding: "14px 20px 4px", display: "flex", flexDirection: "column", gap: 10, maxHeight: "48vh", overflowY: "auto" }}>
+          {thread === null ? (
+            <div style={{ color: C.faint, fontSize: 12, padding: "10px 0" }}>Loading the thread…</div>
+          ) : thread.length === 0 ? (
+            <div style={{ color: C.faint, fontSize: 12.5, padding: "6px 0" }}>Nothing here yet — say the first thing.</div>
+          ) : thread.map((e, i) => (
+            e.type === "image" ? (
+              <div key={i} style={{ alignSelf: "stretch", background: "#fff", borderRadius: 12, overflow: "hidden" }}>
+                <img src={`/api/files/thumbnail?id=${e.driveId}&thumb=1&size=1000`} alt="" loading="lazy" referrerPolicy="no-referrer"
+                  style={{ width: "100%", maxHeight: "38vh", objectFit: "contain", display: "block", margin: "0 auto" }}
+                  onError={(ev: any) => { ev.target.parentElement.style.display = "none"; }} />
+              </div>
+            ) : e.system ? (
+              <div key={i} style={{ alignSelf: "center", fontSize: 10, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: C.green }}>{e.body}</div>
+            ) : (
+              <div key={i} style={{
+                alignSelf: e.who === "you" ? "flex-end" : "flex-start", maxWidth: "84%",
+                background: e.who === "you" ? "#fff" : C.surface, color: e.who === "you" ? C.bg : C.text,
+                borderRadius: e.who === "you" ? "14px 14px 4px 14px" : "14px 14px 14px 4px",
+                padding: "9px 13px", fontSize: 13, lineHeight: 1.55, whiteSpace: "pre-wrap",
+              }}>{e.body}</div>
+            )
+          ))}
+        </div>
         <div style={{ padding: "16px 20px 20px", display: "flex", flexDirection: "column", gap: 12 }}>
           <textarea value={note} onChange={e => setNote(e.target.value)} rows={2}
-            placeholder={bucket === "your_move" ? "Thoughts on this one? We read every word." : "Add a note, a reference, a direction…"}
+            placeholder={bucket === "your_move" ? "Thoughts on this one?" : "Your turn — notes, references, direction…"}
             style={{ width: "100%", boxSizing: "border-box", padding: "11px 13px", borderRadius: 10, border: `1px solid ${C.border}`, background: C.surface, color: C.text, fontSize: 13, fontFamily: C.font, outline: "none", resize: "vertical" }} />
           {msg && <div style={{ fontSize: 12, fontWeight: 700, color: C.red }}>{msg}</div>}
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
