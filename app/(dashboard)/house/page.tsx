@@ -383,7 +383,6 @@ export default function HousePage() {
             setJobs(prev => (prev || []).map((x: any) => x.id === jobId
               ? { ...x, type_meta: { ...(x.type_meta || {}), po_ship_live: { ...((x.type_meta || {}).po_ship_live || {}), [vendorKey]: { date, edited_at: new Date().toISOString() } } } }
               : x))}
-          onStudioAnswered={(briefId: string) => setBriefs(prev => prev.filter((b: any) => b.id !== briefId))}
           onSaleClosed={(releaseId: string) => setDrops(prev => prev.map((r: any) => r.id === releaseId ? { ...r, status: "closed" } : r))}
           onVarianceResolved={(itemId: string) => setVariances(prev => prev.filter((it: any) => it.id !== itemId))}
         />
@@ -396,10 +395,9 @@ export default function HousePage() {
 // A plate opens here instead of navigating away: the card's context on top,
 // its one-to-three moves below, done and back to the feed. Deep links
 // survive at the bottom for when the real surface is needed.
-function ActionSheet({ sheet, onClose, onShipByLogged, onStudioAnswered, onSaleClosed, onVarianceResolved }: {
+function ActionSheet({ sheet, onClose, onShipByLogged, onSaleClosed, onVarianceResolved }: {
   sheet: any; onClose: () => void;
   onShipByLogged: (jobId: string, vendorKey: string, date: string) => void;
-  onStudioAnswered: (briefId: string) => void;
   onSaleClosed: (releaseId: string) => void;
   onVarianceResolved: (itemId: string) => void;
 }) {
@@ -408,9 +406,21 @@ function ActionSheet({ sheet, onClose, onShipByLogged, onStudioAnswered, onSaleC
   const [err, setErr] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
   const [date, setDate] = useState("");
-  const [reply, setReply] = useState("");
   const [nudge, setNudge] = useState<any>(null);
   const [resolveNote, setResolveNote] = useState("");
+  // studio sheet is a LOOK, not a reply box (Jon, Jul 22): pull the idea's
+  // full context — art, client words, build-out — then reply in the Studio
+  const [briefDetail, setBriefDetail] = useState<any>(null);
+  useEffect(() => {
+    if (sheet.kind !== "studio") return;
+    (async () => {
+      try {
+        const res = await fetch(`/api/art-briefs?id=${sheet.brief.id}`);
+        setBriefDetail(await res.json());
+      } catch { setBriefDetail({}); }
+    })();
+    // eslint-disable-next-line
+  }, []);
   // payment sheet: resolved recipient (billing contact → primary → first email)
   const [payTo, setPayTo] = useState<{ name: string; email: string } | null | "loading">(
     sheet.kind === "payment" ? "loading" : null);
@@ -501,18 +511,6 @@ function ActionSheet({ sheet, onClose, onShipByLogged, onStudioAnswered, onSaleC
       if (error) throw new Error(error.message);
       logJobActivity(s.job.id, `Vendor ship-by moved to ${fmtDate(date)} (logged from The House)`);
       onShipByLogged(s.job.id, s.vendorKey, date);
-      onClose();
-    } catch (e: any) { setErr(e.message); setBusy(null); }
-  }
-
-  async function sendReply() {
-    if (!reply.trim()) return;
-    setBusy("reply"); setErr(null);
-    try {
-      const res = await fetch("/api/art-briefs/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ brief_id: sheet.brief.id, message: reply.trim(), visibility: "all" }) });
-      const b = await res.json();
-      if (!res.ok) throw new Error(b.error || "Failed");
-      onStudioAnswered(sheet.brief.id);
       onClose();
     } catch (e: any) { setErr(e.message); setBusy(null); }
   }
@@ -643,24 +641,63 @@ function ActionSheet({ sheet, onClose, onShipByLogged, onStudioAnswered, onSaleC
             <a href="/receiving2" style={linkCss}>Open receiving to recount →</a>
           </>
         )}
-        {sheet.kind === "studio" && (
-          <>
-            {head(`${sheet.brief.clients?.name || "Studio"} · ${sheet.brief.title || "New idea"}`,
-              STUDIO_DIRECTIVE.verb,
-              sheet.brief.state === "draft" ? "new idea from the hub" : "client words waiting", H.amber)}
-            <div style={labelCss}>Reply in the thread — the client sees it</div>
-            <textarea value={reply} onChange={e => setReply(e.target.value)} rows={3}
-              placeholder="Even a 'love it, sketching soon' keeps the ping-pong alive…"
-              style={{ ...inputCss, width: "100%", fontFamily: H.font, resize: "vertical", boxSizing: "border-box" }} />
-            <div style={{ marginTop: 12 }}>
-              <button style={goBtn(!!reply.trim() && busy !== "reply")} disabled={!reply.trim() || busy === "reply"} onClick={sendReply}>
-                {busy === "reply" ? "Sending…" : "Send it"}
-              </button>
-            </div>
-            {divider}
-            <a href={`/studio2?open=${sheet.brief.id}`} style={linkCss}>Open it in the Studio →</a>
-          </>
-        )}
+        {sheet.kind === "studio" && (() => {
+          // a LOOK at the idea — art, their words, the build-out — then the
+          // reply happens in the Studio with the full thread in front of you
+          const b = sheet.brief;
+          const files = ((briefDetail?.files || []) as any[]).filter((f: any) => (f.preview_drive_file_id || f.drive_file_id) && !/pdf/i.test(f.mime_type || ""));
+          const hero = files.length ? files[files.length - 1] : null;
+          const msgs = ((briefDetail?.messages || []) as any[]).filter((m: any) => !String(m.message || "").startsWith("✎") && !String(m.message || "").startsWith("✓")).slice(-3);
+          const products = Array.isArray(b.product_spec?.products) ? b.product_spec.products : [];
+          return (
+            <>
+              {head(`${b.clients?.name || "Studio"} · ${b.title || "New idea"}`,
+                STUDIO_DIRECTIVE.verb,
+                b.state === "draft" ? "new idea from the hub" : "client words waiting", H.amber)}
+              {hero && (
+                <div style={{ background: "#fff", borderRadius: 10, overflow: "hidden", marginBottom: 14 }}>
+                  <img src={thumbSrc(hero.preview_drive_file_id || hero.drive_file_id, 700)} alt="" referrerPolicy="no-referrer"
+                    style={{ width: "100%", maxHeight: "30vh", objectFit: "contain", display: "block", margin: "0 auto" }}
+                    onError={(e: any) => { e.target.parentElement.style.display = "none"; }} />
+                </div>
+              )}
+              {b.concept && (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={labelCss}>Their idea, their words</div>
+                  <div style={{ fontSize: 13, lineHeight: 1.6, color: "rgba(255,255,255,0.85)", whiteSpace: "pre-wrap" }}>{b.concept}</div>
+                </div>
+              )}
+              {products.length > 0 && (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={labelCss}>Their build-out — future items</div>
+                  {products.map((x: any, i: number) => (
+                    <div key={i} style={{ display: "flex", gap: 10, alignItems: "baseline", padding: "6px 0", borderBottom: "1px solid rgba(255,255,255,0.07)", flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 12, fontWeight: 800, textTransform: "uppercase" }}>{x.format || "Item"}</span>
+                      {x.retail != null && <span style={{ fontSize: 11, fontFamily: H.mono, color: H.blue }}>${x.retail} retail</span>}
+                      {x.run_size != null && <span style={{ fontSize: 11, fontFamily: H.mono, color: "rgba(255,255,255,0.5)" }}>~{Number(x.run_size).toLocaleString()} pcs</span>}
+                      {x.notes && <span style={{ flexBasis: "100%", fontSize: 11.5, color: "rgba(255,255,255,0.6)", lineHeight: 1.5 }}>{x.notes}</span>}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {msgs.length > 0 && (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={labelCss}>The thread, latest words</div>
+                  {msgs.map((m: any) => (
+                    <div key={m.id} style={{ padding: "6px 0", borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
+                      <div style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: m.sender_role === "client" ? PURPLE : "rgba(255,255,255,0.45)", marginBottom: 2 }}>
+                        {m.sender_name || m.sender_role}{m.visibility && m.visibility !== "all" ? " · internal" : ""}
+                      </div>
+                      <div style={{ fontSize: 12.5, lineHeight: 1.55, color: "rgba(255,255,255,0.8)", whiteSpace: "pre-wrap" }}>{m.message}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {briefDetail === null && <div style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", marginBottom: 14 }}>Pulling the idea in…</div>}
+              <a href={`/studio2?open=${b.id}`} style={{ ...goBtn(true), display: "inline-block", textDecoration: "none" }}>Reply in the Studio →</a>
+            </>
+          );
+        })()}
         {sheet.kind === "payment" && (() => {
           const p = sheet.pay;
           const payLink = p.jobs?.type_meta?.qb_payment_link || "";
