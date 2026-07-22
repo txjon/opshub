@@ -1,5 +1,5 @@
 "use client";
-// THE FLOOR — the command center rebuilt the client-hub way (Jul 21 2026).
+// THE HOUSE — the command center rebuilt the client-hub way (Jul 21 2026).
 // One feed, magazine-dark, verbs first: what needs this building (from job
 // phases, drops, and the studio), what's with clients, what's landing, and
 // the wire of client actions. Replaces the old dashboard's KPI-grid idea
@@ -26,7 +26,7 @@ const PHASE_VERB: Record<string, { verb: string; go: string; side: "us" | "them"
   fulfillment: { verb: "Stage & ship", go: "Fulfillment", side: "us" },
 };
 
-export default function FloorPage() {
+export default function HousePage() {
   const supabase = createClient();
   const [jobs, setJobs] = useState<any[] | null>(null);
   const [drops, setDrops] = useState<any[]>([]);
@@ -127,7 +127,7 @@ export default function FloorPage() {
         <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase", color: H.faint }}>
           {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
         </div>
-        <h1 style={{ fontSize: "clamp(34px,5vw,64px)", fontWeight: 900, lineHeight: 0.98, letterSpacing: "-0.02em", textTransform: "uppercase", margin: "6px 0 8px" }}>The floor.</h1>
+        <h1 style={{ fontSize: "clamp(34px,5vw,64px)", fontWeight: 900, lineHeight: 0.98, letterSpacing: "-0.02em", textTransform: "uppercase", margin: "6px 0 8px" }}>The house.</h1>
 
         {jobs === null ? (
           <div style={{ color: H.faint, fontSize: 13, padding: "40px 0" }}>Reading the building…</div>
