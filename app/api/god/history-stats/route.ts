@@ -37,23 +37,24 @@ export async function GET() {
     if (!allowed) return NextResponse.json({ error: "Not available" }, { status: 403 });
 
     const db = admin();
-    // opshub_job_id null = pure history; stamped rows live on as jobs and
-    // would double-count (Jon, Jul 22)
-    const sales = (await pageAll(db, "history_sales",
-      "txn_date, customer, product_group, amount, qty, blank_style, size_qtys, opshub_job_id"))
-      .filter((r: any) => !r.opshub_job_id);
+    // Every line ships with an overlap flag (o: 1 = this line IS an OpsHub
+    // job as invoiced in QB). The browser's scope toggle includes or excludes
+    // the era — stamped rows are the era's ONLY representation, so either
+    // scope is double-count-free (Jon, Jul 22).
+    const sales = await pageAll(db, "history_sales",
+      "txn_date, customer, product_group, amount, qty, blank_style, size_qtys, opshub_job_id");
     const costs = await pageAll(db, "history_vendor_costs", "txn_date, vendor, amount, txn_type");
 
-    // compact lines: [ym, customer, group, amount, qty]
+    // compact lines: [ym, customer, group, amount, qty, overlapFlag]
     const lines = sales
       .filter((r: any) => r.txn_date && r.customer)
-      .map((r: any) => [String(r.txn_date).slice(0, 7), r.customer, r.product_group || "Other", Number(r.amount) || 0, Number(r.qty) || 0]);
+      .map((r: any) => [String(r.txn_date).slice(0, 7), r.customer, r.product_group || "Other", Number(r.amount) || 0, Number(r.qty) || 0, r.opshub_job_id ? 1 : 0]);
 
-    // size curves per customer+group (raw sums; browser aggregates "all")
+    // size curves per customer+group+era (browser aggregates per scope)
     const curveMap = new Map<string, Record<string, number>>();
     for (const r of sales) {
       if (!r.size_qtys || !r.customer) continue;
-      const key = `${r.customer}|||${r.product_group || "Other"}`;
+      const key = `${r.customer}|||${r.product_group || "Other"}|||${r.opshub_job_id ? 1 : 0}`;
       const acc = curveMap.get(key) || {};
       for (const [s, n] of Object.entries(r.size_qtys as Record<string, number>)) {
         acc[s] = (acc[s] || 0) + (Number(n) || 0);
@@ -61,20 +62,20 @@ export async function GET() {
       curveMap.set(key, acc);
     }
     const curves = Array.from(curveMap.entries()).map(([k, sizes]) => {
-      const [customer, group] = k.split("|||");
-      return { c: customer, g: group, s: sizes };
+      const [customer, group, o] = k.split("|||");
+      return { c: customer, g: group, o: Number(o), s: sizes };
     });
 
-    // blank usage per customer
+    // blank usage per customer+era
     const blankMap = new Map<string, number>();
     for (const r of sales) {
       if (!r.blank_style || !r.customer) continue;
-      const key = `${r.customer}|||${r.blank_style}`;
+      const key = `${r.customer}|||${r.blank_style}|||${r.opshub_job_id ? 1 : 0}`;
       blankMap.set(key, (blankMap.get(key) || 0) + (Number(r.qty) || 0));
     }
     const blanks = Array.from(blankMap.entries()).map(([k, units]) => {
-      const [customer, blank] = k.split("|||");
-      return { c: customer, b: blank, u: Math.round(units) };
+      const [customer, blank, o] = k.split("|||");
+      return { c: customer, b: blank, o: Number(o), u: Math.round(units) };
     });
 
     // vendor spend per month (bills/expenses only — importer already dropped payments)

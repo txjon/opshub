@@ -19,10 +19,10 @@ const monthLabel = (ym: string) => {
 };
 
 type Payload = {
-  lines: [string, string, string, number, number][];   // ym, customer, group, amount, qty
-  curves: { c: string; g: string; s: Record<string, number> }[];
-  blanks: { c: string; b: string; u: number }[];
-  spend: [string, string, number][];                   // ym, vendor, amount
+  lines: [string, string, string, number, number, number][];  // ym, customer, group, amount, qty, opshubFlag
+  curves: { c: string; g: string; o: number; s: Record<string, number> }[];
+  blanks: { c: string; b: string; o: number; u: number }[];
+  spend: [string, string, number][];                          // ym, vendor, amount
 };
 
 export default function GodModeV2Page() {
@@ -30,6 +30,9 @@ export default function GodModeV2Page() {
   const [err, setErr] = useState<string | null>(null);
   const [client, setClient] = useState<string>("ALL");
   const [group, setGroup] = useState<string>("ALL");
+  // scope: "pure" = the archive only; "all" = + the OpsHub era (the stamped
+  // QB lines ARE the OpsHub jobs as invoiced — either scope is double-count-free)
+  const [scope, setScope] = useState<"pure" | "all">("pure");
 
   useEffect(() => {
     (async () => {
@@ -45,16 +48,17 @@ export default function GodModeV2Page() {
   const model = useMemo(() => {
     if (!data) return null;
     const inClient = (c: string) => client === "ALL" || c === client;
+    const inScope = (o: number) => scope === "all" || !o;
 
     // client leaderboard (drives the selector)
     const byClient = new Map<string, number>();
-    for (const [, c, , a] of data.lines) byClient.set(c, (byClient.get(c) || 0) + a);
+    for (const [, c, , a, , o] of data.lines) { if (inScope(o)) byClient.set(c, (byClient.get(c) || 0) + a); }
     const topClients = Array.from(byClient.entries()).sort((a, b) => b[1] - a[1]).slice(0, 12);
 
     // monthly gross for selection
     const byMonth = new Map<string, { a: number; q: number }>();
-    for (const [ym, c, , a, q] of data.lines) {
-      if (!inClient(c)) continue;
+    for (const [ym, c, , a, q, o] of data.lines) {
+      if (!inClient(c) || !inScope(o)) continue;
       const cur = byMonth.get(ym) || { a: 0, q: 0 };
       cur.a += a; cur.q += q; byMonth.set(ym, cur);
     }
@@ -75,8 +79,8 @@ export default function GodModeV2Page() {
 
     // category mix for selection
     const byGroup = new Map<string, { a: number; q: number }>();
-    for (const [, c, g, a, q] of data.lines) {
-      if (!inClient(c)) continue;
+    for (const [, c, g, a, q, o] of data.lines) {
+      if (!inClient(c) || !inScope(o)) continue;
       const cur = byGroup.get(g) || { a: 0, q: 0 };
       cur.a += a; cur.q += q; byGroup.set(g, cur);
     }
@@ -87,7 +91,7 @@ export default function GodModeV2Page() {
     const curveAgg: Record<string, number> = {};
     const groupsWithCurves = new Map<string, number>();
     for (const cv of data.curves) {
-      if (!inClient(cv.c)) continue;
+      if (!inClient(cv.c) || !inScope(cv.o)) continue;
       const units = Object.values(cv.s).reduce((x, n) => x + n, 0);
       groupsWithCurves.set(cv.g, (groupsWithCurves.get(cv.g) || 0) + units);
       if (group !== "ALL" && cv.g !== group) continue;
@@ -100,7 +104,7 @@ export default function GodModeV2Page() {
     // blank leaderboard for selection
     const byBlank = new Map<string, number>();
     for (const b of data.blanks) {
-      if (!inClient(b.c)) continue;
+      if (!inClient(b.c) || !inScope(b.o)) continue;
       byBlank.set(b.b, (byBlank.get(b.b) || 0) + b.u);
     }
     const blanks = Array.from(byBlank.entries()).sort((a, b) => b[1] - a[1]).slice(0, 8);
@@ -114,7 +118,7 @@ export default function GodModeV2Page() {
     const totalUnits = Array.from(byMonth.values()).reduce((a, v) => a + v.q, 0);
     const customerCount = byClient.size;
     return { topClients, series, mix, curve, curveTotal, curveGroups, blanks, vendors, totalGross, totalUnits, customerCount, span };
-  }, [data, client, group]);
+  }, [data, client, group, scope]);
 
   return (
     <div style={{ background: H.ink, minHeight: "100vh", margin: -24, padding: 24, color: H.text, fontFamily: H.font }}>
@@ -137,8 +141,21 @@ export default function GodModeV2Page() {
 
         {model && (
           <>
+            {/* ── scope toggle — the archive vs + OpsHub era ── */}
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "20px 0 0" }}>
+              {([["pure", "The archive"], ["all", "+ OpsHub era"]] as const).map(([k, label]) => {
+                const active = scope === k;
+                return (
+                  <button key={k} onClick={() => setScope(k)}
+                    style={{ borderRadius: 999, border: active ? "1px solid #fff" : `1px solid ${H.line}`, background: active ? "#fff" : "transparent", color: active ? H.ink : H.dim, fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", padding: "9px 14px", cursor: "pointer", fontFamily: H.font }}>
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+
             {/* ── client selector — drives everything ── */}
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "20px 0 6px" }}>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "12px 0 6px" }}>
               {[["ALL", model ? Array.from(model.topClients.values()).length : 0] as any, ...model.topClients].map((entry: any, i: number) => {
                 const name = i === 0 ? "ALL" : entry[0];
                 const active = client === name;
@@ -156,7 +173,7 @@ export default function GodModeV2Page() {
               <div><div style={{ fontSize: "clamp(24px,3vw,36px)", fontWeight: 900, lineHeight: 1 }}>{fmt$(model.totalGross)}</div><div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.faint, marginTop: 5 }}>gross, all time</div></div>
               <div><div style={{ fontSize: "clamp(24px,3vw,36px)", fontWeight: 900, lineHeight: 1, color: H.blue }}>{Math.round(model.totalUnits).toLocaleString()}</div><div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.faint, marginTop: 5 }}>units sold</div></div>
               <div><div style={{ fontSize: "clamp(24px,3vw,36px)", fontWeight: 900, lineHeight: 1, color: PURPLE }}>{client === "ALL" ? model.customerCount.toLocaleString() : "1"}</div><div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.faint, marginTop: 5 }}>{client === "ALL" ? "clients" : client.replace(/, (LLC|INC).*/i, "")}</div></div>
-              <div style={{ alignSelf: "flex-end", fontSize: 9.5, color: H.faint, maxWidth: 220, lineHeight: 1.5 }}>OpsHub-era invoices excluded — those live on the live boards, never counted twice.</div>
+              <div style={{ alignSelf: "flex-end", fontSize: 9.5, color: H.faint, maxWidth: 230, lineHeight: 1.5 }}>{scope === "pure" ? "OpsHub-era invoices excluded — flip to + OpsHub era to fold them in." : "OpsHub era folded in — each job counted once, from its QB invoice lines."}</div>
             </div>
 
             <MonthlyChart series={model.series} />
