@@ -41,12 +41,14 @@ export default function HousePage() {
   const [openPulls, setOpenPulls] = useState(0);
   const [variances, setVariances] = useState<any[]>([]);
   const [closeOut, setCloseOut] = useState<any[]>([]);
+  const [openAR, setOpenAR] = useState<any[]>([]);
+  const [payReview, setPayReview] = useState<any[]>([]);
   // act-in-place: tapping a plate opens its action sheet instead of leaving
   const [sheet, setSheet] = useState<any>(null);
 
   useEffect(() => {
     (async () => {
-      const [{ data: j }, { data: r }, { data: act }, { data: latePay }, { count: pullCount }, { data: coJobs }, { data: recv }] = await Promise.all([
+      const [{ data: j }, { data: r }, { data: act }, { data: latePay }, { count: pullCount }, { data: coJobs }, { data: arJobs }, { data: recv }] = await Promise.all([
         supabase.from("jobs")
           .select("id, job_number, title, phase, target_ship_date, created_at, updated_at, phase_timestamps, type_meta, clients(name), items(id, pipeline_stage, pipeline_timestamps, buy_sheet_lines(qty_ordered))")
           .not("phase", "in", "(complete,cancelled,on_hold)"),
@@ -62,6 +64,16 @@ export default function HousePage() {
           .is("type_meta->>qb_variance_pushed_at", null)
           .not("phase", "in", "(cancelled,on_hold)")
           .order("updated_at", { ascending: false }).limit(30),
+        // post-production: OPEN AR from QB truth (Jon's settle-everything
+        // plan, Jul 22) — invoiced jobs where recorded payments fall short
+        // of the invoice total. Catches the ~$150k that was invisible when
+        // collections keyed only on payment_records due dates. The same
+        // query powers PAYMENTS NEED REVIEW (recorded > invoice = phantom).
+        supabase.from("jobs")
+          .select("id, job_number, title, phase, type_meta, clients(name), payment_records(amount, status)")
+          .not("type_meta->>qb_invoice_id", "is", null)
+          .not("phase", "eq", "cancelled")
+          .order("updated_at", { ascending: false }).limit(400),
         // post-production: receiving count variances (moved here from the
         // Distro — counts-off is a close-out concern; Jon, Jul 22)
         supabase.from("items")
@@ -76,6 +88,20 @@ export default function HousePage() {
         const s = deriveInvoice(x, x.items || [], []);
         return s.isFullyShipped && !s.variancePushedAt;
       }));
+      // QB-truth money states: short = open AR (collect), over = phantom (review)
+      const ar: any[] = [], review: any[] = [];
+      for (const x of (arJobs || []) as any[]) {
+        const tm = x.type_meta || {};
+        if (tm.qb_invoice_voided) continue;                 // deliberate voids (house goods)
+        const total = Number(tm.qb_total_with_tax) || 0;
+        if (total <= 0 || !tm.invoice_sent_at) continue;
+        const paid = (x.payment_records || []).filter((p: any) => ["paid", "partial"].includes(p.status))
+          .reduce((a: number, p: any) => a + Number(p.amount), 0);
+        if (total - paid > 1) ar.push({ job: x, total, paid, due: total - paid });
+        else if (paid - total > 1) review.push({ job: x, total, paid, over: paid - total });
+      }
+      setOpenAR(ar.sort((a, b) => b.due - a.due));
+      setPayReview(review);
       const sumQ = (o: any) => Object.values(o || {}).reduce((a: number, b: any) => a + (Number(b) || 0), 0);
       setVariances(((recv || []) as any[]).filter((it: any) => {
         const s = sumQ(it.ship_qtys), rr = sumQ(it.received_qtys);
@@ -227,7 +253,7 @@ export default function HousePage() {
         ) : (
           <>
             <div style={{ display: "flex", gap: "clamp(18px,4vw,48px)", flexWrap: "wrap", borderTop: `1px solid ${H.line}`, borderBottom: `1px solid ${H.line}`, padding: "16px 0", margin: "18px 0 0" }}>
-              <div><div style={{ fontSize: "clamp(24px,3vw,36px)", fontWeight: 900, lineHeight: 1, color: H.amber }}>{model.ourJobs.length + model.dropCalls.length + model.studioCalls.length + model.vendorRisk.length + variances.length + closeOut.length + overduePay.length}</div><div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.faint, marginTop: 5 }}>your move</div></div>
+              <div><div style={{ fontSize: "clamp(24px,3vw,36px)", fontWeight: 900, lineHeight: 1, color: H.amber }}>{model.ourJobs.length + model.dropCalls.length + model.studioCalls.length + model.vendorRisk.length + variances.length + closeOut.length + overduePay.length + openAR.length + payReview.length}</div><div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.faint, marginTop: 5 }}>your move</div></div>
               <div><div style={{ fontSize: "clamp(24px,3vw,36px)", fontWeight: 900, lineHeight: 1, color: PURPLE }}>{model.theirJobs.length}</div><div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.faint, marginTop: 5 }}>with clients</div></div>
               <div><div style={{ fontSize: "clamp(24px,3vw,36px)", fontWeight: 900, lineHeight: 1 }}>{model.press.toLocaleString()}</div><div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.faint, marginTop: 5 }}>on presses</div></div>
               <div><div style={{ fontSize: "clamp(24px,3vw,36px)", fontWeight: 900, lineHeight: 1, color: model.overdue.length ? H.red : H.text }}>{model.overdue.length}</div><div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.faint, marginTop: 5 }}>past ship date</div></div>
@@ -319,7 +345,7 @@ export default function HousePage() {
             {/* ── POST-PRODUCTION — closing jobs out: counts, actuals, money.
                 This block is still finding its full shape (what close-out
                 needs beyond these three is an open design question). ── */}
-            {(variances.length > 0 || closeOut.length > 0 || overduePay.length > 0) && (
+            {(variances.length > 0 || closeOut.length > 0 || overduePay.length > 0 || openAR.length > 0 || payReview.length > 0) && (
             <section style={{ marginTop: 36 }}>
               <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 14 }}>
                 <h2 style={{ margin: 0, fontSize: 19, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", color: H.amber }}>Post-production.</h2>
@@ -338,7 +364,15 @@ export default function HousePage() {
                     `shipped · invoice not finalized with actuals`,
                     HOUSE_EXTRA_DIRECTIVES.bill_actuals.verb, H.amber, `/jobs/${x.id}`, "Finalize on the job", HOUSE_EXTRA_DIRECTIVES.bill_actuals);
                 })}
-                {overduePay.slice(0, 4).map((p: any) => {
+                {payReview.map(({ job: x, total, paid }: any) => card(`prev-${x.id}`, null,
+                  `${x.clients?.name || "—"} · #${(x.type_meta as any)?.qb_invoice_number || x.job_number}`, x.title,
+                  `recorded $${Math.round(paid).toLocaleString()} vs invoice $${Math.round(total).toLocaleString()}`,
+                  HOUSE_EXTRA_DIRECTIVES.payment_review.verb, H.red, `/jobs/${x.id}`, "Open the job", HOUSE_EXTRA_DIRECTIVES.payment_review))}
+                {openAR.slice(0, 8).map(({ job: x, due, total, paid }: any) => card(`ar-${x.id}`, null,
+                  `${x.clients?.name || "—"} · #${(x.type_meta as any)?.qb_invoice_number || x.job_number}`, x.title,
+                  `$${Math.round(due).toLocaleString()} open · invoice $${Math.round(total).toLocaleString()}${paid > 0 ? ` · $${Math.round(paid).toLocaleString()} in` : ""}`,
+                  HOUSE_EXTRA_DIRECTIVES.overdue_payment.verb, H.amber, `/jobs/${x.id}`, "Collect it here", HOUSE_EXTRA_DIRECTIVES.overdue_payment))}
+                {overduePay.filter((p: any) => !openAR.some((a: any) => a.job.id === (p.jobs?.id || p.job_id))).slice(0, 4).map((p: any) => {
                   const daysLate = daysSince(p.due_date + "T00:00");
                   return card(`pay-${p.id}`, null,
                     p.jobs?.clients?.name || "—", p.invoice_number ? `Invoice #${p.invoice_number}` : p.jobs?.job_number,

@@ -122,6 +122,11 @@ export const HOUSE_EXTRA_DIRECTIVES: Record<string, Directive> = {
     order: "Expected date passed and it hasn't landed — chase the tracking, get a real ETA from the vendor",
     done: "boxes at the dock or a new arrival date on the shipment",
   },
+  payment_review: {
+    verb: "Payments need review",
+    order: "Recorded payments don't match the invoice — pull the QB invoice and reconcile (never guess without it)",
+    done: "records mirror QuickBooks to the cent",
+  },
   bill_actuals: {
     verb: "Bill the actuals",
     order: "Job shipped — finalize the invoice with what actually shipped, not what was ordered. Review the variance on the Payment tab",
