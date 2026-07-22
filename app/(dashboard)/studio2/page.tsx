@@ -666,35 +666,160 @@ function TheCounter({ onClose, onCreated }: { onClose: () => void; onCreated: (b
   );
 }
 
-// ── Internal greenlight — the fork on our side (hole #1, built Jul 22 live
-// with Corey). "On their word": products born; the order door starts the job
-// and sizes settle in the builder. Logged with who tapped it.
+// ── THE FINALIZE STEP (Jon, Jul 22, designed live with Corey) — the
+// pre-flight between greenlight and birth. One card per build-out line:
+// the forever NAME, the FACE picked by human eyes (smart-match preselects,
+// never decides), garment chip, essentials, carry-along art. Nothing exists
+// until "Make it real".
+const GARMENTS = ["tee", "longsleeve", "hoodie", "crewneck", "jacket", "pants", "shorts", "hat", "beanie", "socks", "patch", "sticker", "tote", "custom_bag", "flag", "poster", "custom", "accessory"];
+
 function GreenlightButtons({ briefId, onDone }: { briefId: string; onDone: () => void }) {
-  const [busy, setBusy] = useState<string | null>(null);
-  const [err, setErr] = useState("");
-  async function go(door: "later" | "order") {
-    setBusy(door); setErr("");
-    try {
-      const res = await fetch(`/api/art-briefs/${briefId}/greenlight`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ door }),
-      });
-      const b = await res.json();
-      if (!res.ok) throw new Error(b.error || "Couldn't greenlight");
-      if (door === "order" && b.job?.jobId) { window.location.href = `/jobs/${b.job.jobId}`; return; }
-      onDone();
-    } catch (e: any) { setErr(e.message); setBusy(null); }
-  }
+  const [door, setDoor] = useState<null | "later" | "order">(null);
   return (
     <span style={{ display: "inline-flex", gap: 8, alignItems: "center", marginLeft: "auto", flexWrap: "wrap" }}>
-      {err && <span style={{ fontSize: 10.5, fontWeight: 700, color: H.red }}>{err}</span>}
-      <button onClick={() => go("order")} disabled={!!busy}
-        style={{ background: "#fff", color: H.ink, border: 0, borderRadius: 999, padding: "9px 16px", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font, opacity: busy ? 0.5 : 1 }}>
-        {busy === "order" ? "Starting…" : "Greenlight + start the job →"}
+      <button onClick={() => setDoor("order")}
+        style={{ background: "#fff", color: H.ink, border: 0, borderRadius: 999, padding: "9px 16px", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>
+        Greenlight + start the job →
       </button>
-      <button onClick={() => go("later")} disabled={!!busy}
-        style={{ background: "transparent", color: H.green, border: `1px solid ${H.green}`, borderRadius: 999, padding: "9px 15px", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font, opacity: busy ? 0.5 : 1 }}>
-        {busy === "later" ? "Shelving…" : "Greenlight → catalog"}
+      <button onClick={() => setDoor("later")}
+        style={{ background: "transparent", color: H.green, border: `1px solid ${H.green}`, borderRadius: 999, padding: "9px 15px", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>
+        Greenlight → catalog
       </button>
+      {door && <FinalizeSheet briefId={briefId} door={door} onClose={() => setDoor(null)} onDone={onDone} />}
     </span>
+  );
+}
+
+function FinalizeSheet({ briefId, door, onClose, onDone }: { briefId: string; door: "later" | "order"; onClose: () => void; onDone: () => void }) {
+  const [detail, setDetail] = useState<any>(null);
+  const [cards, setCards] = useState<any[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`/api/art-briefs?id=${briefId}`);
+        const body = await res.json();
+        setDetail(body);
+        const brief = body.brief || {};
+        const lines: any[] = Array.isArray(brief.product_spec?.products) && brief.product_spec.products.length
+          ? brief.product_spec.products
+          : [{ id: "whole", format: brief.product_spec?.format || null, retail: brief.product_spec?.retail ?? null, model: brief.product_spec?.model || null, notes: null }];
+        const images = (body.files || []).filter((f: any) => (f.preview_drive_file_id || f.drive_file_id) && !/pdf/i.test(f.mime_type || ""));
+        setCards(lines.map((ln: any) => {
+          // smart-match preselect: FORMAT + NOTES words only — never the title
+          const words = [ln.format, ln.notes].filter(Boolean).join(" ").toLowerCase().split(/[^a-z0-9]+/).filter((w: string) => w.length >= 3);
+          const match = images.find((f: any) => words.some((w: string) => String(f.file_name || "").toLowerCase().includes(w)));
+          const guess = GARMENTS.find(g => ln.format && new RegExp(g.replace("_", "\\s*"), "i").test(ln.format)) || (/(tee|shirt|tank)/i.test(ln.format || "") ? "tee" : null);
+          return {
+            lineId: String(ln.id),
+            title: `${brief.title || "Product"}${ln.format ? ` — ${ln.format}` : ""}`.slice(0, 140),
+            format: ln.format || "",
+            model: ln.model || null,
+            retail: ln.retail ?? "",
+            notes: ln.notes || "",
+            garment: guess || "custom",
+            faceFileId: match?.id || images[0]?.id || null,
+            carry: {} as Record<string, boolean>,
+          };
+        }));
+      } catch { setErr("Couldn't load the idea"); }
+    })();
+    // eslint-disable-next-line
+  }, [briefId]);
+
+  const images = (detail?.files || []).filter((f: any) => (f.preview_drive_file_id || f.drive_file_id) && !/pdf/i.test(f.mime_type || ""));
+  const patch = (i: number, p: any) => setCards(prev => prev.map((c, x) => x === i ? { ...c, ...p } : c));
+
+  async function makeItReal() {
+    setBusy(true); setErr("");
+    try {
+      const res = await fetch(`/api/art-briefs/${briefId}/greenlight`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          door,
+          lines: cards.map(c => ({
+            lineId: c.lineId, title: c.title, format: c.format || null, model: c.model,
+            retail: c.retail === "" ? null : Number(c.retail), notes: c.notes || null,
+            garment: c.garment || null, faceFileId: c.faceFileId,
+            carryFileIds: Object.entries(c.carry).filter(([, on]) => on).map(([id]) => id),
+          })),
+        }),
+      });
+      const b = await res.json();
+      if (!res.ok) throw new Error(b.error || "Couldn't make it real");
+      if (door === "order" && b.job?.jobId) { window.location.href = `/jobs/${b.job.jobId}`; return; }
+      onDone();
+    } catch (e: any) { setErr(e.message); setBusy(false); }
+  }
+
+  const inputCss: any = { background: H.ink, border: `1px solid ${H.line}`, borderRadius: 9, color: H.text, fontSize: 13, padding: "9px 12px", outline: "none", fontFamily: H.font };
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 260, background: "rgba(0,0,0,0.9)", overflowY: "auto" }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ maxWidth: 680, margin: "5vh auto 10vh", background: "#161616", border: `1px solid ${H.line}`, borderRadius: 20, padding: "22px 24px", fontFamily: H.font, textAlign: "left" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+          <div>
+            <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.13em", textTransform: "uppercase", color: H.faint }}>The last look before they're real</div>
+            <div style={{ fontSize: 22, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", margin: "4px 0 2px" }}>Finalize the products.</div>
+            <div style={{ fontSize: 11.5, color: H.dim }}>{door === "order" ? "Confirm each one — then the job starts with them." : "Confirm each one — then they land on the catalog."}</div>
+          </div>
+          <button onClick={onClose} aria-label="Close" style={{ background: "none", border: "none", color: H.dim, fontSize: 26, cursor: "pointer", lineHeight: 1 }}>×</button>
+        </div>
+
+        {!detail && <div style={{ color: H.faint, fontSize: 12.5, padding: "26px 0" }}>Loading the idea…</div>}
+        {cards.map((c, i) => (
+          <div key={c.lineId} style={{ border: `1px solid ${H.line}`, borderRadius: 14, padding: 16, marginTop: 16 }}>
+            <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: H.faint, marginBottom: 6 }}>Its forever name</div>
+            <input value={c.title} onChange={e => patch(i, { title: e.target.value })} style={{ ...inputCss, width: "100%", boxSizing: "border-box", fontWeight: 800 }} />
+            <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: H.faint, margin: "12px 0 6px" }}>Its face — tap the right image</div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {images.map((f: any) => {
+                const face = c.faceFileId === f.id;
+                const carried = !!c.carry[f.id];
+                return (
+                  <div key={f.id} style={{ textAlign: "center" }}>
+                    <button onClick={() => patch(i, { faceFileId: f.id, carry: { ...c.carry, [f.id]: false } })}
+                      style={{ width: 74, height: 74, borderRadius: 10, overflow: "hidden", background: "#fff", border: face ? "3px solid #fff" : `1px solid ${H.line}`, padding: 0, cursor: "pointer", opacity: face ? 1 : 0.7 }}>
+                      <img src={thumbSrc(f.preview_drive_file_id || f.drive_file_id, 200)} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />
+                    </button>
+                    <div style={{ fontSize: 8, fontFamily: H.mono, color: face ? "#fff" : H.faint, marginTop: 3, maxWidth: 74, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{face ? "THE FACE" : f.file_name}</div>
+                    {!face && (
+                      <label style={{ fontSize: 8, color: carried ? H.green : H.faint, cursor: "pointer", display: "block" }}>
+                        <input type="checkbox" checked={carried} onChange={e => patch(i, { carry: { ...c.carry, [f.id]: e.target.checked } })} style={{ verticalAlign: "middle", marginRight: 3 }} />rides along
+                      </label>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 12, alignItems: "flex-end" }}>
+              <label style={{ fontSize: 8.5, color: H.faint }}>WHAT IS IT<br /><input value={c.format} onChange={e => patch(i, { format: e.target.value })} style={{ ...inputCss, width: 110, marginTop: 3 }} /></label>
+              <label style={{ fontSize: 8.5, color: H.faint }}>GARMENT (drives QB + costing)<br />
+                <select value={c.garment || ""} onChange={e => patch(i, { garment: e.target.value })} style={{ ...inputCss, width: 140, marginTop: 3 }}>
+                  {GARMENTS.map(g => <option key={g} value={g}>{g.replace("_", " ")}</option>)}
+                </select></label>
+              <label style={{ fontSize: 8.5, color: H.faint }}>RETAIL<br /><input value={c.retail} onChange={e => patch(i, { retail: e.target.value.replace(/[^0-9.]/g, "") })} placeholder="—" style={{ ...inputCss, width: 74, marginTop: 3, fontFamily: H.mono }} /></label>
+              <span style={{ display: "inline-flex", gap: 6 }}>
+                {([["stock", "Fixed"], ["preorder", "Pre-order"], ["not_sure", "Not sure"]] as const).map(([k, label]) => (
+                  <button key={k} onClick={() => patch(i, { model: c.model === k ? null : k })}
+                    style={{ borderRadius: 999, border: c.model === k ? "1px solid #fff" : `1px solid ${H.line}`, background: c.model === k ? "#fff" : "transparent", color: c.model === k ? H.ink : H.dim, fontSize: 9, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", padding: "8px 11px", cursor: "pointer", fontFamily: H.font }}>{label}</button>
+                ))}
+              </span>
+            </div>
+            {c.notes && <div style={{ fontSize: 11, color: H.dim, marginTop: 8 }}>{c.notes}</div>}
+          </div>
+        ))}
+
+        {err && <div style={{ color: H.red, fontSize: 12, fontWeight: 700, marginTop: 12 }}>{err}</div>}
+        <div style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 18 }}>
+          <button onClick={makeItReal} disabled={busy || !cards.length}
+            style={{ background: "#fff", color: H.ink, border: 0, borderRadius: 999, padding: "13px 26px", fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font, opacity: busy ? 0.5 : 1 }}>
+            {busy ? "Making it real…" : "Make it real →"}
+          </button>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: H.faint, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>Not yet</button>
+        </div>
+      </div>
+    </div>
   );
 }
