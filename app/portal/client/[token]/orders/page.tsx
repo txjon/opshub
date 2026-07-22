@@ -181,6 +181,8 @@ export default function OrdersPage() {
         <OrderFullScreenModal
           token={token}
           jobId={modalJobId}
+          orders={(orders || []).filter(o => o.kind !== "fulfillment")}
+          onNavigate={(id) => setModalJobId(id)}
           onClose={() => setModalJobId(null)}
         />
       )}
@@ -188,8 +190,8 @@ export default function OrdersPage() {
   );
 }
 
-function OrderFullScreenModal({ token, jobId, onClose }: {
-  token: string; jobId: string; onClose: () => void;
+function OrderFullScreenModal({ token, jobId, orders, onNavigate, onClose }: {
+  token: string; jobId: string; orders: Order[]; onNavigate: (id: string) => void; onClose: () => void;
 }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -210,12 +212,35 @@ function OrderFullScreenModal({ token, jobId, onClose }: {
       fontFamily: H.font, color: H.text,
     }}>
       <div style={{
-        display: "flex", alignItems: "center", justifyContent: "space-between",
+        display: "flex", alignItems: "center", gap: 14,
         padding: "12px 20px", borderBottom: `1px solid ${H.line}`, flexShrink: 0,
       }}>
-        <div style={{ fontSize: 10, fontWeight: 800, color: H.faint, textTransform: "uppercase", letterSpacing: "0.14em" }}>
+        <div style={{ fontSize: 10, fontWeight: 800, color: H.faint, textTransform: "uppercase", letterSpacing: "0.14em", flexShrink: 0 }}>
           Order
         </div>
+        {/* Every order as a chip — click through without closing (same
+            pattern as the per-job portal's project switcher). */}
+        <nav style={{ display: "flex", gap: 8, overflowX: "auto", scrollbarWidth: "none" as any, flex: 1, minWidth: 0 }} aria-label="Your orders">
+          {orders.map(o => {
+            const active = o.id === jobId;
+            const done = ["complete", "cancelled"].includes(o.phase);
+            const ref = o.invoice_number || o.qb_invoice_number;
+            return (
+              <button key={o.id} onClick={() => !active && onNavigate(o.id)}
+                style={{
+                  flexShrink: 0, borderRadius: 999, cursor: active ? "default" : "pointer",
+                  border: active ? "1px solid #fff" : `1px solid ${H.line}`,
+                  background: active ? "#fff" : "transparent",
+                  color: active ? H.ink : H.dim,
+                  opacity: !active && done ? 0.45 : 1,
+                  fontFamily: H.mono, fontSize: 11, fontWeight: 700,
+                  padding: "7px 14px", whiteSpace: "nowrap",
+                }}>
+                {ref ? `#${ref}` : (o.job_number || "Order")}
+              </button>
+            );
+          })}
+        </nav>
         <button onClick={onClose}
           style={{
             background: "none", border: `1px solid ${H.line}`, borderRadius: 999,
@@ -225,7 +250,7 @@ function OrderFullScreenModal({ token, jobId, onClose }: {
           title="Close (Esc)">Close ×</button>
       </div>
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
-        <OrderDetailView token={token} jobId={jobId} onClose={onClose} suppressOwnChrome />
+        <OrderDetailView key={jobId} token={token} jobId={jobId} onClose={onClose} suppressOwnChrome />
       </div>
     </div>
   );
