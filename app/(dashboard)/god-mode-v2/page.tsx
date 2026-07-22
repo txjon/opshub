@@ -225,11 +225,20 @@ const MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "S
 
 function LongGame({ series, years }: { series: { ym: string; a: number; q: number }[]; years: { y: string; months: number[]; total: number }[] }) {
   const [view, setView] = useState<"timeline" | "yoy">("timeline");
+  const [ytd, setYtd] = useState(false);
   const [off, setOff] = useState<Set<string>>(new Set());
   const [hoverM, setHoverM] = useState<number | null>(null);
   const yoyRef = useRef<HTMLDivElement | null>(null);
+  // YTD: every year clipped to the same Jan→current-month window so the
+  // in-progress year compares fairly against the same stretch of past years
+  const nowM = new Date().getMonth();               // 0-based current month
+  const lastM = ytd ? nowM : 11;                    // inclusive end of window
+  const nPts = lastM + 1;
   const shown = years.filter(yr => !off.has(yr.y));
-  const yoyMax = Math.max(...shown.flatMap(yr => yr.months), 1);
+  const winMonths = (yr: { months: number[] }) => yr.months.slice(0, nPts);
+  const winTotal = (yr: { months: number[] }) => winMonths(yr).reduce((a, n) => a + n, 0);
+  const yoyMax = Math.max(...shown.flatMap(yr => winMonths(yr)), 1);
+  const xAt = (i: number) => nPts > 1 ? i * (1000 / (nPts - 1)) : 500;
   const colorOf = (y: string) => YEAR_COLORS[years.findIndex(x => x.y === y) % YEAR_COLORS.length];
 
   const toggleBtn = (active: boolean): React.CSSProperties => ({ borderRadius: 999, border: active ? "1px solid #fff" : `1px solid ${H.line}`, background: active ? "#fff" : "transparent", color: active ? H.ink : H.dim, fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", padding: "8px 13px", cursor: "pointer", fontFamily: H.font });
@@ -238,10 +247,11 @@ function LongGame({ series, years }: { series: { ym: string; a: number; q: numbe
     <section className="gm-mod">
       <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
         <h2 style={{ margin: 0, fontSize: 19, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em" }}>The long game.</h2>
-        <span style={{ fontSize: 10.5, color: H.faint }}>{view === "timeline" ? "gross by month — run your finger across it" : "years stacked on one calendar — tap a year to hide it"}</span>
+        <span style={{ fontSize: 10.5, color: H.faint }}>{view === "timeline" ? "gross by month — run your finger across it" : ytd ? `same Jan–${MONTHS_SHORT[nowM]} window every year — the current month is still filling` : "years stacked on one calendar — tap a year to hide it"}</span>
         <span style={{ display: "inline-flex", gap: 6, marginLeft: "auto" }}>
           <button style={toggleBtn(view === "timeline")} onClick={() => setView("timeline")}>Timeline</button>
-          <button style={toggleBtn(view === "yoy")} onClick={() => setView("yoy")}>Year vs year</button>
+          <button style={toggleBtn(view === "yoy" && !ytd)} onClick={() => { setView("yoy"); setYtd(false); }}>Year vs year</button>
+          <button style={toggleBtn(view === "yoy" && ytd)} onClick={() => { setView("yoy"); setYtd(true); }}>To date</button>
         </span>
       </div>
 
@@ -256,7 +266,7 @@ function LongGame({ series, years }: { series: { ym: string; a: number; q: numbe
                 <button key={yr.y}
                   onClick={() => setOff(prev => { const n = new Set(prev); n.has(yr.y) ? n.delete(yr.y) : n.add(yr.y); return n; })}
                   style={{ borderRadius: 999, border: `1px solid ${on ? colorOf(yr.y) : H.line}`, background: "transparent", color: on ? colorOf(yr.y) : H.faint, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.06em", padding: "8px 14px", cursor: "pointer", fontFamily: H.mono, opacity: on ? 1 : 0.55 }}>
-                  {yr.y} · {fmtK(yr.total)}
+                  {yr.y} · {fmtK(winTotal(yr))}
                 </button>
               );
             })}
@@ -265,24 +275,24 @@ function LongGame({ series, years }: { series: { ym: string; a: number; q: numbe
             onMouseLeave={() => setHoverM(null)}
             onMouseMove={e => {
               const r = yoyRef.current?.getBoundingClientRect(); if (!r) return;
-              setHoverM(Math.max(0, Math.min(11, Math.round(((e.clientX - r.left) / r.width) * 11))));
+              setHoverM(Math.max(0, Math.min(lastM, Math.round(((e.clientX - r.left) / r.width) * (nPts - 1)))));
             }}>
             <svg viewBox="0 0 1000 260" style={{ width: "100%", display: "block" }} preserveAspectRatio="none">
               {[0.25, 0.5, 0.75].map(t => (
                 <line key={t} x1="0" x2="1000" y1={250 - t * 240} y2={250 - t * 240} stroke="rgba(255,255,255,0.07)" strokeWidth="1" />
               ))}
               <line x1="0" x2="1000" y1="250" y2="250" stroke="rgba(255,255,255,0.16)" strokeWidth="1" />
-              {hoverM != null && <line x1={hoverM * (1000 / 11)} x2={hoverM * (1000 / 11)} y1="10" y2="250" stroke="rgba(255,255,255,0.25)" strokeWidth="1" />}
+              {hoverM != null && <line x1={xAt(hoverM)} x2={xAt(hoverM)} y1="10" y2="250" stroke="rgba(255,255,255,0.25)" strokeWidth="1" />}
               {shown.map(yr => (
                 <polyline key={yr.y} fill="none" stroke={colorOf(yr.y)} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round"
-                  points={yr.months.map((v, i) => `${i * (1000 / 11)},${250 - (v / yoyMax) * 235}`).join(" ")} />
+                  points={winMonths(yr).map((v, i) => `${xAt(i)},${250 - (v / yoyMax) * 235}`).join(" ")} />
               ))}
               {hoverM != null && shown.map(yr => (
-                <circle key={yr.y} cx={hoverM * (1000 / 11)} cy={250 - (yr.months[hoverM] / yoyMax) * 235} r="4" fill={colorOf(yr.y)} />
+                <circle key={yr.y} cx={xAt(hoverM)} cy={250 - (yr.months[hoverM] / yoyMax) * 235} r="4" fill={colorOf(yr.y)} />
               ))}
             </svg>
             <div style={{ display: "flex", justifyContent: "space-between", marginTop: 7, fontSize: 9.5, fontFamily: H.mono, color: H.faint }}>
-              {MONTHS_SHORT.map(m => <span key={m}>{m}</span>)}
+              {MONTHS_SHORT.slice(0, nPts).map(m => <span key={m}>{m}</span>)}
             </div>
             <div style={{ minHeight: 22, marginTop: 8, fontSize: 11, fontFamily: H.mono, display: "flex", gap: 16, flexWrap: "wrap" }}>
               {hoverM != null && shown.slice().sort((a, b) => b.months[hoverM] - a.months[hoverM]).map(yr => (
