@@ -43,6 +43,9 @@ export async function birthProductsFromBrief(db: Db, briefId: string): Promise<B
       client_id: (brief as any).client_id,
       brief_id: briefId,
       line_id: String(ln.id),
+      // flip lineage: a brief born via Flip It carries flip_of in its spec;
+      // every product greenlit from it is a child of that parent product
+      parent_product_id: spec.flip_of || null,
       title,
       format: ln.format || null,
       retail: ln.retail ?? null,

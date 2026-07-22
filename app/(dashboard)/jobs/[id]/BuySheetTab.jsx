@@ -190,11 +190,11 @@ export function SSPicker({ onAdd, onClose, isFav, toggleFav, assignMode, default
   };
 
   const colRow = (label, active, onClick, sub) => (
-    <div onClick={onClick} style={{ padding:"8px 11px", cursor:"pointer", fontSize:11, fontFamily:font, background:active?T.accent:"transparent", color:active?"#fff":T.text, borderBottom:`1px solid ${T.border}`, transition:"background 0.1s" }}
+    <div onClick={onClick} style={{ padding:"8px 11px", cursor:"pointer", fontSize:11, fontFamily:font, background:active?T.accent:"transparent", color:active?"#0a0a0a":T.text, borderBottom:`1px solid ${T.border}`, transition:"background 0.1s" }}
       onMouseEnter={e => { if(!active) e.currentTarget.style.background=T.surface; }}
       onMouseLeave={e => { if(!active) e.currentTarget.style.background="transparent"; }}>
       {label}
-      {sub && <div style={{ fontSize:9, color:active?"rgba(255,255,255,0.7)":T.faint, marginTop:1 }}>{sub}</div>}
+      {sub && <div style={{ fontSize:9, color:active?"rgba(0,0,0,0.6)":T.faint, marginTop:1 }}>{sub}</div>}
     </div>
   );
 
@@ -209,7 +209,7 @@ export function SSPicker({ onAdd, onClose, isFav, toggleFav, assignMode, default
         <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search styles..." autoFocus style={{ flex:1, fontFamily:font, fontSize:12, color:T.text, background:T.surface, border:`1px solid ${T.border}`, borderRadius:6, padding:"5px 10px", outline:"none" }} />
         {loading && <span style={{ fontSize:10, color:T.muted }}>Searching...</span>}
         <input value={itemName} onChange={e=>setItemName(e.target.value)} placeholder="Item display name" style={{ fontFamily:font, fontSize:12, color:T.text, background:T.surface, border:`1px solid ${T.border}`, borderRadius:6, padding:"5px 10px", outline:"none", width:180 }} />
-        <button onClick={doAdd} disabled={!canAdd} style={{ background:canAdd?T.accent:T.surface, color:canAdd?"#fff":T.muted, border:"none", borderRadius:6, padding:"6px 14px", fontSize:12, fontFamily:font, fontWeight:600, cursor:canAdd?"pointer":"default", transition:"all 0.15s" }}>{assignMode ? "Assign to item →" : "Add to buy sheet →"}</button>
+        <button onClick={doAdd} disabled={!canAdd} style={{ background:canAdd?T.accent:T.surface, color:canAdd?"#0a0a0a":T.muted, border:"none", borderRadius:6, padding:"6px 14px", fontSize:12, fontFamily:font, fontWeight:600, cursor:canAdd?"pointer":"default", transition:"all 0.15s" }}>{assignMode ? "Assign to item →" : "Add to buy sheet →"}</button>
         <button onClick={onClose} style={{ background:"none", border:"none", color:T.muted, fontSize:18, cursor:"pointer", lineHeight:1 }}>×</button>
       </div>
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1.5fr 1fr", height:300 }}>
@@ -226,7 +226,7 @@ export function SSPicker({ onAdd, onClose, isFav, toggleFav, assignMode, default
               : styles.length===0 ? <div style={{ padding:"14px 11px", fontSize:10, color:T.faint, fontFamily:font }}>← Brand or search</div>
               : (selBrand ? styles.filter(s => s.brandName===selBrand) : styles).map(s => (
                 <div key={s.styleID} style={{ display:"flex", alignItems:"center", borderBottom:`1px solid ${T.border}` }}>
-                  <div onClick={() => loadProducts(s)} style={{ flex:1, padding:"8px 11px", cursor:"pointer", fontSize:11, fontFamily:font, background:selStyle?.styleID===s.styleID?T.accent:"transparent", color:selStyle?.styleID===s.styleID?"#fff":T.text, transition:"background 0.1s" }}
+                  <div onClick={() => loadProducts(s)} style={{ flex:1, padding:"8px 11px", cursor:"pointer", fontSize:11, fontFamily:font, background:selStyle?.styleID===s.styleID?T.accent:"transparent", color:selStyle?.styleID===s.styleID?"#0a0a0a":T.text, transition:"background 0.1s" }}
                     onMouseEnter={e => { if(selStyle?.styleID!==s.styleID) e.currentTarget.style.background=T.surface; }}
                     onMouseLeave={e => { if(selStyle?.styleID!==s.styleID) e.currentTarget.style.background="transparent"; }}>
                     {s.styleName}
@@ -264,10 +264,10 @@ export function SSPicker({ onAdd, onClose, isFav, toggleFav, assignMode, default
                     return (
                       <div key={sz} onClick={(e) => toggleSz(sz, e)}
                         style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"7px 10px", borderRadius:6, cursor:"pointer", border:`1px solid ${on?T.accent:T.border}`, background:on?T.accent:T.surface, transition:"all 0.12s", userSelect:"none" }}>
-                        <span style={{ fontSize:12, fontWeight:700, color:on?"#fff":T.muted, fontFamily:mono }}>{sz}</span>
+                        <span style={{ fontSize:12, fontWeight:700, color:on?"#0a0a0a":T.muted, fontFamily:mono }}>{sz}</span>
                         <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                          <span style={{ fontSize:9, color:on?"rgba(255,255,255,0.5)":sizeStock>100?T.green:sizeStock>0?T.amber:T.red, fontFamily:mono }}>{sizeStock.toLocaleString()}</span>
-                          <span style={{ fontSize:10, color:on?"rgba(255,255,255,0.7)":T.muted }}>${Number(currentColor.prices[sz]||0).toFixed(2)}</span>
+                          <span style={{ fontSize:9, color:on?"rgba(0,0,0,0.45)":sizeStock>100?T.green:sizeStock>0?T.amber:T.red, fontFamily:mono }}>{sizeStock.toLocaleString()}</span>
+                          <span style={{ fontSize:10, color:on?"rgba(0,0,0,0.6)":T.muted }}>${Number(currentColor.prices[sz]||0).toFixed(2)}</span>
                         </div>
                       </div>
                     );
@@ -387,11 +387,11 @@ export function ASColourPicker({ onAdd, onClose, isFav, toggleFav, assignMode, d
   };
 
   const colRow = (label, active, onClick, sub) => (
-    <div onClick={onClick} style={{ padding: "8px 11px", cursor: "pointer", fontSize: 11, fontFamily: font, background: active ? T.accent : "transparent", color: active ? "#fff" : T.text, borderBottom: `1px solid ${T.border}`, transition: "background 0.1s" }}
+    <div onClick={onClick} style={{ padding: "8px 11px", cursor: "pointer", fontSize: 11, fontFamily: font, background: active ? T.accent : "transparent", color: active ? "#0a0a0a" : T.text, borderBottom: `1px solid ${T.border}`, transition: "background 0.1s" }}
       onMouseEnter={e => { if (!active) e.currentTarget.style.background = T.surface; }}
       onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; }}>
       {label}
-      {sub && <div style={{ fontSize: 9, color: active ? "rgba(255,255,255,0.7)" : T.faint, marginTop: 1 }}>{sub}</div>}
+      {sub && <div style={{ fontSize: 9, color: active ? "rgba(0,0,0,0.6)" : T.faint, marginTop: 1 }}>{sub}</div>}
     </div>
   );
 
@@ -405,7 +405,7 @@ export function ASColourPicker({ onAdd, onClose, isFav, toggleFav, assignMode, d
         <span style={{ fontSize: 12, fontWeight: 700, color: T.text, fontFamily: font, whiteSpace: "nowrap" }}>AS Colour</span>
         <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search styles..." autoFocus style={{ flex: 1, fontFamily: font, fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 10px", outline: "none" }} />
         <input value={itemName} onChange={e => setItemName(e.target.value)} placeholder="Item display name" style={{ fontFamily: font, fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 10px", outline: "none", width: 180 }} />
-        <button onClick={doAdd} disabled={!canAdd} style={{ background: canAdd ? T.accent : T.surface, color: canAdd ? "#fff" : T.muted, border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontFamily: font, fontWeight: 600, cursor: canAdd ? "pointer" : "default", transition: "all 0.15s" }}>{assignMode ? "Assign to item →" : "Add to buy sheet →"}</button>
+        <button onClick={doAdd} disabled={!canAdd} style={{ background: canAdd ? T.accent : T.surface, color: canAdd ? "#0a0a0a" : T.muted, border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontFamily: font, fontWeight: 600, cursor: canAdd ? "pointer" : "default", transition: "all 0.15s" }}>{assignMode ? "Assign to item →" : "Add to buy sheet →"}</button>
         <button onClick={onClose} style={{ background: "none", border: "none", color: T.muted, fontSize: 18, cursor: "pointer", lineHeight: 1 }}>×</button>
       </div>
       {loading ? (
@@ -423,7 +423,7 @@ export function ASColourPicker({ onAdd, onClose, isFav, toggleFav, assignMode, d
             <div style={{ flex: 1, overflowY: "auto" }}>
               {filteredProducts.map(p => (
                 <div key={p.styleCode} style={{ display:"flex", alignItems:"center", borderBottom:`1px solid ${T.border}` }}>
-                  <div onClick={() => loadVariants(p)} style={{ flex:1, padding:"8px 11px", cursor:"pointer", fontSize:11, fontFamily:font, background:selStyle?.styleCode===p.styleCode?T.accent:"transparent", color:selStyle?.styleCode===p.styleCode?"#fff":T.text, transition:"background 0.1s" }}
+                  <div onClick={() => loadVariants(p)} style={{ flex:1, padding:"8px 11px", cursor:"pointer", fontSize:11, fontFamily:font, background:selStyle?.styleCode===p.styleCode?T.accent:"transparent", color:selStyle?.styleCode===p.styleCode?"#0a0a0a":T.text, transition:"background 0.1s" }}
                     onMouseEnter={e => { if(selStyle?.styleCode!==p.styleCode) e.currentTarget.style.background=T.surface; }}
                     onMouseLeave={e => { if(selStyle?.styleCode!==p.styleCode) e.currentTarget.style.background="transparent"; }}>
                     {`${p.styleCode} — ${(p.styleName || "").replace(` | ${p.styleCode}`, "")}`}
@@ -462,10 +462,10 @@ export function ASColourPicker({ onAdd, onClose, isFav, toggleFav, assignMode, d
                     return (
                       <div key={sz} onClick={(e) => toggleSz(sz, e)}
                         style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 10px", borderRadius: 6, cursor: "pointer", border: `1px solid ${on ? T.accent : T.border}`, background: on ? T.accent : T.surface, transition: "all 0.12s", userSelect: "none" }}>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: on ? "#fff" : T.muted, fontFamily: mono }}>{sz}</span>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: on ? "#0a0a0a" : T.muted, fontFamily: mono }}>{sz}</span>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <span style={{ fontSize: 9, color: on ? "rgba(255,255,255,0.5)" : stock > 100 ? T.green : stock > 0 ? T.amber : T.red, fontFamily: mono }}>{stock.toLocaleString()}</span>
-                          {price > 0 && <span style={{ fontSize: 10, color: on ? "rgba(255,255,255,0.7)" : T.muted }}>${price.toFixed(2)}</span>}
+                          <span style={{ fontSize: 9, color: on ? "rgba(0,0,0,0.45)" : stock > 100 ? T.green : stock > 0 ? T.amber : T.red, fontFamily: mono }}>{stock.toLocaleString()}</span>
+                          {price > 0 && <span style={{ fontSize: 10, color: on ? "rgba(0,0,0,0.6)" : T.muted }}>${price.toFixed(2)}</span>}
                         </div>
                       </div>
                     );
@@ -559,11 +559,11 @@ export function LAApparelPicker({ onAdd, onClose, isFav, toggleFav, assignMode, 
   };
 
   const colRow = (label, active, onClick, sub) => (
-    <div onClick={onClick} style={{ padding: "8px 11px", cursor: "pointer", fontSize: 11, fontFamily: font, background: active ? T.accent : "transparent", color: active ? "#fff" : T.text, borderBottom: `1px solid ${T.border}`, transition: "background 0.1s" }}
+    <div onClick={onClick} style={{ padding: "8px 11px", cursor: "pointer", fontSize: 11, fontFamily: font, background: active ? T.accent : "transparent", color: active ? "#0a0a0a" : T.text, borderBottom: `1px solid ${T.border}`, transition: "background 0.1s" }}
       onMouseEnter={e => { if (!active) e.currentTarget.style.background = T.surface; }}
       onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; }}>
       {label}
-      {sub && <div style={{ fontSize: 9, color: active ? "rgba(255,255,255,0.7)" : T.faint, marginTop: 1 }}>{sub}</div>}
+      {sub && <div style={{ fontSize: 9, color: active ? "rgba(0,0,0,0.6)" : T.faint, marginTop: 1 }}>{sub}</div>}
     </div>
   );
 
@@ -577,7 +577,7 @@ export function LAApparelPicker({ onAdd, onClose, isFav, toggleFav, assignMode, 
         <span style={{ fontSize: 12, fontWeight: 700, color: T.text, fontFamily: font, whiteSpace: "nowrap" }}>LA Apparel</span>
         <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search styles..." autoFocus style={{ flex: 1, fontFamily: font, fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 10px", outline: "none" }} />
         <input value={itemName} onChange={e => setItemName(e.target.value)} placeholder="Item display name" style={{ fontFamily: font, fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 10px", outline: "none", width: 180 }} />
-        <button onClick={doAdd} disabled={!canAdd} style={{ background: canAdd ? T.accent : T.surface, color: canAdd ? "#fff" : T.muted, border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontFamily: font, fontWeight: 600, cursor: canAdd ? "pointer" : "default" }}>{assignMode ? "Assign to item →" : "Add to buy sheet →"}</button>
+        <button onClick={doAdd} disabled={!canAdd} style={{ background: canAdd ? T.accent : T.surface, color: canAdd ? "#0a0a0a" : T.muted, border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontFamily: font, fontWeight: 600, cursor: canAdd ? "pointer" : "default" }}>{assignMode ? "Assign to item →" : "Add to buy sheet →"}</button>
         <button onClick={onClose} style={{ background: "none", border: "none", color: T.muted, fontSize: 18, cursor: "pointer", lineHeight: 1 }}>×</button>
       </div>
       {loading ? (
@@ -597,7 +597,7 @@ export function LAApparelPicker({ onAdd, onClose, isFav, toggleFav, assignMode, 
             <div style={{ flex: 1, overflowY: "auto" }}>
               {filteredProducts.map(p => (
                 <div key={p.styleCode} style={{ display: "flex", alignItems: "center", borderBottom: `1px solid ${T.border}` }}>
-                  <div onClick={() => loadStyle(p)} style={{ flex: 1, padding: "8px 11px", cursor: "pointer", fontSize: 11, fontFamily: font, background: selStyle?.styleCode === p.styleCode ? T.accent : "transparent", color: selStyle?.styleCode === p.styleCode ? "#fff" : T.text, transition: "background 0.1s" }}
+                  <div onClick={() => loadStyle(p)} style={{ flex: 1, padding: "8px 11px", cursor: "pointer", fontSize: 11, fontFamily: font, background: selStyle?.styleCode === p.styleCode ? T.accent : "transparent", color: selStyle?.styleCode === p.styleCode ? "#0a0a0a" : T.text, transition: "background 0.1s" }}
                     onMouseEnter={e => { if (selStyle?.styleCode !== p.styleCode) e.currentTarget.style.background = T.surface; }}
                     onMouseLeave={e => { if (selStyle?.styleCode !== p.styleCode) e.currentTarget.style.background = "transparent"; }}>
                     {p.styleCode}
@@ -639,10 +639,10 @@ export function LAApparelPicker({ onAdd, onClose, isFav, toggleFav, assignMode, 
                     return (
                       <div key={sz} onClick={(e) => toggleSz(sz, e)}
                         style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 10px", borderRadius: 6, cursor: "pointer", border: `1px solid ${on ? T.accent : T.border}`, background: on ? T.accent : T.surface, transition: "all 0.12s", userSelect: "none" }}>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: on ? "#fff" : T.muted, fontFamily: mono }}>{sz}</span>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: on ? "#0a0a0a" : T.muted, fontFamily: mono }}>{sz}</span>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <span style={{ fontSize: 9, color: on ? "rgba(255,255,255,0.5)" : stock > 100 ? T.green : stock > 0 ? T.amber : T.red, fontFamily: mono }}>{stock.toLocaleString()}</span>
-                          {price > 0 && <span style={{ fontSize: 10, color: on ? "rgba(255,255,255,0.7)" : T.muted }}>${price.toFixed(2)}</span>}
+                          <span style={{ fontSize: 9, color: on ? "rgba(0,0,0,0.45)" : stock > 100 ? T.green : stock > 0 ? T.amber : T.red, fontFamily: mono }}>{stock.toLocaleString()}</span>
+                          {price > 0 && <span style={{ fontSize: 10, color: on ? "rgba(0,0,0,0.6)" : T.muted }}>${price.toFixed(2)}</span>}
                         </div>
                       </div>
                     );
@@ -774,11 +774,11 @@ export function FavoritesPicker({ favorites, setFavorites, onAdd, onClose, toggl
   };
 
   const colRow = (label, active, onClick, sub) => (
-    <div onClick={onClick} style={{ padding: "8px 11px", cursor: "pointer", fontSize: 11, fontFamily: font, background: active ? T.accent : "transparent", color: active ? "#fff" : T.text, borderBottom: `1px solid ${T.border}`, transition: "background 0.1s" }}
+    <div onClick={onClick} style={{ padding: "8px 11px", cursor: "pointer", fontSize: 11, fontFamily: font, background: active ? T.accent : "transparent", color: active ? "#0a0a0a" : T.text, borderBottom: `1px solid ${T.border}`, transition: "background 0.1s" }}
       onMouseEnter={e => { if (!active) e.currentTarget.style.background = T.surface; }}
       onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; }}>
       {label}
-      {sub && <div style={{ fontSize: 9, color: active ? "rgba(255,255,255,0.7)" : T.faint, marginTop: 1 }}>{sub}</div>}
+      {sub && <div style={{ fontSize: 9, color: active ? "rgba(0,0,0,0.6)" : T.faint, marginTop: 1 }}>{sub}</div>}
     </div>
   );
 
@@ -794,7 +794,7 @@ export function FavoritesPicker({ favorites, setFavorites, onAdd, onClose, toggl
         <span style={{ fontSize: 12, fontWeight: 700, color: T.text, fontFamily: font, whiteSpace: "nowrap" }}>House Party Favorites</span>
         <div style={{ flex: 1 }} />
         <input value={itemName} onChange={e => setItemName(e.target.value)} placeholder="Item display name" style={{ fontFamily: font, fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 10px", outline: "none", width: 180 }} />
-        <button onClick={doAdd} disabled={!canAdd} style={{ background: canAdd ? T.accent : T.surface, color: canAdd ? "#fff" : T.muted, border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontFamily: font, fontWeight: 600, cursor: canAdd ? "pointer" : "default" }}>{assignMode ? "Assign to item →" : "Add to buy sheet →"}</button>
+        <button onClick={doAdd} disabled={!canAdd} style={{ background: canAdd ? T.accent : T.surface, color: canAdd ? "#0a0a0a" : T.muted, border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontFamily: font, fontWeight: 600, cursor: canAdd ? "pointer" : "default" }}>{assignMode ? "Assign to item →" : "Add to buy sheet →"}</button>
         <button onClick={onClose} style={{ background: "none", border: "none", color: T.muted, fontSize: 18, cursor: "pointer", lineHeight: 1 }}>×</button>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "0.8fr 1.4fr 1fr 1fr", height: 300 }}>
@@ -818,7 +818,7 @@ export function FavoritesPicker({ favorites, setFavorites, onAdd, onClose, toggl
               <div style={{ padding: "14px 11px", fontSize: 10, color: T.faint, fontFamily: font }}>{selCategory ? "No favorites in this category" : "No favorites yet — star styles in S&S, AS Colour, or LA Apparel"}</div>
             ) : filtered.map(fav => (
               <div key={`${fav.supplier}-${fav.style_code}`} style={{ display: "flex", alignItems: "center", borderBottom: `1px solid ${T.border}` }}>
-                <div onClick={() => loadFav(fav)} style={{ flex: 1, padding: "8px 11px", cursor: "pointer", fontSize: 11, fontFamily: font, background: selFav?.style_code === fav.style_code && selFav?.supplier === fav.supplier ? T.accent : "transparent", color: selFav?.style_code === fav.style_code && selFav?.supplier === fav.supplier ? "#fff" : T.text, transition: "background 0.1s" }}
+                <div onClick={() => loadFav(fav)} style={{ flex: 1, padding: "8px 11px", cursor: "pointer", fontSize: 11, fontFamily: font, background: selFav?.style_code === fav.style_code && selFav?.supplier === fav.supplier ? T.accent : "transparent", color: selFav?.style_code === fav.style_code && selFav?.supplier === fav.supplier ? "#0a0a0a" : T.text, transition: "background 0.1s" }}
                   onMouseEnter={e => { if (!(selFav?.style_code === fav.style_code && selFav?.supplier === fav.supplier)) e.currentTarget.style.background = T.surface; }}
                   onMouseLeave={e => { if (!(selFav?.style_code === fav.style_code && selFav?.supplier === fav.supplier)) e.currentTarget.style.background = "transparent"; }}>
                   {fav.style_name}
@@ -855,7 +855,7 @@ export function FavoritesPicker({ favorites, setFavorites, onAdd, onClose, toggl
                       <input value={newColor} onChange={e => setNewColor(e.target.value)} onKeyDown={e => e.key === "Enter" && addLAColor()}
                         placeholder="Add color..." style={{ flex: 1, padding: "4px 8px", fontSize: 10, border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface, color: T.text, outline: "none", fontFamily: font }} />
                       <button onClick={addLAColor} disabled={!newColor.trim()}
-                        style={{ fontSize: 9, padding: "4px 8px", borderRadius: 4, border: "none", background: newColor.trim() ? T.accent : T.surface, color: newColor.trim() ? "#fff" : T.faint, cursor: newColor.trim() ? "pointer" : "default" }}>+</button>
+                        style={{ fontSize: 9, padding: "4px 8px", borderRadius: 4, border: "none", background: newColor.trim() ? T.accent : T.surface, color: newColor.trim() ? "#0a0a0a" : T.faint, cursor: newColor.trim() ? "pointer" : "default" }}>+</button>
                     </div>
                   </div>
                 )}
@@ -875,10 +875,10 @@ export function FavoritesPicker({ favorites, setFavorites, onAdd, onClose, toggl
                   return (
                     <div key={sz} onClick={(e) => toggleSz(sz, e)}
                       style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 10px", borderRadius: 6, cursor: "pointer", border: `1px solid ${on ? T.accent : T.border}`, background: on ? T.accent : T.surface, transition: "all 0.12s", userSelect: "none" }}>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: on ? "#fff" : T.muted, fontFamily: mono }}>{sz}</span>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: on ? "#0a0a0a" : T.muted, fontFamily: mono }}>{sz}</span>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <span style={{ fontSize: 9, color: on ? "rgba(255,255,255,0.5)" : stock > 100 ? T.green : stock > 0 ? T.amber : T.red, fontFamily: mono }}>{stock.toLocaleString()}</span>
-                        {price > 0 && <span style={{ fontSize: 10, color: on ? "rgba(255,255,255,0.7)" : T.muted }}>${Number(price).toFixed(2)}</span>}
+                        <span style={{ fontSize: 9, color: on ? "rgba(0,0,0,0.45)" : stock > 100 ? T.green : stock > 0 ? T.amber : T.red, fontFamily: mono }}>{stock.toLocaleString()}</span>
+                        {price > 0 && <span style={{ fontSize: 10, color: on ? "rgba(0,0,0,0.6)" : T.muted }}>${Number(price).toFixed(2)}</span>}
                       </div>
                     </div>
                   );
@@ -1021,15 +1021,15 @@ export function OtherPicker({ onAdd, onClose, assignMode, defaultItemName }) {
 
   const colRow = (label, active, onClick, sub, onDelete, onEdit) => (
     <div style={{ display: "flex", alignItems: "center", borderBottom: `1px solid ${T.border}` }}>
-      <div onClick={onClick} style={{ flex: 1, padding: "8px 11px", cursor: "pointer", fontSize: 11, fontFamily: font, background: active ? T.accent : "transparent", color: active ? "#fff" : T.text, transition: "background 0.1s" }}
+      <div onClick={onClick} style={{ flex: 1, padding: "8px 11px", cursor: "pointer", fontSize: 11, fontFamily: font, background: active ? T.accent : "transparent", color: active ? "#0a0a0a" : T.text, transition: "background 0.1s" }}
         onMouseEnter={e => { if (!active) e.currentTarget.style.background = T.surface; }}
         onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; }}>
         {label}
-        {sub && <div style={{ fontSize: 9, color: active ? "rgba(255,255,255,0.7)" : T.faint, marginTop: 1 }}>{sub}</div>}
+        {sub && <div style={{ fontSize: 9, color: active ? "rgba(0,0,0,0.6)" : T.faint, marginTop: 1 }}>{sub}</div>}
       </div>
       {onEdit && <button onClick={e => { e.stopPropagation(); onEdit(); }} title="Edit cost / details"
-        style={{ background: "none", border: "none", color: active ? "rgba(255,255,255,0.7)" : T.faint, cursor: "pointer", fontSize: 11, padding: "4px 6px", flexShrink: 0 }}
-        onMouseEnter={e => (e.currentTarget.style.color = T.accent)} onMouseLeave={e => (e.currentTarget.style.color = active ? "rgba(255,255,255,0.7)" : T.faint)}>✎</button>}
+        style={{ background: "none", border: "none", color: active ? "rgba(0,0,0,0.6)" : T.faint, cursor: "pointer", fontSize: 11, padding: "4px 6px", flexShrink: 0 }}
+        onMouseEnter={e => (e.currentTarget.style.color = T.accent)} onMouseLeave={e => (e.currentTarget.style.color = active ? "rgba(0,0,0,0.6)" : T.faint)}>✎</button>}
       {onDelete && <button onClick={e => { e.stopPropagation(); onDelete(); }}
         style={{ background: "none", border: "none", color: T.faint, cursor: "pointer", fontSize: 10, padding: "4px 8px", flexShrink: 0 }}
         onMouseEnter={e => (e.currentTarget.style.color = T.red)} onMouseLeave={e => (e.currentTarget.style.color = T.faint)}>✕</button>}
@@ -1049,7 +1049,7 @@ export function OtherPicker({ onAdd, onClose, assignMode, defaultItemName }) {
         <button onClick={() => { setEditId(null); setShowNewForm(!showNewForm); }} style={{ background: T.green, color: "#fff", border: "none", borderRadius: 6, padding: "6px 10px", fontSize: 11, fontFamily: font, fontWeight: 600, cursor: "pointer" }}>+ New</button>
         <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search styles..." autoFocus style={{ flex: 1, fontFamily: font, fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 10px", outline: "none" }} />
         <input value={itemName} onChange={e => setItemName(e.target.value)} placeholder="Item display name" style={{ fontFamily: font, fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 10px", outline: "none", width: 180 }} />
-        <button onClick={doAdd} disabled={!canAdd} style={{ background: canAdd ? T.accent : T.surface, color: canAdd ? "#fff" : T.muted, border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontFamily: font, fontWeight: 600, cursor: canAdd ? "pointer" : "default" }}>{assignMode ? "Assign to item →" : "Add to buy sheet →"}</button>
+        <button onClick={doAdd} disabled={!canAdd} style={{ background: canAdd ? T.accent : T.surface, color: canAdd ? "#0a0a0a" : T.muted, border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontFamily: font, fontWeight: 600, cursor: canAdd ? "pointer" : "default" }}>{assignMode ? "Assign to item →" : "Add to buy sheet →"}</button>
         <button onClick={onClose} style={{ background: "none", border: "none", color: T.muted, fontSize: 18, cursor: "pointer", lineHeight: 1 }}>×</button>
       </div>
 
@@ -1193,8 +1193,8 @@ export function OtherPicker({ onAdd, onClose, assignMode, defaultItemName }) {
                     return (
                       <div key={sz} onClick={e => toggleSz(sz, e)}
                         style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 10px", borderRadius: 6, cursor: "pointer", border: `1px solid ${on ? T.accent : T.border}`, background: on ? T.accent : T.surface, transition: "all 0.12s", userSelect: "none" }}>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: on ? "#fff" : T.muted, fontFamily: mono }}>{sz}</span>
-                        {price > 0 && <span style={{ fontSize: 10, color: on ? "rgba(255,255,255,0.7)" : T.muted }}>${price.toFixed(2)}</span>}
+                        <span style={{ fontSize: 12, fontWeight: 700, color: on ? "#0a0a0a" : T.muted, fontFamily: mono }}>{sz}</span>
+                        {price > 0 && <span style={{ fontSize: 10, color: on ? "rgba(0,0,0,0.6)" : T.muted }}>${price.toFixed(2)}</span>}
                       </div>
                     );
                   })}
@@ -1290,11 +1290,11 @@ export function CottonCollectivePicker({ onAdd, onClose, assignMode, defaultItem
   };
 
   const colRow = (label, active, onClick, sub) => (
-    <div onClick={onClick} style={{ padding: "8px 11px", cursor: "pointer", fontSize: 11, fontFamily: font, background: active ? T.accent : "transparent", color: active ? "#fff" : T.text, borderBottom: `1px solid ${T.border}`, transition: "background 0.1s" }}
+    <div onClick={onClick} style={{ padding: "8px 11px", cursor: "pointer", fontSize: 11, fontFamily: font, background: active ? T.accent : "transparent", color: active ? "#0a0a0a" : T.text, borderBottom: `1px solid ${T.border}`, transition: "background 0.1s" }}
       onMouseEnter={e => { if (!active) e.currentTarget.style.background = T.surface; }}
       onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; }}>
       {label}
-      {sub && <div style={{ fontSize: 9, color: active ? "rgba(255,255,255,0.7)" : T.faint, marginTop: 1 }}>{sub}</div>}
+      {sub && <div style={{ fontSize: 9, color: active ? "rgba(0,0,0,0.6)" : T.faint, marginTop: 1 }}>{sub}</div>}
     </div>
   );
 
@@ -1315,7 +1315,7 @@ export function CottonCollectivePicker({ onAdd, onClose, assignMode, defaultItem
         <input value={itemName} onChange={e => setItemName(e.target.value)} placeholder="Item display name"
           style={{ fontFamily: font, fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 10px", outline: "none", width: 180 }} />
         <button onClick={doAdd} disabled={!canAdd}
-          style={{ background: canAdd ? T.accent : T.surface, color: canAdd ? "#fff" : T.muted, border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontFamily: font, fontWeight: 600, cursor: canAdd ? "pointer" : "default", transition: "all 0.15s" }}>
+          style={{ background: canAdd ? T.accent : T.surface, color: canAdd ? "#0a0a0a" : T.muted, border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontFamily: font, fontWeight: 600, cursor: canAdd ? "pointer" : "default", transition: "all 0.15s" }}>
           {assignMode ? "Assign to item →" : "Add to buy sheet →"}
         </button>
         <button onClick={onClose} style={{ background: "none", border: "none", color: T.muted, fontSize: 18, cursor: "pointer", lineHeight: 1 }}>×</button>
@@ -1377,8 +1377,8 @@ export function CottonCollectivePicker({ onAdd, onClose, assignMode, defaultItem
                       return (
                         <div key={sz} onClick={(e) => toggleSz(sz, e)}
                           style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 10px", borderRadius: 6, cursor: "pointer", border: `1px solid ${on ? T.accent : T.border}`, background: on ? T.accent : T.surface, transition: "all 0.12s", userSelect: "none" }}>
-                          <span style={{ fontSize: 12, fontWeight: 700, color: on ? "#fff" : T.muted, fontFamily: mono }}>{sz}</span>
-                          <span style={{ fontSize: 10, color: on ? "rgba(255,255,255,0.7)" : T.muted }}>${price.toFixed(2)}</span>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: on ? "#0a0a0a" : T.muted, fontFamily: mono }}>{sz}</span>
+                          <span style={{ fontSize: 10, color: on ? "rgba(0,0,0,0.6)" : T.muted }}>${price.toFixed(2)}</span>
                         </div>
                       );
                     })}

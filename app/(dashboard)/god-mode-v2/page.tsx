@@ -11,7 +11,11 @@ import { H } from "@/components/hub/theme";
 
 const PURPLE = "#fd3aa3";
 const fmt$ = (n: number) => "$" + Math.round(n).toLocaleString();
-const fmtK = (n: number) => n >= 1000 ? `$${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : `$${Math.round(n)}`;
+const fmtK = (n: number) => {
+  if (n >= 1000000) { const m = (n / 1000000).toFixed(1); return `$${m.endsWith(".0") ? m.slice(0, -2) : m}M`; }
+  if (n >= 1000) return `$${Math.round(n / 1000)}k`;
+  return `$${Math.round(n)}`;
+};
 const SIZE_ORDER = ["XS", "S", "M", "L", "XL", "2XL", "3XL", "4XL", "5XL", "YS", "YM", "YL", "YXL", "OS", "OSFA"];
 const monthLabel = (ym: string) => {
   const [y, m] = ym.split("-");
@@ -117,6 +121,18 @@ export default function GodModeV2Page() {
     for (const [, v, a] of data.spend) byVendor.set(v, (byVendor.get(v) || 0) + a);
     const vendors = Array.from(byVendor.entries()).sort((a, b) => b[1] - a[1]).slice(0, 8);
 
+    // year-over-year overlay: one 12-month line per year for the selection
+    const byYear = new Map<string, number[]>();
+    for (const [ym, c, , a, , o] of data.lines) {
+      if (!inClient(c) || !inScope(o)) continue;
+      const [y, m] = ym.split("-");
+      const arr = byYear.get(y) || Array(12).fill(0);
+      arr[Number(m) - 1] += a;
+      byYear.set(y, arr);
+    }
+    const years = Array.from(byYear.entries()).sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([y, months]) => ({ y, months, total: months.reduce((x, n) => x + n, 0) }));
+
     const totalGross = Array.from(byMonth.values()).reduce((a, v) => a + v.a, 0);
     const totalUnits = Array.from(byMonth.values()).reduce((a, v) => a + v.q, 0);
     const customerCount = byClient.size;
@@ -125,7 +141,7 @@ export default function GodModeV2Page() {
     const curveUniverse = group === "ALL"
       ? Array.from(byGroup.entries()).filter(([g]) => CURVE_GROUPS.has(g)).reduce((a, [, v]) => a + v.q, 0)
       : (byGroup.get(group)?.q || 0);
-    return { topClients, series, mix, curve, curveTotal, curveGroups, blanks, vendors, totalGross, totalUnits, customerCount, curveUniverse, span };
+    return { topClients, series, years, mix, curve, curveTotal, curveGroups, blanks, vendors, totalGross, totalUnits, customerCount, curveUniverse, span };
   }, [data, client, group, scope]);
 
   return (
@@ -184,7 +200,7 @@ export default function GodModeV2Page() {
               <div style={{ alignSelf: "flex-end", fontSize: 9.5, color: H.faint, maxWidth: 230, lineHeight: 1.5 }}>{scope === "pure" ? "OpsHub-era invoices excluded — flip to + OpsHub era to fold them in." : "OpsHub era folded in — each job counted once, from its QB invoice lines."}</div>
             </div>
 
-            <MonthlyChart series={model.series} />
+            <LongGame series={model.series} years={model.years} />
             <MixChart mix={model.mix} />
             <CurveChart curve={model.curve} total={model.curveTotal} universe={model.curveUniverse} groups={model.curveGroups} group={group} setGroup={setGroup} />
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 40 }}>
@@ -207,16 +223,101 @@ function ModHead({ title, hint }: { title: string; hint: string }) {
   );
 }
 
+// ── THE LONG GAME — timeline bars OR year-vs-year overlay lines ──
+const YEAR_COLORS = ["#5b6b8c", "#8fc7d8", "#58c93c", "#f4b22b", "#fd3aa3", "#ff5a6e", "#ffffff", "#a78bfa"];
+const MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function LongGame({ series, years }: { series: { ym: string; a: number; q: number }[]; years: { y: string; months: number[]; total: number }[] }) {
+  const [view, setView] = useState<"timeline" | "yoy">("timeline");
+  const [ytd, setYtd] = useState(false);
+  const [off, setOff] = useState<Set<string>>(new Set());
+  const [hoverM, setHoverM] = useState<number | null>(null);
+  const yoyRef = useRef<HTMLDivElement | null>(null);
+  // YTD: every year clipped to the same Jan→current-month window so the
+  // in-progress year compares fairly against the same stretch of past years
+  const nowM = new Date().getMonth();               // 0-based current month
+  const lastM = ytd ? nowM : 11;                    // inclusive end of window
+  const nPts = lastM + 1;
+  const shown = years.filter(yr => !off.has(yr.y));
+  const winMonths = (yr: { months: number[] }) => yr.months.slice(0, nPts);
+  const winTotal = (yr: { months: number[] }) => winMonths(yr).reduce((a, n) => a + n, 0);
+  const yoyMax = Math.max(...shown.flatMap(yr => winMonths(yr)), 1);
+  const xAt = (i: number) => nPts > 1 ? i * (1000 / (nPts - 1)) : 500;
+  const colorOf = (y: string) => YEAR_COLORS[years.findIndex(x => x.y === y) % YEAR_COLORS.length];
+
+  const toggleBtn = (active: boolean): React.CSSProperties => ({ borderRadius: 999, border: active ? "1px solid #fff" : `1px solid ${H.line}`, background: active ? "#fff" : "transparent", color: active ? H.ink : H.dim, fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", padding: "8px 13px", cursor: "pointer", fontFamily: H.font });
+
+  return (
+    <section className="gm-mod">
+      <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
+        <h2 style={{ margin: 0, fontSize: 19, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em" }}>The long game.</h2>
+        <span style={{ fontSize: 10.5, color: H.faint }}>{view === "timeline" ? "gross by month — run your finger across it" : ytd ? `same Jan–${MONTHS_SHORT[nowM]} window every year — the current month is still filling` : "years stacked on one calendar — tap a year to hide it"}</span>
+        <span style={{ display: "inline-flex", gap: 6, marginLeft: "auto" }}>
+          <button style={toggleBtn(view === "timeline")} onClick={() => setView("timeline")}>Timeline</button>
+          <button style={toggleBtn(view === "yoy" && !ytd)} onClick={() => { setView("yoy"); setYtd(false); }}>Year vs year</button>
+          <button style={toggleBtn(view === "yoy" && ytd)} onClick={() => { setView("yoy"); setYtd(true); }}>To date</button>
+        </span>
+      </div>
+
+      {view === "timeline" && <MonthlyBars series={series} />}
+
+      {view === "yoy" && (
+        <>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+            {years.map(yr => {
+              const on = !off.has(yr.y);
+              return (
+                <button key={yr.y}
+                  onClick={() => setOff(prev => { const n = new Set(prev); n.has(yr.y) ? n.delete(yr.y) : n.add(yr.y); return n; })}
+                  style={{ borderRadius: 999, border: `1px solid ${on ? colorOf(yr.y) : H.line}`, background: "transparent", color: on ? colorOf(yr.y) : H.faint, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.06em", padding: "8px 14px", cursor: "pointer", fontFamily: H.mono, opacity: on ? 1 : 0.55 }}>
+                  {yr.y} · {fmtK(winTotal(yr))}
+                </button>
+              );
+            })}
+          </div>
+          <div ref={yoyRef} style={{ position: "relative" }}
+            onMouseLeave={() => setHoverM(null)}
+            onMouseMove={e => {
+              const r = yoyRef.current?.getBoundingClientRect(); if (!r) return;
+              setHoverM(Math.max(0, Math.min(lastM, Math.round(((e.clientX - r.left) / r.width) * (nPts - 1)))));
+            }}>
+            <svg viewBox="0 0 1000 260" style={{ width: "100%", display: "block" }} preserveAspectRatio="none">
+              {[0.25, 0.5, 0.75].map(t => (
+                <line key={t} x1="0" x2="1000" y1={250 - t * 240} y2={250 - t * 240} stroke="rgba(255,255,255,0.07)" strokeWidth="1" />
+              ))}
+              <line x1="0" x2="1000" y1="250" y2="250" stroke="rgba(255,255,255,0.16)" strokeWidth="1" />
+              {hoverM != null && <line x1={xAt(hoverM)} x2={xAt(hoverM)} y1="10" y2="250" stroke="rgba(255,255,255,0.25)" strokeWidth="1" />}
+              {shown.map(yr => (
+                <polyline key={yr.y} fill="none" stroke={colorOf(yr.y)} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round"
+                  points={winMonths(yr).map((v, i) => `${xAt(i)},${250 - (v / yoyMax) * 235}`).join(" ")} />
+              ))}
+              {hoverM != null && shown.map(yr => (
+                <circle key={yr.y} cx={xAt(hoverM)} cy={250 - (yr.months[hoverM] / yoyMax) * 235} r="4" fill={colorOf(yr.y)} />
+              ))}
+            </svg>
+            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 7, fontSize: 9.5, fontFamily: H.mono, color: H.faint }}>
+              {MONTHS_SHORT.slice(0, nPts).map(m => <span key={m}>{m}</span>)}
+            </div>
+            <div style={{ minHeight: 22, marginTop: 8, fontSize: 11, fontFamily: H.mono, display: "flex", gap: 16, flexWrap: "wrap" }}>
+              {hoverM != null && shown.slice().sort((a, b) => b.months[hoverM] - a.months[hoverM]).map(yr => (
+                <span key={yr.y} style={{ color: colorOf(yr.y), fontWeight: 700 }}>{yr.y} {MONTHS_SHORT[hoverM]} · {fmt$(yr.months[hoverM])}</span>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
 // ── Monthly gross — hover tells the number ──
-function MonthlyChart({ series }: { series: { ym: string; a: number; q: number }[] }) {
+function MonthlyBars({ series }: { series: { ym: string; a: number; q: number }[] }) {
   const [hover, setHover] = useState<number | null>(null);
   const ref = useRef<HTMLDivElement | null>(null);
   if (!series.length) return null;
   const max = Math.max(...series.map(s => s.a), 1);
   const hv = hover != null ? series[hover] : null;
   return (
-    <section className="gm-mod">
-      <ModHead title="The long game." hint="gross by month — run your finger across it" />
       <div ref={ref} style={{ position: "relative" }}
         onMouseLeave={() => setHover(null)}
         onMouseMove={e => {
@@ -236,7 +337,6 @@ function MonthlyChart({ series }: { series: { ym: string; a: number; q: number }
           <span>{monthLabel(series[series.length - 1].ym)}</span>
         </div>
       </div>
-    </section>
   );
 }
 

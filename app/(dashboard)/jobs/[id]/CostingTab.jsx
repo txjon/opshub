@@ -823,7 +823,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                                   {[{label:"/ unit",flat:false},{label:"flat",flat:true}].map(opt=>{
                                     const sel=cc.flat===opt.flat;
                                     return <button key={opt.label} onClick={()=>{const c=[...p.customCosts];c[ci]={...c[ci],flat:opt.flat};updateProd(i,{...p,customCosts:c});}}
-                                      style={{padding:"2px 6px",fontSize:8,fontWeight:600,border:`1px solid ${sel?T.accent:T.border}`,borderRadius:4,cursor:"pointer",background:sel?T.accent:"transparent",color:sel?"#fff":T.faint}}>{opt.label}</button>;
+                                      style={{padding:"2px 6px",fontSize:8,fontWeight:600,border:`1px solid ${sel?T.accent:T.border}`,borderRadius:4,cursor:"pointer",background:sel?T.accent:"transparent",color:sel?"#0a0a0a":T.faint}}>{opt.label}</button>;
                                   })}
                                 </div>
                                 <div style={{display:"flex",alignItems:"center",gap:2,flexShrink:0}}>
@@ -1698,7 +1698,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                       Cancel
                     </button>
                     <button disabled={!canSend} onClick={sendRfq}
-                      style={{background:canSend?T.accent:T.surface,border:"none",borderRadius:6,color:canSend?"#fff":T.faint,padding:"7px 16px",fontSize:12,fontFamily:font,fontWeight:700,cursor:canSend?"pointer":"default",opacity:canSend?1:0.6}}>
+                      style={{background:canSend?T.accent:T.surface,border:"none",borderRadius:6,color:canSend?"#0a0a0a":T.faint,padding:"7px 16px",fontSize:12,fontFamily:font,fontWeight:700,cursor:canSend?"pointer":"default",opacity:canSend?1:0.6}}>
                       {rfqSending ? "Sending…" : "Send Request"}
                     </button>
                   </div>

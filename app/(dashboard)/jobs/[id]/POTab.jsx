@@ -536,7 +536,7 @@ export function POTab({project,items,costingData,onRecalcPhase,onUpdateJob,selec
                 style={{background:"none",border:`1px solid ${T.border}`,borderRadius:8,color:T.muted,fontFamily:font,fontSize:13,padding:"9px 15px",cursor:"pointer"}}>Download PDF</button>
               <button onClick={()=>setShipModalVendor(null)} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:8,color:T.muted,fontFamily:font,fontSize:13,padding:"9px 15px",cursor:"pointer"}}>Cancel</button>
               <button onClick={()=>{ setShipModalVendor(null); setShowSendEmail(true); }} disabled={!canSend}
-                style={{background:canSend?(isRevised?T.amber:T.accent):T.surface,color:canSend?"#fff":T.faint,border:"none",borderRadius:8,fontFamily:font,fontSize:13,fontWeight:800,padding:"9px 20px",cursor:canSend?"pointer":"default",opacity:canSend?1:0.6}}>
+                style={{background:canSend?(isRevised?T.amber:T.accent):T.surface,color:canSend?"#0a0a0a":T.faint,border:"none",borderRadius:8,fontFamily:font,fontSize:13,fontWeight:800,padding:"9px 20px",cursor:canSend?"pointer":"default",opacity:canSend?1:0.6}}>
                 Continue to send →
               </button>
             </div>

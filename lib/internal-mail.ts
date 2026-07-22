@@ -27,7 +27,8 @@ export type InternalEvent =
   | { kind: "client_approved"; client: string; jobNumber: string; jobId: string }
   | { kind: "client_changes"; client: string; jobNumber: string; jobId: string; note?: string | null }
   | { kind: "drop_ready"; client: string; title: string; targetLive?: string | null; newLines: number; pipeLines: number }
-  | { kind: "idea_greenlit"; client: string; title: string; door: "order" | "later"; productCount: number; jobId?: string | null; jobNumber?: string | null };
+  | { kind: "idea_greenlit"; client: string; title: string; door: "order" | "later"; productCount: number; jobId?: string | null; jobNumber?: string | null }
+  | { kind: "product_run"; client: string; title: string; units: number; jobId: string; jobNumber: string };
 
 function build(e: InternalEvent): { to: string[]; subject: string; text: string } {
   // Directive voice (Jon: "here's what's coming is nice — here's what to do
@@ -131,6 +132,19 @@ Nothing urgent. It's in their catalog (ours mirrors it) — it comes back as an 
 DONE WHEN: it already is.`,
       };
     }
+    case "product_run":
+      return {
+        to: [DEPT.labs],
+        subject: `ORDERED from the shelf — "${e.title}" (${e.client}) — ${e.jobNumber}`,
+        text: `${e.client} ordered "${e.title}" from their catalog: ${e.units.toLocaleString()} units. First run of this product — the job is in Intake with their sizes, art already approved.
+
+DO THIS:
+1. Open the job: ${APP}/jobs/${e.jobId}
+2. Finish the build: blanks, style/color, decoration
+3. Cost it and send the quote — approval opens in their hub
+
+DONE WHEN: the quote is sent. They committed with quantities — treat it same-day.`,
+      };
     case "drop_ready": {
       const launchOnly = e.newLines === 0;
       const prodOnly = e.pipeLines === 0;

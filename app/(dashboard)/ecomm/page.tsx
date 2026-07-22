@@ -265,7 +265,7 @@ export default function EcommPage() {
           { id: "always_on" as const, label: "Always-on stores", count: counts.always_on },
         ]).map(t => (
           <button key={t.id} onClick={() => setTab(t.id)}
-            style={{ flex: 1, padding: "8px 12px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: font, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: tab === t.id ? T.accent : "transparent", color: tab === t.id ? "#fff" : T.muted }}>
+            style={{ flex: 1, padding: "8px 12px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: font, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: tab === t.id ? T.accent : "transparent", color: tab === t.id ? "#0a0a0a" : T.muted }}>
             {t.label}
             {t.count > 0 && <span style={{ fontSize: 10, fontWeight: 700, fontFamily: mono, padding: "1px 6px", borderRadius: 4, background: tab === t.id ? "rgba(255,255,255,0.2)" : T.card, color: tab === t.id ? "#fff" : T.accent }}>{t.count}</span>}
           </button>
