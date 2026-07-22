@@ -4,10 +4,10 @@ import Link from "next/link";
 import { useClientPortal } from "./_shared/context";
 import { C, fmtDate } from "./_shared/theme";
 
-// HOME — the hub's front door (reworked Jul 21 2026). Answers exactly three
-// things and nothing else: what needs me, what's dropping next, what's new.
-// Studio (Product Development) is hidden pending rethink, so no design
-// pills or brief feeds here. Data: orders + items APIs (same as tabs).
+// HOME — the hub's front door (reworked Jul 21 2026; idea door added Jul 22,
+// Jon: "home should have a way to send an idea"). Answers: what needs me,
+// what's dropping next, what's new — and invites the next build.
+// Data: orders + items APIs (same as tabs).
 
 export default function HomePage() {
   const { data, token } = useClientPortal();
@@ -15,6 +15,7 @@ export default function HomePage() {
   const [orders, setOrders] = useState<any[] | null>(null);
   const [items, setItems] = useState<any[] | null>(null);
   const hasPipeline = ((data as any)?.features || []).includes("pipeline");
+  const hasStudio = ((data as any)?.features || []).includes("studio");
 
   useEffect(() => {
     (async () => {
@@ -94,6 +95,16 @@ export default function HomePage() {
         {data.client.name}.
       </h1>
 
+      {/* The idea door — the hub invites the next build from the front step */}
+      {hasStudio && (
+        <div style={{ textAlign: "center", margin: "0 0 26px" }}>
+          <Link href={`${base}/studio`}
+            style={{ display: "inline-block", background: "transparent", color: "#fd3aa3", border: "1px solid #fd3aa3", borderRadius: 999, padding: "12px 26px", fontSize: 11.5, fontWeight: 800, letterSpacing: "0.09em", textTransform: "uppercase", textDecoration: "none" }}>
+            Got an idea? Start it →
+          </Link>
+        </div>
+      )}
+
       {/* What needs you */}
       {pills.length > 0 ? (
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", margin: "0 0 36px", justifyContent: "center" }}>
@@ -124,13 +135,13 @@ export default function HomePage() {
           )}
           {hasPipeline && landing.length === 0 && storeReady.length === 0 && (
             <div style={{ color: C.muted, fontSize: 13, textAlign: "center", padding: "20px 0 40px" }}>
-              Nothing in production right now. Tap Reorder to run something back.
+              Nothing in production right now. Start an idea, or run something back from your catalog.
             </div>
           )}
 
           {/* Quick doors */}
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "center", margin: "6px 0 20px" }}>
-            {[{ label: "Reorder", href: `${base}/reorder` }, { label: "Orders", href: `${base}/orders` }, ...(hasPipeline ? [{ label: "Pipeline", href: `${base}/items` }] : [])].map(d => (
+            {[...(hasStudio ? [{ label: "Studio", href: `${base}/studio` }] : []), { label: "Catalog", href: `${base}/reorder` }, { label: "Orders", href: `${base}/orders` }, ...(hasPipeline ? [{ label: "Pipeline", href: `${base}/items` }] : [])].map(d => (
               <Link key={d.label} href={d.href}
                 style={{ border: `1px solid ${C.border}`, color: C.muted, borderRadius: 999, padding: "10px 20px", fontSize: 10.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", textDecoration: "none" }}>
                 {d.label}
