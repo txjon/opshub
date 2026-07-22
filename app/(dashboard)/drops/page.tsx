@@ -15,6 +15,11 @@ const fmtDate = (iso?: string | null) => iso ? new Date(iso).toLocaleDateString(
 const APPROVED = ["final_approved", "pending_prep", "production_ready", "delivered"];
 const PURPLE = "#fd3aa3";
 
+const daysTo = (iso?: string | null) => {
+  if (!iso) return null;
+  return Math.round((new Date(iso + "T00:00").getTime() - new Date(new Date().toISOString().slice(0, 10) + "T00:00").getTime()) / 86400000);
+};
+
 const STATUS_META: Record<string, { label: string; color: string }> = {
   building: { label: "Building", color: H.faint },
   ready: { label: "Ready for us", color: H.amber },
@@ -85,8 +90,10 @@ export default function DropsBoard() {
     const numbersDone = (r: any) => r.slots.length > 0 && r.slots.every((s: any) =>
       Object.values(s.qtys || {}).reduce((a: number, b: any) => a + (Number(b) || 0), 0) > 0);
     return [
-      { key: "your_move", title: "Your move.", color: H.amber, hint: "submitted drops to cost & schedule — and closed sales ready to cut", list: list.filter((r: any) => r.status === "ready" || r.status === "closed") },
-      { key: "live", title: "Live now.", color: PURPLE, hint: "selling — close the sale when the window ends", list: list.filter((r: any) => r.status === "live") },
+      // Live drops whose window has ENDED are a call, not a status — they
+      // jump the queue into Your move ("close the sale").
+      { key: "your_move", title: "Your move.", color: H.amber, hint: "submitted drops, ended sale windows, and closed sales ready to cut", list: list.filter((r: any) => r.status === "ready" || r.status === "closed" || (r.status === "live" && daysTo(r.window_close_date) != null && (daysTo(r.window_close_date) as number) <= 0)) },
+      { key: "live", title: "Live now.", color: PURPLE, hint: "selling — close the sale when the window ends", list: list.filter((r: any) => r.status === "live" && !(daysTo(r.window_close_date) != null && (daysTo(r.window_close_date) as number) <= 0)) },
       { key: "building", title: "Building.", hint: "clients assembling — watch it take shape", list: list.filter((r: any) => r.status === "building") },
       { key: "cut", title: "Cut.", color: H.green, hint: "born as jobs — the floor has them", list: list.filter((r: any) => r.status === "cut") },
       { key: "shelved", title: "On ice.", hint: "", list: list.filter((r: any) => r.status === "shelved") },
@@ -139,8 +146,23 @@ export default function DropsBoard() {
                         <span style={{ display: "block", fontSize: 15, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.title}</span>
                         <span style={{ display: "block", fontSize: 10, fontFamily: H.mono, color: H.faint, marginTop: 2 }}>{r.clients?.name} · {r.slots.length} line{r.slots.length === 1 ? "" : "s"}{r.target_live_date ? ` · live ${fmtDate(r.target_live_date)}` : ""}</span>
                       </span>
-                      <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.09em", textTransform: "uppercase", color: m.color, whiteSpace: "nowrap" }}>
-                        {r.status === "closed" ? (nd ? "Numbers in — cut it" : "Awaiting numbers") : m.label}
+                      <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.09em", textTransform: "uppercase", color: (() => {
+                          if (r.status !== "live") return m.color;
+                          const dd = daysTo(r.window_close_date);
+                          return dd != null && dd <= 0 ? H.red : dd != null && dd <= 3 ? H.amber : m.color;
+                        })(), whiteSpace: "nowrap" }}>
+                        {(() => {
+                          if (r.status === "closed") return nd ? "Numbers in — cut it" : "Awaiting numbers";
+                          if (r.status === "live") {
+                            const dd = daysTo(r.window_close_date);
+                            if (dd != null && dd < 0) return `Window ended ${fmtDate(r.window_close_date)} — close it`;
+                            if (dd === 0) return "Closes today";
+                            if (dd != null && dd <= 3) return `Closing soon · ${dd}d`;
+                            if (dd != null) return `Live · closes ${fmtDate(r.window_close_date)}`;
+                            return "Live · no close date set";
+                          }
+                          return m.label;
+                        })()}
                       </span>
                     </div>
                   </button>
@@ -231,6 +253,14 @@ export default function DropsBoard() {
                       Cut now (skip sale)
                     </button>
                   </>
+                )}
+                {["ready", "live"].includes(r.status) && (
+                  <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: H.faint }}>Window closes</span>
+                    <input type="date" defaultValue={r.window_close_date || ""}
+                      onBlur={e => { if (e.target.value !== (r.window_close_date || "")) act(r, "", "PATCH", { window_close_date: e.target.value || null }); }}
+                      style={{ padding: "8px 10px", background: H.surface, border: `1px solid ${H.line}`, borderRadius: 9, outline: "none", color: H.text, fontFamily: H.font, fontSize: 12, colorScheme: "dark" }} />
+                  </label>
                 )}
                 {r.status === "live" && (
                   <button disabled={busy === r.id} onClick={() => act(r, "", "PATCH", { action: "closed" })}
