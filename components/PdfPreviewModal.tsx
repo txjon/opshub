@@ -89,7 +89,7 @@ export function PdfPreviewModal({
                 padding: "6px 14px",
                 borderRadius: 6,
                 background: T.accent,
-                color: "#fff",
+                color: "#0a0a0a",
                 border: "none",
                 fontSize: 11,
                 fontWeight: 600,

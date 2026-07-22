@@ -127,7 +127,7 @@ export function SendEmailDialog({ defaultEmail, defaultSubject, onClose, onSent,
           Cancel
         </button>
         <button onClick={handleSend} disabled={sending || getRecipients().length === 0}
-          style={{ background:sending ? T.surface : T.accent, color:"#fff", border:"none", borderRadius:6, padding:"6px 16px", fontSize:12, fontFamily:font, fontWeight:600, cursor:sending ? "default" : "pointer", opacity:sending || getRecipients().length===0 ? 0.6 : 1 }}>
+          style={{ background:sending ? T.surface : T.accent, color:"#0a0a0a", border:"none", borderRadius:6, padding:"6px 16px", fontSize:12, fontFamily:font, fontWeight:600, cursor:sending ? "default" : "pointer", opacity:sending || getRecipients().length===0 ? 0.6 : 1 }}>
           {sending ? "Sending..." : "Send"}
         </button>
       </div>

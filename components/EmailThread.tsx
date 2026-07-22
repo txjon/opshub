@@ -107,7 +107,7 @@ export function EmailThread({ jobId, onCompose, channel, decoratorId, title = "E
         {onCompose && (
           <button onClick={onCompose} style={{
             background: T.accent, border: "none", borderRadius: 6,
-            color: "#fff", fontSize: 10, fontWeight: 600, padding: "5px 12px",
+            color: "#0a0a0a", fontSize: 10, fontWeight: 600, padding: "5px 12px",
             cursor: "pointer",
           }}>
             Compose
@@ -275,7 +275,7 @@ export function EmailThread({ jobId, onCompose, channel, decoratorId, title = "E
                   <div style={{ fontSize: 12, color: T.muted, marginBottom: 16 }}>Preview not available for this file type</div>
                   <a href={previewUrl} download={previewName} style={{
                     display: "inline-block", padding: "10px 24px", borderRadius: 8,
-                    background: T.accent, color: "#fff", textDecoration: "none",
+                    background: T.accent, color: "#0a0a0a", textDecoration: "none",
                     fontSize: 13, fontWeight: 600,
                   }}>Save to Computer</a>
                 </div>

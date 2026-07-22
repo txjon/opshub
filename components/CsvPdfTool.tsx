@@ -346,7 +346,7 @@ export default function CsvPdfTool({ title, subtitle, endpoint, defaultStatus = 
                 borderRadius: 6,
                 border: "none",
                 background: T.accent,
-                color: "#fff",
+                color: "#0a0a0a",
                 fontSize: 12,
                 fontWeight: 600,
                 cursor: "pointer",

@@ -131,7 +131,7 @@ export default function ArtRequestModal({ open, onClose, project, onSent }) {
             </div>
             <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
               <button onClick={close}
-                style={{ height: 36, padding: "0 18px", borderRadius: 8, border: "none", background: T.accent, color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer", fontFamily: font }}>
+                style={{ height: 36, padding: "0 18px", borderRadius: 8, border: "none", background: T.accent, color: "#0a0a0a", fontWeight: 700, fontSize: 13, cursor: "pointer", fontFamily: font }}>
                 Done
               </button>
             </div>
@@ -250,7 +250,7 @@ export default function ArtRequestModal({ open, onClose, project, onSent }) {
                                     <img src={`/api/files/thumbnail?id=${f.drive_file_id}&thumb=1`} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
                                   </div>
                                   {/* Check badge */}
-                                  <div style={{ position: "absolute", top: 5, right: 5, width: 18, height: 18, borderRadius: "50%", background: on ? T.accent : "rgba(255,255,255,0.85)", border: `1px solid ${on ? T.accent : T.border}`, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 11, fontWeight: 800 }}>
+                                  <div style={{ position: "absolute", top: 5, right: 5, width: 18, height: 18, borderRadius: "50%", background: on ? T.accent : "rgba(255,255,255,0.85)", border: `1px solid ${on ? T.accent : T.border}`, display: "flex", alignItems: "center", justifyContent: "center", color: on ? "#0a0a0a" : "#666", fontSize: 11, fontWeight: 800 }}>
                                     {on ? "✓" : ""}
                                   </div>
                                   <div style={{ fontSize: 8.5, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.04em", padding: "3px 5px", textAlign: "center", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>

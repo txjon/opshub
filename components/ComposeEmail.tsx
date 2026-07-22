@@ -187,7 +187,7 @@ export function ComposeEmail({
               disabled={!to || to === "__custom" || !subject.trim() || !body.trim() || sending}
               style={{
                 width: "100%", padding: "12px 0", borderRadius: 8,
-                background: T.accent, color: "#fff", border: "none",
+                background: T.accent, color: "#0a0a0a", border: "none",
                 fontSize: 13, fontWeight: 700, cursor: "pointer",
                 opacity: (!to || to === "__custom" || !subject.trim() || !body.trim() || sending) ? 0.4 : 1,
               }}

@@ -218,7 +218,7 @@ export default function MoveItemDialog({
           <button onClick={doMove} disabled={!selectedId || moving}
             style={{
               padding: "8px 16px", background: selectedId && !moving ? T.accent : T.border,
-              border: "none", borderRadius: 6, color: "#fff",
+              border: "none", borderRadius: 6, color: "#0a0a0a",
               fontSize: 12, fontWeight: 700,
               cursor: selectedId && !moving ? "pointer" : "not-allowed",
               fontFamily: font,
