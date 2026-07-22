@@ -369,6 +369,36 @@ function BriefSheet({ brief, token, onClose, onActed }: { brief: any; token: str
     } catch { setMsg("Couldn't send that."); setBusy(null); }
   }
 
+  // Add photos to a LIVE idea — ping as many times as you like before we
+  // pong (Jon, Jul 22, live with Corey: attach only existed at submission).
+  const sheetFileInput = useRef<HTMLInputElement | null>(null);
+  async function addPhotos(list: FileList | null) {
+    const picked = Array.from(list || []);
+    if (!picked.length) return;
+    setBusy("photos"); setMsg("");
+    let failed = 0;
+    for (let i = 0; i < picked.length; i++) {
+      setMsg(`Uploading ${i + 1} of ${picked.length}…`);
+      try {
+        const f = picked[i];
+        const sess = await fetch(`/api/portal/client/${token}/briefs/${brief.id}/upload-session`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ file_name: f.name, mime_type: f.type || "application/octet-stream" }),
+        });
+        if (!sess.ok) throw new Error("session");
+        const { uploadUrl } = await sess.json();
+        const { drive_file_id } = await uploadFileToDriveSession(uploadUrl, f);
+        await fetch(`/api/portal/client/${token}/briefs/${brief.id}/upload-session/complete`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ drive_file_id, file_name: f.name, mime_type: f.type || "application/octet-stream", file_size: f.size }),
+        });
+      } catch { failed++; }
+    }
+    setMsg(failed ? `${failed} didn't make it — try again.` : "");
+    setBusy(null);
+    onActed();
+  }
+
   const pill: React.CSSProperties = { background: "#fff", color: C.bg, border: "none", borderRadius: 999, padding: "12px 22px", fontSize: 11.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: C.font };
   const ghost: React.CSSProperties = { background: "transparent", color: C.text, border: `1px solid ${C.border}`, borderRadius: 999, padding: "12px 20px", fontSize: 11.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: C.font };
 
@@ -592,6 +622,11 @@ function BriefSheet({ brief, token, onClose, onActed }: { brief: any; token: str
                 {busy === "note" ? "Sending…" : "Revive it"}
               </button>
             )}
+            <input ref={sheetFileInput} type="file" multiple accept="image/*,.pdf,.ai,.eps,.psd,.svg,.zip" style={{ display: "none" }}
+              onChange={e => { addPhotos(e.target.files); if (sheetFileInput.current) sheetFileInput.current.value = ""; }} />
+            <button style={ghost} disabled={!!busy} onClick={() => sheetFileInput.current?.click()}>
+              {busy === "photos" ? (msg || "Uploading…") : "+ Photos"}
+            </button>
             <button style={ghost} disabled={!!busy || !note.trim()} onClick={() => sendNote(note)}>{busy === "note" ? "Sending…" : "Send note"}</button>
             {(bucket === "quiet" || brief.state === "draft") && (
               <button style={{ ...ghost, color: C.faint, borderColor: "transparent", marginLeft: "auto" }} disabled={!!busy}
