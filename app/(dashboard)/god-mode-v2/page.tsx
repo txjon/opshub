@@ -11,7 +11,11 @@ import { H } from "@/components/hub/theme";
 
 const PURPLE = "#fd3aa3";
 const fmt$ = (n: number) => "$" + Math.round(n).toLocaleString();
-const fmtK = (n: number) => n >= 1000 ? `$${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : `$${Math.round(n)}`;
+const fmtK = (n: number) => {
+  if (n >= 1000000) { const m = (n / 1000000).toFixed(1); return `$${m.endsWith(".0") ? m.slice(0, -2) : m}M`; }
+  if (n >= 1000) return `$${Math.round(n / 1000)}k`;
+  return `$${Math.round(n)}`;
+};
 const SIZE_ORDER = ["XS", "S", "M", "L", "XL", "2XL", "3XL", "4XL", "5XL", "YS", "YM", "YL", "YXL", "OS", "OSFA"];
 const monthLabel = (ym: string) => {
   const [y, m] = ym.split("-");
