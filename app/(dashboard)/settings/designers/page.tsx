@@ -95,7 +95,7 @@ export default function DesignersPage() {
           <p style={{ fontSize: 12, color: T.muted, marginTop: 4 }}>External design team members with portal access</p>
         </div>
         <button onClick={() => setShowNew(true)}
-          style={{ background: T.accent, color: "#fff", border: "none", borderRadius: 8, padding: "8px 18px", fontSize: 13, fontFamily: font, fontWeight: 600, cursor: "pointer" }}>
+          style={{ background: T.accent, color: "#0a0a0a", border: "none", borderRadius: 8, padding: "8px 18px", fontSize: 13, fontFamily: font, fontWeight: 600, cursor: "pointer" }}>
           + Add Designer
         </button>
       </div>
@@ -134,7 +134,7 @@ export default function DesignersPage() {
                         </div>
                         <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 6, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 10px", fontFamily: mono, fontSize: 11, color: T.faint }}>
                           <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{url}</span>
-                          <button onClick={() => copyLink(d)} style={{ padding: "3px 10px", background: T.accent, color: "#fff", border: "none", borderRadius: 4, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
+                          <button onClick={() => copyLink(d)} style={{ padding: "3px 10px", background: T.accent, color: "#0a0a0a", border: "none", borderRadius: 4, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
                             {copiedId === d.id ? "Copied" : "Copy"}
                           </button>
                         </div>
@@ -170,7 +170,7 @@ export default function DesignersPage() {
             </div>
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
               <button onClick={() => setShowNew(false)} style={{ padding: "8px 16px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.muted, fontSize: 13, cursor: "pointer", fontFamily: font }}>Cancel</button>
-              <button onClick={createDesigner} disabled={saving || !newForm.name.trim()} style={{ padding: "8px 20px", borderRadius: 6, border: "none", background: T.accent, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: font, opacity: (saving || !newForm.name.trim()) ? 0.5 : 1 }}>
+              <button onClick={createDesigner} disabled={saving || !newForm.name.trim()} style={{ padding: "8px 20px", borderRadius: 6, border: "none", background: T.accent, color: "#0a0a0a", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: font, opacity: (saving || !newForm.name.trim()) ? 0.5 : 1 }}>
                 {saving ? "Creating..." : "Create & Generate Link"}
               </button>
             </div>

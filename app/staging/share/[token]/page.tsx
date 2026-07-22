@@ -100,7 +100,7 @@ export default function SharePage({ params }: { params: { token: string } }) {
             autoFocus />
           {error && <div style={{ fontSize: 12, color: T.red, marginBottom: 8 }}>{error}</div>}
           <button onClick={verify} disabled={loading}
-            style={{ width: "100%", padding: "10px", borderRadius: 8, border: "none", background: T.accent, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: font, opacity: loading ? 0.5 : 1 }}>
+            style={{ width: "100%", padding: "10px", borderRadius: 8, border: "none", background: T.accent, color: "#0a0a0a", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: font, opacity: loading ? 0.5 : 1 }}>
             {loading ? "Verifying..." : "View Board"}
           </button>
         </div>
@@ -282,7 +282,7 @@ export default function SharePage({ params }: { params: { token: string } }) {
                       <span style={{ position: "absolute", top: 6, right: 6, fontSize: 9, background: "rgba(0,0,0,0.6)", color: "#fff", borderRadius: 4, padding: "1px 5px" }}>+{item.images.length - 1}</span>
                     )}
                     {msgCount > 0 && (
-                      <span style={{ position: "absolute", bottom: 8, right: 8, fontSize: 11, background: T.accent, color: "#fff", borderRadius: 6, padding: "2px 8px", fontWeight: 700, boxShadow: "0 2px 6px rgba(0,0,0,0.3)" }}>{msgCount} msg</span>
+                      <span style={{ position: "absolute", bottom: 8, right: 8, fontSize: 11, background: T.accent, color: "#0a0a0a", borderRadius: 6, padding: "2px 8px", fontWeight: 700, boxShadow: "0 2px 6px rgba(0,0,0,0.3)" }}>{msgCount} msg</span>
                     )}
                   </div>
                   <div style={{ padding: "8px 10px" }}>
@@ -482,7 +482,7 @@ export default function SharePage({ params }: { params: { token: string } }) {
                         placeholder="Type a message..."
                         style={{ flex: 1, padding: "10px 14px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 14, outline: "none", fontFamily: font }} />
                       <button onClick={() => sendMessage(item.id)}
-                        style={{ padding: "10px 20px", borderRadius: 8, background: T.accent, color: "#fff", border: "none", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
+                        style={{ padding: "10px 20px", borderRadius: 8, background: T.accent, color: "#0a0a0a", border: "none", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
                         Send
                       </button>
                     </div>

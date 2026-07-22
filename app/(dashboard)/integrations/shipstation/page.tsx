@@ -113,7 +113,7 @@ export default function ShipStationIntegrationPage() {
             background: T.accent,
             border: "none",
             borderRadius: 6,
-            color: "#fff",
+            color: "#0a0a0a",
             fontSize: 12,
             fontFamily: font,
             fontWeight: 700,

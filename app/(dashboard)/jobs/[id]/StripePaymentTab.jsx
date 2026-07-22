@@ -166,7 +166,7 @@ export function StripePaymentTab({ job, items = [], contacts, payments, onReload
           </button>
           {hasActiveInvoice && (
             <button onClick={() => setShowInvoiceEmail(true)}
-              style={{ height: 38, padding: "0 16px", borderRadius: 7, background: T.accent, color: "#fff",
+              style={{ height: 38, padding: "0 16px", borderRadius: 7, background: T.accent, color: "#0a0a0a",
                 border: "none", fontSize: 12, fontWeight: 700, fontFamily: font, cursor: "pointer",
                 display: "flex", alignItems: "center", gap: 6 }}>
               Send Invoice
@@ -271,7 +271,7 @@ export function StripePaymentTab({ job, items = [], contacts, payments, onReload
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>Payment Records</div>
             <button onClick={() => setAddingPayment(!addingPayment)}
-              style={{ background: T.accent, border: "none", borderRadius: 6, color: "#fff", fontSize: 11, fontWeight: 600, padding: "5px 14px", cursor: "pointer" }}>
+              style={{ background: T.accent, border: "none", borderRadius: 6, color: "#0a0a0a", fontSize: 11, fontWeight: 600, padding: "5px 14px", cursor: "pointer" }}>
               + Add Payment
             </button>
           </div>

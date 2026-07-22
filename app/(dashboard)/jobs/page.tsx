@@ -340,7 +340,7 @@ export default function JobsPage() {
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:12 }}>
           <h1 style={{ fontSize:isMobile?20:22, fontWeight:700, margin:0, letterSpacing:"-0.02em" }}>Projects</h1>
           {isMobile && (
-            <a href="/jobs/new" style={{ background:T.accent, color:"#fff", border:"none", borderRadius:8, padding:"8px 14px", fontSize:13, fontFamily:font, fontWeight:600, cursor:"pointer", textDecoration:"none", whiteSpace:"nowrap" }}>
+            <a href="/jobs/new" style={{ background:T.accent, color:"#0a0a0a", border:"none", borderRadius:8, padding:"8px 14px", fontSize:13, fontFamily:font, fontWeight:600, cursor:"pointer", textDecoration:"none", whiteSpace:"nowrap" }}>
               + New
             </a>
           )}
@@ -356,7 +356,7 @@ export default function JobsPage() {
           {clientOptions.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
         {!isMobile && (
-          <a href="/jobs/new" style={{ background:T.accent, color:"#fff", border:"none", borderRadius:8, padding:"8px 18px", fontSize:13, fontFamily:font, fontWeight:600, cursor:"pointer", textDecoration:"none", whiteSpace:"nowrap" }}>
+          <a href="/jobs/new" style={{ background:T.accent, color:"#0a0a0a", border:"none", borderRadius:8, padding:"8px 18px", fontSize:13, fontFamily:font, fontWeight:600, cursor:"pointer", textDecoration:"none", whiteSpace:"nowrap" }}>
             + New Project
           </a>
         )}

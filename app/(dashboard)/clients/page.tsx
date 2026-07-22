@@ -61,7 +61,7 @@ export default function ClientsPage() {
           <h1 style={{ fontSize: isMobile ? 20 : 22, fontWeight: 700, margin: 0, letterSpacing: "-0.02em" }}>Clients</h1>
           {isMobile && (
             <button onClick={() => setAdding(true)}
-              style={{ background: T.accent, color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontFamily: font, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
+              style={{ background: T.accent, color: "#0a0a0a", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontFamily: font, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
               + New
             </button>
           )}
@@ -74,7 +74,7 @@ export default function ClientsPage() {
         />
         {!isMobile && (
           <button onClick={() => setAdding(true)}
-            style={{ background: T.accent, color: "#fff", border: "none", borderRadius: 8, padding: "8px 18px", fontSize: 13, fontFamily: font, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
+            style={{ background: T.accent, color: "#0a0a0a", border: "none", borderRadius: 8, padding: "8px 18px", fontSize: 13, fontFamily: font, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
             + New Client
           </button>
         )}
@@ -95,7 +95,7 @@ export default function ClientsPage() {
             style={{ flex: 1, minWidth: 180, padding: "7px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: font, outline: "none" }}
           />
           <button onClick={() => { if (newName.trim()) createClientRow(newName.trim()); }}
-            style={{ background: T.accent, color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontFamily: font, fontWeight: 600, cursor: "pointer" }}>
+            style={{ background: T.accent, color: "#0a0a0a", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontFamily: font, fontWeight: 600, cursor: "pointer" }}>
             Save
           </button>
           <button onClick={() => { setNewName(""); setAdding(false); }}

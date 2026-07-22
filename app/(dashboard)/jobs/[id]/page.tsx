@@ -1731,7 +1731,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             </button>
           ) : (
             <button onClick={openQPSend} disabled={sendingQP}
-              style={{flexShrink:0,background:T.accent,color:"#fff",border:"none",borderRadius:9,padding:"12px 22px",fontSize:13.5,fontWeight:800,fontFamily:font,cursor:sendingQP?"default":"pointer",opacity:sendingQP?0.6:1}}>
+              style={{flexShrink:0,background:T.accent,color:"#0a0a0a",border:"none",borderRadius:9,padding:"12px 22px",fontSize:13.5,fontWeight:800,fontFamily:font,cursor:sendingQP?"default":"pointer",opacity:sendingQP?0.6:1}}>
               {sendingQP ? "Sending…" : approved ? "Send to client for approval" : sentAt ? "Re-send quote + proofs" : "Send quote + proofs"}
             </button>
           )}
@@ -1769,7 +1769,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 <span style={{fontSize:10,color:T.muted,flex:1}}>{Object.values(qpSelected).filter(Boolean).length} recipient{Object.values(qpSelected).filter(Boolean).length===1?"":"s"}</span>
                 <button onClick={()=>setQpSendOpen(false)} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:7,color:T.muted,padding:"8px 14px",fontSize:12,fontFamily:font,cursor:"pointer"}}>Cancel</button>
                 <button onClick={doSendQP} disabled={sendingQP||Object.values(qpSelected).filter(Boolean).length===0}
-                  style={{background:T.accent,color:"#fff",border:"none",borderRadius:7,padding:"8px 20px",fontSize:12.5,fontWeight:800,fontFamily:font,cursor:sendingQP?"default":"pointer",opacity:sendingQP||Object.values(qpSelected).filter(Boolean).length===0?0.6:1}}>
+                  style={{background:T.accent,color:"#0a0a0a",border:"none",borderRadius:7,padding:"8px 20px",fontSize:12.5,fontWeight:800,fontFamily:font,cursor:sendingQP?"default":"pointer",opacity:sendingQP||Object.values(qpSelected).filter(Boolean).length===0?0.6:1}}>
                   {sendingQP ? "Sending…" : approved ? "Send for approval" : "Send"}
                 </button>
               </div>
@@ -1848,7 +1848,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               <button onClick={()=>window.open(`/portal/${(job as any).portal_token||""}`,"_blank")} style={{flex:"0 0 auto",height:38,borderRadius:9,border:`1px solid ${T.border}`,background:T.surface,color:T.text,cursor:"pointer",fontSize:12.5,fontWeight:700,fontFamily:font,padding:"0 14px"}}>Preview in portal</button>
               <button onClick={()=>switchTab("costing")} style={{flex:"0 0 auto",height:38,borderRadius:9,border:`1px solid ${T.border}`,background:T.card,color:T.text,cursor:"pointer",fontSize:12.5,fontWeight:700,fontFamily:font,padding:"0 14px"}}>Edit in Costing</button>
               {approved
-                ? <button onClick={()=>switchTab("invoice")} style={{flex:"0 0 auto",height:38,borderRadius:9,border:"none",background:T.accent,color:"#fff",cursor:"pointer",fontSize:12.5,fontWeight:800,fontFamily:font,padding:"0 16px"}}>Go to Invoice</button>
+                ? <button onClick={()=>switchTab("invoice")} style={{flex:"0 0 auto",height:38,borderRadius:9,border:"none",background:T.accent,color:"#0a0a0a",cursor:"pointer",fontSize:12.5,fontWeight:800,fontFamily:font,padding:"0 16px"}}>Go to Invoice</button>
                 : <button onClick={doApprove} style={{flex:"0 0 auto",height:38,borderRadius:9,border:`1px solid ${T.green}`,background:T.greenDim,color:T.green,cursor:"pointer",fontSize:12.5,fontWeight:800,fontFamily:font,padding:"0 16px"}}>Mark approved</button>}
             </div>
           </div>

@@ -425,7 +425,7 @@ export default function ArtStudioPage() {
           </p>
         </div>
         <button onClick={() => setShowNewRequest(true)}
-          style={{ background: T.accent, color: "#fff", border: "none", borderRadius: 8, padding: "9px 20px", fontSize: 14, fontFamily: font, fontWeight: 700, cursor: "pointer" }}>
+          style={{ background: T.accent, color: "#0a0a0a", border: "none", borderRadius: 8, padding: "9px 20px", fontSize: 14, fontFamily: font, fontWeight: 700, cursor: "pointer" }}>
           + New Request
         </button>
       </div>
@@ -1248,7 +1248,7 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
                 <button
                   onClick={() => { const f = stagedWorkFile; if (f) { setStagedWorkFile(null); uploadFiles([f], "first_draft"); } }}
                   disabled={uploadingRefs > 0}
-                  style={{ padding: "6px 12px", background: T.accent, color: "#fff", border: "none", borderRadius: 5, fontSize: 11, fontWeight: 700, cursor: uploadingRefs > 0 ? "not-allowed" : "pointer", fontFamily: font, opacity: uploadingRefs > 0 ? 0.6 : 1 }}>
+                  style={{ padding: "6px 12px", background: T.accent, color: "#0a0a0a", border: "none", borderRadius: 5, fontSize: 11, fontWeight: 700, cursor: uploadingRefs > 0 ? "not-allowed" : "pointer", fontFamily: font, opacity: uploadingRefs > 0 ? 0.6 : 1 }}>
                   Upload as Draft
                 </button>
                 <button
@@ -1273,7 +1273,7 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
                 </button>
                 <button onClick={() => workInputRef.current?.click()} disabled={uploadingRefs > 0}
                   title="Upload a Draft / Final / Print-Ready file — you'll pick the type after choosing the file."
-                  style={{ padding: "6px 12px", background: T.accent, color: "#fff", border: "none", borderRadius: 5, fontSize: 11, fontWeight: 700, cursor: uploadingRefs > 0 ? "not-allowed" : "pointer", fontFamily: font, opacity: uploadingRefs > 0 ? 0.5 : 1 }}>
+                  style={{ padding: "6px 12px", background: T.accent, color: "#0a0a0a", border: "none", borderRadius: 5, fontSize: 11, fontWeight: 700, cursor: uploadingRefs > 0 ? "not-allowed" : "pointer", fontFamily: font, opacity: uploadingRefs > 0 ? 0.5 : 1 }}>
                   + Upload work
                 </button>
                 <div style={{ flex: 1 }} />
@@ -1814,7 +1814,7 @@ function NewRequestModal({
               borderRadius: 6,
               border: "none",
               background: T.accent,
-              color: "#fff",
+              color: "#0a0a0a",
               fontSize: 13,
               fontWeight: 700,
               fontFamily: font,

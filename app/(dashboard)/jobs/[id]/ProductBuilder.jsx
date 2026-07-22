@@ -1015,7 +1015,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
                     placeholder="New type (e.g. Hat)"
                     style={{ flex: 1, padding: "9px 12px", border: `1px solid ${T.border}`, borderRadius: 8, background: T.surface, color: T.text, fontSize: 13, outline: "none", fontFamily: font }} />
                   <button onClick={addNewItemType} disabled={!newItemType.trim() || savingType}
-                    style={{ padding: "9px 16px", borderRadius: 8, border: "none", background: T.accent, color: "#fff", fontSize: 12, fontWeight: 700, cursor: (!newItemType.trim() || savingType) ? "default" : "pointer", opacity: (!newItemType.trim() || savingType) ? 0.5 : 1 }}>
+                    style={{ padding: "9px 16px", borderRadius: 8, border: "none", background: T.accent, color: "#0a0a0a", fontSize: 12, fontWeight: 700, cursor: (!newItemType.trim() || savingType) ? "default" : "pointer", opacity: (!newItemType.trim() || savingType) ? 0.5 : 1 }}>
                     + Add
                   </button>
                 </div>
@@ -1094,7 +1094,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
               <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <span style={{ fontSize: 12, color: T.muted }}>{names.length} item{names.length === 1 ? "" : "s"}</span>
                 <button onClick={createNames} disabled={names.length === 0}
-                  style={{ padding: "9px 20px", borderRadius: 8, border: "none", background: T.accent, color: "#fff", fontSize: 13, fontWeight: 700, cursor: names.length === 0 ? "default" : "pointer", opacity: names.length === 0 ? 0.5 : 1, fontFamily: font }}>
+                  style={{ padding: "9px 20px", borderRadius: 8, border: "none", background: T.accent, color: "#0a0a0a", fontSize: 13, fontWeight: 700, cursor: names.length === 0 ? "default" : "pointer", opacity: names.length === 0 ? 0.5 : 1, fontFamily: font }}>
                   Create {names.length || ""} {names.length === 1 ? "item" : "items"}
                 </button>
               </div>
@@ -1710,7 +1710,7 @@ function SizeSubModal({ item, size, onClose, onSave }) {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 18 }}>
           <button onClick={() => onSave({ label: label.trim(), color: color.trim(), cost: cost.trim(), note: note.trim() })}
-            style={{ background: T.accent, color: "#fff", border: "none", borderRadius: 7, padding: "9px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: font }}>Save substitute</button>
+            style={{ background: T.accent, color: "#0a0a0a", border: "none", borderRadius: 7, padding: "9px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: font }}>Save substitute</button>
           {hasExisting && (
             <button onClick={() => onSave({ label: "", color: "", cost: "", note: "" })}
               style={{ background: "transparent", color: T.red, border: `1px solid ${T.border}`, borderRadius: 7, padding: "9px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: font }}>Remove</button>
@@ -1964,7 +1964,7 @@ function EditSizesModal({ item, onClose, onSave }) {
                   placeholder="Total qty"
                   style={{ width: 110, height: 36, padding: "0 10px", fontSize: 13, border: `1px solid ${T.border}`, borderRadius: 6, background: T.card, color: T.text, fontFamily: font, outline: "none" }} />
                 <button onClick={doDist}
-                  style={{ fontSize: 12, color: "#fff", background: T.accent, border: "none", borderRadius: 6, padding: "8px 16px", cursor: "pointer", fontWeight: 700, fontFamily: font }}>
+                  style={{ fontSize: 12, color: "#0a0a0a", background: T.accent, border: "none", borderRadius: 6, padding: "8px 16px", cursor: "pointer", fontWeight: 700, fontFamily: font }}>
                   Fill
                 </button>
                 <span style={{ fontSize: 11, color: T.faint }}>Spreads total across active sizes using the item's curve.</span>
@@ -1979,7 +1979,7 @@ function EditSizesModal({ item, onClose, onSave }) {
             Cancel
           </button>
           <button onClick={() => onSave(sizes, qtys)}
-            style={{ padding: "8px 22px", background: T.accent, color: "#fff", border: "none", borderRadius: 6, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: font }}>
+            style={{ padding: "8px 22px", background: T.accent, color: "#0a0a0a", border: "none", borderRadius: 6, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: font }}>
             Save
           </button>
         </div>
@@ -2232,7 +2232,7 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
               than the one-size "Qty units" shortcut. */}
           {cutSew && item.sizes.length === 0 && !costingLocked && (
             <button onClick={() => setEditSizesItemId(item.id)}
-              style={{ fontSize: 13, fontWeight: 700, color: "#fff", background: T.accent, border: "none", borderRadius: 8, padding: "10px 18px", cursor: "pointer", fontFamily: font }}>
+              style={{ fontSize: 13, fontWeight: 700, color: "#0a0a0a", background: T.accent, border: "none", borderRadius: 8, padding: "10px 18px", cursor: "pointer", fontFamily: font }}>
               + Set sizes &amp; quantities
             </button>
           )}
@@ -2345,7 +2345,7 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
             {distRow === idx && (
               <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 6 }}>
                 <input type="text" inputMode="numeric" value={distTotal} onChange={e => setDistTotal(e.target.value)} onKeyDown={e => e.key === "Enter" && handleDist(idx)} placeholder="Total qty" autoFocus style={{ ...ic, width: 80, textAlign: "center" }} />
-                <button onClick={() => handleDist(idx)} style={{ fontSize: 10, color: "#fff", background: T.accent, border: "none", borderRadius: 4, padding: "4px 10px", cursor: "pointer", fontWeight: 600 }}>Fill</button>
+                <button onClick={() => handleDist(idx)} style={{ fontSize: 10, color: "#0a0a0a", background: T.accent, border: "none", borderRadius: 4, padding: "4px 10px", cursor: "pointer", fontWeight: 600 }}>Fill</button>
                 <button onClick={() => setDistRow(null)} style={{ fontSize: 10, color: T.muted, background: "none", border: "none", cursor: "pointer" }}>Cancel</button>
               </div>
             )}

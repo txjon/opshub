@@ -345,7 +345,7 @@ export default function EcommPage() {
       {/* + New — only shown on project-management tabs */}
       {tab !== "intake" && (
       <button onClick={() => setShowNew(!showNew)}
-        style={{ alignSelf: "flex-start", padding: "8px 20px", borderRadius: 8, border: "none", cursor: "pointer", background: T.accent, color: "#fff", fontSize: 12, fontWeight: 600, fontFamily: font }}>
+        style={{ alignSelf: "flex-start", padding: "8px 20px", borderRadius: 8, border: "none", cursor: "pointer", background: T.accent, color: "#0a0a0a", fontSize: 12, fontWeight: 600, fontFamily: font }}>
         + New Ecomm Project
       </button>
       )}

@@ -1,23 +1,27 @@
+// DARK (Jul 21 2026): the internal app joins the hub's world — same inks
+// as components/hub/theme H. accent flipped to WHITE (white pill, dark
+// text — the brand button); accent-bg call sites with hardcoded white
+// text were mechanically flipped in the same pass.
 export const T = {
-  bg: "#f4f4f6",
-  surface: "#eaeaee",
-  card: "#ffffff",
-  border: "#dcdce0",
-  accent: "#000000",
-  accentDim: "#e8e8e8",
-  blue: "#73b6c9",
-  blueDim: "#e3f1f5",
-  green: "#47b12b",
-  greenDim: "#e5f9ed",
+  bg: "#0a0a0a",
+  surface: "#1e1e1e",
+  card: "#131313",
+  border: "rgba(255,255,255,0.13)",
+  accent: "#ffffff",
+  accentDim: "rgba(255,255,255,0.08)",
+  blue: "#8fc7d8",
+  blueDim: "rgba(143,199,216,0.12)",
+  green: "#58c93c",
+  greenDim: "rgba(88,201,60,0.10)",
   amber: "#f4b22b",
-  amberDim: "#fef5e0",
-  red: "#ff324d",
-  redDim: "#ffe8ec",
+  amberDim: "rgba(244,178,43,0.10)",
+  red: "#ff5a6e",
+  redDim: "rgba(255,90,110,0.12)",
   purple: "#fd3aa3",
-  purpleDim: "#fee8f4",
-  text: "#1a1a1a",
-  muted: "#6b6b78",
-  faint: "#a0a0ad",
+  purpleDim: "rgba(253,58,163,0.12)",
+  text: "#ffffff",
+  muted: "rgba(255,255,255,0.6)",
+  faint: "rgba(255,255,255,0.38)",
 };
 
 export const font = "'IBM Plex Sans','Helvetica Neue',Arial,sans-serif";

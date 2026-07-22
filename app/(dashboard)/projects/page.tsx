@@ -232,7 +232,7 @@ export default function ProjectsBoard() {
 
   return (
     <BoardFrame title="Projects" action={
-      <a href="/jobs/new" style={{ background: T.accent, color: "#fff", borderRadius: 8, padding: "9px 16px", fontSize: 13, fontFamily: font, fontWeight: 600, textDecoration: "none", whiteSpace: "nowrap" }}>+ New Project</a>
+      <a href="/jobs/new" style={{ background: T.accent, color: "#0a0a0a", borderRadius: 8, padding: "9px 16px", fontSize: 13, fontFamily: font, fontWeight: 600, textDecoration: "none", whiteSpace: "nowrap" }}>+ New Project</a>
     }>
       <ToggleSearch
         options={[["active", `Active · ${activeAll.length}`], ["completed", `Completed · ${rows.filter(r => r.stage.complete).length}`]]}
