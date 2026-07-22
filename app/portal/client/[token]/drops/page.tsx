@@ -284,7 +284,7 @@ function DropSheet({ drop, token, briefs, pipeItems, onChanged, onClose }: {
                   <span style={{ display: "block", fontSize: 10, fontFamily: C.mono, color: C.muted, marginTop: 2 }}>
                     {s.itemId
                       ? `${(pit?.qty || Object.values(s.qtys || {}).reduce((a: number, b: any) => a + Number(b), 0)).toLocaleString()} pcs${pit?.eta ? ` · lands ${fmtDate(pit.eta)}` : ""}`
-                      : `${s.retail != null ? `$${s.retail} retail` : "retail TBD"}${s.model ? ` · ${s.model === "preorder" ? "pre-order" : "fixed run"}` : ""}`}
+                      : `${s.retail != null ? `$${s.retail} retail` : "retail TBD"}${s.model ? ` · ${s.model === "preorder" ? "pre-order" : s.model === "not_sure" ? "model TBD" : "fixed run"}` : ""}`}
                   </span>
                 </span>
                 <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: s.ideaApproved ? C.green : C.amber, whiteSpace: "nowrap" }}>

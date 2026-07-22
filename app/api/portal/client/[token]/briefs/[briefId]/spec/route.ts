@@ -44,9 +44,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { token: str
       const r = body.retail === null || body.retail === "" ? null : Math.max(0, Math.min(100000, Number(body.retail) || 0));
       if (r !== (spec.retail ?? null)) { spec.retail = r; changes.push(r != null ? `retail $${r}` : "retail cleared"); }
     }
-    if (body.model !== undefined && ["stock", "preorder", null, ""].includes(body.model)) {
+    if (body.model !== undefined && ["stock", "preorder", "not_sure", null, ""].includes(body.model)) {
       const m = body.model || null;
-      if (m !== (spec.model ?? null)) { spec.model = m; changes.push(m === "preorder" ? "pre-order drop" : m === "stock" ? "fixed run" : "model cleared"); }
+      if (m !== (spec.model ?? null)) { spec.model = m; changes.push(m === "preorder" ? "pre-order drop" : m === "stock" ? "fixed run" : m === "not_sure" ? "model TBD" : "model cleared"); }
     }
     if (body.format !== undefined) {
       const f = String(body.format || "").trim().slice(0, 60) || null;
@@ -63,13 +63,13 @@ export async function PATCH(req: NextRequest, { params }: { params: { token: str
         id: String(x.id || "").slice(0, 40) || Math.random().toString(36).slice(2, 10),
         format: String(x.format || "").trim().slice(0, 60) || null,
         retail: x.retail === null || x.retail === "" || x.retail === undefined ? null : Math.max(0, Math.min(100000, Number(x.retail) || 0)),
-        model: ["stock", "preorder"].includes(x.model) ? x.model : null,
+        model: ["stock", "preorder", "not_sure"].includes(x.model) ? x.model : null,
         run_size: x.run_size === null || x.run_size === "" || x.run_size === undefined ? null : Math.max(0, Math.min(1000000, Math.round(Number(x.run_size) || 0))),
         notes: String(x.notes || "").trim().slice(0, 600) || null,
       }));
       if (JSON.stringify(clean) !== JSON.stringify(spec.products || [])) {
         spec.products = clean;
-        const summary = clean.map((x: any) => [x.format || "item", x.retail != null ? `$${x.retail}` : null, x.model === "preorder" ? "pre-order" : x.model === "stock" ? "fixed run" : null].filter(Boolean).join(" ")).join(" · ");
+        const summary = clean.map((x: any) => [x.format || "item", x.retail != null ? `$${x.retail}` : null, x.model === "preorder" ? "pre-order" : x.model === "stock" ? "fixed run" : x.model === "not_sure" ? "model TBD" : null].filter(Boolean).join(" ")).join(" · ");
         if (summary) changes.push(summary.slice(0, 260));
       }
     }

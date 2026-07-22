@@ -280,7 +280,7 @@ function OpsBriefSheet({ brief, onClose }: { brief: any; onClose: () => void }) 
               <div key={i} style={{ display: "flex", gap: 12, alignItems: "baseline", padding: "7px 0", borderBottom: `1px solid ${H.line}`, flexWrap: "wrap" }}>
                 <span style={{ fontSize: 12.5, fontWeight: 800, textTransform: "uppercase" }}>{x.format || "Item"}</span>
                 {x.retail != null && <span style={{ fontSize: 11.5, fontFamily: H.mono, color: H.dim }}>${x.retail} retail</span>}
-                {x.model && <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: x.model === "preorder" ? "#fd3aa3" : H.blue }}>{x.model === "preorder" ? "Pre-order" : "Fixed run"}</span>}
+                {x.model && <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: x.model === "preorder" ? "#fd3aa3" : x.model === "not_sure" ? H.faint : H.blue }}>{x.model === "preorder" ? "Pre-order" : x.model === "not_sure" ? "Model TBD" : "Fixed run"}</span>}
                 {x.run_size != null && <span style={{ fontSize: 11, fontFamily: H.mono, color: H.faint }}>~{Number(x.run_size).toLocaleString()} pcs</span>}
                 {x.notes && <span style={{ flexBasis: "100%", fontSize: 11.5, color: H.dim, lineHeight: 1.5 }}>{x.notes}</span>}
               </div>

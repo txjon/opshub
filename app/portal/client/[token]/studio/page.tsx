@@ -85,7 +85,8 @@ export default function StudioPage() {
   }
   if (!data) return null;
 
-  const canSend = !!title.trim() && !!notes.trim();
+  // Name + image are the door; words are welcome but optional (Jon, Jul 22)
+  const canSend = !!title.trim() && files.length > 0;
   async function submit() {
     if (!canSend) return;
     setBusy(true); setError(""); setSendState("Sending…");
@@ -198,7 +199,9 @@ export default function StudioPage() {
                 style={{ background: "#fff", color: C.bg, border: "none", borderRadius: 999, padding: "12px 24px", fontSize: 11.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: busy || !canSend ? "default" : "pointer", opacity: busy || !canSend ? 0.5 : 1, fontFamily: C.font }}>
                 {busy ? (sendState || "Sending…") : "Send it"}
               </button>
-              <span style={{ fontSize: 11, color: C.faint }}>Lands with our team — we&rsquo;ll take it from there.</span>
+              <span style={{ fontSize: 11, color: C.faint }}>
+                {!title.trim() || files.length === 0 ? "A name and a picture is all it takes." : "Lands with our team — we’ll take it from there."}
+              </span>
             </div>
           </>
         )}
@@ -431,19 +434,11 @@ function BriefSheet({ brief, token, onClose, onActed }: { brief: any; token: str
                   onBlur={() => pushProducts(products)}
                   style={{ width: 118, padding: "9px 10px", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 9, outline: "none", color: C.text, fontFamily: C.font, fontSize: 12.5 }} />
               </label>
-              <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: C.faint }}>Retail</span>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 9, padding: "0 10px" }}>
-                  <span style={{ color: C.faint, fontFamily: C.mono, fontSize: 13 }}>$</span>
-                  <input type="text" inputMode="decimal" value={ln.retail ?? ""} placeholder="—"
-                    onFocus={e => e.currentTarget.select()}
-                    onChange={e => patchLine(ln.id, { retail: e.target.value.replace(/[^0-9.]/g, "") }, false)}
-                    onBlur={() => pushProducts(products.map(x => x.id === ln.id ? { ...x, retail: x.retail === "" || x.retail == null ? null : Number(x.retail) } : x))}
-                    style={{ width: 52, padding: "9px 0", background: "transparent", border: "none", outline: "none", color: C.text, fontFamily: C.mono, fontSize: 13.5, fontWeight: 700 }} />
-                </span>
-              </label>
+              {/* No retail at the idea stage (Jon, Jul 22) — pricing lands
+                  when this becomes a product. Existing retail values on old
+                  lines survive untouched (pushProducts passes them through). */}
               <span style={{ display: "inline-flex", gap: 6 }}>
-                {[["stock", "Fixed"], ["preorder", "Pre-order"]].map(([k, label]) => (
+                {[["stock", "Fixed qty"], ["preorder", "Pre-order"], ["not_sure", "Not sure"]].map(([k, label]) => (
                   <button key={k} onClick={() => patchLine(ln.id, { model: ln.model === k ? null : k })}
                     style={{ borderRadius: 999, border: ln.model === k ? "1px solid #fff" : `1px solid ${C.border}`, background: ln.model === k ? "#fff" : "transparent", color: ln.model === k ? C.bg : C.muted, fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", padding: "10px 13px", cursor: "pointer", fontFamily: C.font }}>
                     {label}
@@ -473,7 +468,7 @@ function BriefSheet({ brief, token, onClose, onActed }: { brief: any; token: str
               style={{ borderRadius: 999, border: `1px solid ${C.border}`, background: "transparent", color: C.muted, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", padding: "10px 18px", cursor: "pointer", fontFamily: C.font }}>
               {products.length === 0 ? "+ Add a version — tee, hoodie, LS…" : "+ Another version"}
             </button>
-            {products.length > 0 && <span style={{ fontSize: 10.5, color: C.faint }}>same artwork — each version gets its own retail &amp; run</span>}
+            {products.length > 0 && <span style={{ fontSize: 10.5, color: C.faint }}>same artwork — each version becomes its own product; pricing comes later, with us</span>}
           </div>
         </div>
 
