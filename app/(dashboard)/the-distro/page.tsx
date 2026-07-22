@@ -68,7 +68,7 @@ export default function TheDistroPage() {
         <span style={{ display: "block", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: "rgba(255,255,255,0.6)" }}>{eyebrow}</span>
         <span style={{ display: "block", fontSize: "clamp(19px,1.8vw,24px)", fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.02em", lineHeight: 1.05, marginTop: 6, color: color === H.red ? H.red : "#fff" }}>{d.verb}.</span>
         <span style={{ display: "block", fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", marginTop: 7, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</span>
-        <span style={{ display: "block", fontSize: 10.5, fontFamily: H.mono, color: "rgba(255,255,255,0.65)", marginTop: 3 }}>{meta}</span>
+        <span style={{ display: "block", fontSize: 10.5, fontFamily: H.mono, color: H.blue, marginTop: 3 }}>{meta}</span>
         <span style={{ display: "block", fontSize: 12, color: "rgba(255,255,255,0.85)", marginTop: 9, lineHeight: 1.5, maxWidth: "40ch" }}>
           {d.order}.
           <span style={{ display: "block", fontSize: 10, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: color === H.red ? H.red : H.amber, marginTop: 5 }}>done when {d.done}</span>
@@ -246,7 +246,7 @@ function DistroActionSheet({ sheet, onClose, onPullDone, onVarianceResolved }: {
     <div style={{ marginBottom: 18 }}>
       <div style={eyebrowCss}>{eyebrow}</div>
       <div style={{ fontSize: 24, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.02em", lineHeight: 1.05, marginTop: 6, color }}>{verb}.</div>
-      {meta && <div style={{ fontSize: 10.5, fontFamily: H.mono, color: "rgba(255,255,255,0.65)", marginTop: 7 }}>{meta}</div>}
+      {meta && <div style={{ fontSize: 10.5, fontFamily: H.mono, color: H.blue, marginTop: 7 }}>{meta}</div>}
     </div>
   );
 

@@ -152,7 +152,7 @@ export default function HousePage() {
         <span className="body">
           <span style={{ display: "block", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: "rgba(255,255,255,0.65)" }}>{eyebrow} · {title}</span>
           <span style={{ display: "block", fontSize: "clamp(20px,2vw,26px)", fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.02em", lineHeight: 1.05, marginTop: 6, color: verbColor === H.red ? H.red : "#fff", textWrap: "balance" as any }}>{verb}.</span>
-          <span style={{ display: "block", fontSize: 10.5, fontFamily: H.mono, color: "rgba(255,255,255,0.7)", marginTop: 7 }}>{meta}</span>
+          <span style={{ display: "block", fontSize: 10.5, fontFamily: H.mono, color: H.blue, marginTop: 7 }}>{meta}</span>
           {directive && (
             <span style={{ display: "block", fontSize: 12, color: "rgba(255,255,255,0.85)", marginTop: 9, lineHeight: 1.5, maxWidth: "38ch" }}>
               {directive.order}.
@@ -163,9 +163,12 @@ export default function HousePage() {
         </span>
       </>
     );
+    // white ground behind art so transparent PNGs read right; artless plates
+    // stay dark (white + white type would fight)
+    const bg = art ? { background: "#fff" } : undefined;
     return onOpen
-      ? <button key={key} type="button" onClick={onOpen} className="hs-plate">{inner}</button>
-      : <a key={key} href={href} className="hs-plate">{inner}</a>;
+      ? <button key={key} type="button" onClick={onOpen} className="hs-plate" style={bg}>{inner}</button>
+      : <a key={key} href={href} className="hs-plate" style={bg}>{inner}</a>;
   };
 
   return (
@@ -495,7 +498,7 @@ function ActionSheet({ sheet, onClose, onShipByLogged, onStudioAnswered, onSaleC
     <div style={{ marginBottom: 18 }}>
       <div style={eyebrowCss}>{eyebrow}</div>
       <div style={{ fontSize: 24, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.02em", lineHeight: 1.05, marginTop: 6, color }}>{verb}.</div>
-      {meta && <div style={{ fontSize: 10.5, fontFamily: H.mono, color: "rgba(255,255,255,0.65)", marginTop: 7 }}>{meta}</div>}
+      {meta && <div style={{ fontSize: 10.5, fontFamily: H.mono, color: H.blue, marginTop: 7 }}>{meta}</div>}
     </div>
   );
 
