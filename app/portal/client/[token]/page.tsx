@@ -1,8 +1,9 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useClientPortal } from "./_shared/context";
 import { C, fmtDate } from "./_shared/theme";
+import { uploadFileToDriveSession } from "@/lib/upload-drive-client";
 
 // HOME — the hub's front door (reworked Jul 21 2026; idea door added Jul 22,
 // Jon: "home should have a way to send an idea"). Answers: what needs me,
@@ -95,15 +96,10 @@ export default function HomePage() {
         {data.client.name}.
       </h1>
 
-      {/* The idea door — same grammar as every hub primary: white pill */}
-      {hasStudio && (
-        <div style={{ textAlign: "center", margin: "0 0 26px" }}>
-          <Link href={`${base}/studio`}
-            style={{ display: "inline-block", background: "#fff", color: C.bg, borderRadius: 999, padding: "12px 26px", fontSize: 11.5, fontWeight: 800, letterSpacing: "0.09em", textTransform: "uppercase", textDecoration: "none" }}>
-            Got an idea? Start it →
-          </Link>
-        </div>
-      )}
+      {/* The idea door — fills out IN PLACE (Jon, Jul 22): tap → the same
+          name + picture form the Studio runs, posting to the same machinery.
+          No page hop; the idea lands where it needs to go. */}
+      {hasStudio && <IdeaDoor token={token} base={base} />}
 
       {/* What needs you */}
       {pills.length > 0 ? (
@@ -150,6 +146,108 @@ export default function HomePage() {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+// ── The idea door, in place — the Studio's front-door form living on Home.
+// Same rules (a name and a picture is all it takes), same POST + upload
+// chain, so the idea lands exactly where a Studio submission lands.
+function IdeaDoor({ token, base }: { token: string; base: string }) {
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState("");
+  const [notes, setNotes] = useState("");
+  const [files, setFiles] = useState<File[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [state, setState] = useState("");
+  const [sent, setSent] = useState<string | null>(null);
+  const [error, setError] = useState("");
+  const fileInput = useRef<HTMLInputElement | null>(null);
+  const canSend = !!title.trim() && files.length > 0;
+
+  async function submit() {
+    if (!canSend || busy) return;
+    setBusy(true); setError(""); setState("Sending…");
+    try {
+      const res = await fetch(`/api/portal/client/${token}/ideas`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: title.trim(), notes: notes.trim() }),
+      });
+      const body = await res.json();
+      if (!res.ok) { setError(body.error || "Couldn't save the idea."); return; }
+      let failed = 0;
+      for (let i = 0; i < files.length; i++) {
+        setState(`Uploading ${i + 1} of ${files.length}…`);
+        try {
+          const f = files[i];
+          const sess = await fetch(`/api/portal/client/${token}/briefs/${body.briefId}/upload-session`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ file_name: f.name, mime_type: f.type || "application/octet-stream" }),
+          });
+          if (!sess.ok) throw new Error("session");
+          const { uploadUrl } = await sess.json();
+          const { drive_file_id } = await uploadFileToDriveSession(uploadUrl, f);
+          await fetch(`/api/portal/client/${token}/briefs/${body.briefId}/upload-session/complete`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ drive_file_id, file_name: f.name, mime_type: f.type || "application/octet-stream", file_size: f.size }),
+          });
+        } catch { failed++; }
+      }
+      if (failed > 0) setError(`Idea sent, but ${failed} attachment${failed === 1 ? "" : "s"} didn't make it — add ${failed === 1 ? "it" : "them"} from the Studio.`);
+      setSent(title.trim());
+      setTitle(""); setNotes(""); setFiles([]); setOpen(false);
+    } catch { setError("Couldn't save the idea."); }
+    finally { setBusy(false); setState(""); }
+  }
+
+  if (sent) return (
+    <div style={{ textAlign: "center", margin: "0 0 26px", fontSize: 13, color: C.text }}>
+      <span style={{ fontWeight: 800 }}>&ldquo;{sent}&rdquo; landed with our team.</span>{" "}
+      <Link href={`${base}/studio`} style={{ color: "#fd3aa3", fontWeight: 800, textDecoration: "none" }}>Watch it in the Studio →</Link>
+    </div>
+  );
+
+  if (!open) return (
+    <div style={{ textAlign: "center", margin: "0 0 26px" }}>
+      <button onClick={() => setOpen(true)}
+        style={{ background: "#fff", color: C.bg, border: "none", borderRadius: 999, padding: "12px 26px", fontSize: 11.5, fontWeight: 800, letterSpacing: "0.09em", textTransform: "uppercase", cursor: "pointer", fontFamily: C.font }}>
+        Got an idea? Start it →
+      </button>
+    </div>
+  );
+
+  return (
+    <div style={{ maxWidth: 560, margin: "0 auto 30px", background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: "16px 18px", textAlign: "left" }}>
+      <input value={title} onChange={e => setTitle(e.target.value)} autoFocus placeholder="Calling it something"
+        style={{ width: "100%", boxSizing: "border-box", background: "transparent", border: "none", outline: "none", color: C.text, fontSize: 17, fontWeight: 800, fontFamily: C.font, padding: "4px 0", borderBottom: `1px solid ${C.border}` }} />
+      <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} placeholder="What else? Vibe, references, garment, timing — anything."
+        style={{ width: "100%", boxSizing: "border-box", background: "transparent", border: "none", outline: "none", color: C.text, fontSize: 13, fontFamily: C.font, padding: "10px 0 4px", resize: "vertical" }} />
+      {files.length > 0 && (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "4px 0 8px" }}>
+          {files.map((f, i) => (
+            <span key={i} style={{ fontSize: 10.5, fontFamily: C.mono, color: C.muted, border: `1px solid ${C.border}`, borderRadius: 999, padding: "5px 11px" }}>
+              {f.name} <span onClick={() => setFiles(prev => prev.filter((_, x) => x !== i))} style={{ cursor: "pointer", marginLeft: 4 }}>×</span>
+            </span>
+          ))}
+        </div>
+      )}
+      {error && <div style={{ fontSize: 12, fontWeight: 700, color: "#ff5a6e", margin: "6px 0" }}>{error}</div>}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 10, flexWrap: "wrap" }}>
+        <input ref={fileInput} type="file" multiple accept="image/*,.pdf,.ai,.psd,.eps,.svg" style={{ display: "none" }}
+          onChange={e => { setFiles(prev => [...prev, ...Array.from(e.target.files || [])]); if (fileInput.current) fileInput.current.value = ""; }} />
+        <button onClick={() => fileInput.current?.click()}
+          style={{ background: "transparent", color: C.muted, border: `1px solid ${C.border}`, borderRadius: 999, padding: "11px 17px", fontSize: 10.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: C.font }}>
+          + Photos &amp; files
+        </button>
+        <button onClick={submit} disabled={busy || !canSend}
+          style={{ background: "#fff", color: C.bg, border: "none", borderRadius: 999, padding: "11px 22px", fontSize: 10.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: busy || !canSend ? "default" : "pointer", opacity: busy || !canSend ? 0.5 : 1, fontFamily: C.font }}>
+          {busy ? (state || "Sending…") : "Send it"}
+        </button>
+        <span style={{ fontSize: 11, color: C.faint }}>
+          {!canSend ? "A name and a picture is all it takes." : "Lands with our team."}
+        </span>
+        <button onClick={() => setOpen(false)} style={{ marginLeft: "auto", background: "none", border: "none", color: C.faint, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", cursor: "pointer", fontFamily: C.font }}>Not yet</button>
+      </div>
     </div>
   );
 }
