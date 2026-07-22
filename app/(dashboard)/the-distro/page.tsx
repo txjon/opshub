@@ -41,13 +41,18 @@ export default function TheDistroPage() {
       setWire((act || []).filter((a: any) => /receiv|ship|forward|pull|land|deliver/i.test(a.message)).slice(0, 12));
       // variance: recently-received items whose received != shipped
       const { data: recv } = await supabase.from("items")
-        .select("id, name, ship_qtys, received_qtys, received_at_hpd_at, jobs!inner(id, job_number, phase, clients(name))")
+        .select("id, name, ship_qtys, received_qtys, received_at_hpd_at, variance_resolved, jobs!inner(id, job_number, phase, clients(name))")
         .eq("received_at_hpd", true)
         .not("jobs.phase", "in", "(complete,cancelled)")
         .order("received_at_hpd_at", { ascending: false }).limit(60);
       setVariances((recv || []).filter((it: any) => {
         const s = sum(it.ship_qtys), r = sum(it.received_qtys);
-        return s > 0 && r > 0 && r !== s;
+        if (!(s > 0 && r > 0 && r !== s)) return false;
+        // resolved only while the snapshot still matches the live counts — a
+        // later correction invalidates the dismissal and the card resurfaces
+        const vr = it.variance_resolved;
+        if (vr && Number(vr.ship_total) === s && Number(vr.recv_total) === r) return false;
+        return true;
       }).slice(0, 6));
     })();
     // eslint-disable-next-line
@@ -195,6 +200,7 @@ export default function TheDistroPage() {
           sheet={sheet}
           onClose={() => setSheet(null)}
           onPullDone={(pullId: string) => setPulls(prev => prev.filter((p: any) => p.id !== pullId))}
+          onVarianceResolved={(itemId: string) => setVariances(prev => prev.filter((it: any) => it.id !== itemId))}
           onFulfillUpdated={(jobId: string, status: string) =>
             setFulfill(prev => status === "shipped"
               ? prev.filter((j: any) => j.id !== jobId)
@@ -210,10 +216,11 @@ export default function TheDistroPage() {
 // flag the vendor with the counts written for you, fulfillment advances
 // staged → packing → shipped with tracking at the door. Deep links survive
 // at the bottom for the full warehouse surfaces.
-function DistroActionSheet({ sheet, onClose, onPullDone, onFulfillUpdated }: {
+function DistroActionSheet({ sheet, onClose, onPullDone, onFulfillUpdated, onVarianceResolved }: {
   sheet: any; onClose: () => void;
   onPullDone: (pullId: string) => void;
   onFulfillUpdated: (jobId: string, status: string) => void;
+  onVarianceResolved: (itemId: string) => void;
 }) {
   const supabase = createClient();
   const [busy, setBusy] = useState<string | null>(null);
@@ -223,6 +230,7 @@ function DistroActionSheet({ sheet, onClose, onPullDone, onFulfillUpdated }: {
     sheet.kind === "pull" ? { ...(sheet.pull.qtys || {}) } : {});
   const [tracking, setTracking] = useState<string>(sheet.kind === "fulfill" ? sheet.job.fulfillment_tracking || "" : "");
   const [nudge, setNudge] = useState<any>(null);
+  const [resolveNote, setResolveNote] = useState("");
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -295,6 +303,27 @@ function DistroActionSheet({ sheet, onClose, onPullDone, onFulfillUpdated }: {
       setOk(`Sent to ${b.sentTo.join(", ")}`);
     } catch (e: any) { setErr(e.message); }
     setBusy(null);
+  }
+
+  // ── variance: mark resolved — snapshots the counts so a later correction
+  //    invalidates the dismissal and the card resurfaces on its own ──
+  async function markResolved() {
+    const it = sheet.item;
+    setBusy("resolve"); setErr(null);
+    try {
+      const { data: { user } = { user: null } } = await supabase.auth.getUser();
+      const shipT = sum(it.ship_qtys), recvT = sum(it.received_qtys);
+      const { error } = await (supabase.from("items") as any).update({
+        variance_resolved: {
+          at: new Date().toISOString(), by: user?.email || null,
+          note: resolveNote.trim() || null, ship_total: shipT, recv_total: recvT,
+        },
+      }).eq("id", it.id);
+      if (error) throw new Error(error.message);
+      logJobActivity(it.jobs?.id, `${it.name} — count variance resolved (shipped ${shipT} vs received ${recvT})${resolveNote.trim() ? `: ${resolveNote.trim()}` : ""}`);
+      onVarianceResolved(it.id);
+      onClose();
+    } catch (e: any) { setErr(e.message || "Failed"); setBusy(null); }
   }
 
   // ── fulfillment: staged → packing → shipped, tracking at the door ──
@@ -400,6 +429,14 @@ function DistroActionSheet({ sheet, onClose, onPullDone, onFulfillUpdated }: {
                 </button>
               </div>
             )}
+            {divider}
+            <div style={labelCss}>Settled? Resolve it — the card comes back on its own if the counts change again</div>
+            <input type="text" value={resolveNote} onChange={e => setResolveNote(e.target.value)}
+              placeholder="How it settled — 'vendor shorted 2, credited on PO'…"
+              style={{ ...inputCss, width: "100%", boxSizing: "border-box", fontFamily: H.font, marginBottom: 12 }} />
+            <button style={goBtn(busy !== "resolve")} disabled={busy === "resolve"} onClick={markResolved}>
+              {busy === "resolve" ? "Resolving…" : "Mark resolved"}
+            </button>
             {divider}
             <a href="/receiving2" style={linkCss}>Open receiving to recount →</a>
           </>
