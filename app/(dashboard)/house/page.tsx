@@ -25,7 +25,7 @@ const PHASE_VERB: Record<string, { verb: string; go: string; side: "us" | "them"
   production: { verb: "At the presses", go: "", side: "run" },
   shipping: { verb: "Shipping", go: "", side: "run" },
   receiving: { verb: "Landing — receive it", go: "Receiving", side: "us" },
-  fulfillment: { verb: "Stage & ship", go: "Fulfillment", side: "us" },
+  fulfillment: { verb: "Key it into Shopify", go: "Open job", side: "us" },
 };
 
 export default function HousePage() {

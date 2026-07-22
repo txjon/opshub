@@ -39,9 +39,9 @@ export const JOB_DIRECTIVES: Record<string, Directive> = {
     done: "all items received (variances flagged)",
   },
   fulfillment: {
-    verb: "Stage & ship",
-    order: "Stage it, pack it, enter outbound tracking",
-    done: "tracking entered — job completes itself",
+    verb: "Key it into Shopify",
+    order: "Items landed — enter the counts on the staging board; Shopify + ShipStation own them from there",
+    done: "every item entered — the job completes itself",
   },
 };
 
@@ -90,9 +90,9 @@ export const DISTRO_DIRECTIVES: Record<string, Directive> = {
     done: "tracking entered — the job completes itself",
   },
   fulfill: {
-    verb: "Stage & ship",
-    order: "Stage it, pack it, enter outbound tracking",
-    done: "shipped — the client sees delivered",
+    verb: "Key it in",
+    order: "Goods are on the shelf — enter the counts into Shopify; Shopify + ShipStation own the web orders and labels from there",
+    done: "every item entered — the job completes itself",
   },
 };
 

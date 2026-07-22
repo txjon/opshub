@@ -9,8 +9,6 @@ import { createClient } from "@/lib/supabase/client";
 import { H } from "@/components/hub/theme";
 import { DISTRO_DIRECTIVES } from "@/lib/directives";
 import { fulfillPullRequest, resolvePostShopifyPull } from "@/lib/handoff";
-import { FULFILLMENT_STAGES } from "@/lib/use-warehouse";
-import { recalcJobPhase } from "@/lib/job-phase-recalc";
 import { logJobActivity } from "@/components/JobActivityPanel";
 
 const PURPLE = "#fd3aa3";
@@ -34,7 +32,7 @@ export default function TheDistroPage() {
       const [{ data: sh }, { data: pr }, { data: fj }, { data: act }] = await Promise.all([
         supabase.from("shipments").select("id, expected_arrival, status, source, shipment_lines(item_id, received)").gte("expected_arrival", today).order("expected_arrival").limit(12),
         supabase.from("pull_requests").select("id, item_id, job_id, kind, qtys, reason, status, requested_by_name, created_at, items(id, name, status, sample_qtys, received_at_hpd, jobs(job_number, clients(name)))").in("status", ["pending", "partial"]).order("created_at").limit(20),
-        supabase.from("jobs").select("id, job_number, fulfillment_status, fulfillment_tracking, target_ship_date, clients(name), items(id)").eq("phase", "fulfillment"),
+        supabase.from("jobs").select("id, job_number, fulfillment_status, target_ship_date, clients(name), items(id, name, received_at_hpd, webstore_entered_at)").eq("phase", "fulfillment"),
         supabase.from("job_activity").select("message, created_at, jobs(job_number, clients(name))").order("created_at", { ascending: false }).limit(40),
       ]);
       setShips(sh || []); setPulls(pr || []); setFulfill(fj || []);
@@ -160,12 +158,16 @@ export default function TheDistroPage() {
                   p.items?.name || "Item",
                   `${sum(p.qtys)} pcs — pull at receive`,
                   { ...DISTRO_DIRECTIVES.pull, order: "Goods still inbound — this pull fulfills at receive, keep it on the bench" }, H.faint, "/warehouse", "Pulls queue"))}
-                {fulfill.map((j: any) => plate(`ful-${j.id}`,
-                  `${j.clients?.name || ""} · ${j.job_number}`,
-                  j.fulfillment_status ? `status: ${j.fulfillment_status}` : `${(j.items || []).length} items landed — ready to stage`,
-                  j.target_ship_date ? `ship by ${fmtDate(j.target_ship_date)}` : "no ship date set",
-                  DISTRO_DIRECTIVES.fulfill, H.amber, "/warehouse", "Move it along",
-                  () => setSheet({ kind: "fulfill", job: j })))}
+                {fulfill.map((j: any) => {
+                  const its = j.items || [];
+                  const entered = its.filter((it: any) => it.webstore_entered_at).length;
+                  return plate(`ful-${j.id}`,
+                    `${j.clients?.name || ""} · ${j.job_number}`,
+                    `${entered}/${its.length} entered in Shopify`,
+                    j.target_ship_date ? `ship by ${fmtDate(j.target_ship_date)}` : "landed — end of the OpsHub road",
+                    DISTRO_DIRECTIVES.fulfill, H.amber, "/staging2", "See what's left",
+                    () => setSheet({ kind: "fulfill", job: j }));
+                })}
                 {variances.length + pulls.length + fulfill.length === 0 && (
                   <div style={{ color: H.dim, fontSize: 13, padding: "10px 0" }}>The dock is clear. Watch the landing rail.</div>
                 )}
@@ -201,10 +203,6 @@ export default function TheDistroPage() {
           onClose={() => setSheet(null)}
           onPullDone={(pullId: string) => setPulls(prev => prev.filter((p: any) => p.id !== pullId))}
           onVarianceResolved={(itemId: string) => setVariances(prev => prev.filter((it: any) => it.id !== itemId))}
-          onFulfillUpdated={(jobId: string, status: string) =>
-            setFulfill(prev => status === "shipped"
-              ? prev.filter((j: any) => j.id !== jobId)
-              : prev.map((j: any) => j.id === jobId ? { ...j, fulfillment_status: status } : j))}
         />
       )}
     </div>
@@ -213,13 +211,12 @@ export default function TheDistroPage() {
 
 // ── THE ACTION SHEET — act in place, dock edition ──
 // Pulls fulfill here (per-size confirm, post-Shopify rule honored), variances
-// flag the vendor with the counts written for you, fulfillment advances
-// staged → packing → shipped with tracking at the door. Deep links survive
-// at the bottom for the full warehouse surfaces.
-function DistroActionSheet({ sheet, onClose, onPullDone, onFulfillUpdated, onVarianceResolved }: {
+// flag the vendor with the counts written for you. The fulfillment sheet
+// tells the truth about the road: stage goods END at Shopify entry (the
+// staging board owns the per-size entry — that's data entry, so it deep-links).
+function DistroActionSheet({ sheet, onClose, onPullDone, onVarianceResolved }: {
   sheet: any; onClose: () => void;
   onPullDone: (pullId: string) => void;
-  onFulfillUpdated: (jobId: string, status: string) => void;
   onVarianceResolved: (itemId: string) => void;
 }) {
   const supabase = createClient();
@@ -228,7 +225,6 @@ function DistroActionSheet({ sheet, onClose, onPullDone, onFulfillUpdated, onVar
   const [ok, setOk] = useState<string | null>(null);
   const [qtys, setQtys] = useState<Record<string, number>>(() =>
     sheet.kind === "pull" ? { ...(sheet.pull.qtys || {}) } : {});
-  const [tracking, setTracking] = useState<string>(sheet.kind === "fulfill" ? sheet.job.fulfillment_tracking || "" : "");
   const [nudge, setNudge] = useState<any>(null);
   const [resolveNote, setResolveNote] = useState("");
 
@@ -326,26 +322,6 @@ function DistroActionSheet({ sheet, onClose, onPullDone, onFulfillUpdated, onVar
     } catch (e: any) { setErr(e.message || "Failed"); setBusy(null); }
   }
 
-  // ── fulfillment: staged → packing → shipped, tracking at the door ──
-  async function advanceFulfillment(status: string) {
-    const j = sheet.job;
-    setBusy(status); setErr(null);
-    try {
-      const updates: any = { fulfillment_status: status };
-      if (status === "shipped") updates.fulfillment_tracking = tracking.trim() || null;
-      const { error } = await (supabase.from("jobs") as any).update(updates).eq("id", j.id);
-      if (error) throw new Error(error.message);
-      if (status === "shipped") logJobActivity(j.id, "Fulfillment complete — order shipped to client");
-      else logJobActivity(j.id, `Fulfillment moved to ${status}`);
-      await recalcJobPhase(supabase, j.id);
-      onFulfillUpdated(j.id, status);
-      onClose();
-    } catch (e: any) { setErr(e.message || "Failed"); setBusy(null); }
-  }
-
-  const curIdx = sheet.kind === "fulfill" ? FULFILLMENT_STAGES.findIndex(s => s.id === sheet.job.fulfillment_status) : -1;
-  const nextStage = sheet.kind === "fulfill" ? FULFILLMENT_STAGES[curIdx + 1] || null : null;
-
   return (
     <div className="ds-sheet-wrap" onClick={onClose}>
       <div className="ds-sheet" onClick={e => e.stopPropagation()}>
@@ -441,34 +417,31 @@ function DistroActionSheet({ sheet, onClose, onPullDone, onFulfillUpdated, onVar
             <a href="/receiving2" style={linkCss}>Open receiving to recount →</a>
           </>
         )}
-        {sheet.kind === "fulfill" && (
-          <>
-            {head(`${sheet.job.clients?.name || ""} · ${sheet.job.job_number}`,
-              DISTRO_DIRECTIVES.fulfill.verb,
-              `now: ${sheet.job.fulfillment_status || "not started"}${sheet.job.target_ship_date ? ` · ship by ${fmtDate(sheet.job.target_ship_date)}` : ""}`, H.amber)}
-            {nextStage ? (
-              <div>
-                {nextStage.id === "shipped" && (
-                  <div style={{ marginBottom: 14 }}>
-                    <div style={labelCss}>Outbound tracking</div>
-                    <input type="text" value={tracking} onChange={e => setTracking(e.target.value)}
-                      placeholder="Tracking number…" style={{ ...inputCss, width: "100%", boxSizing: "border-box" }} />
+        {sheet.kind === "fulfill" && (() => {
+          const its = sheet.job.items || [];
+          const entered = its.filter((it: any) => it.webstore_entered_at).length;
+          return (
+            <>
+              {head(`${sheet.job.clients?.name || ""} · ${sheet.job.job_number}`,
+                DISTRO_DIRECTIVES.fulfill.verb,
+                `${entered}/${its.length} entered in Shopify`, H.amber)}
+              <div style={{ marginBottom: 16 }}>
+                {its.map((it: any) => (
+                  <div key={it.id} style={{ display: "flex", gap: 12, alignItems: "baseline", padding: "7px 0", borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
+                    <span style={{ fontSize: 12, fontWeight: 800, textTransform: "uppercase", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.name}</span>
+                    <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: it.webstore_entered_at ? H.green : H.amber, flexShrink: 0 }}>
+                      {it.webstore_entered_at ? "✓ entered" : "awaiting entry"}
+                    </span>
                   </div>
-                )}
-                <button style={goBtn(!busy && (nextStage.id !== "shipped" || !!tracking.trim()))}
-                  disabled={!!busy || (nextStage.id === "shipped" && !tracking.trim())}
-                  onClick={() => advanceFulfillment(nextStage.id)}>
-                  {busy ? "Moving…" : nextStage.id === "shipped" ? "Mark shipped" : `Move to ${nextStage.label}`}
-                </button>
-                {nextStage.id === "shipped" && <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", marginTop: 7 }}>Shipping completes the job on its own.</div>}
+                ))}
               </div>
-            ) : (
-              <div style={{ fontSize: 12.5, color: "rgba(255,255,255,0.7)" }}>Already shipped — nothing left to move.</div>
-            )}
-            {divider}
-            <a href="/warehouse" style={linkCss}>Open fulfillment →</a>
-          </>
-        )}
+              <div style={{ fontSize: 12, color: "rgba(255,255,255,0.6)", lineHeight: 1.55, marginBottom: 14 }}>
+                Counts go in per size on the staging board. Once the last item is entered, Shopify + ShipStation own the web orders and labels — the job completes itself.
+              </div>
+              <a href="/staging2" style={{ ...goBtn(true), display: "inline-block", textDecoration: "none" }}>Open the staging board →</a>
+            </>
+          );
+        })()}
         {err && <div style={{ marginTop: 14, fontSize: 12, color: H.red, fontWeight: 700 }}>{err}</div>}
       </div>
     </div>
