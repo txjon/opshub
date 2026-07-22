@@ -117,6 +117,11 @@ export const HOUSE_EXTRA_DIRECTIVES: Record<string, Directive> = {
     order: "The sale window ends soon — prep to close and collect numbers",
     done: "window closed on time",
   },
+  landing_late: {
+    verb: "Where is it",
+    order: "Expected date passed and it hasn't landed — chase the tracking, get a real ETA from the vendor",
+    done: "boxes at the dock or a new arrival date on the shipment",
+  },
 };
 
 export const STUDIO_DIRECTIVE: Directive = {
