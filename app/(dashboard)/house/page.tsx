@@ -8,6 +8,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { H } from "@/components/hub/theme";
+import { JOB_DIRECTIVES, DROP_DIRECTIVES, STUDIO_DIRECTIVE } from "@/lib/directives";
 
 const PURPLE = "#fd3aa3";
 const thumbSrc = (id: string, size = 300) => `/api/files/thumbnail?id=${id}&thumb=1&size=${size}`;
@@ -95,7 +96,7 @@ export default function HousePage() {
     return { ourJobs, theirJobs, press, dropCalls, studioCalls, overdue };
   }, [jobs, drops, briefs]);
 
-  const card = (key: string, art: string | null, eyebrow: string, title: string, meta: string, verb: string, verbColor: string, href: string, go: string) => (
+  const card = (key: string, art: string | null, eyebrow: string, title: string, meta: string, verb: string, verbColor: string, href: string, go: string, directive?: { order: string; done: string }) => (
     <a key={key} href={href} style={{ display: "block", background: H.panel, border: `1px solid ${H.line}`, borderRadius: 16, overflow: "hidden", textDecoration: "none", color: H.text, fontFamily: H.font }}
       className="fl-card">
       <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "13px 16px" }}>
@@ -107,6 +108,11 @@ export default function HousePage() {
           <span style={{ display: "block", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: H.faint }}>{eyebrow}</span>
           <span style={{ display: "block", fontSize: 14, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 2 }}>{title}</span>
           <span style={{ display: "block", fontSize: 10, fontFamily: H.mono, color: H.dim, marginTop: 2 }}>{meta}</span>
+          {directive && (
+            <span style={{ display: "block", fontSize: 10.5, color: H.dim, marginTop: 4, lineHeight: 1.45 }}>
+              {directive.order} <span style={{ color: H.faint }}>· done when {directive.done}</span>
+            </span>
+          )}
         </span>
         <span style={{ textAlign: "right", flexShrink: 0 }}>
           <span style={{ display: "block", fontSize: 10, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: verbColor }}>{verb}</span>
@@ -149,25 +155,29 @@ export default function HousePage() {
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {model.dropCalls.map((r: any) => {
                   const ended = r.status === "live";
+                  const launchOnly = r.model === "stock";
+                  const d = ended ? DROP_DIRECTIVES.window_ended
+                    : r.status === "closed" ? DROP_DIRECTIVES.closed
+                    : launchOnly ? DROP_DIRECTIVES.ready_launch : DROP_DIRECTIVES.ready_cost;
                   return card(`drop-${r.id}`, null, r.clients?.name || "Drop", r.title,
                     r.target_live_date ? `target live ${fmtDate(r.target_live_date)}` : "release",
-                    ended ? `Window ended — close it` : r.status === "closed" ? "Numbers / cut" : "Cost & schedule",
-                    ended ? H.red : H.amber, "/drops", "Drops board");
+                    d.verb, ended ? H.red : H.amber, "/drops", "Drops board", d);
                 })}
                 {model.studioCalls.slice(0, 5).map((b: any) =>
                   card(`brief-${b.id}`, null, b.clients?.name || "Studio", b.title || "New idea",
                     b.state === "draft" ? "new idea from the hub" : "client words waiting",
-                    "Answer it", H.amber, "/studio2", "Studio"))}
+                    STUDIO_DIRECTIVE.verb, H.amber, "/studio2", "Studio", STUDIO_DIRECTIVE))}
                 {model.ourJobs.slice(0, 12).map((x: any) => {
                   const v = PHASE_VERB[x.phase];
                   const late = x.target_ship_date && x.target_ship_date < new Date().toISOString().slice(0, 10);
                   const ref = (x.type_meta as any)?.qb_invoice_number ? `#${(x.type_meta as any).qb_invoice_number}` : x.job_number;
                   const units = (x.items || []).reduce((a: number, i: any) => a + (i.buy_sheet_lines || []).reduce((s: number, l: any) => s + (Number(l.qty_ordered) || 0), 0), 0);
+                  const dd = JOB_DIRECTIVES[x.phase];
                   return card(`job-${x.id}`, jobArt[x.id] ? thumbSrc(jobArt[x.id]) : null,
                     x.clients?.name || "—", ref,
                     `${units.toLocaleString()} pcs${x.target_ship_date ? ` · ship ${fmtDate(x.target_ship_date)}` : ""}${(x.type_meta as any)?.source === "client_portal_cart" ? " · CLIENT-BUILT" : ""}`,
-                    late ? `${v.verb} · LATE` : v.verb, late ? H.red : H.amber,
-                    `/jobs/${x.id}`, v.go || "Open");
+                    late ? `${dd.verb} · LATE` : dd.verb, late ? H.red : H.amber,
+                    `/jobs/${x.id}`, v.go || "Open", dd);
                 })}
                 {model.ourJobs.length + model.dropCalls.length + model.studioCalls.length === 0 && (
                   <div style={{ color: H.dim, fontSize: 13, padding: "14px 0" }}>Nothing needs the building. Rare air.</div>

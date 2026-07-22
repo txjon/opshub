@@ -1,0 +1,75 @@
+// THE DIRECTIVE VOCABULARY — one voice for directing staff, shared by the
+// internal surfaces (The House, boards) and internal mail. Same grammar the
+// client hub uses on clients, pointed at the production flow:
+//   verb     — the headline order (what kind of move this is)
+//   order    — the one-line instruction (do this)
+//   done     — the finish line (done when), doubling as the definition of
+//              complete so nobody debates it later.
+export type Directive = { verb: string; order: string; done: string };
+
+export const JOB_DIRECTIVES: Record<string, Directive> = {
+  intake: {
+    verb: "Cost & quote it",
+    order: "Open Costing, price it, send the quote",
+    done: "quote sent — approval opens in their hub",
+  },
+  pending: {
+    verb: "With the client",
+    order: "They're reviewing — nudge if it sits more than a couple days",
+    done: "they approve or ask for changes",
+  },
+  ready: {
+    verb: "Order blanks · send POs",
+    order: "Blanks tab gates are green — order, then fire the POs",
+    done: "blanks ordered + POs out",
+  },
+  production: {
+    verb: "At the presses",
+    order: "Nothing to do — watch for vendor word",
+    done: "tracking entered",
+  },
+  shipping: {
+    verb: "Shipping",
+    order: "In transit — receiving preps from Landing",
+    done: "boxes at the dock",
+  },
+  receiving: {
+    verb: "Landing — receive it",
+    order: "Confirm quantities per size as boxes land",
+    done: "all items received (variances flagged)",
+  },
+  fulfillment: {
+    verb: "Stage & ship",
+    order: "Stage it, pack it, enter outbound tracking",
+    done: "tracking entered — job completes itself",
+  },
+};
+
+export const DROP_DIRECTIVES = {
+  ready_launch: {
+    verb: "Launch prep",
+    order: "Build the listings, watch the landings",
+    done: "products live + Mark launched",
+  },
+  ready_cost: {
+    verb: "Cost & schedule",
+    order: "Price each line, quote it back",
+    done: "quoted — sale opens next",
+  },
+  window_ended: {
+    verb: "Close the sale",
+    order: "The window passed — close it so numbers can come in",
+    done: "closed — client enters production numbers",
+  },
+  closed: {
+    verb: "Numbers → cut",
+    order: "Numbers in? ✂ Cut births the job. Waiting? Nudge the client",
+    done: "cut — the job is in the pipeline",
+  },
+} as const;
+
+export const STUDIO_DIRECTIVE: Directive = {
+  verb: "Answer it",
+  order: "Read the idea, reply in the thread — even a 'sketching soon'",
+  done: "answered or with a designer",
+};
