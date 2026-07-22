@@ -168,7 +168,14 @@ function DropSheet({ drop, token, briefs, pipeItems, onChanged, onClose }: {
   // Candidate lines: every product line across their ideas not already slotted.
   const slotted = new Set(drop.slots.map((s: any) => `${s.briefId}|${s.lineId}`));
   const slottedItems = new Set(drop.slots.map((s: any) => s.itemId).filter(Boolean));
-  const itemCands = pipeItems.filter((it: any) => !slottedItems.has(it.id));
+  // Timeline order: landed goods first (ready now), then soonest landing,
+  // then date-TBD stragglers — the picker reads as "now, next, later".
+  const itemCands = pipeItems.filter((it: any) => !slottedItems.has(it.id)).sort((a: any, b: any) => {
+    const rank = (it: any) => it.status === "in_stock" ? 0 : it.eta ? 1 : 2;
+    if (rank(a) !== rank(b)) return rank(a) - rank(b);
+    if (a.eta && b.eta) return a.eta.localeCompare(b.eta);
+    return (a.name || "").localeCompare(b.name || "");
+  });
   const itemById = (id: string) => pipeItems.find((it: any) => it.id === id);
   // Suggested live date = latest landing across item-sourced slots + prep.
   const slotEtas = drop.slots.map((s: any) => s.itemId && itemById(s.itemId)?.eta).filter(Boolean) as string[];
@@ -314,7 +321,9 @@ function DropSheet({ drop, token, briefs, pipeItems, onChanged, onClose }: {
                       {it.thumb_id && <img src={thumbSrc(it.thumb_id)} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />}
                     </span>
                     <span style={{ minWidth: 0, flex: 1, fontSize: 12, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.name}</span>
-                    <span style={{ fontSize: 10, fontFamily: C.mono, color: C.muted, whiteSpace: "nowrap" }}>{it.qty ? `${it.qty.toLocaleString()} pcs` : ""}{it.eta ? ` · lands ${fmtDate(it.eta)}` : ""}</span>
+                    <span style={{ fontSize: 10, fontFamily: C.mono, whiteSpace: "nowrap", color: it.status === "in_stock" ? C.green : it.eta ? C.muted : C.faint, fontWeight: it.status === "in_stock" ? 800 : 500 }}>
+                      {it.qty ? `${it.qty.toLocaleString()} pcs · ` : ""}{it.status === "in_stock" ? "ready now" : it.eta ? `lands ${fmtDate(it.eta)}` : "date TBD"}
+                    </span>
                     <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", color: C.text }}>+ Add</span>
                   </button>
                 ))}
