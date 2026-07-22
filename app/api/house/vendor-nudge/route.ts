@@ -6,9 +6,10 @@ import { Resend } from "resend";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// The House's act-in-place vendor nudge. Two shapes:
+// The House's act-in-place vendor nudge. Three shapes:
 //   POST { jobId, preview? }      — chase a ship-by promise on a production job
 //   POST { shipmentId, preview? } — chase a landing that blew past its expected date
+//   POST { itemId, preview? }     — flag a receiving count variance (Distro)
 // preview:true returns { vendor, recipients, subject, body } WITHOUT sending, so
 // the action sheet shows exactly who gets the email before anyone commits.
 // Send logs to job_activity so the nudge lands on the wire.
@@ -133,8 +134,41 @@ production@housepartydistro.com`;
       const jobIds = Array.from(new Set(lines.map((i: any) => i.jobs?.id || i.job_id).filter(Boolean))) as string[];
       logTargets = jobIds.map(jobId => ({ jobId, line: `Vendor nudge emailed to ${decorator.name} (late landing)` }));
 
+    } else if (body.itemId) {
+      const { data: item } = await db.from("items")
+        .select("id, name, job_id, ship_qtys, received_qtys, jobs(id, job_number, clients(name))")
+        .eq("id", body.itemId).single();
+      if (!item) return NextResponse.json({ error: "Item not found" }, { status: 404 });
+
+      decorator = await decoratorByItems(db, [(item as any).id]);
+      if (!decorator) return NextResponse.json({ error: "Couldn't match this item to a vendor on the Vendors page" }, { status: 404 });
+
+      const shipQ = ((item as any).ship_qtys || {}) as Record<string, number>;
+      const recvQ = ((item as any).received_qtys || {}) as Record<string, number>;
+      const sizes = Array.from(new Set([...Object.keys(shipQ), ...Object.keys(recvQ)]));
+      const rows = sizes
+        .filter(s => (Number(shipQ[s]) || 0) !== (Number(recvQ[s]) || 0))
+        .map(s => `  - ${s}: you shipped ${Number(shipQ[s]) || 0}, we received ${Number(recvQ[s]) || 0}`).join("\n");
+      const shipT = Object.values(shipQ).reduce((a, n) => a + (Number(n) || 0), 0);
+      const recvT = Object.values(recvQ).reduce((a, n) => a + (Number(n) || 0), 0);
+      const jobNum = (item as any).jobs?.job_number || "";
+      const clientName = (item as any).jobs?.clients?.name || "";
+
+      subject = `${jobNum} (${clientName}) receiving count doesn't match`;
+      text = `Hey ${decorator.name},
+
+We received ${(item as any).name} on ${jobNum} and the count is off. Your packing shows ${shipT.toLocaleString()} pcs, we counted ${recvT.toLocaleString()}:
+${rows || "  - totals differ, size detail attached on our side"}
+
+We recounted on our end. Can you check your records and let us know if the balance shipped separately, or if this is a short ship? We will reconcile the PO from your answer.
+
+Thanks,
+House Party Distro
+production@housepartydistro.com`;
+      logTargets = [{ jobId: (item as any).jobs?.id || (item as any).job_id, line: `Vendor notified of count variance on ${(item as any).name} (shipped ${shipT} vs received ${recvT})` }];
+
     } else {
-      return NextResponse.json({ error: "jobId or shipmentId required" }, { status: 400 });
+      return NextResponse.json({ error: "jobId, shipmentId, or itemId required" }, { status: 400 });
     }
 
     const to = recipients(decorator);
