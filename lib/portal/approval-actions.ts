@@ -89,18 +89,10 @@ export async function approvePackage(sb: Sb, jobId: string, ctx: { via?: string 
   // fail because the recalc hiccuped.
   try { await recalcJobPhase(sb, jobId); } catch (e) { console.error("[approvePackage] phase recalc failed", (e as any)?.message); }
 
-  // Announce internally — highest-signal client action there is. Email is
-  // the live channel (the notification bell was retired Apr 2026).
   try {
     const { data: j2 } = await sb.from("jobs").select("job_number, clients(name)").eq("id", jobId).single();
-    const { Resend } = await import("resend");
-    const resend = new Resend(process.env.RESEND_API_KEY!);
-    await resend.emails.send({
-      from: "OpsHub <production@housepartydistro.com>",
-      to: "production@housepartydistro.com",
-      subject: `Client approved — ${(j2 as any)?.job_number || jobId} (${(j2 as any)?.clients?.name || "client"})`,
-      text: `${(j2 as any)?.clients?.name || "The client"} approved the order package (quote + proofs) from the client hub.\n\nJob: ${(j2 as any)?.job_number || jobId}\nReview: https://app.housepartydistro.com/jobs/${jobId}`,
-    });
+    const { sendInternalMail } = await import("@/lib/internal-mail");
+    await sendInternalMail({ kind: "client_approved", client: (j2 as any)?.clients?.name || "Client", jobNumber: (j2 as any)?.job_number || jobId, jobId });
   } catch {}
 
   return snapshot;
@@ -153,13 +145,7 @@ export async function requestChanges(sb: Sb, jobId: string, note: string, itemId
 
   try {
     const { data: j2 } = await sb.from("jobs").select("job_number, clients(name)").eq("id", jobId).single();
-    const { Resend } = await import("resend");
-    const resend = new Resend(process.env.RESEND_API_KEY!);
-    await resend.emails.send({
-      from: "OpsHub <production@housepartydistro.com>",
-      to: "production@housepartydistro.com",
-      subject: `Client requested changes — ${(j2 as any)?.job_number || jobId} (${(j2 as any)?.clients?.name || "client"})`,
-      text: `${(j2 as any)?.clients?.name || "The client"} requested changes from the client hub.\n\nNote: ${note || "(none)"}\nJob: ${(j2 as any)?.job_number || jobId}\nReview: https://app.housepartydistro.com/jobs/${jobId}`,
-    });
+    const { sendInternalMail } = await import("@/lib/internal-mail");
+    await sendInternalMail({ kind: "client_changes", client: (j2 as any)?.clients?.name || "Client", jobNumber: (j2 as any)?.job_number || jobId, jobId, note });
   } catch {}
 }

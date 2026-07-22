@@ -113,15 +113,8 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
         `Client requested a pull of "${(item as any).name}" (${units} pcs) via the hub — ${reason}`);
     } catch {}
     try {
-      const { Resend } = await import("resend");
-      const resend = new Resend(process.env.RESEND_API_KEY!);
-      const jobNo = (item as any).jobs?.job_number || "";
-      await resend.emails.send({
-        from: "OpsHub <production@housepartydistro.com>",
-        to: "production@housepartydistro.com",
-        subject: `Pull request — ${(item as any).name} (${client.name})`,
-        text: `${client.name} requested a pull from the client hub.\n\nItem: ${(item as any).name}${jobNo ? ` (${jobNo})` : ""}\nQty: ${units} pcs — ${Object.entries(qtys).map(([s, n]) => `${s} ${n}`).join(", ")}\n${reason}\n\nIt's pending in the warehouse pulls queue.`,
-      });
+      const { sendInternalMail } = await import("@/lib/internal-mail");
+      await sendInternalMail({ kind: "pull_request", client: (client as any).name, itemName: (item as any).name, jobNumber: (item as any).jobs?.job_number || null, units, breakdown: Object.entries(qtys).map(([s, n]) => `${s} ${n}`).join(", "), reason });
     } catch {}
 
     return NextResponse.json({ success: true, pullId: (pr as any).id });
