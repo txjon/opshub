@@ -23,7 +23,7 @@ const DEPT = {
 export type InternalEvent =
   | { kind: "cart_reorder"; client: string; jobNumber: string; title: string; itemCount: number; note?: string | null; jobId: string }
   | { kind: "pull_request"; client: string; itemName: string; jobNumber?: string | null; units: number; breakdown: string; reason: string }
-  | { kind: "new_idea"; client: string; title: string; notes?: string | null }
+  | { kind: "new_idea"; client: string; title: string; notes?: string | null; ready?: boolean }
   | { kind: "client_approved"; client: string; jobNumber: string; jobId: string }
   | { kind: "client_changes"; client: string; jobNumber: string; jobId: string; note?: string | null }
   | { kind: "drop_ready"; client: string; title: string; targetLive?: string | null; newLines: number; pipeLines: number }
@@ -67,6 +67,18 @@ DO THIS:
 DONE WHEN: fulfilled quantities are logged. The client sees "requested" until then.`,
       };
     case "new_idea":
+      if (e.ready) return {
+        to: [DEPT.labs],
+        subject: `READY TO MAKE — "${e.title}" (${e.client}) — not a sketch`,
+        text: `${e.client} shared a product they say is ready to make: "${e.title}".${e.notes ? `\n${e.notes}` : ""}
+
+DO THIS:
+1. Open the Studio: ${APP}/studio2 — it's in "Your move"
+2. Check the art actually IS final (print-ready or close); if it is, greenlight the path: build-out, quote, go
+3. If it's not final, say so in the thread with exactly what's missing
+
+DONE WHEN: it's moving toward a quote or they know what's needed. They think this is done — treat it with that urgency.`,
+      };
       return {
         to: [DEPT.labs],
         subject: `New idea — "${e.title}" (${e.client}) — answer it`,

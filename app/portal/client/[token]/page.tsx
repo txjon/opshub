@@ -155,6 +155,9 @@ export default function HomePage() {
 // chain, so the idea lands exactly where a Studio submission lands.
 function IdeaDoor({ token, base }: { token: string; base: string }) {
   const [open, setOpen] = useState(false);
+  // two kinds of sharing (Jon, Jul 22): a general idea (studio ping-pong)
+  // vs "I have this product ready to make" (art's done — move it)
+  const [kind, setKind] = useState<"idea" | "ready">("idea");
   const [title, setTitle] = useState("");
   const [notes, setNotes] = useState("");
   const [files, setFiles] = useState<File[]>([]);
@@ -171,7 +174,7 @@ function IdeaDoor({ token, base }: { token: string; base: string }) {
     try {
       const res = await fetch(`/api/portal/client/${token}/ideas`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: title.trim(), notes: notes.trim() }),
+        body: JSON.stringify({ title: title.trim(), notes: notes.trim(), kind }),
       });
       const body = await res.json();
       if (!res.ok) { setError(body.error || "Couldn't save the idea."); return; }
@@ -211,16 +214,24 @@ function IdeaDoor({ token, base }: { token: string; base: string }) {
     <div style={{ textAlign: "center", margin: "0 0 26px" }}>
       <button onClick={() => setOpen(true)}
         style={{ background: "#fff", color: C.bg, border: "none", borderRadius: 999, padding: "12px 26px", fontSize: 11.5, fontWeight: 800, letterSpacing: "0.09em", textTransform: "uppercase", cursor: "pointer", fontFamily: C.font }}>
-        Got an idea? Start it →
+        Share something →
       </button>
     </div>
   );
 
   return (
     <div style={{ maxWidth: 560, margin: "0 auto 30px", background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: "16px 18px", textAlign: "left" }}>
+      <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+        {([["idea", "A general idea"], ["ready", "Ready to make"]] as const).map(([k, label]) => (
+          <button key={k} onClick={() => setKind(k)}
+            style={{ borderRadius: 999, border: kind === k ? "1px solid #fff" : `1px solid ${C.border}`, background: kind === k ? "#fff" : "transparent", color: kind === k ? C.bg : C.muted, fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", padding: "8px 14px", cursor: "pointer", fontFamily: C.font }}>
+            {label}
+          </button>
+        ))}
+      </div>
       <input value={title} onChange={e => setTitle(e.target.value)} autoFocus placeholder="Calling it something"
         style={{ width: "100%", boxSizing: "border-box", background: "transparent", border: "none", outline: "none", color: C.text, fontSize: 17, fontWeight: 800, fontFamily: C.font, padding: "4px 0", borderBottom: `1px solid ${C.border}` }} />
-      <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} placeholder="What else? Vibe, references, garment, timing — anything."
+      <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} placeholder={kind === "idea" ? "What else? Vibe, references, garment, timing — anything." : "What is it, the sizes you'll want, when you need it — anything we should know."}
         style={{ width: "100%", boxSizing: "border-box", background: "transparent", border: "none", outline: "none", color: C.text, fontSize: 13, fontFamily: C.font, padding: "10px 0 4px", resize: "vertical" }} />
       {files.length > 0 && (
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "4px 0 8px" }}>
@@ -244,7 +255,7 @@ function IdeaDoor({ token, base }: { token: string; base: string }) {
           {busy ? (state || "Sending…") : "Send it"}
         </button>
         <span style={{ fontSize: 11, color: C.faint }}>
-          {!canSend ? "A name and a picture is all it takes." : "Lands with our team."}
+          {!canSend ? "A name and a picture is all it takes." : kind === "ready" ? "Straight to our team to get moving." : "Lands with our team."}
         </span>
         <button onClick={() => setOpen(false)} style={{ marginLeft: "auto", background: "none", border: "none", color: C.faint, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", cursor: "pointer", fontFamily: C.font }}>Not yet</button>
       </div>
