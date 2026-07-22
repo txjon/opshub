@@ -24,7 +24,7 @@ export async function POST(_req: NextRequest, { params }: { params: { productId:
 
     const db = admin();
     const { data: product } = await db.from("products")
-      .select("id, client_id, brief_id, line_id, title, format, retail, model, state")
+      .select("id, client_id, brief_id, line_id, title, format, retail, model, notes, state")
       .eq("id", params.productId).single();
     if (!product) return NextResponse.json({ error: "Product not found" }, { status: 404 });
     if ((product as any).state === "retired") return NextResponse.json({ error: "This product is retired" }, { status: 409 });

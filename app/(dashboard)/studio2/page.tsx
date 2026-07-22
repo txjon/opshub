@@ -212,7 +212,22 @@ function OpsBriefSheet({ brief, onClose }: { brief: any; onClose: () => void }) 
 
   const files = (detail?.files || []).filter((f: any) => (f.preview_drive_file_id || f.drive_file_id) && !/pdf/i.test(f.mime_type || ""));
   const hero = files.length ? files[heroIdx == null ? files.length - 1 : Math.min(heroIdx, files.length - 1)] : null;
-  const msgs = detail?.messages || [];
+  // ONE timeline: thread messages + per-file chat (art_brief_file_comments,
+  // the old studio's upload comments — Jon, Jul 22: they weren't displaying)
+  // + legacy annotation columns. Everything speaks in the same thread.
+  const msgs = useMemo(() => {
+    const out: any[] = [...(detail?.messages || [])];
+    for (const f of (detail?.files || [])) {
+      const label = f.file_name || "upload";
+      for (const c of (f.comments || [])) {
+        out.push({ id: `fc-${c.id}`, sender_role: c.sender_role, sender_name: c.sender_role === "client" ? (brief.clients?.name || "Client") : c.sender_role === "designer" ? "designer" : "HPD", message: c.body, created_at: c.created_at, visibility: c.sender_role === "designer" ? "hpd_designer" : "all", file_label: label });
+      }
+      if (f.client_annotation) out.push({ id: `an-c-${f.id}`, sender_role: "client", sender_name: brief.clients?.name || "Client", message: f.client_annotation, created_at: f.created_at, visibility: "all", file_label: label });
+      if (f.hpd_annotation) out.push({ id: `an-h-${f.id}`, sender_role: "hpd", sender_name: "HPD", message: f.hpd_annotation, created_at: f.created_at, visibility: "all", file_label: label });
+      if (f.designer_annotation) out.push({ id: `an-d-${f.id}`, sender_role: "designer", sender_name: "designer", message: f.designer_annotation, created_at: f.created_at, visibility: "hpd_designer", file_label: label });
+    }
+    return out.sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")));
+  }, [detail, brief]);
   const spec = brief.product_spec || {};
   const products = Array.isArray(spec.products) ? spec.products : [];
   const w = STATE_WORDS[brief.state] || { label: brief.state, color: H.faint };
@@ -332,7 +347,7 @@ function OpsBriefSheet({ brief, onClose }: { brief: any; onClose: () => void }) 
                     padding: "9px 13px", fontSize: 13, lineHeight: 1.55, whiteSpace: "pre-wrap",
                   }}>
                     <span style={{ display: "block", fontSize: 8.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: whisper ? H.amber : mine ? "rgba(10,10,10,0.45)" : H.faint, marginBottom: 3 }}>
-                      {m.sender_name || m.sender_role}{whisper ? " · internal" : ""} · {fmtTime(m.created_at)}
+                      {m.sender_name || m.sender_role}{whisper ? " · internal" : ""}{m.file_label ? ` · on ${m.file_label}` : ""} · {fmtTime(m.created_at)}
                     </span>
                     {m.message}
                   </div>
@@ -389,6 +404,17 @@ function TheCounter({ onClose, onCreated }: { onClose: () => void; onCreated: (b
   const [title, setTitle] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [newTypePick, setNewTypePick] = useState(false);   // new-client type step
+
+  async function createClientCard(type: string) {
+    const name = cq.trim();
+    if (!name) return;
+    setBusy(true);
+    const { data, error } = await supabase.from("clients")
+      .insert({ name, client_type: type } as never).select("id, name, client_type").single();
+    setBusy(false);
+    if (!error && data) { setClient(data); setCq(""); setNewTypePick(false); }
+  }
 
   // client typeahead
   useEffect(() => {
@@ -538,6 +564,27 @@ function TheCounter({ onClose, onCreated }: { onClose: () => void; onCreated: (b
                 {c.name} <span style={{ fontSize: 9.5, color: H.faint, fontWeight: 800, letterSpacing: "0.08em", marginLeft: 8 }}>{c.client_type || ""}</span>
               </button>
             ))}
+            {/* new client card — born right at the counter (Jon, Jul 22) */}
+            {cq.trim().length > 1 && !clients.some(c => c.name.toLowerCase() === cq.trim().toLowerCase()) && (
+              !newTypePick ? (
+                <button onClick={() => setNewTypePick(true)}
+                  style={{ display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none", borderBottom: `1px solid ${H.line}`, color: "#fd3aa3", padding: "12px 6px", fontSize: 13, fontWeight: 800, textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>
+                  + New client — &ldquo;{cq.trim()}&rdquo;
+                </button>
+              ) : (
+                <div style={{ padding: "12px 6px", borderBottom: `1px solid ${H.line}` }}>
+                  <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: H.faint, marginBottom: 8 }}>What kind of client is &ldquo;{cq.trim()}&rdquo;?</div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {["brand", "artist", "corporate", "tour", "webstore"].map(t => (
+                      <button key={t} onClick={() => createClientCard(t)} disabled={busy}
+                        style={{ borderRadius: 999, border: `1px solid ${H.line}`, background: "transparent", color: H.text, fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", padding: "9px 14px", cursor: "pointer", fontFamily: H.font, opacity: busy ? 0.5 : 1 }}>
+                        {t}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )
+            )}
           </div>
         ) : (
           <>
