@@ -8,6 +8,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { H } from "@/components/hub/theme";
+import { backwardChain } from "@/lib/portal/drop-chain";
 
 const thumbSrc = (id: string, size = 300) => `/api/files/thumbnail?id=${id}&thumb=1&size=${size}`;
 const fmtDate = (iso?: string | null) => iso ? new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
@@ -170,6 +171,28 @@ export default function DropsBoard() {
                 <button onClick={() => setOpen(null)} aria-label="Close" style={{ background: "none", border: "none", color: H.dim, fontSize: 26, cursor: "pointer", lineHeight: 1 }}>×</button>
               </div>
 
+              {r.target_live_date && ["building", "ready", "live"].includes(r.status) && (() => {
+                const steps = backwardChain(r.target_live_date);
+                const today = new Date().toISOString().slice(0, 10);
+                const nextIdx = steps.findIndex((s: any) => s.date >= today);
+                return (
+                  <div style={{ padding: "12px 22px 0" }}>
+                    <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: H.faint, marginBottom: 8 }}>Backward chain — to hit {fmtDate(r.target_live_date)}</div>
+                    <div style={{ display: "flex", overflowX: "auto", scrollbarWidth: "none" }}>
+                      {steps.map((s: any, i: number) => {
+                        const past = s.date < today;
+                        const next = i === nextIdx;
+                        return (
+                          <div key={s.key} style={{ flexShrink: 0, padding: "8px 16px 8px 12px", borderLeft: `2px solid ${next ? H.amber : H.line}` }}>
+                            <div style={{ fontSize: 12, fontWeight: 900, fontFamily: H.mono, color: past ? H.red : next ? H.amber : H.text }}>{fmtDate(s.date)}</div>
+                            <div style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: H.faint, marginTop: 3, whiteSpace: "nowrap" }}>{s.label}{past ? " · passed" : ""}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
               <div style={{ padding: "12px 22px 4px" }}>
                 {r.slots.map((s: any) => {
                   const units = Object.values(s.qtys || {}).reduce((a: number, x: any) => a + (Number(x) || 0), 0);
