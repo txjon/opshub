@@ -162,7 +162,7 @@ export default function TheDistroPage() {
                   { ...DISTRO_DIRECTIVES.pull, order: "Goods still inbound — this pull fulfills at receive, keep it on the bench" }, H.faint, "/warehouse", "Pulls queue"))}
                 {fulfill.map((j: any) => plate(`ful-${j.id}`,
                   `${j.clients?.name || ""} · ${j.job_number}`,
-                  j.fulfillment_status ? `status: ${j.fulfillment_status}` : `${(j.items || []).length} items staged`,
+                  j.fulfillment_status ? `status: ${j.fulfillment_status}` : `${(j.items || []).length} items landed — ready to stage`,
                   j.target_ship_date ? `ship by ${fmtDate(j.target_ship_date)}` : "no ship date set",
                   DISTRO_DIRECTIVES.fulfill, H.amber, "/warehouse", "Move it along",
                   () => setSheet({ kind: "fulfill", job: j })))}
@@ -445,7 +445,7 @@ function DistroActionSheet({ sheet, onClose, onPullDone, onFulfillUpdated, onVar
           <>
             {head(`${sheet.job.clients?.name || ""} · ${sheet.job.job_number}`,
               DISTRO_DIRECTIVES.fulfill.verb,
-              `now: ${sheet.job.fulfillment_status || "staged"}${sheet.job.target_ship_date ? ` · ship by ${fmtDate(sheet.job.target_ship_date)}` : ""}`, H.amber)}
+              `now: ${sheet.job.fulfillment_status || "not started"}${sheet.job.target_ship_date ? ` · ship by ${fmtDate(sheet.job.target_ship_date)}` : ""}`, H.amber)}
             {nextStage ? (
               <div>
                 {nextStage.id === "shipped" && (
