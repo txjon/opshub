@@ -363,10 +363,14 @@ export async function GET(
           effectiveQtys = cp.qtys || {};
         }
 
-        const totalQty = Object.values(effectiveQtys).reduce(
+        let totalQty = Object.values(effectiveQtys).reduce(
           (a: number, v: any) => a + (Number(v) || 0),
           0
         );
+        // the variance modal stores the qtys ACTUALLY billed — when present,
+        // they beat raw shipped/received (Drake may have adjusted at finalize)
+        const billable = variancePushed && item ? (((job.type_meta as any)?.qb_variance_billable_qtys) || {})[item.id] : undefined;
+        if (billable != null && Number(billable) > 0) totalQty = Number(billable);
         if (totalQty <= 0) continue;
 
         let sellPerUnit = parseFloat(item?.sell_per_unit) || 0;
@@ -561,8 +565,15 @@ export async function GET(
           : 0,
       },
       currentTotal: (() => {
-        // Live order value (costing gross + extras) — powers the payment
-        // band's "Updated total" on revised-after-invoice jobs.
+        // Live order value — powers the payment band's "Updated total" on
+        // revised-after-invoice jobs. AFTER a variance finalize the QB total
+        // IS the live value (they were billed actuals; costing gross is the
+        // ordered world and must not resurface as an "update" — HPD-2606-002
+        // showed $14,304 against a finalized $14,178.75 invoice).
+        if (variancePushed) {
+          const t = Number(typeMeta.qb_total_with_tax) || 0;
+          return showTotals && t > 0 ? Math.round(t * 100) / 100 : null;
+        }
         const extrasTotal = (Array.isArray(typeMeta.invoice_extra_lines) ? typeMeta.invoice_extra_lines : [])
           .reduce((a: number, l: any) => a + (Number(l?.amount) || 0), 0);
         const gross = Number(costingSummary?.grossRev) || 0;
