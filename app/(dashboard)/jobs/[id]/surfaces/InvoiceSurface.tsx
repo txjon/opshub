@@ -149,7 +149,7 @@ function InvoiceSurfaceQB({ job, items = [], contacts, payments, onReload, onRec
           const curIdx = RAIL.findIndex(x => x.k === s.step);
           const done = i < curIdx, active = r.k === s.step;
           const bg = active ? (r.k === "reconcile" ? T.amberDim : r.k === "final" ? T.greenDim : T.accent) : done ? T.greenDim : T.surface;
-          const fg = active ? (r.k === "reconcile" ? T.amber : r.k === "final" ? T.green : "#fff") : done ? T.green : T.faint;
+          const fg = active ? (r.k === "reconcile" ? T.amber : r.k === "final" ? T.green : "#0a0a0a") : done ? T.green : T.faint;
           return (
             <span key={r.k} style={{ display: "flex", alignItems: "center" }}>
               <span style={{ fontSize: 10, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.04em", padding: "6px 12px", borderRadius: 8, background: bg, color: fg }}>{r.label}</span>
@@ -255,7 +255,7 @@ function InvoiceSurfaceQB({ job, items = [], contacts, payments, onReload, onRec
               </button>
               <button onClick={handleSendInvoiceClick} disabled={!s.qbInvoiceNumber}
                 style={{ flex: "0 0 auto", height: 38, borderRadius: 9, border: "none", cursor: !s.qbInvoiceNumber ? "default" : "pointer",
-                  background: !s.qbInvoiceNumber ? T.surface : T.accent, color: !s.qbInvoiceNumber ? T.faint : "#fff",
+                  background: !s.qbInvoiceNumber ? T.surface : T.accent, color: !s.qbInvoiceNumber ? T.faint : "#0a0a0a",
                   fontSize: 12.5, fontWeight: 800, fontFamily: font, opacity: !s.qbInvoiceNumber ? 0.4 : 1, padding: "0 16px" }}>Send invoice</button>
               <button onClick={() => window.open(`/api/pdf/invoice/${job.id}?download=1`, "_blank")}
                 style={{ flex: "0 0 auto", height: 38, borderRadius: 9, border: `1px solid ${T.border}`, background: T.surface, color: T.text, cursor: "pointer", fontSize: 12.5, fontWeight: 700, fontFamily: font, padding: "0 14px" }}>Download PDF</button>
