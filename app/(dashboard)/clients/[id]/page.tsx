@@ -47,7 +47,16 @@ export default function ClientSpacePage() {
           .eq("client_id", id).order("created_at", { ascending: false }),
         supabase.from("releases").select("*").eq("client_id", id).order("created_at", { ascending: false }),
         supabase.from("products").select("*").eq("client_id", id).order("created_at", { ascending: false }),
-        supabase.from("legacy_art_files").select("id, drive_file_id, file_name, mime_type, folder_path").eq("client_id", id).order("folder_path"),
+        (async () => {
+          // paged — archives beat the 1000-row cap (supdef: 1,565)
+          const out: any[] = [];
+          for (let from = 0; ; from += 1000) {
+            const { data } = await supabase.from("legacy_art_files").select("id, drive_file_id, file_name, mime_type, folder_path").eq("client_id", id).order("folder_path").range(from, from + 999);
+            out.push(...(data || []));
+            if (!data || data.length < 1000) break;
+          }
+          return { data: out };
+        })(),
       ]);
       setClient(c); setContacts(cts || []); setJobs(js || []); setReleases(rel || []);
       setProducts(prods || []); setArchive(arc || []);

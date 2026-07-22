@@ -405,10 +405,20 @@ function TheCounter({ onClose, onCreated }: { onClose: () => void; onCreated: (b
   useEffect(() => {
     if (!client) return;
     (async () => {
-      const [{ data: prods }, { data: its }, { data: arc }] = await Promise.all([
+      const pageArchive = async () => {
+        // paged — a client archive easily beats the 1000-row cap (supdef: 1,565)
+        const out: any[] = [];
+        for (let from = 0; ; from += 1000) {
+          const { data } = await supabase.from("legacy_art_files").select("id, drive_file_id, file_name, mime_type, folder_path").eq("client_id", client.id).order("folder_path").range(from, from + 999);
+          out.push(...(data || []));
+          if (!data || data.length < 1000) break;
+        }
+        return out;
+      };
+      const [{ data: prods }, { data: its }, arc] = await Promise.all([
         supabase.from("products").select("id, brief_id, title, format, retail, model").eq("client_id", client.id).eq("state", "ready").order("created_at", { ascending: false }),
         supabase.from("items").select("id, name, garment_type, sell_per_unit, product_id, created_at, jobs!inner(client_id), item_files(drive_file_id, stage, mime_type, superseded_at)").eq("jobs.client_id", client.id).limit(400),
-        supabase.from("legacy_art_files").select("id, drive_file_id, file_name, mime_type, folder_path").eq("client_id", client.id).order("folder_path"),
+        pageArchive(),
       ]);
       setProducts(prods || []);
       // produced families: newest instance per name, mockup as the face
@@ -421,7 +431,7 @@ function TheCounter({ onClose, onCreated }: { onClose: () => void; onCreated: (b
         fam.set(key, { itemId: it.id, name: it.name, garment: it.garment_type, price: it.sell_per_unit, thumbId: mock?.drive_file_id || null, runs: 1 });
       }
       setFamilies(Array.from(fam.values()));
-      setArchive(arc || []);
+      setArchive(arc);
     })();
     // eslint-disable-next-line
   }, [client]);
@@ -434,7 +444,7 @@ function TheCounter({ onClose, onCreated }: { onClose: () => void; onCreated: (b
     : archive.filter((r: any) => isImg(r)).slice(0, 48);
 
   async function openInStudio() {
-    if (!client || tray.length === 0) return;
+    if (!client) return;
     setBusy(true); setErr("");
     try {
       const prodPicks = tray.filter(t => t.type === "product");
@@ -442,6 +452,7 @@ function TheCounter({ onClose, onCreated }: { onClose: () => void; onCreated: (b
       const filePicks = tray.filter(t => t.type === "file");
       const names = tray.map(t => t.label).slice(0, 6).join(", ");
       const briefTitle = title.trim() || (tray.length === 1 ? `${tray[0].label} — brought back` : `${client.name} — new build`);
+      const blank = tray.length === 0;
       const lines = [
         ...prodPicks.map((p, i) => ({ id: `p${i}`, format: p.data.format || null, retail: p.data.retail ?? null, model: p.data.model || null, notes: `bring back: ${p.label}` })),
         ...famPicks.map((f, i) => ({ id: `f${i}`, format: f.data.garment || null, retail: null, model: null, notes: `bring back: ${f.label}${f.data.price != null ? ` (last at $${f.data.price})` : ""}` })),
@@ -452,7 +463,7 @@ function TheCounter({ onClose, onCreated }: { onClose: () => void; onCreated: (b
       const { data: brief, error } = await supabase.from("art_briefs").insert({
         client_id: client.id,
         title: briefTitle.slice(0, 140),
-        concept: `Started at the counter. Bringing back: ${names}${tray.length > 6 ? "…" : ""}.`,
+        concept: blank ? "Started at the counter — brand new, nothing brought back." : `Started at the counter. Bringing back: ${names}${tray.length > 6 ? "…" : ""}.`,
         state: "draft", source: "hpd",
         product_spec: spec,
       } as never).select("*, clients(name)").single();
@@ -565,19 +576,19 @@ function TheCounter({ onClose, onCreated }: { onClose: () => void; onCreated: (b
         )}
       </div>
 
-      {/* ── the tray ── */}
-      {client && tray.length > 0 && (
+      {/* ── the tray — always open once a client is picked; empty tray = brand new ── */}
+      {client && (
         <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, background: "#161616", borderTop: `1px solid ${H.line}`, padding: "14px 20px calc(14px + env(safe-area-inset-bottom))" }}>
           <div style={{ maxWidth: 1080, margin: "0 auto", display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
             <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: H.dim }}>
-              {tray.length} on the tray
+              {tray.length > 0 ? `${tray.length} on the tray` : "nothing brought back — brand new"}
             </span>
             <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Name it (optional)…"
               style={{ flex: 1, minWidth: 160, padding: "10px 14px", fontSize: 13, background: H.ink, border: `1px solid ${H.line}`, borderRadius: 10, outline: "none", color: H.text, fontFamily: H.font }} />
             {err && <span style={{ fontSize: 11.5, fontWeight: 700, color: H.red }}>{err}</span>}
             <button onClick={openInStudio} disabled={busy}
               style={{ background: "#fff", color: H.ink, border: 0, borderRadius: 999, padding: "12px 22px", fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font, opacity: busy ? 0.5 : 1 }}>
-              {busy ? "Opening…" : "Open in the Studio →"}
+              {busy ? "Opening…" : tray.length > 0 ? "Open in the Studio →" : "Start brand new →"}
             </button>
           </div>
         </div>
