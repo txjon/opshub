@@ -275,7 +275,7 @@ export default function NewJobPage() {
 
         <div style={{ display: "flex", gap: 8 }}>
           <button type="submit" disabled={loading || !selectedClient}
-            style={{ padding: "10px 24px", borderRadius: 8, border: "none", background: selectedClient ? T.accent : T.surface, color: selectedClient ? "#fff" : T.faint, fontSize: 13, fontWeight: 600, cursor: selectedClient ? "pointer" : "default", fontFamily: font, opacity: loading ? 0.5 : 1 }}>
+            style={{ padding: "10px 24px", borderRadius: 8, border: "none", background: selectedClient ? T.accent : T.surface, color: selectedClient ? "#0a0a0a" : T.faint, fontSize: 13, fontWeight: 600, cursor: selectedClient ? "pointer" : "default", fontFamily: font, opacity: loading ? 0.5 : 1 }}>
             {loading ? "Creating..." : "Create Project"}
           </button>
           <button type="button" onClick={() => router.back()}

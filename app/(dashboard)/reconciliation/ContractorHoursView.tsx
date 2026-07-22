@@ -175,7 +175,7 @@ export function ContractorHoursView() {
                   </span>
                   : <button onClick={() => push(c.id, rate)} disabled={pushing === c.id || hours <= 0 || rate <= 0 || !vendorId}
                       title={!vendorId ? "Map a QB vendor first" : hours <= 0 ? "No hours" : rate <= 0 ? "Set a rate" : ""}
-                      style={{ background: hours > 0 && rate > 0 && vendorId ? T.accent : T.surface, color: hours > 0 && rate > 0 && vendorId ? "#fff" : T.faint, border: "none", borderRadius: 6, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: hours > 0 && rate > 0 && vendorId ? "pointer" : "default", fontFamily: font }}>
+                      style={{ background: hours > 0 && rate > 0 && vendorId ? T.accent : T.surface, color: hours > 0 && rate > 0 && vendorId ? "#0a0a0a" : T.faint, border: "none", borderRadius: 6, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: hours > 0 && rate > 0 && vendorId ? "pointer" : "default", fontFamily: font }}>
                       {pushing === c.id ? "Pushing…" : "Push to QB"}</button>}
               </span>
             </div>

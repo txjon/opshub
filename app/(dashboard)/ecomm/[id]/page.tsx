@@ -679,7 +679,7 @@ export default function PreorderDetail() {
       return (
         <button onClick={() => advanceStatus("building")} disabled={!ready}
           title={ready ? "Hand off to Abigail to build in Shopify" : "Add at least one product and set open/close dates first"}
-          style={{ background: ready ? T.accent : T.surface, border: "none", borderRadius: 8, color: ready ? "#fff" : T.faint, fontSize: 12, fontWeight: 700, padding: "8px 18px", cursor: ready ? "pointer" : "not-allowed", fontFamily: font }}>
+          style={{ background: ready ? T.accent : T.surface, border: "none", borderRadius: 8, color: ready ? "#0a0a0a" : T.faint, fontSize: 12, fontWeight: 700, padding: "8px 18px", cursor: ready ? "pointer" : "not-allowed", fontFamily: font }}>
           → Hand off to Abigail (Build in Shopify)
         </button>
       );
@@ -707,7 +707,7 @@ export default function PreorderDetail() {
       return (
         <button onClick={openPushModal} disabled={!ready}
           title={ready ? "Import Shopify sold qtys + buffer → spawn Labs job" : "Add products first"}
-          style={{ background: ready ? T.accent : T.surface, border: "none", borderRadius: 8, color: ready ? "#fff" : T.faint, fontSize: 12, fontWeight: 700, padding: "8px 18px", cursor: ready ? "pointer" : "not-allowed", fontFamily: font }}>
+          style={{ background: ready ? T.accent : T.surface, border: "none", borderRadius: 8, color: ready ? "#0a0a0a" : T.faint, fontSize: 12, fontWeight: 700, padding: "8px 18px", cursor: ready ? "pointer" : "not-allowed", fontFamily: font }}>
           → Push to production
         </button>
       );

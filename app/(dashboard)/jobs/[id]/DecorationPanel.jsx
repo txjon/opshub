@@ -237,7 +237,7 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
             {pr.capabilities.map(cap=>{
               const sel=(p.decorationType||"")===cap;
               return <button key={cap} onClick={()=>updateProd(i,{...p,decorationType:cap})}
-                style={{padding:"4px 10px",borderRadius:6,fontSize:10,fontWeight:600,cursor:"pointer",border:`1px solid ${sel?T.accent:T.border}`,background:sel?T.accent:"transparent",color:sel?"#fff":T.faint}}>
+                style={{padding:"4px 10px",borderRadius:6,fontSize:10,fontWeight:600,cursor:"pointer",border:`1px solid ${sel?T.accent:T.border}`,background:sel?T.accent:"transparent",color:sel?"#0a0a0a":T.faint}}>
                 {cap}
               </button>;
             })}
@@ -262,7 +262,7 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
                 {[{label:"/ unit",flat:false},{label:"flat",flat:true}].map(opt=>{
                   const sel=cc.flat===opt.flat;
                   return <button key={opt.label} onClick={()=>{const c=[...(p.customCosts||[])];c[ci]={...c[ci],flat:opt.flat};updateProd(i,{...p,customCosts:c});}}
-                    style={{padding:"2px 6px",fontSize:8,fontWeight:600,border:`1px solid ${sel?T.accent:T.border}`,borderRadius:4,cursor:"pointer",background:sel?T.accent:"transparent",color:sel?"#fff":T.faint}}>{opt.label}</button>;
+                    style={{padding:"2px 6px",fontSize:8,fontWeight:600,border:`1px solid ${sel?T.accent:T.border}`,borderRadius:4,cursor:"pointer",background:sel?T.accent:"transparent",color:sel?"#0a0a0a":T.faint}}>{opt.label}</button>;
                 })}
               </div>
               <div style={{display:"flex",alignItems:"center"}}>

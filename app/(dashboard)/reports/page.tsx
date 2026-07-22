@@ -150,7 +150,7 @@ export default function ReportsPage() {
   const card: React.CSSProperties = { background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 2px rgba(16,18,32,0.05)" };
   const th: React.CSSProperties = { padding: "10px 12px", textAlign: "left", fontSize: 10, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em", borderBottom: `1px solid ${T.border}`, whiteSpace: "nowrap" };
   const td: React.CSSProperties = { padding: "11px 12px", fontSize: 12.5, borderBottom: `1px solid ${T.surface}`, whiteSpace: "nowrap" };
-  const chip = (activec: boolean): React.CSSProperties => ({ padding: "6px 13px", borderRadius: 8, fontSize: 12, fontWeight: 700, border: `1px solid ${activec ? T.accent : T.border}`, background: activec ? T.accent : T.card, color: activec ? "#fff" : T.muted, cursor: "pointer", fontFamily: font });
+  const chip = (activec: boolean): React.CSSProperties => ({ padding: "6px 13px", borderRadius: 8, fontSize: 12, fontWeight: 700, border: `1px solid ${activec ? T.accent : T.border}`, background: activec ? T.accent : T.card, color: activec ? "#0a0a0a" : T.muted, cursor: "pointer", fontFamily: font });
   const selStyle: React.CSSProperties = { padding: "6px 10px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 12, fontFamily: font, fontWeight: 600, cursor: "pointer" };
 
   if (loading) return <div style={{ padding: "2rem", color: T.muted, fontSize: 13, fontFamily: font }}>Loading reports…</div>;

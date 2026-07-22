@@ -949,7 +949,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
                     <input value={accQty} onChange={e => setAccQty(e.target.value)} onKeyDown={onEnter} type="text" inputMode="numeric" placeholder="Qty"
                       style={{ fontFamily: font, fontSize: 12, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 10px", outline: "none", width: 80, textAlign: "center" }} />
                     <button onClick={doAdd} disabled={!canAdd}
-                      style={{ background: canAdd ? T.accent : T.surface, color: canAdd ? "#fff" : T.muted, border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontFamily: font, fontWeight: 600, cursor: canAdd ? "pointer" : "default", whiteSpace: "nowrap" }}>
+                      style={{ background: canAdd ? T.accent : T.surface, color: canAdd ? "#0a0a0a" : T.muted, border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontFamily: font, fontWeight: 600, cursor: canAdd ? "pointer" : "default", whiteSpace: "nowrap" }}>
                       {assignItem ? "Assign →" : "Add →"}
                     </button>
                     <button onClick={() => { setShowAddType(null); setAssignBlankTo(null); }}
@@ -968,7 +968,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
                         const active = accType.trim().toLowerCase() === t.toLowerCase();
                         return (
                           <div key={t} onClick={() => setAccType(t)}
-                            style={{ padding: "8px 11px", cursor: "pointer", fontSize: 12, fontFamily: font, background: active ? T.accent : "transparent", color: active ? "#fff" : T.text, borderBottom: `1px solid ${T.border}`, transition: "background 0.1s" }}
+                            style={{ padding: "8px 11px", cursor: "pointer", fontSize: 12, fontFamily: font, background: active ? T.accent : "transparent", color: active ? "#0a0a0a" : T.text, borderBottom: `1px solid ${T.border}`, transition: "background 0.1s" }}
                             onMouseEnter={e => { if (!active) e.currentTarget.style.background = T.surface; }}
                             onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; }}>
                             {t}
@@ -1830,7 +1830,7 @@ function EditSizesModal({ item, onClose, onSave }) {
                 return (
                   <button key={sz} onClick={() => toggleSize(sz)}
                     style={{ minWidth: 42, padding: "6px 10px", fontSize: 12, fontFamily: mono, fontWeight: 700,
-                      background: on ? T.accent : T.card, color: on ? "#fff" : T.muted,
+                      background: on ? T.accent : T.card, color: on ? "#0a0a0a" : T.muted,
                       border: `1px solid ${on ? T.accent : T.border}`, borderRadius: 6, cursor: "pointer" }}>
                     {sz}
                   </button>
@@ -1843,7 +1843,7 @@ function EditSizesModal({ item, onClose, onSave }) {
                 return (
                   <button key={sz} onClick={() => toggleSize(sz)}
                     style={{ minWidth: 42, padding: "6px 10px", fontSize: 12, fontFamily: mono, fontWeight: 700,
-                      background: on ? T.accent : T.card, color: on ? "#fff" : T.muted,
+                      background: on ? T.accent : T.card, color: on ? "#0a0a0a" : T.muted,
                       border: `1px solid ${on ? T.accent : T.border}`, borderRadius: 6, cursor: "pointer" }}>
                     {sz}
                   </button>
@@ -1856,7 +1856,7 @@ function EditSizesModal({ item, onClose, onSave }) {
                 return (
                   <button key={sz} onClick={() => toggleSize(sz)}
                     style={{ minWidth: 64, padding: "6px 10px", fontSize: 12, fontFamily: mono, fontWeight: 700,
-                      background: on ? T.accent : T.card, color: on ? "#fff" : T.muted,
+                      background: on ? T.accent : T.card, color: on ? "#0a0a0a" : T.muted,
                       border: `1px solid ${on ? T.accent : T.border}`, borderRadius: 6, cursor: "pointer" }}
                     title="One-size — replaces any sized run">
                     {sz}
@@ -1898,7 +1898,7 @@ function EditSizesModal({ item, onClose, onSave }) {
                           return (
                             <td key={i.num} style={{ padding: 2 }}>
                               <button onClick={() => toggleSize(label)}
-                                style={{ width: 38, height: 30, borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 700, background: on ? T.accent : T.card, color: on ? "#fff" : T.faint, border: `1px solid ${on ? T.accent : T.border}` }}>
+                                style={{ width: 38, height: 30, borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 700, background: on ? T.accent : T.card, color: on ? "#0a0a0a" : T.faint, border: `1px solid ${on ? T.accent : T.border}` }}>
                                 {on ? "✓" : ""}
                               </button>
                             </td>

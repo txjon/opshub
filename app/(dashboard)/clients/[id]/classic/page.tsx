@@ -1101,7 +1101,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                 {(invoicedReports.length>0?(["projects","items","shipping"] as const):(["projects","items"] as const)).map(v=>(
                   <button key={v} onClick={()=>setHistoryView(v)}
                     style={{padding:"3px 10px",borderRadius:4,fontSize:10,fontWeight:600,border:"none",cursor:"pointer",
-                      background:historyView===v?T.accent:"transparent",color:historyView===v?"#fff":T.muted}}>
+                      background:historyView===v?T.accent:"transparent",color:historyView===v?"#0a0a0a":T.muted}}>
                     {v==="projects"?"Projects":v==="items"?"Items":"Shipping"}
                   </button>
                 ))}
@@ -1547,7 +1547,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                     return (
                       <button key={opt.value} onClick={() => setWorkingTab(opt.value)}
                         style={{padding:"4px 12px",borderRadius:4,fontSize:11,fontWeight:700,border:"none",cursor:"pointer",
-                          background:isActive?T.accent:"transparent",color:isActive?"#fff":T.muted,fontFamily:font}}>
+                          background:isActive?T.accent:"transparent",color:isActive?"#0a0a0a":T.muted,fontFamily:font}}>
                         {opt.label} <span style={{opacity:0.7,marginLeft:4}}>{count}</span>
                       </button>
                     );
