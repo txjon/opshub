@@ -73,6 +73,18 @@ export default function Studio2Page() {
   }
   useEffect(() => { load(); }, []);
 
+  // Deep link: /studio2?open=<briefId> — The House's studio cards land on the
+  // idea itself, not the front door. Fires once, after the first load.
+  const openedFromUrl = useRef(false);
+  useEffect(() => {
+    if (openedFromUrl.current || !briefs) return;
+    openedFromUrl.current = true;
+    const id = new URLSearchParams(window.location.search).get("open");
+    if (!id) return;
+    const b = briefs.find((x: any) => x.id === id);
+    if (b) setOpen(b);
+  }, [briefs]);
+
   const filtered = useMemo(() => {
     const list = (briefs || []).filter((b: any) => !b.client_aborted_at);
     const needle = q.trim().toLowerCase();

@@ -230,7 +230,7 @@ export default function HousePage() {
                   const bArt = bt ? thumbSrc(bt.preview_drive_file_id || bt.drive_file_id) : null;
                   return card(`brief-${b.id}`, bArt, b.clients?.name || "Studio", b.title || "New idea",
                     b.state === "draft" ? "new idea from the hub" : "client words waiting",
-                    STUDIO_DIRECTIVE.verb, H.amber, "/studio2", "Answer here", STUDIO_DIRECTIVE,
+                    STUDIO_DIRECTIVE.verb, H.amber, `/studio2?open=${b.id}`, "Answer here", STUDIO_DIRECTIVE,
                     () => setSheet({ kind: "studio", brief: b, art: bArt }));
                 })}
                 {model.vendorRisk.slice(0, 5).map(({ job: x, due, level, promised, vendorKey }: any) => {
@@ -508,7 +508,7 @@ function ActionSheet({ sheet, onClose, onShipByLogged, onStudioAnswered, onSaleC
               </button>
             </div>
             {divider}
-            <a href="/studio2" style={linkCss}>Open the Studio →</a>
+            <a href={`/studio2?open=${sheet.brief.id}`} style={linkCss}>Open it in the Studio →</a>
           </>
         )}
         {sheet.kind === "drop_close" && (
