@@ -331,8 +331,13 @@ function BriefSheet({ brief, token, onClose, onActed }: { brief: any; token: str
         }
         for (const f of (body.files || [])) {
           const id = f.preview_drive_file_id || f.drive_file_id;
-          if (!id) continue;
-          entries.push({ at: f.created_at, who: f.uploader_role === "client" ? "you" : "us", type: "image", driveId: id, kind: f.kind });
+          if (id) entries.push({ at: f.created_at, who: f.uploader_role === "client" ? "you" : "us", type: "image", driveId: id, kind: f.kind });
+          // per-file comments from the older studio live in the same thread
+          // (server already walls off designer words)
+          for (const c of (f.comments || [])) {
+            entries.push({ at: c.created_at, who: c.sender_role === "client" ? "you" : "us", type: "text", body: c.body, onFile: f.file_name || null });
+          }
+          if (f.client_annotation) entries.push({ at: f.created_at, who: "you", type: "text", body: f.client_annotation, onFile: f.file_name || null });
         }
         entries.sort((a, b) => String(a.at).localeCompare(String(b.at)));
         setThread(entries);

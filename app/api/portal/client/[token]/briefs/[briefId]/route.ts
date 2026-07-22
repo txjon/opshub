@@ -64,7 +64,12 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         .order("created_at")
     : { data: [] as any[] };
   const commentsByFile: Record<string, any[]> = {};
-  for (const c of (commentsRaw || [])) (commentsByFile[c.file_id] ||= []).push(c);
+  // two-room wall: designer words NEVER reach the client (their comments are
+  // Room 2 material — the client sees only the client↔HPD conversation)
+  for (const c of (commentsRaw || [])) {
+    if (c.sender_role === "designer") continue;
+    (commentsByFile[c.file_id] ||= []).push(c);
+  }
 
   // Per-kind 1-based ordinal so the file badge can render "REF 3" /
   // "2nd Draft" instead of just "REF" / "REV".

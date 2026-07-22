@@ -212,7 +212,22 @@ function OpsBriefSheet({ brief, onClose }: { brief: any; onClose: () => void }) 
 
   const files = (detail?.files || []).filter((f: any) => (f.preview_drive_file_id || f.drive_file_id) && !/pdf/i.test(f.mime_type || ""));
   const hero = files.length ? files[heroIdx == null ? files.length - 1 : Math.min(heroIdx, files.length - 1)] : null;
-  const msgs = detail?.messages || [];
+  // ONE timeline: thread messages + per-file chat (art_brief_file_comments,
+  // the old studio's upload comments — Jon, Jul 22: they weren't displaying)
+  // + legacy annotation columns. Everything speaks in the same thread.
+  const msgs = useMemo(() => {
+    const out: any[] = [...(detail?.messages || [])];
+    for (const f of (detail?.files || [])) {
+      const label = f.file_name || "upload";
+      for (const c of (f.comments || [])) {
+        out.push({ id: `fc-${c.id}`, sender_role: c.sender_role, sender_name: c.sender_role === "client" ? (brief.clients?.name || "Client") : c.sender_role === "designer" ? "designer" : "HPD", message: c.body, created_at: c.created_at, visibility: c.sender_role === "designer" ? "hpd_designer" : "all", file_label: label });
+      }
+      if (f.client_annotation) out.push({ id: `an-c-${f.id}`, sender_role: "client", sender_name: brief.clients?.name || "Client", message: f.client_annotation, created_at: f.created_at, visibility: "all", file_label: label });
+      if (f.hpd_annotation) out.push({ id: `an-h-${f.id}`, sender_role: "hpd", sender_name: "HPD", message: f.hpd_annotation, created_at: f.created_at, visibility: "all", file_label: label });
+      if (f.designer_annotation) out.push({ id: `an-d-${f.id}`, sender_role: "designer", sender_name: "designer", message: f.designer_annotation, created_at: f.created_at, visibility: "hpd_designer", file_label: label });
+    }
+    return out.sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")));
+  }, [detail, brief]);
   const spec = brief.product_spec || {};
   const products = Array.isArray(spec.products) ? spec.products : [];
   const w = STATE_WORDS[brief.state] || { label: brief.state, color: H.faint };
@@ -332,7 +347,7 @@ function OpsBriefSheet({ brief, onClose }: { brief: any; onClose: () => void }) 
                     padding: "9px 13px", fontSize: 13, lineHeight: 1.55, whiteSpace: "pre-wrap",
                   }}>
                     <span style={{ display: "block", fontSize: 8.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: whisper ? H.amber : mine ? "rgba(10,10,10,0.45)" : H.faint, marginBottom: 3 }}>
-                      {m.sender_name || m.sender_role}{whisper ? " · internal" : ""} · {fmtTime(m.created_at)}
+                      {m.sender_name || m.sender_role}{whisper ? " · internal" : ""}{m.file_label ? ` · on ${m.file_label}` : ""} · {fmtTime(m.created_at)}
                     </span>
                     {m.message}
                   </div>
