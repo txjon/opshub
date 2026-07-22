@@ -249,7 +249,7 @@ export default function StudioPage() {
                         const ps = Array.isArray(b.product_spec?.products) && b.product_spec.products.length ? b.product_spec.products
                           : (b.product_spec?.retail != null || b.product_spec?.model || b.product_spec?.format) ? [b.product_spec] : [];
                         if (!ps.length) return null;
-                        const bits = ps.slice(0, 3).map((x: any) => [x.format || "item", x.retail != null ? `$${x.retail}` : null].filter(Boolean).join(" "));
+                        const bits = ps.slice(0, 3).map((x: any) => x.format || "item");
                         if (ps.length > 3) bits.push(`+${ps.length - 3}`);
                         return <div style={{ fontSize: 9.5, fontFamily: C.mono, color: C.muted, marginTop: 4 }}>{bits.join(" · ")}</div>;
                       })()}
