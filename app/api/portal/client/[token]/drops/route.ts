@@ -33,7 +33,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     const { db, client } = ctx;
 
     const { data: releases } = await db.from("releases")
-      .select("id, title, status, model, target_live_date, window_close_date, created_at")
+      .select("id, title, status, model, target_live_date, window_close_date, job_id, created_at")
       .eq("client_id", client.id)
       .order("created_at", { ascending: false });
 
@@ -55,8 +55,35 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         });
       }
     }
+    // Payable for cut drops — read the born job's invoice state (same
+    // gating as the order surfaces: nothing shows until the invoice is
+    // actually sent or a non-draft payment record exists).
+    const cutJobIds = (releases || []).filter((r: any) => r.status === "cut" && r.job_id).map((r: any) => r.job_id);
+    const payableByJob: Record<string, any> = {};
+    if (cutJobIds.length) {
+      const { data: jobs } = await db.from("jobs").select("id, type_meta").in("id", cutJobIds);
+      const { data: pays } = await db.from("payment_records").select("job_id, amount, status").in("job_id", cutJobIds);
+      for (const j of (jobs || []) as any[]) {
+        const tm = j.type_meta || {};
+        const jp = (pays || []).filter((p: any) => p.job_id === j.id);
+        const sent = !!tm.invoice_sent_at || jp.some((p: any) => p.status && !["draft", "void"].includes(p.status));
+        const paid = jp.filter((p: any) => p.status === "paid").reduce((a: number, p: any) => a + Number(p.amount || 0), 0);
+        const total = Number(tm.qb_total_with_tax || 0);
+        payableByJob[j.id] = {
+          invoiceNumber: sent ? (tm.qb_invoice_number || null) : null,
+          paymentLink: sent ? (tm.qb_payment_link || null) : null,
+          total: sent ? total : null,
+          paid,
+          state: !sent ? "pending" : (total > 0 && paid >= total - 0.005) ? "paid" : "ready",
+        };
+      }
+    }
     return NextResponse.json({
-      drops: (releases || []).map((r: any) => ({ ...r, slots: slotsByRelease[r.id] || [] })),
+      drops: (releases || []).map((r: any) => ({
+        ...r,
+        slots: slotsByRelease[r.id] || [],
+        payable: r.status === "cut" && r.job_id ? (payableByJob[r.job_id] || null) : null,
+      })),
     });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || "Failed" }, { status: 500 });

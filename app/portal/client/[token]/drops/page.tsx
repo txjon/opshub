@@ -126,7 +126,11 @@ export default function DropsPage() {
                   {d.target_live_date && <span style={{ fontSize: 10.5, fontFamily: C.mono, color: C.faint }}>live {fmtDate(d.target_live_date)}</span>}
                   <span style={{ marginLeft: "auto", fontSize: 10.5, fontFamily: C.mono, color: C.muted }}>{d.slots.length} line{d.slots.length === 1 ? "" : "s"}{d.status === "building" && d.slots.length ? ` · ${ready}/${d.slots.length} ready` : ""}</span>
                 </div>
-                {w.hint && <div style={{ fontSize: 11.5, color: C.faint, marginTop: 4 }}>{w.hint}</div>}
+                {d.status === "cut" && d.payable?.state === "ready" ? (
+                  <div style={{ fontSize: 11, color: C.amber, fontWeight: 800, marginTop: 4, letterSpacing: "0.04em" }}>Invoice {d.payable.invoiceNumber ? `#${d.payable.invoiceNumber}` : ""} ready to pay</div>
+                ) : d.status === "cut" && d.payable?.state === "paid" ? (
+                  <div style={{ fontSize: 11, color: C.green, fontWeight: 800, marginTop: 4, letterSpacing: "0.04em" }}>Paid</div>
+                ) : w.hint ? <div style={{ fontSize: 11.5, color: C.faint, marginTop: 4 }}>{w.hint}</div> : null}
               </button>
             );
           })}
@@ -285,6 +289,21 @@ function DropSheet({ drop, token, briefs, onChanged, onClose }: {
           )}
           {drop.status === "ready" && <span style={{ fontSize: 12, color: C.muted, lineHeight: 1.5 }}>It&rsquo;s with us — we&rsquo;re costing and scheduling. You&rsquo;ll see it move here.</span>}
           {numbersOpen && <span style={{ fontSize: 12, color: C.muted, lineHeight: 1.5 }}>Sale closed — enter production numbers on each line above and we&rsquo;ll confirm.</span>}
+          {drop.status === "cut" && (
+            drop.payable?.state === "paid" ? (
+              <span style={{ fontSize: 12.5, fontWeight: 800, color: C.green, letterSpacing: "0.04em" }}>Paid in full — it&rsquo;s in production. Thank you!</span>
+            ) : drop.payable?.state === "ready" && drop.payable.paymentLink ? (
+              <>
+                <a href={drop.payable.paymentLink} target="_blank" rel="noopener noreferrer"
+                  style={{ background: "#fff", color: C.bg, borderRadius: 999, padding: "13px 26px", fontSize: 11.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", textDecoration: "none", fontFamily: C.font }}>
+                  Pay Now{drop.payable.total ? ` · $${Math.round(drop.payable.total - (drop.payable.paid || 0)).toLocaleString()}` : ""}
+                </a>
+                <span style={{ fontSize: 11.5, color: C.muted }}>Invoice {drop.payable.invoiceNumber ? `#${drop.payable.invoiceNumber}` : ""} — it&rsquo;s in production.</span>
+              </>
+            ) : (
+              <span style={{ fontSize: 12, color: C.muted, lineHeight: 1.5 }}>It&rsquo;s in production — your invoice is on its way.</span>
+            )
+          )}
         </div>
       </div>
     </div>
