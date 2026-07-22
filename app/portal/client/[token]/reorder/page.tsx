@@ -214,6 +214,8 @@ export default function ReorderPage() {
               We&rsquo;ll confirm pricing and timing before anything goes into production.
             </div>
 
+            <ShelfRail token={token} />
+
             {catalog.length > 0 && (
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center", marginBottom: 24 }}>
                 {[{ key: "all", label: "All" }, ...CATS, { key: "other", label: "Everything else" }].map(c => {
@@ -453,6 +455,105 @@ function ItemSheet({ entry, line, onClose, onSave }: {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── THE SHELF — greenlit products that haven't run yet (Jul 22). "Bring it
+// back later" lands here; ordering one is its first run. Produced pieces
+// live in the catalog below — one door per state.
+function ShelfRail({ token }: { token: string }) {
+  const [shelf, setShelf] = useState<any[] | null>(null);
+  const [open, setOpen] = useState<any | null>(null);
+  const [qtys, setQtys] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState<string | null>(null);
+  const [err, setErr] = useState("");
+  const SIZES = ["S", "M", "L", "XL", "2XL", "3XL", "OS"];
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`/api/portal/client/${token}/products`);
+        const body = await res.json();
+        setShelf(res.ok ? body.products || [] : []);
+      } catch { setShelf([]); }
+    })();
+    // eslint-disable-next-line
+  }, [token]);
+
+  if (!shelf || shelf.length === 0) return null;
+  const total = Object.values(qtys).reduce((a, n) => a + (Number(n) || 0), 0);
+
+  async function send() {
+    if (!open || total <= 0) return;
+    setBusy(true); setErr("");
+    try {
+      const clean: Record<string, number> = {};
+      for (const [s, n] of Object.entries(qtys)) if (Number(n) > 0) clean[s] = Number(n);
+      const res = await fetch(`/api/portal/client/${token}/products`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ productId: open.id, qtys: clean }),
+      });
+      const body = await res.json();
+      if (!res.ok) { setErr(body.error || "Couldn't send that."); setBusy(false); return; }
+      setDone(open.title);
+      setShelf(prev => (prev || []).filter(p => p.id !== open.id));
+      setOpen(null); setQtys({});
+    } catch { setErr("Couldn't send that."); }
+    setBusy(false);
+  }
+
+  return (
+    <div style={{ marginBottom: 34 }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 10, justifyContent: "center", marginBottom: 4 }}>
+        <span style={{ fontSize: 12, fontWeight: 900, letterSpacing: "0.12em", textTransform: "uppercase", color: "#fd3aa3" }}>On the shelf</span>
+        <span style={{ fontSize: 11, color: H.faint }}>greenlit and ready — these haven&rsquo;t run yet</span>
+      </div>
+      {done && (
+        <div style={{ fontSize: 12.5, color: H.green, fontWeight: 700, textAlign: "center", margin: "8px 0" }}>
+          ✓ &ldquo;{done}&rdquo; is on its way to production — we&rsquo;ll confirm pricing before anything prints.
+        </div>
+      )}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 12, marginTop: 12 }}>
+        {shelf.map(p => (
+          <button key={p.id} onClick={() => { setOpen(p); setQtys({}); setErr(""); }}
+            style={{ background: H.panel, border: `1px solid ${open?.id === p.id ? "#fff" : H.line}`, borderRadius: 14, overflow: "hidden", cursor: "pointer", textAlign: "left", color: H.text, fontFamily: H.font, padding: 0 }}>
+            <div style={{ background: p.artFileId ? "#fff" : H.surface, aspectRatio: "1" }}>
+              {p.artFileId && <img src={`/api/files/thumbnail?id=${p.artFileId}&thumb=1&size=300`} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />}
+            </div>
+            <div style={{ padding: "9px 12px 12px" }}>
+              <div style={{ fontSize: 12, fontWeight: 800, textTransform: "uppercase", lineHeight: 1.25 }}>{p.title}</div>
+              <div style={{ fontSize: 9.5, fontFamily: H.mono, color: H.faint, marginTop: 3 }}>{p.format || "product"}{p.retail != null ? ` · $${p.retail}` : ""}</div>
+            </div>
+          </button>
+        ))}
+      </div>
+      {open && (
+        <div style={{ background: H.panel, border: `1px solid ${H.line}`, borderRadius: 14, padding: 18, marginTop: 14 }}>
+          <div style={{ fontSize: 13, fontWeight: 900, textTransform: "uppercase", marginBottom: 4 }}>{open.title} — first run</div>
+          <div style={{ fontSize: 11, color: H.dim, marginBottom: 12 }}>Rough is fine — we&rsquo;ll confirm everything with you before anything prints.</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+            {SIZES.map(sz => (
+              <label key={sz} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                <span style={{ fontSize: 8, fontWeight: 800, letterSpacing: "0.08em", color: H.faint }}>{sz}</span>
+                <input type="text" inputMode="numeric" value={qtys[sz] || ""}
+                  onFocus={e => e.currentTarget.select()}
+                  onChange={e => setQtys(prev => ({ ...prev, [sz]: e.target.value.replace(/\D/g, "") }))}
+                  style={{ width: 46, padding: "8px 0", textAlign: "center", background: H.ink, border: `1px solid ${H.line}`, borderRadius: 8, outline: "none", color: H.text, fontFamily: H.mono, fontSize: 12.5, fontWeight: 700 }} />
+              </label>
+            ))}
+          </div>
+          {err && <div style={{ fontSize: 12, fontWeight: 700, color: H.red, marginBottom: 10 }}>{err}</div>}
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <button onClick={send} disabled={busy || total <= 0}
+              style={{ background: "#fff", color: H.ink, border: 0, borderRadius: 999, padding: "12px 22px", fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: busy || total <= 0 ? "default" : "pointer", opacity: busy || total <= 0 ? 0.5 : 1, fontFamily: H.font }}>
+              {busy ? "Sending…" : `Send the order · ${total.toLocaleString()} pcs`}
+            </button>
+            <button onClick={() => setOpen(null)} style={{ background: "none", border: "none", color: H.faint, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>Not yet</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
