@@ -43,6 +43,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { token: str
       const { data: slots } = await db.from("release_slots")
         .select("id, item_id, art_briefs(state)").eq("release_id", (release as any).id);
       if (!(slots || []).length) return NextResponse.json({ error: "Add at least one item first" }, { status: 400 });
+      (release as any)._newLines = (slots || []).filter((s: any) => !s.item_id).length;
+      (release as any)._pipeLines = (slots || []).filter((s: any) => !!s.item_id).length;
       const unready = (slots || []).filter((s: any) => !s.item_id && !APPROVED.includes(s.art_briefs?.state)).length;
       if (unready > 0) return NextResponse.json({ error: `${unready} line${unready === 1 ? "" : "s"} still need${unready === 1 ? "s" : ""} an approved design first` }, { status: 400 });
       updates.status = "ready";
@@ -58,11 +60,21 @@ export async function PATCH(req: NextRequest, { params }: { params: { token: str
       try {
         const { Resend } = await import("resend");
         const resend = new Resend(process.env.RESEND_API_KEY!);
+        // The task depends on composition: all-pipeline = launch work
+        // (ecomm/distro — no production); any pre-item lines = production
+        // enters for exactly those lines at cut.
+        const newN = (release as any)._newLines || 0;
+        const pipeN = (release as any)._pipeLines || 0;
+        const task = newN === 0
+          ? `All ${pipeN} lines are already in the pipeline — NO new production. This is launch prep: watch the landings, build the listings, mark it launched.`
+          : pipeN === 0
+          ? `All ${newN} lines are new — cost it, quote it, and cutting births the job.`
+          : `${pipeN} lines are in the pipeline (launch prep) + ${newN} new lines (these bring in production at cut).`;
         await resend.emails.send({
           from: "OpsHub <production@housepartydistro.com>",
           to: "production@housepartydistro.com",
           subject: `Drop ready — "${updates.title || (release as any).title}" (${(client as any).name})`,
-          text: `${(client as any).name} submitted a drop from the hub.\n\n"${updates.title || (release as any).title}"${(release as any).target_live_date ? `\nTarget live: ${(release as any).target_live_date}` : ""}\nEvery contributing design is approved — it's ready for costing and scheduling.`,
+          text: `${(client as any).name} submitted a drop from the hub.\n\n"${updates.title || (release as any).title}"${(release as any).target_live_date ? `\nTarget live: ${(release as any).target_live_date}` : ""}\n${task}\n\nIt's on the drops board.`,
         });
       } catch {}
     }
