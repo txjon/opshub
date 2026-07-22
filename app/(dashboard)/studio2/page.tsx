@@ -316,7 +316,11 @@ function OpsBriefSheet({ brief, onClose }: { brief: any; onClose: () => void }) 
 
         {products.length > 0 && (
           <div style={{ padding: "14px 22px 0" }}>
-            <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: H.faint, marginBottom: 8 }}>Their build-out — future items</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: H.faint }}>Their build-out — future items</span>
+              {/* THE INTERNAL GREENLIGHT — fork on the client's word, logged */}
+              {!DONE_STATES.includes(brief.state) && <GreenlightButtons briefId={brief.id} onDone={onClose} />}
+            </div>
             {products.map((x: any, i: number) => (
               <div key={i} style={{ display: "flex", gap: 12, alignItems: "baseline", padding: "7px 0", borderBottom: `1px solid ${H.line}`, flexWrap: "wrap" }}>
                 <span style={{ fontSize: 12.5, fontWeight: 800, textTransform: "uppercase" }}>{x.format || "Item"}</span>
@@ -659,5 +663,38 @@ function TheCounter({ onClose, onCreated }: { onClose: () => void; onCreated: (b
         </div>
       )}
     </div>
+  );
+}
+
+// ── Internal greenlight — the fork on our side (hole #1, built Jul 22 live
+// with Corey). "On their word": products born; the order door starts the job
+// and sizes settle in the builder. Logged with who tapped it.
+function GreenlightButtons({ briefId, onDone }: { briefId: string; onDone: () => void }) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState("");
+  async function go(door: "later" | "order") {
+    setBusy(door); setErr("");
+    try {
+      const res = await fetch(`/api/art-briefs/${briefId}/greenlight`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ door }),
+      });
+      const b = await res.json();
+      if (!res.ok) throw new Error(b.error || "Couldn't greenlight");
+      if (door === "order" && b.job?.jobId) { window.location.href = `/jobs/${b.job.jobId}`; return; }
+      onDone();
+    } catch (e: any) { setErr(e.message); setBusy(null); }
+  }
+  return (
+    <span style={{ display: "inline-flex", gap: 8, alignItems: "center", marginLeft: "auto", flexWrap: "wrap" }}>
+      {err && <span style={{ fontSize: 10.5, fontWeight: 700, color: H.red }}>{err}</span>}
+      <button onClick={() => go("order")} disabled={!!busy}
+        style={{ background: "#fff", color: H.ink, border: 0, borderRadius: 999, padding: "9px 16px", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font, opacity: busy ? 0.5 : 1 }}>
+        {busy === "order" ? "Starting…" : "Greenlight + start the job →"}
+      </button>
+      <button onClick={() => go("later")} disabled={!!busy}
+        style={{ background: "transparent", color: H.green, border: `1px solid ${H.green}`, borderRadius: 999, padding: "9px 15px", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font, opacity: busy ? 0.5 : 1 }}>
+        {busy === "later" ? "Shelving…" : "Greenlight → catalog"}
+      </button>
+    </span>
   );
 }
