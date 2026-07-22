@@ -86,7 +86,15 @@ export function OrderExperience({ data, token, onAction }: {
       note = `Your order total grew since invoice ${invoiceNumber ? `#${invoiceNumber}` : "was sent"}. An updated invoice for the difference is on its way${netTerms && termsLabel ? `, billed on your ${termsLabel} terms` : ""}. Nothing to pay right now.`;
       if (!netTerms && paymentLink) { note = `Balance remaining on invoice ${invoiceNumber ? `#${invoiceNumber}` : ""}.`; cta = { label: `Pay Now · ${fmtMoney(balance)}`, href: paymentLink }; }
     } else if (netTerms) {
-      note = `You're on ${termsLabel || "net terms"}. Production proceeds now; your invoice follows on your terms.`;
+      // Net terms = WHEN it's due, not whether they can pay. Once the
+      // invoice is sent with a live link, show it (the old always-no-cta
+      // read hid sent invoices from net clients — the #4256 case).
+      if (paymentLink && balance > 0.005) {
+        note = `Invoice ${invoiceNumber ? `#${invoiceNumber}` : ""} is ready — due on your ${termsLabel || "net"} terms.`;
+        cta = { label: `Pay Now · ${fmtMoney(balance)}`, href: paymentLink };
+      } else {
+        note = `You're on ${termsLabel || "net terms"}. Production proceeds now; your invoice follows on your terms.`;
+      }
     } else if (paymentLink && balance > 0.005) {
       // "Production begins once it's paid" is only true pre-production — past
       // that the rail above contradicts it, so drop the clause.
