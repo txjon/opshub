@@ -75,7 +75,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     const body = await req.json().catch(() => ({}));
 
     const { data: product } = await db.from("products")
-      .select("id, client_id, brief_id, line_id, title, format, retail, model, state")
+      .select("id, client_id, brief_id, line_id, title, format, retail, model, notes, state")
       .eq("id", String(body.productId || "")).single();
     if (!product || (product as any).client_id !== (client as any).id) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });

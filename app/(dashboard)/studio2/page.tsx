@@ -389,6 +389,17 @@ function TheCounter({ onClose, onCreated }: { onClose: () => void; onCreated: (b
   const [title, setTitle] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [newTypePick, setNewTypePick] = useState(false);   // new-client type step
+
+  async function createClientCard(type: string) {
+    const name = cq.trim();
+    if (!name) return;
+    setBusy(true);
+    const { data, error } = await supabase.from("clients")
+      .insert({ name, client_type: type } as never).select("id, name, client_type").single();
+    setBusy(false);
+    if (!error && data) { setClient(data); setCq(""); setNewTypePick(false); }
+  }
 
   // client typeahead
   useEffect(() => {
@@ -538,6 +549,27 @@ function TheCounter({ onClose, onCreated }: { onClose: () => void; onCreated: (b
                 {c.name} <span style={{ fontSize: 9.5, color: H.faint, fontWeight: 800, letterSpacing: "0.08em", marginLeft: 8 }}>{c.client_type || ""}</span>
               </button>
             ))}
+            {/* new client card — born right at the counter (Jon, Jul 22) */}
+            {cq.trim().length > 1 && !clients.some(c => c.name.toLowerCase() === cq.trim().toLowerCase()) && (
+              !newTypePick ? (
+                <button onClick={() => setNewTypePick(true)}
+                  style={{ display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none", borderBottom: `1px solid ${H.line}`, color: "#fd3aa3", padding: "12px 6px", fontSize: 13, fontWeight: 800, textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>
+                  + New client — &ldquo;{cq.trim()}&rdquo;
+                </button>
+              ) : (
+                <div style={{ padding: "12px 6px", borderBottom: `1px solid ${H.line}` }}>
+                  <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: H.faint, marginBottom: 8 }}>What kind of client is &ldquo;{cq.trim()}&rdquo;?</div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {["brand", "artist", "corporate", "tour", "webstore"].map(t => (
+                      <button key={t} onClick={() => createClientCard(t)} disabled={busy}
+                        style={{ borderRadius: 999, border: `1px solid ${H.line}`, background: "transparent", color: H.text, fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", padding: "9px 14px", cursor: "pointer", fontFamily: H.font, opacity: busy ? 0.5 : 1 }}>
+                        {t}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )
+            )}
           </div>
         ) : (
           <>

@@ -15,7 +15,7 @@ type Db = any;
 
 export type BornProduct = {
   id: string; title: string; format: string | null; retail: number | null;
-  model: string | null; line_id: string | null; brief_id: string | null;
+  model: string | null; line_id: string | null; brief_id: string | null; notes?: string | null;
 };
 
 // One product per build-out line (or one product for the whole idea when the
@@ -36,7 +36,7 @@ export async function birthProductsFromBrief(db: Db, briefId: string): Promise<B
   for (const ln of lines) {
     const title = `${(brief as any).title || "Design"} ${ln.format || ""}`.trim().slice(0, 140) || "Product";
     const { data: existing } = await db.from("products")
-      .select("id, title, format, retail, model, line_id, brief_id")
+      .select("id, title, format, retail, model, line_id, brief_id, notes")
       .eq("brief_id", briefId).eq("line_id", String(ln.id)).maybeSingle();
     if (existing) { out.push(existing as any); continue; }
     const { data: created, error } = await db.from("products").insert({
@@ -51,7 +51,7 @@ export async function birthProductsFromBrief(db: Db, briefId: string): Promise<B
       retail: ln.retail ?? null,
       model: ["preorder", "stock", "not_sure"].includes(ln.model) ? ln.model : null,
       notes: ln.notes || null,
-    }).select("id, title, format, retail, model, line_id, brief_id").single();
+    }).select("id, title, format, retail, model, line_id, brief_id, notes").single();
     if (error) throw new Error(error.message);
     out.push(created as any);
   }
@@ -95,9 +95,26 @@ export async function assignProductsToJob(db: Db, args: {
   if (jobErr || !newJob) throw new Error(jobErr?.message || "Couldn't create job");
   const jobId = (newJob as any).id;
 
+  // studio data lands where it needs to (Jon, Jul 22): the product's format
+  // guesses the garment_type (drives QB product mapping + costing layout),
+  // retail rides into client_retail_per_unit, notes ride into item notes
+  const GARMENT_GUESS: [RegExp, string][] = [
+    [/long\s*sleeve|\bls\b/i, "longsleeve"], [/hoodie|zip/i, "hoodie"],
+    [/crewneck|crew/i, "crewneck"], [/tee|t-?shirt|tank/i, "tee"],
+    [/jacket|windbreaker|coach/i, "jacket"], [/pant|jogger/i, "pants"],
+    [/short/i, "shorts"], [/beanie/i, "beanie"], [/hat|cap|snapback|trucker/i, "hat"],
+    [/sock/i, "socks"], [/patch/i, "patch"], [/sticker/i, "sticker"],
+    [/tote/i, "tote"], [/bag/i, "custom_bag"], [/flag/i, "flag"], [/poster/i, "poster"],
+  ];
+  const guessGarment = (format: string | null) => {
+    for (const [rx, g] of GARMENT_GUESS) if (format && rx.test(format)) return g;
+    return null;
+  };
+
   let itemCount = 0;
   for (let i = 0; i < args.products.length; i++) {
     const p = args.products[i];
+    const fullProduct: any = p;
     const { data: item, error: itemErr } = await db.from("items").insert({
       job_id: jobId,
       name: p.title.slice(0, 120),
@@ -107,6 +124,9 @@ export async function assignProductsToJob(db: Db, args: {
       pipeline_stage: null,
       product_id: p.id,
       design_id: p.brief_id,        // legacy readers key on the brief
+      garment_type: guessGarment(p.format),
+      client_retail_per_unit: p.retail ?? null,
+      notes: fullProduct.notes || null,
     }).select("id").single();
     if (itemErr || !item) continue;
     itemCount++;
