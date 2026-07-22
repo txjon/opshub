@@ -480,9 +480,14 @@ function BriefSheet({ brief, token, onClose, onActed }: { brief: any; token: str
 
         {/* ── Build it out — the client shapes the product ── */}
         <div style={{ padding: "16px 20px 2px" }}>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: C.faint }}>Build it out</span>
             {specSaved && <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: C.green }}>Saved</span>}
+            {/* pinned to the header so it can't sink below the lines (Jon, Jul 22) */}
+            <button onClick={() => pushProducts([...products, { id: Math.random().toString(36).slice(2, 10), format: "", retail: null, model: null, run_size: null }])}
+              style={{ marginLeft: "auto", borderRadius: 999, border: `1px solid ${C.border}`, background: "transparent", color: C.text, fontSize: 10, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", padding: "9px 16px", cursor: "pointer", fontFamily: C.font }}>
+              {products.length === 0 ? "+ Add a version — tee, hoodie, LS…" : "+ Another version"}
+            </button>
           </div>
           {products.map((ln) => (
             <div key={ln.id} style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end", marginTop: 12, paddingBottom: 12, borderBottom: `1px solid ${C.border}` }}>
@@ -522,13 +527,7 @@ function BriefSheet({ brief, token, onClose, onActed }: { brief: any; token: str
                 style={{ flexBasis: "100%", padding: "9px 11px", background: "transparent", border: "none", borderTop: `1px dashed ${C.border}`, outline: "none", color: C.text, fontFamily: C.font, fontSize: 12, marginTop: 2 }} />
             </div>
           ))}
-          <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 12, flexWrap: "wrap" }}>
-            <button onClick={() => pushProducts([...products, { id: Math.random().toString(36).slice(2, 10), format: "", retail: null, model: null, run_size: null }])}
-              style={{ borderRadius: 999, border: `1px solid ${C.border}`, background: "transparent", color: C.muted, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", padding: "10px 18px", cursor: "pointer", fontFamily: C.font }}>
-              {products.length === 0 ? "+ Add a version — tee, hoodie, LS…" : "+ Another version"}
-            </button>
-            {products.length > 0 && <span style={{ fontSize: 10.5, color: C.faint }}>same artwork — each version becomes its own product; pricing comes later, with us</span>}
-          </div>
+          {products.length > 0 && <div style={{ fontSize: 10.5, color: C.faint, marginTop: 10 }}>same artwork — each version becomes its own product; pricing comes later, with us</div>}
         </div>
 
         {/* ── The exchange — notes only; images live in the strip above ── */}
