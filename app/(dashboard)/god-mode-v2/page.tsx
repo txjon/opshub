@@ -117,7 +117,10 @@ export default function GodModeV2Page() {
     const totalGross = Array.from(byMonth.values()).reduce((a, v) => a + v.a, 0);
     const totalUnits = Array.from(byMonth.values()).reduce((a, v) => a + v.q, 0);
     const customerCount = byClient.size;
-    return { topClients, series, mix, curve, curveTotal, curveGroups, blanks, vendors, totalGross, totalUnits, customerCount, span };
+    // honesty for THE CURVE: how many of the selection's units actually carry
+    // a size split (pre-OpsHub invoices often didn't itemize sizes)
+    const curveUniverse = group === "ALL" ? totalUnits : (byGroup.get(group)?.q || 0);
+    return { topClients, series, mix, curve, curveTotal, curveGroups, blanks, vendors, totalGross, totalUnits, customerCount, curveUniverse, span };
   }, [data, client, group, scope]);
 
   return (
@@ -178,7 +181,7 @@ export default function GodModeV2Page() {
 
             <MonthlyChart series={model.series} />
             <MixChart mix={model.mix} />
-            <CurveChart curve={model.curve} total={model.curveTotal} groups={model.curveGroups} group={group} setGroup={setGroup} />
+            <CurveChart curve={model.curve} total={model.curveTotal} universe={model.curveUniverse} groups={model.curveGroups} group={group} setGroup={setGroup} />
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 40 }}>
               <RankChart title="The blanks." hint="most-run styles, by units" rows={model.blanks.map(([b, u]) => ({ label: b, value: u, display: Math.round(u).toLocaleString() + " pcs" }))} />
               {client === "ALL" && <RankChart title="Money out." hint="vendor spend, all time" rows={model.vendors.map(([v, a]) => ({ label: v, value: a, display: fmt$(a) }))} />}
@@ -253,15 +256,16 @@ function MixChart({ mix }: { mix: { g: string; a: number; q: number }[] }) {
 }
 
 // ── The size curve — the signature graph ──
-function CurveChart({ curve, total, groups, group, setGroup }: {
-  curve: { s: string; n: number; pct: number }[]; total: number;
+function CurveChart({ curve, total, universe, groups, group, setGroup }: {
+  curve: { s: string; n: number; pct: number }[]; total: number; universe: number;
   groups: string[]; group: string; setGroup: (g: string) => void;
 }) {
   if (!groups.length) return null;
   const max = Math.max(...curve.map(c => c.pct), 0.01);
+  const cov = universe > 0 ? Math.min(1, total / universe) : 0;
   return (
     <section className="gm-mod">
-      <ModHead title="The curve." hint={`how they actually size — ${Math.round(total).toLocaleString()} real units, not a guess`} />
+      <ModHead title="The curve." hint={`built from ${Math.round(total).toLocaleString()} of ${Math.round(universe).toLocaleString()} units (${(cov * 100).toFixed(0)}% carry a size split — older invoices often didn't itemize sizes)`} />
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 18 }}>
         {["ALL", ...groups].map(g => {
           const active = group === g;

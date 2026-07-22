@@ -47,16 +47,27 @@ const usDate = (s) => {
 // "NAME / BLANK / COLOR <tabs> S 7 • M 13 • L 3" → parts + size map.
 // XXL/XXXL spellings normalize to 2XL/3XL. Lines that carry ONE size in the
 // NAME ("… - 3XL") with the count in the qty column get a single-size curve.
-const SIZE_TOKEN = /(?:^|[\s•\t])((?:XS|S|M|L|XL|XXL|XXXL|2XL|3XL|4XL|5XL|OSFA|OS|YS|YM|YL|YXL))\s+([\d,]+)(?=\s|•|$)/gi;
+// Size lists appear as "S 7 • M 13" AND "OS:70" (colon era). A parsed size
+// map is TRUSTED only when it reconciles with the line qty (±5%) — QB
+// truncates long descriptions mid-list and some lines count packs, so an
+// unreconciled map would poison the curves. Untrusted → curve sits out;
+// the line's qty still counts everywhere else.
+const SIZE_TOKEN = /(?:^|[\s•\t(])((?:XS|S|M|L|XL|XXL|XXXL|2XL|3XL|4XL|5XL|OSFA|OS|YS|YM|YL|YXL))[\s:]+([\d,]+)(?=\s|•|$|\))/gi;
 const ONE_SIZE = /(?:^|[\s\/\-–])((?:XS|S|M|L|XL|XXL|XXXL|2XL|3XL|4XL|5XL|OS|OSFA))(?:\s*$|[\s).])/;
 const normSize = (s) => ({ XXL: "2XL", XXXL: "3XL" }[s.toUpperCase()] || s.toUpperCase());
+// a real blank style has letters/digits and substance — "/", "-", "8", "YP"
+// (severed fragments) are description artifacts, not styles
+const cleanStyle = (s) => {
+  const t = String(s || "").trim();
+  return t.length >= 3 && /[A-Za-z0-9]{2}/.test(t) && !/^["'/\-–•]+$/.test(t) ? t : null;
+};
 function parseDesc(desc, lineQty) {
   const out = { product_name: null, blank_style: null, color: null, size_qtys: null };
   if (!desc) return out;
   const [head] = desc.split(/\t/); // sizes live after tab runs in the OpsHub format
-  const parts = head.split(/\s+\/\s+/).map(s => s.trim()).filter(Boolean);
-  if (parts.length >= 3) { out.product_name = parts[0]; out.blank_style = parts[1]; out.color = parts[2]; }
-  else if (parts.length === 2) { out.product_name = parts[0]; out.blank_style = parts[1]; }
+  const parts = head.split(/\s+\/\s+/).map(s => s.trim()).filter(p => p && p !== "/");
+  if (parts.length >= 3) { out.product_name = parts[0]; out.blank_style = cleanStyle(parts[1]); out.color = parts[2]; }
+  else if (parts.length === 2) { out.product_name = parts[0]; out.blank_style = cleanStyle(parts[1]); }
   const sizes = {};
   let m;
   while ((m = SIZE_TOKEN.exec(desc)) !== null) {
@@ -67,7 +78,11 @@ function parseDesc(desc, lineQty) {
     const one = ONE_SIZE.exec(head);
     if (one) sizes[normSize(one[1])] = lineQty;
   }
-  if (Object.keys(sizes).length) out.size_qtys = sizes;
+  if (Object.keys(sizes).length) {
+    const sum = Object.values(sizes).reduce((a, n) => a + n, 0);
+    const trusted = lineQty == null || lineQty <= 0 || Math.abs(sum - lineQty) <= Math.max(2, lineQty * 0.05);
+    if (trusted) out.size_qtys = sizes;
+  }
   return out;
 }
 
