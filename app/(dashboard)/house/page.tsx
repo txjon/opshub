@@ -43,44 +43,52 @@ export default function HousePage() {
   const [closeOut, setCloseOut] = useState<any[]>([]);
   const [openAR, setOpenAR] = useState<any[]>([]);
   const [payReview, setPayReview] = useState<any[]>([]);
+  // Post-production is Jon-only for now (is_god) — the money room stays
+  // closed while it's being shaped. Data isn't even fetched without the flag.
+  const [godEye, setGodEye] = useState(false);
   // act-in-place: tapping a plate opens its action sheet instead of leaving
   const [sheet, setSheet] = useState<any>(null);
 
   useEffect(() => {
     (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      const { data: prof } = user ? await supabase.from("profiles").select("is_god").eq("id", user.id).single() : { data: null };
+      const god = (prof as any)?.is_god === true;
+      setGodEye(god);
+      const none = Promise.resolve({ data: [] as any[] });
       const [{ data: j }, { data: r }, { data: act }, { data: latePay }, { count: pullCount }, { data: coJobs }, { data: arJobs }, { data: recv }] = await Promise.all([
         supabase.from("jobs")
           .select("id, job_number, title, phase, target_ship_date, created_at, updated_at, phase_timestamps, type_meta, clients(name), items(id, pipeline_stage, pipeline_timestamps, buy_sheet_lines(qty_ordered))")
           .not("phase", "in", "(complete,cancelled,on_hold)"),
         supabase.from("releases").select("*, clients(name)").not("status", "in", "(cut,shelved)"),
         supabase.from("job_activity").select("message, created_at, jobs(job_number, clients(name))").order("created_at", { ascending: false }).limit(16),
-        supabase.from("payment_records").select("id, job_id, amount, status, due_date, invoice_number, jobs!inner(id, job_number, title, phase, type_meta, clients(name))").in("status", ["sent", "viewed", "partial", "overdue"]).lt("due_date", new Date().toISOString().slice(0, 10)).not("jobs.phase", "eq", "cancelled").limit(8),
+        god ? supabase.from("payment_records").select("id, job_id, amount, status, due_date, invoice_number, jobs!inner(id, job_number, title, phase, type_meta, clients(name))").in("status", ["sent", "viewed", "partial", "overdue"]).lt("due_date", new Date().toISOString().slice(0, 10)).not("jobs.phase", "eq", "cancelled").limit(8) : none,
         supabase.from("pull_requests").select("id", { count: "exact", head: true }).in("status", ["pending", "partial"]),
         // post-production: shipped jobs whose invoice hasn't been finalized
         // with actuals yet (deriveInvoice filters the true reconcile set below)
-        supabase.from("jobs")
+        god ? supabase.from("jobs")
           .select("id, job_number, title, phase, shipping_route, fulfillment_status, type_meta, costing_summary, clients(name), items(id, pipeline_stage)")
           .not("type_meta->>qb_invoice_id", "is", null)
           .is("type_meta->>qb_variance_pushed_at", null)
           .not("phase", "in", "(cancelled,on_hold)")
-          .order("updated_at", { ascending: false }).limit(30),
+          .order("updated_at", { ascending: false }).limit(30) : none,
         // post-production: OPEN AR from QB truth (Jon's settle-everything
         // plan, Jul 22) — invoiced jobs where recorded payments fall short
         // of the invoice total. Catches the ~$150k that was invisible when
         // collections keyed only on payment_records due dates. The same
         // query powers PAYMENTS NEED REVIEW (recorded > invoice = phantom).
-        supabase.from("jobs")
+        god ? supabase.from("jobs")
           .select("id, job_number, title, phase, type_meta, clients(name), payment_records(amount, status)")
           .not("type_meta->>qb_invoice_id", "is", null)
           .not("phase", "eq", "cancelled")
-          .order("updated_at", { ascending: false }).limit(400),
+          .order("updated_at", { ascending: false }).limit(400) : none,
         // post-production: receiving count variances (moved here from the
         // Distro — counts-off is a close-out concern; Jon, Jul 22)
-        supabase.from("items")
+        god ? supabase.from("items")
           .select("id, name, ship_qtys, received_qtys, received_at_hpd_at, variance_resolved, jobs!inner(id, job_number, phase, clients(name))")
           .eq("received_at_hpd", true)
           .not("jobs.phase", "in", "(complete,cancelled)")
-          .order("received_at_hpd_at", { ascending: false }).limit(60),
+          .order("received_at_hpd_at", { ascending: false }).limit(60) : none,
       ]);
       setJobs(j || []); setDrops(r || []); setWire(act || []);
       setOverduePay(latePay || []); setOpenPulls(pullCount || 0);
@@ -163,11 +171,19 @@ export default function HousePage() {
     const vendorRisk = J.filter((x: any) => x.phase === "production" && (x.items || []).some((i: any) => i.pipeline_stage === "in_production"))
       .map((x: any) => {
         const tm = (x.type_meta || {}) as any;
-        // real dates only (an ASAP chip is not a promise we can time against)
-        const dated: [string, string][] = ([
-          ...Object.entries(tm.po_ship_live || {}).map(([k, v]: any) => [k, v?.date]),
-          ...Object.entries(tm.po_ship_dates || {}),
-        ] as [string, string][]).filter(([, d]) => /^\d{4}-\d{2}-\d{2}$/.test(String(d || "")));
+        // Per-vendor: a logged LIVE ship-by REPLACES that vendor's PO date
+        // (Jon, Jul 22: adjusted dates were still showing the old promise —
+        // pooling + min let the stale PO date win). Live > agreed, then the
+        // earliest effective date across vendors is the clock.
+        const ok = (d: any) => /^\d{4}-\d{2}-\d{2}$/.test(String(d || ""));
+        const vendorsAll = Array.from(new Set([...Object.keys(tm.po_ship_dates || {}), ...Object.keys(tm.po_ship_live || {})]));
+        const dated: [string, string][] = [];
+        for (const k of vendorsAll) {
+          const live = tm.po_ship_live?.[k]?.date;
+          const agreed = tm.po_ship_dates?.[k];
+          const eff = ok(live) ? live : ok(agreed) ? agreed : null;
+          if (eff) dated.push([k, eff]);
+        }
         dated.sort((a, b) => a[1].localeCompare(b[1]));
         const promise = dated[0]?.[1] || null;
         // the vendor key the ship-by write attaches to (Board's poShipKey rule)
@@ -345,7 +361,7 @@ export default function HousePage() {
             {/* ── POST-PRODUCTION — closing jobs out: counts, actuals, money.
                 This block is still finding its full shape (what close-out
                 needs beyond these three is an open design question). ── */}
-            {(variances.length > 0 || closeOut.length > 0 || overduePay.length > 0 || openAR.length > 0 || payReview.length > 0) && (
+            {godEye && (variances.length > 0 || closeOut.length > 0 || overduePay.length > 0 || openAR.length > 0 || payReview.length > 0) && (
             <section style={{ marginTop: 36 }}>
               <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 14 }}>
                 <h2 style={{ margin: 0, fontSize: 19, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", color: H.amber }}>Post-production.</h2>
