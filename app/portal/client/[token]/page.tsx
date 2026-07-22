@@ -95,11 +95,11 @@ export default function HomePage() {
         {data.client.name}.
       </h1>
 
-      {/* The idea door — the hub invites the next build from the front step */}
+      {/* The idea door — same grammar as every hub primary: white pill */}
       {hasStudio && (
         <div style={{ textAlign: "center", margin: "0 0 26px" }}>
           <Link href={`${base}/studio`}
-            style={{ display: "inline-block", background: "transparent", color: "#fd3aa3", border: "1px solid #fd3aa3", borderRadius: 999, padding: "12px 26px", fontSize: 11.5, fontWeight: 800, letterSpacing: "0.09em", textTransform: "uppercase", textDecoration: "none" }}>
+            style={{ display: "inline-block", background: "#fff", color: C.bg, borderRadius: 999, padding: "12px 26px", fontSize: 11.5, fontWeight: 800, letterSpacing: "0.09em", textTransform: "uppercase", textDecoration: "none" }}>
             Got an idea? Start it →
           </Link>
         </div>
