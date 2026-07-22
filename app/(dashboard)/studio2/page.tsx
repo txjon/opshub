@@ -66,6 +66,7 @@ export default function Studio2Page() {
   const [briefs, setBriefs] = useState<any[] | null>(null);
   const [open, setOpen] = useState<any>(null);
   const [q, setQ] = useState("");
+  const [counter, setCounter] = useState(false);
 
   async function load() {
     try {
@@ -111,6 +112,10 @@ export default function Studio2Page() {
         <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase", color: H.faint }}>Product development · internal</div>
         <div style={{ display: "flex", alignItems: "baseline", gap: 16, flexWrap: "wrap" }}>
           <h1 style={{ fontSize: "clamp(34px,5vw,64px)", fontWeight: 900, lineHeight: 0.98, letterSpacing: "-0.02em", textTransform: "uppercase", margin: "6px 0 8px" }}>The studio.</h1>
+          <button onClick={() => setCounter(true)}
+            style={{ background: "#fff", color: H.ink, border: 0, borderRadius: 999, padding: "12px 22px", fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>
+            + Start something
+          </button>
           <a href="/art-studio" style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: H.faint, textDecoration: "none" }}>legacy tooling →</a>
         </div>
         <div style={{ fontSize: 13.5, color: H.dim, maxWidth: "58ch", lineHeight: 1.6, marginBottom: 8 }}>
@@ -180,6 +185,8 @@ export default function Studio2Page() {
       </div>
 
       {open && <OpsBriefSheet brief={open} onClose={() => { setOpen(null); load(); }} />}
+      {counter && <TheCounter onClose={() => setCounter(false)}
+        onCreated={async (brief: any) => { setCounter(false); await load(); setOpen(brief); }} />}
     </div>
   );
 }
@@ -357,6 +364,224 @@ function OpsBriefSheet({ brief, onClose }: { brief: any; onClose: () => void }) 
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── THE COUNTER — the Studio's internal insert point (Jon, Jul 22).
+// Where WE start something for a client: search the client, their visual
+// past spreads out (products · everything produced · the archive), pick
+// material onto the tray, one exit: it opens as an idea in the Studio.
+// The tray is MATERIAL, not an order cart — reruns of unchanged products
+// belong to Run It in the catalog; the counter is for making and changing.
+// One product alone = a flip (lineage stamps at greenlight via spec.flip_of).
+function TheCounter({ onClose, onCreated }: { onClose: () => void; onCreated: (brief: any) => void }) {
+  const supabase = createClient();
+  const [cq, setCq] = useState("");
+  const [clients, setClients] = useState<any[]>([]);
+  const [client, setClient] = useState<any | null>(null);
+  const [tab, setTab] = useState<"products" | "archive">("products");
+  const [products, setProducts] = useState<any[]>([]);
+  const [families, setFamilies] = useState<any[]>([]);
+  const [archive, setArchive] = useState<any[]>([]);
+  const [aq, setAq] = useState("");
+  const [tray, setTray] = useState<any[]>([]);
+  const [title, setTitle] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  // client typeahead
+  useEffect(() => {
+    const t = setTimeout(async () => {
+      if (!cq.trim() || client) { setClients([]); return; }
+      const { data } = await supabase.from("clients").select("id, name, client_type").ilike("name", `%${cq.trim()}%`).order("name").limit(8);
+      setClients(data || []);
+    }, 180);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line
+  }, [cq, client]);
+
+  // the client's world
+  useEffect(() => {
+    if (!client) return;
+    (async () => {
+      const [{ data: prods }, { data: its }, { data: arc }] = await Promise.all([
+        supabase.from("products").select("id, brief_id, title, format, retail, model").eq("client_id", client.id).eq("state", "ready").order("created_at", { ascending: false }),
+        supabase.from("items").select("id, name, garment_type, sell_per_unit, product_id, created_at, jobs!inner(client_id), item_files(drive_file_id, stage, mime_type, superseded_at)").eq("jobs.client_id", client.id).limit(400),
+        supabase.from("legacy_art_files").select("id, drive_file_id, file_name, mime_type, folder_path").eq("client_id", client.id).order("folder_path"),
+      ]);
+      setProducts(prods || []);
+      // produced families: newest instance per name, mockup as the face
+      const fam = new Map<string, any>();
+      const sorted = [...(its || [])].sort((a: any, b: any) => String(b.created_at).localeCompare(String(a.created_at)));
+      for (const it of sorted as any[]) {
+        const key = (it.name || "").trim().toLowerCase();
+        if (!key || fam.has(key)) { if (key && fam.has(key)) fam.get(key).runs++; continue; }
+        const mock = (it.item_files || []).find((f: any) => f.stage === "mockup" && !f.superseded_at && !/pdf/i.test(f.mime_type || ""));
+        fam.set(key, { itemId: it.id, name: it.name, garment: it.garment_type, price: it.sell_per_unit, thumbId: mock?.drive_file_id || null, runs: 1 });
+      }
+      setFamilies(Array.from(fam.values()));
+      setArchive(arc || []);
+    })();
+    // eslint-disable-next-line
+  }, [client]);
+
+  const inTray = (key: string) => tray.some(t => t.key === key);
+  const toggle = (pick: any) => setTray(prev => inTray(pick.key) ? prev.filter(t => t.key !== pick.key) : [...prev, pick]);
+  const isImg = (r: any) => /image\//.test(r.mime_type || "") || /\.(png|jpe?g|gif|webp)$/i.test(r.file_name || "");
+  const archiveHits = aq.trim()
+    ? archive.filter((r: any) => `${r.file_name || ""} ${r.folder_path || ""}`.toLowerCase().includes(aq.trim().toLowerCase())).slice(0, 48)
+    : archive.filter((r: any) => isImg(r)).slice(0, 48);
+
+  async function openInStudio() {
+    if (!client || tray.length === 0) return;
+    setBusy(true); setErr("");
+    try {
+      const prodPicks = tray.filter(t => t.type === "product");
+      const famPicks = tray.filter(t => t.type === "family");
+      const filePicks = tray.filter(t => t.type === "file");
+      const names = tray.map(t => t.label).slice(0, 6).join(", ");
+      const briefTitle = title.trim() || (tray.length === 1 ? `${tray[0].label} — brought back` : `${client.name} — new build`);
+      const lines = [
+        ...prodPicks.map((p, i) => ({ id: `p${i}`, format: p.data.format || null, retail: p.data.retail ?? null, model: p.data.model || null, notes: `bring back: ${p.label}` })),
+        ...famPicks.map((f, i) => ({ id: `f${i}`, format: f.data.garment || null, retail: null, model: null, notes: `bring back: ${f.label}${f.data.price != null ? ` (last at $${f.data.price})` : ""}` })),
+      ];
+      const spec: any = { products: lines.slice(0, 10) };
+      // one product alone = a flip — lineage stamps when it's greenlit
+      if (prodPicks.length === 1 && famPicks.length === 0) spec.flip_of = prodPicks[0].data.id;
+      const { data: brief, error } = await supabase.from("art_briefs").insert({
+        client_id: client.id,
+        title: briefTitle.slice(0, 140),
+        concept: `Started at the counter. Bringing back: ${names}${tray.length > 6 ? "…" : ""}.`,
+        state: "draft", source: "hpd",
+        product_spec: spec,
+      } as never).select("*, clients(name)").single();
+      if (error || !brief) throw new Error(error?.message || "Couldn't start it");
+
+      // attach material — pointers only, nothing copies
+      const fileRows: any[] = filePicks.map(f => ({
+        brief_id: (brief as any).id, file_name: f.data.file_name, drive_file_id: f.data.drive_file_id,
+        drive_link: `https://drive.google.com/file/d/${f.data.drive_file_id}/view`,
+        mime_type: f.data.mime_type || null, kind: "reference", uploader_role: "hpd",
+      }));
+      for (const f of famPicks) {
+        if (f.data.thumbId) fileRows.push({
+          brief_id: (brief as any).id, file_name: `${f.label} (last run)`, drive_file_id: f.data.thumbId,
+          drive_link: `https://drive.google.com/file/d/${f.data.thumbId}/view`,
+          mime_type: "image/png", kind: "reference", uploader_role: "hpd",
+        });
+      }
+      // product art rides in from its brief
+      for (const p of prodPicks) {
+        if (!p.data.brief_id) continue;
+        const { data: bf } = await supabase.from("art_brief_files")
+          .select("file_name, drive_file_id, preview_drive_file_id, mime_type")
+          .eq("brief_id", p.data.brief_id).order("created_at", { ascending: false }).limit(6);
+        const pick = (bf || []).find((x: any) => (x.preview_drive_file_id || x.drive_file_id) && !/pdf/i.test(x.mime_type || ""));
+        if (pick) fileRows.push({
+          brief_id: (brief as any).id, file_name: (pick as any).file_name || p.label,
+          drive_file_id: (pick as any).drive_file_id, mime_type: (pick as any).mime_type || null,
+          drive_link: `https://drive.google.com/file/d/${(pick as any).drive_file_id}/view`,
+          kind: "reference", uploader_role: "hpd",
+        });
+      }
+      if (fileRows.length) await supabase.from("art_brief_files").insert(fileRows as never);
+      onCreated(brief);
+    } catch (e: any) { setErr(e.message || "Couldn't start it"); setBusy(false); }
+  }
+
+  const cell = (key: string, thumbId: string | null, label: string, sub: string, pick: any) => (
+    <button key={key} onClick={() => toggle(pick)}
+      style={{ background: H.panel, border: inTray(key) ? "2px solid #fff" : `1px solid ${H.line}`, borderRadius: 12, overflow: "hidden", cursor: "pointer", textAlign: "left", color: H.text, fontFamily: H.font, padding: 0, position: "relative" }}>
+      <div style={{ background: thumbId ? "#fff" : H.surface, aspectRatio: "1" }}>
+        {thumbId && <img src={thumbSrc(thumbId, 300)} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />}
+      </div>
+      {inTray(key) && <span style={{ position: "absolute", right: 7, top: 7, background: "#fff", color: H.ink, borderRadius: 999, fontSize: 10, fontWeight: 900, padding: "3px 8px" }}>✓</span>}
+      <div style={{ padding: "8px 11px 11px" }}>
+        <div style={{ fontSize: 11, fontWeight: 800, textTransform: "uppercase", lineHeight: 1.25, overflow: "hidden", display: "-webkit-box", WebkitBoxOrient: "vertical" as any, WebkitLineClamp: 2 }}>{label}</div>
+        <div style={{ fontSize: 9, fontFamily: H.mono, color: H.faint, marginTop: 2 }}>{sub}</div>
+      </div>
+    </button>
+  );
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 240, background: "rgba(0,0,0,0.9)", overflowY: "auto" }}>
+      <div style={{ maxWidth: 1080, margin: "0 auto", padding: "34px 20px 140px", fontFamily: H.font, color: H.text }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.faint }}>The counter · start something</div>
+            <h2 style={{ fontSize: "clamp(26px,4vw,44px)", fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.02em", margin: "4px 0 0" }}>
+              {client ? `${client.name}.` : "Whose build?"}
+            </h2>
+          </div>
+          <button onClick={onClose} aria-label="Close" style={{ background: "none", border: "none", color: H.dim, fontSize: 28, cursor: "pointer", lineHeight: 1 }}>×</button>
+        </div>
+
+        {!client ? (
+          <div style={{ marginTop: 18, maxWidth: 460 }}>
+            <input value={cq} onChange={e => setCq(e.target.value)} autoFocus placeholder="Search clients…"
+              style={{ width: "100%", boxSizing: "border-box", padding: "13px 18px", fontSize: 15, background: H.panel, border: `1px solid ${H.line}`, borderRadius: 12, outline: "none", color: H.text, fontFamily: H.font }} />
+            {clients.map(c => (
+              <button key={c.id} onClick={() => { setClient(c); setCq(""); }}
+                style={{ display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none", borderBottom: `1px solid ${H.line}`, color: H.text, padding: "12px 6px", fontSize: 14, fontWeight: 800, textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>
+                {c.name} <span style={{ fontSize: 9.5, color: H.faint, fontWeight: 800, letterSpacing: "0.08em", marginLeft: 8 }}>{c.client_type || ""}</span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "16px 0" }}>
+              {([["products", `Their products · ${products.length + families.length}`], ["archive", `The archive · ${archive.length}`]] as const).map(([k, label]) => (
+                <button key={k} onClick={() => setTab(k)}
+                  style={{ borderRadius: 999, border: tab === k ? "1px solid #fff" : `1px solid ${H.line}`, background: tab === k ? "#fff" : "transparent", color: tab === k ? H.ink : H.dim, fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", padding: "9px 15px", cursor: "pointer", fontFamily: H.font }}>
+                  {label}
+                </button>
+              ))}
+              <button onClick={() => { setClient(null); setTray([]); }} style={{ background: "none", border: "none", color: H.faint, fontSize: 10, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font, marginLeft: "auto" }}>↺ different client</button>
+            </div>
+
+            {tab === "products" && (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 12 }}>
+                {products.map(p => cell(`prod-${p.id}`, null, p.title, `${p.format || "product"}${p.retail != null ? ` · $${p.retail}` : ""} · on the shelf`,
+                  { key: `prod-${p.id}`, type: "product", label: p.title, data: p }))}
+                {families.map(f => cell(`fam-${f.itemId}`, f.thumbId, f.name, `${f.runs > 1 ? `×${f.runs} runs` : "1 run"}${f.price != null ? ` · $${f.price}` : ""}`,
+                  { key: `fam-${f.itemId}`, type: "family", label: f.name, data: f }))}
+                {products.length + families.length === 0 && <div style={{ color: H.faint, fontSize: 12.5, gridColumn: "1/-1" }}>Nothing produced yet — check the archive.</div>}
+              </div>
+            )}
+
+            {tab === "archive" && (
+              <>
+                <input value={aq} onChange={e => setAq(e.target.value)} placeholder="Search the archive…"
+                  style={{ margin: "0 0 14px", padding: "10px 16px", fontSize: 13, background: H.panel, border: `1px solid ${H.line}`, borderRadius: 999, outline: "none", color: H.text, fontFamily: H.font, width: 300, maxWidth: "100%" }} />
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 12 }}>
+                  {archiveHits.map((r: any) => cell(`file-${r.id}`, r.drive_file_id, r.file_name, (r.folder_path || "").split("/").slice(-1)[0] || "archive",
+                    { key: `file-${r.id}`, type: "file", label: r.file_name, data: r }))}
+                  {archive.length === 0 && <div style={{ color: H.faint, fontSize: 12.5, gridColumn: "1/-1" }}>No archive indexed for this client yet.</div>}
+                </div>
+              </>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* ── the tray ── */}
+      {client && tray.length > 0 && (
+        <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, background: "#161616", borderTop: `1px solid ${H.line}`, padding: "14px 20px calc(14px + env(safe-area-inset-bottom))" }}>
+          <div style={{ maxWidth: 1080, margin: "0 auto", display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+            <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: H.dim }}>
+              {tray.length} on the tray
+            </span>
+            <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Name it (optional)…"
+              style={{ flex: 1, minWidth: 160, padding: "10px 14px", fontSize: 13, background: H.ink, border: `1px solid ${H.line}`, borderRadius: 10, outline: "none", color: H.text, fontFamily: H.font }} />
+            {err && <span style={{ fontSize: 11.5, fontWeight: 700, color: H.red }}>{err}</span>}
+            <button onClick={openInStudio} disabled={busy}
+              style={{ background: "#fff", color: H.ink, border: 0, borderRadius: 999, padding: "12px 22px", fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font, opacity: busy ? 0.5 : 1 }}>
+              {busy ? "Opening…" : "Open in the Studio →"}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

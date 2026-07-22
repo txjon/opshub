@@ -173,12 +173,12 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
     setProofModalItem(previewList[n]);
   }
   useEffect(() => {
-    if (!isFlipping) return;
+    if (!isFlipping && !isGenerateAll) return;
     const h = (e) => {
       const tag = (e.target?.tagName || "").toLowerCase();
       if (tag === "input" || tag === "textarea" || e.target?.isContentEditable) return;
-      if (e.key === "ArrowRight") flipPreview(1);
-      else if (e.key === "ArrowLeft") flipPreview(-1);
+      if (e.key === "ArrowRight") { isGenerateAll ? flipGenerate(1) : flipPreview(1); }
+      else if (e.key === "ArrowLeft") { isGenerateAll ? flipGenerate(-1) : flipPreview(-1); }
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
@@ -200,6 +200,14 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
     if (itemsWithMockups.length === 0) return;
     setGenerateAllItems(itemsWithMockups);
     setGenerateAllIndex(0);
+  }
+
+  // Flip proof-to-proof INSIDE the generate-all run (Drake, Jul 22) — no more
+  // save-exit-reopen to move on. Saving still advances; arrows move freely
+  // (an item flipped past keeps whatever was last saved for it).
+  function flipGenerate(delta) {
+    if (!isGenerateAll) return;
+    setGenerateAllIndex((generateAllIndex + delta + generateAllItems.length) % generateAllItems.length);
   }
 
   function handleGenerateAllClose(saved) {
@@ -443,19 +451,35 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
         const files = itemFiles[generateAllCurrent.id] || [];
         const mockupFile = files.find(f => f.stage === "mockup") || files.find(f => f.file_name?.toLowerCase().includes("mockup"));
         return (
-          <ProofModal
-            key={generateAllCurrent.id}
-            item={generateAllCurrent}
-            clientName={clientName}
-            projectTitle={projectTitle}
-            mockupFile={mockupFile}
-            files={files}
-            costingData={job.costing_data}
-            onClose={handleGenerateAllClose}
-            onSaved={handleGenerateAllSaved}
-            onUpdateItem={onUpdateItem}
-            generateAllCounter={`${generateAllIndex + 1} of ${generateAllItems.length}`}
-          />
+          <>
+            <ProofModal
+              key={generateAllCurrent.id}
+              item={generateAllCurrent}
+              clientName={clientName}
+              projectTitle={projectTitle}
+              mockupFile={mockupFile}
+              files={files}
+              costingData={job.costing_data}
+              onClose={handleGenerateAllClose}
+              onSaved={handleGenerateAllSaved}
+              onUpdateItem={onUpdateItem}
+              generateAllCounter={`${generateAllIndex + 1} of ${generateAllItems.length}`}
+            />
+            {/* Flip chrome for the run — same grammar as preview flipping */}
+            {generateAllItems.length > 1 && (
+              <>
+                <button onClick={() => flipGenerate(-1)} aria-label="Previous item"
+                  style={{ position: "fixed", left: 14, top: "50%", transform: "translateY(-50%)", zIndex: 120, width: 46, height: 46, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 22, fontWeight: 700, cursor: "pointer", boxShadow: "0 4px 16px rgba(0,0,0,0.18)", fontFamily: font, lineHeight: 1 }}>‹</button>
+                <button onClick={() => flipGenerate(1)} aria-label="Next item"
+                  style={{ position: "fixed", right: 14, top: "50%", transform: "translateY(-50%)", zIndex: 120, width: 46, height: 46, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 22, fontWeight: 700, cursor: "pointer", boxShadow: "0 4px 16px rgba(0,0,0,0.18)", fontFamily: font, lineHeight: 1 }}>›</button>
+                <div style={{ position: "fixed", bottom: 18, left: "50%", transform: "translateX(-50%)", zIndex: 120, background: T.card, border: `1px solid ${T.border}`, borderRadius: 9, padding: "7px 14px", boxShadow: "0 4px 16px rgba(0,0,0,0.18)", display: "flex", alignItems: "baseline", gap: 10, maxWidth: "80vw" }}>
+                  <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 800, color: T.text, whiteSpace: "nowrap" }}>{generateAllIndex + 1} / {generateAllItems.length}</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: T.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{generateAllCurrent.name}</span>
+                  <span style={{ fontSize: 10, color: T.faint, whiteSpace: "nowrap" }}>save advances · arrows browse</span>
+                </div>
+              </>
+            )}
+          </>
         );
       })()}
 
