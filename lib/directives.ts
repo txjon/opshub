@@ -122,6 +122,11 @@ export const HOUSE_EXTRA_DIRECTIVES: Record<string, Directive> = {
     order: "Expected date passed and it hasn't landed — chase the tracking, get a real ETA from the vendor",
     done: "boxes at the dock or a new arrival date on the shipment",
   },
+  bill_actuals: {
+    verb: "Bill the actuals",
+    order: "Job shipped — finalize the invoice with what actually shipped, not what was ordered. Review the variance on the Payment tab",
+    done: "invoice finalized with actual qtys (revised invoice goes out itself)",
+  },
 };
 
 export const STUDIO_DIRECTIVE: Directive = {

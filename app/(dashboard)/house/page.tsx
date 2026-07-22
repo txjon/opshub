@@ -8,8 +8,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { H } from "@/components/hub/theme";
-import { JOB_DIRECTIVES, DROP_DIRECTIVES, STUDIO_DIRECTIVE, HOUSE_EXTRA_DIRECTIVES } from "@/lib/directives";
+import { JOB_DIRECTIVES, DROP_DIRECTIVES, STUDIO_DIRECTIVE, HOUSE_EXTRA_DIRECTIVES, DISTRO_DIRECTIVES } from "@/lib/directives";
 import { logJobActivity } from "@/components/JobActivityPanel";
+import { deriveInvoice } from "@/lib/job/invoice-derive";
 
 const PURPLE = "#fd3aa3";
 const thumbSrc = (id: string, size = 300) => `/api/files/thumbnail?id=${id}&thumb=1&size=${size}`;
@@ -17,15 +18,16 @@ const fmtDate = (iso?: string | null) => iso ? new Date(iso + (iso.includes("T")
 const wt = (iso: string) => { const d = new Date(iso); return d.toLocaleDateString("en-US", { weekday: "short" }) + " " + d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }).toLowerCase().replace(" ", ""); };
 const daysSince = (iso?: string | null) => iso ? Math.floor((Date.now() - new Date(iso).getTime()) / 86400000) : null;
 
-// Job phase → the operator verb + whose move (same model as the concept mock)
-const PHASE_VERB: Record<string, { verb: string; go: string; side: "us" | "them" | "run" }> = {
+// Job phase → the operator verb + whose move. "distro" phases (landing,
+// Shopify entry) belong to The Distro's board, not this one (Jon, Jul 22).
+const PHASE_VERB: Record<string, { verb: string; go: string; side: "us" | "them" | "run" | "distro" }> = {
   intake: { verb: "Cost & quote it", go: "Open costing", side: "us" },
   pending: { verb: "With the client", go: "Nudge", side: "them" },
   ready: { verb: "Order blanks · send POs", go: "Open job", side: "us" },
   production: { verb: "At the presses", go: "", side: "run" },
   shipping: { verb: "Shipping", go: "", side: "run" },
-  receiving: { verb: "Landing — receive it", go: "Receiving", side: "us" },
-  fulfillment: { verb: "Key it into Shopify", go: "Open job", side: "us" },
+  receiving: { verb: "Landing — receive it", go: "Receiving", side: "distro" },
+  fulfillment: { verb: "Key it into Shopify", go: "Open job", side: "distro" },
 };
 
 export default function HousePage() {
@@ -34,34 +36,55 @@ export default function HousePage() {
   const [drops, setDrops] = useState<any[]>([]);
   const [briefs, setBriefs] = useState<any[]>([]);
   const [wire, setWire] = useState<any[]>([]);
-  const [arrivals, setArrivals] = useState<any[]>([]);
   const [jobArt, setJobArt] = useState<Record<string, string>>({});
   const [overduePay, setOverduePay] = useState<any[]>([]);
   const [openPulls, setOpenPulls] = useState(0);
-  const [lateLandings, setLateLandings] = useState<any[]>([]);
+  const [variances, setVariances] = useState<any[]>([]);
+  const [closeOut, setCloseOut] = useState<any[]>([]);
   // act-in-place: tapping a plate opens its action sheet instead of leaving
   const [sheet, setSheet] = useState<any>(null);
 
   useEffect(() => {
     (async () => {
-      const todayStr = new Date().toISOString().slice(0, 10);
-      const [{ data: j }, { data: r }, { data: act }, { data: ships }, { data: latePay }, { count: pullCount }, { data: lateShips }] = await Promise.all([
+      const [{ data: j }, { data: r }, { data: act }, { data: latePay }, { count: pullCount }, { data: coJobs }, { data: recv }] = await Promise.all([
         supabase.from("jobs")
           .select("id, job_number, title, phase, target_ship_date, created_at, updated_at, phase_timestamps, type_meta, clients(name), items(id, pipeline_stage, pipeline_timestamps, buy_sheet_lines(qty_ordered))")
           .not("phase", "in", "(complete,cancelled,on_hold)"),
         supabase.from("releases").select("*, clients(name)").not("status", "in", "(cut,shelved)"),
         supabase.from("job_activity").select("message, created_at, jobs(job_number, clients(name))").order("created_at", { ascending: false }).limit(16),
-        supabase.from("shipments").select("id, expected_arrival, status, shipment_lines(item_id)").gte("expected_arrival", new Date(Date.now() - 86400000).toISOString().slice(0, 10)).order("expected_arrival").limit(8),
         supabase.from("payment_records").select("id, job_id, amount, status, due_date, invoice_number, jobs!inner(id, job_number, title, phase, type_meta, clients(name))").in("status", ["sent", "viewed", "partial", "overdue"]).lt("due_date", new Date().toISOString().slice(0, 10)).not("jobs.phase", "eq", "cancelled").limit(8),
         supabase.from("pull_requests").select("id", { count: "exact", head: true }).in("status", ["pending", "partial"]),
-        // late landings: expected date passed, still not delivered — "where is it"
-        supabase.from("shipments")
-          .select("id, expected_arrival, status, carrier, tracking_number, carrier_status, shipment_lines(item_id, items(name, jobs(job_number, clients(name))))")
-          .lt("expected_arrival", todayStr).in("status", ["pending", "in_transit", "exception"])
-          .order("expected_arrival").limit(6),
+        // post-production: shipped jobs whose invoice hasn't been finalized
+        // with actuals yet (deriveInvoice filters the true reconcile set below)
+        supabase.from("jobs")
+          .select("id, job_number, title, phase, shipping_route, fulfillment_status, type_meta, costing_summary, clients(name), items(id, pipeline_stage)")
+          .not("type_meta->>qb_invoice_id", "is", null)
+          .is("type_meta->>qb_variance_pushed_at", null)
+          .not("phase", "in", "(cancelled,on_hold)")
+          .order("updated_at", { ascending: false }).limit(30),
+        // post-production: receiving count variances (moved here from the
+        // Distro — counts-off is a close-out concern; Jon, Jul 22)
+        supabase.from("items")
+          .select("id, name, ship_qtys, received_qtys, received_at_hpd_at, variance_resolved, jobs!inner(id, job_number, phase, clients(name))")
+          .eq("received_at_hpd", true)
+          .not("jobs.phase", "in", "(complete,cancelled)")
+          .order("received_at_hpd_at", { ascending: false }).limit(60),
       ]);
-      setJobs(j || []); setDrops(r || []); setWire(act || []); setArrivals(ships || []);
-      setOverduePay(latePay || []); setOpenPulls(pullCount || 0); setLateLandings(lateShips || []);
+      setJobs(j || []); setDrops(r || []); setWire(act || []);
+      setOverduePay(latePay || []); setOpenPulls(pullCount || 0);
+      setCloseOut(((coJobs || []) as any[]).filter((x: any) => {
+        const s = deriveInvoice(x, x.items || [], []);
+        return s.isFullyShipped && !s.variancePushedAt;
+      }));
+      const sumQ = (o: any) => Object.values(o || {}).reduce((a: number, b: any) => a + (Number(b) || 0), 0);
+      setVariances(((recv || []) as any[]).filter((it: any) => {
+        const s = sumQ(it.ship_qtys), rr = sumQ(it.received_qtys);
+        if (!(s > 0 && rr > 0 && rr !== s)) return false;
+        // resolved only while the snapshot still matches the live counts
+        const vr = it.variance_resolved;
+        if (vr && Number(vr.ship_total) === s && Number(vr.recv_total) === rr) return false;
+        return true;
+      }).slice(0, 6));
       try {
         const res = await fetch("/api/art-briefs");
         const body = await res.json();
@@ -140,7 +163,8 @@ export default function HousePage() {
       return b.state === "draft" || (!!clientAt && clientAt > hpdAt);
     });
     const overdue = ourJobs.filter((x: any) => x.target_ship_date && x.target_ship_date < new Date().toISOString().slice(0, 10));
-    return { ourJobs, theirJobs, press, dropCalls, studioCalls, overdue, vendorRisk };
+    const dockJobs = J.filter((x: any) => (PHASE_VERB[x.phase] || {}).side === "distro");
+    return { ourJobs, theirJobs, press, dropCalls, studioCalls, overdue, vendorRisk, dockJobs };
   }, [jobs, drops, briefs]);
 
   // A magazine plate: the work's art is the cover; the directive is the
@@ -203,18 +227,23 @@ export default function HousePage() {
         ) : (
           <>
             <div style={{ display: "flex", gap: "clamp(18px,4vw,48px)", flexWrap: "wrap", borderTop: `1px solid ${H.line}`, borderBottom: `1px solid ${H.line}`, padding: "16px 0", margin: "18px 0 0" }}>
-              <div><div style={{ fontSize: "clamp(24px,3vw,36px)", fontWeight: 900, lineHeight: 1, color: H.amber }}>{model.ourJobs.length + model.dropCalls.length + model.studioCalls.length}</div><div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.faint, marginTop: 5 }}>your move</div></div>
+              <div><div style={{ fontSize: "clamp(24px,3vw,36px)", fontWeight: 900, lineHeight: 1, color: H.amber }}>{model.ourJobs.length + model.dropCalls.length + model.studioCalls.length + model.vendorRisk.length + variances.length + closeOut.length + overduePay.length}</div><div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.faint, marginTop: 5 }}>your move</div></div>
               <div><div style={{ fontSize: "clamp(24px,3vw,36px)", fontWeight: 900, lineHeight: 1, color: PURPLE }}>{model.theirJobs.length}</div><div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.faint, marginTop: 5 }}>with clients</div></div>
               <div><div style={{ fontSize: "clamp(24px,3vw,36px)", fontWeight: 900, lineHeight: 1 }}>{model.press.toLocaleString()}</div><div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.faint, marginTop: 5 }}>on presses</div></div>
               <div><div style={{ fontSize: "clamp(24px,3vw,36px)", fontWeight: 900, lineHeight: 1, color: model.overdue.length ? H.red : H.text }}>{model.overdue.length}</div><div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.faint, marginTop: 5 }}>past ship date</div></div>
-              <a href="/the-distro" style={{ textDecoration: "none" }}><div style={{ fontSize: "clamp(24px,3vw,36px)", fontWeight: 900, lineHeight: 1, color: openPulls ? H.amber : H.text }}>{openPulls}</div><div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.faint, marginTop: 5 }}>open pulls → distro</div></a>
+              <a href="/the-distro" style={{ textDecoration: "none" }}><div style={{ fontSize: "clamp(24px,3vw,36px)", fontWeight: 900, lineHeight: 1, color: model.dockJobs.length + openPulls ? H.amber : H.text }}>{model.dockJobs.length + openPulls}</div><div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.faint, marginTop: 5 }}>at the dock → distro</div></a>
             </div>
 
-            {/* ── YOUR MOVE ── */}
+            {/* ── Departmentalized blocks (Jon, Jul 22): studio → production →
+                post-production. Dock work (landing, Shopify entry) lives on
+                The Distro — the stat above is the pointer. ── */}
+
+            {/* ── THE DROPS ── */}
+            {model.dropCalls.length > 0 && (
             <section style={{ marginTop: 36 }}>
               <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 14 }}>
-                <h2 style={{ margin: 0, fontSize: 19, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", color: H.amber }}>Your move.</h2>
-                <span style={{ fontSize: 10.5, color: H.faint }}>every card tells you what, how, and what done looks like — soonest ship first, red means late</span>
+                <h2 style={{ margin: 0, fontSize: 19, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", color: H.amber }}>The drops.</h2>
+                <span style={{ fontSize: 10.5, color: H.faint }}>releases needing a hand — cost it, close it, cut it</span>
               </div>
               <div className="hs-grid">
                 {model.dropCalls.map((r: any) => {
@@ -231,6 +260,18 @@ export default function HousePage() {
                     d.verb, ended ? H.red : H.amber, "/drops", ended ? "Close it here" : "Drops board", d,
                     ended ? () => setSheet({ kind: "drop_close", release: r }) : undefined);
                 })}
+              </div>
+            </section>
+            )}
+
+            {/* ── THE STUDIO ── */}
+            {model.studioCalls.length > 0 && (
+            <section style={{ marginTop: 36 }}>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 14 }}>
+                <h2 style={{ margin: 0, fontSize: 19, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", color: H.amber }}>The studio.</h2>
+                <span style={{ fontSize: 10.5, color: H.faint }}>ideas and client words waiting on this building — silence is the only wrong move</span>
+              </div>
+              <div className="hs-grid">
                 {model.studioCalls.slice(0, 5).map((b: any) => {
                   const bt = (b.thumbs || []).find((x: any) => x.preview_drive_file_id || x.drive_file_id);
                   const bArt = bt ? thumbSrc(bt.preview_drive_file_id || bt.drive_file_id) : null;
@@ -239,6 +280,18 @@ export default function HousePage() {
                     STUDIO_DIRECTIVE.verb, H.amber, `/studio2?open=${b.id}`, "Answer here", STUDIO_DIRECTIVE,
                     () => setSheet({ kind: "studio", brief: b, art: bArt }));
                 })}
+              </div>
+            </section>
+            )}
+
+            {/* ── PRODUCTION ── */}
+            {(model.ourJobs.length > 0 || model.vendorRisk.length > 0) && (
+            <section style={{ marginTop: 36 }}>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 14 }}>
+                <h2 style={{ margin: 0, fontSize: 19, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", color: H.amber }}>Production.</h2>
+                <span style={{ fontSize: 10.5, color: H.faint }}>cost it, gate it, keep the presses honest — soonest ship first, red means late</span>
+              </div>
+              <div className="hs-grid">
                 {model.vendorRisk.slice(0, 5).map(({ job: x, due, level, promised, vendorKey }: any) => {
                   const d = level === "late" ? HOUSE_EXTRA_DIRECTIVES.vendor_late : HOUSE_EXTRA_DIRECTIVES.vendor_confirm;
                   const meta = promised ? `vendor promised ${fmtDate(due)}` : `needs to move by ${fmtDate(due)} to make the ship date`;
@@ -246,25 +299,6 @@ export default function HousePage() {
                     x.clients?.name || "—", (x.type_meta as any)?.qb_invoice_number ? `#${(x.type_meta as any).qb_invoice_number}` : x.job_number,
                     meta, d.verb, level === "late" ? H.red : H.amber, `/jobs/${x.id}`, "Handle it", d,
                     () => setSheet({ kind: "vendor", job: x, due, level, promised, vendorKey, meta, directive: d }));
-                })}
-                {lateLandings.map((s: any) => {
-                  const lines = (s.shipment_lines || []).map((l: any) => l.items).filter(Boolean);
-                  const cl = lines[0]?.jobs?.clients?.name || "Inbound";
-                  const jn = Array.from(new Set(lines.map((i: any) => i.jobs?.job_number).filter(Boolean))).join(" · ");
-                  const state = (s.carrier_status || s.status || "").replace(/_/g, " ");
-                  return card(`land-${s.id}`, null, cl, jn || "Shipment",
-                    `expected ${fmtDate(s.expected_arrival)} · ${state}${s.tracking_number ? ` · ${s.tracking_number}` : " · no tracking on file"}`,
-                    HOUSE_EXTRA_DIRECTIVES.landing_late.verb, H.red, "/receiving2", "Chase it",
-                    HOUSE_EXTRA_DIRECTIVES.landing_late,
-                    () => setSheet({ kind: "landing", shipment: s, lines }));
-                })}
-                {overduePay.slice(0, 4).map((p: any) => {
-                  const daysLate = daysSince(p.due_date + "T00:00");
-                  return card(`pay-${p.id}`, null,
-                    p.jobs?.clients?.name || "—", p.invoice_number ? `Invoice #${p.invoice_number}` : p.jobs?.job_number,
-                    `$${Number(p.amount).toLocaleString()} · due ${fmtDate(p.due_date)}${daysLate ? ` · ${daysLate}d late` : ""}`,
-                    HOUSE_EXTRA_DIRECTIVES.overdue_payment.verb, H.red, `/jobs/${p.jobs?.id || p.job_id}`, "Collect it here", HOUSE_EXTRA_DIRECTIVES.overdue_payment,
-                    () => setSheet({ kind: "payment", pay: p }));
                 })}
                 {model.ourJobs.slice(0, 12).map((x: any) => {
                   const v = PHASE_VERB[x.phase];
@@ -278,28 +312,46 @@ export default function HousePage() {
                     late ? `${dd.verb} · LATE` : dd.verb, late ? H.red : H.amber,
                     `/jobs/${x.id}`, v.go || "Open", dd);
                 })}
-                {model.ourJobs.length + model.dropCalls.length + model.studioCalls.length === 0 && (
-                  <div style={{ color: H.dim, fontSize: 13, padding: "14px 0" }}>Nothing needs the building. Rare air.</div>
-                )}
               </div>
             </section>
+            )}
 
-            {/* ── LANDING ── */}
-            {arrivals.length > 0 && (
-              <section style={{ marginTop: 40 }}>
-                <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 12 }}>
-                  <h2 style={{ margin: 0, fontSize: 19, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em" }}>Landing.</h2>
-                  <span style={{ fontSize: 10.5, color: H.faint }}>boxes inbound — receiving preps from here</span>
-                </div>
-                <div style={{ display: "flex", gap: 18, flexWrap: "wrap" }}>
-                  {arrivals.map((s: any) => (
-                    <a key={s.id} href="/receiving2" style={{ textDecoration: "none", color: H.text, borderLeft: `2px solid ${H.line}`, padding: "4px 14px 4px 12px" }}>
-                      <div style={{ fontSize: 15, fontWeight: 900, fontFamily: H.mono }}>{fmtDate(s.expected_arrival)}</div>
-                      <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: H.faint, marginTop: 3 }}>{(s.shipment_lines || []).length} line{(s.shipment_lines || []).length === 1 ? "" : "s"}</div>
-                    </a>
-                  ))}
-                </div>
-              </section>
+            {/* ── POST-PRODUCTION — closing jobs out: counts, actuals, money.
+                This block is still finding its full shape (what close-out
+                needs beyond these three is an open design question). ── */}
+            {(variances.length > 0 || closeOut.length > 0 || overduePay.length > 0) && (
+            <section style={{ marginTop: 36 }}>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 14 }}>
+                <h2 style={{ margin: 0, fontSize: 19, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", color: H.amber }}>Post-production.</h2>
+                <span style={{ fontSize: 10.5, color: H.faint }}>close it out — settle the counts, bill the actuals, collect the money</span>
+              </div>
+              <div className="hs-grid">
+                {variances.map((it: any) => card(`var-${it.id}`, null,
+                  `${it.jobs?.clients?.name || ""} · ${it.jobs?.job_number || ""}`, it.name,
+                  `shipped ${Object.values(it.ship_qtys || {}).reduce((a: number, b: any) => a + (Number(b) || 0), 0)} vs received ${Object.values(it.received_qtys || {}).reduce((a: number, b: any) => a + (Number(b) || 0), 0)}`,
+                  DISTRO_DIRECTIVES.variance.verb, H.red, "/receiving2", "Settle it here", DISTRO_DIRECTIVES.variance,
+                  () => setSheet({ kind: "variance", item: it })))}
+                {closeOut.slice(0, 6).map((x: any) => {
+                  const ref = (x.type_meta as any)?.qb_invoice_number ? `#${(x.type_meta as any).qb_invoice_number}` : x.job_number;
+                  return card(`co-${x.id}`, null,
+                    x.clients?.name || "—", ref,
+                    `shipped · invoice not finalized with actuals`,
+                    HOUSE_EXTRA_DIRECTIVES.bill_actuals.verb, H.amber, `/jobs/${x.id}`, "Finalize on the job", HOUSE_EXTRA_DIRECTIVES.bill_actuals);
+                })}
+                {overduePay.slice(0, 4).map((p: any) => {
+                  const daysLate = daysSince(p.due_date + "T00:00");
+                  return card(`pay-${p.id}`, null,
+                    p.jobs?.clients?.name || "—", p.invoice_number ? `Invoice #${p.invoice_number}` : p.jobs?.job_number,
+                    `$${Number(p.amount).toLocaleString()} · due ${fmtDate(p.due_date)}${daysLate ? ` · ${daysLate}d late` : ""}`,
+                    HOUSE_EXTRA_DIRECTIVES.overdue_payment.verb, H.red, `/jobs/${p.jobs?.id || p.job_id}`, "Collect it here", HOUSE_EXTRA_DIRECTIVES.overdue_payment,
+                    () => setSheet({ kind: "payment", pay: p }));
+                })}
+              </div>
+            </section>
+            )}
+
+            {model.ourJobs.length + model.dropCalls.length + model.studioCalls.length + model.vendorRisk.length + variances.length + closeOut.length + overduePay.length === 0 && (
+              <div style={{ color: H.dim, fontSize: 13, padding: "24px 0" }}>Nothing needs the building. Rare air.</div>
             )}
 
             {/* ── THE WIRE ── */}
@@ -333,6 +385,7 @@ export default function HousePage() {
               : x))}
           onStudioAnswered={(briefId: string) => setBriefs(prev => prev.filter((b: any) => b.id !== briefId))}
           onSaleClosed={(releaseId: string) => setDrops(prev => prev.map((r: any) => r.id === releaseId ? { ...r, status: "closed" } : r))}
+          onVarianceResolved={(itemId: string) => setVariances(prev => prev.filter((it: any) => it.id !== itemId))}
         />
       )}
     </div>
@@ -343,11 +396,12 @@ export default function HousePage() {
 // A plate opens here instead of navigating away: the card's context on top,
 // its one-to-three moves below, done and back to the feed. Deep links
 // survive at the bottom for when the real surface is needed.
-function ActionSheet({ sheet, onClose, onShipByLogged, onStudioAnswered, onSaleClosed }: {
+function ActionSheet({ sheet, onClose, onShipByLogged, onStudioAnswered, onSaleClosed, onVarianceResolved }: {
   sheet: any; onClose: () => void;
   onShipByLogged: (jobId: string, vendorKey: string, date: string) => void;
   onStudioAnswered: (briefId: string) => void;
   onSaleClosed: (releaseId: string) => void;
+  onVarianceResolved: (itemId: string) => void;
 }) {
   const supabase = createClient();
   const [busy, setBusy] = useState<string | null>(null);
@@ -356,6 +410,7 @@ function ActionSheet({ sheet, onClose, onShipByLogged, onStudioAnswered, onSaleC
   const [date, setDate] = useState("");
   const [reply, setReply] = useState("");
   const [nudge, setNudge] = useState<any>(null);
+  const [resolveNote, setResolveNote] = useState("");
   // payment sheet: resolved recipient (billing contact → primary → first email)
   const [payTo, setPayTo] = useState<{ name: string; email: string } | null | "loading">(
     sheet.kind === "payment" ? "loading" : null);
@@ -462,6 +517,28 @@ function ActionSheet({ sheet, onClose, onShipByLogged, onStudioAnswered, onSaleC
     } catch (e: any) { setErr(e.message); setBusy(null); }
   }
 
+  // ── variance: mark resolved — snapshots the counts so a later correction
+  //    invalidates the dismissal and the card resurfaces on its own ──
+  const sumQ = (o: any) => Object.values(o || {}).reduce((a: number, b: any) => a + (Number(b) || 0), 0);
+  async function markResolved() {
+    const it = sheet.item;
+    setBusy("resolve"); setErr(null);
+    try {
+      const { data: { user } = { user: null } } = await supabase.auth.getUser();
+      const shipT = sumQ(it.ship_qtys), recvT = sumQ(it.received_qtys);
+      const { error } = await (supabase.from("items") as any).update({
+        variance_resolved: {
+          at: new Date().toISOString(), by: user?.email || null,
+          note: resolveNote.trim() || null, ship_total: shipT, recv_total: recvT,
+        },
+      }).eq("id", it.id);
+      if (error) throw new Error(error.message);
+      logJobActivity(it.jobs?.id, `${it.name} — count variance resolved (shipped ${shipT} vs received ${recvT})${resolveNote.trim() ? `: ${resolveNote.trim()}` : ""}`);
+      onVarianceResolved(it.id);
+      onClose();
+    } catch (e: any) { setErr(e.message || "Failed"); setBusy(null); }
+  }
+
   // ── payment: resend the reminder (existing invoice-reminder pipeline —
   //    PDF attached, Pay Online button, "disregard if paid" hint) ──
   async function sendReminder() {
@@ -533,15 +610,37 @@ function ActionSheet({ sheet, onClose, onShipByLogged, onStudioAnswered, onSaleC
             <a href={`/jobs/${sheet.job.id}`} style={linkCss}>Open the job →</a>
           </>
         )}
-        {sheet.kind === "landing" && (
+        {sheet.kind === "variance" && (
           <>
-            {head(`${sheet.lines[0]?.jobs?.clients?.name || "Inbound"} · landing late`,
-              HOUSE_EXTRA_DIRECTIVES.landing_late.verb,
-              `expected ${fmtDate(sheet.shipment.expected_arrival)}${sheet.shipment.tracking_number ? ` · ${[sheet.shipment.carrier, sheet.shipment.tracking_number].filter(Boolean).join(" ")}` : " · no tracking on file"}`,
-              H.red)}
-            {nudgeBlock({ shipmentId: sheet.shipment.id })}
+            {head(`${sheet.item.jobs?.clients?.name || ""} · ${sheet.item.jobs?.job_number || ""}`,
+              DISTRO_DIRECTIVES.variance.verb,
+              `${sheet.item.name} · shipped ${sumQ(sheet.item.ship_qtys)} vs received ${sumQ(sheet.item.received_qtys)}`, H.red)}
+            <div style={{ marginBottom: 16 }}>
+              <div style={labelCss}>Size by size</div>
+              {Array.from(new Set([...Object.keys(sheet.item.ship_qtys || {}), ...Object.keys(sheet.item.received_qtys || {})])).map(sz => {
+                const s = Number((sheet.item.ship_qtys || {})[sz]) || 0;
+                const r = Number((sheet.item.received_qtys || {})[sz]) || 0;
+                return (
+                  <div key={sz} style={{ display: "flex", gap: 14, alignItems: "baseline", padding: "5px 0", borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
+                    <span style={{ fontSize: 11, fontWeight: 800, textTransform: "uppercase", width: 44 }}>{sz}</span>
+                    <span style={{ fontSize: 11.5, fontFamily: H.mono, color: "rgba(255,255,255,0.65)" }}>shipped {s}</span>
+                    <span style={{ fontSize: 11.5, fontFamily: H.mono, color: s !== r ? H.red : "rgba(255,255,255,0.65)", fontWeight: s !== r ? 800 : 400 }}>received {r}</span>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={labelCss}>Recounted and it still doesn't match? Flag the vendor</div>
+            {nudgeBlock({ itemId: sheet.item.id })}
             {divider}
-            <a href="/receiving2" style={linkCss}>Open receiving →</a>
+            <div style={labelCss}>Settled? Resolve it — the card comes back on its own if the counts change again</div>
+            <input type="text" value={resolveNote} onChange={e => setResolveNote(e.target.value)}
+              placeholder="How it settled — 'vendor shorted 2, credited on PO'…"
+              style={{ ...inputCss, width: "100%", boxSizing: "border-box", fontFamily: H.font, marginBottom: 12 }} />
+            <button style={goBtn(busy !== "resolve")} disabled={busy === "resolve"} onClick={markResolved}>
+              {busy === "resolve" ? "Resolving…" : "Mark resolved"}
+            </button>
+            {divider}
+            <a href="/receiving2" style={linkCss}>Open receiving to recount →</a>
           </>
         )}
         {sheet.kind === "studio" && (

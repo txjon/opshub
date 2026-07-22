@@ -7,7 +7,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { H } from "@/components/hub/theme";
-import { DISTRO_DIRECTIVES } from "@/lib/directives";
+import { DISTRO_DIRECTIVES, HOUSE_EXTRA_DIRECTIVES } from "@/lib/directives";
 import { fulfillPullRequest, resolvePostShopifyPull } from "@/lib/handoff";
 import { logJobActivity } from "@/components/JobActivityPanel";
 
@@ -21,7 +21,7 @@ export default function TheDistroPage() {
   const [ships, setShips] = useState<any[] | null>(null);
   const [pulls, setPulls] = useState<any[]>([]);
   const [fulfill, setFulfill] = useState<any[]>([]);
-  const [variances, setVariances] = useState<any[]>([]);
+  const [lateLandings, setLateLandings] = useState<any[]>([]);
   const [wire, setWire] = useState<any[]>([]);
   // act-in-place: tapping a plate opens its action sheet instead of leaving
   const [sheet, setSheet] = useState<any>(null);
@@ -29,29 +29,21 @@ export default function TheDistroPage() {
   useEffect(() => {
     (async () => {
       const today = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
-      const [{ data: sh }, { data: pr }, { data: fj }, { data: act }] = await Promise.all([
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const [{ data: sh }, { data: pr }, { data: fj }, { data: act }, { data: lateShips }] = await Promise.all([
         supabase.from("shipments").select("id, expected_arrival, status, source, shipment_lines(item_id, received)").gte("expected_arrival", today).order("expected_arrival").limit(12),
         supabase.from("pull_requests").select("id, item_id, job_id, kind, qtys, reason, status, requested_by_name, created_at, items(id, name, status, sample_qtys, received_at_hpd, jobs(job_number, clients(name)))").in("status", ["pending", "partial"]).order("created_at").limit(20),
         supabase.from("jobs").select("id, job_number, fulfillment_status, target_ship_date, clients(name), items(id, name, received_at_hpd, webstore_entered_at)").eq("phase", "fulfillment"),
         supabase.from("job_activity").select("message, created_at, jobs(job_number, clients(name))").order("created_at", { ascending: false }).limit(40),
+        // late landings: expected date passed, still not delivered — "where is it"
+        // (moved here from The House — chasing boxes is dock work; Jon, Jul 22)
+        supabase.from("shipments")
+          .select("id, expected_arrival, status, carrier, tracking_number, carrier_status, shipment_lines(item_id, items(name, jobs(job_number, clients(name))))")
+          .lt("expected_arrival", todayStr).in("status", ["pending", "in_transit", "exception"])
+          .order("expected_arrival").limit(6),
       ]);
-      setShips(sh || []); setPulls(pr || []); setFulfill(fj || []);
+      setShips(sh || []); setPulls(pr || []); setFulfill(fj || []); setLateLandings(lateShips || []);
       setWire((act || []).filter((a: any) => /receiv|ship|forward|pull|land|deliver/i.test(a.message)).slice(0, 12));
-      // variance: recently-received items whose received != shipped
-      const { data: recv } = await supabase.from("items")
-        .select("id, name, ship_qtys, received_qtys, received_at_hpd_at, variance_resolved, jobs!inner(id, job_number, phase, clients(name))")
-        .eq("received_at_hpd", true)
-        .not("jobs.phase", "in", "(complete,cancelled)")
-        .order("received_at_hpd_at", { ascending: false }).limit(60);
-      setVariances((recv || []).filter((it: any) => {
-        const s = sum(it.ship_qtys), r = sum(it.received_qtys);
-        if (!(s > 0 && r > 0 && r !== s)) return false;
-        // resolved only while the snapshot still matches the live counts — a
-        // later correction invalidates the dismissal and the card resurfaces
-        const vr = it.variance_resolved;
-        if (vr && Number(vr.ship_total) === s && Number(vr.recv_total) === r) return false;
-        return true;
-      }).slice(0, 6));
     })();
     // eslint-disable-next-line
   }, []);
@@ -111,7 +103,7 @@ export default function TheDistroPage() {
               <div><div style={{ fontSize: "clamp(24px,3vw,36px)", fontWeight: 900, lineHeight: 1, color: landingsToday ? PURPLE : H.text }}>{landingsToday}</div><div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.faint, marginTop: 5 }}>landing today</div></div>
               <div><div style={{ fontSize: "clamp(24px,3vw,36px)", fontWeight: 900, lineHeight: 1, color: pulls.length ? H.amber : H.text }}>{pulls.length}</div><div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.faint, marginTop: 5 }}>open pulls · {openPullUnits} pcs</div></div>
               <div><div style={{ fontSize: "clamp(24px,3vw,36px)", fontWeight: 900, lineHeight: 1 }}>{fulfill.length}</div><div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.faint, marginTop: 5 }}>in fulfillment</div></div>
-              <div><div style={{ fontSize: "clamp(24px,3vw,36px)", fontWeight: 900, lineHeight: 1, color: variances.length ? H.red : H.text }}>{variances.length}</div><div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.faint, marginTop: 5 }}>counts off</div></div>
+              <div><div style={{ fontSize: "clamp(24px,3vw,36px)", fontWeight: 900, lineHeight: 1, color: lateLandings.length ? H.red : H.text }}>{lateLandings.length}</div><div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.faint, marginTop: 5 }}>landing late</div></div>
             </div>
 
             {/* ── LANDING RAIL ── */}
@@ -139,14 +131,19 @@ export default function TheDistroPage() {
             <section style={{ marginTop: 36 }}>
               <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 14 }}>
                 <h2 style={{ margin: 0, fontSize: 19, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", color: H.amber }}>Your move.</h2>
-                <span style={{ fontSize: 10.5, color: H.faint }}>every card tells you what, how, and what done looks like — red means the count's off</span>
+                <span style={{ fontSize: 10.5, color: H.faint }}>every card tells you what, how, and what done looks like — red means a box is missing</span>
               </div>
               <div className="ds-grid">
-                {variances.map((it: any) => plate(`var-${it.id}`,
-                  `${it.jobs?.clients?.name || ""} · ${it.jobs?.job_number || ""}`, it.name,
-                  `shipped ${sum(it.ship_qtys)} · received ${sum(it.received_qtys)}`,
-                  DISTRO_DIRECTIVES.variance, H.red, "/receiving2", "Handle it",
-                  () => setSheet({ kind: "variance", item: it })))}
+                {lateLandings.map((s: any) => {
+                  const lines = (s.shipment_lines || []).map((l: any) => l.items).filter(Boolean);
+                  const cl = lines[0]?.jobs?.clients?.name || "Inbound";
+                  const jn = Array.from(new Set(lines.map((i: any) => i.jobs?.job_number).filter(Boolean))).join(" · ");
+                  const state = (s.carrier_status || s.status || "").replace(/_/g, " ");
+                  return plate(`land-${s.id}`, cl, jn || "Shipment",
+                    `expected ${fmtDate(s.expected_arrival)} · ${state}${s.tracking_number ? ` · ${s.tracking_number}` : " · no tracking on file"}`,
+                    HOUSE_EXTRA_DIRECTIVES.landing_late, H.red, "/receiving2", "Chase it",
+                    () => setSheet({ kind: "landing", shipment: s, lines }));
+                })}
                 {pullableNow.map((p: any) => plate(`pull-${p.id}`,
                   `${p.items?.jobs?.clients?.name || p.requested_by_name || "Pull"} · ${p.items?.jobs?.job_number || ""}`,
                   p.items?.name || "Item",
@@ -168,7 +165,7 @@ export default function TheDistroPage() {
                     DISTRO_DIRECTIVES.fulfill, H.amber, "/staging2", "See what's left",
                     () => setSheet({ kind: "fulfill", job: j }));
                 })}
-                {variances.length + pulls.length + fulfill.length === 0 && (
+                {lateLandings.length + pulls.length + fulfill.length === 0 && (
                   <div style={{ color: H.dim, fontSize: 13, padding: "10px 0" }}>The dock is clear. Watch the landing rail.</div>
                 )}
               </div>
@@ -202,7 +199,6 @@ export default function TheDistroPage() {
           sheet={sheet}
           onClose={() => setSheet(null)}
           onPullDone={(pullId: string) => setPulls(prev => prev.filter((p: any) => p.id !== pullId))}
-          onVarianceResolved={(itemId: string) => setVariances(prev => prev.filter((it: any) => it.id !== itemId))}
         />
       )}
     </div>
@@ -210,14 +206,14 @@ export default function TheDistroPage() {
 }
 
 // ── THE ACTION SHEET — act in place, dock edition ──
-// Pulls fulfill here (per-size confirm, post-Shopify rule honored), variances
-// flag the vendor with the counts written for you. The fulfillment sheet
-// tells the truth about the road: stage goods END at Shopify entry (the
-// staging board owns the per-size entry — that's data entry, so it deep-links).
-function DistroActionSheet({ sheet, onClose, onPullDone, onVarianceResolved }: {
+// Pulls fulfill here (per-size confirm, post-Shopify rule honored), late
+// landings chase the vendor from the plate. The fulfillment sheet tells the
+// truth about the road: stage goods END at Shopify entry (the staging board
+// owns the per-size entry — that's data entry, so it deep-links). Count
+// variances live on The House's post-production block, not here.
+function DistroActionSheet({ sheet, onClose, onPullDone }: {
   sheet: any; onClose: () => void;
   onPullDone: (pullId: string) => void;
-  onVarianceResolved: (itemId: string) => void;
 }) {
   const supabase = createClient();
   const [busy, setBusy] = useState<string | null>(null);
@@ -226,7 +222,6 @@ function DistroActionSheet({ sheet, onClose, onPullDone, onVarianceResolved }: {
   const [qtys, setQtys] = useState<Record<string, number>>(() =>
     sheet.kind === "pull" ? { ...(sheet.pull.qtys || {}) } : {});
   const [nudge, setNudge] = useState<any>(null);
-  const [resolveNote, setResolveNote] = useState("");
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -279,47 +274,26 @@ function DistroActionSheet({ sheet, onClose, onPullDone, onVarianceResolved }: {
     } catch (e: any) { setErr(e.message || "Failed"); setBusy(null); }
   }
 
-  // ── variance: email the vendor with the counts written for you ──
-  async function nudgePreview() {
+  // ── vendor nudge (late landings): write/preview/send, recipients shown first ──
+  async function nudgePreview(payload: any) {
     setBusy("preview"); setErr(null);
     try {
-      const res = await fetch("/api/house/vendor-nudge", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: sheet.item.id, preview: true }) });
+      const res = await fetch("/api/house/vendor-nudge", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, preview: true }) });
       const b = await res.json();
       if (!res.ok) throw new Error(b.error || "Failed");
-      setNudge(b);
+      setNudge({ ...b, payload });
     } catch (e: any) { setErr(e.message); }
     setBusy(null);
   }
   async function nudgeSend() {
     setBusy("send"); setErr(null);
     try {
-      const res = await fetch("/api/house/vendor-nudge", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: sheet.item.id }) });
+      const res = await fetch("/api/house/vendor-nudge", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(nudge.payload) });
       const b = await res.json();
       if (!res.ok) throw new Error(b.error || "Failed");
       setOk(`Sent to ${b.sentTo.join(", ")}`);
     } catch (e: any) { setErr(e.message); }
     setBusy(null);
-  }
-
-  // ── variance: mark resolved — snapshots the counts so a later correction
-  //    invalidates the dismissal and the card resurfaces on its own ──
-  async function markResolved() {
-    const it = sheet.item;
-    setBusy("resolve"); setErr(null);
-    try {
-      const { data: { user } = { user: null } } = await supabase.auth.getUser();
-      const shipT = sum(it.ship_qtys), recvT = sum(it.received_qtys);
-      const { error } = await (supabase.from("items") as any).update({
-        variance_resolved: {
-          at: new Date().toISOString(), by: user?.email || null,
-          note: resolveNote.trim() || null, ship_total: shipT, recv_total: recvT,
-        },
-      }).eq("id", it.id);
-      if (error) throw new Error(error.message);
-      logJobActivity(it.jobs?.id, `${it.name} — count variance resolved (shipped ${shipT} vs received ${recvT})${resolveNote.trim() ? `: ${resolveNote.trim()}` : ""}`);
-      onVarianceResolved(it.id);
-      onClose();
-    } catch (e: any) { setErr(e.message || "Failed"); setBusy(null); }
   }
 
   return (
@@ -368,31 +342,17 @@ function DistroActionSheet({ sheet, onClose, onPullDone, onVarianceResolved }: {
             <a href="/warehouse" style={linkCss}>Open the pulls queue →</a>
           </>
         )}
-        {sheet.kind === "variance" && (
+        {sheet.kind === "landing" && (
           <>
-            {head(`${sheet.item.jobs?.clients?.name || ""} · ${sheet.item.jobs?.job_number || ""}`,
-              DISTRO_DIRECTIVES.variance.verb,
-              `${sheet.item.name} · shipped ${sum(sheet.item.ship_qtys)} vs received ${sum(sheet.item.received_qtys)}`, H.red)}
-            <div style={{ marginBottom: 16 }}>
-              <div style={labelCss}>Size by size</div>
-              {Array.from(new Set([...Object.keys(sheet.item.ship_qtys || {}), ...Object.keys(sheet.item.received_qtys || {})])).map(sz => {
-                const s = Number((sheet.item.ship_qtys || {})[sz]) || 0;
-                const r = Number((sheet.item.received_qtys || {})[sz]) || 0;
-                return (
-                  <div key={sz} style={{ display: "flex", gap: 14, alignItems: "baseline", padding: "5px 0", borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
-                    <span style={{ fontSize: 11, fontWeight: 800, textTransform: "uppercase", width: 44 }}>{sz}</span>
-                    <span style={{ fontSize: 11.5, fontFamily: H.mono, color: "rgba(255,255,255,0.65)" }}>shipped {s}</span>
-                    <span style={{ fontSize: 11.5, fontFamily: H.mono, color: s !== r ? H.red : "rgba(255,255,255,0.65)", fontWeight: s !== r ? 800 : 400 }}>received {r}</span>
-                  </div>
-                );
-              })}
-            </div>
-            <div style={labelCss}>Recounted and it still doesn't match? Flag the vendor</div>
+            {head(`${sheet.lines[0]?.jobs?.clients?.name || "Inbound"} · landing late`,
+              HOUSE_EXTRA_DIRECTIVES.landing_late.verb,
+              `expected ${fmtDate(sheet.shipment.expected_arrival)}${sheet.shipment.tracking_number ? ` · ${[sheet.shipment.carrier, sheet.shipment.tracking_number].filter(Boolean).join(" ")}` : " · no tracking on file"}`, H.red)}
+            <div style={labelCss}>Email the vendor — where is it</div>
             {ok ? (
               <div style={{ fontSize: 13, color: H.green, fontWeight: 700 }}>✓ {ok} — it's on the wire.</div>
             ) : !nudge ? (
-              <button style={goBtn(busy !== "preview")} disabled={busy === "preview"} onClick={nudgePreview}>
-                {busy === "preview" ? "Writing it…" : "Write the vendor email"}
+              <button style={goBtn(busy !== "preview")} disabled={busy === "preview"} onClick={() => nudgePreview({ shipmentId: sheet.shipment.id })}>
+                {busy === "preview" ? "Writing it…" : "Write the nudge"}
               </button>
             ) : (
               <div>
@@ -406,15 +366,7 @@ function DistroActionSheet({ sheet, onClose, onPullDone, onVarianceResolved }: {
               </div>
             )}
             {divider}
-            <div style={labelCss}>Settled? Resolve it — the card comes back on its own if the counts change again</div>
-            <input type="text" value={resolveNote} onChange={e => setResolveNote(e.target.value)}
-              placeholder="How it settled — 'vendor shorted 2, credited on PO'…"
-              style={{ ...inputCss, width: "100%", boxSizing: "border-box", fontFamily: H.font, marginBottom: 12 }} />
-            <button style={goBtn(busy !== "resolve")} disabled={busy === "resolve"} onClick={markResolved}>
-              {busy === "resolve" ? "Resolving…" : "Mark resolved"}
-            </button>
-            {divider}
-            <a href="/receiving2" style={linkCss}>Open receiving to recount →</a>
+            <a href="/receiving2" style={linkCss}>Open receiving →</a>
           </>
         )}
         {sheet.kind === "fulfill" && (() => {
