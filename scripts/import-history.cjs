@@ -44,9 +44,13 @@ const usDate = (s) => {
   return m ? `${m[3]}-${m[1].padStart(2, "0")}-${m[2].padStart(2, "0")}` : null;
 };
 
-// "NAME / BLANK / COLOR <tabs> S 7 • M 13 • L 3" → parts + size map
-const SIZE_TOKEN = /(?:^|[\s•\t])((?:XS|S|M|L|XL|2XL|3XL|4XL|5XL|OSFA|OS|YS|YM|YL|YXL))\s+([\d,]+)(?=\s|•|$)/gi;
-function parseDesc(desc) {
+// "NAME / BLANK / COLOR <tabs> S 7 • M 13 • L 3" → parts + size map.
+// XXL/XXXL spellings normalize to 2XL/3XL. Lines that carry ONE size in the
+// NAME ("… - 3XL") with the count in the qty column get a single-size curve.
+const SIZE_TOKEN = /(?:^|[\s•\t])((?:XS|S|M|L|XL|XXL|XXXL|2XL|3XL|4XL|5XL|OSFA|OS|YS|YM|YL|YXL))\s+([\d,]+)(?=\s|•|$)/gi;
+const ONE_SIZE = /(?:^|[\s\/\-–])((?:XS|S|M|L|XL|XXL|XXXL|2XL|3XL|4XL|5XL|OS|OSFA))(?:\s*$|[\s).])/;
+const normSize = (s) => ({ XXL: "2XL", XXXL: "3XL" }[s.toUpperCase()] || s.toUpperCase());
+function parseDesc(desc, lineQty) {
   const out = { product_name: null, blank_style: null, color: null, size_qtys: null };
   if (!desc) return out;
   const [head] = desc.split(/\t/); // sizes live after tab runs in the OpsHub format
@@ -57,7 +61,11 @@ function parseDesc(desc) {
   let m;
   while ((m = SIZE_TOKEN.exec(desc)) !== null) {
     const n = num(m[2]);
-    if (n != null && n > 0) sizes[m[1].toUpperCase()] = (sizes[m[1].toUpperCase()] || 0) + n;
+    if (n != null && n > 0 && n <= 50000) sizes[normSize(m[1])] = (sizes[normSize(m[1])] || 0) + n;
+  }
+  if (!Object.keys(sizes).length && lineQty != null && lineQty > 0) {
+    const one = ONE_SIZE.exec(head);
+    if (one) sizes[normSize(one[1])] = lineQty;
   }
   if (Object.keys(sizes).length) out.size_qtys = sizes;
   return out;
@@ -93,7 +101,7 @@ async function insertBatched(table, rows) {
     const details = walkGrouped(parseCsv(fs.readFileSync(path.join(RAW, salesFile), "utf8")));
     await db.from("history_sales").delete().eq("source_file", salesFile);
     const rows = details.map(({ group, r }) => {
-      const p = parseDesc(r[5] || "");
+      const p = parseDesc(r[5] || "", num(r[6]));
       return {
         txn_date: usDate(r[1]), txn_type: r[2] || null, doc_num: r[3] || null,
         customer: (r[4] || "").trim() || null, description: r[5] || null,
@@ -104,6 +112,29 @@ async function insertBatched(table, rows) {
     await insertBatched("history_sales", rows);
     const parsed = rows.filter(x => x.blank_style).length, sized = rows.filter(x => x.size_qtys).length;
     console.log(`✓ history_sales: ${rows.length} lines (${parsed} with blank style, ${sized} with size curves)`);
+
+    // ── overlap stamp (Jon, Jul 22): the export runs through the OpsHub era.
+    // Any line whose doc number matches a job's QB invoice number exists in
+    // BOTH worlds — stamp it so aggregates read history OR live, never both.
+    const jobMap = new Map();
+    for (let from = 0; ; from += 1000) {
+      const { data } = await db.from("jobs").select("id, type_meta").range(from, from + 999);
+      for (const j of data || []) {
+        const n = j.type_meta && j.type_meta.qb_invoice_number;
+        if (n) jobMap.set(String(n).trim(), j.id);
+      }
+      if (!data || data.length < 1000) break;
+    }
+    const nums = new Set(rows.map(r => String(r.doc_num || "").trim()).filter(Boolean));
+    let stamped = 0;
+    for (const n of nums) {
+      if (!jobMap.has(n)) continue;
+      const { count } = await db.from("history_sales")
+        .update({ opshub_job_id: jobMap.get(n) }, { count: "exact" })
+        .eq("source_file", salesFile).eq("doc_num", n);
+      stamped += count || 0;
+    }
+    console.log(`✓ overlap stamped: ${stamped} lines match OpsHub jobs (excluded from aggregates)`);
   }
 
   // ── PURCHASES ──

@@ -112,7 +112,8 @@ export default function GodModeV2Page() {
 
     const totalGross = Array.from(byMonth.values()).reduce((a, v) => a + v.a, 0);
     const totalUnits = Array.from(byMonth.values()).reduce((a, v) => a + v.q, 0);
-    return { topClients, series, mix, curve, curveTotal, curveGroups, blanks, vendors, totalGross, totalUnits, span };
+    const customerCount = byClient.size;
+    return { topClients, series, mix, curve, curveTotal, curveGroups, blanks, vendors, totalGross, totalUnits, customerCount, span };
   }, [data, client, group]);
 
   return (
@@ -154,7 +155,8 @@ export default function GodModeV2Page() {
             <div style={{ display: "flex", gap: "clamp(18px,4vw,48px)", flexWrap: "wrap", borderTop: `1px solid ${H.line}`, borderBottom: `1px solid ${H.line}`, padding: "16px 0", margin: "14px 0 0" }}>
               <div><div style={{ fontSize: "clamp(24px,3vw,36px)", fontWeight: 900, lineHeight: 1 }}>{fmt$(model.totalGross)}</div><div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.faint, marginTop: 5 }}>gross, all time</div></div>
               <div><div style={{ fontSize: "clamp(24px,3vw,36px)", fontWeight: 900, lineHeight: 1, color: H.blue }}>{Math.round(model.totalUnits).toLocaleString()}</div><div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.faint, marginTop: 5 }}>units sold</div></div>
-              <div><div style={{ fontSize: "clamp(24px,3vw,36px)", fontWeight: 900, lineHeight: 1, color: PURPLE }}>{client === "ALL" ? "317" : "1"}</div><div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.faint, marginTop: 5 }}>{client === "ALL" ? "clients" : client.replace(/, (LLC|INC).*/i, "")}</div></div>
+              <div><div style={{ fontSize: "clamp(24px,3vw,36px)", fontWeight: 900, lineHeight: 1, color: PURPLE }}>{client === "ALL" ? model.customerCount.toLocaleString() : "1"}</div><div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.faint, marginTop: 5 }}>{client === "ALL" ? "clients" : client.replace(/, (LLC|INC).*/i, "")}</div></div>
+              <div style={{ alignSelf: "flex-end", fontSize: 9.5, color: H.faint, maxWidth: 220, lineHeight: 1.5 }}>OpsHub-era invoices excluded — those live on the live boards, never counted twice.</div>
             </div>
 
             <MonthlyChart series={model.series} />

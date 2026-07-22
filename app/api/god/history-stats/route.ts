@@ -14,9 +14,11 @@ function admin() {
 }
 
 async function pageAll(db: any, table: string, cols: string) {
+  // ordered paging — without .order, PostgREST page boundaries aren't
+  // deterministic and rows can be skipped or doubled across pages
   const out: any[] = [];
   for (let from = 0; ; from += 1000) {
-    const { data, error } = await db.from(table).select(cols).range(from, from + 999);
+    const { data, error } = await db.from(table).select(cols).order("id").range(from, from + 999);
     if (error) throw new Error(error.message);
     out.push(...(data || []));
     if (!data || data.length < 1000) break;
@@ -35,8 +37,11 @@ export async function GET() {
     if (!allowed) return NextResponse.json({ error: "Not available" }, { status: 403 });
 
     const db = admin();
-    const sales = await pageAll(db, "history_sales",
-      "txn_date, customer, product_group, amount, qty, blank_style, size_qtys");
+    // opshub_job_id null = pure history; stamped rows live on as jobs and
+    // would double-count (Jon, Jul 22)
+    const sales = (await pageAll(db, "history_sales",
+      "txn_date, customer, product_group, amount, qty, blank_style, size_qtys, opshub_job_id"))
+      .filter((r: any) => !r.opshub_job_id);
     const costs = await pageAll(db, "history_vendor_costs", "txn_date, vendor, amount, txn_type");
 
     // compact lines: [ym, customer, group, amount, qty]
