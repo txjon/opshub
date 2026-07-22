@@ -695,7 +695,10 @@ function ActionSheet({ sheet, onClose, onShipByLogged, onSaleClosed, onVarianceR
                 </div>
               )}
               {briefDetail === null && <div style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", marginBottom: 14 }}>Pulling the idea in…</div>}
-              <a href={`/studio2?open=${b.id}`} style={{ ...goBtn(true), display: "inline-block", textDecoration: "none" }}>Reply in the Studio →</a>
+              <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+                <a href={`/studio2?open=${b.id}`} style={{ ...goBtn(true), display: "inline-block", textDecoration: "none" }}>Reply in the Studio →</a>
+                {b.client_id && <a href={`/clients/${b.client_id}`} style={linkCss}>The client space →</a>}
+              </div>
             </>
           );
         })()}

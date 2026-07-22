@@ -154,7 +154,10 @@ export default function Studio2Page() {
                         </div>
                       )}
                       <div style={{ padding: "10px 13px 13px" }}>
-                        <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: H.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.clients?.name || "—"}</div>
+                        {/* client name = door to the client space (Jon: "accessible IN the studio") */}
+                        <div onClick={e => { if (b.client_id) { e.stopPropagation(); window.location.href = `/clients/${b.client_id}`; } }}
+                          style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: H.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: b.client_id ? "pointer" : "default" }}
+                          title={b.client_id ? "Open the client space" : undefined}>{b.clients?.name || "—"}</div>
                         <div style={{ fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", lineHeight: 1.25, marginTop: 3, overflow: "hidden", display: "-webkit-box", WebkitBoxOrient: "vertical" as any, WebkitLineClamp: 2 }}>{b.title || "Untitled idea"}</div>
                         <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 5, flexWrap: "wrap" }}>
                           <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: w.color }}>{w.label}</span>
@@ -230,7 +233,9 @@ function OpsBriefSheet({ brief, onClose }: { brief: any; onClose: () => void }) 
       <div className="sv-sheet">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, padding: "18px 22px 6px" }}>
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: H.faint }}>{brief.clients?.name || "—"}</div>
+            {brief.client_id
+              ? <a href={`/clients/${brief.client_id}`} style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: H.faint, textDecoration: "none" }} title="Open the client space">{brief.clients?.name || "—"} →</a>
+              : <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: H.faint }}>{brief.clients?.name || "—"}</div>}
             <div style={{ fontSize: 18, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", lineHeight: 1.2, marginTop: 2 }}>{brief.title || "Untitled idea"}</div>
             <div style={{ display: "flex", gap: 10, alignItems: "baseline", marginTop: 4, flexWrap: "wrap" }}>
               <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: w.color }}>{w.label}</span>

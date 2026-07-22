@@ -176,7 +176,7 @@ export default function ClientSpacePage() {
         {section === "Orders" && <OrdersRail model={model} secHead={secHead} />}
         {section === "Pipeline" && <PipelineRail model={model} secHead={secHead} />}
         {section === "Catalog" && <CatalogRail products={products} briefs={briefs} model={model} router={router} secHead={secHead} />}
-        {section === "Archive" && <ArchiveRail archive={archive} secHead={secHead} />}
+        {section === "Archive" && <ArchiveRail archive={archive} briefs={briefs} clientId={params.id} secHead={secHead} />}
         {section === "Money" && <MoneyRail model={model} hist={hist} secHead={secHead} />}
       </div>
     </div>
@@ -351,6 +351,15 @@ function CatalogRail({ products, briefs, model, router, secHead }: any) {
       router.push(`/jobs/${b.jobId}`);
     } catch (e: any) { setErr(e.message); setBusy(null); }
   }
+  async function flipIt(p: any) {
+    setBusy(`flip-${p.id}`); setErr(null);
+    try {
+      const res = await fetch(`/api/products/${p.id}/flip`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
+      const b = await res.json();
+      if (!res.ok) throw new Error(b.error || "Couldn't open the flip");
+      router.push(`/studio2?open=${b.briefId}`);
+    } catch (e: any) { setErr(e.message); setBusy(null); }
+  }
   return (
     <>
       {secHead("The catalog.", "their products — greenlit designs and everything ever produced")}
@@ -380,6 +389,10 @@ function CatalogRail({ products, briefs, model, router, secHead }: any) {
                       style={{ background: "#fff", color: H.ink, border: 0, borderRadius: 999, padding: "8px 14px", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font, opacity: busy === p.id ? 0.5 : 1 }}>
                       {busy === p.id ? "Starting…" : "Run it →"}
                     </button>
+                    <button onClick={() => flipIt(p)} disabled={busy === `flip-${p.id}`}
+                      style={{ background: "transparent", color: PURPLE, border: `1px solid ${PURPLE}`, borderRadius: 999, padding: "8px 14px", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font, opacity: busy === `flip-${p.id}` ? 0.5 : 1 }}>
+                      {busy === `flip-${p.id}` ? "Opening…" : "Flip it"}
+                    </button>
                     {p.brief_id && <a href={`/studio2?open=${p.brief_id}`} style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", color: H.dim, textDecoration: "none", padding: "8px 4px" }}>The idea →</a>}
                   </div>
                 </div>
@@ -408,9 +421,46 @@ function CatalogRail({ products, briefs, model, router, secHead }: any) {
 }
 
 // ── Archive: the indexed pre-OpsHub art, browsable in place ──
-function ArchiveRail({ archive, secHead }: any) {
+function ArchiveRail({ archive, briefs, clientId, secHead }: any) {
+  const supabase = createClient();
   const [path, setPath] = useState<string>("");
   const [q, setQ] = useState("");
+  const [picker, setPicker] = useState<any | null>(null);   // the file being sent
+  const [sent, setSent] = useState<{ briefId: string; title: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  // "use this" — promotion by pointer: the archive file joins an idea's
+  // thread as a reference; nothing in Drive moves or copies
+  async function sendToBrief(file: any, briefId: string, briefTitle: string) {
+    setBusy(true);
+    try {
+      const { error } = await supabase.from("art_brief_files").insert({
+        brief_id: briefId,
+        file_name: file.file_name,
+        drive_file_id: file.drive_file_id,
+        drive_link: `https://drive.google.com/file/d/${file.drive_file_id}/view`,
+        mime_type: file.mime_type || null,
+        kind: "reference",
+        uploader_role: "hpd",
+      } as never);
+      if (error) throw new Error(error.message);
+      setSent({ briefId, title: briefTitle });
+      setPicker(null);
+    } catch { /* surface stays quiet; retry is a tap away */ }
+    setBusy(false);
+  }
+  async function sendToNewIdea(file: any) {
+    setBusy(true);
+    try {
+      const title = String(file.file_name || "Archive pull").replace(/\.\w+$/, "").slice(0, 140);
+      const { data: brief, error } = await supabase.from("art_briefs").insert({
+        client_id: clientId, title, state: "draft", source: "hpd",
+        concept: `Pulled from the archive: ${file.folder_path || ""}/${file.file_name}`,
+      } as never).select("id").single();
+      if (error || !brief) throw new Error(error?.message || "failed");
+      await sendToBrief(file, (brief as any).id, title);
+    } catch { setBusy(false); }
+  }
   const isImg = (r: any) => /image\//.test(r.mime_type || "") || /\.(png|jpe?g|gif|webp)$/i.test(r.file_name || "");
   const needle = q.trim().toLowerCase();
   const hits = needle
@@ -439,6 +489,11 @@ function ArchiveRail({ archive, secHead }: any) {
         <span style={{ position: "absolute", left: 8, bottom: 6, fontSize: 8, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: "#888", background: "rgba(0,0,0,0.55)", borderRadius: 999, padding: "3px 8px" }}>
           {((r.file_name || "").match(/\.(\w+)$/) || [, "file"])[1]}
         </span>
+        <button onClick={e => { e.preventDefault(); e.stopPropagation(); setSent(null); setPicker(r); }}
+          title="Send to the Studio"
+          style={{ position: "absolute", right: 6, top: 6, background: "rgba(0,0,0,0.7)", color: "#fff", border: 0, borderRadius: 999, padding: "6px 11px", fontSize: 8.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>
+          → Studio
+        </button>
       </div>
       <div style={{ padding: "8px 11px 11px", fontSize: 10.5, lineHeight: 1.35, wordBreak: "break-word" }}>{r.file_name}</div>
     </a>
@@ -446,6 +501,31 @@ function ArchiveRail({ archive, secHead }: any) {
   return (
     <>
       {secHead("The archive.", `${archive.length.toLocaleString()} files, indexed in place — nothing moved, everything findable`)}
+      {sent && (
+        <div style={{ fontSize: 12.5, color: H.green, fontWeight: 700, marginBottom: 14 }}>
+          ✓ Sent to "{sent.title}" — <a href={`/studio2?open=${sent.briefId}`} style={{ color: H.green }}>open it in the Studio →</a>
+        </div>
+      )}
+      {picker && (
+        <div onClick={() => setPicker(null)} style={{ position: "fixed", inset: 0, zIndex: 220, background: "rgba(0,0,0,0.66)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: "#161616", border: `1px solid ${H.line}`, borderRadius: 16, width: "100%", maxWidth: 440, padding: 22, maxHeight: "80vh", overflow: "auto" }}>
+            <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: H.faint, marginBottom: 4 }}>Send to the Studio</div>
+            <div style={{ fontSize: 14, fontWeight: 900, textTransform: "uppercase", marginBottom: 14, wordBreak: "break-word" }}>{picker.file_name}</div>
+            <button onClick={() => sendToNewIdea(picker)} disabled={busy}
+              style={{ display: "block", width: "100%", textAlign: "left", background: "#fff", color: H.ink, border: 0, borderRadius: 10, padding: "12px 15px", fontSize: 12, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.05em", cursor: "pointer", fontFamily: H.font, marginBottom: 14, opacity: busy ? 0.5 : 1 }}>
+              + New idea from this file
+            </button>
+            {briefs.length > 0 && <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: H.faint, marginBottom: 8 }}>or onto an existing idea</div>}
+            {briefs.map((b: any) => (
+              <button key={b.id} onClick={() => sendToBrief(picker, b.id, b.title || "Untitled idea")} disabled={busy}
+                style={{ display: "block", width: "100%", textAlign: "left", background: "transparent", color: H.text, border: `1px solid ${H.line}`, borderRadius: 10, padding: "10px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: H.font, marginBottom: 8, opacity: busy ? 0.5 : 1 }}>
+                {b.title || "Untitled idea"}
+                <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: H.faint, marginLeft: 8 }}>{b.state === "draft" ? "new" : b.state === "final_approved" ? "greenlit" : "in motion"}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       {archive.length === 0 && <div style={{ color: H.faint, fontSize: 12.5 }}>No archive indexed for this client yet — one pasted Drive link does it.</div>}
       {archive.length > 0 && (
         <>
