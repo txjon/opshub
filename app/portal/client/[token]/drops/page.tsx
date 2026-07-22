@@ -346,19 +346,27 @@ function DropSheet({ drop, token, briefs, pipeItems, onChanged, onClose }: {
         {/* ── Actions ── */}
         <div style={{ padding: "16px 20px 20px", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
           {building && (
-            <>
-              <button disabled={!allReady || !!busy}
-                onClick={async () => { setBusy("submit"); if (await call("PATCH", "", { submit: true })) onChanged(drop.id); setBusy(null); }}
-                title={allReady ? "" : "Every line needs an approved design first"}
-                style={{ background: "#fff", color: C.bg, border: "none", borderRadius: 999, padding: "13px 24px", fontSize: 11.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: allReady ? "pointer" : "default", opacity: allReady ? 1 : 0.4, fontFamily: C.font }}>
-                {isStock ? "Ready to launch — send it to us" : "Send it to us"}
-              </button>
-              {!allReady && drop.slots.length > 0 && <span style={{ fontSize: 11, color: C.faint, maxWidth: "34ch", lineHeight: 1.45 }}>Unlocks when every design on the lineup is approved.</span>}
-              <button onClick={async () => { if (confirm("Remove this drop?")) { setBusy("del"); if (await call("DELETE", "")) { onChanged(); onClose(); } setBusy(null); } }}
-                style={{ marginLeft: "auto", background: "none", border: "none", color: C.faint, fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: C.font }}>
-                Remove
-              </button>
-            </>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
+              <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                <button onClick={onClose}
+                  style={{ background: "transparent", color: C.text, border: `1px solid ${C.border}`, borderRadius: 999, padding: "13px 22px", fontSize: 11.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: C.font }}>
+                  Done for now
+                </button>
+                <button disabled={!allReady || !!busy}
+                  onClick={async () => { if (!confirm(`Hand "${drop.title}" to our team? The lineup locks — no more adding or removing after this.`)) return; setBusy("submit"); if (await call("PATCH", "", { submit: true })) onChanged(drop.id); setBusy(null); }}
+                  title={allReady ? "" : "Every line needs an approved design first"}
+                  style={{ background: "#fff", color: C.bg, border: "none", borderRadius: 999, padding: "13px 24px", fontSize: 11.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: allReady ? "pointer" : "default", opacity: allReady ? 1 : 0.4, fontFamily: C.font }}>
+                  {isStock ? "Hand it to HPD" : "Hand it to HPD"}
+                </button>
+                <button onClick={async () => { if (confirm("Remove this drop?")) { setBusy("del"); if (await call("DELETE", "")) { onChanged(); onClose(); } setBusy(null); } }}
+                  style={{ marginLeft: "auto", background: "none", border: "none", color: C.faint, fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: C.font }}>
+                  Remove
+                </button>
+              </div>
+              <span style={{ fontSize: 11, color: C.faint, lineHeight: 1.5, maxWidth: "58ch" }}>
+                Everything saves as you go — close anytime and keep planning later. When the lineup&rsquo;s final, <b style={{ color: C.muted }}>Hand it to HPD</b> sends it to our team {isStock ? "to schedule the launch" : "to cost it and open the sale"}; the lineup locks from there.{!allReady && drop.slots.length > 0 ? " (Unlocks once every design on it is approved.)" : ""}
+              </span>
+            </div>
           )}
           {drop.status === "ready" && <span style={{ fontSize: 12, color: C.muted, lineHeight: 1.5 }}>It&rsquo;s with us — we&rsquo;re costing and scheduling. You&rsquo;ll see it move here.</span>}
           {numbersOpen && <span style={{ fontSize: 12, color: C.muted, lineHeight: 1.5 }}>Sale closed — enter production numbers on each line above and we&rsquo;ll confirm.</span>}
