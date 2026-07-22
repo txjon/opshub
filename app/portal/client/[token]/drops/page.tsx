@@ -7,7 +7,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useClientPortal } from "../_shared/context";
 import { C, fmtDate } from "../_shared/theme";
-import { backwardChain } from "@/lib/portal/drop-chain";
+import { backwardChain, CHAIN_DEFAULTS } from "@/lib/portal/drop-chain";
 
 const thumbSrc = (id: string, size = 300) => `/api/files/thumbnail?id=${id}&thumb=1&size=${size}`;
 
@@ -23,11 +23,16 @@ const STATUS_WORDS: Record<string, { label: string; color: string; hint: string 
 export default function DropsPage() {
   const { data, token } = useClientPortal();
   const hasStudio = ((data as any)?.features || []).includes("studio");
+  const hasPipeline = ((data as any)?.features || []).includes("pipeline");
   const [drops, setDrops] = useState<any[] | null>(null);
+  // Pipeline items — the in-stock lane's slot source + the date engine
+  // (target suggested from the latest landing). Needs the pipeline grant.
+  const [pipeItems, setPipeItems] = useState<any[]>([]);
   const [open, setOpen] = useState<any>(null);
   const [naming, setNaming] = useState(false);
   const [name, setName] = useState("");
   const [target, setTarget] = useState("");
+  const [newModel, setNewModel] = useState<"stock" | "preorder">("stock");
   const [busy, setBusy] = useState(false);
 
   async function load(openId?: string) {
@@ -39,7 +44,15 @@ export default function DropsPage() {
       else if (open) setOpen((body.drops || []).find((d: any) => d.id === open.id) || null);
     } catch { setDrops([]); }
   }
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [token]);
+  useEffect(() => {
+    load();
+    if (hasPipeline) {
+      fetch(`/api/portal/client/${token}/items`).then(r => r.json())
+        .then(b => setPipeItems((b.items || []).filter((it: any) => !["complete", "archived", "cancelled", "on_hold"].includes(it.status))))
+        .catch(() => {});
+    }
+    // eslint-disable-next-line
+  }, [token]);
 
   if (data && !hasStudio) {
     return <div style={{ padding: "60px 0", textAlign: "center", color: C.muted, fontSize: 13 }}>This page isn&rsquo;t enabled for your account. Reach out to your rep if you&rsquo;d like drop planning here.</div>;
@@ -52,7 +65,7 @@ export default function DropsPage() {
     try {
       const res = await fetch(`/api/portal/client/${token}/drops`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: name.trim(), target_live_date: target || undefined }),
+        body: JSON.stringify({ title: name.trim(), target_live_date: target || undefined, model: newModel }),
       });
       const body = await res.json();
       if (res.ok) { setNaming(false); setName(""); setTarget(""); await load(body.dropId); }
@@ -95,8 +108,16 @@ export default function DropsPage() {
               <input value={name} onChange={e => setName(e.target.value)} placeholder="Fall Drop 01" autoFocus
                 style={{ padding: "10px 12px", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 9, outline: "none", color: C.text, fontFamily: C.font, fontSize: 14, fontWeight: 700 }} />
             </label>
+            <span style={{ display: "inline-flex", gap: 6, alignSelf: "flex-end" }}>
+              {([["stock", "In-stock"], ["preorder", "Pre-order"]] as const).map(([k, label]) => (
+                <button key={k} onClick={() => setNewModel(k)}
+                  style={{ borderRadius: 999, border: newModel === k ? "1px solid #fff" : `1px solid ${C.border}`, background: newModel === k ? "#fff" : "transparent", color: newModel === k ? C.bg : C.muted, fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", padding: "10px 14px", cursor: "pointer", fontFamily: C.font }}>
+                  {label}
+                </button>
+              ))}
+            </span>
             <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: C.faint }}>Target live date</span>
+              <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: C.faint }}>Target live date <span style={{ color: C.faint, textTransform: "none", letterSpacing: 0 }}>(or let the lineup pick it)</span></span>
               <input type="date" value={target} onChange={e => setTarget(e.target.value)}
                 style={{ padding: "9px 10px", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 9, outline: "none", color: C.text, fontFamily: C.font, fontSize: 12.5, colorScheme: "dark" }} />
             </label>
@@ -138,25 +159,34 @@ export default function DropsPage() {
         </div>
       )}
 
-      {open && <DropSheet drop={open} token={token} briefs={(data?.briefs as any[]) || []} onChanged={(id?: string) => load(id)} onClose={() => setOpen(null)} />}
+      {open && <DropSheet drop={open} token={token} briefs={(data?.briefs as any[]) || []} pipeItems={pipeItems} onChanged={(id?: string) => load(id)} onClose={() => setOpen(null)} />}
     </div>
   );
 }
 
-function DropSheet({ drop, token, briefs, onChanged, onClose }: {
-  drop: any; token: string; briefs: any[]; onChanged: (id?: string) => void; onClose: () => void;
+function DropSheet({ drop, token, briefs, pipeItems, onChanged, onClose }: {
+  drop: any; token: string; briefs: any[]; pipeItems: any[]; onChanged: (id?: string) => void; onClose: () => void;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState("");
   const [adding, setAdding] = useState(false);
   const building = drop.status === "building";
-  const numbersOpen = drop.status === "closed";
+  const numbersOpen = drop.status === "closed" && drop.model !== "stock";
   const w = STATUS_WORDS[drop.status] || { label: drop.status, color: C.faint, hint: "" };
   const ready = drop.slots.filter((s: any) => s.ideaApproved).length;
   const allReady = drop.slots.length > 0 && ready === drop.slots.length;
 
+  const isStock = drop.model === "stock";
   // Candidate lines: every product line across their ideas not already slotted.
   const slotted = new Set(drop.slots.map((s: any) => `${s.briefId}|${s.lineId}`));
+  const slottedItems = new Set(drop.slots.map((s: any) => s.itemId).filter(Boolean));
+  const itemCands = pipeItems.filter((it: any) => !slottedItems.has(it.id));
+  const itemById = (id: string) => pipeItems.find((it: any) => it.id === id);
+  // Suggested live date = latest landing across item-sourced slots + prep.
+  const slotEtas = drop.slots.map((s: any) => s.itemId && itemById(s.itemId)?.eta).filter(Boolean) as string[];
+  const suggested = slotEtas.length
+    ? new Date(new Date(slotEtas.sort().slice(-1)[0] + "T00:00").getTime() + CHAIN_DEFAULTS.webPrepDays * 86400000).toISOString().slice(0, 10)
+    : null;
   const candidates = useMemo(() => {
     const out: any[] = [];
     for (const b of briefs) {
@@ -226,6 +256,17 @@ function DropSheet({ drop, token, briefs, onChanged, onClose }: {
           );
         })()}
 
+        {/* ── Suggested date from the lineup's landings ── */}
+        {building && suggested && suggested !== drop.target_live_date && (
+          <div style={{ padding: "12px 20px 0", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <button onClick={async () => { if (await call("PATCH", "", { target_live_date: suggested })) onChanged(drop.id); }}
+              style={{ background: "#fff", color: C.bg, border: "none", borderRadius: 999, padding: "11px 20px", fontSize: 10.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", cursor: "pointer", fontFamily: C.font }}>
+              Set live date · ~{fmtDate(suggested)}
+            </button>
+            <span style={{ fontSize: 11, color: C.faint, maxWidth: "36ch", lineHeight: 1.45 }}>from your last landing + {CHAIN_DEFAULTS.webPrepDays}d prep — the lineup picks the date</span>
+          </div>
+        )}
+
         {/* ── The lineup ── */}
         <div style={{ padding: "12px 20px 0" }}>
           <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: C.faint, marginBottom: 8 }}>
@@ -233,21 +274,24 @@ function DropSheet({ drop, token, briefs, onChanged, onClose }: {
           </div>
           {drop.slots.length === 0 && <div style={{ fontSize: 12.5, color: C.faint, paddingBottom: 8 }}>Nothing on it yet — pull designs on below.</div>}
           {drop.slots.map((s: any) => {
-            const b = briefById(s.briefId);
-            const src = b ? briefThumb(b) : null;
+            const pit = s.itemId ? itemById(s.itemId) : null;
+            const b = s.briefId ? briefById(s.briefId) : null;
+            const src = pit?.thumb_id ? thumbSrc(pit.thumb_id) : (b ? briefThumb(b) : null);
             return (
               <div key={s.id} style={{ display: "flex", gap: 12, alignItems: "center", padding: "9px 0", borderBottom: `1px solid ${C.border}`, flexWrap: "wrap" }}>
                 <span style={{ width: 40, height: 40, background: "#fff", borderRadius: 8, overflow: "hidden", flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
                   {src && <img src={src} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />}
                 </span>
                 <span style={{ minWidth: 0, flex: 1 }}>
-                  <span style={{ display: "block", fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.format || "Item"} <span style={{ color: C.faint, fontWeight: 600, textTransform: "none" }}>· {s.ideaTitle}</span></span>
+                  <span style={{ display: "block", fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.format || "Item"}{s.ideaTitle ? <span style={{ color: C.faint, fontWeight: 600, textTransform: "none" }}> · {s.ideaTitle}</span> : null}</span>
                   <span style={{ display: "block", fontSize: 10, fontFamily: C.mono, color: C.muted, marginTop: 2 }}>
-                    {s.retail != null ? `$${s.retail} retail` : "retail TBD"}{s.model ? ` · ${s.model === "preorder" ? "pre-order" : "fixed run"}` : ""}
+                    {s.itemId
+                      ? `${(pit?.qty || Object.values(s.qtys || {}).reduce((a: number, b: any) => a + Number(b), 0)).toLocaleString()} pcs${pit?.eta ? ` · lands ${fmtDate(pit.eta)}` : ""}`
+                      : `${s.retail != null ? `$${s.retail} retail` : "retail TBD"}${s.model ? ` · ${s.model === "preorder" ? "pre-order" : "fixed run"}` : ""}`}
                   </span>
                 </span>
                 <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: s.ideaApproved ? C.green : C.amber, whiteSpace: "nowrap" }}>
-                  {s.ideaApproved ? "Ready" : "Design pending"}
+                  {s.itemId ? "In the pipeline" : s.ideaApproved ? "Ready" : "Design pending"}
                 </span>
                 {building && (
                   <button onClick={async () => { setBusy(s.id); if (await call("DELETE", `/slots?slotId=${s.id}`)) onChanged(drop.id); setBusy(null); }}
@@ -267,10 +311,24 @@ function DropSheet({ drop, token, briefs, onChanged, onClose }: {
                 style={{ borderRadius: 999, border: `1px solid ${C.border}`, background: "transparent", color: C.muted, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", padding: "10px 18px", cursor: "pointer", fontFamily: C.font }}>
                 + Pull designs onto the drop
               </button>
-            ) : candidates.length === 0 ? (
-              <div style={{ fontSize: 12, color: C.faint }}>Every priced line from your studio is already on it. Add versions to your ideas first.</div>
+            ) : candidates.length === 0 && itemCands.length === 0 ? (
+              <div style={{ fontSize: 12, color: C.faint }}>Everything from your pipeline and studio is already on it.</div>
             ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 260, overflowY: "auto" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 300, overflowY: "auto" }}>
+                {itemCands.length > 0 && <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: C.faint, padding: "4px 0 2px" }}>From your pipeline</div>}
+                {itemCands.map((it: any) => (
+                  <button key={it.id}
+                    onClick={async () => { setBusy(it.id); if (await call("POST", "/slots", { itemId: it.id })) onChanged(drop.id); setBusy(null); }}
+                    style={{ display: "flex", gap: 10, alignItems: "center", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: "8px 10px", cursor: "pointer", textAlign: "left", fontFamily: C.font, color: C.text }}>
+                    <span style={{ width: 32, height: 32, background: "#fff", borderRadius: 6, overflow: "hidden", flexShrink: 0 }}>
+                      {it.thumb_id && <img src={thumbSrc(it.thumb_id)} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />}
+                    </span>
+                    <span style={{ minWidth: 0, flex: 1, fontSize: 12, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.name}</span>
+                    <span style={{ fontSize: 10, fontFamily: C.mono, color: C.muted, whiteSpace: "nowrap" }}>{it.qty ? `${it.qty.toLocaleString()} pcs` : ""}{it.eta ? ` · lands ${fmtDate(it.eta)}` : ""}</span>
+                    <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", color: C.text }}>+ Add</span>
+                  </button>
+                ))}
+                {candidates.length > 0 && <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: C.faint, padding: "8px 0 2px" }}>From the studio — not yet ordered</div>}
                 {candidates.map(({ brief, line }: any) => {
                   const src = briefThumb(brief);
                   return (
@@ -303,7 +361,7 @@ function DropSheet({ drop, token, briefs, onChanged, onClose }: {
                 onClick={async () => { setBusy("submit"); if (await call("PATCH", "", { submit: true })) onChanged(drop.id); setBusy(null); }}
                 title={allReady ? "" : "Every line needs an approved design first"}
                 style={{ background: "#fff", color: C.bg, border: "none", borderRadius: 999, padding: "13px 24px", fontSize: 11.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: allReady ? "pointer" : "default", opacity: allReady ? 1 : 0.4, fontFamily: C.font }}>
-                Send it to us
+                {isStock ? "Ready to launch — send it to us" : "Send it to us"}
               </button>
               {!allReady && drop.slots.length > 0 && <span style={{ fontSize: 11, color: C.faint, maxWidth: "34ch", lineHeight: 1.45 }}>Unlocks when every design on the lineup is approved.</span>}
               <button onClick={async () => { if (confirm("Remove this drop?")) { setBusy("del"); if (await call("DELETE", "")) { onChanged(); onClose(); } setBusy(null); } }}

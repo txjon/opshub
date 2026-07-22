@@ -41,9 +41,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { token: str
     if (body.submit === true) {
       if ((release as any).status !== "building") return NextResponse.json({ error: "Already submitted" }, { status: 409 });
       const { data: slots } = await db.from("release_slots")
-        .select("id, art_briefs(state)").eq("release_id", (release as any).id);
+        .select("id, item_id, art_briefs(state)").eq("release_id", (release as any).id);
       if (!(slots || []).length) return NextResponse.json({ error: "Add at least one item first" }, { status: 400 });
-      const unready = (slots || []).filter((s: any) => !APPROVED.includes(s.art_briefs?.state)).length;
+      const unready = (slots || []).filter((s: any) => !s.item_id && !APPROVED.includes(s.art_briefs?.state)).length;
       if (unready > 0) return NextResponse.json({ error: `${unready} line${unready === 1 ? "" : "s"} still need${unready === 1 ? "s" : ""} an approved design first` }, { status: 400 });
       updates.status = "ready";
       updates.status_timestamps = { ...((release as any).status_timestamps || {}), ready: new Date().toISOString() };

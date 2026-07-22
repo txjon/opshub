@@ -32,25 +32,54 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     const { db, client, release } = ctx;
     if ((release as any).status !== "building") return NextResponse.json({ error: "Drop is locked" }, { status: 409 });
 
-    const { briefId, lineId } = await req.json().catch(() => ({}));
-    const { data: brief } = await db.from("art_briefs")
-      .select("id, client_id, product_spec").eq("id", String(briefId || "")).single();
-    if (!brief || (brief as any).client_id !== (client as any).id) return NextResponse.json({ error: "Idea not found" }, { status: 404 });
-    const line = (Array.isArray((brief as any).product_spec?.products) ? (brief as any).product_spec.products : []).find((x: any) => x.id === lineId);
-    if (!line) return NextResponse.json({ error: "Line not found on that idea" }, { status: 404 });
-
+    const { briefId, lineId, itemId } = await req.json().catch(() => ({}));
     const { count } = await db.from("release_slots").select("id", { count: "exact", head: true }).eq("release_id", (release as any).id);
-    const { data, error } = await db.from("release_slots").insert({
-      company_id: (release as any).company_id || null,
-      release_id: (release as any).id,
-      brief_id: (brief as any).id,
-      line_id: String(lineId),
-      format: line.format || null,
-      retail: line.retail ?? null,
-      model: line.model || null,
-      line_notes: line.notes || null,
-      sort_order: (count || 0),
-    }).select("id").single();
+
+    let insert: Record<string, any>;
+    if (itemId) {
+      // In-production item joining the release — the run already exists.
+      const { data: item } = await db.from("items")
+        .select("id, name, client_retail_per_unit, jobs!inner(client_id), buy_sheet_lines(size, qty_ordered)")
+        .eq("id", String(itemId)).single();
+      if (!item || (item as any).jobs?.client_id !== (client as any).id) {
+        return NextResponse.json({ error: "Item not found" }, { status: 404 });
+      }
+      const qtys: Record<string, number> = {};
+      for (const l of ((item as any).buy_sheet_lines || [])) {
+        const n = Number(l.qty_ordered) || 0;
+        if (n > 0) qtys[l.size] = n;
+      }
+      insert = {
+        company_id: (release as any).company_id || null,
+        release_id: (release as any).id,
+        brief_id: null,
+        line_id: `item:${(item as any).id}`,
+        item_id: (item as any).id,
+        format: (item as any).name,
+        retail: (item as any).client_retail_per_unit ?? null,
+        model: null,
+        qtys, // the run's real numbers ride along
+        sort_order: (count || 0),
+      };
+    } else {
+      const { data: brief } = await db.from("art_briefs")
+        .select("id, client_id, product_spec").eq("id", String(briefId || "")).single();
+      if (!brief || (brief as any).client_id !== (client as any).id) return NextResponse.json({ error: "Idea not found" }, { status: 404 });
+      const line = (Array.isArray((brief as any).product_spec?.products) ? (brief as any).product_spec.products : []).find((x: any) => x.id === lineId);
+      if (!line) return NextResponse.json({ error: "Line not found on that idea" }, { status: 404 });
+      insert = {
+        company_id: (release as any).company_id || null,
+        release_id: (release as any).id,
+        brief_id: (brief as any).id,
+        line_id: String(lineId),
+        format: line.format || null,
+        retail: line.retail ?? null,
+        model: line.model || null,
+        line_notes: line.notes || null,
+        sort_order: (count || 0),
+      };
+    }
+    const { data, error } = await db.from("release_slots").insert(insert).select("id").single();
     if (error) {
       if (/duplicate|unique/i.test(error.message)) return NextResponse.json({ error: "Already on this drop" }, { status: 409 });
       return NextResponse.json({ error: error.message }, { status: 500 });

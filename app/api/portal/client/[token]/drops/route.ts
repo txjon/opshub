@@ -50,8 +50,10 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
           format: s.format, retail: s.retail != null ? Number(s.retail) : null,
           model: s.model, notes: s.line_notes,
           soldUnits: s.sold_units, qtys: s.qtys || {}, qtysConfirmedAt: s.qtys_confirmed_at,
+          itemId: s.item_id || null,
           ideaTitle: s.art_briefs?.title || null,
-          ideaApproved: APPROVED.includes(s.art_briefs?.state),
+          // an in-production item is real by definition — always ready
+          ideaApproved: s.item_id ? true : APPROVED.includes(s.art_briefs?.state),
         });
       }
     }

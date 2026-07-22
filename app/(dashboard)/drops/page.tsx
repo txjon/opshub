@@ -46,7 +46,7 @@ export default function DropsBoard() {
     const briefIds: string[] = [];
     if (ids.length) {
       const { data: slots } = await supabase.from("release_slots")
-        .select("*, art_briefs(id, title, state)")
+        .select("*, art_briefs(id, title, state), items(name)")
         .in("release_id", ids).order("sort_order");
       for (const s of (slots || []) as any[]) {
         (slotsByRelease[s.release_id] = slotsByRelease[s.release_id] || []).push(s);
@@ -153,6 +153,7 @@ export default function DropsBoard() {
                         })(), whiteSpace: "nowrap" }}>
                         {(() => {
                           if (r.status === "closed") return nd ? "Numbers in — cut it" : "Awaiting numbers";
+                          if (r.status === "live" && r.model === "stock") return "Launched";
                           if (r.status === "live") {
                             const dd = daysTo(r.window_close_date);
                             if (dd != null && dd < 0) return `Window ended ${fmtDate(r.window_close_date)} — close it`;
@@ -226,7 +227,7 @@ export default function DropsBoard() {
                       </span>
                       <span style={{ minWidth: 0, flex: 1 }}>
                         <span style={{ display: "block", fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {s.format || "Item"} <span style={{ color: H.faint, fontWeight: 600, textTransform: "none" }}>· {s.art_briefs?.title}</span>
+                          {s.format || s.items?.name || "Item"}{s.art_briefs?.title ? <span style={{ color: H.faint, fontWeight: 600, textTransform: "none" }}> · {s.art_briefs.title}</span> : s.item_id ? <span style={{ color: H.faint, fontWeight: 600, textTransform: "none" }}> · from the pipeline</span> : null}
                         </span>
                         <span style={{ display: "block", fontSize: 10, fontFamily: H.mono, color: H.dim, marginTop: 2 }}>
                           {s.retail != null ? `$${Number(s.retail)} retail` : "retail TBD"}{s.model ? ` · ${s.model === "preorder" ? "pre-order" : "fixed run"}` : ""}
@@ -234,7 +235,7 @@ export default function DropsBoard() {
                         </span>
                         {s.line_notes && <span style={{ display: "block", fontSize: 11, color: H.dim, marginTop: 3, lineHeight: 1.45 }}>{s.line_notes}</span>}
                       </span>
-                      <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: approved ? H.green : H.amber, whiteSpace: "nowrap" }}>{approved ? "Design ✓" : "Design pending"}</span>
+                      <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: s.item_id ? H.blue : approved ? H.green : H.amber, whiteSpace: "nowrap" }}>{s.item_id ? "In production" : approved ? "Design ✓" : "Design pending"}</span>
                     </div>
                   );
                 })}
@@ -245,13 +246,13 @@ export default function DropsBoard() {
                   <>
                     <button disabled={busy === r.id} onClick={() => act(r, "", "PATCH", { action: "live" })}
                       style={{ background: "#fff", color: H.ink, border: "none", borderRadius: 999, padding: "12px 22px", fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>
-                      Take it live
+                      {r.model === "stock" ? "Mark launched" : "Take it live"}
                     </button>
-                    <button disabled={busy === r.id || !numbersDone} title={numbersDone ? "" : "Every line needs quantities first (client enters after close, or you can cut a fixed-run drop once numbers exist)"}
+                    {r.model !== "stock" && <button disabled={busy === r.id || !numbersDone} title={numbersDone ? "" : "Every line needs quantities first (client enters after close, or you can cut a fixed-run drop once numbers exist)"}
                       onClick={async () => { if (confirm(`Cut "${r.title}" into a job now? Items + quantities come from the lineup.`)) { const out = await act(r, "/cut", "POST"); if (out?.jobId) window.location.href = `/jobs/${out.jobId}`; } }}
                       style={{ background: "transparent", color: H.text, border: `1px solid rgba(255,255,255,0.35)`, borderRadius: 999, padding: "12px 20px", fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: numbersDone ? "pointer" : "default", opacity: numbersDone ? 1 : 0.4, fontFamily: H.font }}>
                       Cut now (skip sale)
-                    </button>
+                    </button>}
                   </>
                 )}
                 {["ready", "live"].includes(r.status) && (
@@ -262,7 +263,7 @@ export default function DropsBoard() {
                       style={{ padding: "8px 10px", background: H.surface, border: `1px solid ${H.line}`, borderRadius: 9, outline: "none", color: H.text, fontFamily: H.font, fontSize: 12, colorScheme: "dark" }} />
                   </label>
                 )}
-                {r.status === "live" && (
+                {r.status === "live" && r.model !== "stock" && (
                   <button disabled={busy === r.id} onClick={() => act(r, "", "PATCH", { action: "closed" })}
                     style={{ background: "#fff", color: H.ink, border: "none", borderRadius: 999, padding: "12px 22px", fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>
                     Close the sale

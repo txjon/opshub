@@ -40,7 +40,13 @@ export async function POST(_req: NextRequest, { params }: { params: { releaseId:
     const { data: slots } = await db.from("release_slots")
       .select("*, art_briefs(id, title, state)").eq("release_id", (release as any).id).order("sort_order");
     if (!(slots || []).length) return NextResponse.json({ error: "Nothing on the lineup" }, { status: 400 });
-    const missing = (slots || []).filter((s: any) => {
+    // Item-sourced slots are ALREADY in production on their own jobs — the
+    // cut never re-creates them. It births only the pre-item lines.
+    const toCreate = (slots || []).filter((s: any) => !s.item_id);
+    if (!toCreate.length) {
+      return NextResponse.json({ error: "Every line is already in production — nothing to cut. This release just launches when it launches." }, { status: 400 });
+    }
+    const missing = toCreate.filter((s: any) => {
       const total = Object.values(s.qtys || {}).reduce((a: number, b: any) => a + (Number(b) || 0), 0);
       return total <= 0;
     });
@@ -76,6 +82,7 @@ export async function POST(_req: NextRequest, { params }: { params: { releaseId:
     let itemCount = 0;
     for (let i = 0; i < (slots || []).length; i++) {
       const s: any = (slots || [])[i];
+      if (s.item_id) { await db.from("release_slots").update({ qtys_confirmed_at: now }).eq("id", s.id); continue; }
       const ideaTitle = s.art_briefs?.title || "Design";
       const name = `${ideaTitle} ${s.format || "Item"}`.trim().slice(0, 120);
       const { data: item, error: itemErr } = await db.from("items").insert({
