@@ -86,32 +86,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { token: str
     const { error } = await db.from("art_briefs").update(updates).eq("id", (brief as any).id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    if (changes.length > 0) {
-      try {
-        // One evolving marker, not a play-by-play: field-level autosave
-        // means many PATCHes per shaping session — if the LATEST message
-        // on the thread is already a client ✎ marker, update it in place
-        // with the current full summary instead of stacking bubbles.
-        const marker = `✎ ${changes.join(" · ")}`.slice(0, 300);
-        const { data: last } = await db.from("art_brief_messages")
-          .select("id, sender_role, message")
-          .eq("brief_id", (brief as any).id)
-          .order("created_at", { ascending: false })
-          .limit(1);
-        const lm = (last || [])[0];
-        if (lm && lm.sender_role === "client" && String(lm.message || "").startsWith("✎")) {
-          await db.from("art_brief_messages").update({ message: marker }).eq("id", lm.id);
-        } else {
-          await db.from("art_brief_messages").insert({
-            brief_id: (brief as any).id,
-            sender_role: "client",
-            sender_name: (client as any).name,
-            message: marker,
-            visibility: "all",
-          });
-        }
-      } catch {}
-    }
+    // No ✎ thread markers for spec changes (Jon, Jul 22): the build-out IS
+    // the record — auto-notes in the ping-pong read as noise. (✓ approval
+    // markers elsewhere are untouched; they're load-bearing for recovery.)
 
     return NextResponse.json({ success: true, product_spec: spec, title: updates.title || (brief as any).title });
   } catch (e: any) {
