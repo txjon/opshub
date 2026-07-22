@@ -63,8 +63,8 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
       };
     } else {
       const { data: brief } = await db.from("art_briefs")
-        .select("id, client_id, product_spec").eq("id", String(briefId || "")).single();
-      if (!brief || (brief as any).client_id !== (client as any).id) return NextResponse.json({ error: "Idea not found" }, { status: 404 });
+        .select("id, client_id, product_spec, internal_only").eq("id", String(briefId || "")).single();
+      if (!brief || (brief as any).client_id !== (client as any).id || (brief as any).internal_only) return NextResponse.json({ error: "Idea not found" }, { status: 404 });
       const line = (Array.isArray((brief as any).product_spec?.products) ? (brief as any).product_spec.products : []).find((x: any) => x.id === lineId);
       if (!line) return NextResponse.json({ error: "Line not found on that idea" }, { status: 404 });
       insert = {

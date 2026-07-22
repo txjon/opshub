@@ -29,6 +29,8 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         "id, title, concept, state, deadline, purpose, audience, mood_words, no_gos, product_spec, sent_to_designer_at, created_at, updated_at, client_aborted_at, job_id, client_last_seen_at, jobs(title, job_number)"
       )
       .eq("client_id", client.id)
+      // internal-until-shared: HPD prep never reaches the hub until flipped
+      .eq("internal_only", false)
       // Delivered briefs stay in the response — they bucket as "Approved"
       // on the client side so the client can still see / download the
       // final design (watermark off, download enabled at this state).

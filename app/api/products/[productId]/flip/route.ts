@@ -38,6 +38,7 @@ export async function POST(req: NextRequest, { params }: { params: { productId: 
       concept: note || `Flip of ${p.title}. Same design, new direction — blank color, ink color, or both. What changes?`,
       state: "draft",
       source: "hpd",
+      internal_only: true,   // prep quietly; share from the studio sheet
       product_spec: {
         flip_of: p.id,
         products: [{ id: "l1", format: p.format || null, retail: p.retail ?? null, model: p.model || null, notes: null }],

@@ -163,7 +163,7 @@ export default function Studio2Page() {
                         <div onClick={e => { if (b.client_id) { e.stopPropagation(); window.location.href = `/clients/${b.client_id}`; } }}
                           style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: H.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: b.client_id ? "pointer" : "default" }}
                           title={b.client_id ? "Open the client space" : undefined}>{b.clients?.name || "—"}</div>
-                        <div style={{ fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", lineHeight: 1.25, marginTop: 3, overflow: "hidden", display: "-webkit-box", WebkitBoxOrient: "vertical" as any, WebkitLineClamp: 2 }}>{b.title || "Untitled idea"}</div>
+                        <div style={{ fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", lineHeight: 1.25, marginTop: 3, overflow: "hidden", display: "-webkit-box", WebkitBoxOrient: "vertical" as any, WebkitLineClamp: 2 }}>{b.title || "Untitled idea"}{b.internal_only ? <span style={{ color: H.amber, fontSize: 9, fontWeight: 800, letterSpacing: "0.08em", marginLeft: 6 }}>INTERNAL</span> : null}</div>
                         <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 5, flexWrap: "wrap" }}>
                           <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: w.color }}>{w.label}</span>
                           {b.assigned_to && <span style={{ fontSize: 9, color: H.faint, fontFamily: H.mono }}>{b.assigned_to}</span>}
@@ -262,7 +262,18 @@ function OpsBriefSheet({ brief, onClose }: { brief: any; onClose: () => void }) 
             <div style={{ display: "flex", gap: 10, alignItems: "baseline", marginTop: 4, flexWrap: "wrap" }}>
               <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: w.color }}>{w.label}</span>
               {brief.assigned_to && <span style={{ fontSize: 10, color: H.faint, fontFamily: H.mono }}>designer: {brief.assigned_to}</span>}
-              <span title="Drop planner is next — the rack becomes slottable" style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.09em", textTransform: "uppercase", color: H.faint, border: `1px dashed ${H.line}`, borderRadius: 999, padding: "5px 11px", cursor: "default" }}>Slot into drop · soon</span>
+              {brief.internal_only ? (
+                <button onClick={async () => {
+                  await supabase.from("art_briefs").update({ internal_only: false } as never).eq("id", brief.id);
+                  brief.internal_only = false; await load();
+                }}
+                  title="Share to their hub — it appears in their Studio"
+                  style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.09em", textTransform: "uppercase", color: H.amber, border: `1px solid ${H.amber}`, background: "transparent", borderRadius: 999, padding: "5px 11px", cursor: "pointer", fontFamily: H.font }}>
+                  Internal · share to client →
+                </button>
+              ) : (
+                <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.09em", textTransform: "uppercase", color: H.faint }}>client sees this</span>
+              )}
             </div>
           </div>
           <button onClick={onClose} aria-label="Close" style={{ background: "none", border: "none", color: H.dim, fontSize: 26, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>
@@ -405,6 +416,7 @@ function TheCounter({ onClose, onCreated }: { onClose: () => void; onCreated: (b
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [newTypePick, setNewTypePick] = useState(false);   // new-client type step
+  const [visible, setVisible] = useState(false);           // internal-until-shared: default = quiet prep
 
   async function createClientCard(type: string) {
     const name = cq.trim();
@@ -491,6 +503,7 @@ function TheCounter({ onClose, onCreated }: { onClose: () => void; onCreated: (b
         title: briefTitle.slice(0, 140),
         concept: blank ? "Started at the counter — brand new, nothing brought back." : `Started at the counter. Bringing back: ${names}${tray.length > 6 ? "…" : ""}.`,
         state: "draft", source: "hpd",
+        internal_only: !visible,
         product_spec: spec,
       } as never).select("*, clients(name)").single();
       if (error || !brief) throw new Error(error?.message || "Couldn't start it");
@@ -632,6 +645,11 @@ function TheCounter({ onClose, onCreated }: { onClose: () => void; onCreated: (b
             </span>
             <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Name it (optional)…"
               style={{ flex: 1, minWidth: 160, padding: "10px 14px", fontSize: 13, background: H.ink, border: `1px solid ${H.line}`, borderRadius: 10, outline: "none", color: H.text, fontFamily: H.font }} />
+            <button onClick={() => setVisible(v => !v)}
+              title={visible ? "The client will see this idea in their hub immediately" : "Quiet prep — share it to their hub when it's ready"}
+              style={{ borderRadius: 999, border: `1px solid ${visible ? "#fd3aa3" : H.line}`, background: "transparent", color: visible ? "#fd3aa3" : H.dim, fontSize: 9.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", padding: "10px 14px", cursor: "pointer", fontFamily: H.font }}>
+              {visible ? "Client sees it" : "Internal for now"}
+            </button>
             {err && <span style={{ fontSize: 11.5, fontWeight: 700, color: H.red }}>{err}</span>}
             <button onClick={openInStudio} disabled={busy}
               style={{ background: "#fff", color: H.ink, border: 0, borderRadius: 999, padding: "12px 22px", fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font, opacity: busy ? 0.5 : 1 }}>

@@ -16,10 +16,11 @@ async function verifyAccess(token: string, briefId: string) {
   if (!client) return null;
   const { data: brief } = await db
     .from("art_briefs")
-    .select("id, title, concept, state, deadline, client_id, job_id, assigned_designer_id")
+    .select("id, title, concept, state, deadline, client_id, job_id, assigned_designer_id, internal_only")
     .eq("id", briefId)
     .single();
-  if (!brief || brief.client_id !== client.id) return null;
+  // internal-until-shared: prep work doesn't exist for the client yet
+  if (!brief || brief.client_id !== client.id || (brief as any).internal_only) return null;
   return { db, client, brief };
 }
 
