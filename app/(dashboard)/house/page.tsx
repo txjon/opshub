@@ -195,7 +195,13 @@ export default function HousePage() {
         const due = promise || fallback;
         if (!due) return null;
         if (due < today) return { job: x, due, level: "late", promised: !!promise, vendorKey };
-        if (due <= soonV) return { job: x, due, level: "confirm", promised: !!promise, vendorKey };
+        if (due <= soonV) {
+          // "this is handled": Drake already heard from the vendor for THIS
+          // date — confirmation is date-stamped, so a slip re-arms the card
+          const conf = vendorKey ? tm.po_ship_confirmed?.[vendorKey] : null;
+          if (conf?.date === due) return null;
+          return { job: x, due, level: "confirm", promised: !!promise, vendorKey };
+        }
         return null;
       }).filter(Boolean) as any[];
     // studio calls: new ideas + unanswered client words (same rule as studio2)
@@ -435,6 +441,10 @@ export default function HousePage() {
               : x))}
           onSaleClosed={(releaseId: string) => setDrops(prev => prev.map((r: any) => r.id === releaseId ? { ...r, status: "closed" } : r))}
           onVarianceResolved={(itemId: string) => setVariances(prev => prev.filter((it: any) => it.id !== itemId))}
+          onVendorHandled={(jobId: string, vendorKey: string, date: string) =>
+            setJobs(prev => (prev || []).map((x: any) => x.id === jobId
+              ? { ...x, type_meta: { ...(x.type_meta || {}), po_ship_confirmed: { ...((x.type_meta || {}).po_ship_confirmed || {}), [vendorKey]: { date, at: new Date().toISOString() } } } }
+              : x))}
         />
       )}
     </div>
@@ -445,11 +455,12 @@ export default function HousePage() {
 // A plate opens here instead of navigating away: the card's context on top,
 // its one-to-three moves below, done and back to the feed. Deep links
 // survive at the bottom for when the real surface is needed.
-function ActionSheet({ sheet, onClose, onShipByLogged, onSaleClosed, onVarianceResolved }: {
+function ActionSheet({ sheet, onClose, onShipByLogged, onSaleClosed, onVarianceResolved, onVendorHandled }: {
   sheet: any; onClose: () => void;
   onShipByLogged: (jobId: string, vendorKey: string, date: string) => void;
   onSaleClosed: (releaseId: string) => void;
   onVarianceResolved: (itemId: string) => void;
+  onVendorHandled: (jobId: string, vendorKey: string, date: string) => void;
 }) {
   const supabase = createClient();
   const [busy, setBusy] = useState<string | null>(null);
@@ -549,6 +560,22 @@ function ActionSheet({ sheet, onClose, onShipByLogged, onSaleClosed, onVarianceR
     </div>
   );
 
+  async function markHandled() {
+    const sh = sheet;
+    if (!sh.vendorKey) return;
+    setBusy("handled"); setErr(null);
+    try {
+      const { data: job } = await supabase.from("jobs").select("type_meta").eq("id", sh.job.id).single();
+      const tm: any = { ...((job as any)?.type_meta || {}) };
+      tm.po_ship_confirmed = { ...(tm.po_ship_confirmed || {}), [sh.vendorKey]: { date: sh.due, at: new Date().toISOString() } };
+      const { error } = await (supabase.from("jobs") as any).update({ type_meta: tm }).eq("id", sh.job.id);
+      if (error) throw new Error(error.message);
+      logJobActivity(sh.job.id, `Vendor confirmed ship-by ${fmtDate(sh.due)} — marked handled from The House`);
+      onVendorHandled(sh.job.id, sh.vendorKey, sh.due);
+      onClose();
+    } catch (e: any) { setErr(e.message); setBusy(null); }
+  }
+
   async function saveShipBy() {
     const s = sheet;
     if (!date || !s.vendorKey) return;
@@ -647,10 +674,20 @@ function ActionSheet({ sheet, onClose, onShipByLogged, onSaleClosed, onVarianceR
                     {busy === "shipby" ? "Logging…" : "Log it"}
                   </button>
                 </div>
-                <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", marginTop: 7 }}>Writes the live ship-by for {sheet.vendorKey} — the PO keeps its original date.</div>
+                <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", marginTop: 7 }}>Same live chip the production board writes — log it in either place; the PO keeps its original date.</div>
               </div>
             ) : (
               <div style={{ fontSize: 12, color: "rgba(255,255,255,0.55)" }}>No PO vendor on file to attach a date to — the email below still finds them.</div>
+            )}
+            {sheet.level === "confirm" && (
+              <>
+                {divider}
+                <div style={labelCss}>Already heard from them? Nothing to log if the date holds</div>
+                <button style={goBtn(busy !== "handled")} disabled={busy === "handled"} onClick={markHandled}>
+                  {busy === "handled" ? "Marking…" : `✓ Vendor confirmed ${fmtDate(sheet.due)} — it's handled`}
+                </button>
+                <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", marginTop: 7 }}>The card stands down for this date — and re-arms by itself if the date slips or passes unshipped.</div>
+              </>
             )}
             {divider}
             {nudgeBlock({ jobId: sheet.job.id })}
