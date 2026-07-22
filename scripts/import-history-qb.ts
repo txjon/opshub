@@ -100,7 +100,7 @@ async function pageEntity(entity: string): Promise<any[]> {
     if (!data || data.length < 1000) break;
   }
   let stamped = 0;
-  for (const n of new Set(rows.map(r => String(r.doc_num || "").trim()).filter(Boolean))) {
+  for (const n of Array.from(new Set(rows.map(r => String(r.doc_num || "").trim()).filter(Boolean)))) {
     if (!jobMap.has(n)) continue;
     const { count } = await db.from("history_sales")
       .update({ opshub_job_id: jobMap.get(n) }, { count: "exact" })
@@ -110,7 +110,6 @@ async function pageEntity(entity: string): Promise<any[]> {
   console.log(`✓ overlap stamped: ${stamped}`);
 
   // comparison vs CSV-sourced rows
-  const { data: csvAgg } = await db.rpc("exec_sql", { sql: "select 1" }).then(() => ({ data: null })).catch(() => ({ data: null }));
   let csvGross = 0, csvCount = 0;
   for (let from = 0; ; from += 1000) {
     const { data } = await db.from("history_sales").select("amount").neq("source_file", "qb_api").range(from, from + 999);

@@ -42,7 +42,7 @@ export async function GET() {
     // the era — stamped rows are the era's ONLY representation, so either
     // scope is double-count-free (Jon, Jul 22).
     const sales = await pageAll(db, "history_sales",
-      "txn_date, customer, product_group, amount, qty, blank_style, size_qtys, opshub_job_id");
+      "txn_date, customer, product_parent, product_group, amount, qty, blank_style, size_qtys, opshub_job_id");
     const costs = await pageAll(db, "history_vendor_costs", "txn_date, vendor, amount, txn_type");
 
     // compact lines: [ym, customer, group, amount, qty, overlapFlag]
@@ -66,10 +66,14 @@ export async function GET() {
       return { c: customer, g: group, o: Number(o), s: sizes };
     });
 
-    // blank usage per customer+era
+    // blank usage per customer+era — APPAREL SCOPE ONLY (Jon: "PVC is a
+    // patch"). A blank style means a garment blank: Apparel parent + headwear
+    // (Yupoong/'47/Richardson are real blanks). Patch/sticker materials that
+    // parse like styles stay out of the leaderboard.
+    const isApparel = (r: any) => r.product_parent === "Apparel" || ["Hats", "Beanie"].includes(r.product_group);
     const blankMap = new Map<string, number>();
     for (const r of sales) {
-      if (!r.blank_style || !r.customer) continue;
+      if (!r.blank_style || !r.customer || !isApparel(r)) continue;
       const key = `${r.customer}|||${r.blank_style}|||${r.opshub_job_id ? 1 : 0}`;
       blankMap.set(key, (blankMap.get(key) || 0) + (Number(r.qty) || 0));
     }

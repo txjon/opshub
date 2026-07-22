@@ -16,7 +16,8 @@ const SIZE_TOKEN = /(?:^|[\s•\t(])((?:XS|S|M|L|XL|XXL|XXXL|2XL|3XL|4XL|5XL|OSF
 const ONE_SIZE = /(?:^|[\s\/\-–])((?:XS|S|M|L|XL|XXL|XXXL|2XL|3XL|4XL|5XL|OS|OSFA))(?:\s*$|[\s).])/;
 const normSize = (s) => {
   const t = String(s).toUpperCase().replace(/\s*[- ]\s*/g, " ").trim();
-  return { XXL: "2XL", XXXL: "3XL" }[t] || t;
+  // OSFA = OS (Jon: "these can merge")
+  return { XXL: "2XL", XXXL: "3XL", OSFA: "OS" }[t] || t;
 };
 const cleanStyle = (s) => {
   const t = String(s || "").trim().replace(/[\s/"'•]+$/g, "");
