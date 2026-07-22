@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { H } from "@/components/hub/theme";
-import { JOB_DIRECTIVES, DROP_DIRECTIVES, STUDIO_DIRECTIVE } from "@/lib/directives";
+import { JOB_DIRECTIVES, DROP_DIRECTIVES, STUDIO_DIRECTIVE, HOUSE_EXTRA_DIRECTIVES } from "@/lib/directives";
 
 const PURPLE = "#fd3aa3";
 const thumbSrc = (id: string, size = 300) => `/api/files/thumbnail?id=${id}&thumb=1&size=${size}`;
@@ -35,18 +35,23 @@ export default function HousePage() {
   const [wire, setWire] = useState<any[]>([]);
   const [arrivals, setArrivals] = useState<any[]>([]);
   const [jobArt, setJobArt] = useState<Record<string, string>>({});
+  const [overduePay, setOverduePay] = useState<any[]>([]);
+  const [openPulls, setOpenPulls] = useState(0);
 
   useEffect(() => {
     (async () => {
-      const [{ data: j }, { data: r }, { data: act }, { data: ships }] = await Promise.all([
+      const [{ data: j }, { data: r }, { data: act }, { data: ships }, { data: latePay }, { count: pullCount }] = await Promise.all([
         supabase.from("jobs")
-          .select("id, job_number, title, phase, target_ship_date, created_at, updated_at, phase_timestamps, type_meta, clients(name), items(id, pipeline_stage, buy_sheet_lines(qty_ordered))")
+          .select("id, job_number, title, phase, target_ship_date, created_at, updated_at, phase_timestamps, type_meta, clients(name), items(id, pipeline_stage, pipeline_timestamps, buy_sheet_lines(qty_ordered))")
           .not("phase", "in", "(complete,cancelled,on_hold)"),
         supabase.from("releases").select("*, clients(name)").not("status", "in", "(cut,shelved)"),
         supabase.from("job_activity").select("message, created_at, jobs(job_number, clients(name))").order("created_at", { ascending: false }).limit(16),
         supabase.from("shipments").select("id, expected_arrival, status, shipment_lines(item_id)").gte("expected_arrival", new Date(Date.now() - 86400000).toISOString().slice(0, 10)).order("expected_arrival").limit(8),
+        supabase.from("payment_records").select("id, job_id, amount, status, due_date, invoice_number, jobs!inner(id, job_number, phase, clients(name))").in("status", ["sent", "viewed", "partial", "overdue"]).lt("due_date", new Date().toISOString().slice(0, 10)).not("jobs.phase", "eq", "cancelled").limit(8),
+        supabase.from("pull_requests").select("id", { count: "exact", head: true }).in("status", ["pending", "partial"]),
       ]);
       setJobs(j || []); setDrops(r || []); setWire(act || []); setArrivals(ships || []);
+      setOverduePay(latePay || []); setOpenPulls(pullCount || 0);
       try {
         const res = await fetch("/api/art-briefs");
         const body = await res.json();
@@ -81,11 +86,17 @@ export default function HousePage() {
     const press = J.flatMap((x: any) => x.items || []).filter((i: any) => i.pipeline_stage === "in_production")
       .reduce((a: number, i: any) => a + (i.buy_sheet_lines || []).reduce((s: number, l: any) => s + (Number(l.qty_ordered) || 0), 0), 0);
     // drops calls
+    const today = new Date().toISOString().slice(0, 10);
+    const soon = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
     const dropCalls = drops.filter((r: any) => {
       if (r.status === "ready" || r.status === "closed") return true;
-      if (r.status === "live" && r.window_close_date && r.window_close_date <= new Date().toISOString().slice(0, 10)) return true;
+      if (r.status === "live" && r.window_close_date && r.window_close_date <= soon) return true;
       return false;
     });
+    // stalled: production items sitting 7+ days with no movement to shipped
+    const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString();
+    const stalled = J.filter((x: any) => x.phase === "production" && (x.items || []).some((i: any) =>
+      i.pipeline_stage === "in_production" && (i.pipeline_timestamps?.in_production || x.updated_at || "") < weekAgo));
     // studio calls: new ideas + unanswered client words (same rule as studio2)
     const studioCalls = briefs.filter((b: any) => {
       const clientAt = b.last_client_activity?.at || "";
@@ -93,7 +104,7 @@ export default function HousePage() {
       return b.state === "draft" || (!!clientAt && clientAt > hpdAt);
     });
     const overdue = ourJobs.filter((x: any) => x.target_ship_date && x.target_ship_date < new Date().toISOString().slice(0, 10));
-    return { ourJobs, theirJobs, press, dropCalls, studioCalls, overdue };
+    return { ourJobs, theirJobs, press, dropCalls, studioCalls, overdue, stalled };
   }, [jobs, drops, briefs]);
 
   // A magazine plate: the work's art is the cover; the directive is the
@@ -145,6 +156,7 @@ export default function HousePage() {
               <div><div style={{ fontSize: "clamp(24px,3vw,36px)", fontWeight: 900, lineHeight: 1, color: PURPLE }}>{model.theirJobs.length}</div><div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.faint, marginTop: 5 }}>with clients</div></div>
               <div><div style={{ fontSize: "clamp(24px,3vw,36px)", fontWeight: 900, lineHeight: 1 }}>{model.press.toLocaleString()}</div><div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.faint, marginTop: 5 }}>on presses</div></div>
               <div><div style={{ fontSize: "clamp(24px,3vw,36px)", fontWeight: 900, lineHeight: 1, color: model.overdue.length ? H.red : H.text }}>{model.overdue.length}</div><div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.faint, marginTop: 5 }}>past ship date</div></div>
+              <a href="/the-distro" style={{ textDecoration: "none" }}><div style={{ fontSize: "clamp(24px,3vw,36px)", fontWeight: 900, lineHeight: 1, color: openPulls ? H.amber : H.text }}>{openPulls}</div><div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.faint, marginTop: 5 }}>open pulls → distro</div></a>
             </div>
 
             {/* ── YOUR MOVE ── */}
@@ -155,9 +167,12 @@ export default function HousePage() {
               </div>
               <div className="hs-grid">
                 {model.dropCalls.map((r: any) => {
-                  const ended = r.status === "live";
+                  const today2 = new Date().toISOString().slice(0, 10);
+                  const ended = r.status === "live" && r.window_close_date && r.window_close_date <= today2;
+                  const closingSoon = r.status === "live" && !ended;
                   const launchOnly = r.model === "stock";
                   const d = ended ? DROP_DIRECTIVES.window_ended
+                    : closingSoon ? HOUSE_EXTRA_DIRECTIVES.closing_soon
                     : r.status === "closed" ? DROP_DIRECTIVES.closed
                     : launchOnly ? DROP_DIRECTIVES.ready_launch : DROP_DIRECTIVES.ready_cost;
                   return card(`drop-${r.id}`, null, r.clients?.name || "Drop", r.title,
@@ -168,6 +183,16 @@ export default function HousePage() {
                   card(`brief-${b.id}`, null, b.clients?.name || "Studio", b.title || "New idea",
                     b.state === "draft" ? "new idea from the hub" : "client words waiting",
                     STUDIO_DIRECTIVE.verb, H.amber, "/studio2", "Studio", STUDIO_DIRECTIVE))}
+                {model.stalled.slice(0, 4).map((x: any) =>
+                  card(`stall-${x.id}`, jobArt[x.id] ? thumbSrc(jobArt[x.id]) : null,
+                    x.clients?.name || "—", (x.type_meta as any)?.qb_invoice_number ? `#${(x.type_meta as any).qb_invoice_number}` : x.job_number,
+                    "7+ days without movement at the vendor",
+                    HOUSE_EXTRA_DIRECTIVES.stalled.verb, H.red, `/jobs/${x.id}`, "Open job", HOUSE_EXTRA_DIRECTIVES.stalled))}
+                {overduePay.slice(0, 4).map((p: any) =>
+                  card(`pay-${p.id}`, null,
+                    p.jobs?.clients?.name || "—", p.invoice_number ? `Invoice #${p.invoice_number}` : p.jobs?.job_number,
+                    `$${Number(p.amount).toLocaleString()} · due ${fmtDate(p.due_date)}`,
+                    HOUSE_EXTRA_DIRECTIVES.overdue_payment.verb, H.red, `/jobs/${p.jobs?.id || p.job_id}`, "Open job", HOUSE_EXTRA_DIRECTIVES.overdue_payment))}
                 {model.ourJobs.slice(0, 12).map((x: any) => {
                   const v = PHASE_VERB[x.phase];
                   const late = x.target_ship_date && x.target_ship_date < new Date().toISOString().slice(0, 10);

@@ -68,6 +68,52 @@ export const DROP_DIRECTIVES = {
   },
 } as const;
 
+export const DISTRO_DIRECTIVES: Record<string, Directive> = {
+  receive: {
+    verb: "Receive it",
+    order: "Confirm quantities per size as the boxes land — variances flag themselves",
+    done: "every line received",
+  },
+  pull: {
+    verb: "Pull it",
+    order: "Goods on hand? Pull the sizes now. Inbound? It's queued against the landing",
+    done: "pulled quantities logged — the client sees it fulfilled",
+  },
+  variance: {
+    verb: "Count is off",
+    order: "Received doesn't match shipped — recount, then flag the vendor thread",
+    done: "variance confirmed + vendor notified",
+  },
+  ship_through: {
+    verb: "Send it on",
+    order: "It landed for a ship-through — enter outbound tracking and mark shipped",
+    done: "tracking entered — the job completes itself",
+  },
+  fulfill: {
+    verb: "Stage & ship",
+    order: "Stage it, pack it, enter outbound tracking",
+    done: "shipped — the client sees delivered",
+  },
+};
+
+export const HOUSE_EXTRA_DIRECTIVES: Record<string, Directive> = {
+  stalled: {
+    verb: "Nudge the vendor",
+    order: "No movement in 7+ days — ask for a status and a ship-by",
+    done: "vendor word received (or tracking entered)",
+  },
+  overdue_payment: {
+    verb: "Collect it",
+    order: "Invoice is past due — resend the pay link or make the call",
+    done: "payment recorded",
+  },
+  closing_soon: {
+    verb: "Window closing",
+    order: "The sale window ends soon — prep to close and collect numbers",
+    done: "window closed on time",
+  },
+};
+
 export const STUDIO_DIRECTIVE: Directive = {
   verb: "Answer it",
   order: "Read the idea, reply in the thread — even a 'sketching soon'",
