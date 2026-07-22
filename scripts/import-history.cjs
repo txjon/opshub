@@ -56,10 +56,15 @@ const SIZE_TOKEN = /(?:^|[\s•\t(])((?:XS|S|M|L|XL|XXL|XXXL|2XL|3XL|4XL|5XL|OSF
 const ONE_SIZE = /(?:^|[\s\/\-–])((?:XS|S|M|L|XL|XXL|XXXL|2XL|3XL|4XL|5XL|OS|OSFA))(?:\s*$|[\s).])/;
 const normSize = (s) => ({ XXL: "2XL", XXXL: "3XL" }[s.toUpperCase()] || s.toUpperCase());
 // a real blank style has letters/digits and substance — "/", "-", "8", "YP"
-// (severed fragments) are description artifacts, not styles
+// (severed fragments) are description artifacts, not styles. Canonical form
+// is compact uppercase alnum ("NL 6210" = "NL6210" = "NL-6210" → NL6210) so
+// spacing habits across six years of invoices can't split one style into
+// three leaderboard rows.
 const cleanStyle = (s) => {
-  const t = String(s || "").trim();
-  return t.length >= 3 && /[A-Za-z0-9]{2}/.test(t) && !/^["'/\-–•]+$/.test(t) ? t : null;
+  const t = String(s || "").trim().replace(/[\s/"'•]+$/g, "");
+  if (t.length < 3 || !/[A-Za-z0-9]{2}/.test(t) || /^["'/\-–•]+$/.test(t)) return null;
+  const canon = t.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return canon.length >= 3 ? canon : null;
 };
 function parseDesc(desc, lineQty) {
   const out = { product_name: null, blank_style: null, color: null, size_qtys: null };
@@ -121,9 +126,36 @@ async function insertBatched(table, rows) {
         txn_date: usDate(r[1]), txn_type: r[2] || null, doc_num: r[3] || null,
         customer: (r[4] || "").trim() || null, description: r[5] || null,
         qty: num(r[6]), unit_price: num(r[7]), amount: num(r[8]),
-        product_group: group, ...p, source_file: salesFile,
+        // category resolution (Jon: nothing dangles) — QB's "(deleted)" marks
+        // a retired product/service DEFINITION; the sales are real and keep
+        // their category. Group-less lines ($0 bookkeeping notes) get a home.
+        product_group: (group || "Uncategorized").replace(/\s*\(deleted\)\s*/i, "").trim() || "Uncategorized",
+        ...p, source_file: salesFile,
       };
     });
+
+    // Customer spelling variants → one canonical name (most frequent spelling
+    // wins). "Presample Depot" and "PreSampleDepot" are one relationship.
+    const custKey = (s) => String(s).toLowerCase().replace(/[^a-z0-9]/g, "").replace(/(llc|inc|ltd)$/g, "");
+    const spellings = new Map();
+    for (const r of rows) {
+      if (!r.customer) continue;
+      const k = custKey(r.customer);
+      const m = spellings.get(k) || new Map();
+      m.set(r.customer, (m.get(r.customer) || 0) + 1);
+      spellings.set(k, m);
+    }
+    const canonical = new Map();
+    for (const [k, m] of spellings) {
+      canonical.set(k, Array.from(m.entries()).sort((a, b) => b[1] - a[1])[0][0]);
+    }
+    let renamed = 0;
+    for (const r of rows) {
+      if (!r.customer) continue;
+      const c = canonical.get(custKey(r.customer));
+      if (c && c !== r.customer) { r.customer = c; renamed++; }
+    }
+    if (renamed) console.log(`✓ customer spellings unified: ${renamed} lines folded into canonical names`);
     await insertBatched("history_sales", rows);
     const parsed = rows.filter(x => x.blank_style).length, sized = rows.filter(x => x.size_qtys).length;
     console.log(`✓ history_sales: ${rows.length} lines (${parsed} with blank style, ${sized} with size curves)`);
