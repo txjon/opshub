@@ -87,10 +87,13 @@ export default function GodModeV2Page() {
     const mix = Array.from(byGroup.entries()).map(([g, v]) => ({ g, ...v }))
       .sort((a, b) => b.a - a.a).slice(0, 10);
 
-    // size curve for selection + group
+    // size curve for selection + group — sized apparel ONLY (Jon: no hats,
+    // no stickers, no patches; one-size goods have no curve to speak of)
+    const CURVE_GROUPS = new Set(["Tees", "Hoodies", "Crewneck", "Shorts", "Pants", "Jacket", "Jersey", "Socks", "Custom"]);
     const curveAgg: Record<string, number> = {};
     const groupsWithCurves = new Map<string, number>();
     for (const cv of data.curves) {
+      if (!CURVE_GROUPS.has(cv.g)) continue;
       if (!inClient(cv.c) || !inScope(cv.o)) continue;
       const units = Object.values(cv.s).reduce((x, n) => x + n, 0);
       groupsWithCurves.set(cv.g, (groupsWithCurves.get(cv.g) || 0) + units);
@@ -117,9 +120,11 @@ export default function GodModeV2Page() {
     const totalGross = Array.from(byMonth.values()).reduce((a, v) => a + v.a, 0);
     const totalUnits = Array.from(byMonth.values()).reduce((a, v) => a + v.q, 0);
     const customerCount = byClient.size;
-    // honesty for THE CURVE: how many of the selection's units actually carry
-    // a size split (pre-OpsHub invoices often didn't itemize sizes)
-    const curveUniverse = group === "ALL" ? totalUnits : (byGroup.get(group)?.q || 0);
+    // honesty for THE CURVE: coverage universe = sized-apparel groups only,
+    // matching what the curve itself counts
+    const curveUniverse = group === "ALL"
+      ? Array.from(byGroup.entries()).filter(([g]) => CURVE_GROUPS.has(g)).reduce((a, [, v]) => a + v.q, 0)
+      : (byGroup.get(group)?.q || 0);
     return { topClients, series, mix, curve, curveTotal, curveGroups, blanks, vendors, totalGross, totalUnits, customerCount, curveUniverse, span };
   }, [data, client, group, scope]);
 

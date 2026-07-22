@@ -66,9 +66,14 @@ async function pageEntity(entity: string): Promise<any[]> {
           qty,
           unit_price: det.UnitPrice != null ? Number(det.UnitPrice) : null,
           amount: ln.Amount != null ? sign * Number(ln.Amount) : null,
-          // "Accessories:Hats" → parent Accessories, leaf Hats
-          product_parent: (det.ItemRef?.name || "").includes(":") ? parse.cleanGroup(String(det.ItemRef.name).split(":")[0]) : null,
-          product_group: parse.cleanGroup(String(det.ItemRef?.name || "").split(":").pop()),
+          // "Accessories:Hats" → parent Accessories, leaf Hats; "Custom"
+          // resolves to the real garment typed in the description
+          ...((): any => {
+            const parent = (det.ItemRef?.name || "").includes(":") ? parse.cleanGroup(String(det.ItemRef.name).split(":")[0]) : null;
+            const leaf = parse.cleanGroup(String(det.ItemRef?.name || "").split(":").pop());
+            const res = parse.resolveCustom(leaf, ln.Description || "");
+            return { product_parent: res.parent || parent, product_group: res.group };
+          })(),
           ...p,
           size_qtys: sign === -1 ? null : p.size_qtys,  // refunds don't feed curves
           source_file: "qb_api",

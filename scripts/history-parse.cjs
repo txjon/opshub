@@ -74,4 +74,26 @@ function unifyCustomers(rows) {
 }
 const cleanGroup = (g) => (String(g || "Uncategorized").replace(/\s*\(deleted\)\s*/i, "").trim() || "Uncategorized");
 
-module.exports = { num, usDate, parseDesc, cleanStyle, unifyCustomers, cleanGroup };
+// "Custom" is a bucket, not a garment — the real type is USUALLY typed in the
+// description (Jon, Jul 22: "jacket, hat, pant… we usually type some kind of
+// descriptor"). First keyword wins; unresolved stays Custom.
+const CUSTOM_RESOLVE = [
+  [/wind\s*breaker|windbreaker/i, "Jacket"], [/jacket|coach/i, "Jacket"],
+  [/\bpant|jogger|sweatpant/i, "Pants"], [/\bshort\b|shorts/i, "Shorts"],
+  [/hoodie|hooded|zip[\s-]?up/i, "Hoodies"], [/crewneck|crew\s*neck/i, "Crewneck"],
+  [/\btee\b|t[\s-]?shirt|\btank\b|long\s*sleeve|\bls\b/i, "Tees"],
+  [/beanie/i, "Beanie"], [/\bhat\b|\bcap\b|snapback|trucker|visor/i, "Hats"],
+  [/\bsock/i, "Socks"], [/jersey/i, "Jersey"],
+  [/\bbag\b|duffle|backpack/i, "Custom Bag"], [/\btote\b/i, "Tote"],
+  [/patch/i, "Patches"], [/sticker|decal/i, "Stickers"], [/\bflag\b/i, "Flags"],
+];
+const APPAREL_RESOLVED = new Set(["Jacket", "Pants", "Shorts", "Hoodies", "Crewneck", "Tees", "Socks", "Jersey"]);
+function resolveCustom(group, desc) {
+  if (group !== "Custom" || !desc) return { group, parent: null };
+  for (const [rx, g] of CUSTOM_RESOLVE) {
+    if (rx.test(desc)) return { group: g, parent: APPAREL_RESOLVED.has(g) ? "Apparel" : "Accessories" };
+  }
+  return { group, parent: null };
+}
+
+module.exports = { num, usDate, parseDesc, cleanStyle, unifyCustomers, cleanGroup, resolveCustom };
