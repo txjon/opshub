@@ -58,7 +58,7 @@ Pull: ${e.breakdown}
 ${e.reason}
 
 DO THIS:
-1. Open the pulls queue: ${APP}/warehouse — it's pending against this item
+1. Open the receiving board: ${APP}/receiving2 — the pull is pending against this item
 2. Goods on hand? Pull it now. Still inbound? It's queued against the landing — pull at receive
 3. Log the pulled quantities to mark it fulfilled
 

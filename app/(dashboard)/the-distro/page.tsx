@@ -148,13 +148,13 @@ export default function TheDistroPage() {
                   `${p.items?.jobs?.clients?.name || p.requested_by_name || "Pull"} · ${p.items?.jobs?.job_number || ""}`,
                   p.items?.name || "Item",
                   `${sum(p.qtys)} pcs — ${Object.entries(p.qtys || {}).map(([k, v]) => `${k} ${v}`).join("  ")}${p.status === "partial" ? " · partially pulled" : ""}`,
-                  DISTRO_DIRECTIVES.pull, H.amber, "/warehouse", "Pull it here",
+                  DISTRO_DIRECTIVES.pull, H.amber, "/receiving2", "Pull it here",
                   () => setSheet({ kind: "pull", pull: p })))}
                 {pulls.filter((p: any) => !p.items?.received_at_hpd).map((p: any) => plate(`pullq-${p.id}`,
                   `${p.items?.jobs?.clients?.name || p.requested_by_name || "Pull"} · queued for landing`,
                   p.items?.name || "Item",
                   `${sum(p.qtys)} pcs — pull at receive`,
-                  { ...DISTRO_DIRECTIVES.pull, order: "Goods still inbound — this pull fulfills at receive, keep it on the bench" }, H.faint, "/warehouse", "Pulls queue"))}
+                  { ...DISTRO_DIRECTIVES.pull, order: "Goods still inbound — this pull fulfills at receive, keep it on the bench" }, H.faint, "/receiving2", "Receiving board"))}
                 {fulfill.map((j: any) => {
                   const its = j.items || [];
                   const entered = its.filter((it: any) => it.webstore_entered_at).length;
@@ -339,7 +339,7 @@ function DistroActionSheet({ sheet, onClose, onPullDone }: {
               </div>
             )}
             {divider}
-            <a href="/warehouse" style={linkCss}>Open the pulls queue →</a>
+            <a href="/receiving2" style={linkCss}>Open the receiving board →</a>
           </>
         )}
         {sheet.kind === "landing" && (
