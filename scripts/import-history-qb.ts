@@ -84,6 +84,25 @@ async function pageEntity(entity: string): Promise<any[]> {
   const renamed = parse.unifyCustomers(rows);
   if (renamed) console.log(`✓ customer spellings unified: ${renamed} lines`);
 
+  // Jon's hand assignments (~/opshub-history/assignments.json, keyed
+  // doc_num|description) survive every re-import — manual truth beats
+  // keyword resolution.
+  try {
+    const os = require("os");
+    const fsx = require("fs");
+    const APPAREL = new Set(["Tees", "Hoodies", "Crewneck", "Shorts", "Pants", "Jacket", "Jersey", "Socks"]);
+    const assigns = JSON.parse(fsx.readFileSync(os.homedir() + "/opshub-history/assignments.json", "utf8"));
+    let applied = 0;
+    for (const r of rows) {
+      const t = assigns[`${String(r.doc_num || "").trim()}|${String(r.description || "").trim()}`];
+      if (!t) continue;
+      r.product_group = t;
+      r.product_parent = APPAREL.has(t) ? "Apparel" : ["Raw Material", "Trims", "One Off"].includes(t) ? null : "Accessories";
+      applied++;
+    }
+    if (applied) console.log(`✓ hand assignments re-applied: ${applied} lines`);
+  } catch {}
+
   await db.from("history_sales").delete().eq("source_file", "qb_api");
   for (let i = 0; i < rows.length; i += 500) {
     const { error } = await db.from("history_sales").insert(rows.slice(i, i + 500));
