@@ -52,7 +52,7 @@ export default function HousePage() {
         supabase.from("releases").select("*, clients(name)").not("status", "in", "(cut,shelved)"),
         supabase.from("job_activity").select("message, created_at, jobs(job_number, clients(name))").order("created_at", { ascending: false }).limit(16),
         supabase.from("shipments").select("id, expected_arrival, status, shipment_lines(item_id)").gte("expected_arrival", new Date(Date.now() - 86400000).toISOString().slice(0, 10)).order("expected_arrival").limit(8),
-        supabase.from("payment_records").select("id, job_id, amount, status, due_date, invoice_number, jobs!inner(id, job_number, phase, clients(name))").in("status", ["sent", "viewed", "partial", "overdue"]).lt("due_date", new Date().toISOString().slice(0, 10)).not("jobs.phase", "eq", "cancelled").limit(8),
+        supabase.from("payment_records").select("id, job_id, amount, status, due_date, invoice_number, jobs!inner(id, job_number, title, phase, type_meta, clients(name))").in("status", ["sent", "viewed", "partial", "overdue"]).lt("due_date", new Date().toISOString().slice(0, 10)).not("jobs.phase", "eq", "cancelled").limit(8),
         supabase.from("pull_requests").select("id", { count: "exact", head: true }).in("status", ["pending", "partial"]),
         // late landings: expected date passed, still not delivered — "where is it"
         supabase.from("shipments")
@@ -252,11 +252,14 @@ export default function HousePage() {
                     HOUSE_EXTRA_DIRECTIVES.landing_late,
                     () => setSheet({ kind: "landing", shipment: s, lines }));
                 })}
-                {overduePay.slice(0, 4).map((p: any) =>
-                  card(`pay-${p.id}`, null,
+                {overduePay.slice(0, 4).map((p: any) => {
+                  const daysLate = daysSince(p.due_date + "T00:00");
+                  return card(`pay-${p.id}`, null,
                     p.jobs?.clients?.name || "—", p.invoice_number ? `Invoice #${p.invoice_number}` : p.jobs?.job_number,
-                    `$${Number(p.amount).toLocaleString()} · due ${fmtDate(p.due_date)}`,
-                    HOUSE_EXTRA_DIRECTIVES.overdue_payment.verb, H.red, `/jobs/${p.jobs?.id || p.job_id}`, "Open job", HOUSE_EXTRA_DIRECTIVES.overdue_payment))}
+                    `$${Number(p.amount).toLocaleString()} · due ${fmtDate(p.due_date)}${daysLate ? ` · ${daysLate}d late` : ""}`,
+                    HOUSE_EXTRA_DIRECTIVES.overdue_payment.verb, H.red, `/jobs/${p.jobs?.id || p.job_id}`, "Collect it here", HOUSE_EXTRA_DIRECTIVES.overdue_payment,
+                    () => setSheet({ kind: "payment", pay: p }));
+                })}
                 {model.ourJobs.slice(0, 12).map((x: any) => {
                   const v = PHASE_VERB[x.phase];
                   const late = x.target_ship_date && x.target_ship_date < new Date().toISOString().slice(0, 10);
@@ -347,6 +350,24 @@ function ActionSheet({ sheet, onClose, onShipByLogged, onStudioAnswered, onSaleC
   const [date, setDate] = useState("");
   const [reply, setReply] = useState("");
   const [nudge, setNudge] = useState<any>(null);
+  // payment sheet: resolved recipient (billing contact → primary → first email)
+  const [payTo, setPayTo] = useState<{ name: string; email: string } | null | "loading">(
+    sheet.kind === "payment" ? "loading" : null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (sheet.kind !== "payment") return;
+    (async () => {
+      const { data: jcs } = await supabase.from("job_contacts")
+        .select("role_on_job, contacts(name, email)")
+        .eq("job_id", sheet.pay.jobs?.id || sheet.pay.job_id);
+      const list = (jcs || []).map((jc: any) => ({ role: jc.role_on_job, name: jc.contacts?.name || "", email: jc.contacts?.email || "" }))
+        .filter(c => c.email);
+      const pick = list.find(c => c.role === "billing") || list.find(c => c.role === "primary") || list[0] || null;
+      setPayTo(pick ? { name: pick.name, email: pick.email } : null);
+    })();
+    // eslint-disable-next-line
+  }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -435,6 +456,30 @@ function ActionSheet({ sheet, onClose, onShipByLogged, onStudioAnswered, onSaleC
     } catch (e: any) { setErr(e.message); setBusy(null); }
   }
 
+  // ── payment: resend the reminder (existing invoice-reminder pipeline —
+  //    PDF attached, Pay Online button, "disregard if paid" hint) ──
+  async function sendReminder() {
+    if (!payTo || payTo === "loading") return;
+    const p = sheet.pay;
+    const jobId = p.jobs?.id || p.job_id;
+    setBusy("remind"); setErr(null);
+    try {
+      const qbNum = p.jobs?.type_meta?.qb_invoice_number || p.invoice_number;
+      const res = await fetch("/api/email/send", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "reminder", jobId, recipientEmail: payTo.email,
+          subject: [`Invoice reminder${qbNum ? ` · ${qbNum}` : ""} — ${p.jobs?.clients?.name || ""}`, p.jobs?.title].filter(Boolean).join(" · "),
+        }),
+      });
+      const b = await res.json();
+      if (!res.ok) throw new Error(b.error || "Send failed");
+      logJobActivity(jobId, "Invoice reminder sent to client");
+      setOk(`Reminder sent to ${payTo.email}`);
+    } catch (e: any) { setErr(e.message); }
+    setBusy(null);
+  }
+
   async function closeSale() {
     setBusy("close"); setErr(null);
     try {
@@ -511,6 +556,47 @@ function ActionSheet({ sheet, onClose, onShipByLogged, onStudioAnswered, onSaleC
             <a href={`/studio2?open=${sheet.brief.id}`} style={linkCss}>Open it in the Studio →</a>
           </>
         )}
+        {sheet.kind === "payment" && (() => {
+          const p = sheet.pay;
+          const payLink = p.jobs?.type_meta?.qb_payment_link || "";
+          const daysLate = daysSince(p.due_date + "T00:00");
+          return (
+            <>
+              {head(`${p.jobs?.clients?.name || "—"} · ${p.invoice_number ? `Invoice #${p.invoice_number}` : p.jobs?.job_number}`,
+                HOUSE_EXTRA_DIRECTIVES.overdue_payment.verb,
+                `$${Number(p.amount).toLocaleString()} · due ${fmtDate(p.due_date)}${daysLate ? ` · ${daysLate} days late` : ""}`, H.red)}
+              <div style={labelCss}>Resend the reminder — invoice PDF + Pay Online button attached</div>
+              {ok ? (
+                <div style={{ fontSize: 13, color: H.green, fontWeight: 700 }}>✓ {ok} — it's on the wire.</div>
+              ) : payTo === "loading" ? (
+                <div style={{ fontSize: 12, color: "rgba(255,255,255,0.5)" }}>Finding the billing contact…</div>
+              ) : payTo ? (
+                <div>
+                  <div style={{ fontSize: 11, fontFamily: H.mono, color: "rgba(255,255,255,0.65)", marginBottom: 10 }}>
+                    to {payTo.name ? `${payTo.name} · ` : ""}{payTo.email}
+                  </div>
+                  <button style={goBtn(busy !== "remind")} disabled={busy === "remind"} onClick={sendReminder}>
+                    {busy === "remind" ? "Sending…" : "Send the reminder"}
+                  </button>
+                </div>
+              ) : (
+                <div style={{ fontSize: 12, color: "rgba(255,255,255,0.55)" }}>No contact with an email on this job — add one on the job page first.</div>
+              )}
+              {payLink && (
+                <>
+                  {divider}
+                  <div style={labelCss}>Making the call instead? Take the pay link with you</div>
+                  <button style={goBtn(true)} onClick={() => { navigator.clipboard?.writeText(payLink); setCopied(true); }}>
+                    {copied ? "✓ Copied" : "Copy the pay link"}
+                  </button>
+                </>
+              )}
+              {divider}
+              <div style={{ fontSize: 10.5, color: "rgba(255,255,255,0.4)", marginBottom: 10 }}>Payments record themselves when QuickBooks sees the money — marking paid by hand lives on the job page, on purpose.</div>
+              <a href={`/jobs/${p.jobs?.id || p.job_id}`} style={linkCss}>Open the job →</a>
+            </>
+          );
+        })()}
         {sheet.kind === "drop_close" && (
           <>
             {head(`${sheet.release.clients?.name || "Drop"} · ${sheet.release.title}`,
