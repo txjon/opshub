@@ -30,8 +30,6 @@ export default function DropsPage() {
   const [pipeItems, setPipeItems] = useState<any[]>([]);
   const [open, setOpen] = useState<any>(null);
   const [naming, setNaming] = useState(false);
-  const [name, setName] = useState("");
-  const [newModel, setNewModel] = useState<"stock" | "preorder">("stock");
   const [busy, setBusy] = useState(false);
 
   async function load(openId?: string) {
@@ -58,16 +56,19 @@ export default function DropsPage() {
   }
   if (!data) return null;
 
-  async function createDrop() {
-    if (!name.trim()) return;
+  // One tap creates it — auto-named per model ("In-Stock Release 03"),
+  // rename anytime in the sheet. No decisions at the door.
+  async function createDrop(model: "stock" | "preorder") {
     setBusy(true);
     try {
+      const n = (drops || []).filter((d: any) => d.model === model).length + 1;
+      const title = `${model === "stock" ? "In-Stock Release" : "Pre-Order"} ${String(n).padStart(2, "0")}`;
       const res = await fetch(`/api/portal/client/${token}/drops`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: name.trim(), model: newModel }),
+        body: JSON.stringify({ title, model }),
       });
       const body = await res.json();
-      if (res.ok) { setNaming(false); setName(""); await load(body.dropId); }
+      if (res.ok) { setNaming(false); await load(body.dropId); }
     } finally { setBusy(false); }
   }
 
@@ -98,28 +99,21 @@ export default function DropsPage() {
         {!naming ? (
           <button onClick={() => setNaming(true)}
             style={{ background: "#fff", color: C.bg, border: "none", borderRadius: 999, padding: "13px 26px", fontSize: 11.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: C.font }}>
-            + Start a drop
+            + Build your next release
           </button>
         ) : (
-          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: "16px 18px", display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end", maxWidth: 560 }}>
-            <label style={{ display: "flex", flexDirection: "column", gap: 4, flex: "1 1 200px" }}>
-              <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: C.faint }}>Call it something</span>
-              <input value={name} onChange={e => setName(e.target.value)} placeholder="Fall Drop 01" autoFocus
-                style={{ padding: "10px 12px", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 9, outline: "none", color: C.text, fontFamily: C.font, fontSize: 14, fontWeight: 700 }} />
-            </label>
-            <span style={{ display: "inline-flex", gap: 6, alignSelf: "flex-end" }}>
-              {([["stock", "In-stock"], ["preorder", "Pre-order"]] as const).map(([k, label]) => (
-                <button key={k} onClick={() => setNewModel(k)}
-                  style={{ borderRadius: 999, border: newModel === k ? "1px solid #fff" : `1px solid ${C.border}`, background: newModel === k ? "#fff" : "transparent", color: newModel === k ? C.bg : C.muted, fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", padding: "10px 14px", cursor: "pointer", fontFamily: C.font }}>
-                  {label}
-                </button>
-              ))}
-            </span>
-            <button onClick={createDrop} disabled={busy || !name.trim()}
-              style={{ background: "#fff", color: C.bg, border: "none", borderRadius: 999, padding: "12px 22px", fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", opacity: busy || !name.trim() ? 0.5 : 1, fontFamily: C.font }}>
-              Create
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", justifyContent: "center" }}>
+            <button onClick={() => createDrop("stock")} disabled={busy}
+              style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: "18px 22px", cursor: "pointer", textAlign: "left", fontFamily: C.font, color: C.text, maxWidth: 250, opacity: busy ? 0.6 : 1 }}>
+              <span style={{ display: "block", fontSize: 15, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em" }}>In-stock</span>
+              <span style={{ display: "block", fontSize: 11.5, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>Built from goods in your pipeline — launches when they land.</span>
             </button>
-            <button onClick={() => setNaming(false)} style={{ background: "none", border: "none", color: C.faint, fontSize: 12, cursor: "pointer", fontFamily: C.font }}>cancel</button>
+            <button onClick={() => createDrop("preorder")} disabled={busy}
+              style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: "18px 22px", cursor: "pointer", textAlign: "left", fontFamily: C.font, color: C.text, maxWidth: 250, opacity: busy ? 0.6 : 1 }}>
+              <span style={{ display: "block", fontSize: 15, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em" }}>Pre-order</span>
+              <span style={{ display: "block", fontSize: 11.5, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>Sell first — demand sets the run, production follows.</span>
+            </button>
+            <button onClick={() => setNaming(false)} style={{ background: "none", border: "none", color: C.faint, fontSize: 12, cursor: "pointer", fontFamily: C.font, alignSelf: "center" }}>cancel</button>
           </div>
         )}
       </div>
@@ -217,7 +211,9 @@ function DropSheet({ drop, token, briefs, pipeItems, onChanged, onClose }: {
         <div className="dx-handle" />
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, padding: "16px 20px 6px" }}>
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 18, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", lineHeight: 1.2 }}>{drop.title}</div>
+            <input defaultValue={drop.title}
+              onBlur={e => { const v = e.target.value.trim(); if (v && v !== drop.title) call("PATCH", "", { title: v }).then(ok => ok && onChanged(drop.id)); }}
+              style={{ fontSize: 18, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", lineHeight: 1.2, background: "transparent", border: "none", outline: "none", color: C.text, width: "100%", fontFamily: C.font, padding: 0 }} />
             <div style={{ display: "flex", gap: 10, alignItems: "baseline", marginTop: 4, flexWrap: "wrap" }}>
               <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.09em", textTransform: "uppercase", color: w.color }}>{w.label}</span>
               {drop.target_live_date && <span style={{ fontSize: 10.5, fontFamily: C.mono, color: C.faint }}>target live {fmtDate(drop.target_live_date)}</span>}
