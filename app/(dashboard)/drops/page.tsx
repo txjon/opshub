@@ -46,7 +46,7 @@ export default function DropsBoard() {
     const briefIds: string[] = [];
     if (ids.length) {
       const { data: slots } = await supabase.from("release_slots")
-        .select("*, art_briefs(id, title, state), items(name)")
+        .select("*, art_briefs(id, title, state), items(name, pipeline_stage, received_at_hpd, webstore_entered_at, forwarded_at)")
         .in("release_id", ids).order("sort_order");
       for (const s of (slots || []) as any[]) {
         (slotsByRelease[s.release_id] = slotsByRelease[s.release_id] || []).push(s);
@@ -188,7 +188,13 @@ export default function DropsBoard() {
                   <div style={{ display: "flex", gap: 10, alignItems: "baseline", marginTop: 4, flexWrap: "wrap" }}>
                     <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.09em", textTransform: "uppercase", color: (STATUS_META[r.status] || {}).color }}>{(STATUS_META[r.status] || {}).label}</span>
                     {r.target_live_date && <span style={{ fontSize: 10.5, fontFamily: H.mono, color: H.faint }}>target live {fmtDate(r.target_live_date)}</span>}
-                    {totalUnits > 0 && <span style={{ fontSize: 10.5, fontFamily: H.mono, color: H.dim }}>{totalUnits.toLocaleString()} pcs entered</span>}
+                    {totalUnits > 0 && <span style={{ fontSize: 10.5, fontFamily: H.mono, color: H.dim }}>{totalUnits.toLocaleString()} pcs</span>}
+                    {(() => {
+                      const pipe = r.slots.filter((s: any) => s.item_id);
+                      if (!pipe.length) return null;
+                      const landed = pipe.filter((s: any) => s.items?.webstore_entered_at || s.items?.received_at_hpd || s.items?.forwarded_at).length;
+                      return <span style={{ fontSize: 10.5, fontFamily: H.mono, color: landed === pipe.length ? H.green : H.amber, fontWeight: 700 }}>{landed}/{pipe.length} landed</span>;
+                    })()}
                   </div>
                 </div>
                 <button onClick={() => setOpen(null)} aria-label="Close" style={{ background: "none", border: "none", color: H.dim, fontSize: 26, cursor: "pointer", lineHeight: 1 }}>×</button>
@@ -235,7 +241,20 @@ export default function DropsBoard() {
                         </span>
                         {s.line_notes && <span style={{ display: "block", fontSize: 11, color: H.dim, marginTop: 3, lineHeight: 1.45 }}>{s.line_notes}</span>}
                       </span>
-                      <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: s.item_id ? H.blue : approved ? H.green : H.amber, whiteSpace: "nowrap" }}>{s.item_id ? "In production" : approved ? "Design ✓" : "Design pending"}</span>
+                      <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: (() => {
+                          if (!s.item_id) return approved ? H.green : H.amber;
+                          const it = s.items || {};
+                          if (it.webstore_entered_at || it.received_at_hpd || it.forwarded_at) return H.green;
+                          if (it.pipeline_stage === "shipped") return PURPLE;
+                          return H.blue;
+                        })(), whiteSpace: "nowrap" }}>{(() => {
+                          if (!s.item_id) return approved ? "Design ✓" : "Design pending";
+                          const it = s.items || {};
+                          if (it.webstore_entered_at) return "In store";
+                          if (it.received_at_hpd || it.forwarded_at) return "Landed";
+                          if (it.pipeline_stage === "shipped") return "In transit";
+                          return "On press";
+                        })()}</span>
                     </div>
                   );
                 })}
