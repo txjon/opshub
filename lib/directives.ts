@@ -97,10 +97,15 @@ export const DISTRO_DIRECTIVES: Record<string, Directive> = {
 };
 
 export const HOUSE_EXTRA_DIRECTIVES: Record<string, Directive> = {
-  stalled: {
-    verb: "Nudge the vendor",
-    order: "No movement in 7+ days — ask for a status and a ship-by",
-    done: "vendor word received (or tracking entered)",
+  vendor_late: {
+    verb: "Vendor is late",
+    order: "Their ship-by passed and nothing's moving — call, get a real date, log it on the PO chip",
+    done: "tracking entered or a new ship-by logged",
+  },
+  vendor_confirm: {
+    verb: "Confirm it ships",
+    order: "Ship-by is days out — ping the vendor for confirmation before it slips",
+    done: "vendor confirms (or tracking enters)",
   },
   overdue_payment: {
     verb: "Collect it",

@@ -58,7 +58,7 @@ export default function HousePage() {
         setBriefs((body.briefs || []).filter((b: any) => !b.client_aborted_at));
       } catch {}
       // hero art for the action jobs (bounded)
-      const actionJobs: any[] = ((j || []) as any[]).filter((x: any) => (PHASE_VERB[x.phase] || {}).side === "us").slice(0, 16);
+      const actionJobs: any[] = ((j || []) as any[]).filter((x: any) => (PHASE_VERB[x.phase] || {}).side === "us" || x.phase === "production").slice(0, 28);
       const itemIds = actionJobs.flatMap((x: any) => (x.items || []).map((i: any) => i.id));
       if (itemIds.length) {
         const { data: files } = await supabase.from("item_files")
@@ -93,10 +93,28 @@ export default function HousePage() {
       if (r.status === "live" && r.window_close_date && r.window_close_date <= soon) return true;
       return false;
     });
-    // stalled: production items sitting 7+ days with no movement to shipped
-    const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString();
-    const stalled = J.filter((x: any) => x.phase === "production" && (x.items || []).some((i: any) =>
-      i.pipeline_stage === "in_production" && (i.pipeline_timestamps?.in_production || x.updated_at || "") < weekAgo));
+    // Vendor risk, timed off the REAL promises: the PO ship-by chips
+    // (po_ship_live > po_ship_dates), falling back to target ship date
+    // minus a transit buffer when no promise exists. Late = passed (red);
+    // confirm = within 3 days and still on press (amber).
+    const soonV = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
+    const vendorRisk = J.filter((x: any) => x.phase === "production" && (x.items || []).some((i: any) => i.pipeline_stage === "in_production"))
+      .map((x: any) => {
+        const tm = (x.type_meta || {}) as any;
+        const promises: string[] = [
+          ...Object.values(tm.po_ship_live || {}).map((v: any) => v?.date).filter(Boolean),
+          ...Object.values(tm.po_ship_dates || {}).filter(Boolean),
+        ] as string[];
+        const promise = promises.sort()[0] || null;
+        const fallback = x.target_ship_date
+          ? new Date(new Date(x.target_ship_date + "T00:00").getTime() - 7 * 86400000).toISOString().slice(0, 10)
+          : null;
+        const due = promise || fallback;
+        if (!due) return null;
+        if (due < today) return { job: x, due, level: "late", promised: !!promise };
+        if (due <= soonV) return { job: x, due, level: "confirm", promised: !!promise };
+        return null;
+      }).filter(Boolean) as any[];
     // studio calls: new ideas + unanswered client words (same rule as studio2)
     const studioCalls = briefs.filter((b: any) => {
       const clientAt = b.last_client_activity?.at || "";
@@ -104,7 +122,7 @@ export default function HousePage() {
       return b.state === "draft" || (!!clientAt && clientAt > hpdAt);
     });
     const overdue = ourJobs.filter((x: any) => x.target_ship_date && x.target_ship_date < new Date().toISOString().slice(0, 10));
-    return { ourJobs, theirJobs, press, dropCalls, studioCalls, overdue, stalled };
+    return { ourJobs, theirJobs, press, dropCalls, studioCalls, overdue, vendorRisk };
   }, [jobs, drops, briefs]);
 
   // A magazine plate: the work's art is the cover; the directive is the
@@ -179,15 +197,20 @@ export default function HousePage() {
                     r.target_live_date ? `target live ${fmtDate(r.target_live_date)}` : "release",
                     d.verb, ended ? H.red : H.amber, "/drops", "Drops board", d);
                 })}
-                {model.studioCalls.slice(0, 5).map((b: any) =>
-                  card(`brief-${b.id}`, null, b.clients?.name || "Studio", b.title || "New idea",
+                {model.studioCalls.slice(0, 5).map((b: any) => {
+                  const bt = (b.thumbs || []).find((x: any) => x.preview_drive_file_id || x.drive_file_id);
+                  const bArt = bt ? thumbSrc(bt.preview_drive_file_id || bt.drive_file_id) : null;
+                  return card(`brief-${b.id}`, bArt, b.clients?.name || "Studio", b.title || "New idea",
                     b.state === "draft" ? "new idea from the hub" : "client words waiting",
-                    STUDIO_DIRECTIVE.verb, H.amber, "/studio2", "Studio", STUDIO_DIRECTIVE))}
-                {model.stalled.slice(0, 4).map((x: any) =>
-                  card(`stall-${x.id}`, jobArt[x.id] ? thumbSrc(jobArt[x.id]) : null,
+                    STUDIO_DIRECTIVE.verb, H.amber, "/studio2", "Studio", STUDIO_DIRECTIVE);
+                })}
+                {model.vendorRisk.slice(0, 5).map(({ job: x, due, level, promised }: any) => {
+                  const d = level === "late" ? HOUSE_EXTRA_DIRECTIVES.vendor_late : HOUSE_EXTRA_DIRECTIVES.vendor_confirm;
+                  return card(`vr-${x.id}`, jobArt[x.id] ? thumbSrc(jobArt[x.id]) : null,
                     x.clients?.name || "—", (x.type_meta as any)?.qb_invoice_number ? `#${(x.type_meta as any).qb_invoice_number}` : x.job_number,
-                    "7+ days without movement at the vendor",
-                    HOUSE_EXTRA_DIRECTIVES.stalled.verb, H.red, `/jobs/${x.id}`, "Open job", HOUSE_EXTRA_DIRECTIVES.stalled))}
+                    promised ? `vendor promised ${fmtDate(due)}` : `needs to move by ${fmtDate(due)} to make the ship date`,
+                    d.verb, level === "late" ? H.red : H.amber, `/jobs/${x.id}`, "Open job", d);
+                })}
                 {overduePay.slice(0, 4).map((p: any) =>
                   card(`pay-${p.id}`, null,
                     p.jobs?.clients?.name || "—", p.invoice_number ? `Invoice #${p.invoice_number}` : p.jobs?.job_number,
