@@ -31,7 +31,6 @@ export default function DropsPage() {
   const [open, setOpen] = useState<any>(null);
   const [naming, setNaming] = useState(false);
   const [name, setName] = useState("");
-  const [target, setTarget] = useState("");
   const [newModel, setNewModel] = useState<"stock" | "preorder">("stock");
   const [busy, setBusy] = useState(false);
 
@@ -65,10 +64,10 @@ export default function DropsPage() {
     try {
       const res = await fetch(`/api/portal/client/${token}/drops`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: name.trim(), target_live_date: target || undefined, model: newModel }),
+        body: JSON.stringify({ title: name.trim(), model: newModel }),
       });
       const body = await res.json();
-      if (res.ok) { setNaming(false); setName(""); setTarget(""); await load(body.dropId); }
+      if (res.ok) { setNaming(false); setName(""); await load(body.dropId); }
     } finally { setBusy(false); }
   }
 
@@ -116,11 +115,6 @@ export default function DropsPage() {
                 </button>
               ))}
             </span>
-            <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: C.faint }}>Target live date <span style={{ color: C.faint, textTransform: "none", letterSpacing: 0 }}>(or let the lineup pick it)</span></span>
-              <input type="date" value={target} onChange={e => setTarget(e.target.value)}
-                style={{ padding: "9px 10px", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 9, outline: "none", color: C.text, fontFamily: C.font, fontSize: 12.5, colorScheme: "dark" }} />
-            </label>
             <button onClick={createDrop} disabled={busy || !name.trim()}
               style={{ background: "#fff", color: C.bg, border: "none", borderRadius: 999, padding: "12px 22px", fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", opacity: busy || !name.trim() ? 0.5 : 1, fontFamily: C.font }}>
               Create
