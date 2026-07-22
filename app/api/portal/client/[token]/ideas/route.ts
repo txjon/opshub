@@ -21,6 +21,8 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     const body = await req.json().catch(() => ({}));
     const title = String(body.title || "").trim().slice(0, 140);
     const notes = String(body.notes || "").trim().slice(0, 4000);
+    // "ready" = the client says the art is done — this is a make-it, not a sketch-it
+    const ready = body.kind === "ready";
     if (!title) return NextResponse.json({ error: "Give it a name" }, { status: 400 });
     // Notes are optional — the image carries the idea (Jon, Jul 22)
 
@@ -36,7 +38,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
       .insert({
         client_id: client.id,
         title,
-        concept: notes || null,
+        concept: ready ? `READY TO MAKE — client says the art is final.${notes ? `\n${notes}` : ""}` : (notes || null),
         state: "draft",
         source: "client",
       })
@@ -46,7 +48,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
 
     try {
       const { sendInternalMail } = await import("@/lib/internal-mail");
-      await sendInternalMail({ kind: "new_idea", client: (client as any).name, title, notes });
+      await sendInternalMail({ kind: "new_idea", client: (client as any).name, title, notes, ready });
     } catch {}
 
     return NextResponse.json({ success: true, briefId: (brief as any).id });
