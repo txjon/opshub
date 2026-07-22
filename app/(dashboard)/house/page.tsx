@@ -67,8 +67,11 @@ export default function HousePage() {
         const body = await res.json();
         setBriefs((body.briefs || []).filter((b: any) => !b.client_aborted_at));
       } catch {}
-      // hero art for the action jobs (bounded)
-      const actionJobs: any[] = ((j || []) as any[]).filter((x: any) => (PHASE_VERB[x.phase] || {}).side === "us" || x.phase === "production").slice(0, 28);
+      // hero art for the action jobs. The cap is a runaway guard only — it must
+      // exceed the eligible-job count or displayed cards silently lose their art
+      // (the render sorts differently than this unsorted list, so a tight slice
+      // starves whichever jobs sort late; bit FOG #4388 / LRC #4343 at cap 28).
+      const actionJobs: any[] = ((j || []) as any[]).filter((x: any) => (PHASE_VERB[x.phase] || {}).side === "us" || x.phase === "production").slice(0, 120);
       const itemIds = actionJobs.flatMap((x: any) => (x.items || []).map((i: any) => i.id));
       if (itemIds.length) {
         const { data: files } = await supabase.from("item_files")
