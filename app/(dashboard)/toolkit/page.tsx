@@ -368,7 +368,7 @@ function MockupTool() {
               {/* Actions */}
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 <button onClick={downloadMockup}
-                  style={{ padding: "8px 14px", borderRadius: 6, border: "none", background: T.accent, color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
+                  style={{ padding: "8px 14px", borderRadius: 6, border: "none", background: T.accent, color: "#0a0a0a", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
                   Download Mockup
                 </button>
                 <button onClick={downloadPdf} disabled={downloading}

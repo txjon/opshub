@@ -232,7 +232,7 @@ export default function ProjectsBoard() {
 
   return (
     <BoardFrame title="Projects" action={
-      <a href="/jobs/new" style={{ background: T.accent, color: "#fff", borderRadius: 8, padding: "9px 16px", fontSize: 13, fontFamily: font, fontWeight: 600, textDecoration: "none", whiteSpace: "nowrap" }}>+ New Project</a>
+      <a href="/jobs/new" style={{ background: T.accent, color: "#0a0a0a", borderRadius: 8, padding: "9px 16px", fontSize: 13, fontFamily: font, fontWeight: 600, textDecoration: "none", whiteSpace: "nowrap" }}>+ New Project</a>
     }>
       <ToggleSearch
         options={[["active", `Active · ${activeAll.length}`], ["completed", `Completed · ${rows.filter(r => r.stage.complete).length}`]]}
@@ -269,7 +269,7 @@ export default function ProjectsBoard() {
             <span style={{ fontSize: 12, color: T.muted }}>{doneSorted.length} {doneSorted.length === 1 ? "project" : "projects"}{unpaidOnly ? <> with <b style={{ color: T.text }}>money outstanding</b></> : null}</span>
             <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
               <button onClick={() => setUnpaidOnly(u => !u)}
-                style={{ ...selStyle, background: unpaidOnly ? T.text : T.card, color: unpaidOnly ? "#fff" : T.text, border: `1px solid ${unpaidOnly ? T.text : T.border}` }}>
+                style={{ ...selStyle, background: unpaidOnly ? T.text : T.card, color: unpaidOnly ? "#0a0a0a" : T.text, border: `1px solid ${unpaidOnly ? T.text : T.border}` }}>
                 Unpaid only
               </button>
               <select value={clientFilter} onChange={e => setClientFilter(e.target.value)} style={selStyle}>
@@ -470,7 +470,7 @@ function Strip({ r, thumbs, proofStatus, completed = false, flash = false, onOpe
             </div>
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, padding: "14px 22px", borderTop: `1px solid ${T.border}` }}>
               <button onClick={() => setPeek(false)} style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "9px 16px", border: `1px solid ${T.border}`, background: T.card, color: T.text, cursor: "pointer", fontFamily: font }}>Close</button>
-              <button onClick={onOpen} style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "9px 18px", border: "none", background: T.text, color: "#fff", cursor: "pointer", fontFamily: font }}>Open project →</button>
+              <button onClick={onOpen} style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "9px 18px", border: "none", background: T.text, color: "#0a0a0a", cursor: "pointer", fontFamily: font }}>Open project →</button>
             </div>
           </ModalShell>
         </div>

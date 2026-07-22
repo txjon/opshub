@@ -160,7 +160,7 @@ export function PartyLine({ currentUserId }: { currentUserId: string }) {
               disabled={!draft.trim() || sending}
               style={{
                 background: T.accent, border: "none", borderRadius: 8,
-                color: "#fff", fontSize: 12, fontWeight: 600, padding: "8px 14px",
+                color: "#0a0a0a", fontSize: 12, fontWeight: 600, padding: "8px 14px",
                 cursor: draft.trim() ? "pointer" : "default", opacity: draft.trim() ? 1 : 0.4,
               }}
             >

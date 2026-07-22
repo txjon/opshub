@@ -158,7 +158,7 @@ function KeyValueSection({ title, data, onUpdate }: { title: string; data: Recor
             <input value={newKey} onChange={e=>setNewKey(e.target.value)}
               onKeyDown={e=>{if(e.key==="Enter")handleAdd();if(e.key==="Escape"){setAdding(false);setNewKey("");}}}
               placeholder="Name..." autoFocus style={{...inp, flex:1}} />
-            <button onClick={handleAdd} style={{ background:T.accent, border:"none", borderRadius:4, color:"#fff", fontSize:10, padding:"3px 8px", cursor:"pointer" }}>Add</button>
+            <button onClick={handleAdd} style={{ background:T.accent, border:"none", borderRadius:4, color:"#0a0a0a", fontSize:10, padding:"3px 8px", cursor:"pointer" }}>Add</button>
             <button onClick={()=>{setAdding(false);setNewKey("");}} style={{ background:"none", border:"none", color:T.faint, cursor:"pointer", fontSize:11 }}>✕</button>
           </div>
         ) : (
@@ -461,7 +461,7 @@ export default function DecoratorsPage() {
           <div style={{ fontSize:18, fontWeight:700 }}>Decorators</div>
           <div style={{ fontSize:12, color:T.muted, marginTop:2 }}>{decorators.length} vendors</div>
         </div>
-        <button onClick={addDecorator} style={{ background:T.accent, border:"none", borderRadius:7, color:"#fff", fontSize:12, fontFamily:font, fontWeight:600, padding:"7px 16px", cursor:"pointer" }}>
+        <button onClick={addDecorator} style={{ background:T.accent, border:"none", borderRadius:7, color:"#0a0a0a", fontSize:12, fontFamily:font, fontWeight:600, padding:"7px 16px", cursor:"pointer" }}>
           + Add decorator
         </button>
       </div>
@@ -574,7 +574,7 @@ export default function DecoratorsPage() {
                               onClick={()=>{
                                 navigator.clipboard.writeText(`${appBaseUrlSync()}/portal/vendor/${(d as any).external_token}`);
                               }}
-                              style={{ background:T.accent, border:"none", borderRadius:6, color:"#fff", fontSize:10, fontWeight:600, padding:"5px 10px", cursor:"pointer", whiteSpace:"nowrap" }}
+                              style={{ background:T.accent, border:"none", borderRadius:6, color:"#0a0a0a", fontSize:10, fontWeight:600, padding:"5px 10px", cursor:"pointer", whiteSpace:"nowrap" }}
                             >Copy</button>
                           </div>
                         </div>
@@ -629,7 +629,7 @@ export default function DecoratorsPage() {
                         <div style={{ fontSize:12, color:T.muted, marginBottom:10 }}>No pricing table yet</div>
                         <div style={{ display:"flex", gap:8, justifyContent:"center" }}>
                           <button onClick={() => upd({pricing_data: EMPTY_PRICING} as any)}
-                            style={{ background:T.accent, border:"none", borderRadius:7, color:"#fff", fontSize:12, fontFamily:font, fontWeight:600, padding:"7px 16px", cursor:"pointer" }}>
+                            style={{ background:T.accent, border:"none", borderRadius:7, color:"#0a0a0a", fontSize:12, fontFamily:font, fontWeight:600, padding:"7px 16px", cursor:"pointer" }}>
                             Start from scratch
                           </button>
                         </div>

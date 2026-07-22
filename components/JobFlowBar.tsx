@@ -41,7 +41,7 @@ export function JobFlowBar({ job, items, payments, phaseView, activeTab, onBuild
           const active = activeTab === k;
           return (
             <button key={k} onClick={() => onBuild(k)}
-              style={{ border: `1px solid ${active ? T.accent : T.border}`, background: active ? T.accent : T.card, color: active ? "#fff" : T.muted, borderRadius: 9, padding: "8px 15px", fontSize: 13, fontWeight: active ? 800 : 700, cursor: "pointer", fontFamily: font }}>
+              style={{ border: `1px solid ${active ? T.accent : T.border}`, background: active ? T.accent : T.card, color: active ? "#0a0a0a" : T.muted, borderRadius: 9, padding: "8px 15px", fontSize: 13, fontWeight: active ? 800 : 700, cursor: "pointer", fontFamily: font }}>
               {l}
             </button>
           );

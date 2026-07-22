@@ -755,7 +755,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
           </button>
           {/* + New Project — pre-fills this client on the new project form. */}
           <a href={`/jobs/new?client=${client.id}`}
-            style={{padding:"7px 14px",borderRadius:7,background:T.accent,color:"#fff",fontSize:12,fontWeight:700,textDecoration:"none",fontFamily:font}}>
+            style={{padding:"7px 14px",borderRadius:7,background:T.accent,color:"#0a0a0a",fontSize:12,fontWeight:700,textDecoration:"none",fontFamily:font}}>
             + New Project
           </a>
         <button onClick={async()=>{
@@ -897,7 +897,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                 <div>
                   <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginTop:6,marginBottom:6}}>
                     <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em"}}>Tax Documents</div>
-                    <label style={{cursor:uploading?"default":"pointer",fontSize:10,padding:"3px 9px",borderRadius:5,background:uploading?T.faint:T.accent,color:"#fff",fontWeight:600,opacity:uploading?0.7:1}}>
+                    <label style={{cursor:uploading?"default":"pointer",fontSize:10,padding:"3px 9px",borderRadius:5,background:uploading?T.faint:T.accent,color:"#0a0a0a",fontWeight:600,opacity:uploading?0.7:1}}>
                       {uploading ? "Uploading…" : "+ Upload"}
                       <input type="file" style={{display:"none"}} disabled={uploading} onChange={async e => {
                         const f = e.target.files?.[0];
@@ -1111,7 +1111,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                   {(["list","tiles"] as const).map(v=>(
                     <button key={v} onClick={()=>setItemViewMode(v)}
                       style={{padding:"3px 10px",borderRadius:4,fontSize:10,fontWeight:600,border:"none",cursor:"pointer",
-                        background:itemViewMode===v?T.text:"transparent",color:itemViewMode===v?"#fff":T.muted}}>
+                        background:itemViewMode===v?T.text:"transparent",color:itemViewMode===v?"#0a0a0a":T.muted}}>
                       {v==="list"?"List":"Tiles"}
                     </button>
                   ))}
@@ -1283,7 +1283,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                           <div style={{fontSize:10,color:T.muted,marginTop:1}}>{[first.blank_vendor,first.blank_sku].filter(Boolean).join(" · ")}</div>
                         </div>
                         <button onClick={()=>reorderItem(first)}
-                          style={{fontSize:10,fontWeight:600,padding:"3px 10px",borderRadius:6,background:T.accent,color:"#fff",border:"none",cursor:"pointer"}}>
+                          style={{fontSize:10,fontWeight:600,padding:"3px 10px",borderRadius:6,background:T.accent,color:"#0a0a0a",border:"none",cursor:"pointer"}}>
                           Reorder
                         </button>
                       </div>

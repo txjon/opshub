@@ -30,9 +30,6 @@ export default function DropsPage() {
   const [pipeItems, setPipeItems] = useState<any[]>([]);
   const [open, setOpen] = useState<any>(null);
   const [naming, setNaming] = useState(false);
-  const [name, setName] = useState("");
-  const [target, setTarget] = useState("");
-  const [newModel, setNewModel] = useState<"stock" | "preorder">("stock");
   const [busy, setBusy] = useState(false);
 
   async function load(openId?: string) {
@@ -59,16 +56,19 @@ export default function DropsPage() {
   }
   if (!data) return null;
 
-  async function createDrop() {
-    if (!name.trim()) return;
+  // One tap creates it — auto-named per model ("In-Stock Release 03"),
+  // rename anytime in the sheet. No decisions at the door.
+  async function createDrop(model: "stock" | "preorder") {
     setBusy(true);
     try {
+      const n = (drops || []).filter((d: any) => d.model === model).length + 1;
+      const title = `${model === "stock" ? "In-Stock Release" : "Pre-Order"} ${String(n).padStart(2, "0")}`;
       const res = await fetch(`/api/portal/client/${token}/drops`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: name.trim(), target_live_date: target || undefined, model: newModel }),
+        body: JSON.stringify({ title, model }),
       });
       const body = await res.json();
-      if (res.ok) { setNaming(false); setName(""); setTarget(""); await load(body.dropId); }
+      if (res.ok) { setNaming(false); await load(body.dropId); }
     } finally { setBusy(false); }
   }
 
@@ -99,33 +99,21 @@ export default function DropsPage() {
         {!naming ? (
           <button onClick={() => setNaming(true)}
             style={{ background: "#fff", color: C.bg, border: "none", borderRadius: 999, padding: "13px 26px", fontSize: 11.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: C.font }}>
-            + Start a drop
+            + Build your next release
           </button>
         ) : (
-          <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: "16px 18px", display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end", maxWidth: 560 }}>
-            <label style={{ display: "flex", flexDirection: "column", gap: 4, flex: "1 1 200px" }}>
-              <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: C.faint }}>Call it something</span>
-              <input value={name} onChange={e => setName(e.target.value)} placeholder="Fall Drop 01" autoFocus
-                style={{ padding: "10px 12px", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 9, outline: "none", color: C.text, fontFamily: C.font, fontSize: 14, fontWeight: 700 }} />
-            </label>
-            <span style={{ display: "inline-flex", gap: 6, alignSelf: "flex-end" }}>
-              {([["stock", "In-stock"], ["preorder", "Pre-order"]] as const).map(([k, label]) => (
-                <button key={k} onClick={() => setNewModel(k)}
-                  style={{ borderRadius: 999, border: newModel === k ? "1px solid #fff" : `1px solid ${C.border}`, background: newModel === k ? "#fff" : "transparent", color: newModel === k ? C.bg : C.muted, fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", padding: "10px 14px", cursor: "pointer", fontFamily: C.font }}>
-                  {label}
-                </button>
-              ))}
-            </span>
-            <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: C.faint }}>Target live date <span style={{ color: C.faint, textTransform: "none", letterSpacing: 0 }}>(or let the lineup pick it)</span></span>
-              <input type="date" value={target} onChange={e => setTarget(e.target.value)}
-                style={{ padding: "9px 10px", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 9, outline: "none", color: C.text, fontFamily: C.font, fontSize: 12.5, colorScheme: "dark" }} />
-            </label>
-            <button onClick={createDrop} disabled={busy || !name.trim()}
-              style={{ background: "#fff", color: C.bg, border: "none", borderRadius: 999, padding: "12px 22px", fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", opacity: busy || !name.trim() ? 0.5 : 1, fontFamily: C.font }}>
-              Create
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", justifyContent: "center" }}>
+            <button onClick={() => createDrop("stock")} disabled={busy}
+              style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: "18px 22px", cursor: "pointer", textAlign: "left", fontFamily: C.font, color: C.text, maxWidth: 250, opacity: busy ? 0.6 : 1 }}>
+              <span style={{ display: "block", fontSize: 15, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em" }}>In-stock</span>
+              <span style={{ display: "block", fontSize: 11.5, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>Built from goods in your pipeline — launches when they land.</span>
             </button>
-            <button onClick={() => setNaming(false)} style={{ background: "none", border: "none", color: C.faint, fontSize: 12, cursor: "pointer", fontFamily: C.font }}>cancel</button>
+            <button onClick={() => createDrop("preorder")} disabled={busy}
+              style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: "18px 22px", cursor: "pointer", textAlign: "left", fontFamily: C.font, color: C.text, maxWidth: 250, opacity: busy ? 0.6 : 1 }}>
+              <span style={{ display: "block", fontSize: 15, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em" }}>Pre-order</span>
+              <span style={{ display: "block", fontSize: 11.5, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>Sell first — demand sets the run, production follows.</span>
+            </button>
+            <button onClick={() => setNaming(false)} style={{ background: "none", border: "none", color: C.faint, fontSize: 12, cursor: "pointer", fontFamily: C.font, alignSelf: "center" }}>cancel</button>
           </div>
         )}
       </div>
@@ -180,7 +168,14 @@ function DropSheet({ drop, token, briefs, pipeItems, onChanged, onClose }: {
   // Candidate lines: every product line across their ideas not already slotted.
   const slotted = new Set(drop.slots.map((s: any) => `${s.briefId}|${s.lineId}`));
   const slottedItems = new Set(drop.slots.map((s: any) => s.itemId).filter(Boolean));
-  const itemCands = pipeItems.filter((it: any) => !slottedItems.has(it.id));
+  // Timeline order: landed goods first (ready now), then soonest landing,
+  // then date-TBD stragglers — the picker reads as "now, next, later".
+  const itemCands = pipeItems.filter((it: any) => !slottedItems.has(it.id)).sort((a: any, b: any) => {
+    const rank = (it: any) => it.status === "in_stock" ? 0 : it.eta ? 1 : 2;
+    if (rank(a) !== rank(b)) return rank(a) - rank(b);
+    if (a.eta && b.eta) return a.eta.localeCompare(b.eta);
+    return (a.name || "").localeCompare(b.name || "");
+  });
   const itemById = (id: string) => pipeItems.find((it: any) => it.id === id);
   // Suggested live date = latest landing across item-sourced slots + prep.
   const slotEtas = drop.slots.map((s: any) => s.itemId && itemById(s.itemId)?.eta).filter(Boolean) as string[];
@@ -223,7 +218,9 @@ function DropSheet({ drop, token, briefs, pipeItems, onChanged, onClose }: {
         <div className="dx-handle" />
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, padding: "16px 20px 6px" }}>
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 18, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", lineHeight: 1.2 }}>{drop.title}</div>
+            <input defaultValue={drop.title}
+              onBlur={e => { const v = e.target.value.trim(); if (v && v !== drop.title) call("PATCH", "", { title: v }).then(ok => ok && onChanged(drop.id)); }}
+              style={{ fontSize: 18, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", lineHeight: 1.2, background: "transparent", border: "none", outline: "none", color: C.text, width: "100%", fontFamily: C.font, padding: 0 }} />
             <div style={{ display: "flex", gap: 10, alignItems: "baseline", marginTop: 4, flexWrap: "wrap" }}>
               <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.09em", textTransform: "uppercase", color: w.color }}>{w.label}</span>
               {drop.target_live_date && <span style={{ fontSize: 10.5, fontFamily: C.mono, color: C.faint }}>target live {fmtDate(drop.target_live_date)}</span>}
@@ -324,7 +321,9 @@ function DropSheet({ drop, token, briefs, pipeItems, onChanged, onClose }: {
                       {it.thumb_id && <img src={thumbSrc(it.thumb_id)} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />}
                     </span>
                     <span style={{ minWidth: 0, flex: 1, fontSize: 12, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.name}</span>
-                    <span style={{ fontSize: 10, fontFamily: C.mono, color: C.muted, whiteSpace: "nowrap" }}>{it.qty ? `${it.qty.toLocaleString()} pcs` : ""}{it.eta ? ` · lands ${fmtDate(it.eta)}` : ""}</span>
+                    <span style={{ fontSize: 10, fontFamily: C.mono, whiteSpace: "nowrap", color: it.status === "in_stock" ? C.green : it.eta ? C.muted : C.faint, fontWeight: it.status === "in_stock" ? 800 : 500 }}>
+                      {it.qty ? `${it.qty.toLocaleString()} pcs · ` : ""}{it.status === "in_stock" ? "ready now" : it.eta ? `lands ${fmtDate(it.eta)}` : "date TBD"}
+                    </span>
                     <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", color: C.text }}>+ Add</span>
                   </button>
                 ))}
@@ -356,19 +355,27 @@ function DropSheet({ drop, token, briefs, pipeItems, onChanged, onClose }: {
         {/* ── Actions ── */}
         <div style={{ padding: "16px 20px 20px", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
           {building && (
-            <>
-              <button disabled={!allReady || !!busy}
-                onClick={async () => { setBusy("submit"); if (await call("PATCH", "", { submit: true })) onChanged(drop.id); setBusy(null); }}
-                title={allReady ? "" : "Every line needs an approved design first"}
-                style={{ background: "#fff", color: C.bg, border: "none", borderRadius: 999, padding: "13px 24px", fontSize: 11.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: allReady ? "pointer" : "default", opacity: allReady ? 1 : 0.4, fontFamily: C.font }}>
-                {isStock ? "Ready to launch — send it to us" : "Send it to us"}
-              </button>
-              {!allReady && drop.slots.length > 0 && <span style={{ fontSize: 11, color: C.faint, maxWidth: "34ch", lineHeight: 1.45 }}>Unlocks when every design on the lineup is approved.</span>}
-              <button onClick={async () => { if (confirm("Remove this drop?")) { setBusy("del"); if (await call("DELETE", "")) { onChanged(); onClose(); } setBusy(null); } }}
-                style={{ marginLeft: "auto", background: "none", border: "none", color: C.faint, fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: C.font }}>
-                Remove
-              </button>
-            </>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
+              <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                <button onClick={onClose}
+                  style={{ background: "transparent", color: C.text, border: `1px solid ${C.border}`, borderRadius: 999, padding: "13px 22px", fontSize: 11.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: C.font }}>
+                  Done for now
+                </button>
+                <button disabled={!allReady || !!busy}
+                  onClick={async () => { if (!confirm(`Hand "${drop.title}" to our team? The lineup locks — no more adding or removing after this.`)) return; setBusy("submit"); if (await call("PATCH", "", { submit: true })) onChanged(drop.id); setBusy(null); }}
+                  title={allReady ? "" : "Every line needs an approved design first"}
+                  style={{ background: "#fff", color: C.bg, border: "none", borderRadius: 999, padding: "13px 24px", fontSize: 11.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: allReady ? "pointer" : "default", opacity: allReady ? 1 : 0.4, fontFamily: C.font }}>
+                  {isStock ? "Hand it to HPD" : "Hand it to HPD"}
+                </button>
+                <button onClick={async () => { if (confirm("Remove this drop?")) { setBusy("del"); if (await call("DELETE", "")) { onChanged(); onClose(); } setBusy(null); } }}
+                  style={{ marginLeft: "auto", background: "none", border: "none", color: C.faint, fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: C.font }}>
+                  Remove
+                </button>
+              </div>
+              <span style={{ fontSize: 11, color: C.faint, lineHeight: 1.5, maxWidth: "58ch" }}>
+                Everything saves as you go — close anytime and keep planning later. When the lineup&rsquo;s final, <b style={{ color: C.muted }}>Hand it to HPD</b> sends it to our team {isStock ? "to schedule the launch" : "to cost it and open the sale"}; the lineup locks from there.{!allReady && drop.slots.length > 0 ? " (Unlocks once every design on it is approved.)" : ""}
+              </span>
+            </div>
           )}
           {drop.status === "ready" && <span style={{ fontSize: 12, color: C.muted, lineHeight: 1.5 }}>It&rsquo;s with us — we&rsquo;re costing and scheduling. You&rsquo;ll see it move here.</span>}
           {numbersOpen && <span style={{ fontSize: 12, color: C.muted, lineHeight: 1.5 }}>Sale closed — enter production numbers on each line above and we&rsquo;ll confirm.</span>}

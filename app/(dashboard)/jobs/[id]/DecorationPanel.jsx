@@ -738,7 +738,7 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
                     {[{label:"/ unit",flat:false},{label:"flat",flat:true}].map(opt=>{
                       const sel=cc.flat===opt.flat;
                       return <button key={opt.label} onClick={()=>{const c=[...p.customCosts];c[ci]={...c[ci],flat:opt.flat};updateProd(i,{...p,customCosts:c});}}
-                        style={{padding:"6px 12px",fontSize:11,fontWeight:600,border:"none",cursor:"pointer",background:sel?T.text:"transparent",color:sel?"#fff":T.muted,fontFamily:font}}>{opt.label}</button>;
+                        style={{padding:"6px 12px",fontSize:11,fontWeight:600,border:"none",cursor:"pointer",background:sel?T.text:"transparent",color:sel?"#0a0a0a":T.muted,fontFamily:font}}>{opt.label}</button>;
                     })}
                   </div>
                   <div style={{display:"inline-flex",alignItems:"center",gap:4,background:T.card,border:`1px solid ${T.border}`,borderRadius:6,padding:"5px 10px",flexShrink:0}}>

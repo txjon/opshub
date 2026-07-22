@@ -777,7 +777,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
               <div style={{ fontSize: 9, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em" }}>total units</div>
             </div>
             <button onClick={() => setQtyView(false)}
-              style={{ background: T.text, color: "#fff", border: "none", borderRadius: 8, padding: "9px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: font }}>Done</button>
+              style={{ background: T.text, color: "#0a0a0a", border: "none", borderRadius: 8, padding: "9px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: font }}>Done</button>
           </div>
         </div>
 
@@ -873,7 +873,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
               <>
                 <div style={{ fontSize: 12.5, color: T.text, background: T.redDim, borderRadius: 8, padding: "10px 12px", lineHeight: 1.45, marginTop: 10 }}>{psdProcessing.error}</div>
                 <button onClick={() => setPsdProcessing(null)}
-                  style={{ marginTop: 14, width: "100%", padding: "9px", borderRadius: 8, border: "none", background: T.text, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>Dismiss</button>
+                  style={{ marginTop: 14, width: "100%", padding: "9px", borderRadius: 8, border: "none", background: T.text, color: "#0a0a0a", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>Dismiss</button>
               </>
             )}
           </div>
@@ -903,7 +903,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
           <div onClick={e => e.stopPropagation()} style={{ width: "95vw", maxWidth: showAddType === "accessory" ? 700 : 1000, maxHeight: "90vh", display: "flex", flexDirection: "column" }}>
             <div style={{ marginBottom: 8, display: "flex", gap: 8, alignItems: "center" }}>
               <button onClick={() => { setShowPicker(false); setShowASColour(false); setShowLAApparel(false); setShowFavorites(false); setShowOtherPicker(false); setShowCCPicker(false); setShowAddType(null); if (!assignBlankTo) setShowAddModal(true); setAssignBlankTo(null); }}
-                style={{ background: T.text, border: "none", borderRadius: 6, color: "#fff", fontSize: 12, fontWeight: 600, padding: "6px 14px", cursor: "pointer", fontFamily: font }}>
+                style={{ background: T.text, border: "none", borderRadius: 6, color: "#0a0a0a", fontSize: 12, fontWeight: 600, padding: "6px 14px", cursor: "pointer", fontFamily: font }}>
                 ← {assignBlankTo ? "Cancel" : "Sources"}
               </button>
               {assignBlankTo && <span style={{ fontSize: 11, color: T.amber, fontWeight: 600 }}>{Array.isArray(assignBlankTo) ? `Assigning blank to ${assignBlankTo.length} items` : `Assigning blank`}</span>}
@@ -1015,7 +1015,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
                     placeholder="New type (e.g. Hat)"
                     style={{ flex: 1, padding: "9px 12px", border: `1px solid ${T.border}`, borderRadius: 8, background: T.surface, color: T.text, fontSize: 13, outline: "none", fontFamily: font }} />
                   <button onClick={addNewItemType} disabled={!newItemType.trim() || savingType}
-                    style={{ padding: "9px 16px", borderRadius: 8, border: "none", background: T.accent, color: "#fff", fontSize: 12, fontWeight: 700, cursor: (!newItemType.trim() || savingType) ? "default" : "pointer", opacity: (!newItemType.trim() || savingType) ? 0.5 : 1 }}>
+                    style={{ padding: "9px 16px", borderRadius: 8, border: "none", background: T.accent, color: "#0a0a0a", fontSize: 12, fontWeight: 700, cursor: (!newItemType.trim() || savingType) ? "default" : "pointer", opacity: (!newItemType.trim() || savingType) ? 0.5 : 1 }}>
                     + Add
                   </button>
                 </div>
@@ -1094,7 +1094,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
               <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <span style={{ fontSize: 12, color: T.muted }}>{names.length} item{names.length === 1 ? "" : "s"}</span>
                 <button onClick={createNames} disabled={names.length === 0}
-                  style={{ padding: "9px 20px", borderRadius: 8, border: "none", background: T.accent, color: "#fff", fontSize: 13, fontWeight: 700, cursor: names.length === 0 ? "default" : "pointer", opacity: names.length === 0 ? 0.5 : 1, fontFamily: font }}>
+                  style={{ padding: "9px 20px", borderRadius: 8, border: "none", background: T.accent, color: "#0a0a0a", fontSize: 13, fontWeight: 700, cursor: names.length === 0 ? "default" : "pointer", opacity: names.length === 0 ? 0.5 : 1, fontFamily: font }}>
                   Create {names.length || ""} {names.length === 1 ? "item" : "items"}
                 </button>
               </div>
@@ -1128,7 +1128,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <button onClick={() => { if (!psdProcessing) setShowAddModal(true); }}
                 style={{
-                  background: T.text, color: "#fff", border: "none",
+                  background: T.text, color: "#0a0a0a", border: "none",
                   padding: "12px 16px", borderRadius: 10, fontSize: 13, fontWeight: 700,
                   cursor: "pointer", fontFamily: font, textAlign: "left",
                   display: "flex", alignItems: "center", gap: 10,
@@ -1248,7 +1248,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
         <button onClick={() => { if (!psdProcessing) setMobilePickerOpen(true); }}
           style={{
             padding: "10px 16px", borderRadius: 8,
-            border: "none", background: T.text, color: "#fff",
+            border: "none", background: T.text, color: "#0a0a0a",
             cursor: "pointer", fontSize: 13, fontWeight: 700,
             flexShrink: 0, fontFamily: font, display: "inline-flex", alignItems: "center", gap: 6,
             minHeight: 44,
@@ -1710,7 +1710,7 @@ function SizeSubModal({ item, size, onClose, onSave }) {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 18 }}>
           <button onClick={() => onSave({ label: label.trim(), color: color.trim(), cost: cost.trim(), note: note.trim() })}
-            style={{ background: T.accent, color: "#fff", border: "none", borderRadius: 7, padding: "9px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: font }}>Save substitute</button>
+            style={{ background: T.accent, color: "#0a0a0a", border: "none", borderRadius: 7, padding: "9px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: font }}>Save substitute</button>
           {hasExisting && (
             <button onClick={() => onSave({ label: "", color: "", cost: "", note: "" })}
               style={{ background: "transparent", color: T.red, border: `1px solid ${T.border}`, borderRadius: 7, padding: "9px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: font }}>Remove</button>
@@ -1964,7 +1964,7 @@ function EditSizesModal({ item, onClose, onSave }) {
                   placeholder="Total qty"
                   style={{ width: 110, height: 36, padding: "0 10px", fontSize: 13, border: `1px solid ${T.border}`, borderRadius: 6, background: T.card, color: T.text, fontFamily: font, outline: "none" }} />
                 <button onClick={doDist}
-                  style={{ fontSize: 12, color: "#fff", background: T.accent, border: "none", borderRadius: 6, padding: "8px 16px", cursor: "pointer", fontWeight: 700, fontFamily: font }}>
+                  style={{ fontSize: 12, color: "#0a0a0a", background: T.accent, border: "none", borderRadius: 6, padding: "8px 16px", cursor: "pointer", fontWeight: 700, fontFamily: font }}>
                   Fill
                 </button>
                 <span style={{ fontSize: 11, color: T.faint }}>Spreads total across active sizes using the item's curve.</span>
@@ -1979,7 +1979,7 @@ function EditSizesModal({ item, onClose, onSave }) {
             Cancel
           </button>
           <button onClick={() => onSave(sizes, qtys)}
-            style={{ padding: "8px 22px", background: T.accent, color: "#fff", border: "none", borderRadius: 6, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: font }}>
+            style={{ padding: "8px 22px", background: T.accent, color: "#0a0a0a", border: "none", borderRadius: 6, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: font }}>
             Save
           </button>
         </div>
@@ -2118,7 +2118,7 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
               <>
                 <div style={{ fontSize: 12.5, color: T.text, background: T.redDim, borderRadius: 8, padding: "10px 12px", lineHeight: 1.45, marginTop: 10 }}>{uploadError}</div>
                 <button onClick={() => setUploadError(null)}
-                  style={{ marginTop: 14, width: "100%", padding: "9px", borderRadius: 8, border: "none", background: T.text, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>Dismiss</button>
+                  style={{ marginTop: 14, width: "100%", padding: "9px", borderRadius: 8, border: "none", background: T.text, color: "#0a0a0a", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>Dismiss</button>
               </>
             )}
           </div>
@@ -2232,7 +2232,7 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
               than the one-size "Qty units" shortcut. */}
           {cutSew && item.sizes.length === 0 && !costingLocked && (
             <button onClick={() => setEditSizesItemId(item.id)}
-              style={{ fontSize: 13, fontWeight: 700, color: "#fff", background: T.accent, border: "none", borderRadius: 8, padding: "10px 18px", cursor: "pointer", fontFamily: font }}>
+              style={{ fontSize: 13, fontWeight: 700, color: "#0a0a0a", background: T.accent, border: "none", borderRadius: 8, padding: "10px 18px", cursor: "pointer", fontFamily: font }}>
               + Set sizes &amp; quantities
             </button>
           )}
@@ -2345,7 +2345,7 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
             {distRow === idx && (
               <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 6 }}>
                 <input type="text" inputMode="numeric" value={distTotal} onChange={e => setDistTotal(e.target.value)} onKeyDown={e => e.key === "Enter" && handleDist(idx)} placeholder="Total qty" autoFocus style={{ ...ic, width: 80, textAlign: "center" }} />
-                <button onClick={() => handleDist(idx)} style={{ fontSize: 10, color: "#fff", background: T.accent, border: "none", borderRadius: 4, padding: "4px 10px", cursor: "pointer", fontWeight: 600 }}>Fill</button>
+                <button onClick={() => handleDist(idx)} style={{ fontSize: 10, color: "#0a0a0a", background: T.accent, border: "none", borderRadius: 4, padding: "4px 10px", cursor: "pointer", fontWeight: 600 }}>Fill</button>
                 <button onClick={() => setDistRow(null)} style={{ fontSize: 10, color: T.muted, background: "none", border: "none", cursor: "pointer" }}>Cancel</button>
               </div>
             )}

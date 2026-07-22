@@ -312,7 +312,7 @@ export function InvoiceVarianceReviewModal({
             <button
               onClick={approveAndPush}
               disabled={pushing || loading || !rows?.length}
-              style={{ padding: "8px 20px", borderRadius: 6, border: "none", background: pushing ? T.faint : T.accent, color: "#fff", fontSize: 12, fontWeight: 700, cursor: pushing ? "default" : "pointer", fontFamily: font }}
+              style={{ padding: "8px 20px", borderRadius: 6, border: "none", background: pushing ? T.faint : T.accent, color: "#0a0a0a", fontSize: 12, fontWeight: 700, cursor: pushing ? "default" : "pointer", fontFamily: font }}
             >{pushing ? "Pushing…" : (provider === "stripe" ? "Approve & Revise Invoice" : "Approve & Push to QB")}</button>
           </div>
         </div>

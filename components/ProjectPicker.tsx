@@ -184,7 +184,7 @@ export function ProjectPicker({
               disabled={creating || !newTitle.trim()}
               style={{
                 padding: "6px 14px", fontSize: 11, fontWeight: 600, borderRadius: 5,
-                border: "none", background: T.accent, color: "#fff",
+                border: "none", background: T.accent, color: "#0a0a0a",
                 cursor: creating || !newTitle.trim() ? "not-allowed" : "pointer",
                 fontFamily: font,
                 opacity: creating || !newTitle.trim() ? 0.5 : 1,

@@ -211,7 +211,7 @@ export default function NewJobPage() {
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
             <span style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em", fontFamily: font }}>Client</span>
             <button type="button" onClick={openNewClientModal}
-              style={{ background: T.accent, color: "#fff", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
+              style={{ background: T.accent, color: "#0a0a0a", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: font }}>
               + New Client
             </button>
           </div>
@@ -409,7 +409,7 @@ rows={2} style={{ ...s.input, resize: "vertical" as const, lineHeight: 1.5 }} />
                 Cancel
               </button>
               <button type="button" onClick={saveNewClient} disabled={savingClient || !nc.company.trim()}
-                style={{ padding: "8px 20px", borderRadius: 6, border: "none", background: T.accent, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: font, opacity: savingClient || !nc.company.trim() ? 0.5 : 1 }}>
+                style={{ padding: "8px 20px", borderRadius: 6, border: "none", background: T.accent, color: "#0a0a0a", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: font, opacity: savingClient || !nc.company.trim() ? 0.5 : 1 }}>
                 {savingClient ? "Creating..." : "Create Client"}
               </button>
             </div>

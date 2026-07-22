@@ -181,7 +181,7 @@ export function JobActivityPanel({ jobId, currentUserId, profiles }: {
           <button onClick={send} disabled={!draft.trim()}
             style={{
               background: T.accent, border: "none", borderRadius: 6,
-              color: "#fff", fontSize: 10, fontWeight: 600, padding: "6px 10px",
+              color: "#0a0a0a", fontSize: 10, fontWeight: 600, padding: "6px 10px",
               cursor: draft.trim() ? "pointer" : "default", opacity: draft.trim() ? 1 : 0.4,
             }}>
             Post

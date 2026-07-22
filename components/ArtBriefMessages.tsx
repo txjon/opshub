@@ -207,7 +207,7 @@ export function ArtBriefMessages({
               borderRadius: 6,
               border: "none",
               background: T.accent,
-              color: "#fff",
+              color: "#0a0a0a",
               fontSize: 11,
               fontWeight: 600,
               cursor: "pointer",

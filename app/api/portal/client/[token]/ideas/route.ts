@@ -45,14 +45,8 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     if (error || !brief) return NextResponse.json({ error: error?.message || "Couldn't save the idea" }, { status: 500 });
 
     try {
-      const { Resend } = await import("resend");
-      const resend = new Resend(process.env.RESEND_API_KEY!);
-      await resend.emails.send({
-        from: "OpsHub <production@housepartydistro.com>",
-        to: "production@housepartydistro.com",
-        subject: `New idea — "${title}" (${client.name})`,
-        text: `${client.name} dropped a new idea in the Studio.\n\n"${title}"\n${notes ? `\n${notes}\n` : ""}\nIt's a draft brief — pick it up in the art studio.`,
-      });
+      const { sendInternalMail } = await import("@/lib/internal-mail");
+      await sendInternalMail({ kind: "new_idea", client: (client as any).name, title, notes });
     } catch {}
 
     return NextResponse.json({ success: true, briefId: (brief as any).id });

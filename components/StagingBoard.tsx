@@ -195,7 +195,7 @@ function EnterModal({ item, onClose, onDone }: { item: StagingItem; onClose: () 
         <div style={{ flex: 1 }} />
         <button onClick={onClose} disabled={busy} style={{ fontSize: 13, background: "none", border: `1px solid ${T.border}`, borderRadius: 8, padding: "9px 16px", cursor: "pointer", color: T.muted }}>Cancel</button>
         <button onClick={confirm} disabled={!isTest || busy || total === 0}
-          style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "9px 20px", border: "none", cursor: (!isTest || busy || total === 0) ? "not-allowed" : "pointer", background: (!isTest || busy || total === 0) ? T.accentDim : T.text, color: (!isTest || busy || total === 0) ? T.faint : "#fff" }}>
+          style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "9px 20px", border: "none", cursor: (!isTest || busy || total === 0) ? "not-allowed" : "pointer", background: (!isTest || busy || total === 0) ? T.accentDim : T.text, color: (!isTest || busy || total === 0) ? T.faint : "#0a0a0a" }}>
           {busy ? "Entering…" : `Enter · ${total}u`}
         </button>
       </div>

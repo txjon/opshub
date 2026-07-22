@@ -543,7 +543,7 @@ function RevisionPreviewModal({ payload, onClose }: { payload: NonNullable<Bucke
             Close
           </button>
           <Link href={payload.href}
-            style={{ background: T.text, color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 700, padding: "6px 14px", cursor: "pointer", fontFamily: font, textDecoration: "none" }}>
+            style={{ background: T.text, color: "#0a0a0a", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 700, padding: "6px 14px", cursor: "pointer", fontFamily: font, textDecoration: "none" }}>
             Open in Proofs →
           </Link>
         </div>

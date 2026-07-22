@@ -714,7 +714,7 @@ const btn: React.CSSProperties = {
 const btnPrimary: React.CSSProperties = {
   ...btn,
   background: T.accent,
-  color: "#fff",
+  color: "#0a0a0a",
   border: "none",
 };
 const btnDanger: React.CSSProperties = {

@@ -76,7 +76,7 @@ export function ToggleSearch<K extends string>({ options, value, onChange, query
       <div style={{ display: "flex", gap: 8 }}>
         {options.map(([k, label]) => (
           <button key={k} onClick={() => onChange(k)}
-            style={{ fontSize: 13, fontWeight: 600, padding: "8px 16px", borderRadius: 9, cursor: "pointer", border: `1px solid ${value === k ? T.text : T.border}`, background: value === k ? T.text : T.card, color: value === k ? "#fff" : T.muted }}>{label}</button>
+            style={{ fontSize: 13, fontWeight: 600, padding: "8px 16px", borderRadius: 9, cursor: "pointer", border: `1px solid ${value === k ? T.text : T.border}`, background: value === k ? T.text : T.card, color: value === k ? "#0a0a0a" : T.muted }}>{label}</button>
         ))}
       </div>
       <input value={query} onChange={e => setQuery(e.target.value)} placeholder={placeholder}
@@ -96,7 +96,7 @@ export function SegmentControl<K extends string>({ options, value, onChange, lab
       <div style={{ display: "flex", border: `1px solid ${T.border}`, borderRadius: 9, overflow: "hidden" }}>
         {options.map(([k, l]) => (
           <button key={k} onClick={() => onChange(k)}
-            style={{ fontSize: 12, fontWeight: 600, padding: "9px 14px", border: "none", cursor: "pointer", background: value === k ? T.text : T.card, color: value === k ? "#fff" : T.muted }}>{l}</button>
+            style={{ fontSize: 12, fontWeight: 600, padding: "9px 14px", border: "none", cursor: "pointer", background: value === k ? T.text : T.card, color: value === k ? "#0a0a0a" : T.muted }}>{l}</button>
         ))}
       </div>
     </div>

@@ -523,6 +523,7 @@ BROWSERLESS_API_KEY                — PDF generation
 RESEND_API_KEY                     — Email delivery
 EMAIL_FROM_QUOTES                  — hello@housepartydistro.com
 EMAIL_FROM_PO                      — production@housepartydistro.com
+EMAIL_LABS / EMAIL_DISTRO / EMAIL_ECOMM — internal-mail router inboxes (lib/internal-mail.ts); fall back to production@
 GOOGLE_SERVICE_ACCOUNT_KEY         — Google service account JSON (Vercel)
 GOOGLE_SERVICE_ACCOUNT_KEY_B64     — Same key, base64-encoded (local dev)
 GOOGLE_DRIVE_ROOT_FOLDER_ID        — Root "OpsHub Files" folder in Drive

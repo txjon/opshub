@@ -267,7 +267,7 @@ export default function HoursPage() {
             ))}
             <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
               <input value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === "Enter" && addContractor()} placeholder="New contractor name" style={{ ...inp, flex: 1 }} />
-              <button onClick={addContractor} disabled={!newName.trim()} style={{ background: T.accent, color: "#fff", border: "none", borderRadius: 6, padding: "7px 16px", fontSize: 12, fontWeight: 700, fontFamily: font, cursor: newName.trim() ? "pointer" : "default", opacity: newName.trim() ? 1 : 0.5 }}>Add</button>
+              <button onClick={addContractor} disabled={!newName.trim()} style={{ background: T.accent, color: "#0a0a0a", border: "none", borderRadius: 6, padding: "7px 16px", fontSize: 12, fontWeight: 700, fontFamily: font, cursor: newName.trim() ? "pointer" : "default", opacity: newName.trim() ? 1 : 0.5 }}>Add</button>
             </div>
           </div>
         )}

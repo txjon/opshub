@@ -730,7 +730,7 @@ export default function PreorderDetail() {
     if (s === "fulfilling") {
       return (
         <button onClick={() => advanceStatus("complete")}
-          style={{ background: T.text, border: "none", borderRadius: 8, color: "#fff", fontSize: 12, fontWeight: 700, padding: "8px 18px", cursor: "pointer", fontFamily: font }}>
+          style={{ background: T.text, border: "none", borderRadius: 8, color: "#0a0a0a", fontSize: 12, fontWeight: 700, padding: "8px 18px", cursor: "pointer", fontFamily: font }}>
           → Mark complete
         </button>
       );
@@ -860,7 +860,7 @@ export default function PreorderDetail() {
             {importing ? "Importing…" : "Import Shopify CSV"}
           </button>
           <button onClick={() => setShowAddProduct(v => !v)}
-            style={{ fontSize: 11, fontWeight: 600, padding: "5px 12px", borderRadius: 6, border: "none", background: T.accent, color: "#fff", cursor: "pointer", fontFamily: font }}>
+            style={{ fontSize: 11, fontWeight: 600, padding: "5px 12px", borderRadius: 6, border: "none", background: T.accent, color: "#0a0a0a", cursor: "pointer", fontFamily: font }}>
             {showAddProduct ? "Cancel" : "+ Add product"}
           </button>
         </div>
@@ -1000,7 +1000,7 @@ export default function PreorderDetail() {
                   onChange={e => { const fs = Array.from(e.target.files || []); if (fs.length) importSoldFromCsv(fs); (e.currentTarget as HTMLInputElement).value = ""; }} />
                 <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                   <button onClick={() => soldCsvInputRef.current?.click()} disabled={soldImporting || products.length === 0}
-                    style={{ padding: "7px 14px", background: T.accent, color: "#fff", border: "none", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: soldImporting ? "default" : "pointer", fontFamily: font, opacity: soldImporting ? 0.6 : 1 }}>
+                    style={{ padding: "7px 14px", background: T.accent, color: "#0a0a0a", border: "none", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: soldImporting ? "default" : "pointer", fontFamily: font, opacity: soldImporting ? 0.6 : 1 }}>
                     {soldImporting ? "Reading…" : "Import sold report (one or more CSVs)"}
                   </button>
                   {soldImportResult && <span style={{ fontSize: 11.5, color: T.muted }}>{soldImportResult}</span>}

@@ -356,7 +356,7 @@ function InvoiceSurfaceQB({ job, items = [], contacts, payments, onReload, onRec
             )}
 
             <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-              <button onClick={() => setAddingPayment(!addingPayment)} style={{ background: T.accent, border: "none", borderRadius: 8, color: "#fff", fontSize: 12, fontWeight: 700, padding: "8px 14px", cursor: "pointer" }}>Record payment</button>
+              <button onClick={() => setAddingPayment(!addingPayment)} style={{ background: T.accent, border: "none", borderRadius: 8, color: "#0a0a0a", fontSize: 12, fontWeight: 700, padding: "8px 14px", cursor: "pointer" }}>Record payment</button>
               {s.sentAt && <button onClick={() => setShowReminderEmail(true)} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, fontSize: 12, fontWeight: 700, padding: "8px 14px", cursor: "pointer", fontFamily: font }}>Send reminder</button>}
             </div>
           </div>

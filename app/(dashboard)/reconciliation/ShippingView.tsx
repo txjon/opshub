@@ -211,7 +211,7 @@ export function ShippingView({ companyId, billingOnly = false }: { companyId: st
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           <button onClick={() => setShowAdd(true)} style={{ background: "transparent", border: `1px solid ${T.border}`, color: T.text, borderRadius: 7, padding: "9px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: font, whiteSpace: "nowrap" }}>+ Add freight cost</button>
-          <label style={{ background: T.accent, color: "#fff", borderRadius: 7, padding: "9px 16px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: font, whiteSpace: "nowrap" }}>
+          <label style={{ background: T.accent, color: "#0a0a0a", borderRadius: 7, padding: "9px 16px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: font, whiteSpace: "nowrap" }}>
             Choose CSV(s)<input type="file" accept=".csv" multiple style={{ display: "none" }} onChange={e => { onFiles(e.target.files); e.target.value = ""; }} />
           </label>
         </div>

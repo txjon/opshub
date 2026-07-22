@@ -388,7 +388,7 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
                 {sizes.length > 0 && <div style={{ fontSize: 12.5, color: T.text, marginTop: 8, fontFamily: mono, display: "flex", flexWrap: "wrap", gap: "4px 14px" }}>{sizes.map(s => q[s] ? <span key={s}>{s}:{q[s]}</span> : null)}</div>}
                 <div style={{ display: "flex", gap: 8, marginTop: 16, flexWrap: "wrap" }}>
                   {hasProof ? (
-                    <button onClick={() => { openPreviewSequence(item); setPeekItem(null); }} style={{ ...btn, background: T.accent, color: "#fff", border: "none" }}>View</button>
+                    <button onClick={() => { openPreviewSequence(item); setPeekItem(null); }} style={{ ...btn, background: T.accent, color: "#0a0a0a", border: "none" }}>View</button>
                   ) : mockupFile ? (
                     <button onClick={() => { setPreviewList([]); setProofModalItem(item); setProofModalMode("edit"); setPeekItem(null); }} style={{ ...btn, background: T.amber, color: "#fff", border: "none" }}>Generate proof</button>
                   ) : null}
@@ -503,7 +503,7 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
               </span>
               <button onClick={() => setRevisedModalOpen(false)} style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 6, color: T.muted, padding: "7px 14px", fontSize: 12, fontFamily: font, cursor: "pointer" }}>Cancel</button>
               <button onClick={submitRevisedProofs} disabled={sendingRevised || Object.values(revisedSelected).filter(Boolean).length === 0}
-                style={{ background: T.accent, color: "#fff", border: "none", borderRadius: 6, padding: "7px 18px", fontSize: 12, fontWeight: 700, fontFamily: font, cursor: sendingRevised ? "default" : "pointer", opacity: sendingRevised || Object.values(revisedSelected).filter(Boolean).length === 0 ? 0.6 : 1 }}>
+                style={{ background: T.accent, color: "#0a0a0a", border: "none", borderRadius: 6, padding: "7px 18px", fontSize: 12, fontWeight: 700, fontFamily: font, cursor: sendingRevised ? "default" : "pointer", opacity: sendingRevised || Object.values(revisedSelected).filter(Boolean).length === 0 ? 0.6 : 1 }}>
                 {sendingRevised ? "Sending…" : "Send"}
               </button>
             </div>
@@ -548,7 +548,7 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
               </span>
               <button onClick={() => setProofReviewOpen(false)} style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 6, color: T.muted, padding: "7px 14px", fontSize: 12, fontFamily: font, cursor: "pointer" }}>Cancel</button>
               <button onClick={submitProofReview} disabled={sendingProofEmail || Object.values(proofSelected).filter(Boolean).length === 0}
-                style={{ background: T.accent, color: "#fff", border: "none", borderRadius: 6, padding: "7px 18px", fontSize: 12, fontWeight: 700, fontFamily: font, cursor: sendingProofEmail ? "default" : "pointer", opacity: sendingProofEmail || Object.values(proofSelected).filter(Boolean).length === 0 ? 0.6 : 1 }}>
+                style={{ background: T.accent, color: "#0a0a0a", border: "none", borderRadius: 6, padding: "7px 18px", fontSize: 12, fontWeight: 700, fontFamily: font, cursor: sendingProofEmail ? "default" : "pointer", opacity: sendingProofEmail || Object.values(proofSelected).filter(Boolean).length === 0 ? 0.6 : 1 }}>
                 {sendingProofEmail ? "Sending…" : "Send for review"}
               </button>
             </div>

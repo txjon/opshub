@@ -5,3 +5,5 @@ test-results/
 *.DS_Store
 tsconfig.tsbuildinfo
 public/planner
+.vercel
+.env*

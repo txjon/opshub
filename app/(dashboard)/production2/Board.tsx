@@ -352,7 +352,7 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
             <span style={{ fontSize: 12, color: T.muted }}>{selVendorName} · {selUnits} units</span>
             <div style={{ flex: 1 }} />
             <button onClick={() => setSel(new Set())} style={{ fontSize: 13, background: "none", border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 14px", cursor: "pointer", color: T.muted }}>Clear</button>
-            <button onClick={() => setShipOpen(true)} style={{ fontSize: 13, fontWeight: 600, background: T.text, color: "#fff", border: "none", borderRadius: 8, padding: "8px 18px", cursor: "pointer" }}>Ship {sel.size} selected →</button>
+            <button onClick={() => setShipOpen(true)} style={{ fontSize: 13, fontWeight: 600, background: T.text, color: "#0a0a0a", border: "none", borderRadius: 8, padding: "8px 18px", cursor: "pointer" }}>Ship {sel.size} selected →</button>
           </div>
         </div>
       )}
@@ -901,7 +901,7 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
               style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "10px 18px", cursor: (notified || notifyBusy) ? "default" : "pointer", border: `1px solid ${T.border}`, background: notified ? T.greenDim : T.card, color: notified ? T.green : T.text }}>
               {notified ? (notifyTo ? `✓ Sent to ${notifyTo}` : isDrop ? "✓ Client notified" : "✓ Warehouse notified") : notifyBusy ? "Sending…" : isDrop ? "Notify client" : "Notify warehouse"}
             </button>
-            <button onClick={onDone} style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "10px 22px", border: "none", cursor: "pointer", background: T.text, color: "#fff" }}>Done</button>
+            <button onClick={onDone} style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "10px 22px", border: "none", cursor: "pointer", background: T.text, color: "#0a0a0a" }}>Done</button>
           </div>
         </div>
       </ModalShell>
@@ -929,7 +929,7 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
             <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>How it's leaving</div>
             <div style={{ display: "flex", gap: 8 }}>
               {(["tracking", "bol", "pickup"] as const).map(m => (
-                <button key={m} onClick={() => setMethod(m)} style={{ flex: 1, fontSize: 12, fontWeight: 600, padding: "8px 0", borderRadius: 8, cursor: "pointer", border: `1px solid ${method === m ? T.text : T.border}`, background: method === m ? T.text : T.card, color: method === m ? "#fff" : T.muted }}>
+                <button key={m} onClick={() => setMethod(m)} style={{ flex: 1, fontSize: 12, fontWeight: 600, padding: "8px 0", borderRadius: 8, cursor: "pointer", border: `1px solid ${method === m ? T.text : T.border}`, background: method === m ? T.text : T.card, color: method === m ? "#0a0a0a" : T.muted }}>
                   {m === "tracking" ? "Tracking #" : m === "bol" ? "Freight BOL" : "Pickup"}
                 </button>
               ))}
@@ -1030,7 +1030,7 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
           <button onClick={onClose} disabled={busy} style={{ fontSize: 13, background: "none", border: `1px solid ${T.border}`, borderRadius: 8, padding: "9px 16px", cursor: busy ? "default" : "pointer", color: T.muted }}>Cancel</button>
           {(() => { const off = !isTest || busy || totalUnits === 0 || gateBlocked; return (
           <button onClick={confirm} disabled={off}
-            style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "9px 20px", border: "none", cursor: off ? "not-allowed" : "pointer", background: off ? T.accentDim : T.text, color: off ? T.faint : "#fff" }}>
+            style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "9px 20px", border: "none", cursor: off ? "not-allowed" : "pointer", background: off ? T.accentDim : T.text, color: off ? T.faint : "#0a0a0a" }}>
             {busy ? busyLabel : `Confirm ship · ${totalUnits}u`}
           </button>); })()}
         </div>

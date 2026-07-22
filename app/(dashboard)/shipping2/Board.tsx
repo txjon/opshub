@@ -204,7 +204,7 @@ function ForwardModal({ job, onClose, onDone }: { job: ShippingJob; onClose: () 
             <div style={{ display: "flex", gap: 10, marginTop: 20, justifyContent: "center", flexWrap: "wrap" }}>
               <a href={`/api/pdf/packing-slip/${job.jobId}?shipment=${done.shipmentId}`} target="_blank" rel="noreferrer" style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "10px 16px", border: `1px solid ${T.border}`, color: T.text, textDecoration: "none" }}>Packing slip ↗</a>
               <button onClick={openNotify} disabled={notified} style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "10px 16px", cursor: notified ? "default" : "pointer", border: `1px solid ${T.border}`, background: notified ? T.greenDim : T.card, color: notified ? T.green : T.text }}>{notified ? "✓ Client notified" : "Notify client"}</button>
-              <button onClick={onDone} style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "10px 22px", border: "none", cursor: "pointer", background: T.text, color: "#fff" }}>Done</button>
+              <button onClick={onDone} style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "10px 22px", border: "none", cursor: "pointer", background: T.text, color: "#0a0a0a" }}>Done</button>
             </div>
           </div>
         </ModalShell>
@@ -256,7 +256,7 @@ function ForwardModal({ job, onClose, onDone }: { job: ShippingJob; onClose: () 
           <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>Send as</div>
           <div style={{ display: "flex", gap: 8 }}>
             {[["whole", "Whole order"], ["partial", "Partial"]].map(([k, lbl]) => (
-              <button key={k} onClick={() => setWhole(k === "whole")} style={{ fontSize: 12, fontWeight: 600, padding: "7px 13px", borderRadius: 8, cursor: "pointer", border: `1px solid ${(whole === (k === "whole")) ? T.text : T.border}`, background: (whole === (k === "whole")) ? T.text : T.card, color: (whole === (k === "whole")) ? "#fff" : T.muted }}>{lbl}</button>
+              <button key={k} onClick={() => setWhole(k === "whole")} style={{ fontSize: 12, fontWeight: 600, padding: "7px 13px", borderRadius: 8, cursor: "pointer", border: `1px solid ${(whole === (k === "whole")) ? T.text : T.border}`, background: (whole === (k === "whole")) ? T.text : T.card, color: (whole === (k === "whole")) ? "#0a0a0a" : T.muted }}>{lbl}</button>
             ))}
           </div>
         </div>

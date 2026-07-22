@@ -31,6 +31,8 @@ export const PAGE_CATALOG: CatalogPage[] = [
   { key: "/integrations", href: "/integrations", label: "Integrations", group: "owner", sensitive: true },
   // Labs / production
   { key: "/dashboard", href: "/dashboard", label: "Dashboard", group: "labs" },
+  { key: "/house", href: "/house", label: "The House", group: "labs" },
+  { key: "/the-distro", href: "/the-distro", label: "The Distro", group: "distro" },
   { key: "/jobs", href: "/jobs", label: "Projects", group: "labs" },
   { key: "/projects", href: "/projects", label: "Projects V2", group: "labs" },
   { key: "/art-studio", href: "/art-studio", label: "Art Studio", group: "labs" },

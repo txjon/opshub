@@ -248,7 +248,7 @@ function AddDecoratorModal({ open, onClose, onSaved }) {
               Cancel
             </button>
             <button onClick={save} disabled={saving || !name.trim()}
-              style={{padding:"7px 14px",fontSize:12,fontWeight:700,color:"#fff",background:(!saving && name.trim())?T.accent:T.faint,border:"none",borderRadius:6,cursor:(saving || !name.trim())?"default":"pointer",fontFamily:font,opacity:(saving || !name.trim())?0.7:1}}>
+              style={{padding:"7px 14px",fontSize:12,fontWeight:700,color:"#0a0a0a",background:(!saving && name.trim())?T.accent:T.faint,border:"none",borderRadius:6,cursor:(saving || !name.trim())?"default":"pointer",fontFamily:font,opacity:(saving || !name.trim())?0.7:1}}>
               {saving ? "Saving…" : "Add decorator"}
             </button>
           </div>
@@ -692,7 +692,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                               // mirrors the apparel card so the visual signal that
                               // "this price is manual" is consistent across types.
                               const overrideActiveStyle = {background:T.amber,border:"none",borderRadius:4,color:"#fff",cursor:"pointer",padding:"3px 0",fontSize:9,fontFamily:font,fontWeight:700,width:52,textAlign:"center"};
-                              const autoActiveStyle = {background:T.text,border:"none",borderRadius:4,color:"#fff",cursor:"pointer",padding:"3px 0",fontSize:9,fontFamily:font,fontWeight:700,width:52,textAlign:"center"};
+                              const autoActiveStyle = {background:T.text,border:"none",borderRadius:4,color:"#0a0a0a",cursor:"pointer",padding:"3px 0",fontSize:9,fontFamily:font,fontWeight:700,width:52,textAlign:"center"};
                               const offStyle = {background:"none",border:"1px solid "+T.border,borderRadius:4,color:T.muted,cursor:"pointer",padding:"2px 0",fontSize:9,fontFamily:font,fontWeight:500,width:52,textAlign:"center"};
                               return (
                                 <>
@@ -940,7 +940,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                             // calculated sell price has been manually replaced.
                             // Auto-mode active stays neutral dark.
                             const overrideActiveStyle = {background:T.amber,border:"none",borderRadius:4,color:"#fff",cursor:"pointer",padding:"3px 0",fontSize:9,fontFamily:font,fontWeight:700,width:52,textAlign:"center"};
-                            const autoActiveStyle = {background:T.text,border:"none",borderRadius:4,color:"#fff",cursor:"pointer",padding:"3px 0",fontSize:9,fontFamily:font,fontWeight:700,width:52,textAlign:"center"};
+                            const autoActiveStyle = {background:T.text,border:"none",borderRadius:4,color:"#0a0a0a",cursor:"pointer",padding:"3px 0",fontSize:9,fontFamily:font,fontWeight:700,width:52,textAlign:"center"};
                             const offStyle = {background:"none",border:"1px solid "+T.border,borderRadius:4,color:T.muted,cursor:"pointer",padding:"2px 0",fontSize:9,fontFamily:font,fontWeight:500,width:52,textAlign:"center"};
                             return (
                               <>
@@ -1053,7 +1053,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                                 onKeyDown={e=>{if(e.key==="Enter"&&p._newSupplierVal?.trim()){updateProd(i,{...p,supplier:p._newSupplierVal.trim(),_newSupplier:false,_newSupplierVal:""});}if(e.key==="Escape"){updateProd(i,{...p,supplier:"",_newSupplier:false,_newSupplierVal:""});}}}
                                 style={{flex:1,background:T.surface,border:`1px solid ${T.accent}`,borderRadius:6,color:T.text,fontFamily:font,fontSize:12,padding:"6px 10px",outline:"none"}}/>
                               <button onClick={()=>{if(p._newSupplierVal?.trim())updateProd(i,{...p,supplier:p._newSupplierVal.trim(),_newSupplier:false,_newSupplierVal:""}); }}
-                                style={{background:T.accent,border:"none",borderRadius:6,color:"#fff",cursor:"pointer",padding:"0 10px",fontSize:12}}>✓</button>
+                                style={{background:T.accent,border:"none",borderRadius:6,color:"#0a0a0a",cursor:"pointer",padding:"0 10px",fontSize:12}}>✓</button>
                               <button onClick={()=>updateProd(i,{...p,supplier:"",_newSupplier:false,_newSupplierVal:""})}
                                 style={{background:"none",border:`1px solid ${T.border}`,borderRadius:6,color:T.muted,cursor:"pointer",padding:"0 8px",fontSize:11}}>✕</button>
                             </div>
@@ -1771,7 +1771,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
             </table>
             <div style={{display:"flex",justifyContent:"flex-end",gap:8,padding:"12px 18px 16px"}}>
               <button onClick={()=>setShipModalOpen(false)} style={{padding:"7px 16px",background:"transparent",border:`1px solid ${T.border}`,borderRadius:8,color:T.muted,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:font}}>Cancel</button>
-              <button onClick={applyShipRates} style={{padding:"7px 18px",background:T.accent,border:"none",borderRadius:8,color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:font}}>Apply</button>
+              <button onClick={applyShipRates} style={{padding:"7px 18px",background:T.accent,border:"none",borderRadius:8,color:"#0a0a0a",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:font}}>Apply</button>
             </div>
           </div>
         </div>

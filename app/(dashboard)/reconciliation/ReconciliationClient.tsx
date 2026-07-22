@@ -806,7 +806,7 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
                 <span style={{ fontSize: 13, fontWeight: 700, color: T.green }}>✓ Saved · {nbSavedIds.length} line{nbSavedIds.length !== 1 ? "s" : ""}</span>
                 {nbPushedId
                   ? <span title={`QuickBooks internal Bill ID ${nbPushedId}`} style={{ fontSize: 11, fontWeight: 700, color: T.green, background: T.green + "1f", padding: "4px 11px", borderRadius: 20 }}>✓ in QuickBooks · {nbBillNumber}</span>
-                  : <button onClick={pushSavedBill} disabled={nbPushing} style={{ background: T.accent, color: "#fff", border: "none", borderRadius: 6, padding: "9px 20px", fontSize: 13, fontWeight: 700, cursor: nbPushing ? "default" : "pointer", fontFamily: font, opacity: nbPushing ? 0.6 : 1 }}>{nbPushing ? "Pushing…" : "Push to QB"}</button>}
+                  : <button onClick={pushSavedBill} disabled={nbPushing} style={{ background: T.accent, color: "#0a0a0a", border: "none", borderRadius: 6, padding: "9px 20px", fontSize: 13, fontWeight: 700, cursor: nbPushing ? "default" : "pointer", fontFamily: font, opacity: nbPushing ? 0.6 : 1 }}>{nbPushing ? "Pushing…" : "Push to QB"}</button>}
                 {nbPushedId && (nbNotified
                   ? <span style={{ fontSize: 11, fontWeight: 700, color: T.green, background: T.green + "1f", padding: "4px 11px", borderRadius: 20 }}>✓ Vendor notified</span>
                   : <button onClick={notifyVendor} style={{ background: T.surface, color: T.text, border: `1px solid ${T.border}`, borderRadius: 6, padding: "9px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: font }}>Notify vendor</button>)}
@@ -825,14 +825,14 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
             ))}
           </div>
         </div>
-        <button onClick={openNewBill} style={{ background: T.accent, color: "#fff", border: "none", borderRadius: 6, padding: "8px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: font }}>+ New bill</button>
+        <button onClick={openNewBill} style={{ background: T.accent, color: "#0a0a0a", border: "none", borderRadius: 6, padding: "8px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: font }}>+ New bill</button>
       </div>
 
       {view === "queue" && (<>
       {/* Open PO hero + stats — owner aggregate KPIs, hidden in billing-only */}
       {!billingOnly && (
       <div style={{ display: "flex", gap: 14, marginBottom: 20, flexWrap: "wrap" }}>
-        <div style={{ background: T.accent, color: "#fff", borderRadius: 12, padding: "16px 22px", minWidth: 240 }}>
+        <div style={{ background: T.accent, color: "#0a0a0a", borderRadius: 12, padding: "16px 22px", minWidth: 240 }}>
           <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", opacity: 0.7 }}>Open PO Commitment</div>
           <div style={{ fontSize: 30, fontWeight: 800, fontFamily: mono, margin: "5px 0 3px" }}>{money0(queue.openPO)}</div>
           <div style={{ fontSize: 10.5, opacity: 0.75 }}>committed, not yet billed/paid · {queue.stats.openJobs} open job{queue.stats.openJobs !== 1 ? "s" : ""}</div>
