@@ -33,7 +33,22 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const body = await req.json().catch(() => ({}));
     const door = body.door === "order" ? "order" : "later";
 
-    const products = await birthProductsFromBrief(db, (brief as any).id);
+    // THE FINALIZE STEP: per-line human confirmations — name, face image,
+    // carry-along art, garment, essentials — override every guess.
+    const finalize: any[] = Array.isArray(body.lines) ? body.lines : [];
+    const overrides: Record<string, any> = {};
+    for (const ln of finalize) {
+      if (!ln?.lineId) continue;
+      overrides[String(ln.lineId)] = {
+        ...(ln.title != null ? { title: String(ln.title).trim().slice(0, 140) } : {}),
+        ...(ln.format !== undefined ? { format: String(ln.format || "").trim() || null } : {}),
+        ...(ln.retail !== undefined ? { retail: ln.retail === null || ln.retail === "" ? null : Number(ln.retail) } : {}),
+        ...(ln.model !== undefined ? { model: ["preorder", "stock", "not_sure"].includes(ln.model) ? ln.model : null } : {}),
+        ...(ln.notes !== undefined ? { notes: String(ln.notes || "").trim() || null } : {}),
+      };
+    }
+
+    const products = await birthProductsFromBrief(db, (brief as any).id, overrides);
     if (!products.length) return NextResponse.json({ error: "Nothing to greenlight — add a build-out line first" }, { status: 400 });
 
     let job: { jobId: string; jobNumber: string; itemCount: number } | null = null;
@@ -43,6 +58,27 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       if ((produced || []).length) {
         return NextResponse.json({ error: "Already in production — run repeats from the catalog" }, { status: 409 });
       }
+      // map finalize picks (file ids) → real file rows → per-product art
+      let artByProduct: Record<string, { face?: any; carry?: any[] }> | undefined;
+      let garmentByProduct: Record<string, string | null> | undefined;
+      if (finalize.length) {
+        const { data: bf } = await db.from("art_brief_files")
+          .select("id, file_name, drive_file_id, preview_drive_file_id, drive_link, mime_type, file_size")
+          .eq("brief_id", (brief as any).id);
+        const byId = new Map(((bf || []) as any[]).map(f => [f.id, f]));
+        artByProduct = {}; garmentByProduct = {};
+        for (const ln of finalize) {
+          const prod = products.find(p => p.line_id === String(ln.lineId));
+          if (!prod) continue;
+          if (ln.faceFileId || (ln.carryFileIds || []).length) {
+            artByProduct[prod.id] = {
+              face: ln.faceFileId ? byId.get(ln.faceFileId) : undefined,
+              carry: (ln.carryFileIds || []).map((x: string) => byId.get(x)).filter(Boolean),
+            };
+          }
+          if (ln.garment !== undefined) garmentByProduct[prod.id] = ln.garment || null;
+        }
+      }
       job = await assignProductsToJob(db, {
         clientId: (brief as any).client_id,
         title: (brief as any).title || "New order",
@@ -50,6 +86,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         qtysByProduct: Object.fromEntries(products.map(p => [p.id, {}])),
         source: "internal_greenlight",
         sourceMeta: { brief_id: (brief as any).id, greenlit_by: byName },
+        artByProduct,
+        garmentByProduct,
       });
     }
 
