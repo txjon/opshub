@@ -324,19 +324,21 @@ export type ShippedBoxLine = { client: string; invoiceNumber: string | null; ite
 export type ShippedBox = {
   id: string; vendorName: string; carrier: string | null; tracking: string | null; pickup: boolean;
   createdAt: string; route: Route; totalUnits: number; clients: string[]; lines: ShippedBoxLine[]; hasSlip: boolean;
+  notifiedAt: string | null; notifiedTo: string | null;   // warehouse notify, persisted (mig 143)
+  jobId: string | null;                                    // first line's job — drop-ship deep link
 };
 const sumQ = (q: SizeQtys) => Object.values(q || {}).reduce((a, n) => a + (Number(n) || 0), 0);
 
 export async function loadRecentShipments(sb: Sb): Promise<ShippedBox[]> {
   const cutoff = new Date(Date.now() - 21 * 86400000).toISOString();
   const { data: ships } = await sb.from("shipments")
-    .select("id, tracking, carrier, pickup, status, created_at, packing_slip_file_id, decorators(name)")
+    .select("id, tracking, carrier, pickup, status, created_at, packing_slip_file_id, warehouse_notified_at, warehouse_notified_to, decorators(name)")
     .eq("direction", "inbound").gte("created_at", cutoff).order("created_at", { ascending: false }).limit(80);
   const active = (ships || []).filter((s: any) => s.status !== "received");
   if (!active.length) return [];
   const ids = active.map((s: any) => s.id);
   const { data: lines } = await sb.from("shipment_lines")
-    .select("shipment_id, item_id, description, ship_qtys, items(name, shipping_route, jobs(shipping_route, type_meta, clients(name)))").in("shipment_id", ids);
+    .select("shipment_id, item_id, job_id, description, ship_qtys, items(name, shipping_route, jobs(shipping_route, type_meta, clients(name)))").in("shipment_id", ids);
   const itemIds = Array.from(new Set((lines || []).map((l: any) => l.item_id).filter(Boolean)));
   const { data: slips } = itemIds.length
     ? await sb.from("item_files").select("item_id").eq("stage", "packing_slip").not("drive_link", "is", null).in("item_id", itemIds)
@@ -368,6 +370,9 @@ export async function loadRecentShipments(sb: Sb): Promise<ShippedBox[]> {
       totalUnits: boxLines.reduce((a, l) => a + l.qty, 0),
       clients: Array.from(new Set(boxLines.map(l => l.client))), lines: boxLines,
       hasSlip: !!s.packing_slip_file_id || ls.some((l: any) => slipItems.has(l.item_id)),
+      notifiedAt: (s as any).warehouse_notified_at || null,
+      notifiedTo: (s as any).warehouse_notified_to || null,
+      jobId: ls[0]?.job_id || null,
     });
   }
   return boxes;

@@ -91,6 +91,7 @@ export async function POST(req: NextRequest) {
       from: `House Party Distro <${from}>`, to, subject: test ? `[TEST] ${subject}` : subject, html,
     });
     if (r?.error) return NextResponse.json({ error: r.error.message || "Send failed" }, { status: 500 });
+    await sb.from("shipments").update({ warehouse_notified_at: new Date().toISOString(), warehouse_notified_to: to || null } as never).in("id", shipmentIds);
     return NextResponse.json({ success: true, to });
   } catch (e: any) {
     console.error("[production2/notify-warehouse]", e);
