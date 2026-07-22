@@ -213,6 +213,19 @@ export async function sendInternalMail(e: InternalEvent): Promise<void> {
     const { to, subject, text } = build(e);
     const resend = new Resend(process.env.RESEND_API_KEY!);
     await resend.emails.send({ from: "OpsHub <production@housepartydistro.com>", to, subject, text });
+    // append-only audit (mail_log, mig 144) — nothing in phase/date/wire
+    // logic reads this table; a log failure never sinks the send either
+    try {
+      const { createClient } = await import("@supabase/supabase-js");
+      const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+      await db.from("mail_log").insert({
+        kind: e.kind,
+        to_addrs: to,
+        subject,
+        job_id: (e as any).jobId || null,
+        meta: { client: (e as any).client || null, title: (e as any).title || null },
+      });
+    } catch {}
   } catch {
     // notification failure must never sink the action it announces
   }
