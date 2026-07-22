@@ -26,6 +26,7 @@ export type CatalogPage = {
 export const PAGE_CATALOG: CatalogPage[] = [
   // Owner / financial
   { key: "/god-mode", href: "/god-mode", label: "Overview", group: "owner", sensitive: true },
+  { key: "/god-mode-v2", href: "/god-mode-v2", label: "God Mode V2", group: "owner", sensitive: true },
   { key: "/reports", href: "/reports", label: "Reports", group: "owner", sensitive: true },
   { key: "/reconciliation", href: "/reconciliation", label: "Reconciliation", group: "owner", sensitive: true },
   { key: "/integrations", href: "/integrations", label: "Integrations", group: "owner", sensitive: true },
