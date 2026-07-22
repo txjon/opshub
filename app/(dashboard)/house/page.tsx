@@ -96,38 +96,39 @@ export default function HousePage() {
     return { ourJobs, theirJobs, press, dropCalls, studioCalls, overdue };
   }, [jobs, drops, briefs]);
 
+  // A magazine plate: the work's art is the cover; the directive is the
+  // headline written ON it. Actions as education — what, how, done-when.
   const card = (key: string, art: string | null, eyebrow: string, title: string, meta: string, verb: string, verbColor: string, href: string, go: string, directive?: { order: string; done: string }) => (
-    <a key={key} href={href} style={{ display: "block", background: H.panel, border: `1px solid ${H.line}`, borderRadius: 16, overflow: "hidden", textDecoration: "none", color: H.text, fontFamily: H.font }}
-      className="fl-card">
-      <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "13px 16px" }}>
-        <span style={{ width: 46, height: 46, borderRadius: 10, overflow: "hidden", background: art ? "#fff" : H.surface, flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
-          {art ? <img src={art} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />
-            : <span style={{ fontSize: 13, fontWeight: 900, color: H.faint }}>{(title || "?").slice(0, 1)}</span>}
-        </span>
-        <span style={{ minWidth: 0, flex: 1 }}>
-          <span style={{ display: "block", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: H.faint }}>{eyebrow}</span>
-          <span style={{ display: "block", fontSize: 14, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 2 }}>{title}</span>
-          <span style={{ display: "block", fontSize: 10, fontFamily: H.mono, color: H.dim, marginTop: 2 }}>{meta}</span>
-          {directive && (
-            <span style={{ display: "block", fontSize: 10.5, color: H.dim, marginTop: 4, lineHeight: 1.45 }}>
-              {directive.order} <span style={{ color: H.faint }}>· done when {directive.done}</span>
-            </span>
-          )}
-        </span>
-        <span style={{ textAlign: "right", flexShrink: 0 }}>
-          <span style={{ display: "block", fontSize: 10, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: verbColor }}>{verb}</span>
-          {go && <span style={{ display: "inline-block", marginTop: 6, background: "#fff", color: H.ink, borderRadius: 999, padding: "7px 14px", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase" }}>{go}</span>}
-        </span>
-      </div>
+    <a key={key} href={href} className="hs-plate">
+      {art && <img src={art.replace("size=300", "size=600")} alt="" loading="lazy" referrerPolicy="no-referrer" onError={(e: any) => { e.target.style.display = "none"; }} />}
+      <span className="veil" />
+      <span className="body">
+        <span style={{ display: "block", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: "rgba(255,255,255,0.65)" }}>{eyebrow} · {title}</span>
+        <span style={{ display: "block", fontSize: "clamp(20px,2vw,26px)", fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.02em", lineHeight: 1.05, marginTop: 6, color: verbColor === H.red ? H.red : "#fff", textWrap: "balance" as any }}>{verb}.</span>
+        <span style={{ display: "block", fontSize: 10.5, fontFamily: H.mono, color: "rgba(255,255,255,0.7)", marginTop: 7 }}>{meta}</span>
+        {directive && (
+          <span style={{ display: "block", fontSize: 12, color: "rgba(255,255,255,0.85)", marginTop: 9, lineHeight: 1.5, maxWidth: "38ch" }}>
+            {directive.order}.
+            <span style={{ display: "block", fontSize: 10, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: verbColor === H.red ? H.red : H.amber, marginTop: 5 }}>done when {directive.done}</span>
+          </span>
+        )}
+        {go && <span style={{ display: "inline-block", marginTop: 12, background: "#fff", color: H.ink, borderRadius: 999, padding: "10px 18px", fontSize: 10, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", width: "max-content" }}>{go} →</span>}
+      </span>
     </a>
   );
 
   return (
     <div style={{ background: H.ink, minHeight: "100vh", margin: -24, padding: 24, color: H.text, fontFamily: H.font }}>
       <style dangerouslySetInnerHTML={{ __html: `
-        .fl-card{transition:transform .15s ease,border-color .15s ease}
-        .fl-card:hover{transform:translateY(-2px);border-color:rgba(255,255,255,.3)}
-        @media(prefers-reduced-motion:reduce){.fl-card,.fl-card:hover{transition:none;transform:none}}
+        .hs-grid{display:grid;grid-template-columns:1fr;gap:16px}
+        @media(min-width:760px){.hs-grid{grid-template-columns:repeat(2,1fr)}}
+        @media(min-width:1100px){.hs-grid{grid-template-columns:repeat(3,1fr)}}
+        .hs-plate{position:relative;border-radius:8px;overflow:hidden;background:#141414;min-height:280px;display:flex;flex-direction:column;justify-content:flex-end;text-decoration:none;color:#fff;transition:transform .16s ease}
+        .hs-plate:hover{transform:translateY(-4px)}
+        .hs-plate img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.92}
+        .hs-plate .veil{position:absolute;inset:0;background:linear-gradient(178deg,rgba(0,0,0,.1) 18%,rgba(0,0,0,.92) 74%)}
+        .hs-plate .body{position:relative;padding:18px}
+        @media(prefers-reduced-motion:reduce){.hs-plate,.hs-plate:hover{transition:none;transform:none}}
       ` }} />
       <div style={{ maxWidth: 1000, margin: "0 auto", padding: "26px 0 80px" }}>
         <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase", color: H.faint }}>
@@ -150,9 +151,9 @@ export default function HousePage() {
             <section style={{ marginTop: 36 }}>
               <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 14 }}>
                 <h2 style={{ margin: 0, fontSize: 19, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", color: H.amber }}>Your move.</h2>
-                <span style={{ fontSize: 10.5, color: H.faint }}>client responses, submissions, and lifecycle calls — soonest ship first</span>
+                <span style={{ fontSize: 10.5, color: H.faint }}>every card tells you what, how, and what done looks like — soonest ship first, red means late</span>
               </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <div className="hs-grid">
                 {model.dropCalls.map((r: any) => {
                   const ended = r.status === "live";
                   const launchOnly = r.model === "stock";
