@@ -89,7 +89,7 @@ export default function GodModeV2Page() {
 
     // size curve for selection + group — sized apparel ONLY (Jon: no hats,
     // no stickers, no patches; one-size goods have no curve to speak of)
-    const CURVE_GROUPS = new Set(["Tees", "Hoodies", "Crewneck", "Shorts", "Pants", "Jacket", "Jersey", "Socks", "Custom"]);
+    const CURVE_GROUPS = new Set(["Tees", "Hoodies", "Crewneck", "Shorts", "Pants", "Jacket", "Jersey", "Custom"]);
     const curveAgg: Record<string, number> = {};
     const groupsWithCurves = new Map<string, number>();
     for (const cv of data.curves) {
