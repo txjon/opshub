@@ -36,7 +36,10 @@ const BUCKETS: { key: Bucket; title: string; hint: string; color?: string }[] = 
   { key: "your_move", title: "Your move.", hint: "new ideas + client words waiting on this building", color: H.amber },
   { key: "designers", title: "With designers.", hint: "out for sketching" },
   { key: "clients", title: "With clients.", hint: "they're reviewing — their move" },
-  { key: "rack", title: "The rack.", hint: "greenlit — drop-planner shelf, ready to become items", color: H.green },
+  // "catalog" not "rack" (Jon, Jul 22): the client calls it their catalog, so
+  // do we — one vocabulary on both sides of the glass. Bucket key stays for
+  // state mapping; only the display speaks.
+  { key: "rack", title: "The catalog.", hint: "greenlit products — ready to run, slot into a drop, or flip", color: H.green },
   { key: "quiet", title: "Gone quiet.", hint: "30d+ without a move — nudge or shelve" },
 ];
 
@@ -160,7 +163,7 @@ export default function Studio2Page() {
                         </div>
                         {ps.length > 0 && (
                           <div style={{ fontSize: 9.5, fontFamily: H.mono, color: H.dim, marginTop: 4 }}>
-                            {ps.slice(0, 3).map((x: any) => [x.format || "item", x.retail != null ? `$${x.retail}` : null].filter(Boolean).join(" ")).join(" · ")}{ps.length > 3 ? ` +${ps.length - 3}` : ""}
+                            {ps.slice(0, 3).map((x: any) => x.format || "item").join(" · ")}{ps.length > 3 ? ` +${ps.length - 3}` : ""}
                           </div>
                         )}
                       </div>
@@ -279,8 +282,8 @@ function OpsBriefSheet({ brief, onClose }: { brief: any; onClose: () => void }) 
             {products.map((x: any, i: number) => (
               <div key={i} style={{ display: "flex", gap: 12, alignItems: "baseline", padding: "7px 0", borderBottom: `1px solid ${H.line}`, flexWrap: "wrap" }}>
                 <span style={{ fontSize: 12.5, fontWeight: 800, textTransform: "uppercase" }}>{x.format || "Item"}</span>
-                {x.retail != null && <span style={{ fontSize: 11.5, fontFamily: H.mono, color: H.dim }}>${x.retail} retail</span>}
-                {x.model && <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: x.model === "preorder" ? "#fd3aa3" : H.blue }}>{x.model === "preorder" ? "Pre-order" : "Fixed run"}</span>}
+                {/* no retail at the studio stage — pricing enters at the product */}
+                {x.model && <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: x.model === "preorder" ? "#fd3aa3" : x.model === "not_sure" ? H.faint : H.blue }}>{x.model === "preorder" ? "Pre-order" : x.model === "not_sure" ? "Model TBD" : "Fixed run"}</span>}
                 {x.run_size != null && <span style={{ fontSize: 11, fontFamily: H.mono, color: H.faint }}>~{Number(x.run_size).toLocaleString()} pcs</span>}
                 {x.notes && <span style={{ flexBasis: "100%", fontSize: 11.5, color: H.dim, lineHeight: 1.5 }}>{x.notes}</span>}
               </div>

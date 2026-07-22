@@ -236,7 +236,7 @@ export default function DropsBoard() {
                           {s.format || s.items?.name || "Item"}{s.art_briefs?.title ? <span style={{ color: H.faint, fontWeight: 600, textTransform: "none" }}> · {s.art_briefs.title}</span> : s.item_id ? <span style={{ color: H.faint, fontWeight: 600, textTransform: "none" }}> · from the pipeline</span> : null}
                         </span>
                         <span style={{ display: "block", fontSize: 10, fontFamily: H.mono, color: H.dim, marginTop: 2 }}>
-                          {s.retail != null ? `$${Number(s.retail)} retail` : "retail TBD"}{s.model ? ` · ${s.model === "preorder" ? "pre-order" : "fixed run"}` : ""}
+                          {s.retail != null ? `$${Number(s.retail)} retail` : "retail TBD"}{s.model ? ` · ${s.model === "preorder" ? "pre-order" : s.model === "not_sure" ? "model TBD" : "fixed run"}` : ""}
                           {units > 0 ? ` · ${units.toLocaleString()} pcs: ${Object.entries(s.qtys).map(([k, v]) => `${k} ${v}`).join("  ")}` : " · no numbers yet"}
                         </span>
                         {s.line_notes && <span style={{ display: "block", fontSize: 11, color: H.dim, marginTop: 3, lineHeight: 1.45 }}>{s.line_notes}</span>}

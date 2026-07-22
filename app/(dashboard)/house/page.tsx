@@ -672,8 +672,9 @@ function ActionSheet({ sheet, onClose, onShipByLogged, onSaleClosed, onVarianceR
                   <div style={labelCss}>Their build-out — future items</div>
                   {products.map((x: any, i: number) => (
                     <div key={i} style={{ display: "flex", gap: 10, alignItems: "baseline", padding: "6px 0", borderBottom: "1px solid rgba(255,255,255,0.07)", flexWrap: "wrap" }}>
+                      {/* no retail at the studio stage (Jon, Jul 22) — pricing
+                          enters when the idea becomes a product */}
                       <span style={{ fontSize: 12, fontWeight: 800, textTransform: "uppercase" }}>{x.format || "Item"}</span>
-                      {x.retail != null && <span style={{ fontSize: 11, fontFamily: H.mono, color: H.blue }}>${x.retail} retail</span>}
                       {x.run_size != null && <span style={{ fontSize: 11, fontFamily: H.mono, color: "rgba(255,255,255,0.5)" }}>~{Number(x.run_size).toLocaleString()} pcs</span>}
                       {x.notes && <span style={{ flexBasis: "100%", fontSize: 11.5, color: "rgba(255,255,255,0.6)", lineHeight: 1.5 }}>{x.notes}</span>}
                     </div>
