@@ -615,10 +615,10 @@ function ShippedView({ boxes }: { boxes: ShippedBox[] }) {
 }
 
 function ShippedBoxCard({ box }: { box: ShippedBox }) {
-  const [notified, setNotified] = useState(false);
+  const [notified, setNotified] = useState(!!box.notifiedAt);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [to, setTo] = useState<string | null>(null);
+  const [to, setTo] = useState<string | null>(box.notifiedTo || null);
   const isTest = box.clients.every(c => v2WriteAllowed({ clientName: c }));    // notify allowed?
   const isTestOnly = box.clients.every(c => isV2TestClient(c));               // sandbox the email? (Playwright only)
   const isDrop = box.route === "drop_ship";
@@ -635,12 +635,18 @@ function ShippedBoxCard({ box }: { box: ShippedBox }) {
     setBusy(false);
   }
 
-  const canNotify = isTest && !busy && !notified;
+  // notified is persisted now (mig 143) — green means the warehouse HAS the
+  // word, and stays green across reloads so the board scans honestly.
+  // Re-notify stays live for updates (new tracking, corrected counts).
+  const canNotify = isTest && !busy;
   const action = isDrop
-    ? <span style={{ fontSize: 12, color: T.faint }}>notify on job page</span>
+    ? <a href={box.jobId ? `/jobs/${box.jobId}` : "#"} style={{ fontSize: 12, color: T.amber, fontWeight: 700, textDecoration: "none" }}
+        title="Drop-ship — the warehouse never touches this box; send the client their tracking from the job page">
+        drop-ship · notify the client from the job →
+      </a>
     : <span onClick={canNotify ? notify : undefined}
         style={{ fontSize: 13, fontWeight: 700, cursor: canNotify ? "pointer" : "default", color: notified ? T.green : (!isTest ? T.faint : T.text) }}>
-        {notified ? (to ? `✓ Sent to ${to}` : "✓ Notified") : busy ? "Sending…" : "Notify warehouse →"}
+        {busy ? "Sending…" : notified ? `✓ Warehouse notified${to ? ` (${to.split("@")[0]}@)` : ""} · Re-notify →` : "Notify warehouse →"}
       </span>;
 
   const headerMeta = [{ text: `${box.lines.length} item${box.lines.length > 1 ? "s" : ""} · ${box.totalUnits} units` }];
