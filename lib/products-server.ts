@@ -142,21 +142,34 @@ export async function assignProductsToJob(db: Db, args: {
     }
 
     if (p.brief_id) {
+      // The half-step (Jon, live with Corey, Jul 22): match each line to ITS
+      // image. Priority: (1) the line's format/notes words appear in a file
+      // name ("Tano" line ↔ SD-TANO-01826.jpg); (2) newest client-visible
+      // image; PLUS when the brief has several images and no match resolved,
+      // carry ALL of them onto the item — losing an upload is never right.
       const { data: bf } = await db.from("art_brief_files")
         .select("file_name, drive_file_id, preview_drive_file_id, drive_link, mime_type, file_size, uploader_role, shared_with_client_at")
         .eq("brief_id", p.brief_id).order("created_at", { ascending: false }).limit(10);
-      const pick = (bf || []).find((f: any) => (f.shared_with_client_at || f.uploader_role === "client")
+      const visible = (bf || []).filter((f: any) => (f.shared_with_client_at || f.uploader_role === "client")
         && (f.preview_drive_file_id || f.drive_file_id) && !/pdf/i.test(f.mime_type || ""));
-      if (pick) {
-        const driveId = (pick as any).preview_drive_file_id || (pick as any).drive_file_id;
+      const words = [p.format, p.title, (p as any).notes].filter(Boolean).join(" ")
+        .toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length >= 3);
+      const matched = visible.find((f: any) => {
+        const name = String(f.file_name || "").toLowerCase();
+        return words.some(w => name.includes(w));
+      });
+      const carry = matched ? [matched] : visible.length ? [visible[0], ...(visible.length > 1 ? visible.slice(1) : [])] : [];
+      for (let fi = 0; fi < carry.length; fi++) {
+        const f: any = carry[fi];
+        const driveId = f.preview_drive_file_id || f.drive_file_id;
         await db.from("item_files").insert({
           item_id: (item as any).id,
-          file_name: (pick as any).file_name || "mockup",
-          stage: "mockup",
+          file_name: f.file_name || "mockup",
+          stage: fi === 0 ? "mockup" : "client_art",   // first = the face; rest ride as art
           drive_file_id: driveId,
-          drive_link: (pick as any).drive_link || `https://drive.google.com/file/d/${driveId}/view`,
-          mime_type: (pick as any).mime_type || null,
-          file_size: (pick as any).file_size || null,
+          drive_link: f.drive_link || `https://drive.google.com/file/d/${driveId}/view`,
+          mime_type: f.mime_type || null,
+          file_size: f.file_size || null,
           approval: "none",
         });
       }
