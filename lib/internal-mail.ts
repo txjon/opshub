@@ -26,7 +26,8 @@ export type InternalEvent =
   | { kind: "new_idea"; client: string; title: string; notes?: string | null }
   | { kind: "client_approved"; client: string; jobNumber: string; jobId: string }
   | { kind: "client_changes"; client: string; jobNumber: string; jobId: string; note?: string | null }
-  | { kind: "drop_ready"; client: string; title: string; targetLive?: string | null; newLines: number; pipeLines: number };
+  | { kind: "drop_ready"; client: string; title: string; targetLive?: string | null; newLines: number; pipeLines: number }
+  | { kind: "idea_greenlit"; client: string; title: string; door: "order" | "later"; productCount: number; jobId?: string | null; jobNumber?: string | null };
 
 function build(e: InternalEvent): { to: string[]; subject: string; text: string } {
   // Directive voice (Jon: "here's what's coming is nice — here's what to do
@@ -106,6 +107,30 @@ DO THIS:
 
 DONE WHEN: revised proofs are back in front of them. Their clock is running on us now.`,
       };
+    case "idea_greenlit": {
+      const ordered = e.door === "order";
+      return {
+        to: [DEPT.labs],
+        subject: ordered
+          ? `GREENLIT + ORDERED — "${e.title}" (${e.client}) — ${e.jobNumber || "new job"}`
+          : `Greenlit — "${e.title}" (${e.client}) — on the shelf`,
+        text: ordered
+          ? `${e.client} greenlit "${e.title}" and ordered it on the spot. ${e.productCount} product${e.productCount === 1 ? "" : "s"} born; the job is in Intake with their quantities.
+
+DO THIS:
+1. Open the job: ${APP}/jobs/${e.jobId}
+2. Finish the build: blanks, style/color, decoration — the art is already approved
+3. Cost it and send the quote — approval opens in their hub
+
+DONE WHEN: the quote is sent. They committed with quantities — treat it same-day.`
+          : `${e.client} greenlit "${e.title}" — ${e.productCount} product${e.productCount === 1 ? "" : "s"} now on their shelf, no order yet.
+
+DO THIS:
+Nothing urgent. It's in their catalog and on the rack — it comes back as an order, a drop slot, or a flip whenever they're ready.
+
+DONE WHEN: it already is.`,
+      };
+    }
     case "drop_ready": {
       const launchOnly = e.newLines === 0;
       const prodOnly = e.pipeLines === 0;

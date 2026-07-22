@@ -367,6 +367,30 @@ function BriefSheet({ brief, token, onClose, onActed }: { brief: any; token: str
   const pill: React.CSSProperties = { background: "#fff", color: C.bg, border: "none", borderRadius: 999, padding: "12px 22px", fontSize: 11.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: C.font };
   const ghost: React.CSSProperties = { background: "transparent", color: C.text, border: `1px solid ${C.border}`, borderRadius: 999, padding: "12px 20px", fontSize: 11.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: C.font };
 
+  // ── THE FORK (Jul 22) — greenlight births products; order assigns them ──
+  const FORK_SIZES = ["S", "M", "L", "XL", "2XL", "3XL", "OS"];
+  const [fork, setFork] = useState<null | "doors" | "order">(null);
+  const [orderQtys, setOrderQtys] = useState<Record<string, Record<string, string>>>({});
+  const forkLines = products.length ? products : [{ id: "whole", format: brief.title || "This design" }];
+  const orderTotal = Object.values(orderQtys).reduce((a, q) =>
+    a + Object.values(q).reduce((s, n) => s + (Number(n) || 0), 0), 0);
+  async function greenlight(door: "later" | "order") {
+    setBusy(door); setMsg("");
+    try {
+      const qtys: Record<string, Record<string, number>> = {};
+      for (const [line, sizes] of Object.entries(orderQtys)) {
+        qtys[line] = Object.fromEntries(Object.entries(sizes).map(([s, n]) => [s, Number(n) || 0]).filter(([, n]) => (n as number) > 0));
+      }
+      const res = await fetch(`/api/portal/client/${token}/briefs/${brief.id}/greenlight`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(door === "order" ? { door, qtys } : { door }),
+      });
+      const b = await res.json();
+      if (!res.ok) { setMsg(b.error || "Couldn't do that."); setBusy(null); return; }
+      onActed();
+    } catch { setMsg("Couldn't do that."); setBusy(null); }
+  }
+
   return (
     // Hard exit only — a backdrop tap mid-notes read as data loss (it wasn't:
     // blur saves first, but the reopen was stale). The × is the only door.
@@ -491,18 +515,71 @@ function BriefSheet({ brief, token, onClose, onActed }: { brief: any; token: str
             )
           ))}
         </div>
+        {/* ── The fork — two doors, both birth the product ── */}
+        {fork && (
+          <div style={{ margin: "0 20px", padding: 16, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14 }}>
+            {fork === "doors" && (
+              <>
+                <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: C.faint, marginBottom: 12 }}>Greenlight it — what happens next?</div>
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  <button style={{ ...pill, flex: 1, minWidth: 180, textAlign: "left", padding: "16px 18px" }} disabled={!!busy} onClick={() => setFork("order")}>
+                    Order it now
+                    <span style={{ display: "block", fontSize: 10, fontWeight: 600, textTransform: "none", letterSpacing: 0, marginTop: 4, opacity: 0.7 }}>Put in your quantities — production starts moving</span>
+                  </button>
+                  <button style={{ ...ghost, flex: 1, minWidth: 180, textAlign: "left", padding: "16px 18px" }} disabled={!!busy} onClick={() => greenlight("later")}>
+                    {busy === "later" ? "Shelving it…" : "Bring it back later"}
+                    <span style={{ display: "block", fontSize: 10, fontWeight: 600, textTransform: "none", letterSpacing: 0, marginTop: 4, opacity: 0.7 }}>Locked in your catalog — run it whenever you're ready</span>
+                  </button>
+                </div>
+                <button onClick={() => setFork(null)} style={{ background: "none", border: "none", color: C.faint, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", cursor: "pointer", marginTop: 12, padding: 0, fontFamily: C.font }}>← Not yet</button>
+              </>
+            )}
+            {fork === "order" && (
+              <>
+                <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: C.faint, marginBottom: 4 }}>Your quantities</div>
+                <div style={{ fontSize: 11, color: C.muted, marginBottom: 12 }}>Rough is fine — we&rsquo;ll confirm everything with you before anything prints.</div>
+                {forkLines.map((ln: any) => (
+                  <div key={ln.id} style={{ marginBottom: 14 }}>
+                    <div style={{ fontSize: 11, fontWeight: 800, textTransform: "uppercase", marginBottom: 6 }}>{ln.format || "Item"}</div>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      {FORK_SIZES.map(sz => (
+                        <label key={sz} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                          <span style={{ fontSize: 8, fontWeight: 800, letterSpacing: "0.08em", color: C.faint }}>{sz}</span>
+                          <input type="text" inputMode="numeric" value={orderQtys[ln.id]?.[sz] || ""}
+                            onFocus={e => e.currentTarget.select()}
+                            onChange={e => setOrderQtys(prev => ({ ...prev, [ln.id]: { ...(prev[ln.id] || {}), [sz]: e.target.value.replace(/\D/g, "") } }))}
+                            style={{ width: 46, padding: "8px 0", textAlign: "center", background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, outline: "none", color: C.text, fontFamily: C.mono, fontSize: 12.5, fontWeight: 700 }} />
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                  <button style={{ ...pill, opacity: orderTotal > 0 && !busy ? 1 : 0.5 }} disabled={!orderTotal || !!busy} onClick={() => greenlight("order")}>
+                    {busy === "order" ? "Sending it…" : `Send the order · ${orderTotal.toLocaleString()} pcs`}
+                  </button>
+                  <button onClick={() => setFork("doors")} style={{ background: "none", border: "none", color: C.faint, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", cursor: "pointer", padding: 0, fontFamily: C.font }}>← Back</button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
         <div style={{ padding: "16px 20px 20px", display: "flex", flexDirection: "column", gap: 12 }}>
           <textarea value={note} onChange={e => setNote(e.target.value)} rows={2}
             placeholder={bucket === "your_move" ? "Thoughts on this one?" : "Your turn — notes, references, direction…"}
             style={{ width: "100%", boxSizing: "border-box", padding: "11px 13px", borderRadius: 10, border: `1px solid ${C.border}`, background: C.surface, color: C.text, fontSize: 13, fontFamily: C.font, outline: "none", resize: "vertical" }} />
           {msg && <div style={{ fontSize: 12, fontWeight: 700, color: C.red }}>{msg}</div>}
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-            {bucket === "your_move" && brief.state === "client_review" && (
-              <button style={pill} disabled={!!busy} onClick={() => act("approve")}>{busy === "approve" ? "Sending…" : "Love it — keep going"}</button>
+            {/* Greenlight = the fork (Jul 22): both doors birth the product.
+                Shown whenever we've put something in front of them and the
+                idea isn't greenlit yet — loose, not ceremony-gated. */}
+            {bucket !== "ready" && !fork && (thread || []).some(e => e.who === "us" && e.type === "image") && (
+              <button style={pill} disabled={!!busy} onClick={() => setFork("doors")}>Greenlight it →</button>
             )}
-            {bucket === "ready" && (
-              <button style={pill} disabled={!!busy} onClick={() => sendNote(note.trim() ? `Let's make this one real. ${note.trim()}` : "Let's make this one real — what's the move?")}>
-                {busy === "note" ? "Sending…" : "Make it real"}
+            {bucket === "ready" && !fork && (
+              <button style={pill} disabled={!!busy} onClick={() => setFork("order")}>
+                Run it — order now
               </button>
             )}
             {bucket === "quiet" && (
