@@ -205,7 +205,7 @@ export default function ReorderPage() {
           </div>
         ) : (
           <>
-            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase", color: H.faint, textAlign: "center" }}>Reorder</div>
+            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase", color: H.faint, textAlign: "center" }}>Your catalog</div>
             <h1 style={{ fontSize: "clamp(30px,7vw,64px)", fontWeight: 900, lineHeight: 0.98, letterSpacing: "-0.02em", textTransform: "uppercase", margin: "8px 0 10px", textWrap: "balance" as any, textAlign: "center" }}>
               Run it back.
             </h1>

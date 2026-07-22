@@ -126,7 +126,7 @@ DONE WHEN: the quote is sent. They committed with quantities — treat it same-d
           : `${e.client} greenlit "${e.title}" — ${e.productCount} product${e.productCount === 1 ? "" : "s"} now on their shelf, no order yet.
 
 DO THIS:
-Nothing urgent. It's in their catalog and on the rack — it comes back as an order, a drop slot, or a flip whenever they're ready.
+Nothing urgent. It's in their catalog (ours mirrors it) — it comes back as an order, a drop slot, or a flip whenever they're ready.
 
 DONE WHEN: it already is.`,
       };

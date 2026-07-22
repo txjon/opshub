@@ -36,7 +36,10 @@ const BUCKETS: { key: Bucket; title: string; hint: string; color?: string }[] = 
   { key: "your_move", title: "Your move.", hint: "new ideas + client words waiting on this building", color: H.amber },
   { key: "designers", title: "With designers.", hint: "out for sketching" },
   { key: "clients", title: "With clients.", hint: "they're reviewing — their move" },
-  { key: "rack", title: "The rack.", hint: "greenlit — drop-planner shelf, ready to become items", color: H.green },
+  // "catalog" not "rack" (Jon, Jul 22): the client calls it their catalog, so
+  // do we — one vocabulary on both sides of the glass. Bucket key stays for
+  // state mapping; only the display speaks.
+  { key: "rack", title: "The catalog.", hint: "greenlit products — ready to run, slot into a drop, or flip", color: H.green },
   { key: "quiet", title: "Gone quiet.", hint: "30d+ without a move — nudge or shelve" },
 ];
 

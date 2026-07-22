@@ -110,7 +110,10 @@ const TABS: { label: keyof typeof ICONS; path: string; display: string; unreadKe
   { label: "Drops", display: "Drops", path: "/drops" },
   { label: "Orders", display: "Orders", path: "/orders" },
   { label: "Items", display: "Pipeline", path: "/items" },
-  { label: "Reorder", display: "Reorder", path: "/reorder" },
+  // "Catalog" (Jon, Jul 22): one vocabulary on both sides of the glass — the
+  // client's catalog is what we call it too (rack/reorder retired as names).
+  // Route unchanged, same pattern as the Jul 20 renames.
+  { label: "Reorder", display: "Catalog", path: "/reorder" },
 ];
 
 export default function Shell({ children }: { children: ReactNode }) {
