@@ -464,6 +464,7 @@ function ArchiveRail({ archive, briefs, clientId, secHead }: any) {
       const title = String(file.file_name || "Archive pull").replace(/\.\w+$/, "").slice(0, 140);
       const { data: brief, error } = await supabase.from("art_briefs").insert({
         client_id: clientId, title, state: "draft", source: "hpd",
+        internal_only: true,   // prep quietly; share from the studio sheet
         concept: `Pulled from the archive: ${file.folder_path || ""}/${file.file_name}`,
       } as never).select("id").single();
       if (error || !brief) throw new Error(error?.message || "failed");
