@@ -194,7 +194,7 @@ export function AppShell({
     : null;
 
   return (
-    <div style={{ height: "100vh", display: "flex", background: "#f4f4f6" }}>
+    <div style={{ height: "100vh", display: "flex", background: "#0a0a0a" }}>
       {/* ── Slim sidebar (department switcher) — desktop only ── */}
       {!isMobile && (
       <div style={{
@@ -306,7 +306,7 @@ export function AppShell({
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
         {/* ── Top nav bar ── */}
         <div style={{
-          background: "#fff", borderBottom: "1px solid #dcdce0",
+          background: "#131313", borderBottom: "1px solid rgba(255,255,255,0.13)",
           padding: isMobile ? "0 4px 0 8px" : "0 24px", display: "flex", alignItems: "center", justifyContent: "space-between",
           height: isMobile ? 52 : 48, flexShrink: 0, gap: 4,
         }}>
@@ -329,7 +329,7 @@ export function AppShell({
                 padding: "0 14px", minHeight: 44, fontSize: 15,
                 fontWeight: isActive ? 700 : 500,
                 textDecoration: "none", transition: "color 0.12s",
-                color: isActive ? "#000" : "#6b6b78",
+                color: isActive ? "#fff" : "rgba(255,255,255,0.55)",
                 background: "transparent",
                 borderBottom: isActive ? "2px solid #000" : "2px solid transparent",
                 flexShrink: 0, whiteSpace: "nowrap",
@@ -338,8 +338,8 @@ export function AppShell({
               } as const) : ({
                 padding: "6px 14px", borderRadius: 6, fontSize: 13, fontWeight: isActive ? 700 : 500,
                 textDecoration: "none", transition: "all 0.12s",
-                color: isActive ? "#000" : "#6b6b78",
-                background: isActive ? "#eaeaee" : "transparent",
+                color: isActive ? "#fff" : "rgba(255,255,255,0.55)",
+                background: isActive ? "rgba(255,255,255,0.10)" : "transparent",
                 flexShrink: 0, whiteSpace: "nowrap",
                 display: "inline-flex", alignItems: "center", gap: 8,
               } as const);
@@ -512,7 +512,7 @@ function SideQuestsMenu({ items, pathname, open, setOpen }: {
         style={{
           padding: "6px 10px", borderRadius: 6, fontSize: 12, fontWeight: 500,
           border: "none", cursor: "pointer", color: "#a0a0ad",
-          background: open ? "#eaeaee" : "transparent",
+          background: open ? "rgba(255,255,255,0.10)" : "transparent",
         }}
       >
         ···
@@ -522,7 +522,7 @@ function SideQuestsMenu({ items, pathname, open, setOpen }: {
           <div style={{ position: "fixed", inset: 0, zIndex: 99 }} onClick={() => setOpen(false)} />
           <div style={{
             position: "fixed", top: coords.top, left: coords.left, zIndex: 100,
-            background: "#fff", border: "1px solid #dcdce0", borderRadius: 8,
+            background: "#161616", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 8,
             boxShadow: "0 4px 12px rgba(0,0,0,0.08)", minWidth: 140, padding: 4,
           }}>
             {items.map(sq => (
@@ -534,7 +534,7 @@ function SideQuestsMenu({ items, pathname, open, setOpen }: {
                   display: "block", padding: "8px 12px", borderRadius: 4,
                   fontSize: 12, fontWeight: 500, textDecoration: "none",
                   color: pathname === sq.href ? "#000" : "#6b6b78",
-                  background: pathname === sq.href ? "#eaeaee" : "transparent",
+                  background: pathname === sq.href ? "rgba(255,255,255,0.10)" : "transparent",
                 }}
               >
                 {sq.label}
