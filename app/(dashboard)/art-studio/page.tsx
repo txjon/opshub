@@ -1074,7 +1074,7 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
             {!sentAt && (
               <button onClick={() => setShowSendModal(true)}
-                style={{ padding: "6px 14px", background: T.text, color: "#fff", border: "none", borderRadius: 5, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: font }}>
+                style={{ padding: "6px 14px", background: T.text, color: "#0a0a0a", border: "none", borderRadius: 5, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: font }}>
                 Send to Designer
               </button>
             )}
@@ -1150,7 +1150,7 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
                   if (form.title) params.set("itemName", form.title);
                   router.push(`/jobs/new?${params.toString()}`);
                 }}
-                style={{ padding: "8px 16px", background: T.text, color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>
+                style={{ padding: "8px 16px", background: T.text, color: "#0a0a0a", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>
                 Create new project
               </button>
               <button
@@ -1178,7 +1178,7 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
                 style={{
                   padding: "8px 16px",
                   background: a.tone === "primary" ? T.green : a.tone === "warn" ? T.card : T.text,
-                  color: a.tone === "warn" ? T.text : "#fff",
+                  color: a.tone === "warn" ? T.text : "#0a0a0a",
                   border: a.tone === "warn" ? `1px solid ${T.border}` : "none",
                   borderRadius: 6, fontSize: 12, fontWeight: 700,
                   cursor: actionPending ? "wait" : "pointer", fontFamily: font,
@@ -1413,7 +1413,7 @@ function BriefDetailModal({ brief, onClose }: { brief: Brief; onClose: (updated?
                 Cancel
               </button>
               <button onClick={confirmForward} disabled={!!actionPending}
-                style={{ padding: "8px 16px", background: T.text, color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: actionPending ? "wait" : "pointer", fontFamily: font }}>
+                style={{ padding: "8px 16px", background: T.text, color: "#0a0a0a", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: actionPending ? "wait" : "pointer", fontFamily: font }}>
                 {actionPending ? "Sending…" : clientContacts.length === 0 ? "Forward (no email)" : "Forward & email"}
               </button>
             </div>

@@ -1111,7 +1111,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                   {(["list","tiles"] as const).map(v=>(
                     <button key={v} onClick={()=>setItemViewMode(v)}
                       style={{padding:"3px 10px",borderRadius:4,fontSize:10,fontWeight:600,border:"none",cursor:"pointer",
-                        background:itemViewMode===v?T.text:"transparent",color:itemViewMode===v?"#fff":T.muted}}>
+                        background:itemViewMode===v?T.text:"transparent",color:itemViewMode===v?"#0a0a0a":T.muted}}>
                       {v==="list"?"List":"Tiles"}
                     </button>
                   ))}

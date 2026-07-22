@@ -634,7 +634,7 @@ export function MobileBlankPicker({
                   style={{
                     padding: "12px 22px", borderRadius: 10, border: "none",
                     background: canAssign ? T.text : T.surface,
-                    color: canAssign ? "#fff" : T.muted,
+                    color: canAssign ? "#0a0a0a" : T.muted,
                     fontSize: 14, fontWeight: 700, fontFamily: font,
                     cursor: canAssign ? "pointer" : "default",
                     minHeight: 44, transition: "background 0.15s",

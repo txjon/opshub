@@ -777,7 +777,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
               <div style={{ fontSize: 9, color: T.faint, textTransform: "uppercase", letterSpacing: "0.06em" }}>total units</div>
             </div>
             <button onClick={() => setQtyView(false)}
-              style={{ background: T.text, color: "#fff", border: "none", borderRadius: 8, padding: "9px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: font }}>Done</button>
+              style={{ background: T.text, color: "#0a0a0a", border: "none", borderRadius: 8, padding: "9px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: font }}>Done</button>
           </div>
         </div>
 
@@ -873,7 +873,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
               <>
                 <div style={{ fontSize: 12.5, color: T.text, background: T.redDim, borderRadius: 8, padding: "10px 12px", lineHeight: 1.45, marginTop: 10 }}>{psdProcessing.error}</div>
                 <button onClick={() => setPsdProcessing(null)}
-                  style={{ marginTop: 14, width: "100%", padding: "9px", borderRadius: 8, border: "none", background: T.text, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>Dismiss</button>
+                  style={{ marginTop: 14, width: "100%", padding: "9px", borderRadius: 8, border: "none", background: T.text, color: "#0a0a0a", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>Dismiss</button>
               </>
             )}
           </div>
@@ -903,7 +903,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
           <div onClick={e => e.stopPropagation()} style={{ width: "95vw", maxWidth: showAddType === "accessory" ? 700 : 1000, maxHeight: "90vh", display: "flex", flexDirection: "column" }}>
             <div style={{ marginBottom: 8, display: "flex", gap: 8, alignItems: "center" }}>
               <button onClick={() => { setShowPicker(false); setShowASColour(false); setShowLAApparel(false); setShowFavorites(false); setShowOtherPicker(false); setShowCCPicker(false); setShowAddType(null); if (!assignBlankTo) setShowAddModal(true); setAssignBlankTo(null); }}
-                style={{ background: T.text, border: "none", borderRadius: 6, color: "#fff", fontSize: 12, fontWeight: 600, padding: "6px 14px", cursor: "pointer", fontFamily: font }}>
+                style={{ background: T.text, border: "none", borderRadius: 6, color: "#0a0a0a", fontSize: 12, fontWeight: 600, padding: "6px 14px", cursor: "pointer", fontFamily: font }}>
                 ← {assignBlankTo ? "Cancel" : "Sources"}
               </button>
               {assignBlankTo && <span style={{ fontSize: 11, color: T.amber, fontWeight: 600 }}>{Array.isArray(assignBlankTo) ? `Assigning blank to ${assignBlankTo.length} items` : `Assigning blank`}</span>}
@@ -1128,7 +1128,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <button onClick={() => { if (!psdProcessing) setShowAddModal(true); }}
                 style={{
-                  background: T.text, color: "#fff", border: "none",
+                  background: T.text, color: "#0a0a0a", border: "none",
                   padding: "12px 16px", borderRadius: 10, fontSize: 13, fontWeight: 700,
                   cursor: "pointer", fontFamily: font, textAlign: "left",
                   display: "flex", alignItems: "center", gap: 10,
@@ -1248,7 +1248,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
         <button onClick={() => { if (!psdProcessing) setMobilePickerOpen(true); }}
           style={{
             padding: "10px 16px", borderRadius: 8,
-            border: "none", background: T.text, color: "#fff",
+            border: "none", background: T.text, color: "#0a0a0a",
             cursor: "pointer", fontSize: 13, fontWeight: 700,
             flexShrink: 0, fontFamily: font, display: "inline-flex", alignItems: "center", gap: 6,
             minHeight: 44,
@@ -2118,7 +2118,7 @@ function ExpandedItemBody({ item, idx, clientName, projectTitle, contacts, proje
               <>
                 <div style={{ fontSize: 12.5, color: T.text, background: T.redDim, borderRadius: 8, padding: "10px 12px", lineHeight: 1.45, marginTop: 10 }}>{uploadError}</div>
                 <button onClick={() => setUploadError(null)}
-                  style={{ marginTop: 14, width: "100%", padding: "9px", borderRadius: 8, border: "none", background: T.text, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>Dismiss</button>
+                  style={{ marginTop: 14, width: "100%", padding: "9px", borderRadius: 8, border: "none", background: T.text, color: "#0a0a0a", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>Dismiss</button>
               </>
             )}
           </div>

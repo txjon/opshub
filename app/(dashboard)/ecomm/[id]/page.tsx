@@ -730,7 +730,7 @@ export default function PreorderDetail() {
     if (s === "fulfilling") {
       return (
         <button onClick={() => advanceStatus("complete")}
-          style={{ background: T.text, border: "none", borderRadius: 8, color: "#fff", fontSize: 12, fontWeight: 700, padding: "8px 18px", cursor: "pointer", fontFamily: font }}>
+          style={{ background: T.text, border: "none", borderRadius: 8, color: "#0a0a0a", fontSize: 12, fontWeight: 700, padding: "8px 18px", cursor: "pointer", fontFamily: font }}>
           → Mark complete
         </button>
       );

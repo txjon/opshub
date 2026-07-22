@@ -849,7 +849,7 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
               {[["edit", "Edit"], ["preview", "Preview"]].map(([v, l]) => {
                 const on = (v === "preview") === previewMode;
                 return <button key={v} onClick={() => setPreviewMode(v === "preview")}
-                  style={{ border: "none", background: on ? T.text : "transparent", color: on ? "#fff" : T.muted, fontSize: 11, fontWeight: 600, padding: "6px 12px", cursor: "pointer", fontFamily: font }}>{l}</button>;
+                  style={{ border: "none", background: on ? T.text : "transparent", color: on ? "#0a0a0a" : T.muted, fontSize: 11, fontWeight: 600, padding: "6px 12px", cursor: "pointer", fontFamily: font }}>{l}</button>;
               })}
             </div>
             {psdFileMeta && (
@@ -863,7 +863,7 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
               {downloading ? "Preparing…" : "Download"}
             </button>
             <button onClick={handleClose} title="Exit — saves the proof to Drive"
-              style={{ border: "none", background: T.text, color: "#fff", fontSize: 12, fontWeight: 700, padding: "7px 16px", borderRadius: 8, cursor: "pointer", fontFamily: font }}>Exit</button>
+              style={{ border: "none", background: T.text, color: "#0a0a0a", fontSize: 12, fontWeight: 700, padding: "7px 16px", borderRadius: 8, cursor: "pointer", fontFamily: font }}>Exit</button>
           </div>
         </div>
 
