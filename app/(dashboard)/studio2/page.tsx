@@ -8,6 +8,7 @@
 // Legacy /art-studio stays untouched for the full management tooling.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { uploadFileToDriveSession } from "@/lib/upload-drive-client";
 import { H } from "@/components/hub/theme";
 
 const thumbSrc = (id: string, size = 500) => `/api/files/thumbnail?id=${id}&thumb=1&size=${size}`;
@@ -197,7 +198,9 @@ function OpsBriefSheet({ brief, onClose }: { brief: any; onClose: () => void }) 
   const [note, setNote] = useState("");
   const [vis, setVis] = useState<"all" | "hpd_designer">("all");
   const [busy, setBusy] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [heroIdx, setHeroIdx] = useState<number | null>(null);
+  const fileInput = useRef<HTMLInputElement | null>(null);
   const threadEnd = useRef<HTMLDivElement | null>(null);
 
   async function load() {
@@ -248,6 +251,40 @@ function OpsBriefSheet({ brief, onClose }: { brief: any; onClose: () => void }) 
     const next = f.shared_with_client_at ? null : new Date().toISOString();
     await supabase.from("art_brief_files").update({ shared_with_client_at: next } as never).eq("id", f.id);
     await load();
+  }
+
+  // Send a draft back to the client (Jon, Jul 22: "I'm ready to upload something
+  // to send back, but I can't"). The paddle the studio2 thread was missing —
+  // same upload chain the legacy art-studio uses. Lands as a first_draft (flips
+  // the brief to client_review); if the composer is set to client-visible it's
+  // shared to their hub in the same move, otherwise it stays internal to share
+  // when ready.
+  async function uploadDraft(file: File) {
+    setUploading(true);
+    try {
+      const sess = await fetch("/api/art-briefs/upload-session", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ brief_id: brief.id, file_name: file.name, mime_type: file.type || "application/octet-stream", kind: "first_draft" }),
+      });
+      if (!sess.ok) throw new Error((await sess.json().catch(() => ({}))).error || "Couldn't start the upload");
+      const { uploadUrl } = await sess.json();
+      const { drive_file_id } = await uploadFileToDriveSession(uploadUrl, file);
+      const done = await fetch("/api/art-briefs/upload-session/complete", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ brief_id: brief.id, drive_file_id, file_name: file.name, mime_type: file.type || "application/octet-stream", file_size: file.size, kind: "first_draft" }),
+      });
+      const body = await done.json();
+      if (!done.ok) throw new Error(body.error || "Upload failed");
+      if (vis === "all" && body?.file?.id) {
+        await supabase.from("art_brief_files").update({ shared_with_client_at: new Date().toISOString() } as never).eq("id", body.file.id);
+      }
+      setHeroIdx(null); // newest becomes the hero
+      await load();
+    } catch (e: any) {
+      alert(e?.message || "Couldn't upload the draft.");
+    } finally {
+      setUploading(false);
+    }
   }
 
   return (
@@ -318,8 +355,11 @@ function OpsBriefSheet({ brief, onClose }: { brief: any; onClose: () => void }) 
           <div style={{ padding: "14px 22px 0" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
               <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: H.faint }}>Their build-out — future items</span>
-              {/* THE INTERNAL GREENLIGHT — fork on the client's word, logged */}
-              {!DONE_STATES.includes(brief.state) && <GreenlightButtons briefId={brief.id} onDone={onClose} />}
+              {/* THE INTERNAL GREENLIGHT — fork on the client's word, logged.
+                  A greenlit-to-catalog (rack) brief can STILL build the order —
+                  its products are on the shelf but have no job yet (Jon, Jul 22:
+                  "products sitting in the catalog, can't make it real"). */}
+              <GreenlightButtons briefId={brief.id} state={brief.state} built={!!detail?.built} builtJobId={detail?.built_job_id || null} onDone={onClose} />
             </div>
             {products.map((x: any, i: number) => (
               <div key={i} style={{ display: "flex", gap: 12, alignItems: "baseline", padding: "7px 0", borderBottom: `1px solid ${H.line}`, flexWrap: "wrap" }}>
@@ -395,6 +435,15 @@ function OpsBriefSheet({ brief, onClose }: { brief: any; onClose: () => void }) 
                 })}
               </div>
             </span>
+            {/* The missing paddle — upload a draft into the thread. Respects the
+                Shows toggle: client-visible = shared to their hub in one move. */}
+            <input ref={fileInput} type="file" accept="image/*,.pdf,.ai,.psd,.eps,.svg" style={{ display: "none" }}
+              onChange={e => { const f = e.target.files?.[0]; if (f) uploadDraft(f); if (fileInput.current) fileInput.current.value = ""; }} />
+            <button onClick={() => fileInput.current?.click()} disabled={uploading}
+              title={vis === "all" ? "Upload a draft and share it to the client's hub" : "Upload a draft, kept internal until you share it"}
+              style={{ background: "transparent", color: H.text, border: `1px solid ${H.line}`, borderRadius: 999, padding: "11px 16px", fontSize: 10.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", cursor: uploading ? "default" : "pointer", opacity: uploading ? 0.5 : 1, fontFamily: H.font }}>
+              {uploading ? "Uploading…" : "+ Upload a draft"}
+            </button>
             <button onClick={send} disabled={busy || !note.trim()}
               style={{ marginLeft: "auto", background: "#fff", color: H.ink, border: "none", borderRadius: 999, padding: "12px 24px", fontSize: 11.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: busy || !note.trim() ? "default" : "pointer", opacity: busy || !note.trim() ? 0.5 : 1, fontFamily: H.font }}>
               {busy ? "Sending…" : vis === "all" ? "Send to client" : "Post internal"}
@@ -682,18 +731,27 @@ function TheCounter({ onClose, onCreated }: { onClose: () => void; onCreated: (b
 const GARMENTS = ["tee", "longsleeve", "hoodie", "crewneck", "jacket", "pants", "shorts", "hat", "beanie", "socks", "patch", "sticker", "tote", "custom_bag", "flag", "poster", "custom", "accessory"];
 const GARMENT_LABEL = (g: string) => g === "custom" ? "custom (everything else)" : g.replace("_", " ");
 
-function GreenlightButtons({ briefId, onDone }: { briefId: string; onDone: () => void }) {
+function GreenlightButtons({ briefId, state, built, builtJobId, onDone }: { briefId: string; state?: string; built?: boolean; builtJobId?: string | null; onDone: () => void }) {
   const [door, setDoor] = useState<null | "later" | "order">(null);
+  const isRack = DONE_STATES.includes(state || "");
+  // Already ordered — nothing to build, just open the job.
+  if (isRack && built && builtJobId) return (
+    <a href={`/jobs/${builtJobId}`}
+      style={{ marginLeft: "auto", background: "transparent", color: H.green, border: `1px solid ${H.green}`, borderRadius: 999, padding: "9px 15px", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", textDecoration: "none", fontFamily: H.font }}>
+      ✓ Ordered · open the job →
+    </a>
+  );
   return (
     <span style={{ display: "inline-flex", gap: 8, alignItems: "center", marginLeft: "auto", flexWrap: "wrap" }}>
       <button onClick={() => setDoor("order")}
         style={{ background: "#fff", color: H.ink, border: 0, borderRadius: 999, padding: "9px 16px", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>
         Build the order →
       </button>
-      <button onClick={() => setDoor("later")}
-        style={{ background: "transparent", color: H.green, border: `1px solid ${H.green}`, borderRadius: 999, padding: "9px 15px", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>
+      {/* Rack briefs are already saved — no "save for later" needed */}
+      {!isRack && <button onClick={() => setDoor("later")}
+        style={{ background: H.ink, color: "#fff", border: "1px solid rgba(255,255,255,0.9)", borderRadius: 999, padding: "9px 15px", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>
         Save items for later →
-      </button>
+      </button>}
       {door && <FinalizeSheet briefId={briefId} door={door} onClose={() => setDoor(null)} onDone={onDone} />}
     </span>
   );

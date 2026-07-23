@@ -72,11 +72,25 @@ export async function GET(req: NextRequest) {
         kind_ordinal: ordinals[f.id] || null,
         comments: commentsByFile[f.id] || [],
       }));
+      // Has a job already been built from this brief's shelf products? Drives the
+      // studio's "Build the order" affordance — a greenlit-to-catalog brief has
+      // products but no job, and there was no way to make it real from our side
+      // (Jon, Jul 22). Return the job so a built brief links to it instead.
+      let builtJobId: string | null = null;
+      const { data: bprods } = await supabase.from("products").select("id").eq("brief_id", id);
+      const bprodIds = (bprods || []).map((p: any) => p.id);
+      if (bprodIds.length) {
+        const { data: bitem } = await supabase.from("items").select("job_id").in("product_id", bprodIds).limit(1);
+        builtJobId = ((bitem || []) as any[])[0]?.job_id || null;
+      }
       return NextResponse.json({
         brief: briefRes.data,
         files: filesWithOrd,
         messages: msgsRes.data || [],
         client_contacts: clientContacts || [],
+        built: !!builtJobId,
+        built_job_id: builtJobId,
+        product_count: bprodIds.length,
       });
     }
 
