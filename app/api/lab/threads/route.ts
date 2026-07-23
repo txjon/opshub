@@ -4,6 +4,18 @@ import { labDb } from "@/lib/lab";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// Latest image per thread (for the art-forward cards). clientOnly = the client
+// only ever sees client-visible art.
+async function latestArt(db: any, ids: string[], clientOnly: boolean): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  if (!ids.length) return out;
+  let q = db.from("lab_messages").select("thread_id, file_url, created_at").in("thread_id", ids).not("file_url", "is", null).order("created_at", { ascending: false });
+  if (clientOnly) q = q.eq("visibility", "client");
+  const { data } = await q;
+  for (const f of (data || []) as any[]) if (!out[f.thread_id]) out[f.thread_id] = f.file_url;
+  return out;
+}
+
 // GET ?clientToken=xxx → that client's threads (client hub). No token → every
 // thread with its client (the studio list).
 export async function GET(req: NextRequest) {
@@ -13,10 +25,25 @@ export async function GET(req: NextRequest) {
     const { data: client } = await db.from("lab_clients").select("id, name, token").eq("token", clientToken).maybeSingle();
     if (!client) return NextResponse.json({ error: "Invalid link" }, { status: 404 });
     const { data: threads } = await db.from("lab_threads").select("*").eq("client_id", (client as any).id).order("updated_at", { ascending: false });
-    return NextResponse.json({ client, threads: threads || [] });
+    const list = (threads || []) as any[];
+    // A design only surfaces to the client once there's a reason to: they started
+    // it, it's been sent/approved, or we've shared something client-visible. A
+    // blank HPD-started design stays our prep until then (no more "in the works"
+    // on an empty thread — Jon, Jul 22).
+    const ids = list.map(t => t.id);
+    let hasClientMsg = new Set<string>();
+    if (ids.length) {
+      const { data: cm } = await db.from("lab_messages").select("thread_id").in("thread_id", ids).eq("visibility", "client");
+      hasClientMsg = new Set((cm || []).map((m: any) => m.thread_id));
+    }
+    const visible = list.filter(t => t.initiated_by === "client" || t.state === "with_client" || t.state === "approved" || hasClientMsg.has(t.id));
+    const cArt = await latestArt(db, visible.map(t => t.id), true);
+    return NextResponse.json({ client, threads: visible.map(t => ({ ...t, _art: cArt[t.id] || null })) });
   }
   const { data: threads } = await db.from("lab_threads").select("*, lab_clients(name, token)").order("updated_at", { ascending: false });
-  return NextResponse.json({ threads: threads || [] });
+  const hlist = (threads || []) as any[];
+  const hArt = await latestArt(db, hlist.map(t => t.id), false);
+  return NextResponse.json({ threads: hlist.map(t => ({ ...t, _art: hArt[t.id] || null })) });
 }
 
 // POST — start a thread. Client-initiated (clientToken) OR HPD-initiated
