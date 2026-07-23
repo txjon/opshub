@@ -53,7 +53,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     //    this item's decorator? Used by the canonical status compute).
     const { data: items } = await db
       .from("items")
-      .select("id, job_id, name, garment_type, mockup_color, blank_vendor, blank_sku, pipeline_stage, received_at_hpd, blanks_order_cost, sell_per_unit, client_retail_per_unit, notes, design_id, created_at, sort_order, client_eta, client_eta_note, archived_at, completed_at, shipping_route, forwarded_at, expected_arrival, decorator_assignments(decorators(name, short_code, lead_time_days, transit_defaults)), buy_sheet_lines(size, qty_ordered)")
+      .select("id, job_id, name, garment_type, mockup_color, blank_vendor, blank_sku, pipeline_stage, received_at_hpd, blanks_order_cost, sell_per_unit, client_retail_per_unit, notes, design_id, created_at, sort_order, client_eta, client_eta_note, archived_at, completed_at, shipping_route, forwarded_at, expected_arrival, ship_est, decorator_assignments(decorators(name, short_code, lead_time_days, transit_defaults)), buy_sheet_lines(size, qty_ordered)")
       .in("job_id", jobIds)
       .order("created_at", { ascending: false });
     const itemIds = (items || []).map((i: any) => i.id);
@@ -241,8 +241,8 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
             poSentDate: sentKey ? tm.po_sent_dates[sentKey] : null,
             shipByAgreed: agreedKey ? tm.po_ship_dates[agreedKey] : null,
             shipByLive: liveKey ? tm.po_ship_live[liveKey]?.date : null,
+            shipByItemOverride: it.ship_est || null,
             arrivalOverride: boxArrivalByItem[it.id] || it.expected_arrival || null,
-            clientEtaOverride: it.client_eta || null,
           });
           return { eta: chain.clientEta, eta_source: chain.etaSource };
         })(),

@@ -6,9 +6,10 @@ export const dynamic = "force-dynamic";
 
 // GET /api/item-etas?jobId=… | ?clientId=…
 //
-// Chain-resolved ETA per item (locked 2026-07-15): client_eta override >
-// derived (PO ship-by + live slips + vendor transit by method + route buffer,
-// un-received box ETA as the arrival override) > null = TBD.
+// Chain-resolved ETA per item (date model 2026-07-23): derived forward from the
+// current actuals — PO ship-by, then the per-item ship/exit-factory edit
+// (items.ship_est) in production, then the actual land date (box expected_arrival)
+// in receiving, + vendor transit + route buffer. client_eta is retired.
 //
 // Internal read-only surfaces (job-page items list, client worksheet) call
 // this so their chips show the SAME resolved date the Client Hub shows —
@@ -33,7 +34,7 @@ export async function GET(req: NextRequest) {
 
     const { data: items, error: iErr } = await sb
       .from("items")
-      .select("id, job_id, shipping_route, client_eta, expected_arrival, decorator_assignments(decorators(name, short_code, lead_time_days, transit_defaults))")
+      .select("id, job_id, shipping_route, ship_est, expected_arrival, decorator_assignments(decorators(name, short_code, lead_time_days, transit_defaults))")
       .in("job_id", jobIds);
     if (iErr) return NextResponse.json({ error: iErr.message }, { status: 500 });
     const itemIds = (items || []).map((i: any) => i.id);
@@ -71,8 +72,8 @@ export async function GET(req: NextRequest) {
         poSentDate: sK ? tm.po_sent_dates[sK] : null,
         shipByAgreed: aK ? tm.po_ship_dates[aK] : null,
         shipByLive: lK ? tm.po_ship_live[lK]?.date : null,
+        shipByItemOverride: it.ship_est || null,
         arrivalOverride: boxArrivalByItem[it.id] || it.expected_arrival || null,
-        clientEtaOverride: it.client_eta || null,
       });
       etas[it.id] = { eta: chain.clientEta, source: chain.etaSource };
     }

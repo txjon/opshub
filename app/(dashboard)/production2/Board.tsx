@@ -33,36 +33,37 @@ function fmtShip(iso: string | null): { text: string; days: number | null; asap?
   return { text: `${MONTHS[(m || 1) - 1]} ${d}`, days: daysUntilDay(iso) };
 }
 
-// Per-ITEM "Adjust date" (R3) — "this one item is delayed, the rest are on
-// track." Opened from the row's ⋯ menu (same pattern as /receiving2). Writes
-// items.expected_arrival (the item-level arrival override the chain honors):
-// that item's arrival + client ETA re-derive; the strip's ship-by and its
-// sibling items are untouched.
+// Per-ITEM "Adjust date" (R3) — the SHIP / exit-factory date for this one item
+// (it shipped sooner or later than the PO plan; siblings unaffected). Opened from
+// the row's ⋯ menu. Writes items.ship_est (tops the ship leg): that item's
+// arrival = ship + transit and its client ETA re-derive. Also clears any legacy
+// items.expected_arrival on the item so a stale arrival can't shadow the new
+// ship-derived date. The strip's PO ship-by is never rewritten.
 function AdjustDateModal({ it, onClose, onDone }: { it: BoardItem; onClose: () => void; onDone: () => void }) {
-  const [date, setDate] = useState(it.expectedArrival || "");
+  const [date, setDate] = useState(it.shipEst || "");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   async function save(value: string | null) {
     setBusy(true); setErr(null);
-    const { error } = await (createClient().from("items") as any).update({ expected_arrival: value }).eq("id", it.itemId);
+    const { error } = await (createClient().from("items") as any).update({ ship_est: value, expected_arrival: null }).eq("id", it.itemId);
     setBusy(false);
     if (error) setErr(error.message); else onDone();
   }
   return (
     <ModalShell onClose={onClose} maxWidth={440}>
       <div style={{ padding: "18px 22px", borderBottom: `1px solid ${T.border}` }}>
-        <div style={{ fontSize: 16, fontWeight: 700 }}>Adjust date — {it.name}</div>
-        <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>Expected arrival at HPD for THIS item only — siblings and the strip ship-by stay untouched. Its client ETA re-derives from here.</div>
+        <div style={{ fontSize: 16, fontWeight: 700 }}>Ship date — {it.name}</div>
+        <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>Exit-factory / ship date for THIS item only — siblings and the PO ship-by stay untouched. Arrival (+ transit) and its client ETA re-derive from here.</div>
       </div>
       <div style={{ padding: "16px 22px", display: "flex", flexDirection: "column", gap: 10 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: 0.4 }}>Expected at HPD</div>
+        <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: 0.4 }}>Ship date (exit factory)</div>
         <input type="date" value={date} onChange={e => setDate(e.target.value)}
           style={{ fontFamily: mono, fontSize: 13, fontWeight: 700, padding: "8px 10px", border: `1px solid ${T.border}`, borderRadius: 7, background: T.surface, color: T.text, width: 180 }} />
-        <div style={{ fontSize: 11, color: T.muted }}>{it.expectedArrival ? "Currently overridden — clear to fall back to the derived schedule (ship-by + transit)." : "Currently auto — derived from the strip's ship-by + the vendor's transit default."}</div>
+        <div style={{ fontSize: 11, color: T.muted }}>{it.shipEst ? "Currently set — clear to fall back to the PO ship-by." : "Currently auto — uses the PO ship-by + vendor transit. Set this when the item leaves the factory on a different date."}</div>
         {err && <div style={{ fontSize: 12, color: T.red, fontWeight: 600 }}>{err}</div>}
       </div>
       <div style={{ padding: "14px 22px", borderTop: `1px solid ${T.border}`, display: "flex", gap: 10, justifyContent: "flex-end" }}>
-        {it.expectedArrival && (
+        {(it.shipEst || it.expectedArrival) && (
           <button onClick={() => save(null)} disabled={busy}
             style={{ fontSize: 12, fontWeight: 600, background: "none", border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 14px", cursor: "pointer", color: T.muted, marginRight: "auto" }}>Clear — back to auto</button>
         )}
@@ -84,14 +85,14 @@ function ShipByEdit({ strip, onSaved }: { strip: BoardStrip; onSaved: () => void
   const [busy, setBusy] = useState(false);
   const ship = fmtShip(strip.shipDate);
   const slipped = strip.shipDate && strip.shipDateAgreed && strip.shipDateAgreed !== "ASAP" && strip.shipDate !== strip.shipDateAgreed;
-  // Soften "late" when EVERY item on the strip carries its own arrival
-  // override — the old ship-by being past isn't actionable anymore, each
-  // item already has a known new date (Jon's call, 2026-07-15).
-  const allRescheduled = strip.items.length > 0 && strip.items.every(i => i.expectedArrival);
-  // the strip's true rescheduled date = the latest recorded item arrival —
-  // the box isn't done until its slowest item (Jon, 2026-07-16)
+  // Soften "late" when EVERY item on the strip carries its own per-item date
+  // (new ship_est, or a legacy arrival override) — the old PO ship-by being past
+  // isn't actionable anymore, each item already has a known date (Jon, 2026-07-15).
+  const allRescheduled = strip.items.length > 0 && strip.items.every(i => i.shipEst || i.expectedArrival);
+  // the strip's true rescheduled date = the latest recorded per-item date — the
+  // box isn't done until its slowest item (Jon, 2026-07-16)
   const rescheduledTo = allRescheduled
-    ? strip.items.map(i => i.expectedArrival as string).sort()[strip.items.length - 1]
+    ? strip.items.map(i => (i.shipEst || i.expectedArrival) as string).sort()[strip.items.length - 1]
     : null;
   const isLate = ship.days != null && ship.days < 0;
   const color = ship.asap ? T.amber : ship.days == null ? T.faint
@@ -328,7 +329,7 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
                           <RowMenu items={[
                             { label: "Pull", onClick: () => setPullFor({ ...it, strip }) },
                             {
-                              label: it.expectedArrival ? "Adjust date (overridden)" : "Adjust date",
+                              label: (it.shipEst || it.expectedArrival) ? "Adjust date (overridden)" : "Adjust date",
                               disabled: it.route === "drop_ship",
                               onClick: () => setAdjustFor({ ...it, strip }),
                             },
