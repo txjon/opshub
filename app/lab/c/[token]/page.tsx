@@ -50,20 +50,31 @@ export default function LabClient({ params }: { params: { token: string } }) {
       {share ? <ShareForm token={token} onClose={() => setShare(false)} onDone={async (id: string) => { setShare(false); await loadList(); setOpenId(id); }} />
         : <div style={{ textAlign: "center", marginBottom: 30 }}><button onClick={() => setShare(true)} style={{ ...primaryBtn, padding: "13px 26px", fontSize: 12 }}>Share something →</button></div>}
 
+      <style dangerouslySetInnerHTML={{ __html: `.st-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px 12px}@media(min-width:600px){.st-grid{grid-template-columns:repeat(3,1fr)}}` }} />
       {threads.length === 0 && !share && <div style={{ color: C.dim, fontSize: 13.5, textAlign: "center" }}>Nothing here yet. Share an idea to get started.</div>}
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        {threads.map(t => {
-          const st = STATE(t.state);
-          return (
-            <button key={t.id} onClick={() => setOpenId(t.id)} style={{ textAlign: "left", background: C.panel, border: `1px solid ${t.state === "with_client" ? "rgba(244,178,43,.5)" : C.line}`, borderRadius: 14, padding: "15px 17px", cursor: "pointer", fontFamily: C.font, color: C.text }}>
-              <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-                <span style={{ fontSize: 15, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", flex: 1 }}>{t.title}</span>
-                <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", color: st.color }}>{st.label}</span>
-              </div>
-            </button>
-          );
-        })}
-      </div>
+      {[{ k: "with_client", t: "Your move.", c: C.amber }, { k: "working", t: "In the works.", c: C.blue }, { k: "approved", t: "Approved.", c: C.green }].map(bk => {
+        const list = threads.filter(t => t.state === bk.k);
+        if (!list.length) return null;
+        return (
+          <div key={bk.k} style={{ marginTop: 26 }}>
+            <h2 style={{ margin: "0 0 12px", fontSize: 16, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", color: bk.c }}>{bk.t}</h2>
+            <div className="st-grid">
+              {list.map(t => (
+                <button key={t.id} onClick={() => setOpenId(t.id)} style={{ textAlign: "left", padding: 0, background: C.panel, border: `1px solid ${t.state === "with_client" ? "rgba(244,178,43,.5)" : C.line}`, borderRadius: 14, overflow: "hidden", cursor: "pointer", fontFamily: C.font, color: C.text, display: "block", width: "100%" }}>
+                  <div style={{ aspectRatio: "1", background: t._art ? "#fff" : C.surface, display: "flex", alignItems: "flex-end", overflow: "hidden" }}>
+                    {t._art ? <img src={t._art} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />
+                      : <span style={{ padding: 12, fontSize: 14, fontWeight: 900, textTransform: "uppercase", color: C.dim, lineHeight: 1.15 }}>{t.title}</span>}
+                  </div>
+                  <div style={{ padding: "10px 12px 12px" }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", lineHeight: 1.2 }}>{t.title}</div>
+                    <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: STATE(t.state).color, marginTop: 4 }}>{STATE(t.state).label}</div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
