@@ -102,6 +102,30 @@ function OvModal({ title, onClose, children }: { title: string; onClose: () => v
   );
 }
 
+// ── Hub-grammar overview helpers (Jon, Jul 22: "missing the client hub skin
+// and feel"). The client-space vocabulary — uppercase section heads with the
+// trailing period + a faint hint; a hairline KPI strip — brought onto the job
+// so both sides of the glass read the same. See components/hub/theme + the
+// client space at /clients/[id]. T already equals the hub palette H.
+function OvSec({ title, hint, right }: { title: string; hint?: string; right?: React.ReactNode }) {
+  return (
+    <div style={{ display: "flex", alignItems: "baseline", gap: 12, margin: "30px 0 13px", flexWrap: "wrap" }}>
+      <h2 style={{ margin: 0, fontSize: 17, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", color: T.text }}>{title}</h2>
+      {hint && <span style={{ fontSize: 10.5, color: T.faint }}>{hint}</span>}
+      {right && <span style={{ marginLeft: "auto" }}>{right}</span>}
+    </div>
+  );
+}
+function Kpi({ value, label, color, sub }: { value: React.ReactNode; label: string; color?: string; sub?: string }) {
+  return (
+    <div style={{ minWidth: 0 }}>
+      <div style={{ fontSize: "clamp(19px,2.5vw,27px)", fontWeight: 900, lineHeight: 1, color: color || T.text, whiteSpace: "nowrap" }}>{value}</div>
+      <div style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: T.faint, marginTop: 6 }}>{label}</div>
+      {sub && <div style={{ fontSize: 10, color: T.muted, fontFamily: mono, marginTop: 3, whiteSpace: "nowrap" }}>{sub}</div>}
+    </div>
+  );
+}
+
 export default function JobDetailPage({ params }: { params: { id: string } }) {
   const router = useRouter();
   const supabase = createClient();
@@ -1008,63 +1032,74 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             const units=items.reduce((a:number,it:any)=>a+tQty(it.qtys||{}),0);
             const gcolor=(s:string)=>["#243b6b","#3a9a22","#9a9aa2","#c0392b","#d4930f","#1a1a1a","#3a97ad","#7b4fb5"][(s||"x").split("").reduce((a:number,c:string)=>a+c.charCodeAt(0),0)%8];
             const money=(n:number)=>"$"+Math.round(n||0).toLocaleString();
-            const panelBtn:React.CSSProperties={textAlign:"left",background:T.card,border:`1px solid ${T.border}`,borderRadius:12,padding:"14px 16px",cursor:"pointer",fontFamily:font,boxShadow:"0 1px 2px rgba(16,18,32,0.05)",transition:"all 0.12s"};
-            const hov=(e:any,on:boolean)=>{e.currentTarget.style.borderColor=on?T.accent:T.border;};
-            const Fact=({label,value,color}:{label:string;value:any;color?:string})=>(<div style={{display:"flex",flexDirection:"column",gap:1,minWidth:0}}><span style={{fontSize:8.5,color:T.faint,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:600}}>{label}</span><span style={{fontSize:13,fontWeight:600,color:color||T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{value}</span></div>);
+            const hubCard:React.CSSProperties={textAlign:"left",background:T.card,border:`1px solid ${T.border}`,borderRadius:14,padding:"16px 18px",cursor:"pointer",fontFamily:font,color:T.text,width:"100%",display:"block",transition:"border-color 0.15s"};
+            const hov=(e:any,on:boolean)=>{e.currentTarget.style.borderColor=on?"rgba(255,255,255,0.32)":T.border;};
+            const Fact=({label,value,color}:{label:string;value:any;color?:string})=>(<div style={{display:"flex",flexDirection:"column",gap:2,minWidth:0}}><span style={{fontSize:8.5,color:T.faint,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:800}}>{label}</span><span style={{fontSize:12.5,fontWeight:700,color:color||T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{value}</span></div>);
             return (
-              // column-reverse so Details + Billing render ABOVE the gallery.
-              <div style={{display:"flex",flexDirection:"column-reverse"}}>
-                {/* What's in this job — the gallery. Click an item → the Items worksheet editor. */}
-                <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:12,padding:"14px 16px",marginBottom:10}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:10}}>
-                    <span style={{fontSize:14,fontWeight:800}}>What&apos;s in this job</span>
-                    <span style={{fontSize:12,color:T.muted}}>{items.length} item{items.length!==1?"s":""} · {units.toLocaleString()} units</span>
-                  </div>
-                  {items.length===0 ? <div style={{fontSize:13,color:T.muted}}>No items yet.</div> :
-                  <div style={{display:"grid",gridTemplateColumns:isMobile?"repeat(2,1fr)":"repeat(auto-fill,minmax(150px,1fr))",gap:12}}>
-                    {items.map((it:any)=>{const st=iStatus(it);const gc=gcolor(it.garment_type||it.name);return (
-                      <div key={it.id} onClick={()=>setPeekItem(it)} style={{border:`1px solid ${T.border}`,borderRadius:11,overflow:"hidden",background:T.card,cursor:"pointer"}}>
-                        <div style={{aspectRatio:"1",background:"#f2f2f4",display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden"}}>
-                          {thumbByItem[it.id]
-                            ? <img src={`/api/files/thumbnail?id=${thumbByItem[it.id]}&thumb=1`} alt="" style={{width:"100%",height:"100%",objectFit:"contain"}} />
-                            : <div style={{width:"62%",height:"62%",borderRadius:14,background:gc,boxShadow:"0 2px 8px rgba(0,0,0,.12)"}} />}
-                        </div>
-                        <div style={{padding:"9px 11px 11px"}}>
-                          <div style={{fontSize:12.5,fontWeight:800,lineHeight:1.2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{it.name||"Untitled"}</div>
-                          <div style={{fontSize:10.5,color:T.muted,marginTop:3,fontFamily:mono}}>{tQty(it.qtys||{})} · {(it as any).sell_per_unit?money((it as any).sell_per_unit):"—"}/unit</div>
-                          <div style={{fontSize:10,fontWeight:800,textTransform:"uppercase",letterSpacing:"0.04em",color:st.c,marginTop:3}}>{st.s}</div>
-                        </div>
-                      </div>
-                    );})}
-                  </div>}
+              <>
+                {/* KPI strip — the numbers at a glance, hub grammar (hairline top+bottom) */}
+                <div style={{display:"flex",gap:"clamp(20px,4vw,44px)",flexWrap:"wrap",borderTop:`1px solid ${T.border}`,borderBottom:`1px solid ${T.border}`,padding:"16px 2px",margin:"4px 0 0"}}>
+                  <Kpi value={units.toLocaleString()} label="units" color={T.blue} />
+                  {invoiceTotal>0 && <Kpi value={money(invoiceTotal)} label="quote total" />}
+                  <Kpi value={payState} label="payment" color={payColor} sub={invoiceTotal>0?`${money(paidSum)} of ${money(invoiceTotal)}`:undefined} />
+                  <Kpi value={shipLabel} label="ships" color={shipColor} sub={shipSub||undefined} />
+                  <Kpi value={routeLabel} label="route" />
                 </div>
-                {/* Details + Billing & Contacts — open the same editors as before */}
-                <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(2,1fr)",gap:10,marginBottom:10}}>
-                  <button onClick={()=>setOvSection("details")} style={panelBtn} onMouseEnter={e=>hov(e,true)} onMouseLeave={e=>hov(e,false)}>
-                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}><span style={{fontSize:9.5,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",color:T.faint}}>Details</span><span style={{fontSize:15,color:T.faint,lineHeight:1}}>›</span></div>
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:11}}>
+
+                {/* What's in this job — the gallery, hub cards. Click → item peek. */}
+                <OvSec title="What's in this job." hint={`${items.length} item${items.length!==1?"s":""} · ${units.toLocaleString()} units · tap one for the worksheet`} />
+                {items.length===0
+                  ? <div style={{fontSize:12.5,color:T.faint}}>No items yet. The build starts in the Product Builder.</div>
+                  : <div style={{display:"grid",gridTemplateColumns:isMobile?"repeat(2,1fr)":"repeat(auto-fill,minmax(160px,1fr))",gap:14}}>
+                      {items.map((it:any)=>{const st=iStatus(it);const gc=gcolor(it.garment_type||it.name);const tid=thumbByItem[it.id];return (
+                        <button key={it.id} onClick={()=>setPeekItem(it)} style={{textAlign:"left",padding:0,fontFamily:font,color:T.text,width:"100%",display:"block",border:`1px solid ${T.border}`,borderRadius:14,overflow:"hidden",background:T.card,cursor:"pointer",transition:"border-color 0.15s"}}
+                          onMouseEnter={e=>{e.currentTarget.style.borderColor="rgba(255,255,255,0.32)";}} onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;}}>
+                          <div style={{aspectRatio:"1",background:tid?"#fff":T.surface,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden"}}>
+                            {tid
+                              ? <img src={`/api/files/thumbnail?id=${tid}&thumb=1`} alt="" style={{width:"100%",height:"100%",objectFit:"contain"}} />
+                              : <div style={{width:"56%",height:"56%",borderRadius:14,background:gc}} />}
+                          </div>
+                          <div style={{padding:"11px 13px 13px"}}>
+                            <div style={{fontSize:12.5,fontWeight:800,textTransform:"uppercase",lineHeight:1.2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{it.name||"Untitled"}</div>
+                            <div style={{fontSize:10.5,color:T.muted,marginTop:4,fontFamily:mono}}>{tQty(it.qtys||{})} pcs{(it as any).sell_per_unit?` · ${money((it as any).sell_per_unit)}/ea`:""}</div>
+                            <div style={{fontSize:9,fontWeight:800,textTransform:"uppercase",letterSpacing:"0.06em",color:st.c,marginTop:5}}>{st.s}</div>
+                          </div>
+                        </button>
+                      );})}
+                    </div>}
+
+                {/* Details + Billing — hub summary cards that open the same editors */}
+                <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(2,1fr)",gap:14,marginTop:26}}>
+                  <button onClick={()=>setOvSection("details")} style={hubCard} onMouseEnter={e=>hov(e,true)} onMouseLeave={e=>hov(e,false)}>
+                    <div style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",marginBottom:13}}><span style={{fontSize:11,fontWeight:900,textTransform:"uppercase",letterSpacing:"0.02em"}}>Details</span><span style={{fontSize:9,fontWeight:800,letterSpacing:"0.1em",textTransform:"uppercase",color:T.faint}}>edit ›</span></div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"14px 12px"}}>
                       <Fact label="Ships" value={shipLabel+(shipSub?` · ${shipSub}`:"")} color={shipColor} />
                       <Fact label="Route" value={routeLabel} />
                       <Fact label="Terms" value={termsLabel} />
                       <Fact label="Priority" value={priLabel} color={priColor} />
                     </div>
+                    {job.notes && <div style={{marginTop:14,paddingTop:12,borderTop:`1px solid ${T.border}`}}>
+                      <div style={{fontSize:8.5,color:T.faint,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:800,marginBottom:5}}>Notes{(job as any)?.type_meta?.source?.startsWith?.("studio")?" · from the studio":""}</div>
+                      <div style={{fontSize:12,color:T.muted,lineHeight:1.5,whiteSpace:"pre-wrap",display:"-webkit-box",WebkitLineClamp:3,WebkitBoxOrient:"vertical" as any,overflow:"hidden"}}>{job.notes}</div>
+                    </div>}
                   </button>
-                  <button onClick={()=>setOvSection("billing")} style={panelBtn} onMouseEnter={e=>hov(e,true)} onMouseLeave={e=>hov(e,false)}>
-                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}><span style={{fontSize:9.5,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",color:T.faint}}>Billing &amp; Contacts</span><span style={{fontSize:15,color:T.faint,lineHeight:1}}>›</span></div>
-                    <div style={{fontSize:16,fontWeight:800,color:payColor,marginBottom:8}}>{payState}{invoiceTotal>0 && <span style={{fontSize:12,fontWeight:600,color:T.muted}}> · ${Math.round(paidSum).toLocaleString()} / ${Math.round(invoiceTotal).toLocaleString()}</span>}</div>
-                    <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                      {contacts.length===0 && <span style={{fontSize:12,color:T.muted}}>No contacts</span>}
+                  <button onClick={()=>setOvSection("billing")} style={hubCard} onMouseEnter={e=>hov(e,true)} onMouseLeave={e=>hov(e,false)}>
+                    <div style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",marginBottom:13}}><span style={{fontSize:11,fontWeight:900,textTransform:"uppercase",letterSpacing:"0.02em"}}>Billing &amp; contacts</span><span style={{fontSize:9,fontWeight:800,letterSpacing:"0.1em",textTransform:"uppercase",color:T.faint}}>edit ›</span></div>
+                    <div style={{fontSize:20,fontWeight:900,color:payColor,lineHeight:1}}>{payState}</div>
+                    {invoiceTotal>0 && <div style={{fontSize:11,fontFamily:mono,color:T.muted,marginTop:5}}>{money(paidSum)} of {money(invoiceTotal)}{balance>0.01?` · ${money(balance)} due`:""}</div>}
+                    <div style={{display:"flex",flexDirection:"column",gap:7,marginTop:14}}>
+                      {contacts.length===0 && <span style={{fontSize:12,color:T.faint}}>No contacts yet.</span>}
                       {contacts.slice(0,3).map((c:any)=>(
-                        <div key={c.id} style={{display:"flex",flexDirection:"column",gap:1,minWidth:0}}>
-                          <span style={{fontWeight:600,color:T.text,fontSize:12.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}{(c.role_on_job==="primary"||c.role_on_job==="billing") && <span style={{fontWeight:400,color:T.faint,textTransform:"capitalize"}}> · {c.role_on_job}</span>}</span>
-                          {c.email && <span style={{fontSize:11.5,color:T.accent,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.email}</span>}
+                        <div key={c.id} style={{display:"flex",alignItems:"baseline",gap:8,minWidth:0}}>
+                          <span style={{fontSize:12.5,fontWeight:800,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</span>
+                          {(c.role_on_job==="primary"||c.role_on_job==="billing") && <span style={{fontSize:8,fontWeight:800,letterSpacing:"0.08em",textTransform:"uppercase",color:T.purple,flexShrink:0}}>{c.role_on_job}</span>}
                         </div>
                       ))}
-                      {contacts.length>3 && <span style={{fontSize:11,color:T.faint}}>+{contacts.length-3} more</span>}
+                      {contacts.length>3 && <span style={{fontSize:10.5,color:T.faint}}>+{contacts.length-3} more</span>}
                     </div>
                   </button>
                 </div>
-              </div>
+              </>
             );
           })()}
 
@@ -1106,12 +1141,9 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             const allShipped = groups.every(g => g.items.every((it: any) => it.pipeline_stage === "shipped"));
 
             return (
-              <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 14px", marginBottom: 10 }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-                  <div style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em" }}>Production</div>
-                  {allShipped && <div style={{ fontSize: 10, fontWeight: 700, color: T.green, letterSpacing: "0.06em", textTransform: "uppercase" }}>All Shipped</div>}
-                </div>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+              <div>
+                <OvSec title="In production." hint={`${groups.length} vendor${groups.length!==1?"s":""} · tap one for its items`} right={allShipped ? <span style={{fontSize:9.5,fontWeight:800,letterSpacing:"0.1em",textTransform:"uppercase",color:T.green}}>✓ All shipped</span> : undefined} />
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                   {groups.map(g => {
                     const decKey = g.decoratorId || g.decoratorName;
                     // A fully-shipped vendor has nothing actionable on
@@ -1193,8 +1225,8 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
 
           {/* Documents — always-visible action row (Quote / Invoice / Packing
               Slip / Art / PO / Portal). Sits below the production strip. */}
-          <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:10,padding:"12px 14px",marginBottom:10}}>
-            <div style={{fontSize:10,fontWeight:600,color:T.muted,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8}}>Documents</div>
+          <div style={{marginBottom:4}}>
+            <OvSec title="Documents." hint="quote · invoice · packing slip · art · PO · portal" />
             {(()=>{
               const docVendors = [...new Set(((job as any).costing_data?.costProds||[]).map((p:any)=>p.printVendor).filter(Boolean))] as string[];
               const qbInvNum = (job as any).type_meta?.qb_invoice_number;
@@ -1205,8 +1237,8 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                   onClick={()=>{ if (onClickOverride) { onClickOverride(); return; } if(available && src) setPdfPreview({src,title:label,downloadHref:src+(src.includes("?")?"&":"?")+"download=1"}); }}
                   disabled={!available}
                   title={available?undefined:"Not available yet"}
-                  style={{padding:"7px 14px",borderRadius:6,border:`1px solid ${T.border}`,background:available?T.surface:T.bg,color:available?T.text:T.faint,fontSize:11,fontWeight:600,fontFamily:font,cursor:available?"pointer":"default",whiteSpace:"nowrap"}}
-                  onMouseEnter={e=>{if(available){e.currentTarget.style.borderColor=T.accent;}}}
+                  style={{padding:"9px 16px",borderRadius:999,border:`1px solid ${T.border}`,background:available?T.card:"transparent",color:available?T.text:T.faint,fontSize:10.5,fontWeight:800,letterSpacing:"0.03em",fontFamily:font,cursor:available?"pointer":"default",whiteSpace:"nowrap",transition:"border-color 0.15s"}}
+                  onMouseEnter={e=>{if(available){e.currentTarget.style.borderColor="rgba(255,255,255,0.32)";}}}
                   onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;}}>
                   {label}
                 </button>
@@ -1223,10 +1255,10 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                   {docVendors.map(v => docBtn(`PO — ${v}`, `/api/pdf/po/${job.id}?vendor=${encodeURIComponent(v)}`, hasItems))}
                   {(job as any).portal_token && (
                     <button onClick={()=>setPortalOpen(true)}
-                      style={{marginLeft:"auto",padding:"6px 14px",background:"transparent",border:`1px solid ${T.border}`,borderRadius:6,color:T.muted,fontSize:11,fontFamily:font,fontWeight:600,cursor:"pointer"}}
-                      onMouseEnter={e=>{e.currentTarget.style.borderColor=T.accent;e.currentTarget.style.color=T.accent;}}
+                      style={{marginLeft:"auto",padding:"9px 16px",background:"transparent",border:`1px solid ${T.border}`,borderRadius:999,color:T.muted,fontSize:10.5,fontFamily:font,fontWeight:800,letterSpacing:"0.03em",cursor:"pointer",transition:"border-color 0.15s, color 0.15s"}}
+                      onMouseEnter={e=>{e.currentTarget.style.borderColor="rgba(255,255,255,0.32)";e.currentTarget.style.color=T.text;}}
                       onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.color=T.muted;}}>
-                      Client Portal
+                      Client Portal ↗
                     </button>
                   )}
                 </div>

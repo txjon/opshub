@@ -99,6 +99,19 @@ export async function assignProductsToJob(db: Db, args: {
   const JOB_TYPES = ["tour", "webstore", "corporate", "brand", "drop_ship", "artist"];
   const fallbackType = JOB_TYPES.includes((client as any)?.client_type) ? (client as any).client_type : "brand";
 
+  // The client's own words — quantities, context, "make it in navy" — live on
+  // the brief as `concept` (that's where the portal/Counter write the idea's
+  // free-text). Carry them onto the job so nothing the client said is lost on
+  // the way to production (Jon, take three: "his notes had quantities and other
+  // info that would be helpful"). One brief per greenlight, so the first
+  // product's brief is the source; fixing it here covers BOTH greenlight routes.
+  let clientNote: string | null = null;
+  const briefIdForNote = args.products.find(p => p.brief_id)?.brief_id;
+  if (briefIdForNote) {
+    const { data: nb } = await db.from("art_briefs").select("concept").eq("id", briefIdForNote).single();
+    clientNote = ((nb as any)?.concept || "").trim() || null;
+  }
+
   const { data: newJob, error: jobErr } = await db.from("jobs").insert({
     title: args.title.slice(0, 140),
     job_type: (lastJob as any)?.[0]?.job_type || fallbackType,
@@ -107,6 +120,7 @@ export async function assignProductsToJob(db: Db, args: {
     shipping_route: (lastJob as any)?.[0]?.shipping_route || null,
     client_id: args.clientId,
     job_number: "", // trigger assigns
+    notes: clientNote,   // the client's studio words ride onto the job
     type_meta: { source: args.source, ...(args.sourceMeta || {}) },
     quote_approved: false,
   }).select("id, job_number").single();
