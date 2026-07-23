@@ -691,7 +691,7 @@ function GreenlightButtons({ briefId, onDone }: { briefId: string; onDone: () =>
         Build the order →
       </button>
       <button onClick={() => setDoor("later")}
-        style={{ background: "transparent", color: H.green, border: `1px solid ${H.green}`, borderRadius: 999, padding: "9px 15px", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>
+        style={{ background: H.ink, color: "#fff", border: "1px solid rgba(255,255,255,0.9)", borderRadius: 999, padding: "9px 15px", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>
         Save items for later →
       </button>
       {door && <FinalizeSheet briefId={briefId} door={door} onClose={() => setDoor(null)} onDone={onDone} />}
