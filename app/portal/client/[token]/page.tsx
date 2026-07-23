@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useClientPortal } from "./_shared/context";
 import { C, fmtDate } from "./_shared/theme";
 import { uploadFileToDriveSession } from "@/lib/upload-drive-client";
+import { STUDIO_UNDER_DEV } from "@/lib/v2-flags";
 
 // HOME — the hub's front door (reworked Jul 21 2026; idea door added Jul 22,
 // Jon: "home should have a way to send an idea"). Answers: what needs me,
@@ -19,7 +20,10 @@ export default function HomePage() {
   const [products, setProducts] = useState<any[] | null>(null);
   const features = (data as any)?.features || [];
   const hasPipeline = features.includes("pipeline");
-  const hasStudio = features.includes("studio");
+  // Studio under dev: drop every studio surface from the client's home (the idea
+  // door, the "Your move" studio briefs, and the "The studio." section all gate
+  // on this). The /studio route itself still resolves by direct URL.
+  const hasStudio = features.includes("studio") && !STUDIO_UNDER_DEV;
   const briefs: any[] = (data as any)?.briefs || [];
 
   useEffect(() => {

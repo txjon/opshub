@@ -9,7 +9,7 @@
 //     fallback is vestigial.
 // The middleware enforces this server-side (the real lock); AppShell uses it to render nav.
 
-import { V2_WRITES_LIVE } from "./v2-flags";
+import { V2_WRITES_LIVE, STUDIO_UNDER_DEV, STUDIO_HIDDEN_HREFS } from "./v2-flags";
 
 export type PageGroup = "owner" | "labs" | "distro" | "ecomm" | "contacts" | "settings" | "billing" | "side";
 
@@ -154,16 +154,20 @@ export function pathToGroup(pathname: string): PageGroup | null {
 
 /** The catalog pages this user may see — drives the sidebar. */
 export function grantedPages(user: AccessUser): CatalogPage[] {
-  if (user.isGod) return PAGE_CATALOG;
+  // While the studio's under dev, pull it from the NAV only — the access guard
+  // (canAccessKey/canAccessPath) is untouched, so direct URLs still resolve.
+  const hide = (pages: CatalogPage[]) =>
+    STUDIO_UNDER_DEV ? pages.filter(p => !STUDIO_HIDDEN_HREFS.includes(p.href)) : pages;
+  if (user.isGod) return hide(PAGE_CATALOG);
   if (hasExplicit(user)) {
     const set = new Set(user.pageAccess!);
     // When live, surface the v2 twin of any granted legacy page (and vice versa)
     // so the swapped nav has the v2 entries to show. AppShell then hides legacy.
     if (V2_WRITES_LIVE) for (const k of user.pageAccess!) if (V2_TWIN_OF[k]) set.add(V2_TWIN_OF[k]);
-    return PAGE_CATALOG.filter(p => set.has(p.key));
+    return hide(PAGE_CATALOG.filter(p => set.has(p.key)));
   }
   const groups = ROLE_GROUPS[user.role || "viewer"] || [];
-  return PAGE_CATALOG.filter(p => groups.includes(p.group));
+  return hide(PAGE_CATALOG.filter(p => groups.includes(p.group)));
 }
 
 /** Where to send a user who hit a page they lack — their first granted non-side page, else null. */

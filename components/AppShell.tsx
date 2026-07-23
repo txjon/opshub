@@ -6,7 +6,7 @@ import { LogOut, FlaskConical, Truck, Store, Users, Cog, ChartColumn, Lightbulb,
 import { GlobalSearch } from "@/components/GlobalSearch";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { grantedPages, pathToGroup } from "@/lib/access";
-import { V2_WRITES_LIVE } from "@/lib/v2-flags";
+import { V2_WRITES_LIVE, STUDIO_UNDER_DEV, STUDIO_HIDDEN_HREFS } from "@/lib/v2-flags";
 
 type Department = "owner" | "labs" | "distro" | "ecomm" | "contacts" | "settings" | "billing";
 
@@ -186,7 +186,13 @@ export function AppShell({
   // v2 warehouse cutover: when live, show the v2 surfaces under the primary
   // names and drop the legacy twins from the nav (legacy pages stay reachable by
   // URL for rollback). Flag off → nav is exactly as before.
-  const navItems = swapV2Nav(navItemsRaw);
+  // Studio under dev: pull Art Studio / Studio v2 from the nav in BOTH modes
+  // (per-user grantedPages already drops them; this also covers the legacy
+  // DEPT_NAV fallback). Nav-hide only — the routes stay reachable by URL.
+  const navItemsSwapped = swapV2Nav(navItemsRaw);
+  const navItems = STUDIO_UNDER_DEV
+    ? navItemsSwapped.filter((i: any) => !STUDIO_HIDDEN_HREFS.includes(i.href))
+    : navItemsSwapped;
   const deptIcons: Record<Department, { Icon: any; label: string }> = DEPT_ICONS;
   const rawCrossLink = DEPT_CROSSLINKS[activeDept];
   const crossLink = rawCrossLink && hasDept(rawCrossLink.dept)
