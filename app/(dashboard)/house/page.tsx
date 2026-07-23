@@ -30,6 +30,11 @@ const PHASE_VERB: Record<string, { verb: string; go: string; side: "us" | "them"
   fulfillment: { verb: "Key it into Shopify", go: "Open job", side: "distro" },
 };
 
+// Pre-approval prep (intake) is its own stage, NOT production (Jon, Jul 22:
+// "it's falling into production... this is where it's being prepared to send
+// approvals"). One directive for the whole bench arc: build → cost → proof → send.
+const PREP_DIRECTIVE = { order: "Finish the build, cost it, build the proof, then send the quote + proofs for the client's sign-off", done: "quote + proofs sent for the client's approval" };
+
 export default function HousePage() {
   const supabase = createClient();
   const [jobs, setJobs] = useState<any[] | null>(null);
@@ -152,6 +157,10 @@ export default function HousePage() {
     const J = jobs || [];
     const ourJobs = J.filter((x: any) => (PHASE_VERB[x.phase] || {}).side === "us")
       .sort((a: any, b: any) => (a.target_ship_date || "9999").localeCompare(b.target_ship_date || "9999"));
+    // Split "us" into the two real stages: the BENCH (intake — greenlit, being
+    // readied to send for approval) vs PRODUCTION (ready — approved, ordering).
+    const prepJobs = ourJobs.filter((x: any) => x.phase === "intake");
+    const readyJobs = ourJobs.filter((x: any) => x.phase === "ready");
     const theirJobs = J.filter((x: any) => (PHASE_VERB[x.phase] || {}).side === "them");
     const press = J.flatMap((x: any) => x.items || []).filter((i: any) => i.pipeline_stage === "in_production")
       .reduce((a: number, i: any) => a + (i.buy_sheet_lines || []).reduce((s: number, l: any) => s + (Number(l.qty_ordered) || 0), 0), 0);
@@ -212,7 +221,7 @@ export default function HousePage() {
     });
     const overdue = ourJobs.filter((x: any) => x.target_ship_date && x.target_ship_date < new Date().toISOString().slice(0, 10));
     const dockJobs = J.filter((x: any) => (PHASE_VERB[x.phase] || {}).side === "distro");
-    return { ourJobs, theirJobs, press, dropCalls, studioCalls, overdue, vendorRisk, dockJobs };
+    return { ourJobs, prepJobs, readyJobs, theirJobs, press, dropCalls, studioCalls, overdue, vendorRisk, dockJobs };
   }, [jobs, drops, briefs]);
 
   // A magazine plate: the work's art is the cover; the directive is the
@@ -332,12 +341,35 @@ export default function HousePage() {
             </section>
             )}
 
+            {/* ── THE BENCH — greenlit, being readied to send for approval.
+                Split out of Production (Jon, Jul 22): intake is pre-approval prep,
+                not the presses. ── */}
+            {model.prepJobs.length > 0 && (
+            <section style={{ marginTop: 36 }}>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 14 }}>
+                <h2 style={{ margin: 0, fontSize: 19, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", color: H.blue }}>The bench.</h2>
+                <span style={{ fontSize: 10.5, color: H.faint }}>greenlit — build it out, cost it, proof it, then send the quote for the client&rsquo;s sign-off</span>
+              </div>
+              <div className="hs-grid">
+                {model.prepJobs.slice(0, 12).map((x: any) => {
+                  const ref = (x.type_meta as any)?.qb_invoice_number ? `#${(x.type_meta as any).qb_invoice_number}` : x.job_number;
+                  const units = (x.items || []).reduce((a: number, i: any) => a + (i.buy_sheet_lines || []).reduce((s: number, l: any) => s + (Number(l.qty_ordered) || 0), 0), 0);
+                  const verb = units === 0 ? "Finish the build" : "Cost & quote it";
+                  const meta = units === 0 ? "not built out yet" : `${units.toLocaleString()} pcs`;
+                  return card(`prep-${x.id}`, jobArt[x.id] ? thumbSrc(jobArt[x.id]) : null,
+                    x.clients?.name || "—", ref, meta, verb, H.amber,
+                    `/jobs/${x.id}`, "Open the job", PREP_DIRECTIVE);
+                })}
+              </div>
+            </section>
+            )}
+
             {/* ── PRODUCTION ── */}
-            {(model.ourJobs.length > 0 || model.vendorRisk.length > 0) && (
+            {(model.readyJobs.length > 0 || model.vendorRisk.length > 0) && (
             <section style={{ marginTop: 36 }}>
               <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 14 }}>
                 <h2 style={{ margin: 0, fontSize: 19, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", color: H.amber }}>Production.</h2>
-                <span style={{ fontSize: 10.5, color: H.faint }}>cost it, gate it, keep the presses honest — soonest ship first, red means late</span>
+                <span style={{ fontSize: 10.5, color: H.faint }}>order blanks, fire POs, keep the presses honest — soonest ship first, red means late</span>
               </div>
               <div className="hs-grid">
                 {model.vendorRisk.slice(0, 5).map(({ job: x, due, level, promised, vendorKey }: any) => {
@@ -348,7 +380,7 @@ export default function HousePage() {
                     meta, d.verb, level === "late" ? H.red : H.amber, `/jobs/${x.id}`, "Handle it", d,
                     () => setSheet({ kind: "vendor", job: x, due, level, promised, vendorKey, meta, directive: d }));
                 })}
-                {model.ourJobs.slice(0, 12).map((x: any) => {
+                {model.readyJobs.slice(0, 12).map((x: any) => {
                   const v = PHASE_VERB[x.phase];
                   const late = x.target_ship_date && x.target_ship_date < new Date().toISOString().slice(0, 10);
                   const ref = (x.type_meta as any)?.qb_invoice_number ? `#${(x.type_meta as any).qb_invoice_number}` : x.job_number;
