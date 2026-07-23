@@ -736,7 +736,7 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
   const [parcelCarrier, setParcelCarrier] = useState(/one\s*stop/i.test(vendorName) ? "DHL" : "UPS");
   const [freightCarrier, setFreightCarrier] = useState("");
   const [note, setNote] = useState("");
-  const [slipFile, setSlipFile] = useState<File | null>(null);
+  const [slipFiles, setSlipFiles] = useState<File[]>([]);
   const [slipDrag, setSlipDrag] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const [qtys, setQtys] = useState<Record<string, Record<string, number>>>(() => {
@@ -823,23 +823,28 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
     setBusy(true); setErr(null);
     try {
       const sb = createClient();
-      // upload the vendor packing slip first (if any)
+      // upload the vendor packing slip(s) first (if any) — one bucket per shipment.
+      // Each file is registered against EVERY item in the wave, so it surfaces on
+      // the box no matter how the wave splits into boxes; the receiving board
+      // dedupes by URL, so N distinct files → N distinct 📎 slip links.
       let packingSlipFileId: string | null = null;
-      if (slipFile) {
-        setBusyLabel("Uploading packing slip…");
-        const up = await (uploadToDrive as any)({
-          blob: slipFile, fileName: slipFile.name, mimeType: slipFile.type || "application/octet-stream",
-          clientName: activeItems[0].strip.clientName, projectTitle: activeItems[0].strip.jobTitle, itemName: "Packing Slips",
-        });
-        for (const it of activeItems) {
-          // registerFileInDb returns the item_files ROW; its .id (a UUID) is what
-          // shipments.packing_slip_file_id expects — NOT the Drive file id.
-          const reg: any = await registerFileInDb({
-            fileId: up.fileId, webViewLink: up.webViewLink, folderLink: up.folderLink,
-            fileName: slipFile.name, mimeType: slipFile.type, fileSize: slipFile.size,
-            itemId: it.itemId, stage: "packing_slip", notes: up.folderLink,
+      if (slipFiles.length) {
+        setBusyLabel(slipFiles.length > 1 ? "Uploading packing slips…" : "Uploading packing slip…");
+        for (const file of slipFiles) {
+          const up = await (uploadToDrive as any)({
+            blob: file, fileName: file.name, mimeType: file.type || "application/octet-stream",
+            clientName: activeItems[0].strip.clientName, projectTitle: activeItems[0].strip.jobTitle, itemName: "Packing Slips",
           });
-          if (!packingSlipFileId && reg?.id) packingSlipFileId = reg.id;
+          for (const it of activeItems) {
+            // registerFileInDb returns the item_files ROW; its .id (a UUID) is what
+            // shipments.packing_slip_file_id expects — NOT the Drive file id.
+            const reg: any = await registerFileInDb({
+              fileId: up.fileId, webViewLink: up.webViewLink, folderLink: up.folderLink,
+              fileName: file.name, mimeType: file.type, fileSize: file.size,
+              itemId: it.itemId, stage: "packing_slip", notes: up.folderLink,
+            });
+            if (!packingSlipFileId && reg?.id) packingSlipFileId = reg.id;
+          }
         }
       }
       setBusyLabel("Shipping…");
@@ -870,7 +875,7 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
     const nextQ: Record<string, Record<string, number>> = {};
     for (const it of remaining) nextQ[it.itemId] = { ...it.owed };
     setActiveItems(remaining);
-    setQtys(nextQ); setFinal({}); setMoreComing({}); setRef(""); setSlipFile(null);
+    setQtys(nextQ); setFinal({}); setMoreComing({}); setRef(""); setSlipFiles([]);
     setNotified(false); setNotifyTo(null); setNotifyErr(null); setDone(null);
   }
 
@@ -1011,17 +1016,29 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
             })}
           </div>
 
-          {/* vendor packing slip — drag & drop or click to browse */}
-          <div
-            onDragOver={e => { e.preventDefault(); e.stopPropagation(); setSlipDrag(true); }}
-            onDragEnter={e => { e.preventDefault(); e.stopPropagation(); setSlipDrag(true); }}
-            onDragLeave={e => { e.preventDefault(); e.stopPropagation(); setSlipDrag(false); }}
-            onDrop={e => { e.preventDefault(); e.stopPropagation(); setSlipDrag(false); const f = Array.from(e.dataTransfer.files || [])[0]; if (f) setSlipFile(f as File); }}
-            onClick={() => fileRef.current?.click()}
-            style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, fontSize: 13, cursor: "pointer", border: `1.5px dashed ${slipDrag ? T.blue : T.border}`, borderRadius: 8, padding: "14px 12px", color: slipFile ? T.text : T.muted, background: slipDrag ? T.blueDim : "transparent", textAlign: "center" }}>
-            <span style={{ fontWeight: 600 }}>{slipFile ? "📎 " + slipFile.name : "Drag vendor packing slip here, or click to browse"}</span>
-            {slipFile && <span onClick={e => { e.stopPropagation(); setSlipFile(null); }} style={{ color: T.red, fontSize: 12 }}>remove</span>}
-            <input ref={fileRef} type="file" accept="image/*,application/pdf" onChange={e => setSlipFile(e.target.files?.[0] || null)} style={{ display: "none" }} />
+          {/* vendor packing slip(s) — drag & drop or click to browse; multiple allowed
+              (each vendor item can carry its own slip → one bucket per shipment) */}
+          <div>
+            <div
+              onDragOver={e => { e.preventDefault(); e.stopPropagation(); setSlipDrag(true); }}
+              onDragEnter={e => { e.preventDefault(); e.stopPropagation(); setSlipDrag(true); }}
+              onDragLeave={e => { e.preventDefault(); e.stopPropagation(); setSlipDrag(false); }}
+              onDrop={e => { e.preventDefault(); e.stopPropagation(); setSlipDrag(false); const fs = Array.from(e.dataTransfer.files || []) as File[]; if (fs.length) setSlipFiles(prev => [...prev, ...fs]); }}
+              onClick={() => fileRef.current?.click()}
+              style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, fontSize: 13, cursor: "pointer", border: `1.5px dashed ${slipDrag ? T.blue : T.border}`, borderRadius: 8, padding: "14px 12px", color: slipFiles.length ? T.text : T.muted, background: slipDrag ? T.blueDim : "transparent", textAlign: "center" }}>
+              <span style={{ fontWeight: 600 }}>{slipFiles.length ? `📎 Add another packing slip · ${slipFiles.length} attached` : "Drag vendor packing slips here, or click to browse"}</span>
+              <input ref={fileRef} type="file" multiple accept="image/*,application/pdf" onChange={e => { const fs = Array.from(e.target.files || []) as File[]; if (fs.length) setSlipFiles(prev => [...prev, ...fs]); e.currentTarget.value = ""; }} style={{ display: "none" }} />
+            </div>
+            {slipFiles.length > 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 8 }}>
+                {slipFiles.map((f, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 7, padding: "7px 10px" }}>
+                    <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>📎 {f.name}</span>
+                    <span onClick={e => { e.stopPropagation(); setSlipFiles(prev => prev.filter((_, j) => j !== i)); }} style={{ color: T.red, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>remove</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <input value={note} onChange={e => setNote(e.target.value)} placeholder="Note for the warehouse (optional)"

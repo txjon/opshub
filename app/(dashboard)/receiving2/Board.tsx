@@ -1,5 +1,5 @@
 "use client";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono, sortSizes } from "@/lib/theme";
@@ -11,6 +11,7 @@ import LedgerHistory from "@/components/LedgerHistory";
 import { TrackingLink } from "@/components/TrackingModal";
 import type { ReceivingBox, ReceivingLine, HeldPull } from "@/lib/item-state";
 import { v2WriteAllowed } from "@/lib/v2-flags";
+import { uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
 
 const tQty = (q: Record<string, number>) => Object.values(q || {}).reduce((a, v) => a + (Number(v) || 0), 0);
 const subQtys = (a: Record<string, number>, b: Record<string, number>): Record<string, number> => {
@@ -419,7 +420,7 @@ function BoxCard({ box, status, onReceive, onAdjustEta, onFlagNotFound, acts }: 
             </span></>}
             {box.slips.map((s, i) => (
               <span key={i} style={{ display: "inline-flex", gap: 7 }}>{sep}
-                <a href={s.url} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} style={{ color: T.blue, fontWeight: 600, textDecoration: "none" }}>📎 slip</a>
+                <a href={s.url} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} title={s.name} style={{ color: T.blue, fontWeight: 600, textDecoration: "none" }}>📎 {box.slips.length > 1 ? `slip ${i + 1}` : "slip"}</a>
               </span>
             ))}
             {flags.map((f, i) => <span key={`f${i}`} style={{ display: "inline-flex", gap: 7 }}>{sep}<span style={{ color: f.tone, fontWeight: 800 }}>{f.text}</span></span>)}
@@ -623,6 +624,45 @@ function ReceiveModal({ box, onClose, onDone }: { box: ReceivingBox; onClose: ()
   const [busyItem, setBusyItem] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
+  // Attach packing slip(s) to an ALREADY-shipped box. Pure metadata (Drive
+  // upload + item_files rows) — no ledger write, so it's left ungated. Mirrors
+  // the ship modal's flow: upload each file once to the project's Packing Slips
+  // folder, register it against EVERY item in the box so it surfaces regardless
+  // of how the wave split. Newly-attached slips show immediately; the board
+  // re-reads them from item_files on its next refresh.
+  const [attached, setAttached] = useState<{ name: string; url: string }[]>([]);
+  const [slipBusy, setSlipBusy] = useState(false);
+  const [slipErr, setSlipErr] = useState<string | null>(null);
+  const slipRef = useRef<HTMLInputElement>(null);
+
+  async function attachSlips(files: File[]) {
+    if (!files.length || !box.lines.length) return;
+    setSlipBusy(true); setSlipErr(null);
+    try {
+      const first = box.lines[0];
+      // project title isn't carried on the receive line — read it once so the
+      // slip lands in the same .../{Client}/{Project}/Packing Slips folder the
+      // ship-time slips use.
+      const { data: job } = await createClient().from("jobs").select("title").eq("id", first.jobId).single();
+      const projectTitle = (job as any)?.title || first.itemName;
+      for (const file of files) {
+        const up: any = await (uploadToDrive as any)({
+          blob: file, fileName: file.name, mimeType: file.type || "application/octet-stream",
+          clientName: first.client, projectTitle, itemName: "Packing Slips",
+        });
+        for (const l of box.lines) {
+          await registerFileInDb({
+            fileId: up.fileId, webViewLink: up.webViewLink, folderLink: up.folderLink,
+            fileName: file.name, mimeType: file.type, fileSize: file.size,
+            itemId: l.itemId, stage: "packing_slip", notes: up.folderLink, preserveApproval: false,
+          });
+        }
+        setAttached(prev => [...prev, { name: file.name, url: up.webViewLink }]);
+      }
+    } catch (e: any) { setSlipErr(e?.message || "Attach failed."); }
+    setSlipBusy(false);
+  }
+
   const isTest = box.clients.every(c => v2WriteAllowed({ clientName: c }));
   const remaining = box.lines.filter(l => !cleared.has(l.itemId));
   const doneCount = box.lines.length - remaining.length;
@@ -669,9 +709,19 @@ function ReceiveModal({ box, onClose, onDone }: { box: ReceivingBox; onClose: ()
         <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>{boxHow(box)} · {box.totalUnits} units expected</div>
         <div style={{ fontSize: 12, color: T.muted, marginTop: 6 }}><b style={{ color: T.text }}>{remaining.length}</b> left to receive{doneCount > 0 ? ` · ${doneCount} received` : ""}</div>
         {box.note && <div style={{ marginTop: 8, fontSize: 12.5, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 7, padding: "7px 10px" }}><span style={{ fontWeight: 700, color: T.muted }}>Note from production: </span>{box.note}</div>}
-        {box.slips.length > 0 && <div style={{ marginTop: 6 }}>{box.slips.map((s, i) => (
-          <a key={i} href={s.url} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: T.blue, textDecoration: "none", marginRight: 12 }}>📎 {s.name}</a>
-        ))}</div>}
+        <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          {[...box.slips, ...attached].map((s, i) => (
+            <a key={i} href={s.url} target="_blank" rel="noreferrer" title={s.name} style={{ fontSize: 12, color: T.blue, textDecoration: "none" }}>📎 {s.name}</a>
+          ))}
+          <span onClick={() => { if (!slipBusy) slipRef.current?.click(); }}
+            style={{ fontSize: 11.5, fontWeight: 700, color: slipBusy ? T.faint : T.blue, cursor: slipBusy ? "default" : "pointer" }}>
+            {slipBusy ? "Uploading…" : ((box.slips.length + attached.length) > 0 ? "+ Add slip" : "+ Attach packing slip")}
+          </span>
+          <input ref={slipRef} type="file" multiple accept="image/*,application/pdf"
+            onChange={e => { const fs = Array.from(e.target.files || []) as File[]; e.currentTarget.value = ""; if (fs.length) attachSlips(fs); }}
+            style={{ display: "none" }} />
+          {slipErr && <span style={{ fontSize: 11.5, color: T.red, fontWeight: 600 }}>{slipErr}</span>}
+        </div>
       </div>
 
       <div style={{ padding: "14px 22px", display: "flex", flexDirection: "column", gap: 10 }}>
