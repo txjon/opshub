@@ -44,36 +44,35 @@ export default function HomePage() {
   //    the client's move (or status) is the headline written on it. Amber = your
   //    move; blue = we've got it; green = done/live. Sections run in Jon's order:
   //    Studio · Drops · Orders · Pipeline · Catalog, each hitting what matters. ──
-  const plate = (key: string, art: string | null, eyebrow: string, verb: string, verbColor: string, meta: string, href: string) => (
-    <a key={key} href={href} className="gh-plate" style={art ? { background: "#fff" } : undefined}>
+  const plate = (key: string, art: string | null, eyebrow: string, verb: string, verbColor: string, meta: string, href: string, act = false) => (
+    <a key={key} href={href} className="gh-plate" style={{ ...(art ? { background: "#fff" } : {}), ...(act ? { boxShadow: `inset 0 0 0 2px ${C.amber}` } : {}) }}>
       {art && <img src={art} alt="" loading="lazy" referrerPolicy="no-referrer" onError={(e: any) => { e.target.style.display = "none"; }} />}
       <span className="veil" />
       <span className="body">
+        {act && <span style={{ display: "block", fontSize: 8.5, fontWeight: 800, letterSpacing: "0.15em", textTransform: "uppercase", color: C.amber, marginBottom: 6 }}>◆ Your move</span>}
         <span style={{ display: "block", fontSize: 9, fontWeight: 800, letterSpacing: "0.13em", textTransform: "uppercase", color: "rgba(255,255,255,0.7)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{eyebrow}</span>
         <span style={{ display: "block", fontSize: "clamp(19px,2vw,25px)", fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.02em", lineHeight: 1.05, marginTop: 6, color: verbColor, textWrap: "balance" as any }}>{verb}.</span>
         {meta && <span style={{ display: "block", fontSize: 10.5, fontFamily: C.mono, color: C.blue, marginTop: 7, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{meta}</span>}
       </span>
     </a>
   );
-  const sec = (title: string, hint: string, href: string, seeAll: string) => (
+  const sec = (title: string, hint: string, href?: string, seeAll?: string) => (
     <div style={{ display: "flex", alignItems: "baseline", gap: 12, margin: "38px 0 14px", flexWrap: "wrap" }}>
       <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em" }}>{title}</h2>
       <span style={{ fontSize: 10.5, color: C.faint }}>{hint}</span>
-      <Link href={href} style={{ marginLeft: "auto", fontSize: 10, color: C.muted, textDecoration: "none", fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase" }}>{seeAll} →</Link>
+      {href && seeAll ? <Link href={href} style={{ marginLeft: "auto", fontSize: 10, color: C.muted, textDecoration: "none", fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase" }}>{seeAll} →</Link> : null}
     </div>
   );
 
   const bThumb = (b: any) => { const t = (b.thumbs || []).find((x: any) => x.preview_drive_file_id || x.drive_file_id); return t ? thumb(t.preview_drive_file_id || t.drive_file_id) : null; };
 
-  // Studio — ideas in motion; amber "Take a look" when we've replied.
-  const studioFeed = briefs.filter(b => b.state !== "delivered").slice(0, 3);
   // Drops — building / live / cut.
   const DROP_VERB: Record<string, { verb: string; color: string }> = {
     building: { verb: "Coming together", color: C.amber }, live: { verb: "It's live", color: C.green },
     cut: { verb: "In production", color: C.blue }, closed: { verb: "Window closed", color: C.blue },
   };
   const dropFeed = (drops || []).filter(d => DROP_VERB[d.status]).slice(0, 2);
-  // Orders — needs-you first, then in motion.
+  // Orders — the client's move (or where it stands).
   const orderMove = (o: any): { verb: string; color: string; act: number } => {
     if (!o.quote_approved && ["intake", "pending"].includes(o.phase)) return { verb: "Review & approve", color: C.amber, act: 1 };
     if ((o.proofs_pending || 0) > 0) return { verb: "Approve your proofs", color: C.amber, act: 1 };
@@ -82,20 +81,29 @@ export default function HomePage() {
     if (o.phase === "complete") return { verb: "Delivered", color: C.green, act: 0 };
     return { verb: "In motion", color: C.blue, act: 0 };
   };
-  const orderFeed = (orders || []).filter(o => o.phase !== "cancelled").map(o => ({ o, ...orderMove(o) }))
-    .sort((a, b) => b.act - a.act).slice(0, 3);
+  const orderRows = (orders || []).filter(o => o.phase !== "cancelled").map(o => ({ o, ...orderMove(o) }));
   // Pipeline — items on the move.
   const pipeMove = (it: any): { verb: string; color: string; meta: string } => {
     if (it.status === "in_stock") return { verb: "In stock", color: C.green, meta: `${(it.qty || 0).toLocaleString()} pcs ready` };
     if (it.eta) return { verb: "On the way", color: C.blue, meta: `lands ${fmtDate(it.eta)}` };
     return { verb: "In production", color: C.blue, meta: it.qty ? `${Number(it.qty).toLocaleString()} pcs` : "" };
   };
+
+  // ── YOUR MOVE (Jon, Jul 22: "1 thing needs you... I don't know which one").
+  //    The actionable items LEAD the feed in their own spotlight, so what needs
+  //    the client is the first, labeled, amber-bordered thing — and they're
+  //    pulled OUT of the browse sections below so nothing shows twice. ──
+  const actOrders = orderRows.filter(x => x.act);
+  const actBriefs = (hasStudio ? briefs : []).filter(b => b.state !== "delivered" && b.has_unread_external);
+  const spotlightCount = actOrders.length + actBriefs.length;
+
+  // Browse feeds — everything that ISN'T already spotlighted.
+  const studioFeed = briefs.filter(b => b.state !== "delivered" && !b.has_unread_external).slice(0, 3);
+  const orderFeed = orderRows.filter(x => !x.act).slice(0, 3);
   const pipeFeed = (items || []).filter(it => !["complete", "archived", "cancelled", "on_hold"].includes(it.status)).slice(0, 4);
-  // Catalog — run any of it back.
   const catFeed = (products || []).slice(0, 4);
 
-  const moveCount = orderFeed.filter(x => x.act).length + studioFeed.filter(b => b.has_unread_external).length;
-  const nothing = !loading && studioFeed.length === 0 && dropFeed.length === 0 && orderFeed.length === 0 && pipeFeed.length === 0 && catFeed.length === 0;
+  const nothing = !loading && spotlightCount === 0 && studioFeed.length === 0 && dropFeed.length === 0 && orderFeed.length === 0 && pipeFeed.length === 0 && catFeed.length === 0;
 
   return (
     <div style={{ paddingTop: "clamp(8px, 3vw, 28px)" }}>
@@ -120,12 +128,10 @@ export default function HomePage() {
       {/* The idea door — the Studio's front-door form, in place */}
       {hasStudio && <IdeaDoor token={token} base={base} />}
 
-      {/* Your move — one honest line, then the feed carries the detail (amber cards) */}
-      {!loading && (
+      {/* Reassurance only when nothing needs them — otherwise the spotlight owns it */}
+      {!loading && spotlightCount === 0 && (
         <div style={{ fontSize: 13, color: C.muted, margin: "0 0 8px", lineHeight: 1.6, textAlign: "center" }}>
-          {moveCount > 0
-            ? <><b style={{ color: C.text }}>{moveCount}</b> thing{moveCount === 1 ? "" : "s"} need{moveCount === 1 ? "s" : ""} you below. Everything else is moving.</>
-            : nothing ? "Nothing here yet. Share something above to get started." : "Nothing needs you right now. Here's where everything stands."}
+          {nothing ? "Nothing here yet. Share something above to get started." : "Nothing needs you right now. Here's where everything stands."}
         </div>
       )}
 
@@ -133,6 +139,21 @@ export default function HomePage() {
         <div style={{ color: C.faint, fontSize: 13, padding: "40px 0", textAlign: "center" }}>Loading your house…</div>
       ) : (
         <>
+          {/* ── Your move — the spotlight leads the feed, so what needs the client
+              is the first, labeled, amber-bordered thing (Jon, Jul 22) ── */}
+          {spotlightCount > 0 && (
+            <>
+              {sec("Your move.", `${spotlightCount} thing${spotlightCount === 1 ? "" : "s"} need${spotlightCount === 1 ? "s" : ""} you — tap in`)}
+              <div className="gh-grid">
+                {actOrders.map(({ o, verb, color }) => {
+                  const art = (o.items || []).map((it: any) => it.thumb_id).find(Boolean);
+                  return plate(`mv-o-${o.id}`, art ? thumb(art) : null, o.job_number || "Your order", verb, color, o.title || "", `${base}/orders?open=${o.id}`, true);
+                })}
+                {actBriefs.map(b => plate(`mv-b-${b.id}`, bThumb(b), b.title || "Your idea", "Take a look", C.amber, b.preview_line || "new from our team", `${base}/studio`, true))}
+              </div>
+            </>
+          )}
+
           {/* ── Studio ── */}
           {hasStudio && studioFeed.length > 0 && (
             <>
