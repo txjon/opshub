@@ -161,7 +161,13 @@ export async function assignProductsToJob(db: Db, args: {
       job_id: jobId,
       name: p.title.slice(0, 120),
       status: "tbd",
-      artwork_status: "approved",   // the fork's gate — client greenlit the design
+      // A client greenlight means "looks good, make it" — NOT "I approve this
+      // exact proof for production" (Jon, Jul 22). Those are two signatures.
+      // The item lands unapproved; the real proof sign-off happens later when we
+      // finalize art, build the proof, and send it with the quote. Marking it
+      // "approved" here made the proof gate think a nonexistent proof was signed
+      // off (and showed the client "Approve all proofs" on a mockup).
+      artwork_status: "not_started",
       sort_order: i,
       pipeline_stage: null,
       product_id: p.id,
