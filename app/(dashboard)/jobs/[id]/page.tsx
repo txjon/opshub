@@ -1560,29 +1560,36 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             const sizes:string[] = (it.sizes&&it.sizes.length?it.sizes:Object.keys(q));
             const total = tQty(q);
             const go = (t:string)=>{ setSelectedItemId(it.id); setPeekItem(null); switchTab(t); };
-            const peekBtn:React.CSSProperties={flex:1,padding:"9px 0",borderRadius:9,border:`1px solid ${T.border}`,background:T.bg,color:T.text,fontFamily:font,fontSize:12.5,fontWeight:700,cursor:"pointer"};
+            const peekPrimary:React.CSSProperties={flex:"1 1 auto",padding:"12px 16px",borderRadius:999,border:"none",background:T.accent,color:"#0a0a0a",fontFamily:font,fontSize:10.5,fontWeight:800,letterSpacing:"0.04em",textTransform:"uppercase",cursor:"pointer",whiteSpace:"nowrap"};
+            const peekOutline:React.CSSProperties={flex:"1 1 auto",padding:"12px 16px",borderRadius:999,border:`1px solid ${T.border}`,background:"transparent",color:T.text,fontFamily:font,fontSize:10.5,fontWeight:800,letterSpacing:"0.04em",textTransform:"uppercase",cursor:"pointer",whiteSpace:"nowrap"};
+            const PeekFact=({label,value,color}:{label:string;value:any;color?:string})=>(<div style={{minWidth:0}}><div style={{fontSize:8.5,fontWeight:800,letterSpacing:"0.12em",textTransform:"uppercase",color:T.faint}}>{label}</div><div style={{fontSize:13,fontWeight:800,color:color||T.text,marginTop:5,fontFamily:mono,whiteSpace:"nowrap"}}>{value}</div></div>);
             return (
-              <div onClick={()=>setPeekItem(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:9998,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"48px 16px",overflowY:"auto"}}>
-                <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:14,width:"100%",maxWidth:480,boxShadow:"0 16px 48px rgba(0,0,0,0.45)",overflow:"hidden"}}>
-                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 18px",borderBottom:`1px solid ${T.border}`}}>
-                    <div style={{fontSize:14,fontWeight:800,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.name||"Item"}</div>
-                    <button onClick={()=>setPeekItem(null)} aria-label="Close" style={{background:"none",border:"none",color:T.muted,fontSize:22,cursor:"pointer",lineHeight:1}}>×</button>
+              // Match the client hub proof modal (Jon, Jul 22): uppercase title,
+              // art on white, labeled facts row over a hairline, hub pill actions.
+              <div onClick={()=>setPeekItem(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.72)",zIndex:9998,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"48px 16px",overflowY:"auto"}}>
+                <div onClick={e=>e.stopPropagation()} style={{background:T.card,borderRadius:16,width:"100%",maxWidth:520,boxShadow:"0 24px 64px rgba(0,0,0,0.55)",overflow:"hidden",border:`1px solid ${T.border}`}}>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"16px 20px",gap:12}}>
+                    <div style={{fontSize:15,fontWeight:900,color:T.text,textTransform:"uppercase",letterSpacing:"0.02em",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.name||"Item"}</div>
+                    <button onClick={()=>setPeekItem(null)} aria-label="Close" style={{background:"none",border:"none",color:T.faint,fontSize:22,cursor:"pointer",lineHeight:1,flexShrink:0}}>×</button>
                   </div>
-                  <div style={{aspectRatio:"16/10",background:"#f2f2f4",display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden"}}>
+                  <div style={{aspectRatio:"4/3",background:thumbByItem[it.id]?"#fff":T.surface,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden"}}>
                     {thumbByItem[it.id]
                       ? <img src={`/api/files/thumbnail?id=${thumbByItem[it.id]}&thumb=1`} alt="" style={{width:"100%",height:"100%",objectFit:"contain"}} />
-                      : <div style={{width:"36%",height:"55%",borderRadius:14,background:"#c9c9d0"}} />}
+                      : <div style={{width:"42%",height:"52%",borderRadius:16,background:"rgba(255,255,255,0.12)"}} />}
                   </div>
-                  <div style={{padding:"14px 18px"}}>
-                    <div style={{fontSize:11,fontWeight:800,textTransform:"uppercase",letterSpacing:"0.04em",color:st.c}}>{st.s}</div>
-                    <div style={{fontSize:13,color:T.muted,marginTop:6,fontFamily:mono}}>{total} units · {it.sell_per_unit?("$"+Math.round(it.sell_per_unit).toLocaleString()):"—"}/unit</div>
-                    {sizes.length>0 && <div style={{fontSize:12.5,color:T.text,marginTop:8,fontFamily:mono,display:"flex",flexWrap:"wrap",gap:"4px 14px"}}>{sizes.map((s:string)=>q[s]?<span key={s}>{s}:{q[s]}</span>:null)}</div>}
+                  <div style={{display:"flex",gap:"clamp(20px,6vw,44px)",padding:"16px 20px 4px",borderTop:`1px solid ${T.border}`,flexWrap:"wrap"}}>
+                    <PeekFact label="Status" value={st.s} color={st.c} />
+                    <PeekFact label="Quantity" value={`${total} pcs`} />
+                    {it.sell_per_unit ? <PeekFact label="Price" value={`$${Math.round(it.sell_per_unit).toLocaleString()}/ea`} /> : null}
+                  </div>
+                  <div style={{padding:"0 20px 4px"}}>
+                    {sizes.length>0 && <div style={{fontSize:12,color:T.muted,marginTop:10,fontFamily:mono,display:"flex",flexWrap:"wrap",gap:"4px 14px"}}>{sizes.map((s:string)=>q[s]?<span key={s}>{s}:{q[s]}</span>:null)}</div>}
                     {pf?.proofState==="revision" && pf?.note && <div style={{fontSize:12.5,color:T.red,marginTop:12,borderLeft:`3px solid ${T.red}`,paddingLeft:11,lineHeight:1.4}}>&ldquo;{pf.note}&rdquo;</div>}
-                    <div style={{display:"flex",gap:8,marginTop:16}}>
-                      <button onClick={()=>go("builder")} style={peekBtn}>Product Builder</button>
-                      <button onClick={()=>go("costing")} style={peekBtn}>Costing</button>
-                      <button onClick={()=>go("quote")} style={peekBtn}>Quote + Proofs</button>
-                    </div>
+                  </div>
+                  <div style={{display:"flex",gap:8,padding:"16px 20px 20px",flexWrap:"wrap"}}>
+                    <button onClick={()=>go("builder")} style={peekPrimary}>Product Builder →</button>
+                    <button onClick={()=>go("costing")} style={peekOutline}>Costing</button>
+                    <button onClick={()=>go("quote")} style={peekOutline}>Quote + Proofs</button>
                   </div>
                 </div>
               </div>
