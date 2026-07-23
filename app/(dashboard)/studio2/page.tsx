@@ -318,8 +318,11 @@ function OpsBriefSheet({ brief, onClose }: { brief: any; onClose: () => void }) 
           <div style={{ padding: "14px 22px 0" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
               <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: H.faint }}>Their build-out — future items</span>
-              {/* THE INTERNAL GREENLIGHT — fork on the client's word, logged */}
-              {!DONE_STATES.includes(brief.state) && <GreenlightButtons briefId={brief.id} onDone={onClose} />}
+              {/* THE INTERNAL GREENLIGHT — fork on the client's word, logged.
+                  A greenlit-to-catalog (rack) brief can STILL build the order —
+                  its products are on the shelf but have no job yet (Jon, Jul 22:
+                  "products sitting in the catalog, can't make it real"). */}
+              <GreenlightButtons briefId={brief.id} state={brief.state} built={!!detail?.built} builtJobId={detail?.built_job_id || null} onDone={onClose} />
             </div>
             {products.map((x: any, i: number) => (
               <div key={i} style={{ display: "flex", gap: 12, alignItems: "baseline", padding: "7px 0", borderBottom: `1px solid ${H.line}`, flexWrap: "wrap" }}>
@@ -682,18 +685,27 @@ function TheCounter({ onClose, onCreated }: { onClose: () => void; onCreated: (b
 const GARMENTS = ["tee", "longsleeve", "hoodie", "crewneck", "jacket", "pants", "shorts", "hat", "beanie", "socks", "patch", "sticker", "tote", "custom_bag", "flag", "poster", "custom", "accessory"];
 const GARMENT_LABEL = (g: string) => g === "custom" ? "custom (everything else)" : g.replace("_", " ");
 
-function GreenlightButtons({ briefId, onDone }: { briefId: string; onDone: () => void }) {
+function GreenlightButtons({ briefId, state, built, builtJobId, onDone }: { briefId: string; state?: string; built?: boolean; builtJobId?: string | null; onDone: () => void }) {
   const [door, setDoor] = useState<null | "later" | "order">(null);
+  const isRack = DONE_STATES.includes(state || "");
+  // Already ordered — nothing to build, just open the job.
+  if (isRack && built && builtJobId) return (
+    <a href={`/jobs/${builtJobId}`}
+      style={{ marginLeft: "auto", background: "transparent", color: H.green, border: `1px solid ${H.green}`, borderRadius: 999, padding: "9px 15px", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", textDecoration: "none", fontFamily: H.font }}>
+      ✓ Ordered · open the job →
+    </a>
+  );
   return (
     <span style={{ display: "inline-flex", gap: 8, alignItems: "center", marginLeft: "auto", flexWrap: "wrap" }}>
       <button onClick={() => setDoor("order")}
         style={{ background: "#fff", color: H.ink, border: 0, borderRadius: 999, padding: "9px 16px", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>
         Build the order →
       </button>
-      <button onClick={() => setDoor("later")}
+      {/* Rack briefs are already saved — no "save for later" needed */}
+      {!isRack && <button onClick={() => setDoor("later")}
         style={{ background: H.ink, color: "#fff", border: "1px solid rgba(255,255,255,0.9)", borderRadius: 999, padding: "9px 15px", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>
         Save items for later →
-      </button>
+      </button>}
       {door && <FinalizeSheet briefId={briefId} door={door} onClose={() => setDoor(null)} onDone={onDone} />}
     </span>
   );
