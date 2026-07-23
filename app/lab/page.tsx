@@ -127,12 +127,17 @@ function ThreadPanel({ detail, me, onRefresh, onClose }: any) {
   const st = STATE(t.state);
   const [note, setNote] = useState(""); const [vis, setVis] = useState<"client" | "internal">("client");
   const [busy, setBusy] = useState(false); const [uploading, setUploading] = useState(false);
+  const [heroIdx, setHeroIdx] = useState<number | null>(null);
   const fileIn = useRef<HTMLInputElement | null>(null);
-  const hero = [...msgs].reverse().find((m: any) => m.file_url);
+  // Latest drop is the hero; every earlier drop is a filmstrip thumb (old → new).
+  // Images live in the strip; the thread carries the words (mirrors studio2).
+  const images = msgs.filter((m: any) => m.file_url);
+  const hero = images.length ? images[heroIdx == null ? images.length - 1 : Math.min(heroIdx, images.length - 1)] : null;
+  const notes = msgs.filter((m: any) => m.body && m.body.trim());
 
   async function post(fileUrl?: string, fileName?: string) {
     if (!note.trim() && !fileUrl) return; setBusy(true);
-    try { await fetch(`/api/lab/threads/${t.id}/messages`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ senderName: me, body: note.trim() || null, visibility: vis, fileUrl, fileName }) }); setNote(""); await onRefresh(); } finally { setBusy(false); }
+    try { await fetch(`/api/lab/threads/${t.id}/messages`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ senderName: me, body: note.trim() || null, visibility: vis, fileUrl, fileName }) }); setNote(""); setHeroIdx(null); await onRefresh(); } finally { setBusy(false); }
   }
   async function onFile(f: File) { setUploading(true); try { const u = await uploadImage(f); await post(u.url, u.name); } catch (e: any) { alert(e.message); } finally { setUploading(false); } }
   async function act(action: string) { setBusy(true); try { await fetch(`/api/lab/threads/${t.id}/action`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, senderName: me }) }); await onRefresh(); } finally { setBusy(false); } }
@@ -159,26 +164,53 @@ function ThreadPanel({ detail, me, onRefresh, onClose }: any) {
         </div>
       )}
 
-      {hero && <div style={{ marginTop: 10, background: "#fff", position: "relative" }}>
-        <img src={hero.file_url} alt="" style={{ width: "100%", maxHeight: "36vh", objectFit: "contain", display: "block", margin: "0 auto" }} onError={(e: any) => { e.target.parentElement.style.display = "none"; }} />
-        <span style={{ position: "absolute", right: 10, bottom: 8, fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: hero.visibility === "client" ? "#3c9a2e" : "#b7791f", background: "rgba(255,255,255,0.9)", borderRadius: 999, padding: "4px 10px" }}>{hero.sender_role === "client" ? "From client" : hero.visibility === "client" ? "Client sees this" : "Internal only"}</span>
-      </div>}
-
-      <div style={{ padding: "12px 22px 4px", maxHeight: "34vh", overflowY: "auto" }}>
-        {msgs.length === 0 && <div style={{ fontSize: 13, color: H.faint, padding: "8px 0 4px", lineHeight: 1.5 }}>No conversation yet. Upload a draft or drop a note below to get it going.</div>}
-        {msgs.map((m: any) => (
-          <div key={m.id} style={{ padding: "9px 0", borderBottom: `1px solid ${H.line2}` }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
-              <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", color: m.sender_role === "client" ? H.purple : H.text }}>{m.sender_name || m.sender_role}</span>
-              <span style={{ fontSize: 7.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", borderRadius: 999, padding: "2px 7px", color: m.visibility === "internal" ? H.amber : H.green, background: m.visibility === "internal" ? "rgba(244,178,43,.1)" : "rgba(88,201,60,.1)" }}>{m.visibility === "internal" ? "Internal" : "Client sees"}</span>
-              {m.kind === "approval" && <span style={{ fontSize: 8, fontWeight: 800, color: H.green }}>◆ APPROVED</span>}
-              {m.kind === "change_request" && <span style={{ fontSize: 8, fontWeight: 800, color: H.red }}>↩ CHANGE</span>}
-              <span style={{ fontSize: 10, fontFamily: H.mono, color: H.faint, marginLeft: "auto" }}>{fmt(m.created_at)}</span>
-            </div>
-            {m.body && <div style={{ fontSize: 13.5, color: m.sender_role === "client" ? H.dim : H.text, lineHeight: 1.45 }}>{m.body}</div>}
-            {m.file_url && <a href={m.file_url} target="_blank" rel="noreferrer"><img src={m.file_url} alt="" style={{ maxHeight: 84, borderRadius: 8, marginTop: 7, background: "#fff", border: `1px solid ${H.line}` }} /></a>}
+      {hero && (
+        <div style={{ marginTop: 10 }}>
+          <div style={{ background: "#fff", position: "relative" }}>
+            <img src={hero.file_url} alt="" style={{ width: "100%", maxHeight: "36vh", objectFit: "contain", display: "block", margin: "0 auto" }} onError={(e: any) => { e.target.parentElement.style.display = "none"; }} />
+            <span style={{ position: "absolute", right: 10, bottom: 8, fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: hero.sender_role === "client" || hero.visibility === "client" ? "#3c9a2e" : "#b7791f", background: "rgba(255,255,255,0.9)", borderRadius: 999, padding: "4px 10px" }}>{hero.sender_role === "client" ? "From client" : hero.visibility === "client" ? "Client sees this" : "Internal only"}</span>
           </div>
-        ))}
+          {images.length > 1 && (
+            <div style={{ display: "flex", gap: 8, padding: "10px 22px 0", overflowX: "auto", scrollbarWidth: "none" as any }}>
+              {images.map((f: any, i: number) => {
+                const active = (heroIdx == null ? images.length - 1 : heroIdx) === i;
+                const internal = f.visibility !== "client" && f.sender_role !== "client";
+                return (
+                  <button key={f.id} onClick={() => setHeroIdx(i)} style={{ flexShrink: 0, width: 50, height: 50, borderRadius: 9, overflow: "hidden", background: "#fff", border: active ? "2px solid #fff" : `1px solid ${H.line}`, padding: 0, cursor: "pointer", opacity: active ? 1 : 0.6, position: "relative" }}>
+                    <img src={f.file_url} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />
+                    {internal && <span style={{ position: "absolute", inset: 0, boxShadow: "inset 0 0 0 2px rgba(244,178,43,.75)", borderRadius: 8, pointerEvents: "none" }} />}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div style={{ padding: "14px 22px 4px", display: "flex", flexDirection: "column", gap: 10, maxHeight: "34vh", overflowY: "auto" }}>
+        {notes.length === 0 ? (
+          <div style={{ fontSize: 13, color: H.faint, padding: "8px 0 4px", lineHeight: 1.5 }}>No notes yet. Upload a draft or drop a note below to get it going.</div>
+        ) : notes.map((m: any) => {
+          const mine = m.sender_role !== "client";
+          const whisper = m.visibility === "internal";
+          const marker = String(m.body || "").startsWith("✓");
+          if (marker) return <div key={m.id} style={{ alignSelf: "center", fontSize: 10, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: H.green }}>{m.body}</div>;
+          return (
+            <div key={m.id} style={{
+              alignSelf: mine ? "flex-end" : "flex-start", maxWidth: "84%",
+              background: whisper ? "rgba(244,178,43,0.09)" : mine ? "#fff" : H.surface,
+              color: whisper ? H.text : mine ? H.ink : H.text,
+              border: whisper ? `1px dashed rgba(244,178,43,.5)` : "none",
+              borderRadius: mine ? "14px 14px 4px 14px" : "14px 14px 14px 4px",
+              padding: "9px 13px", fontSize: 13, lineHeight: 1.55, whiteSpace: "pre-wrap",
+            }}>
+              <span style={{ display: "block", fontSize: 8.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: whisper ? H.amber : mine ? "rgba(10,10,10,0.45)" : H.faint, marginBottom: 3 }}>
+                {m.sender_name || m.sender_role}{whisper ? " · internal" : ""} · {fmt(m.created_at)}
+              </span>
+              {m.body}
+            </div>
+          );
+        })}
       </div>
 
       {t.state === "approved" ? (
