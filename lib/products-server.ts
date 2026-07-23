@@ -16,6 +16,7 @@ type Db = any;
 export type BornProduct = {
   id: string; title: string; format: string | null; retail: number | null;
   model: string | null; line_id: string | null; brief_id: string | null; notes?: string | null;
+  run_size?: number | null;   // the client's build-out quantity target (per run, not stored on products)
 };
 
 // One product per build-out line (or one product for the whole idea when the
@@ -49,9 +50,9 @@ export async function birthProductsFromBrief(db: Db, briefId: string, overrides?
           notes: ov.notes !== undefined ? ov.notes : (existing as any).notes,
           updated_at: new Date().toISOString(),
         }).eq("id", (existing as any).id).select("id, title, format, retail, model, line_id, brief_id, notes").single();
-        out.push((upd || existing) as any); continue;
+        out.push({ ...((upd || existing) as any), run_size: ln.run_size ?? null }); continue;
       }
-      out.push(existing as any); continue;
+      out.push({ ...(existing as any), run_size: ln.run_size ?? null }); continue;
     }
     const { data: created, error } = await db.from("products").insert({
       client_id: (brief as any).client_id,
@@ -67,7 +68,7 @@ export async function birthProductsFromBrief(db: Db, briefId: string, overrides?
       notes: ov.notes !== undefined ? ov.notes : (ln.notes || null),
     }).select("id, title, format, retail, model, line_id, brief_id, notes").single();
     if (error) throw new Error(error.message);
-    out.push(created as any);
+    out.push({ ...(created as any), run_size: ln.run_size ?? null });
   }
   return out;
 }
@@ -157,6 +158,16 @@ export async function assignProductsToJob(db: Db, args: {
   for (let i = 0; i < args.products.length; i++) {
     const p = args.products[i];
     const fullProduct: any = p;
+    // The client's build-out rides onto the item so nothing they specified is
+    // lost on the way in (Jon, Jul 22: "the info isn't carrying"). run_size (their
+    // quantity target) + the model + whatever they typed (e.g. "COG - $58.95")
+    // become the item's opening notes — the builder sees exactly what was asked.
+    const modelLabel = p.model === "preorder" ? "Pre-order" : p.model === "not_sure" ? "Model TBD" : p.model === "stock" ? "Fixed run" : null;
+    const buildoutBits = [modelLabel, p.run_size ? `target ~${Number(p.run_size).toLocaleString()} pcs` : null].filter(Boolean);
+    const itemNotes = [
+      buildoutBits.length ? `Client build-out: ${buildoutBits.join(" · ")}` : null,
+      (fullProduct.notes || "").trim() || null,
+    ].filter(Boolean).join("\n") || null;
     const { data: item, error: itemErr } = await db.from("items").insert({
       job_id: jobId,
       name: p.title.slice(0, 120),
@@ -174,7 +185,7 @@ export async function assignProductsToJob(db: Db, args: {
       design_id: p.brief_id,        // legacy readers key on the brief
       garment_type: args.garmentByProduct?.[p.id] !== undefined ? args.garmentByProduct[p.id] : guessGarment(p.format),
       client_retail_per_unit: p.retail ?? null,
-      notes: fullProduct.notes || null,
+      notes: itemNotes,
     }).select("id").single();
     if (itemErr || !item) continue;
     itemCount++;

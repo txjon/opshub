@@ -378,17 +378,25 @@ function OpsBriefSheet({ brief, onClose }: { brief: any; onClose: () => void }) 
           <textarea value={note} onChange={e => setNote(e.target.value)} rows={2}
             placeholder={vis === "all" ? "Reply to the client…" : "Internal note — team + designer only…"}
             style={{ width: "100%", boxSizing: "border-box", padding: "11px 13px", borderRadius: 10, border: vis === "all" ? `1px solid ${H.line}` : `1px dashed rgba(244,178,43,.6)`, background: H.surface, color: H.text, fontSize: 13, fontFamily: H.font, outline: "none", resize: "vertical" }} />
-          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-            <span style={{ display: "inline-flex", gap: 6 }}>
-              {([["all", "Client-visible"], ["hpd_designer", "Internal"]] as const).map(([k, label]) => (
-                <button key={k} onClick={() => setVis(k)}
-                  style={{ borderRadius: 999, border: vis === k ? "1px solid #fff" : `1px solid ${H.line}`, background: vis === k ? "#fff" : "transparent", color: vis === k ? H.ink : H.dim, fontSize: 10, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", padding: "9px 14px", cursor: "pointer", fontFamily: H.font }}>
-                  {label}
-                </button>
-              ))}
+          <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+            {/* Segmented mode picker — one divided pill, tinted active half, so it
+                reads as "who sees this" not another action button (Jon, Jul 22). */}
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: H.faint }}>Shows</span>
+              <div style={{ display: "inline-flex", border: `1px solid ${H.line}`, borderRadius: 999, background: H.ink, overflow: "hidden" }}>
+                {([["all", "Client-visible"], ["hpd_designer", "Internal"]] as const).map(([k, label], idx) => {
+                  const on = vis === k;
+                  return (
+                    <button key={k} onClick={() => setVis(k)}
+                      style={{ border: "none", borderLeft: idx === 1 ? `1px solid ${H.line}` : "none", background: on ? (k === "all" ? "rgba(143,199,216,0.20)" : "rgba(244,178,43,0.20)") : "transparent", color: on ? (k === "all" ? H.blue : H.amber) : H.faint, fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", padding: "9px 14px", cursor: "pointer", fontFamily: H.font, transition: "background 0.12s, color 0.12s" }}>
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
             </span>
             <button onClick={send} disabled={busy || !note.trim()}
-              style={{ background: "#fff", color: H.ink, border: "none", borderRadius: 999, padding: "12px 24px", fontSize: 11.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: busy || !note.trim() ? "default" : "pointer", opacity: busy || !note.trim() ? 0.5 : 1, fontFamily: H.font }}>
+              style={{ marginLeft: "auto", background: "#fff", color: H.ink, border: "none", borderRadius: 999, padding: "12px 24px", fontSize: 11.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: busy || !note.trim() ? "default" : "pointer", opacity: busy || !note.trim() ? 0.5 : 1, fontFamily: H.font }}>
               {busy ? "Sending…" : vis === "all" ? "Send to client" : "Post internal"}
             </button>
           </div>
@@ -680,11 +688,11 @@ function GreenlightButtons({ briefId, onDone }: { briefId: string; onDone: () =>
     <span style={{ display: "inline-flex", gap: 8, alignItems: "center", marginLeft: "auto", flexWrap: "wrap" }}>
       <button onClick={() => setDoor("order")}
         style={{ background: "#fff", color: H.ink, border: 0, borderRadius: 999, padding: "9px 16px", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>
-        Greenlight + start the job →
+        Build the order →
       </button>
       <button onClick={() => setDoor("later")}
         style={{ background: "transparent", color: H.green, border: `1px solid ${H.green}`, borderRadius: 999, padding: "9px 15px", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>
-        Greenlight · save for later →
+        Save items for later →
       </button>
       {door && <FinalizeSheet briefId={briefId} door={door} onClose={() => setDoor(null)} onDone={onDone} />}
     </span>
