@@ -23,3 +23,12 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   const { data: messages } = await q;
   return NextResponse.json({ thread, messages: messages || [], clientView });
 }
+
+// DELETE — remove a design (cascades its messages). Studio-side only (the lab is
+// open); the client hub never calls this.
+export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
+  const db = labDb();
+  const { error } = await db.from("lab_threads").delete().eq("id", params.id);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true });
+}
