@@ -88,7 +88,7 @@ export async function GET(
     const { data: items } = await sb
       .from("items")
       .select(
-        "id, name, sell_per_unit, pipeline_stage, sort_order, artwork_status, ship_qtys, received_qtys, blank_vendor, blank_sku, ship_tracking, forward_tracking, archived_at, completed_at, received_at_hpd, blanks_order_cost, shipping_route, forwarded_at, webstore_entered_at, client_eta, client_eta_note, expected_arrival, proof_spec, decorator_assignments(decorators(name, short_code, lead_time_days, transit_defaults)), buy_sheet_lines(size, qty_ordered)"
+        "id, name, sell_per_unit, pipeline_stage, sort_order, artwork_status, ship_qtys, received_qtys, blank_vendor, blank_sku, ship_tracking, forward_tracking, archived_at, completed_at, received_at_hpd, blanks_order_cost, shipping_route, forwarded_at, webstore_entered_at, client_eta, client_eta_note, expected_arrival, ship_est, proof_spec, decorator_assignments(decorators(name, short_code, lead_time_days, transit_defaults)), buy_sheet_lines(size, qty_ordered)"
       )
       .eq("job_id", job.id)
       .order("sort_order");
@@ -433,9 +433,8 @@ export async function GET(
       const qty = (item.buy_sheet_lines || []).reduce(
         (a: number, l: any) => a + (Number(l.qty_ordered) || 0), 0
       );
-      // Per-item ETA — manual client_eta wins; otherwise fall back to
-      // the job's target ship date. Suppressed for items past the
-      // in-transit phase (in_stock / complete / archived / cancelled)
+      // Per-item ETA — derived forward from current actuals. Suppressed for items
+      // past the in-transit phase (in_stock / complete / archived / cancelled)
       // — once it's at HPD the original prediction is fulfilled.
       // eta_tbd flags active items with no ETA set yet so the frontend
       // can render "TBD" instead of an em-dash.
@@ -443,9 +442,10 @@ export async function GET(
       // etaCutOff uses the INTERNAL status (in_stock = at HPD, ETA is moot);
       // the client only ever sees the collapsed status (locked model).
       const etaCutOff = status === "in_stock" || status === "complete" || status === "archived" || status === "cancelled";
-      // Chain-resolved ETA (locked 2026-07-15): client_eta override > derived
-      // (PO ship-by + live slips + vendor transit + route buffer, box ETA as
-      // arrival override) > null=TBD. in-hands is a note, not an ETA source.
+      // Chain-resolved ETA (date model 2026-07-23): derived from PO ship-by, the
+      // per-item ship/exit-factory edit (ship_est) in production, then the actual
+      // land date (box expected_arrival) in receiving, + transit + route buffer.
+      // client_eta is retired. in-hands is a note, not an ETA source.
       const etaDate = etaCutOff ? null : (() => {
         const dec = item.decorator_assignments?.[0]?.decorators || null;
         const tm = (job.type_meta || {}) as any;
@@ -464,8 +464,8 @@ export async function GET(
           poSentDate: sK ? tm.po_sent_dates[sK] : null,
           shipByAgreed: aK ? tm.po_ship_dates[aK] : null,
           shipByLive: lK ? tm.po_ship_live[lK]?.date : null,
+          shipByItemOverride: item.ship_est || null,
           arrivalOverride: boxArrivalByItem[item.id] || item.expected_arrival || null,
-          clientEtaOverride: item.client_eta || null,
         }).clientEta;
       })();
       const eta_tbd = !etaCutOff && !etaDate;

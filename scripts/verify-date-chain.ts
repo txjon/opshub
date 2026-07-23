@@ -53,10 +53,19 @@ r = deriveDateChain({ route: "ship_through", ...SCORP, shipMethod: "Pick Up", sh
 eq("pickup: arrival = ship-by", r.arrival, "2026-08-01");
 eq("pickup: eta = +1 (ship_through)", r.clientEta, "2026-08-02");
 
-// Manual client ETA wins + early-override flag
-r = deriveDateChain({ route: "stage", ...SCORP, shipMethod: "Freight / LTL", shipByAgreed: "2026-10-13", clientEtaOverride: "2026-10-01" });
-eq("override: eta wins", r.clientEta, "2026-10-01");
-eq("override: flagged before arrival", r.flags.some(f => f.includes("before the goods arrive")), true);
+// Per-item ship/exit-factory override (production tab) tops the ship leg and
+// re-derives arrival + client ETA WITH transit added (the ocean-safe path — the
+// old model treated the production edit as an arrival and skipped transit).
+r = deriveDateChain({ route: "stage", ...SCORP, shipMethod: "Freight / LTL", shipByAgreed: "2026-10-13", shipByLive: "2026-10-17", shipByItemOverride: "2026-09-10" });
+eq("ship_est: tops ship leg over live+agreed", r.shipBy, "2026-09-10");
+eq("ship_est: arrival = ship+2 transit", r.arrival, "2026-09-12");
+eq("ship_est: eta = arrival+3 (stage)", r.clientEta, "2026-09-15");
+eq("ship_est: pulled-in slip not flagged", r.flags.some(f => f.includes("slipped")), false);
+
+// Receiving land-date override still wins the arrival leg over a ship_est
+r = deriveDateChain({ route: "stage", ...SCORP, shipMethod: "Freight / LTL", shipByItemOverride: "2026-09-10", arrivalOverride: "2026-09-20" });
+eq("land override wins arrival", r.arrival, "2026-09-20");
+eq("land override: eta = +3", r.clientEta, "2026-09-23");
 
 // In-hands set + chain misses it
 r = deriveDateChain({ route: "stage", ...SCORP, shipMethod: "Freight / LTL", shipByAgreed: "2026-10-13", inHands: "2026-10-15" });

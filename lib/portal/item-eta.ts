@@ -5,7 +5,7 @@ import { deriveDateChain } from "@/lib/date-chain";
 // un-received box arrivals as override). Shared by both portal order routes
 // so the order detail can show an estimated completion date.
 //
-// items need: id, shipping_route, client_eta, expected_arrival.
+// items need: id, shipping_route, ship_est, expected_arrival.
 export async function etaByItemForJob(
   sb: any,
   job: { id: string; shipping_route?: string | null; type_meta?: any },
@@ -51,8 +51,8 @@ export async function etaByItemForJob(
       poSentDate: sentKey ? tm.po_sent_dates[sentKey] : null,
       shipByAgreed: agreedKey ? tm.po_ship_dates[agreedKey] : null,
       shipByLive: liveKey ? tm.po_ship_live[liveKey]?.date : null,
+      shipByItemOverride: it.ship_est || null,
       arrivalOverride: boxArrival[it.id] || it.expected_arrival || null,
-      clientEtaOverride: it.client_eta || null,
     });
     out[it.id] = chain.clientEta || null;
   }

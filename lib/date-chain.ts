@@ -9,11 +9,11 @@
 //      else blocks.
 //   R2 Derive downstream: arrival = ship-by + transit(vendor, method);
 //      client ETA = arrival + buffer(route).
-//   R3 Edit where you work: ship-by slips in-line on production2 (stored in
-//      type_meta.po_ship_live[vendor], the AGREED po_ship_dates is never
-//      rewritten); arrival edits in-line in receiving2 (shipments.
-//      expected_arrival). An edit re-derives everything AFTER it; nothing
-//      BEFORE it moves.
+//   R3 Edit where you work: once in production the SHIP / exit-factory date is
+//      edited per-item on production2 (items.ship_est — tops the ship leg, the
+//      AGREED po_ship_dates is never rewritten); the actual LAND date is edited
+//      in receiving2 (shipments.expected_arrival). An edit re-derives everything
+//      AFTER it; nothing BEFORE it moves. (items.client_eta is retired.)
 //   R4 ASAP = chain pending: downstream is TBD (null) until a real date
 //      lands, then derives forward from it.
 //   R5 Never guess: a surface shows a chain date or TBD — never a fabricated
@@ -71,8 +71,8 @@ export type ChainInput = {
   poSentDate?: string | null;          // type_meta.po_sent_dates[vendor] (ISO ts or date-only)
   shipByAgreed?: string | null;        // type_meta.po_ship_dates[vendor] — date or "ASAP"
   shipByLive?: string | null;          // type_meta.po_ship_live[vendor]?.date — mid-flight slips
-  arrivalOverride?: string | null;     // shipments.expected_arrival (box) ?? items.expected_arrival
-  clientEtaOverride?: string | null;   // items.client_eta — always wins for the client
+  shipByItemOverride?: string | null;  // items.ship_est — per-item exit-factory/ship date (production tab); tops the ship leg
+  arrivalOverride?: string | null;     // shipments.expected_arrival (box, receiving) ?? legacy items.expected_arrival
   inHands?: string | null;             // jobs.target_ship_date — flags only
 };
 
@@ -95,13 +95,19 @@ const isDay = (s: string | null | undefined): s is string => !!s && s !== ASAP;
 export function deriveDateChain(input: ChainInput): ChainResult {
   const flags: string[] = [];
 
-  // ship-by: live wins over agreed; ASAP means "no date yet"
+  // ship-by leg (effective ship / exit-factory date): per-item production override
+  // (items.ship_est) > per-vendor mid-flight slip (po_ship_live) > per-vendor
+  // agreed PO date. ASAP means "no date yet" only while nothing concrete has landed.
   const agreed = input.shipByAgreed || null;
-  const asap = agreed === ASAP && !isDay(input.shipByLive);
-  const shipBy = isDay(input.shipByLive) ? input.shipByLive : isDay(agreed) ? agreed : null;
+  const liveSlip = isDay(input.shipByItemOverride) ? input.shipByItemOverride
+    : isDay(input.shipByLive) ? input.shipByLive : null;
+  const asap = agreed === ASAP && !liveSlip;
+  const shipBy = liveSlip || (isDay(agreed) ? agreed : null);
 
-  const slippedDays = isDay(input.shipByLive) && isDay(agreed)
-    ? Math.round((new Date(input.shipByLive + "T12:00:00").getTime() - new Date(agreed + "T12:00:00").getTime()) / 86400000)
+  // slip = live/edited ship date vs the agreed PO plan (0 = on plan; a pulled-in
+  // ship date is negative and not flagged — only delays warn).
+  const slippedDays = liveSlip && isDay(agreed)
+    ? Math.round((new Date(liveSlip + "T12:00:00").getTime() - new Date(agreed + "T12:00:00").getTime()) / 86400000)
     : 0;
   if (slippedDays > 0) flags.push(`ship-by slipped ${slippedDays}d vs the PO plan`);
 
@@ -121,14 +127,14 @@ export function deriveDateChain(input: ChainInput): ChainResult {
     else if (shipBy && transit != null) { arrival = addDays(shipBy, transit); arrivalSource = "derived"; }
   }
 
-  // client ETA: manual override always wins; else arrival + buffer
-  // (drop_ship: ship-by + transit straight to the client)
+  // client ETA = best-known arrival + HPD processing buffer (drop_ship: ship-by +
+  // transit straight to the client, no HPD leg). Always DERIVED now: the client
+  // date follows the chain as actuals land at each step — ship_est in production,
+  // shipments.expected_arrival in receiving. The retired items.client_eta no
+  // longer overrides it.
   let clientEta: string | null = null;
   let etaSource: ChainResult["etaSource"] = null;
-  if (isDay(input.clientEtaOverride)) {
-    clientEta = input.clientEtaOverride; etaSource = "override";
-    if (arrival && clientEta < arrival) flags.push("client ETA is before the goods arrive at HPD");
-  } else if (input.route === "drop_ship") {
+  if (input.route === "drop_ship") {
     if (shipBy && transit != null) { clientEta = addDays(shipBy, transit); etaSource = "derived"; }
   } else if (arrival) {
     clientEta = addDays(arrival, ROUTE_BUFFER_DAYS[input.route]); etaSource = "derived";

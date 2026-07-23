@@ -1,11 +1,11 @@
-// Shared ETA resolution + formatting. One function so internal pages,
-// the client portal, and any API payload all derive the same ETA from
-// the same precedence rules:
+// Shared ETA formatting helpers (etaCountdown / daysUntil) + a deprecated
+// resolver shim.
 //
-//   1. items.client_eta (manual override set by Drake on the Production
-//      tab or the cross-project /production modal) — wins when set.
-//   2. jobs.target_ship_date — fallback hint when no per-item override.
-//   3. null — nothing to show.
+// DEPRECATED — resolveEta preferred items.client_eta, which is RETIRED
+// (date model 2026-07-23). The client ETA now derives from the chain
+// (lib/date-chain.ts → /api/item-etas): PO ship-by ▸ per-item ship_est ▸
+// receiving land date, + transit + processing. Do not wire client_eta back
+// through here; this shim resolves only target_ship_date as a last-ditch hint.
 
 import { daysUntilDay } from "./dates";
 
@@ -22,7 +22,7 @@ export interface ResolvedEta {
 }
 
 export function resolveEta(input: EtaInput): ResolvedEta | null {
-  if (input.client_eta) return { date: input.client_eta, source: "manual" };
+  // client_eta is retired — intentionally ignored. Only the job ship date remains.
   if (input.job_target_ship_date) return { date: input.job_target_ship_date, source: "job_ship" };
   return null;
 }

@@ -7,7 +7,7 @@ import { BoardFrame, ToggleSearch, KpiStrip, SliceSortRow, ModalShell } from "@/
 import { loadJobPhasesBatch } from "@/lib/item-state";
 import { deriveProjectStage, PROJ_MILESTONES, type ProjStage } from "@/lib/project-stage";
 import { JobStatusBar } from "@/components/JobStatusBar";
-import { etaCountdown, resolveEta } from "@/lib/eta";
+import { etaCountdown } from "@/lib/eta";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { fmtDay } from "@/lib/dates";
 
@@ -22,10 +22,11 @@ function itemLifecycleDone(it: any, jobRoute: string): boolean {
 }
 
 // The board countdown target: the EARLIEST expected date among items still in
-// flight (per-item client_eta, else the job ship date — resolveEta precedence).
-// Final fallback: the earliest agreed/live vendor ship-by from the PO tab's
-// vendor chips (type_meta.po_ship_live / po_ship_dates) — most jobs carry their
-// dates THERE, not on target_ship_date, and were reading TBD without this.
+// flight. Internal proxy = the per-item production/receiving date (ship_est ▸
+// legacy expected_arrival); the chain-resolved CLIENT ETA lives on the customer
+// surfaces. client_eta is retired. Final fallback: the earliest agreed/live
+// vendor ship-by from the PO tab's vendor chips (type_meta.po_ship_live /
+// po_ship_dates) — most jobs carry their dates THERE, not on target_ship_date.
 function vendorShipFallback(job: any): string | null {
   const tm = job.type_meta || {};
   const dates: string[] = [];
@@ -39,7 +40,7 @@ function vendorShipFallback(job: any): string | null {
 function firstItemDue(job: any): string | null {
   const dates = ((job.items || []) as any[])
     .filter(it => !itemLifecycleDone(it, job.shipping_route))
-    .map(it => resolveEta({ client_eta: it.client_eta, job_target_ship_date: job.target_ship_date })?.date)
+    .map(it => it.ship_est || it.expected_arrival || null)
     .filter(Boolean) as string[];
   return dates.length ? dates.sort()[0] : vendorShipFallback(job);
 }
@@ -133,7 +134,7 @@ export default function ProjectsBoard() {
   useEffect(() => {
     (async () => {
       const { data } = await supabase.from("jobs")
-        .select("id, job_number, title, phase, shipping_route, payment_terms, quote_approved, quote_approved_at, created_at, updated_at, phase_timestamps, target_ship_date, type_meta, costing_summary, clients(name), payment_records(amount, status, paid_date), items(id, name, sort_order, pipeline_stage, artwork_status, shipping_route, client_eta, blanks_order_cost, blanks_order_number, received_at_hpd, forwarded_at, webstore_entered_at, buy_sheet_lines(qty_ordered))")
+        .select("id, job_number, title, phase, shipping_route, payment_terms, quote_approved, quote_approved_at, created_at, updated_at, phase_timestamps, target_ship_date, type_meta, costing_summary, clients(name), payment_records(amount, status, paid_date), items(id, name, sort_order, pipeline_stage, artwork_status, shipping_route, ship_est, expected_arrival, blanks_order_cost, blanks_order_number, received_at_hpd, forwarded_at, webstore_entered_at, buy_sheet_lines(qty_ordered))")
         .not("phase", "in", "(cancelled)")
         .order("created_at", { ascending: false });
       const js = (data as any[]) || [];

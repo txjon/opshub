@@ -85,7 +85,7 @@ export async function GET(
     const { data: items } = await sb
       .from("items")
       .select(
-        "id, name, sell_per_unit, pipeline_stage, sort_order, artwork_status, ship_qtys, received_qtys, blank_vendor, blank_sku, ship_tracking, forward_tracking, shipping_route, received_at_hpd, forwarded_at, webstore_entered_at, proof_spec, client_eta, expected_arrival, buy_sheet_lines(size, qty_ordered)"
+        "id, name, sell_per_unit, pipeline_stage, sort_order, artwork_status, ship_qtys, received_qtys, blank_vendor, blank_sku, ship_tracking, forward_tracking, shipping_route, received_at_hpd, forwarded_at, webstore_entered_at, proof_spec, client_eta, expected_arrival, ship_est, buy_sheet_lines(size, qty_ordered)"
       )
       .eq("job_id", job.id)
       .order("sort_order");
