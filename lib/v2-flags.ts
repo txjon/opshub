@@ -32,3 +32,14 @@ export function v2WriteAllowed(opts: { clientName?: string | null; jobNumber?: s
 export function isV2TestClient(clientName?: string | null): boolean {
   return !!clientName && V2_TEST_CLIENTS.includes(clientName);
 }
+
+// ── Studio under dev (Jon, Jul 23 2026) ──────────────────────────────────────
+// The Studio flow is being reworked in The Lab. While this is true, the studio
+// is pulled from every NAV / entry point: the client-hub Studio tab + the guest-
+// house studio section, and the main-app "Art Studio" + "Studio v2" menu items.
+// This is NAV-HIDE ONLY — the pages stay reachable by direct URL and the access
+// guard (canAccessPath) is untouched, so the team can keep checking them and
+// contextual deep-links still work. Flip to false to bring the studio back.
+export const STUDIO_UNDER_DEV = true;
+// The main-app nav hrefs pulled while STUDIO_UNDER_DEV.
+export const STUDIO_HIDDEN_HREFS = ["/art-studio", "/studio2"];

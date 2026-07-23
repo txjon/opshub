@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { C } from "./theme";
 import { useClientPortal } from "./context";
 import { getLogoSvgForSlug } from "@/lib/branding-client";
+import { STUDIO_UNDER_DEV } from "@/lib/v2-flags";
 
 // The real wordmark, recolored for the dark ground (the branding SVG is
 // black-filled for PDFs) and sized for chrome.
@@ -132,9 +133,11 @@ export default function Shell({ children }: { children: ReactNode }) {
   // Feature grants (mig 132): Pipeline is a granted surface — standard-tier
   // clients see Home / Orders / Reorder only.
   const features: string[] = (data as any).features || [];
+  // Studio under dev: pull the Studio tab from the client's nav (nav-hide only —
+  // the /studio route still resolves by direct URL). Drops is left as-is.
   const visibleTabs = TABS.filter(t =>
     (t.path !== "/items" || features.includes("pipeline")) &&
-    (t.path !== "/studio" || features.includes("studio")) &&
+    (t.path !== "/studio" || (features.includes("studio") && !STUDIO_UNDER_DEV)) &&
     (t.path !== "/drops" || features.includes("studio")));
 
   const isActive = (path: string) =>
