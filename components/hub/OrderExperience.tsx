@@ -66,6 +66,10 @@ export function OrderExperience({ data, token, onAction }: {
   })();
   const fmtEta = (iso: string) => new Date(iso + "T00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
   const fullyApproved = !!project.quoteApproved && (!hasProofs || allProofsApproved);
+  // Greenlit but not yet costed or proofed — the ball's in our court, so the
+  // client has nothing to approve (Jon, Jul 22: greenlight ≠ proof approval).
+  // Show a calm "we're finalizing" note instead of an Approve CTA on nothing.
+  const nothingToApproveYet = !project.quoteApproved && total <= 0 && !hasProofs;
 
   // ── Payment band per the terms matrix (locked Jul 20; derives from the same
   //    totals + payment records the internal status bar reads). ──
@@ -180,15 +184,22 @@ export function OrderExperience({ data, token, onAction }: {
             })}
           </div>
         )}
-        <div id="hx-approval">
-          <PackageApproval c={H_APPROVAL_THEME} approved={!!project.quoteApproved} approvedAt={project.quoteApprovedAt}
-            changeRequest={project.changeRequest} quoteTotal={total > 0 ? total : null} terms={project.paymentTerms}
-            items={items.map((i: any) => ({ id: i.id, name: i.name }))}
-            pendingReapproval={!!project.quoteApproved && hasProofs && !allProofsApproved}
-            invoiceState={totalPaid >= total - 0.005 && total > 0 ? (revisedUp ? "settled" : "paid") : payBand?.cta ? "ready" : (invoiceNumber || totalPaid > 0) ? "settled" : "pending"}
-            openApproveSignal={approveSignal}
-            onAction={onAction} />
-        </div>
+        {nothingToApproveYet ? (
+          <div style={{ background: H.panel, border: `1px solid ${H.line}`, borderRadius: 16, padding: "18px 20px" }}>
+            <div style={{ ...LBL, marginBottom: 8 }}>In the works</div>
+            <div style={{ fontSize: 13.5, color: H.dim, lineHeight: 1.55 }}>We&rsquo;re finalizing the art and pricing for this order. Your quote and proofs will land right here for you to approve. A question in the meantime? Reply to your rep.</div>
+          </div>
+        ) : (
+          <div id="hx-approval">
+            <PackageApproval c={H_APPROVAL_THEME} approved={!!project.quoteApproved} approvedAt={project.quoteApprovedAt}
+              changeRequest={project.changeRequest} quoteTotal={total > 0 ? total : null} terms={project.paymentTerms}
+              items={items.map((i: any) => ({ id: i.id, name: i.name }))}
+              pendingReapproval={!!project.quoteApproved && hasProofs && !allProofsApproved}
+              invoiceState={totalPaid >= total - 0.005 && total > 0 ? (revisedUp ? "settled" : "paid") : payBand?.cta ? "ready" : (invoiceNumber || totalPaid > 0) ? "settled" : "pending"}
+              openApproveSignal={approveSignal}
+              onAction={onAction} />
+          </div>
+        )}
 
         {/* ── Payment ── */}
         {payBand && (
@@ -385,7 +396,7 @@ export function OrderExperience({ data, token, onAction }: {
                   // disclaimer) — dead approve/change buttons here just closed
                   // the sheet and confused people.
                   <span style={{ fontSize: 11.5, color: H.faint, lineHeight: 1.5 }}>Approved for production. Need a change? Reply to your rep and we&rsquo;ll help.</span>
-                ) : (<>
+                ) : proofFile ? (<>
                 <button onClick={() => {
                     setProofItem(null);
                     setApproveSignal(n => n + 1);
@@ -403,7 +414,12 @@ export function OrderExperience({ data, token, onAction }: {
                   style={{ background: "transparent", color: H.text, border: `1px solid rgba(255,255,255,0.35)`, borderRadius: 999, padding: "13px 22px", fontSize: 12.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>
                   Request changes
                 </button>
-                </>)}
+                </>) : (
+                  // Greenlit but no proof yet — the ball's in our court. Nothing
+                  // for the client to approve; we're finalizing art + building
+                  // the proof (Jon, Jul 22: greenlight ≠ proof approval).
+                  <span style={{ fontSize: 11.5, color: H.faint, lineHeight: 1.5 }}>We&rsquo;re finalizing the art and building your proof. It&rsquo;ll land right here for you to approve. A question in the meantime? Reply to your rep.</span>
+                )}
                 {proofFile && <span style={{ marginLeft: "auto" }}>{dl("Proof PDF", `/api/files/thumbnail?id=${proofFile.driveFileId}&dl=1`)}</span>}
               </div>
             </div>
