@@ -113,6 +113,16 @@ export async function assignProductsToJob(db: Db, args: {
   if (jobErr || !newJob) throw new Error(jobErr?.message || "Couldn't create job");
   const jobId = (newJob as any).id;
 
+  // client contacts ride onto the job (Jon, take three: billing/contacts chip
+  // arrived empty) — same rule as the new-project form: primary stays
+  // primary, everyone else cc
+  const { data: clientContacts } = await db.from("contacts").select("id, is_primary").eq("client_id", args.clientId);
+  if ((clientContacts || []).length) {
+    await db.from("job_contacts").insert((clientContacts || []).map((c: any) => ({
+      job_id: jobId, contact_id: c.id, role_on_job: c.is_primary ? "primary" : "cc",
+    })));
+  }
+
   // studio data lands where it needs to (Jon, Jul 22): the product's format
   // guesses the garment_type (drives QB product mapping + costing layout),
   // retail rides into client_retail_per_unit, notes ride into item notes
