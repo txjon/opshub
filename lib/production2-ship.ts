@@ -78,6 +78,10 @@ export async function shipFromProduction(sb: any, args: {
         pipeline_stage: closed ? "shipped" : "in_production",   // keep legacy surfaces consistent
         ship_tracking: trackingOrBol || cur?.ship_tracking || null,
         pipeline_timestamps: timestamps,
+        // NOTE: received_at_hpd is deliberately NOT written here — recordShip()
+        // above already ran recomputeItemFromLedger(), the single canonical writer
+        // that derives + clears it from the ledger. Hand-setting it would fight the
+        // bridge.
       }).eq("id", it.itemId);
       const daId = cur?.decorator_assignments?.[0]?.id;
       if (daId) await sb.from("decorator_assignments").update({ pipeline_stage: closed ? "shipped" : "in_production" }).eq("id", daId);
