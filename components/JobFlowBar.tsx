@@ -38,15 +38,22 @@ type JobCta = {
   go: string;
 };
 
-function jobCta(stage: ProjStage, job: any, noItems: boolean): JobCta | null {
+function jobCta(stage: ProjStage, job: any, items: any[]): JobCta | null {
   if (stage.complete) return null;
   const jn = encodeURIComponent(job.job_number || "");
   const sig = stage.signal;
 
   if (stage.preQuote) {
-    return noItems
-      ? { tone: "act", eyebrow: "Your move", verb: "Build it out", line: "Add each product, give it a blank and its sizes. This is where a design becomes something you can price and sell.", done: "every item has a blank + sizes", tab: "builder", go: "Open the builder" }
-      : { tone: "act", eyebrow: "Your move", verb: "Cost & quote it", line: "Price each item in Costing. The quote builds itself from your margins, then send it.", done: "quote sent, approval opens in their hub", tab: "costing", go: "Open costing" };
+    // Sizes + blanks are assigned in the Product Builder (Jon's question, take
+    // three: "at what phase do we do that?"). So the pre-quote move splits:
+    // no items → build one; items that still have zero units → finish the
+    // build (that's where sizes live); everything sized → cost & quote.
+    const qtyOf = (it: any) => it.totalQty || Object.values(it.qtys || {}).reduce((a: number, v: any) => a + (Number(v) || 0), 0);
+    if (!items.length)
+      return { tone: "act", eyebrow: "Your move", verb: "Build it out", line: "Add each product, give it a blank and its sizes. This is where a design becomes something you can price and sell.", done: "every item has a blank + sizes", tab: "builder", go: "Open the builder" };
+    if (items.some(it => qtyOf(it) === 0))
+      return { tone: "act", eyebrow: "Your move", verb: "Finish the build", line: "Some items still need their sizes (and a blank, if it's apparel). Set both in the Product Builder, then cost it.", done: "every item has its sizes in", tab: "builder", go: "Open the builder" };
+    return { tone: "act", eyebrow: "Your move", verb: "Cost & quote it", line: "Price each item in Costing. The quote builds itself from your margins, then send it.", done: "quote sent, approval opens in their hub", tab: "costing", go: "Open costing" };
   }
 
   switch (stage.milestone) {
@@ -88,7 +95,7 @@ export function JobFlowBar({ job, items, payments, phaseView, activeTab, onBuild
 }) {
   const stage = deriveProjectStage(job, phaseView, items || [], payments || [], proofStatus);
   // The directive hero — only where you land (Overview), never on a working tab.
-  const cta = activeTab === "overview" ? jobCta(stage, job, !(items || []).length) : null;
+  const cta = activeTab === "overview" ? jobCta(stage, job, items || []) : null;
   const doorBase = { borderRadius: 999, padding: "11px 22px", fontSize: 11, fontWeight: 800 as const, letterSpacing: "0.06em", textTransform: "uppercase" as const, cursor: "pointer", fontFamily: font, marginTop: 15, display: "inline-block", textDecoration: "none" };
   const doorSkin = cta && cta.tone === "wait"
     ? { background: "transparent", color: T.text, border: `1px solid ${T.border}` }
