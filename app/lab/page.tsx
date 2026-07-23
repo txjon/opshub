@@ -7,6 +7,12 @@ import { useEffect, useRef, useState } from "react";
 const H = { ink: "#0a0a0a", panel: "#131313", surface: "#1e1e1e", line: "rgba(255,255,255,.13)", line2: "rgba(255,255,255,.07)", text: "#fff", dim: "rgba(255,255,255,.6)", faint: "rgba(255,255,255,.38)", amber: "#f4b22b", green: "#58c93c", blue: "#8fc7d8", red: "#ff5a6e", purple: "#fd3aa3", font: "Inter, -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif", mono: "ui-monospace, 'SF Mono', Menlo, monospace" };
 const NAMES = ["Jon", "Drake", "Taylor", "Corey"];
 const STATE = (s: string) => s === "with_client" ? { label: "With the client", color: H.blue } : s === "approved" ? { label: "Design approved", color: H.green } : { label: "Your move", color: H.amber };
+// Readable process guidance per state — the lab teaches the flow, so this stays
+// visible in plain words, not tiny labels (Jon, Jul 23).
+const GUIDE: Record<string, { tint: string; head: string; text: string }> = {
+  working: { tint: H.amber, head: "It's your move", text: "This is where you shape the design with the client. Drop a draft, or talk it through — flip a note to Internal to keep it off their screen while you and the designer work. When the artwork is right, send it over for their sign-off." },
+  with_client: { tint: H.blue, head: "It's with the client", text: "The design is in front of the client to approve. They'll either lock it in — which hands the artwork straight to production — or send it back with notes and a photo. Nothing to do but wait, or give them a nudge below." },
+};
 const fmt = (iso?: string) => iso ? new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
 
 async function uploadImage(file: File): Promise<{ url: string; name: string }> {
@@ -130,6 +136,7 @@ function ThreadPanel({ detail, me, onRefresh, onClose }: any) {
   }
   async function onFile(f: File) { setUploading(true); try { const u = await uploadImage(f); await post(u.url, u.name); } catch (e: any) { alert(e.message); } finally { setUploading(false); } }
   async function act(action: string) { setBusy(true); try { await fetch(`/api/lab/threads/${t.id}/action`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, senderName: me }) }); await onRefresh(); } finally { setBusy(false); } }
+  async function del() { if (!confirm(`Delete "${t.title}"? This removes the design and its whole thread. Can't be undone.`)) return; await fetch(`/api/lab/threads/${t.id}`, { method: "DELETE" }); onClose(); await onRefresh(); }
 
   return (
     <>
@@ -139,8 +146,18 @@ function ThreadPanel({ detail, me, onRefresh, onClose }: any) {
           <div style={{ fontSize: 18, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", lineHeight: 1.2, marginTop: 2 }}>{t.title}</div>
           <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: st.color, marginTop: 4 }}>{st.label}</div>
         </div>
-        <button onClick={onClose} aria-label="Close" style={{ background: "none", border: "none", color: H.dim, fontSize: 26, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>
+        <div style={{ display: "flex", alignItems: "center", gap: 14, flexShrink: 0 }}>
+          <button onClick={del} title="Delete this design" style={{ background: "none", border: "none", color: H.faint, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }} onMouseEnter={e => (e.currentTarget.style.color = H.red)} onMouseLeave={e => (e.currentTarget.style.color = H.faint)}>Delete</button>
+          <button onClick={onClose} aria-label="Close" style={{ background: "none", border: "none", color: H.dim, fontSize: 26, cursor: "pointer", lineHeight: 1 }}>×</button>
+        </div>
       </div>
+
+      {GUIDE[t.state] && (
+        <div style={{ margin: "4px 22px 0", padding: "13px 15px", background: H.surface, border: `1px solid ${H.line}`, borderLeft: `3px solid ${GUIDE[t.state].tint}`, borderRadius: 10 }}>
+          <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: GUIDE[t.state].tint, marginBottom: 6 }}>{GUIDE[t.state].head}</div>
+          <div style={{ fontSize: 13.5, color: H.dim, lineHeight: 1.55 }}>{GUIDE[t.state].text}</div>
+        </div>
+      )}
 
       {hero && <div style={{ marginTop: 10, background: "#fff", position: "relative" }}>
         <img src={hero.file_url} alt="" style={{ width: "100%", maxHeight: "36vh", objectFit: "contain", display: "block", margin: "0 auto" }} onError={(e: any) => { e.target.parentElement.style.display = "none"; }} />
@@ -148,6 +165,7 @@ function ThreadPanel({ detail, me, onRefresh, onClose }: any) {
       </div>}
 
       <div style={{ padding: "12px 22px 4px", maxHeight: "34vh", overflowY: "auto" }}>
+        {msgs.length === 0 && <div style={{ fontSize: 13, color: H.faint, padding: "8px 0 4px", lineHeight: 1.5 }}>No conversation yet. Upload a draft or drop a note below to get it going.</div>}
         {msgs.map((m: any) => (
           <div key={m.id} style={{ padding: "9px 0", borderBottom: `1px solid ${H.line2}` }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
