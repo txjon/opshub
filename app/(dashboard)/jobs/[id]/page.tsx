@@ -1050,19 +1050,19 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                 <OvSec title="What's in this job." hint={`${items.length} item${items.length!==1?"s":""} · ${units.toLocaleString()} units · tap one for the worksheet`} />
                 {items.length===0
                   ? <div style={{fontSize:12.5,color:T.faint}}>No items yet. The build starts in the Product Builder.</div>
-                  : <div style={{display:"grid",gridTemplateColumns:isMobile?"repeat(2,1fr)":"repeat(auto-fill,minmax(160px,1fr))",gap:14}}>
+                  : <div style={{display:"grid",gridTemplateColumns:isMobile?"repeat(2,1fr)":"repeat(auto-fill,minmax(210px,1fr))",gap:16}}>
                       {items.map((it:any)=>{const st=iStatus(it);const gc=gcolor(it.garment_type||it.name);const tid=thumbByItem[it.id];return (
                         <button key={it.id} onClick={()=>setPeekItem(it)} style={{textAlign:"left",padding:0,fontFamily:font,color:T.text,width:"100%",display:"block",border:`1px solid ${T.border}`,borderRadius:14,overflow:"hidden",background:T.card,cursor:"pointer",transition:"border-color 0.15s"}}
                           onMouseEnter={e=>{e.currentTarget.style.borderColor="rgba(255,255,255,0.32)";}} onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;}}>
                           <div style={{aspectRatio:"1",background:tid?"#fff":T.surface,display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden"}}>
                             {tid
                               ? <img src={`/api/files/thumbnail?id=${tid}&thumb=1`} alt="" style={{width:"100%",height:"100%",objectFit:"contain"}} />
-                              : <div style={{width:"56%",height:"56%",borderRadius:14,background:gc}} />}
+                              : <div style={{width:"56%",height:"56%",borderRadius:16,background:gc}} />}
                           </div>
-                          <div style={{padding:"11px 13px 13px"}}>
-                            <div style={{fontSize:12.5,fontWeight:800,textTransform:"uppercase",lineHeight:1.2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{it.name||"Untitled"}</div>
-                            <div style={{fontSize:10.5,color:T.muted,marginTop:4,fontFamily:mono}}>{tQty(it.qtys||{})} pcs{(it as any).sell_per_unit?` · ${money((it as any).sell_per_unit)}/ea`:""}</div>
-                            <div style={{fontSize:9,fontWeight:800,textTransform:"uppercase",letterSpacing:"0.06em",color:st.c,marginTop:5}}>{st.s}</div>
+                          <div style={{padding:"14px 16px 16px"}}>
+                            <div style={{fontSize:14,fontWeight:800,textTransform:"uppercase",lineHeight:1.2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{it.name||"Untitled"}</div>
+                            <div style={{fontSize:11,color:T.muted,marginTop:5,fontFamily:mono}}>{tQty(it.qtys||{})} pcs{(it as any).sell_per_unit?` · ${money((it as any).sell_per_unit)}/ea`:""}</div>
+                            <div style={{fontSize:9,fontWeight:800,textTransform:"uppercase",letterSpacing:"0.06em",color:st.c,marginTop:7}}>{st.s}</div>
                           </div>
                         </button>
                       );})}
