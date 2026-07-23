@@ -200,6 +200,8 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   const [forwardSlips, setForwardSlips] = useState<{ id: string; tracking: string | null; createdAt: string }[]>([]);
   const [confirmDeleteProject, setConfirmDeleteProject] = useState(false);
   const [confirmCancelVoid, setConfirmCancelVoid] = useState(false);
+  const [confirmSendBack, setConfirmSendBack] = useState(false);
+  const [sendingBack, setSendingBack] = useState(false);
   const [ovMenu, setOvMenu] = useState(false);
   const [thumbByItem, setThumbByItem] = useState<Record<string, string>>({});
   const [peekItem, setPeekItem] = useState<any | null>(null);
@@ -790,6 +792,9 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
               {job.phase!=="on_hold"&&job.phase!=="cancelled"&&<button onClick={()=>{setOvMenu(false);upd("phase","on_hold");}} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 13px",background:"none",border:"none",cursor:"pointer",fontFamily:font,fontSize:12.5,fontWeight:600,color:T.text}}>Place on hold</button>}
               {job.phase==="on_hold"&&<button onClick={async()=>{setOvMenu(false);await supabase.from("jobs").update({phase:"intake"}).eq("id",job.id);setJob(j=>j?{...j,phase:"intake"} as any:j);setTimeout(recalcPhase,300);}} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 13px",background:"none",border:"none",cursor:"pointer",fontFamily:font,fontSize:12.5,fontWeight:600,color:T.green}}>Resume</button>}
               <button onClick={async()=>{setOvMenu(false);if(!window.confirm(`Duplicate "${job.title}" as a re-order? Items, costing, contacts, art, and approved proofs carry over.`))return;try{const res=await fetch(`/api/jobs/${job.id}/duplicate`,{method:"POST"});const data=await res.json();if(!res.ok)throw new Error(data?.error||"Duplication failed");if(!data?.jobId)throw new Error("No new job id returned");router.push(`/jobs/${data.jobId}`);}catch(e:any){alert(`Duplicate failed: ${e?.message||"Unknown error"}`);}}} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 13px",background:"none",border:"none",cursor:"pointer",fontFamily:font,fontSize:12.5,fontWeight:600,color:T.text}}>Duplicate</button>
+              {/greenlight/i.test((job as any)?.type_meta?.source||"") && ["intake","pending"].includes(job.phase) && payments.length===0 && !items.some((it:any)=>it.pipeline_stage==="in_production"||it.pipeline_stage==="shipped"||(it as any).received_at_hpd) && (
+                <button onClick={()=>{setOvMenu(false);setConfirmSendBack(true);}} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 13px",background:"none",border:"none",cursor:"pointer",fontFamily:font,fontSize:12.5,fontWeight:600,color:T.blue}}>↩ Send back to studio</button>
+              )}
               {job.phase!=="cancelled"&&(job as any).type_meta?.qb_invoice_number&&<button onClick={()=>{setOvMenu(false);setConfirmCancelVoid(true);}} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 13px",background:"none",border:"none",cursor:"pointer",fontFamily:font,fontSize:12.5,fontWeight:600,color:T.amber}}>Cancel &amp; void invoice</button>}
               <button onClick={()=>{setOvMenu(false);setConfirmDeleteProject(true);}} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 13px",background:"none",border:"none",cursor:"pointer",fontFamily:font,fontSize:12.5,fontWeight:600,color:T.red}}>Delete project</button>
             </div>
@@ -2041,6 +2046,30 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           escapeTo("/projects");
         }}
         onCancel={() => setConfirmDeleteProject(false)}
+      />
+
+      <ConfirmDialog
+        open={confirmSendBack}
+        title="Send back to the studio"
+        message={`Send "${job?.title}" back to the studio to rework? This removes the job and its items and reopens the idea in the studio, right where it was. Nothing the client uploaded is lost. This can't be undone.`}
+        confirmLabel={sendingBack ? "Sending back…" : "Send back to studio"}
+        onConfirm={async () => {
+          if (sendingBack) return;
+          setSendingBack(true);
+          try {
+            const res = await fetch(`/api/jobs/${params.id}/send-back`, { method: "POST" });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data?.error || "Send back failed");
+            // Straight into the studio on the reopened idea to keep working.
+            router.push(data.briefId ? `/studio2?open=${data.briefId}` : "/studio2");
+            escapeTo(data.briefId ? `/studio2?open=${data.briefId}` : "/studio2");
+          } catch (e: any) {
+            setSendingBack(false);
+            setConfirmSendBack(false);
+            alert(`Couldn't send it back: ${e?.message || "Unknown error"}`);
+          }
+        }}
+        onCancel={() => { if (!sendingBack) setConfirmSendBack(false); }}
       />
 
     </div>
