@@ -835,7 +835,7 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
   const editorSpec = { ...buildSpec(), summaryText: summaryOverride !== null ? summaryOverride : derivedSummary };
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "#fff", zIndex: 100, display: "flex", flexDirection: "column" }}>
+    <div style={{ position: "fixed", inset: 0, background: T.bg, zIndex: 100, display: "flex", flexDirection: "column" }}>
         {confirmEl}
         <div style={{ padding: "14px 18px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
