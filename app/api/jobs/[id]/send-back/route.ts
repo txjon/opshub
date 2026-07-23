@@ -86,14 +86,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     // 3. Reopen the idea in the studio.
     await db.from("art_briefs").update({ state: "draft", updated_at: new Date().toISOString() } as never).eq("id", briefId);
 
-    // 4. Durable trail on the brief thread (client-safe wording).
+    // 4. Durable trail on the brief thread — INTERNAL only (the client doesn't
+    //    need to see the job mechanics; from their side the idea just reopened).
     const who = (user.user_metadata as any)?.name || user.email || "The team";
     await db.from("art_brief_messages").insert({
       brief_id: briefId,
       sender_role: "hpd",
       sender_name: who,
-      message: `↩ Back on the bench — ${(job as any).job_number} was reversed so we can rework this before it goes to production.`,
-      visibility: "all",
+      message: `↩ Back on the bench — ${(job as any).job_number} reversed so we can rework this before it goes to production.`,
+      visibility: "hpd_designer",
     } as never);
 
     return NextResponse.json({ ok: true, briefId, productsRemoved });

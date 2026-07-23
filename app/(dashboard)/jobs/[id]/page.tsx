@@ -1589,6 +1589,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
                   </div>
                   <div style={{padding:"0 20px 4px"}}>
                     {sizes.length>0 && <div style={{fontSize:12,color:T.muted,marginTop:10,fontFamily:mono,display:"flex",flexWrap:"wrap",gap:"4px 14px"}}>{sizes.map((s:string)=>q[s]?<span key={s}>{s}:{q[s]}</span>:null)}</div>}
+                    {(it as any).notes && <div style={{fontSize:12,color:T.muted,marginTop:12,lineHeight:1.5,whiteSpace:"pre-wrap",borderLeft:`3px solid ${T.border}`,paddingLeft:11}}>{(it as any).notes}</div>}
                     {pf?.proofState==="revision" && pf?.note && <div style={{fontSize:12.5,color:T.red,marginTop:12,borderLeft:`3px solid ${T.red}`,paddingLeft:11,lineHeight:1.4}}>&ldquo;{pf.note}&rdquo;</div>}
                   </div>
                   <div style={{display:"flex",gap:8,padding:"16px 20px 20px",flexWrap:"wrap"}}>
