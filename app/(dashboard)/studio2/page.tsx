@@ -8,6 +8,7 @@
 // Legacy /art-studio stays untouched for the full management tooling.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { uploadFileToDriveSession } from "@/lib/upload-drive-client";
 import { H } from "@/components/hub/theme";
 
 const thumbSrc = (id: string, size = 500) => `/api/files/thumbnail?id=${id}&thumb=1&size=${size}`;
@@ -197,7 +198,9 @@ function OpsBriefSheet({ brief, onClose }: { brief: any; onClose: () => void }) 
   const [note, setNote] = useState("");
   const [vis, setVis] = useState<"all" | "hpd_designer">("all");
   const [busy, setBusy] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [heroIdx, setHeroIdx] = useState<number | null>(null);
+  const fileInput = useRef<HTMLInputElement | null>(null);
   const threadEnd = useRef<HTMLDivElement | null>(null);
 
   async function load() {
@@ -248,6 +251,40 @@ function OpsBriefSheet({ brief, onClose }: { brief: any; onClose: () => void }) 
     const next = f.shared_with_client_at ? null : new Date().toISOString();
     await supabase.from("art_brief_files").update({ shared_with_client_at: next } as never).eq("id", f.id);
     await load();
+  }
+
+  // Send a draft back to the client (Jon, Jul 22: "I'm ready to upload something
+  // to send back, but I can't"). The paddle the studio2 thread was missing —
+  // same upload chain the legacy art-studio uses. Lands as a first_draft (flips
+  // the brief to client_review); if the composer is set to client-visible it's
+  // shared to their hub in the same move, otherwise it stays internal to share
+  // when ready.
+  async function uploadDraft(file: File) {
+    setUploading(true);
+    try {
+      const sess = await fetch("/api/art-briefs/upload-session", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ brief_id: brief.id, file_name: file.name, mime_type: file.type || "application/octet-stream", kind: "first_draft" }),
+      });
+      if (!sess.ok) throw new Error((await sess.json().catch(() => ({}))).error || "Couldn't start the upload");
+      const { uploadUrl } = await sess.json();
+      const { drive_file_id } = await uploadFileToDriveSession(uploadUrl, file);
+      const done = await fetch("/api/art-briefs/upload-session/complete", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ brief_id: brief.id, drive_file_id, file_name: file.name, mime_type: file.type || "application/octet-stream", file_size: file.size, kind: "first_draft" }),
+      });
+      const body = await done.json();
+      if (!done.ok) throw new Error(body.error || "Upload failed");
+      if (vis === "all" && body?.file?.id) {
+        await supabase.from("art_brief_files").update({ shared_with_client_at: new Date().toISOString() } as never).eq("id", body.file.id);
+      }
+      setHeroIdx(null); // newest becomes the hero
+      await load();
+    } catch (e: any) {
+      alert(e?.message || "Couldn't upload the draft.");
+    } finally {
+      setUploading(false);
+    }
   }
 
   return (
@@ -398,6 +435,15 @@ function OpsBriefSheet({ brief, onClose }: { brief: any; onClose: () => void }) 
                 })}
               </div>
             </span>
+            {/* The missing paddle — upload a draft into the thread. Respects the
+                Shows toggle: client-visible = shared to their hub in one move. */}
+            <input ref={fileInput} type="file" accept="image/*,.pdf,.ai,.psd,.eps,.svg" style={{ display: "none" }}
+              onChange={e => { const f = e.target.files?.[0]; if (f) uploadDraft(f); if (fileInput.current) fileInput.current.value = ""; }} />
+            <button onClick={() => fileInput.current?.click()} disabled={uploading}
+              title={vis === "all" ? "Upload a draft and share it to the client's hub" : "Upload a draft, kept internal until you share it"}
+              style={{ background: "transparent", color: H.text, border: `1px solid ${H.line}`, borderRadius: 999, padding: "11px 16px", fontSize: 10.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", cursor: uploading ? "default" : "pointer", opacity: uploading ? 0.5 : 1, fontFamily: H.font }}>
+              {uploading ? "Uploading…" : "+ Upload a draft"}
+            </button>
             <button onClick={send} disabled={busy || !note.trim()}
               style={{ marginLeft: "auto", background: "#fff", color: H.ink, border: "none", borderRadius: 999, padding: "12px 24px", fontSize: 11.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: busy || !note.trim() ? "default" : "pointer", opacity: busy || !note.trim() ? 0.5 : 1, fontFamily: H.font }}>
               {busy ? "Sending…" : vis === "all" ? "Send to client" : "Post internal"}
