@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useClientPortal } from "./_shared/context";
 import { C, fmtDate } from "./_shared/theme";
 import { uploadFileToDriveSession } from "@/lib/upload-drive-client";
-import { STUDIO_UNDER_DEV } from "@/lib/v2-flags";
+import { STUDIO_UNDER_DEV, DROPS_UNDER_DEV } from "@/lib/v2-flags";
 
 // HOME — the hub's front door (reworked Jul 21 2026; idea door added Jul 22,
 // Jon: "home should have a way to send an idea"). Answers: what needs me,
@@ -75,7 +75,9 @@ export default function HomePage() {
     building: { verb: "Coming together", color: C.amber }, live: { verb: "It's live", color: C.green },
     cut: { verb: "In production", color: C.blue }, closed: { verb: "Window closed", color: C.blue },
   };
-  const dropFeed = (drops || []).filter(d => DROP_VERB[d.status]).slice(0, 2);
+  // Drops hidden from the client hub (DROPS_UNDER_DEV) — empty feed drops the
+  // "The drops." home section and its contribution to the empty-state check.
+  const dropFeed = DROPS_UNDER_DEV ? [] : (drops || []).filter(d => DROP_VERB[d.status]).slice(0, 2);
   // Orders — the client's move (or where it stands).
   const orderMove = (o: any): { verb: string; color: string; act: number } => {
     if (!o.quote_approved && ["intake", "pending"].includes(o.phase)) return { verb: "Review & approve", color: C.amber, act: 1 };
