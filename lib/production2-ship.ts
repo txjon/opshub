@@ -78,6 +78,14 @@ export async function shipFromProduction(sb: any, args: {
         pipeline_stage: closed ? "shipped" : "in_production",   // keep legacy surfaces consistent
         ship_tracking: trackingOrBol || cur?.ship_tracking || null,
         pipeline_timestamps: timestamps,
+        // Auto-stamp the ACTUAL ship date onto the ship leg (ship_est) so the client
+        // ETA re-anchors to reality the moment it ships — no stale PO ship-by lingering
+        // until someone edits receiving. Once it ships, the estimate IS an actual, so
+        // this overwrites any prior ship_est. Clearing the legacy expected_arrival stops
+        // it shadowing the freshly-derived date. Receiving still owns the final land
+        // date via shipments.expected_arrival (which supersedes this on its own leg).
+        ship_est: shipDate.slice(0, 10),
+        expected_arrival: null,
         // NOTE: received_at_hpd is deliberately NOT written here — recordShip()
         // above already ran recomputeItemFromLedger(), the single canonical writer
         // that derives + clears it from the ledger. Hand-setting it would fight the
