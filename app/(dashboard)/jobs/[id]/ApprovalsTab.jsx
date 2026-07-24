@@ -345,27 +345,9 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
           })}
         </div>
 
-        {/* Batch proof actions — only once proofs exist. No "Generate all": the chips
-            are the entry (clicking any chip opens the editor with every proof mounted +
-            flip, so it IS generate-all). At the no-proof state this whole bar is gone. */}
-        {items.some(it => (itemFiles[it.id] || []).some(f => f.stage === "proof")) && (
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 14, paddingTop: 14, borderTop: `1px solid ${T.border}` }}>
-          {(() => {
-            const btn = { height: 38, borderRadius: 9, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12.5, fontWeight: 700, fontFamily: font, padding: "0 16px", cursor: "pointer" };
-            return (
-              <>
-                <button onClick={() => openPreviewSequence()} style={btn}>Preview proofs</button>
-                {(
-                  <button onClick={sendProofForReview} disabled={sendingProofEmail}
-                    style={{ ...btn, background: proofEmailSent ? T.greenDim : T.surface, color: proofEmailSent ? T.green : T.text, cursor: sendingProofEmail ? "default" : "pointer", opacity: sendingProofEmail ? 0.6 : 1 }}>
-                    {sendingProofEmail ? "Sending…" : proofEmailSent ? "✓ Sent to client" : (isMobile ? "Send for review" : "Send proofs for review")}
-                  </button>
-                )}
-              </>
-            );
-          })()}
-        </div>
-        )}
+        {/* No batch bar. Chips are the entry (click opens the proof); the real send is
+            "Send quote + proofs" on the surface header; revised re-sends have their own
+            contextual nudge above. Preview-proofs + a duplicate proofs-only send removed. */}
       </div>
 
       {/* ── Item peek — mirrors the Overview gallery peek; proof actions here ── */}
