@@ -202,9 +202,20 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
     setGenerateAllIndex(0);
   }
 
-  // Flip proof-to-proof INSIDE the generate-all run (Drake, Jul 22) — no more
-  // save-exit-reopen to move on. Saving still advances; arrows move freely
-  // (an item flipped past keeps whatever was last saved for it).
+  // Open the editor focused on ONE item — the SAME mounted-all flip surface as
+  // "Generate all", just starting on the clicked chip. One editor, no peek fork:
+  // clicking a chip = "work on this proof".
+  function openProof(item) {
+    if (itemsWithMockups.length === 0) return;
+    const idx = Math.max(0, itemsWithMockups.findIndex(x => x.id === item.id));
+    setGenerateAllItems(itemsWithMockups);
+    setGenerateAllIndex(idx);
+  }
+
+  // Flip proof-to-proof INSIDE the generate-all run. Every proof stays MOUNTED
+  // (hidden, not unmounted) — flipping only changes which one is visible, so edits
+  // never tear down and never reload. Lossless by construction; quick-flip to confirm
+  // details just works.
   function flipGenerate(delta) {
     if (!isGenerateAll) return;
     setGenerateAllIndex((generateAllIndex + delta + generateAllItems.length) % generateAllItems.length);
@@ -286,8 +297,13 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
             const mockupFile = files.find(f => f.stage === "mockup") || files.find(f => f.file_name?.toLowerCase().includes("mockup"));
             const revisionRequested = proofFiles.some(f => f.approval === "revision_requested");
             const revisedPendingSend = proofFiles.some(f => f.revision_pending_send);
-            const pendingClient = hasProof && !fileApproved && !revisionRequested && !revisedPendingSend;
+            const sent = !!item.proof_sent_at;
+            const pendingClient = sent && !fileApproved && !revisionRequested && !revisedPendingSend;
             const internalOnly = !fileApproved && manualApproved;
+            // Ready = a filled proof (proof_spec) that hasn't been SENT (proof_sent_at)
+            // yet — built and sendable. Sending stamps proof_sent_at → Pending. A baked
+            // Drive PDF no longer implies sent.
+            const draft = !sent && !!item.proof_spec;
 
             // Clean status pill — short labels, softer colors
             let pillText = "No proof";
@@ -297,6 +313,7 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
             else if (revisionRequested){ pillText = "Revision";        pillColor = T.amber; }
             else if (internalOnly)     { pillText = "Internal";        pillColor = T.green; }
             else if (pendingClient)    { pillText = "Pending client";  pillColor = T.amber; }
+            else if (draft)            { pillText = "Ready";           pillColor = T.blue; }
 
             const qty = Object.values(item.qtys || {}).reduce((a, v) => a + (Number(v) || 0), 0);
             const sell = item.sell_per_unit ? Math.round(item.sell_per_unit).toLocaleString() : null;
@@ -306,12 +323,15 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
 
             // Gallery chip — whole card opens the peek modal (actions live there).
             return (
-              <div key={item.id} onClick={() => setPeekItem(item)} style={{ border: `1px solid ${isApproved ? T.green + "44" : T.border}`, borderRadius: 11, overflow: "hidden", background: T.card, display: "flex", flexDirection: "column", cursor: "pointer" }}>
-                <div style={{ aspectRatio: "4 / 3", background: "#f2f2f4", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", position: "relative" }}>
-                  {thumbId
+              <div key={item.id} onClick={() => openProof(item)} style={{ border: `1px solid ${isApproved ? T.green + "44" : T.border}`, borderRadius: 11, overflow: "hidden", background: T.card, display: "flex", flexDirection: "column", cursor: "pointer" }}>
+                {/* Image only once a PROOF exists — before that the chip reads as an
+                    empty, directive "make the proof" state (the mockup existing is not
+                    a proof, so we don't dress the chip up as if one's been made). */}
+                <div style={{ aspectRatio: "4 / 3", background: item.proof_spec ? "#f2f2f4" : T.surface, display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", position: "relative" }}>
+                  {item.proof_spec && thumbId
                     ? <img src={`/api/files/thumbnail?id=${thumbId}&thumb=1`} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
-                    : <span style={{ fontSize: 11, color: T.faint }}>No mockup yet</span>}
-                  <span style={{ position: "absolute", top: 6, left: 6, width: 20, height: 20, borderRadius: "50%", background: isApproved ? T.greenDim : "rgba(255,255,255,0.92)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: isApproved ? T.green : T.muted, fontFamily: mono, boxShadow: "0 1px 2px rgba(0,0,0,0.12)" }}>{String.fromCharCode(65 + i)}</span>
+                    : <span style={{ fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.06em", color: T.faint }}>No proof yet</span>}
+                  <span style={{ position: "absolute", top: 6, left: 6, width: 20, height: 20, borderRadius: "50%", background: isApproved ? T.greenDim : "rgba(255,255,255,0.92)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 800, color: isApproved ? T.green : "#0a0a0a", fontFamily: mono, boxShadow: "0 1px 2px rgba(0,0,0,0.12)" }}>{String.fromCharCode(65 + i)}</span>
                 </div>
                 <div style={{ padding: "9px 11px 11px", display: "flex", flexDirection: "column", gap: 4, flex: 1 }}>
                   <div style={{ fontSize: 12.5, fontWeight: 800, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={item.name}>{item.name}</div>
@@ -325,16 +345,17 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
           })}
         </div>
 
-        {/* Batch proof actions — inside the container, matching the quote card's bottom actions */}
+        {/* Batch proof actions — only once proofs exist. No "Generate all": the chips
+            are the entry (clicking any chip opens the editor with every proof mounted +
+            flip, so it IS generate-all). At the no-proof state this whole bar is gone. */}
+        {items.some(it => (itemFiles[it.id] || []).some(f => f.stage === "proof")) && (
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 14, paddingTop: 14, borderTop: `1px solid ${T.border}` }}>
           {(() => {
             const btn = { height: 38, borderRadius: 9, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12.5, fontWeight: 700, fontFamily: font, padding: "0 16px", cursor: "pointer" };
-            const anyProofs = items.some(it => (itemFiles[it.id] || []).some(f => f.stage === "proof"));
             return (
               <>
                 <button onClick={() => openPreviewSequence()} style={btn}>Preview proofs</button>
-                {itemsWithMockups.length > 0 && <button onClick={startGenerateAll} style={btn}>Generate all ({itemsWithMockups.length})</button>}
-                {anyProofs && (
+                {(
                   <button onClick={sendProofForReview} disabled={sendingProofEmail}
                     style={{ ...btn, background: proofEmailSent ? T.greenDim : T.surface, color: proofEmailSent ? T.green : T.text, cursor: sendingProofEmail ? "default" : "pointer", opacity: sendingProofEmail ? 0.6 : 1 }}>
                     {sendingProofEmail ? "Sending…" : proofEmailSent ? "✓ Sent to client" : (isMobile ? "Send for review" : "Send proofs for review")}
@@ -344,6 +365,7 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
             );
           })()}
         </div>
+        )}
       </div>
 
       {/* ── Item peek — mirrors the Overview gallery peek; proof actions here ── */}
@@ -446,42 +468,48 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
         );
       })()}
 
-      {/* ── Proof Modal (Generate All flow) ── */}
-      {isGenerateAll && generateAllCurrent && (() => {
-        const files = itemFiles[generateAllCurrent.id] || [];
-        const mockupFile = files.find(f => f.stage === "mockup") || files.find(f => f.file_name?.toLowerCase().includes("mockup"));
-        return (
-          <>
-            <ProofModal
-              key={generateAllCurrent.id}
-              item={generateAllCurrent}
-              clientName={clientName}
-              projectTitle={projectTitle}
-              mockupFile={mockupFile}
-              files={files}
-              costingData={job.costing_data}
-              onClose={handleGenerateAllClose}
-              onSaved={handleGenerateAllSaved}
-              onUpdateItem={onUpdateItem}
-              generateAllCounter={`${generateAllIndex + 1} of ${generateAllItems.length}`}
-            />
-            {/* Flip chrome for the run — same grammar as preview flipping */}
-            {generateAllItems.length > 1 && (
-              <>
-                <button onClick={() => flipGenerate(-1)} aria-label="Previous item"
-                  style={{ position: "fixed", left: 14, top: "50%", transform: "translateY(-50%)", zIndex: 120, width: 46, height: 46, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 22, fontWeight: 700, cursor: "pointer", boxShadow: "0 4px 16px rgba(0,0,0,0.18)", fontFamily: font, lineHeight: 1 }}>‹</button>
-                <button onClick={() => flipGenerate(1)} aria-label="Next item"
-                  style={{ position: "fixed", right: 14, top: "50%", transform: "translateY(-50%)", zIndex: 120, width: 46, height: 46, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 22, fontWeight: 700, cursor: "pointer", boxShadow: "0 4px 16px rgba(0,0,0,0.18)", fontFamily: font, lineHeight: 1 }}>›</button>
-                <div style={{ position: "fixed", bottom: 18, left: "50%", transform: "translateX(-50%)", zIndex: 120, background: T.card, border: `1px solid ${T.border}`, borderRadius: 9, padding: "7px 14px", boxShadow: "0 4px 16px rgba(0,0,0,0.18)", display: "flex", alignItems: "baseline", gap: 10, maxWidth: "80vw" }}>
-                  <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 800, color: T.text, whiteSpace: "nowrap" }}>{generateAllIndex + 1} / {generateAllItems.length}</span>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: T.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{generateAllCurrent.name}</span>
-                  <span style={{ fontSize: 10, color: T.faint, whiteSpace: "nowrap" }}>save advances · arrows browse</span>
-                </div>
-              </>
-            )}
-          </>
-        );
-      })()}
+      {/* ── Proof editors (Generate All) — EVERY proof stays mounted, one visible.
+          Flipping changes focus only; nothing unmounts, so edits stick and a
+          quick-flip-to-confirm is instant + lossless. ── */}
+      {isGenerateAll && generateAllCurrent && (
+        <>
+          {generateAllItems.map((it, i) => {
+            const files = itemFiles[it.id] || [];
+            const mockupFile = files.find(f => f.stage === "mockup") || files.find(f => f.file_name?.toLowerCase().includes("mockup"));
+            return (
+              <ProofModal
+                key={it.id}
+                item={it}
+                hidden={i !== generateAllIndex}
+                initialMode={it.proof_spec ? "preview" : "edit"}
+                clientName={clientName}
+                projectTitle={projectTitle}
+                mockupFile={mockupFile}
+                files={files}
+                costingData={job.costing_data}
+                onClose={handleGenerateAllClose}
+                onSaved={handleGenerateAllSaved}
+                onUpdateItem={onUpdateItem}
+                generateAllCounter={`${i + 1} of ${generateAllItems.length}`}
+              />
+            );
+          })}
+          {/* Flip chrome — rendered once, drives which proof is visible */}
+          {generateAllItems.length > 1 && (
+            <>
+              <button onClick={() => flipGenerate(-1)} aria-label="Previous item"
+                style={{ position: "fixed", left: 14, top: "50%", transform: "translateY(-50%)", zIndex: 120, width: 46, height: 46, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 22, fontWeight: 700, cursor: "pointer", boxShadow: "0 4px 16px rgba(0,0,0,0.18)", fontFamily: font, lineHeight: 1 }}>‹</button>
+              <button onClick={() => flipGenerate(1)} aria-label="Next item"
+                style={{ position: "fixed", right: 14, top: "50%", transform: "translateY(-50%)", zIndex: 120, width: 46, height: 46, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 22, fontWeight: 700, cursor: "pointer", boxShadow: "0 4px 16px rgba(0,0,0,0.18)", fontFamily: font, lineHeight: 1 }}>›</button>
+              <div style={{ position: "fixed", bottom: 18, left: "50%", transform: "translateX(-50%)", zIndex: 120, background: T.card, border: `1px solid ${T.border}`, borderRadius: 9, padding: "7px 14px", boxShadow: "0 4px 16px rgba(0,0,0,0.18)", display: "flex", alignItems: "baseline", gap: 10, maxWidth: "80vw" }}>
+                <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 800, color: T.text, whiteSpace: "nowrap" }}>{generateAllIndex + 1} / {generateAllItems.length}</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: T.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{generateAllCurrent.name}</span>
+                <span style={{ fontSize: 10, color: T.faint, whiteSpace: "nowrap" }}>arrows browse · edits stick</span>
+              </div>
+            </>
+          )}
+        </>
+      )}
 
 
       {/* ── Send revised proofs modal — contacts + stock message + note ── */}

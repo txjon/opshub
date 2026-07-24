@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { C } from "./theme";
 import { useClientPortal } from "./context";
 import { getLogoSvgForSlug } from "@/lib/branding-client";
-import { STUDIO_UNDER_DEV } from "@/lib/v2-flags";
+import { STUDIO_UNDER_DEV, DROPS_UNDER_DEV } from "@/lib/v2-flags";
 
 // The real wordmark, recolored for the dark ground (the branding SVG is
 // black-filled for PDFs) and sized for chrome.
@@ -133,12 +133,12 @@ export default function Shell({ children }: { children: ReactNode }) {
   // Feature grants (mig 132): Pipeline is a granted surface — standard-tier
   // clients see Home / Orders / Reorder only.
   const features: string[] = (data as any).features || [];
-  // Studio under dev: pull the Studio tab from the client's nav (nav-hide only —
-  // the /studio route still resolves by direct URL). Drops is left as-is.
+  // Studio + Drops under dev: pull those tabs from the client's nav (nav-hide only
+  // — the routes still resolve by direct URL).
   const visibleTabs = TABS.filter(t =>
     (t.path !== "/items" || features.includes("pipeline")) &&
     (t.path !== "/studio" || (features.includes("studio") && !STUDIO_UNDER_DEV)) &&
-    (t.path !== "/drops" || features.includes("studio")));
+    (t.path !== "/drops" || (features.includes("studio") && !DROPS_UNDER_DEV)));
 
   const isActive = (path: string) =>
     path === "" ? pathname === base || pathname === base + "/" : !!pathname?.startsWith(base + path);
@@ -237,13 +237,14 @@ export default function Shell({ children }: { children: ReactNode }) {
           </div>
         </div>
 
-        {/* Desktop tab nav — hidden on mobile via CSS. */}
+        {/* Desktop tab nav — hidden on mobile via CSS. Uses visibleTabs (same as
+            the hamburger + bottom nav) so grant/flag gates apply on desktop too. */}
         <nav className="portal-top-tabs" style={{
           margin: "16px auto 0",
           display: "flex", gap: 26, overflowX: "auto",
           scrollbarWidth: "none", justifyContent: "center",
         }}>
-          {TABS.map(t => {
+          {visibleTabs.map(t => {
             const href = base + t.path;
             const active = isActive(t.path);
             const unread = t.unreadKey ? unreadCounts[t.unreadKey] : 0;

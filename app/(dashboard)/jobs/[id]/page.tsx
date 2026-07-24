@@ -1711,6 +1711,11 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         const changeReq = (job as any).type_meta?.change_request;
         const approved = (job as any).quote_approved;
         const hasProofs = Object.values(proofStatus).some((p:any)=>p?.proofState && p.proofState!=="none");
+        // Ready = a filled proof (proof_spec) — built and sendable even though its
+        // client PDF hasn't baked. This is what wakes Send. readyToSendIds = the ones
+        // not yet sent, which Send stamps to Pending.
+        const hasReadyProofs = items.some((it:any)=>!!it.proof_spec);
+        const readyToSendIds = items.filter((it:any)=>it.proof_spec && !it.proof_sent_at).map((it:any)=>it.id);
         const proofsList = Object.values(proofStatus).filter((p:any)=>p?.proofState && p.proofState!=="none");
         const allProofsApproved = proofsList.length>0 && proofsList.every((p:any)=>p.proofState==="approved");
         const openQPSend = () => {
@@ -1724,7 +1729,13 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           setSendingQP(true); setQpErr("");
           try {
             const [to, ...cc] = recipients;
-            await sendQuoteAndProofs(job, { to, cc, includeProofs: hasProofs, proofsOnly: approved });
+            await sendQuoteAndProofs(job, { to, cc, includeProofs: hasReadyProofs, proofsOnly: approved });
+            // Mark the ready proofs SENT → Pending client (the only path to pending).
+            if (readyToSendIds.length) {
+              const nowP = new Date().toISOString();
+              await (supabase.from("items") as any).update({ proof_sent_at: nowP }).in("id", readyToSendIds);
+              setItems(prev => prev.map(it => readyToSendIds.includes(it.id) ? ({...it, proof_sent_at: nowP} as any) : it));
+            }
             const { data: fresh } = await supabase.from("jobs").select("type_meta").eq("id", job.id).single();
             if (fresh) setJob(j => j ? {...j, type_meta: {...(j as any).type_meta, ...fresh.type_meta}} as any : j);
             setQpSendOpen(false);
@@ -1771,7 +1782,10 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             </div>
             {qpErr && <div style={{fontSize:11.5,color:T.red,marginTop:4}}>{qpErr}</div>}
           </div>
-          {allProofsApproved ? (
+          {!hasReadyProofs ? (
+            // Nothing to send until at least one proof is built — directive, not a dead button.
+            <span style={{flexShrink:0,fontSize:12,fontWeight:700,color:T.faint}}>Build a proof to send</span>
+          ) : allProofsApproved ? (
             <button onClick={openQPSend} disabled={sendingQP}
               style={{flexShrink:0,background:"transparent",color:T.muted,border:`1px solid ${T.border}`,borderRadius:9,padding:"11px 18px",fontSize:12.5,fontWeight:700,fontFamily:font,cursor:sendingQP?"default":"pointer",opacity:sendingQP?0.6:1}}>
               {sendingQP ? "Sending…" : "Re-send proofs"}
@@ -1829,7 +1843,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
           {([["draft","Draft"],["sent","Sent"],["approved","Approved"]] as [string,string][]).map(([k,l],i,arr)=>{
             const order=["draft","sent","approved"]; const done=order.indexOf(k)<order.indexOf(qStep); const active=k===qStep;
             const bg=active?(k==="approved"?T.greenDim:T.accent):done?T.greenDim:T.surface;
-            const fg=active?(k==="approved"?T.green:"#fff"):done?T.green:T.faint;
+            const fg=active?(k==="approved"?T.green:"#0a0a0a"):done?T.green:T.faint;
             return <span key={k} style={{display:"flex",alignItems:"center"}}><span style={{fontSize:10,fontWeight:800,textTransform:"uppercase",letterSpacing:"0.04em",padding:"6px 12px",borderRadius:8,background:bg,color:fg}}>{l}</span>{i<arr.length-1&&<span style={{color:T.faint,padding:"0 6px"}}>→</span>}</span>;
           })}
         </div>

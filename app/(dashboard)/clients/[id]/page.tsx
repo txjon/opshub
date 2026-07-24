@@ -155,10 +155,8 @@ export default function ClientSpacePage() {
           {grants.length ? `hub features: ${grants.join(" + ")}` : "no hub features granted yet"}
         </div>
 
-        {/* ── KPI strip — the whole relationship, archive included ── */}
+        {/* ── KPI strip — operational only (lifetime gross/units removed, Jon) ── */}
         <div style={{ display: "flex", gap: "clamp(18px,4vw,44px)", flexWrap: "wrap", borderTop: `1px solid ${H.line}`, borderBottom: `1px solid ${H.line}`, padding: "16px 0", margin: "16px 0 0" }}>
-          <div><div style={{ fontSize: "clamp(22px,3vw,32px)", fontWeight: 900, lineHeight: 1 }}>{fmt$((hist?.gross || 0) + model.liveGross)}</div><div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.faint, marginTop: 5 }}>lifetime gross</div></div>
-          <div><div style={{ fontSize: "clamp(22px,3vw,32px)", fontWeight: 900, lineHeight: 1, color: H.blue }}>{Math.round((hist?.units || 0) + model.liveUnits).toLocaleString()}</div><div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.faint, marginTop: 5 }}>lifetime units</div></div>
           <div><div style={{ fontSize: "clamp(22px,3vw,32px)", fontWeight: 900, lineHeight: 1, color: model.active.length ? H.amber : H.text }}>{model.active.length}</div><div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.faint, marginTop: 5 }}>orders in motion</div></div>
           <div><div style={{ fontSize: "clamp(22px,3vw,32px)", fontWeight: 900, lineHeight: 1, color: PURPLE }}>{products.length}</div><div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.faint, marginTop: 5 }}>products in catalog</div></div>
           <div><div style={{ fontSize: "clamp(22px,3vw,32px)", fontWeight: 900, lineHeight: 1 }}>{archive.length.toLocaleString()}</div><div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.faint, marginTop: 5 }}>archive files</div></div>

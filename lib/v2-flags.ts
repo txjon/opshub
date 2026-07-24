@@ -43,3 +43,10 @@ export function isV2TestClient(clientName?: string | null): boolean {
 export const STUDIO_UNDER_DEV = true;
 // The main-app nav hrefs pulled while STUDIO_UNDER_DEV.
 export const STUDIO_HIDDEN_HREFS = ["/art-studio", "/studio2"];
+
+// ── Drops hidden from the client hub (Jon, Jul 23 2026) ──────────────────────
+// Pull the Drops surface from the client hub: the main-nav Drops tab (all three
+// nav renders) + the home "The drops." section. NAV-HIDE ONLY — the /drops route
+// still resolves by direct URL (its own hasStudio guard is untouched), so the
+// team can keep using it and deep-links work. Flip to false to bring it back.
+export const DROPS_UNDER_DEV = true;
