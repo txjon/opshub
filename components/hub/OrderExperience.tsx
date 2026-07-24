@@ -15,6 +15,7 @@ import { PackageApproval } from "@/components/portal/PackageApproval";
 import { itemClientPhase, CLIENT_RAIL, orderRailIndex, type ClientTone } from "@/lib/portal/client-phase";
 import ProofDocView from "@/components/ProofDocView";
 import { font as PROOF_FONT, mono as PROOF_MONO } from "@/lib/theme";
+import { termsVariantForSlug } from "@/lib/order-terms";
 
 const TONE: Record<ClientTone, string> = { warn: H.amber, move: H.blue, done: H.green, dim: H.faint };
 const TERMS: Record<string, string> = { net_15: "Net 15", net_30: "Net 30", net_45: "Net 45", net_60: "Net 60", prepaid: "Prepaid", deposit_balance: "Deposit" };
@@ -195,6 +196,7 @@ export function OrderExperience({ data, token, onAction }: {
               items={items.map((i: any) => ({ id: i.id, name: i.name }))}
               pendingReapproval={!!project.quoteApproved && hasProofs && !allProofsApproved}
               invoiceState={totalPaid >= total - 0.005 && total > 0 ? (revisedUp ? "settled" : "paid") : payBand?.cta ? "ready" : (invoiceNumber || totalPaid > 0) ? "settled" : "pending"}
+              termsVariant={termsVariantForSlug(data.company?.slug)}
               onAction={onAction} />
           </div>
         )}
