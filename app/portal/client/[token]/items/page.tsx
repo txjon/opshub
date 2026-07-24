@@ -275,21 +275,8 @@ export default function ItemsPage() {
         The pipeline.
       </h1>
 
-      {/* View chips + search */}
-      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 22 }}>
-        {([["active", `Active · ${activeItems.length}`], ["history", `History · ${historyItems.length}`], ["on_hold", `On hold · ${onHoldItems.length}`]] as const).map(([k, label]) => (
-          <button key={k} className={`px-chip${view === k ? " on" : ""}`} onClick={() => setView(k)}>{label}</button>
-        ))}
-        {[{ key: "all", label: "All types" }, ...ITEM_CATS, { key: "other", label: "Everything else" }].map(c => {
-          const base = view === "history" ? historyItems : view === "on_hold" ? onHoldItems : activeItems;
-          const n = c.key === "all" ? base.length : base.filter(x => itemCatOf(x.garment_type) === c.key).length;
-          if (n === 0 && c.key !== "all") return null;
-          return <button key={c.key} className={`px-chip${cat === c.key ? " on" : ""}`} onClick={() => setCat(c.key)}>{(c as any).label} · {n}</button>;
-        })}
-        <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search pieces…"
-          style={{ marginLeft: "auto", flex: "1 1 170px", maxWidth: 300, padding: "9px 14px", fontSize: 12.5, background: C.card, border: `1px solid ${C.border}`, borderRadius: 999, outline: "none", color: C.text, fontFamily: C.font, boxSizing: "border-box" }} />
-      </div>
-
+      {/* No view chips / category filters / search (Jon) — just the title, then the
+          pipeline itself. Defaults to the active view. */}
       {loading ? (
         <div style={{ color: C.faint, fontSize: 13, padding: "40px 0" }}>Loading your pipeline…</div>
       ) : view !== "active" ? (
@@ -347,7 +334,6 @@ export default function ItemsPage() {
             <div className="px-timeline" style={{ marginBottom: 36 }}>
               <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10, marginBottom: 4 }}>
                 <h2 style={{ margin: 0, fontSize: 15, fontWeight: 900, textTransform: "uppercase" }}>Landing schedule.</h2>
-                <span style={{ fontSize: 10, color: C.faint, fontWeight: 700, letterSpacing: "0.06em" }}>solid = arrival at warehouse · soft = ~{WEB_PREP_DAYS}d web prep</span>
               </div>
               <div style={{ position: "relative", borderTop: `1px solid ${C.border}`, paddingTop: 6 }}>
                 {/* Week gridlines */}
@@ -421,8 +407,7 @@ export default function ItemsPage() {
           {/* ── Landing schedule, mobile: vertical agenda down a date rail ── */}
           {timed.length > 0 && (
             <div className="px-timeline-mobile" style={{ marginBottom: 34 }}>
-              <h2 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 900, textTransform: "uppercase" }}>Landing schedule.</h2>
-              <div style={{ fontSize: 10, color: C.faint, fontWeight: 700, marginBottom: 14 }}>arrival at warehouse · ~{WEB_PREP_DAYS}d prep after landing before web-ready</div>
+              <h2 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 900, textTransform: "uppercase" }}>Landing schedule.</h2>
               {(() => {
                 // Group arrivals by landing date, chronological.
                 const byDate = new Map<string, typeof timed>();
@@ -478,7 +463,7 @@ export default function ItemsPage() {
           {(() => {
             const groups: { key: string; title: string; hint: string; items: Item[] }[] = [
               { key: "now", title: "Ready now.", hint: "In stock, drop whenever", items: [] },
-              { key: "week", title: "This week.", hint: `Web-ready inside 7 days (arrival + ~${WEB_PREP_DAYS}d prep)`, items: [] },
+              { key: "week", title: "This week.", hint: "", items: [] },
               { key: "twoweeks", title: "Next two weeks.", hint: "Web-ready in 8 to 14 days", items: [] },
               { key: "month", title: "This month.", hint: "Web-ready in 2 to 5 weeks", items: [] },
               { key: "months", title: "One to three months.", hint: "The mid-range runs", items: [] },
@@ -505,7 +490,7 @@ export default function ItemsPage() {
                 <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
                   <h2 style={{ margin: 0, fontSize: 17, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em" }}>{grp.title}</h2>
                   <span style={{ fontSize: 10, fontWeight: 800, color: C.faint, fontFamily: C.mono }}>{grp.items.length} piece{grp.items.length === 1 ? "" : "s"} · {grp.items.reduce((a, x) => a + x.qty, 0).toLocaleString()} pcs</span>
-                  <span style={{ fontSize: 10.5, color: C.faint }}>{grp.hint}</span>
+                  {grp.hint && <span style={{ fontSize: 10.5, color: C.faint }}>{grp.hint}</span>}
                 </div>
                 <Gallery items={grp.items} onOpen={setDetail} empty="" />
               </div>

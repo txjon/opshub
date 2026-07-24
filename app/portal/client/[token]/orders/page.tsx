@@ -105,9 +105,9 @@ export default function OrdersPage() {
   const pendingTotal = (orders || []).filter(o => o.phase === "pending").length;
   const chips: { key: "all" | "unpaid" | "on_hold" | "pending" | "attention"; label: string; count: number | null }[] = [
     ...(attentionCount > 0 ? [{ key: "attention" as const, label: "Needs you", count: attentionCount }] : []),
-    { key: "all", label: "All", count: orders ? (orders || []).length : null },
     { key: "unpaid", label: "Unpaid", count: orders ? unpaidTotal : null },
     { key: "on_hold", label: "On hold", count: orders ? onHoldTotal : null },
+    { key: "all", label: "All", count: orders ? (orders || []).length : null },
   ];
 
   return (
@@ -135,17 +135,13 @@ export default function OrdersPage() {
           Your orders.
         </h1>
 
-        {/* Filters + history toggle */}
+        {/* Filters — Needs you (default) · Unpaid · On hold · All. No history toggle. */}
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 20 }}>
           {chips.map(c => (
             <button key={c.key} className={`ox-chip${effFilter === c.key ? " on" : ""}`} onClick={() => setFilter(c.key)}>
               {c.label}{c.count != null ? ` · ${c.count}` : ""}
             </button>
           ))}
-          <div style={{ flex: 1 }} />
-          <button className={`ox-chip${archive ? " on" : ""}`} onClick={() => setArchive(a => !a)}>
-            {archive ? "Showing all history" : "Show all history"}
-          </button>
         </div>
 
         {loading && !orders ? (
