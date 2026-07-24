@@ -19,6 +19,7 @@ export function itemClientPhase(it: {
   forwardedAt?: string | null;
   webstoreEnteredAt?: string | null;
   internalApproved?: boolean;
+  proofSentAt?: string | null;   // the proof was sent to the client (proof_spec render; no PDF needed)
   proofs?: { stage: string; approval: string }[];
 }): ClientItemPhase {
   const route = it.shippingRoute || "ship_through";
@@ -35,7 +36,9 @@ export function itemClientPhase(it: {
   if (proofs.some(p => p.approval === "revision_requested")) return { label: "Revising your proof", tone: "warn" };
   const allApproved = proofs.length > 0 && proofs.every(p => p.approval === "approved");
   if (allApproved || it.internalApproved) return { label: "Approved · preparing", tone: "done" };
-  if (proofs.length > 0) return { label: "Awaiting your approval", tone: "warn" };
+  // A sent proof is awaiting the client's approval — even before any PDF is baked,
+  // the client approves the live proof_spec doc in the hub.
+  if (proofs.length > 0 || it.proofSentAt) return { label: "Awaiting your approval", tone: "warn" };
   return { label: "In progress", tone: "dim" };
 }
 

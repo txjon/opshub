@@ -273,7 +273,7 @@ const TAG_INK_KEY = "opshub_last_tag_ink";
 const getLastTagInk = () => { try { return (typeof localStorage !== "undefined" && localStorage.getItem(TAG_INK_KEY)) || "#000000"; } catch { return "#000000"; } };
 const setLastTagInk = (hex) => { try { if (typeof localStorage !== "undefined") localStorage.setItem(TAG_INK_KEY, hex); } catch {} };
 
-export function ProofModal({ item, clientName, projectTitle, mockupFile, files, costingData, onClose, onUpdateItem, onSaved, generateAllCounter, initialMode = "edit" }) {
+export function ProofModal({ item, clientName, projectTitle, mockupFile, files, costingData, onClose, onUpdateItem, onSaved, generateAllCounter, initialMode = "edit", hidden = false }) {
   const isMobile = useIsMobile();
   const METHODS = ["Screen Print", "Embroidery", "PVC", "DTF"];
   // Ink/print TYPE — a child of Method (Product Spec pill), pick-list + custom.
@@ -607,6 +607,10 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
 
   // Immediate flush for close/save paths — the debounce above could
   // otherwise drop the last edit when the modal unmounts.
+  // Immediate flush for close/save paths — the debounce could otherwise drop the
+  // last edit. In the generate-all run every proof stays MOUNTED (hidden, not
+  // unmounted) so its debounce keeps running and edits never get cancelled; this is
+  // the belt-and-suspenders write on Exit/Download.
   function flushSpecSave() {
     if (!specLoaded) return;
     const snapshot = JSON.stringify(buildSpec());
@@ -756,10 +760,11 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
   // renderer / never baked" case; otherwise compare the spec snapshot.
   const isDriveDirty = () => driveBakedSpecRef.current !== null && (forceRebakeRef.current || JSON.stringify(buildSpec()) !== driveBakedSpecRef.current);
 
-  // Exit IS the save: bake to Drive if the proof changed, then close. No prompt.
+  // Exit = save the DRAFT and close. No bake — drafting never touches Drive; the
+  // proof PDF bakes only at Send. (This is what stopped an unsent proof from
+  // silently landing in Drive and reading as "Pending client".)
   function handleClose() {
     flushSpecSave();
-    if (specLoaded && isDriveDirty()) bakeToDrive(); // fire-and-forget; finishes in background
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     onClose(false);
   }
@@ -835,7 +840,7 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
   const editorSpec = { ...buildSpec(), summaryText: summaryOverride !== null ? summaryOverride : derivedSummary };
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: T.bg, zIndex: 100, display: "flex", flexDirection: "column" }}>
+    <div style={{ position: "fixed", inset: 0, background: T.bg, zIndex: 100, display: hidden ? "none" : "flex", flexDirection: "column" }}>
         {confirmEl}
         <div style={{ padding: "14px 18px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -844,25 +849,14 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
               <span style={{ fontSize: 11, fontWeight: 600, color: T.muted, background: T.surface, padding: "3px 10px", borderRadius: 10 }}>{generateAllCounter}</span>
             )}
           </div>
+          {/* Preview (confirming a ready proof) → Edit + Exit. Editing/building →
+              Exit only. No Download/bake here; the PDF bakes at Send. */}
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{ display: "inline-flex", border: `1px solid ${T.border}`, borderRadius: 8, overflow: "hidden" }}>
-              {[["edit", "Edit"], ["preview", "Preview"]].map(([v, l]) => {
-                const on = (v === "preview") === previewMode;
-                return <button key={v} onClick={() => setPreviewMode(v === "preview")}
-                  style={{ border: "none", background: on ? T.text : "transparent", color: on ? "#0a0a0a" : T.muted, fontSize: 11, fontWeight: 600, padding: "6px 12px", cursor: "pointer", fontFamily: font }}>{l}</button>;
-              })}
-            </div>
-            {psdFileMeta && (
-              <button onClick={repullFromPsd} disabled={loadingPsd} title="Merge in the PSD locations (+ live costing items) — keeps your callouts & notes"
-                style={{ border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 12, fontWeight: 600, padding: "7px 12px", borderRadius: 8, cursor: loadingPsd ? "default" : "pointer", fontFamily: font, opacity: loadingPsd ? 0.6 : 1 }}>
-                {loadingPsd ? "Filling…" : "↻ Auto-fill"}
-              </button>
+            {previewMode && (
+              <button onClick={() => setPreviewMode(false)} title="Edit this proof"
+                style={{ border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 12, fontWeight: 600, padding: "7px 14px", borderRadius: 8, cursor: "pointer", fontFamily: font }}>Edit</button>
             )}
-            <button onClick={downloadProof} disabled={downloading || !specLoaded} title="Download this proof PDF (same file that's saved to Drive)"
-              style={{ border: `1px solid ${T.border}`, background: T.card, color: specLoaded ? T.text : T.faint, fontSize: 12, fontWeight: 600, padding: "7px 14px", borderRadius: 8, cursor: specLoaded ? "pointer" : "default", fontFamily: font, opacity: downloading ? 0.6 : 1 }}>
-              {downloading ? "Preparing…" : "Download"}
-            </button>
-            <button onClick={handleClose} title="Exit — saves the proof to Drive"
+            <button onClick={handleClose} title="Exit — saves your work"
               style={{ border: "none", background: T.text, color: "#0a0a0a", fontSize: 12, fontWeight: 700, padding: "7px 16px", borderRadius: 8, cursor: "pointer", fontFamily: font }}>Exit</button>
           </div>
         </div>

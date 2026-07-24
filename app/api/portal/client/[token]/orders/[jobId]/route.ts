@@ -88,7 +88,7 @@ export async function GET(
     const { data: items } = await sb
       .from("items")
       .select(
-        "id, name, sell_per_unit, pipeline_stage, sort_order, artwork_status, ship_qtys, received_qtys, blank_vendor, blank_sku, ship_tracking, forward_tracking, archived_at, completed_at, received_at_hpd, blanks_order_cost, shipping_route, forwarded_at, webstore_entered_at, client_eta, client_eta_note, expected_arrival, ship_est, proof_spec, decorator_assignments(decorators(name, short_code, lead_time_days, transit_defaults)), buy_sheet_lines(size, qty_ordered)"
+        "id, name, sell_per_unit, pipeline_stage, sort_order, artwork_status, ship_qtys, received_qtys, blank_vendor, blank_sku, ship_tracking, forward_tracking, archived_at, completed_at, received_at_hpd, blanks_order_cost, shipping_route, forwarded_at, webstore_entered_at, client_eta, client_eta_note, expected_arrival, ship_est, proof_spec, proof_sent_at, decorator_assignments(decorators(name, short_code, lead_time_days, transit_defaults)), buy_sheet_lines(size, qty_ordered)"
       )
       .eq("job_id", job.id)
       .order("sort_order");
@@ -494,6 +494,7 @@ export async function GET(
         shipTracking: item.ship_tracking || null,
         internalApproved: manualApproved,
         proofSpec: item.proof_spec || null,
+        proofSentAt: item.proof_sent_at || null,
       };
     });
 

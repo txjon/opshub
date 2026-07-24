@@ -13,6 +13,8 @@ import { useState } from "react";
 import { H, H_APPROVAL_THEME, fmtMoney } from "./theme";
 import { PackageApproval } from "@/components/portal/PackageApproval";
 import { itemClientPhase, CLIENT_RAIL, orderRailIndex, type ClientTone } from "@/lib/portal/client-phase";
+import ProofDocView from "@/components/ProofDocView";
+import { font as PROOF_FONT, mono as PROOF_MONO } from "@/lib/theme";
 
 const TONE: Record<ClientTone, string> = { warn: H.amber, move: H.blue, done: H.green, dim: H.faint };
 const TERMS: Record<string, string> = { net_15: "Net 15", net_30: "Net 30", net_45: "Net 45", net_60: "Net 60", prepaid: "Prepaid", deposit_balance: "Deposit" };
@@ -128,13 +130,13 @@ export function OrderExperience({ data, token, onAction }: {
         @media(min-width:720px){.hx-grid{grid-template-columns:repeat(auto-fill,minmax(230px,1fr))}}
         .hx-card{transition:transform .15s ease,border-color .15s ease}
         .hx-card:hover{transform:translateY(-3px);border-color:rgba(255,255,255,.3)}
-        .hx-proof-back{position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:60;display:flex;align-items:flex-start;justify-content:center;padding:20px 12px;overflow-y:auto}
-        .hx-proof-sheet{background:${H.panel};border:1px solid ${H.line};border-radius:20px;max-width:700px;width:100%;overflow:hidden}
+        .hx-proof-back{position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:300;display:flex;align-items:flex-start;justify-content:center;padding:20px 12px;overflow-y:auto}
+        .hx-proof-sheet{background:#fff;color:#0a0a0a;border-radius:16px;max-width:600px;width:100%;position:relative;overflow:hidden}
         .hx-sheet-handle{display:none}
         @media(max-width:640px){
           .hx-proof-back{align-items:flex-end;padding:0;overflow-y:hidden}
-          .hx-proof-sheet{border-radius:18px 18px 0 0;border-bottom:none;max-height:92dvh;overflow-y:auto;animation:hxSheetUp .3s cubic-bezier(.32,.72,0,1)}
-          .hx-sheet-handle{display:block;width:38px;height:4px;border-radius:999px;background:rgba(255,255,255,0.25);margin:10px auto 0}
+          .hx-proof-sheet{border-radius:18px 18px 0 0;max-height:92dvh;overflow-y:auto;animation:hxSheetUp .3s cubic-bezier(.32,.72,0,1)}
+          .hx-sheet-handle{display:block;width:38px;height:4px;border-radius:999px;background:rgba(0,0,0,0.18);margin:10px auto 0}
         }
         @keyframes hxSheetUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
         @media(prefers-reduced-motion:reduce){.hx-card,.hx-card:hover{transition:none;transform:none}.hx-proof-sheet{animation:none}}
@@ -221,7 +223,7 @@ export function OrderExperience({ data, token, onAction }: {
 
         {/* ── The pieces ── */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 8, padding: "10px 4px 0" }}>
-          <h2 style={{ fontSize: "clamp(20px,3.4vw,30px)", fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", margin: 0 }}>The pieces.</h2>
+          <h2 style={{ fontSize: "clamp(20px,3.4vw,30px)", fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", margin: 0 }}>Proofs</h2>
           {needsYou.length > 0 && <span style={{ ...LBL, color: H.amber }}>Amber pieces need you</span>}
         </div>
         <div className="hx-grid">
@@ -295,132 +297,80 @@ export function OrderExperience({ data, token, onAction }: {
             className="hx-proof-back">
             <div className="hx-proof-sheet">
               <div className="hx-sheet-handle" />
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", padding: "14px 18px", gap: 10 }}>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 16, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em" }}>{it.name}</div>
-                  {(it.blankVendor || it.blankSku) && (
-                    <div style={{ fontSize: 11, color: H.faint, marginTop: 3 }}>{[it.blankVendor, it.blankSku].filter(Boolean).join(" · ")}</div>
-                  )}
+              {/* Close in its own strip — no header, and it never overlaps the doc's
+                  own PRODUCT PROOF header. */}
+              <div style={{ display: "flex", justifyContent: "flex-end", background: "#fff", padding: "10px 12px 0" }}>
+                <button onClick={() => setProofItem(null)} aria-label="Close proof"
+                  style={{ background: "#0a0a0a", color: "#fff", border: "none", borderRadius: 999, width: 40, height: 40, fontSize: 24, cursor: "pointer", lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>
+              </div>
+              {/* The FORMAL proof document — same renderer as our side + the PDF, from
+                  items.proof_spec (read-only). */}
+              {it.proofSpec ? (
+                <div style={{ background: "#fff", padding: "4px 20px 6px" }}>
+                  <ProofDocView
+                    spec={it.proofSpec}
+                    mockupUrl={m ? thumbSrc(m.driveFileId, 1200) : ""}
+                    itemName={it.name}
+                    clientName={data?.client?.name || ""}
+                    font={PROOF_FONT}
+                    mono={PROOF_MONO}
+                  />
                 </div>
-                <button onClick={() => setProofItem(null)} aria-label="Close" style={{ background: "none", border: "none", color: H.dim, fontSize: 26, cursor: "pointer", lineHeight: 1 }}>×</button>
-              </div>
-              {/* Production spec, store-style (Jon: "we're not limited to
-                  documents") — full-bleed mockup, spec CHIPS, then the proof's
-                  substance (inks, placements, notes, finishing) as native dark
-                  UI. Same proof_spec source as the editor + PDF; only the
-                  presentation is native. */}
-              <div style={{ background: "#fff" }}>
-                {m && <img src={thumbSrc(m.driveFileId, 1200)} alt="" style={{ width: "100%", maxHeight: "58vh", objectFit: "contain", display: "block", margin: "0 auto" }} />}
-              </div>
+              ) : (
+                <div style={{ background: "#fff", padding: "16px" }}>
+                  {m && <img src={thumbSrc(m.driveFileId, 1200)} alt="" style={{ width: "100%", maxHeight: "58vh", objectFit: "contain", display: "block", margin: "0 auto" }} />}
+                </div>
+              )}
+              {/* Order line — white, larger black type to match the document. No status. */}
               {(() => {
-                const spec = it.proofSpec || {};
-                const locs = (Array.isArray(spec.locations) ? spec.locations : []).filter((l: any) => l?.placement);
-                const isTag = (l: any) => ["tag", "tags"].includes(String(l.placement || "").toLowerCase().trim());
-                const method = (Array.isArray(spec.methods) && spec.methods[0]) || null;
-                const finishing = Array.isArray(spec.finishing) ? spec.finishing : [];
-                const chip = (txt: string, solid = false, key?: string) => (
-                  <span key={key || txt} style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: "0.09em", textTransform: "uppercase", whiteSpace: "nowrap", borderRadius: 999, padding: "7px 14px", background: solid ? "#fff" : "transparent", color: solid ? H.ink : H.dim, border: solid ? "1px solid #fff" : `1px solid ${H.line}`, fontFamily: H.mono }}>{txt}</span>
-                );
-                return (
-                  <div style={{ padding: "14px 18px 4px", display: "flex", flexDirection: "column", gap: 12 }}>
-                    {(method || locs.length > 0) && (
-                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                        {method && chip(method, true)}
-                        {locs.map((l: any, i: number) => chip(
-                          isTag(l) ? `Tag${l.sizeText ? ` · ${l.sizeText}` : ""}` : `${l.placement}${l.sizeText ? ` · ${l.sizeText}` : ""}`,
-                          false, `loc${i}`))}
-                      </div>
-                    )}
-                    {locs.some((l: any) => (l.colors || []).length > 0 || l.callout) && (
-                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                        {locs.map((l: any, i: number) => (
-                          ((l.colors || []).length > 0 || l.callout) ? (
-                            <div key={i} style={{ display: "flex", gap: 12, alignItems: "baseline", flexWrap: "wrap", fontSize: 12 }}>
-                              <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: H.faint, minWidth: 86 }}>{l.placement}</span>
-                              {(l.colors || []).map((c: any, j: number) => (
-                                <span key={j} style={{ display: "inline-flex", alignItems: "center", gap: 5, color: H.dim, fontFamily: H.mono, fontSize: 11 }}>
-                                  <span style={{ width: 11, height: 11, borderRadius: 3, background: c.hex || "#9aa0ae", border: "1px solid rgba(255,255,255,0.25)", display: "inline-block" }} />{c.name || ""}
-                                </span>
-                              ))}
-                              {l.callout && <span style={{ color: H.faint, fontSize: 11.5 }}>{l.callout}</span>}
-                            </div>
-                          ) : null
-                        ))}
-                      </div>
-                    )}
-                    {spec.notes && (
-                      <div style={{ borderLeft: `3px solid ${H.amber}`, padding: "5px 12px", fontSize: 12.5, color: H.text, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>
-                        <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: H.amber, display: "block", marginBottom: 2 }}>Special instructions</span>
-                        {spec.notes}
-                      </div>
-                    )}
-                    {finishing.length > 0 && (
-                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                        <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: H.faint }}>Finishing</span>
-                        {finishing.map((f: string, i: number) => <span key={i} style={{ fontSize: 11, color: H.dim }}>{f}{i < finishing.length - 1 ? " ·" : ""}</span>)}
-                      </div>
-                    )}
-                  </div>
-                );
-              })()}
-              {/* ── Order line: sizes, pricing, status — the invoice data for this piece ── */}
-              {(() => {
-                const phase = itemClientPhase(it);
                 const lineTotal = it.sellPerUnit != null && it.units ? it.sellPerUnit * it.units : null;
                 const sizeEntries = Object.entries(it.sizes || {}) as [string, number][];
+                const lbl: React.CSSProperties = { fontSize: 10, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: "#8a90a0", display: "block", marginBottom: 3 };
+                const val: React.CSSProperties = { fontSize: 16, fontWeight: 800, color: "#0a0a0a", fontFamily: PROOF_MONO };
                 return (
-                  <div style={{ margin: "14px 18px 2px", borderTop: `1px solid ${H.line}`, paddingTop: 14, display: "flex", flexDirection: "column", gap: 11 }}>
-                    <div style={{ display: "flex", gap: 22, flexWrap: "wrap" }}>
-                      <span><span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: H.faint, display: "block" }}>Status</span><span style={{ fontSize: 12, fontWeight: 800, textTransform: "uppercase", color: TONE[phase.tone] }}>{phase.label}</span></span>
-                      <span><span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: H.faint, display: "block" }}>Quantity</span><span style={{ fontSize: 12, fontWeight: 800, fontFamily: H.mono }}>{(it.units || 0).toLocaleString()} pcs</span></span>
-                      {it.sellPerUnit != null && <span><span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: H.faint, display: "block" }}>Unit price</span><span style={{ fontSize: 12, fontWeight: 800, fontFamily: H.mono }}>{"$" + Number(it.sellPerUnit).toFixed(2)}</span></span>}
-                      {lineTotal != null && <span><span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: H.faint, display: "block" }}>Line total</span><span style={{ fontSize: 12, fontWeight: 800, fontFamily: H.mono }}>{fmtMoney(lineTotal)}</span></span>}
-                      {it.eta && <span><span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: H.faint, display: "block" }}>Est. delivery</span><span style={{ fontSize: 12, fontWeight: 800, fontFamily: H.mono }}>{new Date(it.eta + "T00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span></span>}
+                  <div style={{ background: "#fff", margin: "0 24px", borderTop: "1px solid #ececec", paddingTop: 16, display: "flex", flexDirection: "column", gap: 13 }}>
+                    <div style={{ display: "flex", gap: 34, flexWrap: "wrap" }}>
+                      <span><span style={lbl}>Quantity</span><span style={val}>{(it.units || 0).toLocaleString()} pcs</span></span>
+                      {it.sellPerUnit != null && <span><span style={lbl}>Unit price</span><span style={val}>{"$" + Number(it.sellPerUnit).toFixed(2)}</span></span>}
+                      {lineTotal != null && <span><span style={lbl}>Line total</span><span style={val}>{fmtMoney(lineTotal)}</span></span>}
+                      {it.eta && <span><span style={lbl}>Est. delivery</span><span style={val}>{new Date(it.eta + "T00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span></span>}
                     </div>
                     {sizeEntries.length > 0 && (
-                      <div style={{ fontSize: 11.5, fontFamily: H.mono, color: H.dim, lineHeight: 1.7 }}>
+                      <div style={{ fontSize: 14, fontFamily: PROOF_MONO, color: "#0a0a0a", lineHeight: 1.8 }}>
                         {sizeEntries.map(([sz, q], i) => (
-                          <span key={sz}><span style={{ color: H.faint, fontWeight: 700 }}>{sz}</span> <span style={{ color: H.text }}>{q}</span>{i < sizeEntries.length - 1 ? <span style={{ color: H.faint }}>{"  ·  "}</span> : null}</span>
+                          <span key={sz}><span style={{ color: "#8a90a0", fontWeight: 700 }}>{sz}</span> <span>{q}</span>{i < sizeEntries.length - 1 ? <span style={{ color: "#c8ccd4" }}>{"  ·  "}</span> : null}</span>
                         ))}
                       </div>
                     )}
                     {it.shipTracking && (
-                      <div style={{ fontSize: 11, fontFamily: H.mono, color: H.dim }}>Tracking <span style={{ color: H.text, fontWeight: 700 }}>{it.shipTracking}</span></div>
+                      <div style={{ fontSize: 12, fontFamily: PROOF_MONO, color: "#444" }}>Tracking <span style={{ fontWeight: 700, color: "#0a0a0a" }}>{it.shipTracking}</span></div>
                     )}
                   </div>
                 );
               })()}
-              <div style={{ display: "flex", gap: 12, alignItems: "center", padding: "16px 18px 18px", flexWrap: "wrap" }}>
+              {/* Footer — white, part of the document. Larger black type, no status. */}
+              <div style={{ background: "#fff", padding: "18px 24px 24px", display: "flex", flexDirection: "column", gap: 12 }}>
                 {fullyApproved ? (
-                  // Post-approval: changes go through the rep (per the approve
-                  // disclaimer) — dead approve/change buttons here just closed
-                  // the sheet and confused people.
-                  <span style={{ fontSize: 11.5, color: H.faint, lineHeight: 1.5 }}>Approved for production. Need a change? Reply to your rep and we&rsquo;ll help.</span>
-                ) : proofFile ? (<>
-                <button onClick={() => {
-                    setProofItem(null);
-                    setApproveSignal(n => n + 1);
-                    const el = document.getElementById("hx-approval");
-                    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
-                  }}
-                  style={{ background: "#fff", color: H.ink, border: "none", borderRadius: 999, padding: "13px 24px", fontSize: 12.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>
-                  Approve all proofs
-                </button>
-                <button onClick={() => {
-                    setProofItem(null);
-                    const el = document.getElementById("hx-approval");
-                    if (el) { el.scrollIntoView({ behavior: "smooth", block: "center" }); }
-                  }}
-                  style={{ background: "transparent", color: H.text, border: `1px solid rgba(255,255,255,0.35)`, borderRadius: 999, padding: "13px 22px", fontSize: 12.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>
-                  Request changes
-                </button>
-                </>) : (
-                  // Greenlit but no proof yet — the ball's in our court. Nothing
-                  // for the client to approve; we're finalizing art + building
-                  // the proof (Jon, Jul 22: greenlight ≠ proof approval).
-                  <span style={{ fontSize: 11.5, color: H.faint, lineHeight: 1.5 }}>We&rsquo;re finalizing the art and building your proof. It&rsquo;ll land right here for you to approve. A question in the meantime? Reply to your rep.</span>
+                  <div style={{ fontSize: 15, color: "#0a0a0a", lineHeight: 1.5, fontWeight: 500 }}>
+                    Approved for production. Need a change? Message your rep or{" "}
+                    <a href="mailto:hello@housepartydistro.com" style={{ color: "#0a0a0a", fontWeight: 800, textDecoration: "underline" }}>message us now</a>.
+                  </div>
+                ) : (proofFile || (it.proofSpec && it.proofSentAt)) ? (
+                  <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+                    <button onClick={() => { setProofItem(null); setApproveSignal(n => n + 1); const el = document.getElementById("hx-approval"); if (el) el.scrollIntoView({ behavior: "smooth", block: "center" }); }}
+                      style={{ background: "#0a0a0a", color: "#fff", border: "none", borderRadius: 999, padding: "13px 26px", fontSize: 13, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>
+                      Approve
+                    </button>
+                    <button onClick={() => { setProofItem(null); const el = document.getElementById("hx-approval"); if (el) el.scrollIntoView({ behavior: "smooth", block: "center" }); }}
+                      style={{ background: "transparent", color: "#0a0a0a", border: "1px solid rgba(0,0,0,0.25)", borderRadius: 999, padding: "13px 22px", fontSize: 13, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>
+                      Request changes
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 14, color: "#555", lineHeight: 1.5 }}>
+                    We&rsquo;re finalizing the art and building your proof. It&rsquo;ll land right here for you to approve.
+                  </div>
                 )}
-                {proofFile && <span style={{ marginLeft: "auto" }}>{dl("Proof PDF", `/api/files/thumbnail?id=${proofFile.driveFileId}&dl=1`)}</span>}
               </div>
             </div>
           </div>
