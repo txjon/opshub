@@ -30,9 +30,6 @@ export function OrderExperience({ data, token, onAction }: {
 }) {
   const { project, client, quote, items, payments, paymentLink, invoiceNumber, invoiceStale } = data;
   const [proofItem, setProofItem] = useState<any>(null);
-  // Incremented by the proof overlay's Approve button — PackageApproval
-  // listens and opens its confirm directly (scroll alone read as a dead end).
-  const [approveSignal, setApproveSignal] = useState(0);
 
   const units = items.reduce((a: number, it: any) => a + (it.units || 0), 0);
   const totalPaid = payments.filter((p: any) => p.status === "paid").reduce((s: number, p: any) => s + p.amount, 0);
@@ -110,7 +107,7 @@ export function OrderExperience({ data, token, onAction }: {
         : `Your invoice is ready.${preProduction ? " Production begins once it's paid." : ""}`;
       cta = { label: `Pay Now · ${fmtMoney(balance)}`, href: paymentLink };
     } else {
-      note = "Your invoice is on its way. We'll email your payment link.";
+      note = "Your invoice and payment link will appear here once your order is confirmed.";
     }
     return { note, cta };
   })();
@@ -198,7 +195,6 @@ export function OrderExperience({ data, token, onAction }: {
               items={items.map((i: any) => ({ id: i.id, name: i.name }))}
               pendingReapproval={!!project.quoteApproved && hasProofs && !allProofsApproved}
               invoiceState={totalPaid >= total - 0.005 && total > 0 ? (revisedUp ? "settled" : "paid") : payBand?.cta ? "ready" : (invoiceNumber || totalPaid > 0) ? "settled" : "pending"}
-              openApproveSignal={approveSignal}
               onAction={onAction} />
           </div>
         )}
@@ -209,7 +205,7 @@ export function OrderExperience({ data, token, onAction }: {
             <div style={{ ...LBL, marginBottom: 10 }}>Payment</div>
             <div style={{ display: "flex", gap: 26, flexWrap: "wrap", alignItems: "flex-end" }}>
               {totalPaid > 0 && <div><div style={LBL}>Paid</div><div style={{ fontFamily: H.mono, fontSize: 22, fontWeight: 800, marginTop: 4, fontVariantNumeric: "tabular-nums" }}>{fmtMoney(totalPaid)}</div></div>}
-              {current > 0 && <div><div style={LBL}>{revisedUp ? "Updated total" : "Total"}</div><div style={{ fontFamily: H.mono, fontSize: 22, fontWeight: 800, marginTop: 4, color: revisedUp ? H.dim : H.text, fontVariantNumeric: "tabular-nums" }}>{fmtMoney(current)}</div></div>}
+              {current > 0 && <div><div style={LBL}>{revisedUp ? "Updated total" : "Order total"}</div><div style={{ fontFamily: H.mono, fontSize: 22, fontWeight: 800, marginTop: 4, color: revisedUp ? H.dim : H.text, fontVariantNumeric: "tabular-nums" }}>{fmtMoney(current)}</div></div>}
               <div style={{ flex: 1, minWidth: 220, fontSize: 12.5, color: H.dim, lineHeight: 1.55 }}>{payBand.note}</div>
               {payBand.cta && (
                 <a href={payBand.cta.href} target="_blank" rel="noopener noreferrer"
@@ -297,12 +293,31 @@ export function OrderExperience({ data, token, onAction }: {
             className="hx-proof-back">
             <div className="hx-proof-sheet">
               <div className="hx-sheet-handle" />
-              {/* Close in its own strip — no header, and it never overlaps the doc's
-                  own PRODUCT PROOF header. */}
-              <div style={{ display: "flex", justifyContent: "flex-end", background: "#fff", padding: "10px 12px 0" }}>
-                <button onClick={() => setProofItem(null)} aria-label="Close proof"
-                  style={{ background: "#0a0a0a", color: "#fff", border: "none", borderRadius: 999, width: 40, height: 40, fontSize: 24, cursor: "pointer", lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>
-              </div>
+              {/* Nav strip — flip between proofs without closing; close on the right.
+                  Own strip so it never overlaps the doc's own PRODUCT PROOF header. */}
+              {(() => {
+                const idx = items.findIndex((x: any) => x.id === it.id);
+                const at = (d: number) => items[idx + d];
+                const go = (d: number) => { const n = at(d); if (n) setProofItem(n); };
+                const arrow = (d: number, label: string, glyph: string) => {
+                  const on = !!at(d);
+                  return (
+                    <button onClick={() => go(d)} disabled={!on} aria-label={label}
+                      style={{ background: on ? "#f1f1f1" : "transparent", color: on ? "#0a0a0a" : "#d0d0d0", border: "none", borderRadius: 999, width: 40, height: 40, fontSize: 22, cursor: on ? "pointer" : "default", lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>{glyph}</button>
+                  );
+                };
+                return (
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#fff", padding: "10px 12px 0" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      {arrow(-1, "Previous proof", "‹")}
+                      {arrow(1, "Next proof", "›")}
+                      {items.length > 1 && <span style={{ fontFamily: PROOF_MONO, fontSize: 12, color: "#8a90a0", marginLeft: 4, fontVariantNumeric: "tabular-nums" as any }}>{idx + 1} / {items.length}</span>}
+                    </div>
+                    <button onClick={() => setProofItem(null)} aria-label="Close proof"
+                      style={{ background: "#0a0a0a", color: "#fff", border: "none", borderRadius: 999, width: 40, height: 40, fontSize: 24, cursor: "pointer", lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>
+                  </div>
+                );
+              })()}
               {/* The FORMAL proof document — same renderer as our side + the PDF, from
                   items.proof_spec (read-only). */}
               {it.proofSpec ? (
@@ -356,15 +371,12 @@ export function OrderExperience({ data, token, onAction }: {
                     <a href="mailto:hello@housepartydistro.com" style={{ color: "#0a0a0a", fontWeight: 800, textDecoration: "underline" }}>message us now</a>.
                   </div>
                 ) : (proofFile || (it.proofSpec && it.proofSentAt)) ? (
-                  <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
-                    <button onClick={() => { setProofItem(null); setApproveSignal(n => n + 1); const el = document.getElementById("hx-approval"); if (el) el.scrollIntoView({ behavior: "smooth", block: "center" }); }}
-                      style={{ background: "#0a0a0a", color: "#fff", border: "none", borderRadius: 999, padding: "13px 26px", fontSize: 13, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>
-                      Approve
-                    </button>
+                  <div style={{ fontSize: 14, color: "#333", lineHeight: 1.55 }}>
+                    Flip through your proofs with the arrows above. When you&rsquo;re ready,{" "}
                     <button onClick={() => { setProofItem(null); const el = document.getElementById("hx-approval"); if (el) el.scrollIntoView({ behavior: "smooth", block: "center" }); }}
-                      style={{ background: "transparent", color: "#0a0a0a", border: "1px solid rgba(0,0,0,0.25)", borderRadius: 999, padding: "13px 22px", fontSize: 13, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>
-                      Request changes
-                    </button>
+                      style={{ background: "none", border: "none", padding: 0, font: "inherit", color: "#0a0a0a", fontWeight: 800, textDecoration: "underline", cursor: "pointer" }}>
+                      approve or request changes for your order
+                    </button>.
                   </div>
                 ) : (
                   <div style={{ fontSize: 14, color: "#555", lineHeight: 1.5 }}>
