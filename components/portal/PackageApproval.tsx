@@ -6,6 +6,7 @@
 // Theme + the POST action are passed in so this stays portal-agnostic. Server side
 // = lib/portal/approval-actions. See [[jon-clean-architecture-standard]].
 import { useEffect, useState } from "react";
+import { ORDER_TERMS, TERMS_HIGHLIGHT, type TermsVariant } from "@/lib/order-terms";
 
 type Theme = any; // the portal's document-style `C` theme object
 
@@ -28,7 +29,7 @@ function invoiceLine(terms?: string | null, invoiceState?: "pending" | "ready" |
   return "We'll send your invoice shortly.";
 }
 
-export function PackageApproval({ c, approved, approvedAt, changeRequest, quoteTotal, terms, items, pendingReapproval, invoiceState, openApproveSignal, onAction }: {
+export function PackageApproval({ c, approved, approvedAt, changeRequest, quoteTotal, terms, items, pendingReapproval, invoiceState, openApproveSignal, termsVariant, onAction }: {
   c: Theme;
   approved: boolean;
   approvedAt?: string | null;
@@ -39,12 +40,14 @@ export function PackageApproval({ c, approved, approvedAt, changeRequest, quoteT
   pendingReapproval?: boolean; // quote approved but proofs were revised → offer "Approve updated proofs"
   invoiceState?: "pending" | "ready" | "paid" | "settled"; // ready = live pay link below; settled = paid vs invoiced but total revised up
   openApproveSignal?: number; // increment to open the approve confirm from outside (proof overlay)
+  termsVariant?: TermsVariant; // which Order Terms set to show at the click — same source as the quote PDF
   onAction: (action: string, body?: any) => Promise<void>;
 }) {
   const [modal, setModal] = useState<null | "approve" | "changes">(null);
   const [note, setNote] = useState("");
   const [tagged, setTagged] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState(false);
+  const [showTerms, setShowTerms] = useState(false);
 
   useEffect(() => {
     if (openApproveSignal && openApproveSignal > 0) setModal("approve");
@@ -100,6 +103,26 @@ export function PackageApproval({ c, approved, approvedAt, changeRequest, quoteT
           </div>
           <div style={{ fontSize: 13, color: c.muted, marginTop: 10, lineHeight: 1.5 }}>{invoiceLine(terms, invoiceState)}</div>
           {total && <div style={{ fontSize: 13, color: c.muted, marginTop: 8 }}>Approved total: <b style={{ color: c.text }}>{total}</b></div>}
+
+          {/* Terms at the click — the two billing shields in plain view, full set
+              one tap away. Same source as the quote PDF (lib/order-terms). */}
+          <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${c.border}` }}>
+            <div style={{ fontSize: 12, color: c.muted, lineHeight: 1.5 }}>{TERMS_HIGHLIGHT}</div>
+            <button onClick={() => setShowTerms(v => !v)}
+              style={{ background: "none", border: "none", padding: 0, marginTop: 8, color: c.text, fontSize: 12, fontWeight: 700, textDecoration: "underline", cursor: "pointer", fontFamily: c.font }}>
+              {showTerms ? "Hide order terms" : "View full order terms"}
+            </button>
+            {showTerms && (
+              <div style={{ marginTop: 10, maxHeight: 180, overflowY: "auto", background: c.surface, borderRadius: 8, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
+                {ORDER_TERMS[termsVariant || "default"].map(cl => (
+                  <div key={cl.label} style={{ fontSize: 11.5, color: c.muted, lineHeight: 1.5 }}>
+                    <b style={{ color: c.text }}>{cl.label}:</b> {cl.text}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
             <button onClick={() => submit("approve-package")} disabled={busy} style={{ ...btnPrimary, opacity: busy ? 0.6 : 1 }}>{busy ? "Approving…" : "Approve for production"}</button>
             <button onClick={() => setModal(null)} disabled={busy} style={btnGhost}>Cancel</button>

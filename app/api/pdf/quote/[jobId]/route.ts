@@ -9,6 +9,9 @@ import { generatePDF } from "@/lib/pdf/browser";
 import { getPdfBranding, type PdfBranding } from "@/lib/branding";
 import { parseSizeMatrix, sizeMatrixHtml } from "@/lib/size-grid";
 import { contentDisposition } from "@/lib/pdf/filename";
+import { ORDER_TERMS, termsVariantForSlug } from "@/lib/order-terms";
+
+const escHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 // Pricing source of truth: items.sell_per_unit (set by CostingTab, rounded to cent)
 
@@ -163,29 +166,9 @@ function renderQuoteHTML(data: {
   <div style="padding:20px 36px;border-top:0.5px solid #e5e7eb;font-family:${font}">
     <div style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#aaa;margin-bottom:8px">Terms & Conditions</div>
     <div style="font-size:8.5px;color:#999;line-height:1.8;columns:2;column-gap:24px">
-      ${data.branding.slug === "dmd" ? `
-      <div style="margin-bottom:4px"><strong style="color:#777">Validity:</strong> This quote is valid for 30 days from the date of issue.</div>
-      <div style="margin-bottom:4px"><strong style="color:#777">Payment &amp; Deposit:</strong> Payment terms as agreed. A deposit is required before production begins; the balance is due prior to shipment unless otherwise agreed in writing.</div>
-      <div style="margin-bottom:4px"><strong style="color:#777">Pre-Production &amp; Approval:</strong> Tech packs, patterns, and pre-production samples must be approved in writing before bulk production. Changes after approval may affect price and lead time.</div>
-      <div style="margin-bottom:4px"><strong style="color:#777">Materials:</strong> Fabric, trim, and component availability can affect lead time, color, and pricing. Equivalent materials may be substituted when a specified material is unavailable.</div>
-      <div style="margin-bottom:4px"><strong style="color:#777">Production Lead Time:</strong> Lead times begin after the approved sample/quote, receipt of payment, and final approval of all specifications and artwork.</div>
-      <div style="margin-bottom:4px"><strong style="color:#777">Measurements &amp; Fit:</strong> Garments are produced to the approved spec and grade. Standard cut-and-sew tolerances apply (typically +/- 1/2&quot; on key measurements).</div>
-      <div style="margin-bottom:4px"><strong style="color:#777">Color &amp; Dye Lots:</strong> Slight variation in color, dye lots, wash, and hand across production runs is inherent to apparel manufacturing and is not grounds for rejection.</div>
-      <div style="margin-bottom:4px"><strong style="color:#777">Quantities:</strong> Final quantities may vary +/- 3% per standard production tolerances and are billed at the quantity produced.</div>
-      <div style="margin-bottom:4px"><strong style="color:#777">Shipping &amp; Duties:</strong> Shipping, freight, and any applicable import duties are estimated and may vary. Final charges appear on the invoice.</div>
-      <div style="margin-bottom:4px"><strong style="color:#777">Sales Tax:</strong> Applicable sales tax will be calculated and added to the final invoice.</div>
-      <div style="margin-bottom:4px"><strong style="color:#777">Cancellation:</strong> Orders cancelled after materials are sourced or production begins may be subject to fees for work and materials incurred.</div>
-      <div><strong style="color:#777">Artwork &amp; IP:</strong> Client warrants it holds all rights to the designs, trademarks, and artwork provided for production.</div>
-      ` : `
-      <div style="margin-bottom:4px"><strong style="color:#777">Validity:</strong> This quote is valid for 30 days from the date of issue.</div>
-      <div style="margin-bottom:4px"><strong style="color:#777">Payment:</strong> Payment terms as agreed. A deposit may be required before production begins.</div>
-      <div style="margin-bottom:4px"><strong style="color:#777">Production:</strong> Lead times begin after approval of quote, receipt of payment, and approval of all artwork/proofs.</div>
-      <div style="margin-bottom:4px"><strong style="color:#777">Art &amp; Proofs:</strong> Client is responsible for reviewing and approving all proofs prior to production. Changes after approval may incur additional charges.</div>
-      <div style="margin-bottom:4px"><strong style="color:#777">Quantities:</strong> Final quantities may vary +/- 3% from the order due to standard production tolerances.</div>
-      <div style="margin-bottom:4px"><strong style="color:#777">Shipping:</strong> Shipping costs are estimated and may vary. Final shipping charges will appear on the invoice.</div>
-      <div style="margin-bottom:4px"><strong style="color:#777">Sales Tax:</strong> Applicable sales tax will be calculated and added to the final invoice.</div>
-      <div><strong style="color:#777">Cancellation:</strong> Orders cancelled after production begins may be subject to cancellation fees.</div>
-      `}
+      ${ORDER_TERMS[termsVariantForSlug(data.branding.slug)].map(cl =>
+        `<div style="margin-bottom:4px"><strong style="color:#777">${escHtml(cl.label)}:</strong> ${escHtml(cl.text)}</div>`
+      ).join("")}
     </div>
   </div>
 

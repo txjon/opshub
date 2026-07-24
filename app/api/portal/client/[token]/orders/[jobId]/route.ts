@@ -552,6 +552,9 @@ export async function GET(
         paymentTerms: job.payment_terms,
       },
       client: { name: clientName },
+      // Tenant slug drives which Order Terms set the approval confirm shows —
+      // same source (lib/order-terms) as the quote PDF footer.
+      company: { slug: (client as any).companies?.slug || "hpd" },
       quote: {
         items: portalQuoteItems,
         subtotal: portalQuoteItems.reduce((a: number, qi: any) => a + (qi.total || 0), 0),
