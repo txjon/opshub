@@ -264,8 +264,15 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     let prods: any[] = [];
     if (costProds.length > 0) {
       prods = costProds.map(p => {
-        const dbItem = (items || []).find((it: any) => it.id === p.id);
-        const quotedQtys = p.qtys || {};
+        const dbItem = (items || []).find((it: any) => it.id === p.id)
+          || (items || []).find((it: any) => (it.name || "").trim().toLowerCase() === (p.name || "").trim().toLowerCase());
+        // Quantity single source of truth = buy_sheet_lines (the lock-protected
+        // store QB + PO read). costing_data.qtys can drift on a locked job — that
+        // was the HPD-2607-028 bug (stamped invoice showed 26 vs the billed 52).
+        // Fall back to costProds.qtys only when the buy sheet has no rows.
+        const bslQtys: Record<string, number> = {};
+        for (const l of ((dbItem as any)?.buy_sheet_lines || [])) bslQtys[l.size] = Number(l.qty_ordered) || 0;
+        const quotedQtys = Object.keys(bslQtys).length > 0 ? bslQtys : (p.qtys || {});
 
         let effectiveQtys: Record<string, number>;
         if (variancePushed && dbItem) {
