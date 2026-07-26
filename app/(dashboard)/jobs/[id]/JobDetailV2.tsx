@@ -18,6 +18,8 @@ import { isCostingLocked } from "@/lib/costing-lock";
 import { logJobActivity } from "@/components/JobActivityPanel";
 import { calcCostProduct, buildPrintersMap, lookupPrintPrice as sharedLookupPrintPrice, lookupTagPrice as sharedLookupTagPrice } from "@/lib/pricing";
 import { DecorationPanel as DecorationPanelRaw } from "./DecorationPanel";
+import { sendQuoteAndProofs, defaultRecipient } from "@/lib/job/quote-actions";
+import { pushInvoiceToQB, recordPayment } from "@/lib/job/invoice-actions";
 const DecorationPanel: any = DecorationPanelRaw; // .jsx — bypass narrow inferred prop types
 
 const fmtMoney = (n: number) => "$" + Math.round(Number(n) || 0).toLocaleString("en-US");
@@ -43,12 +45,16 @@ const ROUTE_SUB: Record<string, string> = { drop_ship: "Vendor → client", ship
 // (per-item or bulk), not per-item here. The modal is per-product work only.
 const TASKS = [["build", "Build"], ["cost", "Cost"], ["art", "Art"]] as const;
 
-export function JobDetailV2({ job, items: itemsProp = [], payments = [], contacts = [], thumbByItem = {} }: any) {
-  // Local items state so qty edits reflect live in the gallery/totals; reseeds if
-  // the parent reloads. The only write V2 makes is qty → buy_sheet_lines (the
-  // single source of truth), gated on the costing lock.
+export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: paymentsProp = [], contacts = [], thumbByItem = {} }: any) {
+  // Local state so edits reflect live; reseeds if the parent reloads. Note:
+  // costing_data mutations are shown via the decoState overlay (not job here),
+  // so cpFor(job) stays the DB baseline — don't mutate job.costing_data locally.
+  const [job, setJob] = useState<any>(jobProp);
+  useEffect(() => { setJob(jobProp); }, [jobProp]);
   const [items, setItems] = useState<any[]>(itemsProp);
   useEffect(() => { setItems(itemsProp); }, [itemsProp]);
+  const [payments, setPayments] = useState<any[]>(paymentsProp);
+  useEffect(() => { setPayments(paymentsProp); }, [paymentsProp]);
   const locked = isCostingLocked(job);
 
   // Decorator pricing → printers map, for the shared cost engine (decoration cost).
@@ -121,6 +127,13 @@ export function JobDetailV2({ job, items: itemsProp = [], payments = [], contact
   const [wsTask, setWsTask] = useState<string>("build");
   const [open, setOpen] = useState<Record<string, boolean>>({ products: true, client: false, production: true, logistics: false });
   const toggle = (k: string) => setOpen(o => ({ ...o, [k]: !o[k] }));
+
+  // Client transaction actions (send quote/proofs, approve, send invoice, record payment).
+  const [clientAction, setClientAction] = useState<null | "quote" | "invoice" | "payment">(null);
+  const [recips, setRecips] = useState<Record<string, boolean>>({});
+  const [actBusy, setActBusy] = useState(false);
+  const [actErr, setActErr] = useState("");
+  const [payForm, setPayForm] = useState<{ type: string; amount: string; paid_date: string }>({ type: "full_payment", amount: "", paid_date: "" });
 
   // Save a single size's qty to buy_sheet_lines (the qty source of truth) and
   // reflect it locally. Blur-triggered, so flipping items never loses an edit.
@@ -201,6 +214,65 @@ export function JobDetailV2({ job, items: itemsProp = [], payments = [], contact
   const created = job?.created_at ? new Date(job.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—";
   const inHands = job?.target_ship_date ? new Date(job.target_ship_date + "T12:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—";
   const hero = PHASE_HERO[job?.phase] || PHASE_HERO.intake;
+
+  // ── client-action handlers (reuse the shared libs) ──
+  const flatContacts = (contacts || []).map((c: any) => ({ email: c.contacts?.email || c.email, name: c.contacts?.name || c.name || "", role_on_job: c.role_on_job })).filter((c: any) => c.email);
+  const openSend = (kind: "quote" | "invoice") => {
+    const { to, cc } = defaultRecipient(flatContacts);
+    const sel: Record<string, boolean> = {};
+    flatContacts.forEach((c: any) => { sel[c.email] = c.email === to || cc.includes(c.email); });
+    setRecips(sel); setActErr(""); setClientAction(kind);
+  };
+  const selectedEmails = () => flatContacts.filter((c: any) => recips[c.email]).map((c: any) => c.email);
+  const refetchTypeMeta = async () => { const { data }: any = await createClient().from("jobs").select("type_meta, quote_approved, quote_approved_at").eq("id", job.id).single(); if (data) setJob((j: any) => ({ ...j, quote_approved: data.quote_approved, quote_approved_at: data.quote_approved_at, type_meta: { ...j.type_meta, ...data.type_meta } })); };
+  const doSendQuote = async () => {
+    const emails = selectedEmails(); if (!emails.length) { setActErr("Select a recipient."); return; }
+    setActBusy(true); setActErr("");
+    try {
+      const [to, ...cc] = emails;
+      const hasReady = items.some((it: any) => it.proof_spec);
+      await sendQuoteAndProofs(job, { to, cc, includeProofs: hasReady, proofsOnly: !!job.quote_approved });
+      const readyIds = items.filter((it: any) => it.proof_spec && !it.proof_sent_at).map((it: any) => it.id);
+      if (readyIds.length) { const nowP = new Date().toISOString(); await (createClient().from("items") as any).update({ proof_sent_at: nowP }).in("id", readyIds); setItems(prev => prev.map(x => readyIds.includes(x.id) ? { ...x, proof_sent_at: nowP } : x)); }
+      await refetchTypeMeta();
+      setClientAction(null);
+    } catch (e: any) { setActErr(e.message || "Send failed"); } finally { setActBusy(false); }
+  };
+  const doSendInvoice = async () => {
+    const emails = selectedEmails(); if (!emails.length) { setActErr("Select a recipient."); return; }
+    setActBusy(true); setActErr("");
+    try {
+      await pushInvoiceToQB(job);
+      const [to, ...cc] = emails;
+      const r = await fetch("/api/email/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "invoice", jobId: job.id, recipientEmail: to, ccEmails: cc }) });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "Invoice email failed");
+      await refetchTypeMeta();
+      setClientAction(null);
+    } catch (e: any) { setActErr(e.message || "Invoice send failed"); } finally { setActBusy(false); }
+  };
+  const doApprove = async () => {
+    const now = new Date().toISOString();
+    await (createClient().from("jobs") as any).update({ quote_approved: true, quote_approved_at: now }).eq("id", job.id);
+    setJob((j: any) => ({ ...j, quote_approved: true, quote_approved_at: now }));
+    try { logJobActivity(job.id, "Quote approved (internal)"); } catch {}
+  };
+  const doRevoke = async () => {
+    await (createClient().from("jobs") as any).update({ quote_approved: false, quote_approved_at: null }).eq("id", job.id);
+    setJob((j: any) => ({ ...j, quote_approved: false, quote_approved_at: null }));
+    try { logJobActivity(job.id, "Quote approval revoked"); } catch {}
+  };
+  const doRecordPayment = async () => {
+    const amt = parseFloat(String(payForm.amount).replace(/[^0-9.]/g, "")) || 0;
+    if (amt <= 0) { setActErr("Enter an amount."); return; }
+    setActBusy(true); setActErr("");
+    try {
+      await recordPayment(job, { type: payForm.type, amount: amt, invoice_number: invNum || null, paid_date: payForm.paid_date || new Date().toISOString().slice(0, 10) });
+      const { data: freshPay }: any = await createClient().from("payment_records").select("*").eq("job_id", job.id).order("created_at");
+      if (freshPay) setPayments(freshPay);
+      setPayForm({ type: "full_payment", amount: "", paid_date: "" });
+      setClientAction(null);
+    } catch (e: any) { setActErr(e.message || "Failed"); } finally { setActBusy(false); }
+  };
 
   // ── spine ──
   const phase = job?.phase || "intake";
@@ -383,6 +455,9 @@ export function JobDetailV2({ job, items: itemsProp = [], payments = [], contact
 
   const lbl: React.CSSProperties = { fontSize: 9.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: T.faint };
   const previewBtn: React.CSSProperties = { fontSize: 12, fontWeight: 800, color: T.text, textDecoration: "none", padding: "8px 15px", borderRadius: 999, border: `1px solid ${T.border}`, background: T.card };
+  const actBtn: React.CSSProperties = { fontSize: 12, fontWeight: 800, color: "#0a0a0a", background: T.accent, border: "none", borderRadius: 999, padding: "9px 16px", cursor: "pointer", fontFamily: font };
+  const ghostBtn: React.CSSProperties = { ...previewBtn, cursor: "pointer", fontFamily: font };
+  const field: React.CSSProperties = { padding: "9px 11px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13.5, fontFamily: font, outline: "none", boxSizing: "border-box", width: "100%" };
   const block = (id: string, tick: "done" | "now" | "todo", title: string, summary: string, body: React.ReactNode, dim = false) => (
     <div id={id} style={{ border: `1px solid ${T.border}`, borderRadius: 16, background: T.card, marginTop: 14, overflow: "hidden", opacity: dim && !open[id] ? 0.6 : 1 }}>
       <div onClick={() => toggle(id)} style={{ display: "flex", alignItems: "center", gap: 14, padding: "16px 20px", cursor: "pointer" }}>
@@ -515,6 +590,15 @@ export function JobDetailV2({ job, items: itemsProp = [], payments = [], contact
       {block("client", flags.approved ? "done" : "todo", "Client",
         `${flags.approved ? "Approved" : flags.quoted ? "Quote sent" : "Not sent"} · ${invNum ? "Inv " + invNum : "no invoice"} · ${fmtMoney(paid)} paid${flags.grew ? " · ⚠ re-invoice" : ""}`, (
         <div>
+          {/* client transaction actions */}
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+            <button onClick={() => openSend("quote")} style={actBtn}>{job.quote_approved ? "Send proofs" : "Send quote & proofs"}</button>
+            {job.quote_approved
+              ? <button onClick={doRevoke} style={ghostBtn}>Approved ✓ · revoke</button>
+              : <button onClick={doApprove} style={ghostBtn}>Mark approved</button>}
+            <button onClick={() => openSend("invoice")} style={ghostBtn}>Send invoice</button>
+            <button onClick={() => { setActErr(""); setClientAction("payment"); }} style={ghostBtn}>+ Record payment</button>
+          </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
             <a href={`/api/pdf/quote/${job.id}`} target="_blank" rel="noreferrer" style={previewBtn}>Preview quote</a>
             {invNum && <a href={`/api/pdf/invoice/${job.id}`} target="_blank" rel="noreferrer" style={previewBtn}>Preview invoice</a>}
@@ -836,6 +920,46 @@ export function JobDetailV2({ job, items: itemsProp = [], payments = [], contact
                 );
               })()}
               <div style={{ fontSize: 11, color: T.faint, marginTop: 16, paddingTop: 12, borderTop: `1px solid ${T.border}55` }}>Flip between items with ‹ › or ← →.</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── client transaction modal (send quote/proofs · send invoice · record payment) ── */}
+      {clientAction && (
+        <div onClick={e => { if (e.target === e.currentTarget && !actBusy) setClientAction(null); }}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 320, display: "flex", alignItems: "center", justifyContent: "center", padding: 18 }}>
+          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 14, width: "100%", maxWidth: 420, padding: "20px 22px" }}>
+            <div style={{ fontSize: 16, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", marginBottom: 14 }}>
+              {clientAction === "quote" ? (job.quote_approved ? "Send proofs" : "Send quote & proofs") : clientAction === "invoice" ? "Send invoice" : "Record payment"}
+            </div>
+            {clientAction === "payment" ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <select value={payForm.type} onChange={e => setPayForm(f => ({ ...f, type: e.target.value }))} style={field}>
+                  <option value="full_payment">Full payment</option>
+                  <option value="deposit">Deposit</option>
+                  <option value="balance">Balance</option>
+                </select>
+                <input value={payForm.amount} onChange={e => setPayForm(f => ({ ...f, amount: e.target.value }))} placeholder="Amount" inputMode="decimal" style={field} />
+                <input type="date" value={payForm.paid_date} onChange={e => setPayForm(f => ({ ...f, paid_date: e.target.value }))} style={field} />
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <div style={{ ...lbl, marginBottom: 4 }}>Recipients</div>
+                {flatContacts.length === 0 ? <div style={{ fontSize: 13, color: T.faint }}>No contacts with an email on this job.</div> :
+                  flatContacts.map((c: any) => (
+                    <label key={c.email} style={{ display: "flex", alignItems: "center", gap: 9, fontSize: 13, color: T.text, padding: "4px 0" }}>
+                      <input type="checkbox" checked={!!recips[c.email]} onChange={() => setRecips(r => ({ ...r, [c.email]: !r[c.email] }))} style={{ accentColor: T.accent }} />
+                      <span>{c.name || c.email}<span style={{ color: T.faint }}> · {c.email}{c.role_on_job ? " · " + c.role_on_job : ""}</span></span>
+                    </label>
+                  ))}
+              </div>
+            )}
+            {actErr && <div style={{ color: T.red, fontSize: 12, marginTop: 10 }}>{actErr}</div>}
+            <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
+              <button disabled={actBusy} onClick={clientAction === "payment" ? doRecordPayment : clientAction === "invoice" ? doSendInvoice : doSendQuote}
+                style={{ ...actBtn, opacity: actBusy ? 0.6 : 1 }}>{actBusy ? "Working…" : clientAction === "payment" ? "Record payment" : "Send"}</button>
+              <button disabled={actBusy} onClick={() => setClientAction(null)} style={ghostBtn}>Cancel</button>
             </div>
           </div>
         </div>
