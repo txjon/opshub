@@ -60,6 +60,18 @@ export function JobDetailV2({ job, items: itemsProp = [], payments = [], contact
     } catch (e) { console.error("[JobV2] qty save failed", e); }
   };
 
+  // Record a blank order (S&S order # + actual cost) → items. Per-item.
+  const saveBlank = async (item: any, field: "blanks_order_number" | "blanks_order_cost", raw: string) => {
+    const val = field === "blanks_order_cost"
+      ? (raw === "" ? null : parseFloat(String(raw).replace(/[^0-9.]/g, "")) || 0)
+      : (raw.trim() || null);
+    if (val === (item[field] ?? (field === "blanks_order_cost" ? null : null))) return;
+    setItems(prev => prev.map(x => x.id === item.id ? { ...x, [field]: val } : x));
+    try {
+      await (createClient().from("items") as any).update({ [field]: val }).eq("id", item.id);
+    } catch (e) { console.error("[JobV2] blank save failed", e); }
+  };
+
   // Esc + arrow keys for the worksheet — the proof-editor feel.
   useEffect(() => {
     if (wsIndex === null) return;
@@ -114,6 +126,27 @@ export function JobDetailV2({ job, items: itemsProp = [], payments = [], contact
   const inProd = items.filter((it: any) => it.pipeline_stage === "in_production").length;
   const shipped = items.filter((it: any) => it.pipeline_stage === "shipped").length;
   const blanksOrdered = items.filter((it: any) => it.blanks_order_number || it.blanks_order_cost != null).length;
+
+  // ── order gates (mirror BlanksTab): quote approved · payment (terms-specific)
+  // · all proofs approved. All three must be met before ordering blanks / POs. ──
+  const terms = (job?.payment_terms || "").toLowerCase();
+  const paymentGate = /^net/.test(terms) ? flags.approved : terms === "deposit_balance" ? payments.some((p: any) => p.status === "paid") : flags.paid;
+  const proofGate = items.length > 0 && artApproved === items.length;
+  const canOrder = flags.approved && paymentGate && proofGate;
+
+  // ── per-vendor PO grouping. Group by the costing printVendor (what the PO PDF
+  // route filters on with ?vendor=), matching the current PO tab. costing_data
+  // rides on `job`. Fall back to the decorator assignment name. ──
+  const poSentVendors: string[] = Array.isArray(tm.po_sent_vendors) ? tm.po_sent_vendors : [];
+  const costProds: any[] = job?.costing_data?.costProds || [];
+  const cpFor = (item: any) => costProds.find(cp => cp.id === item.id)
+    || costProds.find(cp => (cp.name || "").trim().toLowerCase() === (item.name || "").trim().toLowerCase());
+  const calcBlank = (item: any) => (Number(item.cost_per_unit) || 0) * sumQ({ ...(item.qtys || {}) });
+  const vendorGroups: Record<string, any[]> = {};
+  for (const item of items) {
+    const v = cpFor(item)?.printVendor || item.decorator || "Unassigned";
+    (vendorGroups[v] ||= []).push(item);
+  }
 
   const lbl: React.CSSProperties = { fontSize: 9.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: T.faint };
   const block = (id: string, tick: "done" | "now" | "todo", title: string, summary: string, body: React.ReactNode, dim = false) => (
@@ -260,22 +293,62 @@ export function JobDetailV2({ job, items: itemsProp = [], payments = [], contact
 
       {/* PRODUCTION */}
       {block("production", phase === "production" ? "now" : beyond(phase, ["receiving", "fulfillment", "complete"]) ? "done" : "todo", "Production",
-        `${blanksOrdered}/${items.length} blanks · ${flags.po ? "POs sent" : "POs not sent"} · ${inProd} printing`, (
+        `${blanksOrdered}/${items.length} blanks · ${Object.keys(vendorGroups).filter(v => poSentVendors.includes(v)).length}/${Object.keys(vendorGroups).length} POs sent`, (
         <div>
-          <div style={{ display: "flex", gap: 22, flexWrap: "wrap", padding: "6px 0 14px", fontSize: 12, color: T.muted }}>
-            <span>Blanks <b style={{ color: blanksOrdered === items.length ? T.green : T.amber }}>{blanksOrdered}/{items.length} ordered</b></span>
-            <span>POs <b style={{ color: flags.po ? T.green : T.faint }}>{flags.po ? "sent" : "not sent"}</b></span>
-            <span>Payment gate <b style={{ color: flags.paid ? T.green : T.faint }}>{flags.paid ? "met" : "pending"}</b></span>
+          {/* GATES — cleared to order? */}
+          <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap", padding: "8px 12px", marginTop: 6, marginBottom: 16, borderRadius: 10, background: canOrder ? T.greenDim : T.surface, border: `1px solid ${canOrder ? T.green + "44" : T.border}` }}>
+            <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: canOrder ? T.green : T.amber }}>{canOrder ? "Cleared to order" : "Not cleared yet"}</span>
+            {[["Quote", flags.approved], ["Payment", paymentGate], ["Proofs", proofGate]].map(([g, ok]: any) => (
+              <span key={g} style={{ fontSize: 12, color: T.muted }}>{ok ? <b style={{ color: T.green }}>✓</b> : <b style={{ color: T.faint }}>○</b>} {g}</span>
+            ))}
           </div>
-          {items.map((item: any) => (
-            <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "11px 0", borderBottom: `1px solid ${T.border}55` }}>
-              <span style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>{item.name}</span>
-              <span style={{ fontSize: 12, color: T.muted, fontFamily: mono }}>{qtyOf(item).toLocaleString()} u</span>
-              <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: item.pipeline_stage === "in_production" ? "#6bb0e8" : item.pipeline_stage === "shipped" ? T.green : T.faint }}>
-                {item.pipeline_stage === "in_production" ? "In production" : item.pipeline_stage === "shipped" ? "Shipped" : "Not started"}
-              </span>
-            </div>
-          ))}
+
+          {/* BLANKS — per item */}
+          <div style={{ ...lbl, marginBottom: 8 }}>Blanks · {blanksOrdered}/{items.length} ordered</div>
+          {items.map((item: any) => {
+            const calc = calcBlank(item);
+            const ordered = item.blanks_order_cost != null && item.blanks_order_cost !== "";
+            const actual = ordered ? Number(item.blanks_order_cost) : null;
+            return (
+              <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: `1px solid ${T.border}44`, flexWrap: "wrap" }}>
+                <span style={{ flex: 1, minWidth: 160, fontSize: 13, fontWeight: 600 }}>{item.name}<span style={{ color: T.faint, fontWeight: 400, marginLeft: 8, fontSize: 11 }}>{item.blank_vendor} {item.blank_sku}</span></span>
+                <span style={{ fontSize: 11, color: T.faint, fontFamily: mono, width: 74, textAlign: "right" }}>est {fmtMoney(calc)}</span>
+                <input defaultValue={item.blanks_order_number || ""} placeholder="order #" onBlur={e => saveBlank(item, "blanks_order_number", e.target.value)}
+                  style={{ width: 96, padding: "6px 8px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: mono, outline: "none" }} />
+                <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                  <span style={{ fontSize: 11, color: T.faint }}>$</span>
+                  <input defaultValue={actual != null ? actual.toFixed(2) : ""} placeholder="actual" inputMode="decimal" onBlur={e => saveBlank(item, "blanks_order_cost", e.target.value)}
+                    style={{ width: 74, padding: "6px 8px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: mono, outline: "none" }} />
+                </div>
+                <span style={{ width: 60, textAlign: "right", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: ordered ? (actual! > calc ? T.red : T.green) : T.faint }}>{ordered ? (actual! > calc ? "over" : "ordered ✓") : "—"}</span>
+              </div>
+            );
+          })}
+
+          {/* PURCHASE ORDERS — per vendor */}
+          <div style={{ ...lbl, margin: "22px 0 10px" }}>Purchase orders · by decorator</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {Object.entries(vendorGroups).map(([vendor, vitems]) => {
+              const sent = poSentVendors.includes(vendor);
+              const vUnits = vitems.reduce((a: number, it: any) => a + qtyOf(it), 0);
+              const allBlanks = vitems.every((it: any) => it.blanks_order_cost != null && it.blanks_order_cost !== "");
+              return (
+                <div key={vendor} style={{ border: `1px solid ${T.border}`, borderRadius: 12, background: T.surface, padding: "13px 15px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 14, fontWeight: 800, flex: 1, minWidth: 120 }}>{vendor}</span>
+                    <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: sent ? T.green : T.faint }}>{sent ? "✓ Sent" : "— Not sent"}</span>
+                  </div>
+                  <div style={{ fontSize: 12, color: T.muted, marginTop: 4, fontFamily: mono }}>{vitems.map((it: any) => it.name).join(" · ")} · {vUnits.toLocaleString()} u</div>
+                  {!allBlanks && <div style={{ fontSize: 11, color: T.amber, marginTop: 6 }}>⚠ Not all blanks ordered for this vendor.</div>}
+                  <div style={{ display: "flex", gap: 8, marginTop: 11 }}>
+                    <a href={`/api/pdf/po/${job.id}?vendor=${encodeURIComponent(vendor)}${sent ? "&revised=1" : ""}`} target="_blank" rel="noreferrer"
+                      style={{ fontSize: 12, fontWeight: 800, color: T.text, textDecoration: "none", padding: "8px 15px", borderRadius: 999, border: `1px solid ${T.border}`, background: T.card }}>Preview PO</a>
+                    <span title="Send flow (email + ship details) wires in next" style={{ fontSize: 12, fontWeight: 800, color: T.faint, padding: "8px 15px", borderRadius: 999, border: `1px dashed ${T.border}`, cursor: "not-allowed" }}>{sent ? "Re-send" : "Send PO"} · next</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       ))}
 
@@ -360,7 +433,27 @@ export function JobDetailV2({ job, items: itemsProp = [], payments = [], contact
               })()}
               {wsTask === "cost" && <WsRows rows={[["Sell / unit", "$" + (Number(it.sell_per_unit) || 0).toFixed(2)], ["Blank cost / unit", it.cost_per_unit != null ? "$" + Number(it.cost_per_unit).toFixed(2) : "—"], ["Line total", fmtMoney((Number(it.sell_per_unit) || 0) * qtyOf(it))], ...Object.entries((it.blankCosts || it.blank_costs) || {}).map(([sz, c]: any) => ["  " + sz + " blank", "$" + Number(c).toFixed(2)])]} />}
               {wsTask === "art" && <WsRows rows={[["Artwork", it.artwork_status || "not started"], ["Mockup", thumbByItem[it.id] ? "on file" : "none"]]} />}
-              {wsTask === "blank" && <WsRows rows={[["S&S / order #", it.blanks_order_number || "not ordered"], ["Actual blank cost", it.blanks_order_cost != null ? fmtMoney(it.blanks_order_cost) : "—"]]} />}
+              {wsTask === "blank" && (() => {
+                const calc = calcBlank(it);
+                return (
+                  <div>
+                    <div style={{ display: "flex", justifyContent: "space-between", padding: "9px 0", borderBottom: `1px solid ${T.border}44`, fontSize: 13 }}>
+                      <span style={{ color: T.muted }}>Estimated blank cost</span><span style={{ fontWeight: 700, fontFamily: mono }}>{fmtMoney(calc)}</span>
+                    </div>
+                    <label style={{ display: "block", marginTop: 14 }}>
+                      <span style={{ ...lbl, display: "block", marginBottom: 5 }}>S&amp;S / order #</span>
+                      <input key={it.id + "_bnum"} defaultValue={it.blanks_order_number || ""} placeholder="order number" onBlur={e => saveBlank(it, "blanks_order_number", e.target.value)}
+                        style={{ width: "100%", padding: "9px 11px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: mono, outline: "none", boxSizing: "border-box" }} />
+                    </label>
+                    <label style={{ display: "block", marginTop: 12 }}>
+                      <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Actual blank cost</span>
+                      <input key={it.id + "_bcost"} defaultValue={it.blanks_order_cost != null && it.blanks_order_cost !== "" ? Number(it.blanks_order_cost).toFixed(2) : ""} placeholder="0.00" inputMode="decimal" onBlur={e => saveBlank(it, "blanks_order_cost", e.target.value)}
+                        style={{ width: "100%", padding: "9px 11px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: mono, outline: "none", boxSizing: "border-box" }} />
+                    </label>
+                    <div style={{ fontSize: 11, color: T.faint, marginTop: 12 }}>Saves to the item. Compared against the estimate above and on the variance check.</div>
+                  </div>
+                );
+              })()}
               <div style={{ fontSize: 11, color: T.faint, marginTop: 16, paddingTop: 12, borderTop: `1px solid ${T.border}55` }}>Scaffold view — the live {TASKS.find(t => t[0] === wsTask)?.[1]} editor wires in here next. Flip items with ‹ › or ← →.</div>
             </div>
           </div>
