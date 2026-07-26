@@ -171,7 +171,10 @@ const CInput=({label,value,onChange,type="text",prefix,suffix,options,placeholde
 const CToggle=({label,value,onChange})=>(
   <div style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer"}} onClick={()=>onChange(!value)}>
     <div style={{width:32,height:18,borderRadius:9,background:value?T.accent:T.surface,border:`1px solid ${value?T.accent:T.border}`,position:"relative",transition:"all 0.2s"}}>
-      <div style={{position:"absolute",top:2,left:value?14:2,width:12,height:12,borderRadius:"50%",background:"white",transition:"all 0.2s"}}/>
+      {/* Knob contrasts with the track in BOTH states: track goes white (T.accent)
+          when ON, so the knob must be dark there — a hardcoded white knob vanished
+          on the white track (the "all-white toggle" bug). */}
+      <div style={{position:"absolute",top:2,left:value?14:2,width:12,height:12,borderRadius:"50%",background:value?T.bg:"#ffffff",transition:"all 0.2s"}}/>
     </div>
     <span style={{fontSize:12,color:T.muted,fontFamily:font}}>{label}</span>
   </div>
