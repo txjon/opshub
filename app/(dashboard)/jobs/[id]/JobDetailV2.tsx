@@ -15,6 +15,7 @@ import React, { useState, useEffect } from "react";
 import { T, font, mono } from "@/lib/theme";
 import { createClient } from "@/lib/supabase/client";
 import { isCostingLocked } from "@/lib/costing-lock";
+import { logJobActivity } from "@/components/JobActivityPanel";
 
 const fmtMoney = (n: number) => "$" + Math.round(Number(n) || 0).toLocaleString("en-US");
 const sumQ = (o: any) => Object.values(o || {}).reduce((a: number, v: any) => a + (Number(v) || 0), 0);
@@ -60,16 +61,45 @@ export function JobDetailV2({ job, items: itemsProp = [], payments = [], contact
     } catch (e) { console.error("[JobV2] qty save failed", e); }
   };
 
-  // Record a blank order (S&S order # + actual cost) → items. Per-item.
-  const saveBlank = async (item: any, field: "blanks_order_number" | "blanks_order_cost", raw: string) => {
-    const val = field === "blanks_order_cost"
-      ? (raw === "" ? null : parseFloat(String(raw).replace(/[^0-9.]/g, "")) || 0)
-      : (raw.trim() || null);
-    if (val === (item[field] ?? (field === "blanks_order_cost" ? null : null))) return;
-    setItems(prev => prev.map(x => x.id === item.id ? { ...x, [field]: val } : x));
+  // Record a blank purchase total → items.blanks_order_cost. Per-item. (The S&S
+  // order # field was dropped — we log the credit-card purchase total only.)
+  const saveBlankCost = async (item: any, raw: string) => {
+    const val = raw === "" ? null : parseFloat(String(raw).replace(/[^0-9.]/g, "")) || 0;
+    if (val === (item.blanks_order_cost ?? null)) return;
+    setItems(prev => prev.map(x => x.id === item.id ? { ...x, blanks_order_cost: val } : x));
     try {
-      await (createClient().from("items") as any).update({ [field]: val }).eq("id", item.id);
-    } catch (e) { console.error("[JobV2] blank save failed", e); }
+      await (createClient().from("items") as any).update({ blanks_order_cost: val }).eq("id", item.id);
+    } catch (e) { console.error("[JobV2] blank cost save failed", e); }
+  };
+
+  // Bulk blank purchase — one CC total split across SELECTED items, proportional
+  // to each item's calc cost (cost_per_unit × qty); equal split when calc is
+  // missing; last item absorbs rounding drift so the row sum matches the total
+  // exactly. Faithful port of BlanksTab.applyBulkOrder.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkTotal, setBulkTotal] = useState("");
+  const toggleSel = (id: string) => setSelectedIds(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const applyBulk = async () => {
+    const total = parseFloat(String(bulkTotal).replace(/[^0-9.\-]/g, ""));
+    if (bulkTotal === "" || isNaN(total) || total < 0) return;
+    const targets = items.filter((it: any) => selectedIds.has(it.id));
+    if (!targets.length) return;
+    const calcs = targets.map((it: any) => { const q = sumQ(it.qtys); const cpu = Number(it.cost_per_unit); return cpu > 0 && q > 0 ? cpu * q : null; });
+    const calcSum = calcs.reduce((a: number, v: any) => a + (v || 0), 0);
+    const allKnown = calcs.every((v: any) => v != null && v > 0);
+    const cents = Math.round(total * 100);
+    const shares = targets.map((_: any, i: number) => allKnown && calcSum > 0 ? Math.round((calcs[i]! / calcSum) * cents) : Math.round(cents / targets.length));
+    shares[shares.length - 1] += cents - shares.reduce((a: number, v: number) => a + v, 0);
+    const supabase = createClient();
+    const summaries: string[] = [];
+    await Promise.all(targets.map(async (it: any, i: number) => {
+      const dollars = shares[i] / 100;
+      setItems(prev => prev.map(x => x.id === it.id ? { ...x, blanks_order_cost: dollars } : x));
+      await (supabase.from("items") as any).update({ blanks_order_cost: dollars }).eq("id", it.id);
+      summaries.push(`${it.name} · $${dollars.toFixed(2)}`);
+    }));
+    try { logJobActivity(job.id, `Bulk blanks order: $${total.toFixed(2)} across ${targets.length} item${targets.length !== 1 ? "s" : ""} — ${summaries.join(", ")}`); } catch {}
+    setBulkTotal(""); setSelectedIds(new Set());
   };
 
   // Esc + arrow keys for the worksheet — the proof-editor feel.
@@ -236,7 +266,7 @@ export function JobDetailV2({ job, items: itemsProp = [], payments = [], contact
 
       {/* jump nav */}
       <div style={{ position: "sticky", top: 0, zIndex: 20, background: "rgba(10,10,10,0.82)", backdropFilter: "blur(10px)", display: "flex", gap: 8, padding: "12px 0", margin: "8px 0 6px", borderBottom: `1px solid ${T.border}55`, overflowX: "auto" }}>
-        {[["products", "Products & Costing"], ["client", "Client"], ["production", "Production"], ["logistics", "Logistics"]].map(([id, label]) => (
+        {[["products", "Products & Costing"], ["client", "Client"], ["production", "Purchasing & Production"], ["logistics", "Logistics"]].map(([id, label]) => (
           <a key={id} href={"#" + id} onClick={() => setOpen(o => ({ ...o, [id]: true }))} style={{ fontSize: 12, fontWeight: 700, color: T.muted, textDecoration: "none", padding: "7px 13px", borderRadius: 999, border: `1px solid ${T.border}`, whiteSpace: "nowrap" }}>{label}</a>
         ))}
       </div>
@@ -292,7 +322,7 @@ export function JobDetailV2({ job, items: itemsProp = [], payments = [], contact
       ))}
 
       {/* PRODUCTION */}
-      {block("production", phase === "production" ? "now" : beyond(phase, ["receiving", "fulfillment", "complete"]) ? "done" : "todo", "Production",
+      {block("production", phase === "production" ? "now" : beyond(phase, ["receiving", "fulfillment", "complete"]) ? "done" : "todo", "Purchasing & Production",
         `${blanksOrdered}/${items.length} blanks · ${Object.keys(vendorGroups).filter(v => poSentVendors.includes(v)).length}/${Object.keys(vendorGroups).length} POs sent`, (
         <div>
           {/* GATES — cleared to order? */}
@@ -303,30 +333,51 @@ export function JobDetailV2({ job, items: itemsProp = [], payments = [], contact
             ))}
           </div>
 
-          {/* BLANKS — per item */}
-          <div style={{ ...lbl, marginBottom: 8 }}>Blanks · {blanksOrdered}/{items.length} ordered</div>
+          {/* BLANKS — credit-card purchases, per item */}
+          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
+            <span style={lbl}>Blanks · credit-card purchases · {blanksOrdered}/{items.length} logged</span>
+            <button onClick={() => setSelectedIds(s => s.size === items.length ? new Set() : new Set(items.map((i: any) => i.id)))}
+              style={{ fontSize: 11, fontWeight: 700, color: T.muted, background: "none", border: `1px solid ${T.border}`, borderRadius: 999, padding: "4px 11px", cursor: "pointer", fontFamily: font }}>
+              {selectedIds.size === items.length ? "Clear all" : "Select all"}
+            </button>
+          </div>
           {items.map((item: any) => {
             const calc = calcBlank(item);
             const ordered = item.blanks_order_cost != null && item.blanks_order_cost !== "";
             const actual = ordered ? Number(item.blanks_order_cost) : null;
+            const sel = selectedIds.has(item.id);
             return (
               <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: `1px solid ${T.border}44`, flexWrap: "wrap" }}>
-                <span style={{ flex: 1, minWidth: 160, fontSize: 13, fontWeight: 600 }}>{item.name}<span style={{ color: T.faint, fontWeight: 400, marginLeft: 8, fontSize: 11 }}>{item.blank_vendor} {item.blank_sku}</span></span>
+                <input type="checkbox" checked={sel} onChange={() => toggleSel(item.id)} style={{ width: 15, height: 15, accentColor: T.accent, cursor: "pointer" }} />
+                <span style={{ flex: 1, minWidth: 150, fontSize: 13, fontWeight: 600 }}>{item.name}<span style={{ color: T.faint, fontWeight: 400, marginLeft: 8, fontSize: 11 }}>{item.blank_vendor} {item.blank_sku}</span></span>
                 <span style={{ fontSize: 11, color: T.faint, fontFamily: mono, width: 74, textAlign: "right" }}>est {fmtMoney(calc)}</span>
-                <input defaultValue={item.blanks_order_number || ""} placeholder="order #" onBlur={e => saveBlank(item, "blanks_order_number", e.target.value)}
-                  style={{ width: 96, padding: "6px 8px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: mono, outline: "none" }} />
                 <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
                   <span style={{ fontSize: 11, color: T.faint }}>$</span>
-                  <input defaultValue={actual != null ? actual.toFixed(2) : ""} placeholder="actual" inputMode="decimal" onBlur={e => saveBlank(item, "blanks_order_cost", e.target.value)}
-                    style={{ width: 74, padding: "6px 8px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: mono, outline: "none" }} />
+                  <input key={item.id + ":c:" + (item.blanks_order_cost ?? "")} defaultValue={actual != null ? actual.toFixed(2) : ""} placeholder="total paid" inputMode="decimal" onBlur={e => saveBlankCost(item, e.target.value)}
+                    style={{ width: 84, padding: "6px 8px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: mono, outline: "none" }} />
                 </div>
-                <span style={{ width: 60, textAlign: "right", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: ordered ? (actual! > calc ? T.red : T.green) : T.faint }}>{ordered ? (actual! > calc ? "over" : "ordered ✓") : "—"}</span>
+                <span style={{ width: 62, textAlign: "right", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: ordered ? (actual! > calc ? T.red : T.green) : T.faint }}>{ordered ? (actual! > calc ? "over" : "logged ✓") : "—"}</span>
               </div>
             );
           })}
+          {/* Bulk purchase — one CC total split across selected items */}
+          {selectedIds.size > 0 && (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginTop: 12, padding: "11px 13px", borderRadius: 10, background: T.surface, border: `1px solid ${T.border}` }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: T.muted }}>{selectedIds.size} selected · split one purchase total:</span>
+              <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                <span style={{ fontSize: 12, color: T.faint }}>$</span>
+                <input value={bulkTotal} onChange={e => setBulkTotal(e.target.value)} placeholder="0.00" inputMode="decimal"
+                  onKeyDown={e => { if (e.key === "Enter") applyBulk(); }}
+                  style={{ width: 100, padding: "7px 9px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 13, fontFamily: mono, outline: "none" }} />
+              </div>
+              <button onClick={applyBulk} disabled={!bulkTotal.trim()}
+                style={{ fontSize: 12, fontWeight: 800, color: bulkTotal.trim() ? "#0a0a0a" : T.faint, background: bulkTotal.trim() ? T.accent : "transparent", border: `1px solid ${bulkTotal.trim() ? T.accent : T.border}`, borderRadius: 999, padding: "7px 16px", cursor: bulkTotal.trim() ? "pointer" : "default", fontFamily: font }}>Apply to selected</button>
+              <span style={{ fontSize: 11, color: T.faint }}>split proportional to each item's estimate</span>
+            </div>
+          )}
 
           {/* PURCHASE ORDERS — per vendor */}
-          <div style={{ ...lbl, margin: "22px 0 10px" }}>Purchase orders · by decorator</div>
+          <div style={{ ...lbl, margin: "22px 0 10px" }}>Purchase orders · bill-later vendors</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {Object.entries(vendorGroups).map(([vendor, vitems]) => {
               const sent = poSentVendors.includes(vendor);
@@ -441,16 +492,11 @@ export function JobDetailV2({ job, items: itemsProp = [], payments = [], contact
                       <span style={{ color: T.muted }}>Estimated blank cost</span><span style={{ fontWeight: 700, fontFamily: mono }}>{fmtMoney(calc)}</span>
                     </div>
                     <label style={{ display: "block", marginTop: 14 }}>
-                      <span style={{ ...lbl, display: "block", marginBottom: 5 }}>S&amp;S / order #</span>
-                      <input key={it.id + "_bnum"} defaultValue={it.blanks_order_number || ""} placeholder="order number" onBlur={e => saveBlank(it, "blanks_order_number", e.target.value)}
+                      <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Blank purchase total (credit card)</span>
+                      <input key={it.id + ":bc:" + (it.blanks_order_cost ?? "")} defaultValue={it.blanks_order_cost != null && it.blanks_order_cost !== "" ? Number(it.blanks_order_cost).toFixed(2) : ""} placeholder="0.00" inputMode="decimal" onBlur={e => saveBlankCost(it, e.target.value)}
                         style={{ width: "100%", padding: "9px 11px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: mono, outline: "none", boxSizing: "border-box" }} />
                     </label>
-                    <label style={{ display: "block", marginTop: 12 }}>
-                      <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Actual blank cost</span>
-                      <input key={it.id + "_bcost"} defaultValue={it.blanks_order_cost != null && it.blanks_order_cost !== "" ? Number(it.blanks_order_cost).toFixed(2) : ""} placeholder="0.00" inputMode="decimal" onBlur={e => saveBlank(it, "blanks_order_cost", e.target.value)}
-                        style={{ width: "100%", padding: "9px 11px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: mono, outline: "none", boxSizing: "border-box" }} />
-                    </label>
-                    <div style={{ fontSize: 11, color: T.faint, marginTop: 12 }}>Saves to the item. Compared against the estimate above and on the variance check.</div>
+                    <div style={{ fontSize: 11, color: T.faint, marginTop: 12 }}>Logs the card purchase against this item. Compared to the estimate on the variance check.</div>
                   </div>
                 );
               })()}
