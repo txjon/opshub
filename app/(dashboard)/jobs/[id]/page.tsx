@@ -15,6 +15,7 @@ import { ApprovalsTab } from "./ApprovalsTab";
 import { JobItemsList } from "./JobItemsList.jsx";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { ProductBuilder } from "./ProductBuilder";
+import { JobDetailV2 } from "./JobDetailV2";
 import { T, font, mono, sortSizes } from "@/lib/theme";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Skeleton } from "@/components/Skeleton";
@@ -731,6 +732,12 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
 
   if (loading && !initialLoadDone.current) return React.createElement(JobSkeleton, null);
   if (!job) return React.createElement("div", {style:{padding:"2rem",color:T.muted,fontSize:13}}, "Project not found.");
+
+  // V2 job-detail (Track 2, parallel): opt-in via ?v2=1 so it's fully isolated
+  // from the live page — same loaded data, new tabless canvas shell.
+  if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("v2") === "1") {
+    return <JobDetailV2 job={job} items={items} payments={payments} contacts={contacts} thumbByItem={thumbByItem} />;
+  }
 
   // Revenue + cost KPIs reflect the CURRENT costing state. Source of
   // truth: costing_summary (refreshed every time the costing tab saves
