@@ -68,6 +68,10 @@ export function JobDetailV2({ job, items: itemsProp = [], payments = [], contact
   const [decoState, setDecoState] = useState<Record<string, any>>({});
   const persistTimer = React.useRef<any>(null);
   const pendingRef = React.useRef<Record<string, any>>({});
+  // Refs mirror live state so the debounced flush (a stale render closure) reads
+  // the CURRENT deco edits + items, not the snapshot from when it was scheduled.
+  const decoStateRef = React.useRef(decoState); decoStateRef.current = decoState;
+  const itemsRef = React.useRef(items); itemsRef.current = items;
 
   // Job activity feed (read-only).
   const [activity, setActivity] = useState<any[]>([]);
@@ -228,21 +232,29 @@ export function JobDetailV2({ job, items: itemsProp = [], payments = [], contact
   const allAssembled = items.map(assemble);
 
   // Debounced flush of decoration edits → costing_data (surgical) + recomputed
-  // items.sell_per_unit. Fresh read-modify-write so nothing else is clobbered.
+  // items.sell_per_unit. Reads via refs (assembleNow) so a stale timer closure
+  // still sees the current edits. Fresh read-modify-write so nothing is clobbered.
   const flushDeco = async () => {
-    const pending = pendingRef.current; pendingRef.current = {};
-    const ids = Object.keys(pending);
+    const ids = Object.keys(pendingRef.current); pendingRef.current = {};
     if (!ids.length) return;
+    const ds = decoStateRef.current;
+    const its = itemsRef.current;
+    const assembleNow = (item: any) => {
+      const cp = ds[item.id] || cpFor(item) || {};
+      const q = { ...(item.qtys || {}) };
+      const bc = (item.blank_costs && Object.keys(item.blank_costs).length) ? item.blank_costs : (cp.blankCosts || {});
+      return { ...cp, id: item.id, name: item.name, qtys: q, totalQty: sumQ(q), blankCosts: bc, blank_vendor: item.blank_vendor, garment_type: item.garment_type };
+    };
     const supabase = createClient();
     try {
       const { data: fresh }: any = await supabase.from("jobs").select("costing_data").eq("id", job.id).single();
       const cd = fresh?.costing_data || job.costing_data || { costProds: [] };
       const cps = (Array.isArray(cd.costProds) ? cd.costProds : []).map((c: any) => ({ ...c }));
-      const allNow = items.map(assemble);   // decoState already has the edits
+      const allNow = its.map(assembleNow);
       const sellUpdates: { id: string; sell: number }[] = [];
       for (const id of ids) {
-        const item = items.find((x: any) => x.id === id); if (!item) continue;
-        const p = assemble(item);
+        const item = its.find((x: any) => x.id === id); if (!item) continue;
+        const p = assembleNow(item);
         let idx = cps.findIndex((c: any) => c.id === id);
         if (idx < 0) idx = cps.findIndex((c: any) => (c.name || "").trim().toLowerCase() === (item.name || "").trim().toLowerCase());
         if (idx >= 0) cps[idx] = { ...cps[idx], ...p }; else cps.push(p);
@@ -318,6 +330,8 @@ export function JobDetailV2({ job, items: itemsProp = [], payments = [], contact
       try { const rr: any = calcCostProduct(pAuto, costMargin, inclShip, inclCC, items.map(x => x.id === item.id ? pAuto : assemble(x)), printers); if (rr) sell = Math.round((rr.sellPerUnit || 0) * 100) / 100; } catch {}
     }
     setItems(prev => prev.map(x => x.id === item.id ? { ...x, sell_per_unit: sell } : x));
+    // reflect the override in the overlay so the Cost tab shows it immediately
+    setDecoState(s => ({ ...s, [item.id]: { ...(s[item.id] || cpFor(item) || {}), sellOverride: override } }));
     try {
       const { data: fresh }: any = await supabase.from("jobs").select("costing_data").eq("id", job.id).single();
       const cd = fresh?.costing_data || job.costing_data || { costProds: [] };
@@ -658,7 +672,7 @@ export function JobDetailV2({ job, items: itemsProp = [], payments = [], contact
               })()}
               {wsTask === "cost" && (() => {
                 const r: any = calcFor(it);
-                const cp = cpFor(it) || {};
+                const cp = decoState[it.id] || cpFor(it) || {};  // overlay so override/deco edits show live
                 const overridden = cp.sellOverride != null && cp.sellOverride !== "";
                 // Revenue/sell = items.sell_per_unit (the INVOICE truth), so this tab
                 // can never disagree with the client's bill. The engine (r) supplies
