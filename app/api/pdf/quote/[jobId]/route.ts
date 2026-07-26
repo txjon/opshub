@@ -253,11 +253,17 @@ export async function GET(_req: NextRequest, { params }: { params: { jobId: stri
     if (costProds.length > 0) {
       prods = costProds
         .map(p => {
-          const savedQtys = p.qtys || {};
-          const totalQty = p.totalQty || Object.values(savedQtys).reduce((a: number, v: any) => a + v, 0);
+          const dbItem = (items || []).find((it: any) => it.id === p.id)
+            || (items || []).find((it: any) => (it.name || "").trim().toLowerCase() === (p.name || "").trim().toLowerCase());
+          // Quantity single source of truth = buy_sheet_lines (the lock-protected
+          // store QB + PO read); costProds.qtys is the drift-prone fallback that
+          // caused the HPD-2607-028 stamped-invoice bug.
+          const bslQtys: Record<string, number> = {};
+          for (const l of ((dbItem as any)?.buy_sheet_lines || [])) bslQtys[l.size] = Number(l.qty_ordered) || 0;
+          const savedQtys = Object.keys(bslQtys).length > 0 ? bslQtys : (p.qtys || {});
+          const totalQty = Object.values(savedQtys).reduce((a: number, v: any) => a + (Number(v) || 0), 0);
           if (totalQty === 0) return null;
 
-          const dbItem = (items || []).find((it: any) => it.id === p.id);
           const sellPerUnit = parseFloat(dbItem?.sell_per_unit) || 0;
           const grossRev = Math.round(sellPerUnit * totalQty * 100) / 100;
           // A $0 line shows ONLY when the price was deliberately set to $0

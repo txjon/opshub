@@ -267,8 +267,12 @@ export async function GET(
         let item = (items || []).find((i: any) => i.id === cp.id);
         if (!item && cp.name) item = (items || []).find((i: any) => i.name === cp.name);
 
-        // Qty source: post-variance we use ship/received per-size with fallback
-        // to quoted qtys; pre-variance we use quoted qtys (costing_data).
+        // Qty source of truth = buy_sheet_lines (lock-protected, what QB + PO
+        // read). costing_data.qtys is the drift-prone fallback that caused the
+        // HPD-2607-028 bug. Post-variance we override with ship/received per-size.
+        const bslQtys: Record<string, number> = {};
+        for (const l of ((item as any)?.buy_sheet_lines || [])) bslQtys[l.size] = Number(l.qty_ordered) || 0;
+        const ordered = Object.keys(bslQtys).length > 0 ? bslQtys : (cp.qtys || {});
         let effectiveQtys: Record<string, number>;
         if (variancePushed && item) {
           const received = (item.received_qtys || {}) as Record<string, number>;
@@ -278,7 +282,6 @@ export async function GET(
           const prefersReceived = itemRoute === "ship_through" || itemRoute === "stage";
           const firstChoice = prefersReceived ? received : shipped;
           const secondChoice = prefersReceived ? shipped : received;
-          const ordered = cp.qtys || {};
           effectiveQtys = {};
           for (const sz of Object.keys(ordered)) {
             const a = firstChoice[sz];
@@ -286,7 +289,7 @@ export async function GET(
             effectiveQtys[sz] = a !== undefined ? a : b !== undefined ? b : (ordered[sz] || 0);
           }
         } else {
-          effectiveQtys = cp.qtys || {};
+          effectiveQtys = ordered;
         }
 
         const totalQty = Object.values(effectiveQtys).reduce(
