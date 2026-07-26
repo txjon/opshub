@@ -37,7 +37,9 @@ const PHASE_HERO: Record<string, { eyebrow: string; title: string; sub: string }
 };
 const ROUTE_LABEL: Record<string, string> = { drop_ship: "Drop ship", ship_through: "Ship-through", stage: "Stage" };
 const ROUTE_SUB: Record<string, string> = { drop_ship: "Vendor → client", ship_through: "→ HPD → client", stage: "→ HPD → fulfillment" };
-const TASKS = [["build", "Build"], ["cost", "Cost"], ["art", "Art"], ["blank", "Blank"]] as const;
+// Blank purchasing is a job-level action — it lives in Purchasing & Production
+// (per-item or bulk), not per-item here. The modal is per-product work only.
+const TASKS = [["build", "Build"], ["cost", "Cost"], ["art", "Art"]] as const;
 
 export function JobDetailV2({ job, items: itemsProp = [], payments = [], contacts = [], thumbByItem = {} }: any) {
   // Local items state so qty edits reflect live in the gallery/totals; reseeds if
@@ -689,23 +691,7 @@ export function JobDetailV2({ job, items: itemsProp = [], payments = [], contact
                   </div>
                 );
               })()}
-              {wsTask === "blank" && (() => {
-                const calc = calcBlank(it);
-                return (
-                  <div>
-                    <div style={{ display: "flex", justifyContent: "space-between", padding: "9px 0", borderBottom: `1px solid ${T.border}44`, fontSize: 13 }}>
-                      <span style={{ color: T.muted }}>Estimated blank cost</span><span style={{ fontWeight: 700, fontFamily: mono }}>{fmtMoney(calc)}</span>
-                    </div>
-                    <label style={{ display: "block", marginTop: 14 }}>
-                      <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Blank purchase total (credit card)</span>
-                      <input key={it.id + ":bc:" + (it.blanks_order_cost ?? "")} defaultValue={it.blanks_order_cost != null && it.blanks_order_cost !== "" ? Number(it.blanks_order_cost).toFixed(2) : ""} placeholder="0.00" inputMode="decimal" onBlur={e => saveBlankCost(it, e.target.value)}
-                        style={{ width: "100%", padding: "9px 11px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: mono, outline: "none", boxSizing: "border-box" }} />
-                    </label>
-                    <div style={{ fontSize: 11, color: T.faint, marginTop: 12 }}>Logs the card purchase against this item. Compared to the estimate on the variance check.</div>
-                  </div>
-                );
-              })()}
-              <div style={{ fontSize: 11, color: T.faint, marginTop: 16, paddingTop: 12, borderTop: `1px solid ${T.border}55` }}>Scaffold view — the live {TASKS.find(t => t[0] === wsTask)?.[1]} editor wires in here next. Flip items with ‹ › or ← →.</div>
+              <div style={{ fontSize: 11, color: T.faint, marginTop: 16, paddingTop: 12, borderTop: `1px solid ${T.border}55` }}>Flip between items with ‹ › or ← →.</div>
             </div>
           </div>
         </div>
