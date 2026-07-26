@@ -17,6 +17,15 @@ import { calcCostProduct as sharedCalcCostProduct, lookupPrintPrice as sharedLoo
 import { useClientBranding } from "@/lib/branding-client";
 import { useIsMobile } from "@/lib/useIsMobile";
 
+// STOPGAP (Jon, Jul 25 2026): quantity is owned by Product Builder — the single
+// source of truth is buy_sheet_lines. Editing qty in TWO places (here + Product
+// Builder) is what drifted costing_data.qtys out of sync and produced a wrong
+// stamped invoice on HPD-2607-028. Until the merged workbench lands, Costing
+// SHOWS qty (synced from the buy sheet) but does NOT let you edit it here.
+// Blank-cost override stays editable. Flip to false to restore in-Costing qty
+// editing. See memory: project_cost_qty_single_source_plan.
+const COSTING_QTY_READONLY = true;
+
 const BLANK_COSTS = {
   "NL6210_White":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39,"4XL":7.72,"5XL":8.75,"6XL":9.17},
   "NL6210_Black":{"XS":3.55,"S":3.55,"M":3.55,"L":3.55,"XL":3.55,"2XL":5.0,"3XL":6.39,"4XL":7.72,"5XL":8.75,"6XL":9.17},
@@ -752,6 +761,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                           50+ variant pant doesn't bury the cost controls). */}
                       {(p.sizes||[]).length > 0 && (() => {
                         const onSizeQty = (sz, raw) => {
+                          if (COSTING_QTY_READONLY) return; // qty owned by Product Builder — see stopgap flag
                           const q = parseInt(raw) || 0;
                           const newQtys = { ...(p.qtys||{}), [sz]: q };
                           const newTotal = Object.values(newQtys).reduce((a,v)=>a+(v||0),0);
@@ -784,15 +794,16 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                                 <div style={{fontSize:11,color:T.muted,fontFamily:mono}}>{(p.totalQty||0).toLocaleString()} total</div>
                               </div>
                               {parseSizeMatrix(p.sizes, null) ? (
-                                <SizeGridInput sizes={p.sizes} getValue={sz => p.qtys?.[sz] ?? ""} onChange={(sz, v) => onSizeQty(sz, v)} onCommit={() => {}} disabled={costingLocked} ic={gridIc} />
+                                <SizeGridInput sizes={p.sizes} getValue={sz => p.qtys?.[sz] ?? ""} onChange={(sz, v) => onSizeQty(sz, v)} onCommit={() => {}} disabled={costingLocked || COSTING_QTY_READONLY} ic={gridIc} />
                               ) : (
                                 <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
                                   {(p.sizes||[]).map(sz=>(
                                     <div key={sz} style={{display:"flex",alignItems:"center",gap:5,background:T.card,border:`1px solid ${T.border}`,borderRadius:5,padding:"3px 6px"}}>
                                       <span style={{fontSize:10,fontWeight:700,color:T.muted,fontFamily:mono,minWidth:24}}>{sz}</span>
                                       <input type="text" inputMode="numeric" pattern="[0-9]*" value={p.qtys?.[sz]||""} placeholder="0"
+                                        readOnly={COSTING_QTY_READONLY} title={COSTING_QTY_READONLY ? "Quantity is set in Product Builder" : undefined}
                                         onChange={e=>onSizeQty(sz, e.target.value)} onFocus={e=>e.target.select()}
-                                        style={{width:48,textAlign:"center",background:"transparent",border:"none",outline:"none",color:T.text,fontSize:13,fontWeight:700,fontFamily:mono,padding:"2px 4px"}}/>
+                                        style={{width:48,textAlign:"center",background:"transparent",border:"none",outline:"none",color:COSTING_QTY_READONLY?T.muted:T.text,fontSize:13,fontWeight:700,fontFamily:mono,padding:"2px 4px"}}/>
                                     </div>
                                   ))}
                                 </div>
@@ -1111,9 +1122,10 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                                     <td style={{padding:"2px 6px",fontFamily:mono,fontSize:11,fontWeight:600,color:T.muted,borderRight:`1px solid ${T.border}`}}>{sz}</td>
                                     <td style={{padding:"2px 4px",textAlign:"right",borderRight:`1px solid ${T.border}`}}>
                                       <input type="text" inputMode="numeric" pattern="[0-9]*" value={qty||""} placeholder="0"
-                                        onChange={e=>{const q=parseInt(e.target.value)||0;const newQtys={...(p.qtys||{}),[sz]:q};const newTotal=Object.values(newQtys).reduce((a,v)=>a+v,0);qtyEditedRef?.current?.add(p.id);updateProd(i,{...p,qtys:newQtys,totalQty:newTotal});if(onUpdateBuyItems){onUpdateBuyItems(prev=>prev.map(bi=>bi.id===p.id?{...bi,qtys:newQtys,totalQty:newTotal}:bi));}}}
+                                        readOnly={COSTING_QTY_READONLY} title={COSTING_QTY_READONLY ? "Quantity is set in Product Builder" : undefined}
+                                        onChange={e=>{if(COSTING_QTY_READONLY)return;const q=parseInt(e.target.value)||0;const newQtys={...(p.qtys||{}),[sz]:q};const newTotal=Object.values(newQtys).reduce((a,v)=>a+v,0);qtyEditedRef?.current?.add(p.id);updateProd(i,{...p,qtys:newQtys,totalQty:newTotal});if(onUpdateBuyItems){onUpdateBuyItems(prev=>prev.map(bi=>bi.id===p.id?{...bi,qtys:newQtys,totalQty:newTotal}:bi));}}}
                                         data-costfield onKeyDown={e=>{if(e.key==="Enter"||e.key==="Tab")focusNext(e,e.shiftKey);if(e.key==="ArrowDown"){e.preventDefault();focusNext({...e,key:"Tab",shiftKey:false},false);}if(e.key==="ArrowUp"){e.preventDefault();focusNext({...e,key:"Tab",shiftKey:true},true);}}}
-                                        style={{width:36,textAlign:"right",background:"transparent",border:"none",outline:"none",color:T.text,fontSize:11,fontFamily:mono}}/>
+                                        style={{width:36,textAlign:"right",background:"transparent",border:"none",outline:"none",color:COSTING_QTY_READONLY?T.muted:T.text,fontSize:11,fontFamily:mono}}/>
                                     </td>
                                     <td style={{padding:"2px 4px",textAlign:"right",borderRight:`1px solid ${T.border}`}}>
                                       <div style={{display:"flex",alignItems:"center",justifyContent:"flex-end",gap:1}}>
