@@ -20,6 +20,7 @@ import { calcCostProduct, buildPrintersMap, lookupPrintPrice as sharedLookupPrin
 import { DecorationPanel as DecorationPanelRaw } from "./DecorationPanel";
 import { sendQuoteAndProofs, defaultRecipient } from "@/lib/job/quote-actions";
 import { pushInvoiceToQB, recordPayment } from "@/lib/job/invoice-actions";
+import { applyPoSentToVendorItems } from "@/lib/po-actions";
 const DecorationPanel: any = DecorationPanelRaw; // .jsx — bypass narrow inferred prop types
 
 const fmtMoney = (n: number) => "$" + Math.round(Number(n) || 0).toLocaleString("en-US");
@@ -134,6 +135,8 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   const [actBusy, setActBusy] = useState(false);
   const [actErr, setActErr] = useState("");
   const [payForm, setPayForm] = useState<{ type: string; amount: string; paid_date: string }>({ type: "full_payment", amount: "", paid_date: "" });
+  const [poVendor, setPoVendor] = useState<string | null>(null);
+  const [poShipDate, setPoShipDate] = useState("");
 
   // Save a single size's qty to buy_sheet_lines (the qty source of truth) and
   // reflect it locally. Blur-triggered, so flipping items never loses an edit.
@@ -272,6 +275,43 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       setPayForm({ type: "full_payment", amount: "", paid_date: "" });
       setClientAction(null);
     } catch (e: any) { setActErr(e.message || "Failed"); } finally { setActBusy(false); }
+  };
+
+  // ── PO send (per vendor) — reuses the working classic flow: email the per-vendor
+  // PO PDF, then applyPoSentToVendorItems (advance items → in_production + sent
+  // date), and record the vendor in type_meta.po_sent_vendors. ──
+  const decFor = (vendor: string) => decoratorRecords.find((d: any) => d.name === vendor || d.short_code === vendor);
+  const openPoSend = (vendor: string) => {
+    const cl = decFor(vendor)?.contacts_list || [];
+    const sel: Record<string, boolean> = {};
+    cl.forEach((c: any) => { if (c.email) sel[c.email] = true; });
+    setRecips(sel);
+    setPoShipDate((job.type_meta?.po_ship_dates || {})[vendor] || "");
+    setActErr(""); setPoVendor(vendor);
+  };
+  const doSendPO = async () => {
+    if (!poVendor) return;
+    const cl = decFor(poVendor)?.contacts_list || [];
+    const emails = cl.filter((c: any) => c.email && recips[c.email]).map((c: any) => c.email);
+    if (!emails.length) { setActErr("Select a recipient (or add contacts on the decorator)."); return; }
+    if (!poShipDate) { setActErr("Set a ship date."); return; }
+    setActBusy(true); setActErr("");
+    try {
+      const supabase = createClient();
+      const [to, ...cc] = emails;
+      const alreadySent = ((job.type_meta?.po_sent_vendors) || []).includes(poVendor);
+      const meta = { ...(job.type_meta || {}), po_ship_dates: { ...(job.type_meta?.po_ship_dates || {}), [poVendor]: poShipDate } };
+      await (supabase.from("jobs") as any).update({ type_meta: meta }).eq("id", job.id);
+      const r = await fetch("/api/email/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "po", jobId: job.id, vendor: poVendor, recipientEmail: to, ccEmails: cc, revised: alreadySent }) });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "PO email failed");
+      await applyPoSentToVendorItems(supabase, job.id, poVendor);
+      const sentVendors = Array.from(new Set([...(job.type_meta?.po_sent_vendors || []), poVendor]));
+      const meta2 = { ...meta, po_sent_vendors: sentVendors, po_sent_dates: { ...(job.type_meta?.po_sent_dates || {}), [poVendor]: new Date().toISOString().slice(0, 10) } };
+      await (supabase.from("jobs") as any).update({ type_meta: meta2 }).eq("id", job.id);
+      setJob((j: any) => ({ ...j, type_meta: { ...j.type_meta, ...meta2 } }));
+      setItems(prev => prev.map(x => (cpFor(x)?.printVendor || x.decorator || "Unassigned") === poVendor && x.pipeline_stage !== "shipped" ? { ...x, pipeline_stage: "in_production" } : x));
+      setPoVendor(null);
+    } catch (e: any) { setActErr(e.message || "Send failed"); } finally { setActBusy(false); }
   };
 
   // ── spine ──
@@ -690,7 +730,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                   <div style={{ display: "flex", gap: 8, marginTop: 11 }}>
                     <a href={`/api/pdf/po/${job.id}?vendor=${encodeURIComponent(vendor)}${sent ? "&revised=1" : ""}`} target="_blank" rel="noreferrer"
                       style={{ fontSize: 12, fontWeight: 800, color: T.text, textDecoration: "none", padding: "8px 15px", borderRadius: 999, border: `1px solid ${T.border}`, background: T.card }}>Preview PO</a>
-                    <span title="Send flow (email + ship details) wires in next" style={{ fontSize: 12, fontWeight: 800, color: T.faint, padding: "8px 15px", borderRadius: 999, border: `1px dashed ${T.border}`, cursor: "not-allowed" }}>{sent ? "Re-send" : "Send PO"} · next</span>
+                    <button onClick={() => openPoSend(vendor)} style={sent ? ghostBtn : actBtn}>{sent ? "Re-send PO" : "Send PO"}</button>
                   </div>
                 </div>
               );
@@ -964,6 +1004,37 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
           </div>
         </div>
       )}
+
+      {/* ── PO send modal (per vendor) ── */}
+      {poVendor && (() => {
+        const cl = (decFor(poVendor)?.contacts_list || []).filter((c: any) => c.email);
+        return (
+          <div onClick={e => { if (e.target === e.currentTarget && !actBusy) setPoVendor(null); }}
+            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 320, display: "flex", alignItems: "center", justifyContent: "center", padding: 18 }}>
+            <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 14, width: "100%", maxWidth: 420, padding: "20px 22px" }}>
+              <div style={{ fontSize: 16, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", marginBottom: 14 }}>Send PO · {poVendor}</div>
+              <label style={{ display: "block", marginBottom: 12 }}>
+                <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Ship date (required)</span>
+                <input type="date" value={poShipDate} onChange={e => setPoShipDate(e.target.value)} style={field} />
+              </label>
+              <div style={{ ...lbl, marginBottom: 4 }}>Recipients</div>
+              {cl.length === 0 ? (
+                <div style={{ fontSize: 13, color: T.amber }}>No contacts on this decorator — add them on the Decorators page first.</div>
+              ) : cl.map((c: any) => (
+                <label key={c.email} style={{ display: "flex", alignItems: "center", gap: 9, fontSize: 13, color: T.text, padding: "4px 0" }}>
+                  <input type="checkbox" checked={!!recips[c.email]} onChange={() => setRecips(r => ({ ...r, [c.email]: !r[c.email] }))} style={{ accentColor: T.accent }} />
+                  <span>{c.name || c.email}<span style={{ color: T.faint }}> · {c.email}{c.role ? " · " + c.role : ""}</span></span>
+                </label>
+              ))}
+              {actErr && <div style={{ color: T.red, fontSize: 12, marginTop: 10 }}>{actErr}</div>}
+              <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
+                <button disabled={actBusy || cl.length === 0} onClick={doSendPO} style={{ ...actBtn, opacity: actBusy || cl.length === 0 ? 0.6 : 1 }}>{actBusy ? "Sending…" : "Send PO"}</button>
+                <button disabled={actBusy} onClick={() => setPoVendor(null)} style={ghostBtn}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
