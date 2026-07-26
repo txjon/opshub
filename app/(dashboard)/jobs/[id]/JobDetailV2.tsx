@@ -80,6 +80,20 @@ export function JobDetailV2({ job, items: itemsProp = [], payments = [], contact
     createClient().from("job_activity").select("message, created_at, type").eq("job_id", job.id).order("created_at", { ascending: false }).limit(40).then(({ data }: any) => { if (data) setActivity(data); });
   }, [job?.id]);
 
+  // Item files (art / mockups / proofs / print-ready) for the Art tab — live
+  // (non-superseded) only, grouped by item.
+  const [filesByItem, setFilesByItem] = useState<Record<string, any[]>>({});
+  useEffect(() => {
+    const ids = (itemsProp || []).map((i: any) => i.id).filter(Boolean);
+    if (!ids.length) return;
+    createClient().from("item_files").select("item_id, file_name, stage, drive_file_id, approval, created_at").in("item_id", ids).is("superseded_at", null).order("created_at").then(({ data }: any) => {
+      if (!data) return;
+      const m: Record<string, any[]> = {};
+      data.forEach((f: any) => { (m[f.item_id] ||= []).push(f); });
+      setFilesByItem(m);
+    });
+  }, [itemsProp]);
+
   const [wsIndex, setWsIndex] = useState<number | null>(null);   // open item worksheet index (null = closed)
   const [wsTask, setWsTask] = useState<string>("build");
   const [open, setOpen] = useState<Record<string, boolean>>({ products: true, client: false, production: true, logistics: false });
@@ -751,22 +765,34 @@ export function JobDetailV2({ job, items: itemsProp = [], payments = [], contact
                 );
               })()}
               {wsTask === "art" && (() => {
-                const thumb = thumbByItem[it.id];
+                const files = filesByItem[it.id] || [];
                 const art = it.artwork_status || "not_started";
                 const artColor = art === "approved" ? T.green : art === "revision_requested" ? T.amber : T.muted;
                 return (
                   <div>
-                    {thumb ? (
-                      <img src={thumbSrc(thumb, true)} alt="" style={{ width: "100%", maxHeight: "42vh", objectFit: "contain", borderRadius: 10, background: "#fff", display: "block" }} />
-                    ) : (
-                      <div style={{ aspectRatio: "2 / 1", background: T.surface, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", color: T.faint, fontSize: 13 }}>No mockup on file yet</div>
-                    )}
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0 8px", marginTop: 8, borderTop: `1px solid ${T.border}44` }}>
-                      <span style={{ color: T.muted, fontSize: 13 }}>Artwork</span>
-                      <span style={{ fontWeight: 800, fontSize: 12, letterSpacing: "0.04em", textTransform: "uppercase", color: artColor }}>{art.replace(/_/g, " ")}</span>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                      <span style={lbl}>Files · {files.length}</span>
+                      <span style={{ fontWeight: 800, fontSize: 11, letterSpacing: "0.04em", textTransform: "uppercase", color: artColor }}>{art.replace(/_/g, " ")}</span>
                     </div>
-                    <a href={`/jobs/${job?.id}?tab=proofs`} style={{ ...previewBtn, display: "inline-block", marginTop: 8 }}>Manage proofs ›</a>
-                    <div style={{ fontSize: 11, color: T.faint, marginTop: 12 }}>Proof review, approval &amp; send wire into this tab next (the proof-flow pattern).</div>
+                    {files.length === 0 ? (
+                      <div style={{ fontSize: 13, color: T.faint, padding: "16px 0" }}>No files on this item yet.</div>
+                    ) : (
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(88px, 1fr))", gap: 10 }}>
+                        {files.map((f: any) => {
+                          const ap = f.approval === "approved" ? T.green : f.approval === "revision_requested" ? T.amber : T.faint;
+                          return (
+                            <a key={f.drive_file_id + f.file_name} href={thumbSrc(f.drive_file_id, true)} target="_blank" rel="noreferrer" title={f.file_name} style={{ textDecoration: "none" }}>
+                              <div style={{ aspectRatio: "1 / 1", background: "#fff", borderRadius: 8, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", border: `1px solid ${T.border}` }}>
+                                <img src={thumbSrc(f.drive_file_id)} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+                              </div>
+                              <div style={{ fontSize: 10, color: T.muted, marginTop: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.file_name}</div>
+                              <div style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", color: ap }}>{(f.stage || "").replace(/_/g, " ")}{f.approval === "approved" ? " ✓" : ""}</div>
+                            </a>
+                          );
+                        })}
+                      </div>
+                    )}
+                    <div style={{ fontSize: 11, color: T.faint, marginTop: 14 }}>Files open full-size in a new tab. Proofs are sent &amp; approved in the Client section.</div>
                   </div>
                 );
               })()}
