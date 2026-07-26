@@ -19,6 +19,7 @@ import { logJobActivity } from "@/components/JobActivityPanel";
 import { calcCostProduct, buildPrintersMap } from "@/lib/pricing";
 
 const fmtMoney = (n: number) => "$" + Math.round(Number(n) || 0).toLocaleString("en-US");
+const fmtDT = (iso: string) => iso ? new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
 const sumQ = (o: any) => Object.values(o || {}).reduce((a: number, v: any) => a + (Number(v) || 0), 0);
 const qtyOf = (it: any) => Number(it?.totalQty) || sumQ(it?.qtys);
 
@@ -49,6 +50,13 @@ export function JobDetailV2({ job, items: itemsProp = [], payments = [], contact
   useEffect(() => {
     createClient().from("decorators").select("*").then(({ data }: any) => { if (data) setPrinters(buildPrintersMap(data)); });
   }, []);
+
+  // Job activity feed (read-only).
+  const [activity, setActivity] = useState<any[]>([]);
+  useEffect(() => {
+    if (!job?.id) return;
+    createClient().from("job_activity").select("message, created_at, type").eq("job_id", job.id).order("created_at", { ascending: false }).limit(40).then(({ data }: any) => { if (data) setActivity(data); });
+  }, [job?.id]);
 
   const [wsIndex, setWsIndex] = useState<number | null>(null);   // open item worksheet index (null = closed)
   const [wsTask, setWsTask] = useState<string>("build");
@@ -261,6 +269,7 @@ export function JobDetailV2({ job, items: itemsProp = [], payments = [], contact
   };
 
   const lbl: React.CSSProperties = { fontSize: 9.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: T.faint };
+  const previewBtn: React.CSSProperties = { fontSize: 12, fontWeight: 800, color: T.text, textDecoration: "none", padding: "8px 15px", borderRadius: 999, border: `1px solid ${T.border}`, background: T.card };
   const block = (id: string, tick: "done" | "now" | "todo", title: string, summary: string, body: React.ReactNode, dim = false) => (
     <div id={id} style={{ border: `1px solid ${T.border}`, borderRadius: 16, background: T.card, marginTop: 14, overflow: "hidden", opacity: dim && !open[id] ? 0.6 : 1 }}>
       <div onClick={() => toggle(id)} style={{ display: "flex", alignItems: "center", gap: 14, padding: "16px 20px", cursor: "pointer" }}>
@@ -283,7 +292,10 @@ export function JobDetailV2({ job, items: itemsProp = [], payments = [], contact
       {/* top bar */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 0 6px", fontSize: 13 }}>
         <a href="/projects" style={{ color: T.muted, fontWeight: 700, textDecoration: "none" }}>‹ Projects</a>
-        <span style={{ fontSize: 10, fontWeight: 700, color: T.faint, letterSpacing: "0.1em", textTransform: "uppercase" }}>V2 preview</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <span style={{ fontSize: 10, fontWeight: 700, color: T.faint, letterSpacing: "0.1em", textTransform: "uppercase" }}>V2 preview</span>
+          <a href={`/jobs/${job?.id}`} style={{ fontSize: 11, fontWeight: 700, color: T.muted, textDecoration: "none", padding: "5px 11px", borderRadius: 999, border: `1px solid ${T.border}` }}>Classic view ›</a>
+        </div>
       </div>
 
       {/* title */}
@@ -390,6 +402,11 @@ export function JobDetailV2({ job, items: itemsProp = [], payments = [], contact
       {block("client", flags.approved ? "done" : "todo", "Client",
         `${flags.approved ? "Approved" : flags.quoted ? "Quote sent" : "Not sent"} · ${invNum ? "Inv " + invNum : "no invoice"} · ${fmtMoney(paid)} paid${flags.grew ? " · ⚠ re-invoice" : ""}`, (
         <div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+            <a href={`/api/pdf/quote/${job.id}`} target="_blank" rel="noreferrer" style={previewBtn}>Preview quote</a>
+            {invNum && <a href={`/api/pdf/invoice/${job.id}`} target="_blank" rel="noreferrer" style={previewBtn}>Preview invoice</a>}
+            {job?.portal_token && <a href={`/portal/${job.portal_token}`} target="_blank" rel="noreferrer" style={{ ...previewBtn, background: "transparent" }}>Client hub ›</a>}
+          </div>
           {[["Quote", flags.approved ? "Sent · Approved" : flags.quoted ? "Sent" : "Not sent"],
             ["Proofs", `${artApproved}/${items.length} approved`],
             ["Invoice", invNum ? `${invNum} · sent` : "not sent"],
@@ -497,6 +514,19 @@ export function JobDetailV2({ job, items: itemsProp = [], payments = [], contact
           </div>
         </div>
       ), true)}
+
+      {/* ACTIVITY */}
+      {block("activity", "done", "Activity",
+        activity.slice(0, 3).map((a: any) => a.message).join(" · ") || "no activity yet",
+        activity.length === 0 ? <div style={{ fontSize: 13, color: T.faint }}>No activity yet.</div> : (
+          <div style={{ display: "flex", flexDirection: "column" }}>
+            {activity.map((a: any, i: number) => (
+              <div key={i} style={{ fontSize: 12.5, color: T.muted, padding: "7px 0", borderBottom: `1px solid ${T.border}44`, lineHeight: 1.4 }}>
+                <span style={{ fontFamily: mono, color: T.faint, fontSize: 11, marginRight: 8 }}>{fmtDT(a.created_at)}</span>{a.message}
+              </div>
+            ))}
+          </div>
+        ))}
 
       {/* ── ITEM WORKSHEET (proof-editor style: flip between items, never unmount) ── */}
       {it && (
@@ -637,7 +667,26 @@ export function JobDetailV2({ job, items: itemsProp = [], payments = [], contact
                   </div>
                 );
               })()}
-              {wsTask === "art" && <WsRows rows={[["Artwork", it.artwork_status || "not started"], ["Mockup", thumbByItem[it.id] ? "on file" : "none"]]} />}
+              {wsTask === "art" && (() => {
+                const thumb = thumbByItem[it.id];
+                const art = it.artwork_status || "not_started";
+                const artColor = art === "approved" ? T.green : art === "revision_requested" ? T.amber : T.muted;
+                return (
+                  <div>
+                    {thumb ? (
+                      <img src={thumb} alt="" style={{ width: "100%", maxHeight: "42vh", objectFit: "contain", borderRadius: 10, background: "#fff", display: "block" }} />
+                    ) : (
+                      <div style={{ aspectRatio: "2 / 1", background: T.surface, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", color: T.faint, fontSize: 13 }}>No mockup on file yet</div>
+                    )}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0 8px", marginTop: 8, borderTop: `1px solid ${T.border}44` }}>
+                      <span style={{ color: T.muted, fontSize: 13 }}>Artwork</span>
+                      <span style={{ fontWeight: 800, fontSize: 12, letterSpacing: "0.04em", textTransform: "uppercase", color: artColor }}>{art.replace(/_/g, " ")}</span>
+                    </div>
+                    <a href={`/jobs/${job?.id}?tab=proofs`} style={{ ...previewBtn, display: "inline-block", marginTop: 8 }}>Manage proofs ›</a>
+                    <div style={{ fontSize: 11, color: T.faint, marginTop: 12 }}>Proof review, approval &amp; send wire into this tab next (the proof-flow pattern).</div>
+                  </div>
+                );
+              })()}
               {wsTask === "blank" && (() => {
                 const calc = calcBlank(it);
                 return (
