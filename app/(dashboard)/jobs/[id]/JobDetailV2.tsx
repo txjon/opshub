@@ -16,7 +16,9 @@ import { T, font, mono } from "@/lib/theme";
 import { createClient } from "@/lib/supabase/client";
 import { isCostingLocked } from "@/lib/costing-lock";
 import { logJobActivity } from "@/components/JobActivityPanel";
-import { calcCostProduct, buildPrintersMap } from "@/lib/pricing";
+import { calcCostProduct, buildPrintersMap, lookupPrintPrice as sharedLookupPrintPrice, lookupTagPrice as sharedLookupTagPrice } from "@/lib/pricing";
+import { DecorationPanel as DecorationPanelRaw } from "./DecorationPanel";
+const DecorationPanel: any = DecorationPanelRaw; // .jsx — bypass narrow inferred prop types
 
 const fmtMoney = (n: number) => "$" + Math.round(Number(n) || 0).toLocaleString("en-US");
 const fmtDT = (iso: string) => iso ? new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
@@ -51,9 +53,21 @@ export function JobDetailV2({ job, items: itemsProp = [], payments = [], contact
 
   // Decorator pricing → printers map, for the shared cost engine (decoration cost).
   const [printers, setPrinters] = useState<Record<string, any>>({});
+  const [decoratorRecords, setDecoratorRecords] = useState<any[]>([]);
   useEffect(() => {
-    createClient().from("decorators").select("*").then(({ data }: any) => { if (data) setPrinters(buildPrintersMap(data)); });
+    createClient().from("decorators").select("*").order("name").then(({ data }: any) => { if (data) { setPrinters(buildPrintersMap(data)); setDecoratorRecords(data); } });
   }, []);
+  const lookupPrint = (pk: string, qty: number, colors: number) => sharedLookupPrintPrice(printers, pk, qty, colors);
+  const lookupTag = (pk: string, qty: number) => sharedLookupTagPrice(printers, pk, qty);
+
+  // Decoration edits (vendor, print locations, share groups, finishing/setup/
+  // specialty) live in costing_data.costProds. decoState overlays the DB copy so
+  // edits show instantly; the debounced flush writes them back surgically +
+  // recomputes items.sell_per_unit. Never touches qty/blankCost drift-wise —
+  // those come from buy_sheet_lines / items via the assembler.
+  const [decoState, setDecoState] = useState<Record<string, any>>({});
+  const persistTimer = React.useRef<any>(null);
+  const pendingRef = React.useRef<Record<string, any>>({});
 
   // Job activity feed (read-only).
   const [activity, setActivity] = useState<any[]>([]);
@@ -206,12 +220,56 @@ export function JobDetailV2({ job, items: itemsProp = [], payments = [], contact
   const inclShip = job?.costing_data?.inclShip !== false;
   const inclCC = job?.costing_data?.inclCC !== false;
   const assemble = (item: any) => {
-    const cp = cpFor(item) || {};
+    const cp = decoState[item.id] || cpFor(item) || {};          // decoState overlays unsaved decoration edits
     const bslQtys = { ...(item.qtys || {}) };                    // items.qtys is built from buy_sheet_lines upstream
     const blankCosts = (item.blank_costs && Object.keys(item.blank_costs).length) ? item.blank_costs : (cp.blankCosts || {});
     return { ...cp, id: item.id, name: item.name, qtys: bslQtys, totalQty: sumQ(bslQtys), blankCosts, blank_vendor: item.blank_vendor, garment_type: item.garment_type };
   };
   const allAssembled = items.map(assemble);
+
+  // Debounced flush of decoration edits → costing_data (surgical) + recomputed
+  // items.sell_per_unit. Fresh read-modify-write so nothing else is clobbered.
+  const flushDeco = async () => {
+    const pending = pendingRef.current; pendingRef.current = {};
+    const ids = Object.keys(pending);
+    if (!ids.length) return;
+    const supabase = createClient();
+    try {
+      const { data: fresh }: any = await supabase.from("jobs").select("costing_data").eq("id", job.id).single();
+      const cd = fresh?.costing_data || job.costing_data || { costProds: [] };
+      const cps = (Array.isArray(cd.costProds) ? cd.costProds : []).map((c: any) => ({ ...c }));
+      const allNow = items.map(assemble);   // decoState already has the edits
+      const sellUpdates: { id: string; sell: number }[] = [];
+      for (const id of ids) {
+        const item = items.find((x: any) => x.id === id); if (!item) continue;
+        const p = assemble(item);
+        let idx = cps.findIndex((c: any) => c.id === id);
+        if (idx < 0) idx = cps.findIndex((c: any) => (c.name || "").trim().toLowerCase() === (item.name || "").trim().toLowerCase());
+        if (idx >= 0) cps[idx] = { ...cps[idx], ...p }; else cps.push(p);
+        if (Object.keys(printers).length) { try { const r: any = calcCostProduct(p, costMargin, inclShip, inclCC, allNow, printers); if (r) sellUpdates.push({ id, sell: Math.round((r.sellPerUnit || 0) * 100) / 100 }); } catch {} }
+      }
+      await (supabase.from("jobs") as any).update({ costing_data: { ...cd, costProds: cps } }).eq("id", job.id);
+      for (const u of sellUpdates) await (supabase.from("items") as any).update({ sell_per_unit: u.sell }).eq("id", u.id);
+      if (sellUpdates.length) setItems(prev => prev.map(x => { const u = sellUpdates.find(s => s.id === x.id); return u ? { ...x, sell_per_unit: u.sell } : x; }));
+    } catch (e) { console.error("[JobV2] deco flush failed", e); }
+  };
+  const schedulePersist = (item: any, newP: any) => {
+    pendingRef.current[item.id] = newP;
+    clearTimeout(persistTimer.current);
+    persistTimer.current = setTimeout(flushDeco, 700);
+  };
+  // DecorationPanel's edit hooks. updateProd = one item; setCostProds = fn over
+  // the whole array (copy-to-all / apply-vendor-below).
+  const updateProd = (i: number, newP: any) => {
+    const item = items[i]; if (!item) return;
+    setDecoState(s => ({ ...s, [item.id]: newP }));
+    schedulePersist(item, newP);
+  };
+  const setCostProdsFn = (fn: any) => {
+    const next = fn(allAssembled);
+    setDecoState(s => { const m = { ...s }; next.forEach((np: any, idx: number) => { const it = items[idx]; if (it) m[it.id] = np; }); return m; });
+    next.forEach((np: any, idx: number) => { const it = items[idx]; if (it) schedulePersist(it, np); });
+  };
   const calcFor = (item: any) => {
     if (!Object.keys(printers).length) return null;             // wait for decorator pricing
     try { return calcCostProduct(assemble(item), costMargin, inclShip, inclCC, allAssembled, printers); }
@@ -637,6 +695,13 @@ export function JobDetailV2({ job, items: itemsProp = [], payments = [], contact
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0 8px", marginTop: 4, borderTop: `1px solid ${T.border}` }}>
                           <span style={{ fontSize: 12, fontWeight: 800, letterSpacing: "0.04em", textTransform: "uppercase", color: T.text }}>Sell / unit {overridden && <span style={{ color: T.amber, fontWeight: 700, marginLeft: 6 }}>· override</span>}</span>
                           <span style={{ fontFamily: mono, fontSize: 20, fontWeight: 800 }}>${sell.toFixed(2)}</span>
+                        </div>
+
+                        {/* decoration engine — the real DecorationPanel, fed the full assembled
+                            array so share groups (A–J / T1–T10) + qty tiers compute across items. */}
+                        <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${T.border}44` }}>
+                          <div style={{ ...lbl, marginBottom: 10 }}>Decoration</div>
+                          <DecorationPanel p={allAssembled[wsIndex!]} i={wsIndex!} costProds={allAssembled} PRINTERS={printers} decoratorRecords={decoratorRecords} updateProd={updateProd} setCostProds={setCostProdsFn} lookupPrintPrice={lookupPrint} lookupTagPrice={lookupTag} costingLocked={locked} />
                         </div>
 
                         {/* raw blank-cost editor — the one thing you edit here (writes items only) */}
