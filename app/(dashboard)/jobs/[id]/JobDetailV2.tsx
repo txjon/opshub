@@ -16,6 +16,7 @@ import { T, font, mono } from "@/lib/theme";
 import { createClient } from "@/lib/supabase/client";
 import { isCostingLocked } from "@/lib/costing-lock";
 import { logJobActivity } from "@/components/JobActivityPanel";
+import { calcCostProduct, buildPrintersMap } from "@/lib/pricing";
 
 const fmtMoney = (n: number) => "$" + Math.round(Number(n) || 0).toLocaleString("en-US");
 const sumQ = (o: any) => Object.values(o || {}).reduce((a: number, v: any) => a + (Number(v) || 0), 0);
@@ -42,6 +43,12 @@ export function JobDetailV2({ job, items: itemsProp = [], payments = [], contact
   const [items, setItems] = useState<any[]>(itemsProp);
   useEffect(() => { setItems(itemsProp); }, [itemsProp]);
   const locked = isCostingLocked(job);
+
+  // Decorator pricing → printers map, for the shared cost engine (decoration cost).
+  const [printers, setPrinters] = useState<Record<string, any>>({});
+  useEffect(() => {
+    createClient().from("decorators").select("*").then(({ data }: any) => { if (data) setPrinters(buildPrintersMap(data)); });
+  }, []);
 
   const [wsIndex, setWsIndex] = useState<number | null>(null);   // open item worksheet index (null = closed)
   const [wsTask, setWsTask] = useState<string>("build");
@@ -177,6 +184,50 @@ export function JobDetailV2({ job, items: itemsProp = [], payments = [], contact
     const v = cpFor(item)?.printVendor || item.decorator || "Unassigned";
     (vendorGroups[v] ||= []).push(item);
   }
+
+  // ── THE ASSEMBLER (Track-2 core) ──────────────────────────────────────────
+  // One place that joins the three homes into the `p` the shared cost engine
+  // eats: qty ← buy_sheet_lines (single source), blank cost ← items (raw), the
+  // rest of the pricing (vendor, print locations, margin, override) ← costing_data.
+  // Every V2 cost read/calc goes through this — never costProds.qtys directly.
+  const costMargin = job?.costing_data?.costMargin || "30%";
+  const inclShip = job?.costing_data?.inclShip !== false;
+  const inclCC = job?.costing_data?.inclCC !== false;
+  const assemble = (item: any) => {
+    const cp = cpFor(item) || {};
+    const bslQtys = { ...(item.qtys || {}) };                    // items.qtys is built from buy_sheet_lines upstream
+    const blankCosts = (item.blank_costs && Object.keys(item.blank_costs).length) ? item.blank_costs : (cp.blankCosts || {});
+    return { ...cp, id: item.id, name: item.name, qtys: bslQtys, totalQty: sumQ(bslQtys), blankCosts, blank_vendor: item.blank_vendor, garment_type: item.garment_type };
+  };
+  const allAssembled = items.map(assemble);
+  const calcFor = (item: any) => {
+    if (!Object.keys(printers).length) return null;             // wait for decorator pricing
+    try { return calcCostProduct(assemble(item), costMargin, inclShip, inclCC, allAssembled, printers); }
+    catch { return null; }
+  };
+
+  // Edit the RAW blank cost per unit → items.blank_costs (spread across sizes) +
+  // cost_per_unit, then recompute + persist sell_per_unit via the SAME engine
+  // (respects an existing sellOverride — calcCostProduct keeps it). items-table
+  // only; never touches costing_data, so no drift can be introduced.
+  const saveBlankPerUnit = async (item: any, raw: string) => {
+    if (isCostingLocked(job)) return;
+    const per = raw === "" ? 0 : parseFloat(String(raw).replace(/[^0-9.]/g, "")) || 0;
+    const sizes = Object.keys(item.qtys || {});
+    if (!sizes.length) return;
+    const blank_costs: Record<string, number> = {};
+    sizes.forEach(sz => { blank_costs[sz] = per; });
+    const nextItem = { ...item, blank_costs, cost_per_unit: per };
+    // recompute sell with the new blank cost, through the assembler + shared engine
+    const r = Object.keys(printers).length ? (() => { try { return calcCostProduct(assemble(nextItem), costMargin, inclShip, inclCC, items.map(x => x.id === item.id ? assemble(nextItem) : assemble(x)), printers); } catch { return null; } })() : null;
+    const sell = r ? Math.round((r.sellPerUnit || 0) * 100) / 100 : item.sell_per_unit;
+    setItems(prev => prev.map(x => x.id === item.id ? { ...x, blank_costs, cost_per_unit: per, sell_per_unit: sell } : x));
+    try {
+      const upd: any = { blank_costs, cost_per_unit: per };
+      if (r) upd.sell_per_unit = sell;
+      await (createClient().from("items") as any).update(upd).eq("id", item.id);
+    } catch (e) { console.error("[JobV2] blank cost save failed", e); }
+  };
 
   const lbl: React.CSSProperties = { fontSize: 9.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: T.faint };
   const block = (id: string, tick: "done" | "now" | "todo", title: string, summary: string, body: React.ReactNode, dim = false) => (
@@ -482,7 +533,65 @@ export function JobDetailV2({ job, items: itemsProp = [], payments = [], contact
                   </div>
                 );
               })()}
-              {wsTask === "cost" && <WsRows rows={[["Sell / unit", "$" + (Number(it.sell_per_unit) || 0).toFixed(2)], ["Blank cost / unit", it.cost_per_unit != null ? "$" + Number(it.cost_per_unit).toFixed(2) : "—"], ["Line total", fmtMoney((Number(it.sell_per_unit) || 0) * qtyOf(it))], ...Object.entries((it.blankCosts || it.blank_costs) || {}).map(([sz, c]: any) => ["  " + sz + " blank", "$" + Number(c).toFixed(2)])]} />}
+              {wsTask === "cost" && (() => {
+                const r: any = calcFor(it);
+                const cp = cpFor(it) || {};
+                const overridden = cp.sellOverride != null && cp.sellOverride !== "";
+                // Revenue/sell = items.sell_per_unit (the INVOICE truth), so this tab
+                // can never disagree with the client's bill. The engine (r) supplies
+                // only the COST components; profit/margin derive from the two.
+                const q = qtyOf(it);
+                const sell = Number(it.sell_per_unit) || 0;
+                const grossRev = Math.round(sell * q * 100) / 100;
+                const ccFees = inclCC ? Math.round(grossRev * 0.03 * 100) / 100 : 0;
+                const totalCost = r ? Math.round(((r.blankCost || 0) + (r.poTotal || 0) + (r.shipping || 0) + ccFees) * 100) / 100 : 0;
+                const netProfit = Math.round((grossRev - totalCost) * 100) / 100;
+                const marginPct = grossRev > 0 ? netProfit / grossRev : 0;
+                const marginColor = marginPct >= 0.30 ? T.green : marginPct >= 0.20 ? T.amber : T.red;
+                return (
+                  <div>
+                    {!Object.keys(printers).length ? (
+                      <div style={{ fontSize: 13, color: T.faint, padding: "20px 0" }}>Loading decorator pricing…</div>
+                    ) : !r ? (
+                      <div style={{ fontSize: 13, color: T.faint, padding: "20px 0" }}>No quantities yet — set them in Build.</div>
+                    ) : (
+                      <>
+                        {/* revenue from the invoice truth; cost from the assembler + shared engine */}
+                        {[["Revenue", fmtMoney(grossRev), T.text],
+                          ["Blank cost", fmtMoney(r.blankCost), T.muted],
+                          ["Decoration / PO", fmtMoney(r.poTotal), T.muted],
+                          ...(inclShip ? [["Shipping (buffer)", fmtMoney(r.shipping), T.muted]] : []),
+                          ...(inclCC ? [["CC fees", fmtMoney(ccFees), T.muted]] : []),
+                          ["Net profit", fmtMoney(netProfit), marginColor],
+                          ["Margin", (marginPct * 100).toFixed(1) + "%", marginColor]].map(([l, v, c]: any) => (
+                          <div key={l} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${T.border}44`, fontSize: 13 }}>
+                            <span style={{ color: T.muted }}>{l}</span><span style={{ fontWeight: 700, fontFamily: mono, color: c }}>{v}</span>
+                          </div>
+                        ))}
+                        {/* sell / unit — the invoice truth (items.sell_per_unit) */}
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0 8px", marginTop: 4, borderTop: `1px solid ${T.border}` }}>
+                          <span style={{ fontSize: 12, fontWeight: 800, letterSpacing: "0.04em", textTransform: "uppercase", color: T.text }}>Sell / unit {overridden && <span style={{ color: T.amber, fontWeight: 700, marginLeft: 6 }}>· override</span>}</span>
+                          <span style={{ fontFamily: mono, fontSize: 20, fontWeight: 800 }}>${sell.toFixed(2)}</span>
+                        </div>
+
+                        {/* raw blank-cost editor — the one thing you edit here (writes items only) */}
+                        <label style={{ display: "block", marginTop: 16, paddingTop: 14, borderTop: `1px solid ${T.border}44` }}>
+                          <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Blank cost / unit (raw — buffer applied in calc)</span>
+                          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                            <span style={{ fontSize: 13, color: T.faint }}>$</span>
+                            <input key={it.id + ":bcu:" + (it.cost_per_unit ?? "")} defaultValue={it.cost_per_unit != null ? Number(it.cost_per_unit).toFixed(2) : ""} placeholder="0.00" inputMode="decimal" readOnly={locked}
+                              onBlur={e => saveBlankPerUnit(it, e.target.value)}
+                              style={{ flex: 1, padding: "9px 11px", borderRadius: 8, border: `1px solid ${T.border}`, background: locked ? T.card : T.surface, color: locked ? T.muted : T.text, fontSize: 14, fontWeight: 700, fontFamily: mono, outline: "none" }} />
+                          </div>
+                        </label>
+                        <div style={{ fontSize: 11, color: locked ? T.amber : T.faint, marginTop: 10 }}>
+                          {locked ? "🔒 Locked — unlock in Costing to change the blank cost." : "Spreads across all sizes → items.blank_costs; sell recomputes and saves. Vendor, decoration, margin & override editing wire in next (they live in costing)."}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              })()}
               {wsTask === "art" && <WsRows rows={[["Artwork", it.artwork_status || "not started"], ["Mockup", thumbByItem[it.id] ? "on file" : "none"]]} />}
               {wsTask === "blank" && (() => {
                 const calc = calcBlank(it);
