@@ -145,9 +145,16 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     const q = parseInt(raw) || 0;
     if (q === Number(item.qtys?.[size] ?? 0)) return; // unchanged
     const newQtys = { ...(item.qtys || {}), [size]: q };
-    setItems(prev => prev.map(x => x.id === item.id ? { ...x, qtys: newQtys, totalQty: sumQ(newQtys) } : x));
+    const updated = { ...item, qtys: newQtys, totalQty: sumQ(newQtys) };
+    // qty crosses decoration qty-tiers → recompute + persist sell through the same
+    // engine (respects an override) so the stored price never lags the qty.
+    const sell = Object.keys(printers).length ? (() => {
+      try { const r: any = calcCostProduct(assemble(updated), costMargin, inclShip, inclCC, items.map(x => x.id === item.id ? assemble(updated) : assemble(x)), printers); return r ? Math.round((r.sellPerUnit || 0) * 100) / 100 : null; } catch { return null; }
+    })() : null;
+    setItems(prev => prev.map(x => x.id === item.id ? { ...x, qtys: newQtys, totalQty: sumQ(newQtys), ...(sell != null ? { sell_per_unit: sell } : {}) } : x));
     try {
       await (createClient().from("buy_sheet_lines") as any).upsert({ item_id: item.id, size, qty_ordered: q }, { onConflict: "item_id,size" });
+      if (sell != null) await (createClient().from("items") as any).update({ sell_per_unit: sell }).eq("id", item.id);
     } catch (e) { console.error("[JobV2] qty save failed", e); }
   };
 
@@ -197,8 +204,8 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     if (wsIndex === null) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setWsIndex(null);
-      if (e.key === "ArrowLeft") setWsIndex(i => i === null ? i : (i - 1 + items.length) % items.length);
-      if (e.key === "ArrowRight") setWsIndex(i => i === null ? i : (i + 1) % items.length);
+      if (e.key === "ArrowLeft") setWsIndex(i => i === null || !items.length ? i : (i - 1 + items.length) % items.length);
+      if (e.key === "ArrowRight") setWsIndex(i => i === null || !items.length ? i : (i + 1) % items.length);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -208,10 +215,13 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   const units = items.reduce((a: number, it: any) => a + qtyOf(it), 0);
   const orderTotal = items.reduce((a: number, it: any) => a + (Number(it.sell_per_unit) || 0) * qtyOf(it), 0);
   const tm = job?.type_meta || {};
-  const invoiced = Number(tm.qb_total_with_tax) || 0;
+  // invoiced total incl. tax (QB or Stripe). invoicedSub = pre-tax, to compare
+  // against orderTotal (also pre-tax) for the "order grew" delta.
+  const invoiced = Number(tm.qb_total_with_tax) || (Number(tm.stripe_total_cents) ? Number(tm.stripe_total_cents) / 100 : 0);
+  const invoicedSub = Math.max(0, invoiced - (Number(tm.qb_tax_amount) || 0));
   const invNum = tm.qb_invoice_number || tm.stripe_invoice_number || "";
   const paid = payments.filter((p: any) => p.status === "paid").reduce((a: number, p: any) => a + (Number(p.amount) || 0), 0);
-  const toInvoice = Math.round((orderTotal - invoiced) * 100) / 100;
+  const toInvoice = Math.round((orderTotal - invoicedSub) * 100) / 100;
   const route = job?.shipping_route || "";
   const address = tm.venue_address || job?.clients?.shipping_address || "";
   const created = job?.created_at ? new Date(job.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—";
@@ -254,15 +264,21 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     } catch (e: any) { setActErr(e.message || "Invoice send failed"); } finally { setActBusy(false); }
   };
   const doApprove = async () => {
-    const now = new Date().toISOString();
-    await (createClient().from("jobs") as any).update({ quote_approved: true, quote_approved_at: now }).eq("id", job.id);
-    setJob((j: any) => ({ ...j, quote_approved: true, quote_approved_at: now }));
-    try { logJobActivity(job.id, "Quote approved (internal)"); } catch {}
+    if (actBusy) return; setActBusy(true);
+    try {
+      const now = new Date().toISOString();
+      await (createClient().from("jobs") as any).update({ quote_approved: true, quote_approved_at: now }).eq("id", job.id);
+      setJob((j: any) => ({ ...j, quote_approved: true, quote_approved_at: now }));
+      try { logJobActivity(job.id, "Quote approved (internal)"); } catch {}
+    } finally { setActBusy(false); }
   };
   const doRevoke = async () => {
-    await (createClient().from("jobs") as any).update({ quote_approved: false, quote_approved_at: null }).eq("id", job.id);
-    setJob((j: any) => ({ ...j, quote_approved: false, quote_approved_at: null }));
-    try { logJobActivity(job.id, "Quote approval revoked"); } catch {}
+    if (actBusy) return; setActBusy(true);
+    try {
+      await (createClient().from("jobs") as any).update({ quote_approved: false, quote_approved_at: null }).eq("id", job.id);
+      setJob((j: any) => ({ ...j, quote_approved: false, quote_approved_at: null }));
+      try { logJobActivity(job.id, "Quote approval revoked"); } catch {}
+    } finally { setActBusy(false); }
   };
   const doRecordPayment = async () => {
     const amt = parseFloat(String(payForm.amount).replace(/[^0-9.]/g, "")) || 0;
@@ -321,7 +337,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     quoted: !!tm.quote_sent_at,
     approved: !!job?.quote_approved,
     invoiced: !!invNum,
-    grew: invoiced > 0 && toInvoice > 0.5,
+    grew: invoicedSub > 0 && toInvoice > 0.5,
     paid: invoiced > 0 && paid >= invoiced - 0.5,
     po: Array.isArray(tm.po_sent_vendors) && tm.po_sent_vendors.length > 0,
   };
@@ -406,7 +422,10 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
         const p = assembleNow(item);
         let idx = cps.findIndex((c: any) => c.id === id);
         if (idx < 0) idx = cps.findIndex((c: any) => (c.name || "").trim().toLowerCase() === (item.name || "").trim().toLowerCase());
-        if (idx >= 0) cps[idx] = { ...cps[idx], ...p }; else cps.push(p);
+        // Apply ONLY decoration fields from p; keep the DB's qtys/blankCosts/name
+        // (those are owned by buy_sheet_lines / items — don't let a deco edit touch them).
+        if (idx >= 0) cps[idx] = { ...cps[idx], ...p, qtys: cps[idx].qtys ?? p.qtys, blankCosts: cps[idx].blankCosts ?? p.blankCosts, name: cps[idx].name ?? p.name };
+        else cps.push(p);
         if (Object.keys(printers).length) { try { const r: any = calcCostProduct(p, costMargin, inclShip, inclCC, allNow, printers); if (r) sellUpdates.push({ id, sell: Math.round((r.sellPerUnit || 0) * 100) / 100 }); } catch {} }
       }
       await (supabase.from("jobs") as any).update({ costing_data: { ...cd, costProds: cps } }).eq("id", job.id);
@@ -634,8 +653,8 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
             <button onClick={() => openSend("quote")} style={actBtn}>{job.quote_approved ? "Send proofs" : "Send quote & proofs"}</button>
             {job.quote_approved
-              ? <button onClick={doRevoke} style={ghostBtn}>Approved ✓ · revoke</button>
-              : <button onClick={doApprove} style={ghostBtn}>Mark approved</button>}
+              ? <button onClick={doRevoke} disabled={actBusy} style={ghostBtn}>Approved ✓ · revoke</button>
+              : <button onClick={doApprove} disabled={actBusy} style={ghostBtn}>Mark approved</button>}
             <button onClick={() => openSend("invoice")} style={ghostBtn}>Send invoice</button>
             <button onClick={() => { setActErr(""); setClientAction("payment"); }} style={ghostBtn}>+ Record payment</button>
           </div>
@@ -806,7 +825,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                     ) : (
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                         {sizes.map(sz => (
-                          <label key={it.id + "_" + sz} style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "center" }}>
+                          <label key={it.id + "_" + sz + ":" + (it.qtys?.[sz] ?? "")} style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "center" }}>
                             <span style={{ fontSize: 10, fontWeight: 800, color: T.faint, fontFamily: mono }}>{sz}</span>
                             <input type="text" inputMode="numeric" defaultValue={String(it.qtys?.[sz] ?? 0)} readOnly={locked}
                               onFocus={e => e.target.select()}
