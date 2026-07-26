@@ -229,6 +229,37 @@ export function JobDetailV2({ job, items: itemsProp = [], payments = [], contact
     } catch (e) { console.error("[JobV2] blank cost save failed", e); }
   };
 
+  // Set / clear the per-item sell OVERRIDE — the single invoice-truth control.
+  // Override has no home but costing_data.costProds[i].sellOverride, so this is
+  // a SURGICAL read-modify-write: fetch fresh costing_data, change ONLY this
+  // item's sellOverride, write back (qtys/blankCosts untouched → no drift), then
+  // persist the resulting items.sell_per_unit (override value, or recomputed auto).
+  const saveOverride = async (item: any, raw: string) => {
+    if (isCostingLocked(job)) return;
+    const supabase = createClient();
+    const trimmed = (raw || "").trim();
+    const override = trimmed === "" ? null : (parseFloat(trimmed.replace(/[^0-9.]/g, "")) || 0);
+    let sell = Number(item.sell_per_unit) || 0;
+    if (override != null) {
+      sell = Math.round(override * 100) / 100;
+    } else if (Object.keys(printers).length) {
+      // cleared → recompute the auto sell via the engine with override removed
+      const pAuto: any = { ...assemble(item) }; delete pAuto.sellOverride;
+      try { const rr: any = calcCostProduct(pAuto, costMargin, inclShip, inclCC, items.map(x => x.id === item.id ? pAuto : assemble(x)), printers); if (rr) sell = Math.round((rr.sellPerUnit || 0) * 100) / 100; } catch {}
+    }
+    setItems(prev => prev.map(x => x.id === item.id ? { ...x, sell_per_unit: sell } : x));
+    try {
+      const { data: fresh }: any = await supabase.from("jobs").select("costing_data").eq("id", job.id).single();
+      const cd = fresh?.costing_data || job.costing_data || { costProds: [] };
+      const cps = (Array.isArray(cd.costProds) ? cd.costProds : []).map((c: any) => ({ ...c }));
+      let idx = cps.findIndex((c: any) => c.id === item.id);
+      if (idx < 0) idx = cps.findIndex((c: any) => (c.name || "").trim().toLowerCase() === (item.name || "").trim().toLowerCase());
+      if (idx >= 0) { if (override == null) delete cps[idx].sellOverride; else cps[idx].sellOverride = override; }
+      await (supabase.from("jobs") as any).update({ costing_data: { ...cd, costProds: cps } }).eq("id", job.id);
+      await (supabase.from("items") as any).update({ sell_per_unit: sell }).eq("id", item.id);
+    } catch (e) { console.error("[JobV2] override save failed", e); }
+  };
+
   const lbl: React.CSSProperties = { fontSize: 9.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: T.faint };
   const block = (id: string, tick: "done" | "now" | "todo", title: string, summary: string, body: React.ReactNode, dim = false) => (
     <div id={id} style={{ border: `1px solid ${T.border}`, borderRadius: 16, background: T.card, marginTop: 14, overflow: "hidden", opacity: dim && !open[id] ? 0.6 : 1 }}>
@@ -585,7 +616,21 @@ export function JobDetailV2({ job, items: itemsProp = [], payments = [], contact
                           </div>
                         </label>
                         <div style={{ fontSize: 11, color: locked ? T.amber : T.faint, marginTop: 10 }}>
-                          {locked ? "🔒 Locked — unlock in Costing to change the blank cost." : "Spreads across all sizes → items.blank_costs; sell recomputes and saves. Vendor, decoration, margin & override editing wire in next (they live in costing)."}
+                          {locked ? "🔒 Locked — unlock in Costing to change the blank cost." : "Spreads across all sizes → items.blank_costs; sell recomputes and saves."}
+                        </div>
+
+                        {/* sell override — the invoice-truth manual control */}
+                        <label style={{ display: "block", marginTop: 16, paddingTop: 14, borderTop: `1px solid ${T.border}44` }}>
+                          <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Sell override / unit <span style={{ color: T.faint, fontWeight: 500, textTransform: "none", letterSpacing: 0 }}>· blank = auto from margin</span></span>
+                          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                            <span style={{ fontSize: 13, color: T.faint }}>$</span>
+                            <input key={it.id + ":ovr:" + (cp.sellOverride ?? "")} defaultValue={cp.sellOverride != null && cp.sellOverride !== "" ? Number(cp.sellOverride).toFixed(2) : ""} placeholder={"auto · $" + sell.toFixed(2)} inputMode="decimal" readOnly={locked}
+                              onBlur={e => saveOverride(it, e.target.value)}
+                              style={{ flex: 1, padding: "9px 11px", borderRadius: 8, border: `1px solid ${overridden ? T.amber + "88" : T.border}`, background: locked ? T.card : T.surface, color: locked ? T.muted : T.text, fontSize: 14, fontWeight: 700, fontFamily: mono, outline: "none" }} />
+                          </div>
+                        </label>
+                        <div style={{ fontSize: 11, color: T.faint, marginTop: 10 }}>
+                          {overridden ? "Manual price — clear the field to return to the auto (margin) price. This is the invoice truth." : "Auto price from cost + margin. Type a value to override; it becomes the invoice truth."}
                         </div>
                       </>
                     )}
