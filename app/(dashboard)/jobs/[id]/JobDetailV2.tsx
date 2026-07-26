@@ -94,6 +94,29 @@ export function JobDetailV2({ job, items: itemsProp = [], payments = [], contact
     });
   }, [itemsProp]);
 
+  // Art upload → Google Drive via /api/files (per item, per stage). On success,
+  // re-pull the item's files so the grid updates.
+  const [uploadStage, setUploadStage] = useState("mockup");
+  const [uploadingItem, setUploadingItem] = useState<string | null>(null);
+  const uploadArt = async (item: any, stage: string, file: File) => {
+    if (!file) return;
+    setUploadingItem(item.id);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("itemId", item.id);
+      fd.append("stage", stage);
+      fd.append("clientName", job?.clients?.name || "");
+      fd.append("projectTitle", job?.title || "");
+      fd.append("itemName", item.name || "");
+      const res = await fetch("/api/files", { method: "POST", body: fd });
+      if (!res.ok) { console.error("[JobV2] art upload failed", await res.text().catch(() => "")); return; }
+      const { data }: any = await createClient().from("item_files").select("item_id, file_name, stage, drive_file_id, approval, created_at").eq("item_id", item.id).is("superseded_at", null).order("created_at");
+      setFilesByItem(m => ({ ...m, [item.id]: data || [] }));
+    } catch (e) { console.error("[JobV2] art upload error", e); }
+    finally { setUploadingItem(null); }
+  };
+
   const [wsIndex, setWsIndex] = useState<number | null>(null);   // open item worksheet index (null = closed)
   const [wsTask, setWsTask] = useState<string>("build");
   const [open, setOpen] = useState<Record<string, boolean>>({ products: true, client: false, production: true, logistics: false });
@@ -792,7 +815,23 @@ export function JobDetailV2({ job, items: itemsProp = [], payments = [], contact
                         })}
                       </div>
                     )}
-                    <div style={{ fontSize: 11, color: T.faint, marginTop: 14 }}>Files open full-size in a new tab. Proofs are sent &amp; approved in the Client section.</div>
+                    {/* upload — per stage */}
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 16, paddingTop: 14, borderTop: `1px solid ${T.border}44`, flexWrap: "wrap" }}>
+                      <select value={uploadStage} onChange={e => setUploadStage(e.target.value)}
+                        style={{ padding: "8px 10px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12.5, fontFamily: font, outline: "none" }}>
+                        <option value="client_art">Client art</option>
+                        <option value="vector">Vector</option>
+                        <option value="mockup">Mockup</option>
+                        <option value="proof">Proof</option>
+                        <option value="print_ready">Print-ready</option>
+                      </select>
+                      <label style={{ ...previewBtn, cursor: uploadingItem === it.id ? "default" : "pointer", opacity: uploadingItem === it.id ? 0.6 : 1 }}>
+                        {uploadingItem === it.id ? "Uploading…" : "+ Upload file"}
+                        <input type="file" style={{ display: "none" }} disabled={uploadingItem === it.id}
+                          onChange={e => { const f = e.target.files?.[0]; if (f) uploadArt(it, uploadStage, f); e.currentTarget.value = ""; }} />
+                      </label>
+                    </div>
+                    <div style={{ fontSize: 11, color: T.faint, marginTop: 12 }}>Files open full-size in a new tab. Proofs are sent &amp; approved in the Client section.</div>
                   </div>
                 );
               })()}
