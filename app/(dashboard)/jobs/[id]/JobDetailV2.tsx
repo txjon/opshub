@@ -20,6 +20,8 @@ import { calcCostProduct, buildPrintersMap } from "@/lib/pricing";
 
 const fmtMoney = (n: number) => "$" + Math.round(Number(n) || 0).toLocaleString("en-US");
 const fmtDT = (iso: string) => iso ? new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
+// thumbByItem holds a Drive file_id (not a URL) — build the thumbnail endpoint URL.
+const thumbSrc = (id: string, full = false) => id ? `/api/files/thumbnail?id=${id}${full ? "" : "&thumb=1"}` : "";
 const sumQ = (o: any) => Object.values(o || {}).reduce((a: number, v: any) => a + (Number(v) || 0), 0);
 const qtyOf = (it: any) => Number(it?.totalQty) || sumQ(it?.qtys);
 
@@ -369,7 +371,7 @@ export function JobDetailV2({ job, items: itemsProp = [], payments = [], contact
       {block("products", "done", "Products & Costing", `${items.length} items · ${units.toLocaleString()} units · ${fmtMoney(orderTotal)}`, (
         <>
           <div style={{ fontSize: 11.5, color: T.faint, padding: "8px 0 12px" }}>Tap a product for its worksheet — sizes, blank cost, decoration, vendor &amp; margin.</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(196px,1fr))", gap: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(max(210px, calc((100% - 36px) / 4)), 1fr))", gap: 12 }}>
             {items.map((item: any, i: number) => {
               const thumb = thumbByItem[item.id];
               const q = qtyOf(item);
@@ -377,7 +379,7 @@ export function JobDetailV2({ job, items: itemsProp = [], payments = [], contact
               return (
                 <div key={item.id} onClick={() => { setWsIndex(i); setWsTask("build"); }} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14, overflow: "hidden", cursor: "pointer" }}>
                   <div style={{ aspectRatio: "1/1", background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 44 }}>
-                    {thumb ? <img src={thumb} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} /> : "👕"}
+                    {thumb ? <img src={thumbSrc(thumb)} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} /> : "👕"}
                   </div>
                   <div style={{ padding: "11px 13px 13px" }}>
                     <div style={{ fontSize: 13, fontWeight: 800, letterSpacing: "-0.01em", lineHeight: 1.25 }}>{item.name}</div>
@@ -545,7 +547,7 @@ export function JobDetailV2({ job, items: itemsProp = [], payments = [], contact
             {/* item head */}
             <div style={{ display: "flex", gap: 14, padding: "16px 18px", alignItems: "center" }}>
               <div style={{ width: 56, height: 56, borderRadius: 10, background: "#fff", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26 }}>
-                {thumbByItem[it.id] ? <img src={thumbByItem[it.id]} alt="" style={{ width: "100%", height: "100%", objectFit: "contain", borderRadius: 10 }} /> : "👕"}
+                {thumbByItem[it.id] ? <img src={thumbSrc(thumbByItem[it.id])} alt="" style={{ width: "100%", height: "100%", objectFit: "contain", borderRadius: 10 }} /> : "👕"}
               </div>
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 17, fontWeight: 900, letterSpacing: "-0.01em" }}>{it.name}</div>
@@ -674,7 +676,7 @@ export function JobDetailV2({ job, items: itemsProp = [], payments = [], contact
                 return (
                   <div>
                     {thumb ? (
-                      <img src={thumb} alt="" style={{ width: "100%", maxHeight: "42vh", objectFit: "contain", borderRadius: 10, background: "#fff", display: "block" }} />
+                      <img src={thumbSrc(thumb, true)} alt="" style={{ width: "100%", maxHeight: "42vh", objectFit: "contain", borderRadius: 10, background: "#fff", display: "block" }} />
                     ) : (
                       <div style={{ aspectRatio: "2 / 1", background: T.surface, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", color: T.faint, fontSize: 13 }}>No mockup on file yet</div>
                     )}
