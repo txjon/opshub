@@ -13,6 +13,8 @@
 // next. See memory: project_cost_qty_single_source_plan.
 import React, { useState, useEffect } from "react";
 import { T, font, mono } from "@/lib/theme";
+import { createClient } from "@/lib/supabase/client";
+import { isCostingLocked } from "@/lib/costing-lock";
 
 const fmtMoney = (n: number) => "$" + Math.round(Number(n) || 0).toLocaleString("en-US");
 const sumQ = (o: any) => Object.values(o || {}).reduce((a: number, v: any) => a + (Number(v) || 0), 0);
@@ -32,11 +34,31 @@ const ROUTE_LABEL: Record<string, string> = { drop_ship: "Drop ship", ship_throu
 const ROUTE_SUB: Record<string, string> = { drop_ship: "Vendor → client", ship_through: "→ HPD → client", stage: "→ HPD → fulfillment" };
 const TASKS = [["build", "Build"], ["cost", "Cost"], ["art", "Art"], ["blank", "Blank"]] as const;
 
-export function JobDetailV2({ job, items = [], payments = [], contacts = [], thumbByItem = {} }: any) {
+export function JobDetailV2({ job, items: itemsProp = [], payments = [], contacts = [], thumbByItem = {} }: any) {
+  // Local items state so qty edits reflect live in the gallery/totals; reseeds if
+  // the parent reloads. The only write V2 makes is qty → buy_sheet_lines (the
+  // single source of truth), gated on the costing lock.
+  const [items, setItems] = useState<any[]>(itemsProp);
+  useEffect(() => { setItems(itemsProp); }, [itemsProp]);
+  const locked = isCostingLocked(job);
+
   const [wsIndex, setWsIndex] = useState<number | null>(null);   // open item worksheet index (null = closed)
   const [wsTask, setWsTask] = useState<string>("build");
   const [open, setOpen] = useState<Record<string, boolean>>({ products: true, client: false, production: true, logistics: false });
   const toggle = (k: string) => setOpen(o => ({ ...o, [k]: !o[k] }));
+
+  // Save a single size's qty to buy_sheet_lines (the qty source of truth) and
+  // reflect it locally. Blur-triggered, so flipping items never loses an edit.
+  const saveQty = async (item: any, size: string, raw: string) => {
+    if (isCostingLocked(job)) return;
+    const q = parseInt(raw) || 0;
+    if (q === Number(item.qtys?.[size] ?? 0)) return; // unchanged
+    const newQtys = { ...(item.qtys || {}), [size]: q };
+    setItems(prev => prev.map(x => x.id === item.id ? { ...x, qtys: newQtys, totalQty: sumQ(newQtys) } : x));
+    try {
+      await (createClient().from("buy_sheet_lines") as any).upsert({ item_id: item.id, size, qty_ordered: q }, { onConflict: "item_id,size" });
+    } catch (e) { console.error("[JobV2] qty save failed", e); }
+  };
 
   // Esc + arrow keys for the worksheet — the proof-editor feel.
   useEffect(() => {
@@ -302,7 +324,40 @@ export function JobDetailV2({ job, items = [], payments = [], contacts = [], thu
             </div>
             {/* task panel (scaffold: real data read; real editors wire in next) */}
             <div style={{ padding: "14px 18px 22px", minHeight: 180 }}>
-              {wsTask === "build" && <WsRows rows={Object.entries(it.qtys || {}).map(([sz, q]: any) => [sz, String(q)]).concat([["Garment", it.garment_type || "—"], ["Blank", `${it.blank_vendor || ""} ${it.blank_sku || ""}`.trim() || "—"]])} />}
+              {wsTask === "build" && (() => {
+                const sizes = Object.keys(it.qtys || {});
+                return (
+                  <div>
+                    {sizes.length === 0 ? (
+                      <div style={{ fontSize: 13, color: T.faint }}>No sizes on this item yet.</div>
+                    ) : (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                        {sizes.map(sz => (
+                          <label key={it.id + "_" + sz} style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "center" }}>
+                            <span style={{ fontSize: 10, fontWeight: 800, color: T.faint, fontFamily: mono }}>{sz}</span>
+                            <input type="text" inputMode="numeric" defaultValue={String(it.qtys?.[sz] ?? 0)} readOnly={locked}
+                              onFocus={e => e.target.select()}
+                              onBlur={e => saveQty(it, sz, e.target.value)}
+                              onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                              style={{ width: 56, textAlign: "center", padding: "7px 6px", borderRadius: 8, border: `1px solid ${T.border}`, background: locked ? T.card : T.surface, color: locked ? T.muted : T.text, fontSize: 14, fontWeight: 700, fontFamily: mono, outline: "none" }} />
+                          </label>
+                        ))}
+                        <label style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "center", justifyContent: "flex-end" }}>
+                          <span style={{ fontSize: 10, fontWeight: 800, color: T.faint, fontFamily: mono }}>TOTAL</span>
+                          <div style={{ width: 64, textAlign: "center", padding: "7px 6px", fontSize: 15, fontWeight: 800, fontFamily: mono }}>{qtyOf(it).toLocaleString()}</div>
+                        </label>
+                      </div>
+                    )}
+                    <div style={{ display: "flex", gap: 22, marginTop: 14, fontSize: 12.5, color: T.muted }}>
+                      <span>Garment <b style={{ color: T.text }}>{it.garment_type || "—"}</b></span>
+                      <span>Blank <b style={{ color: T.text }}>{`${it.blank_vendor || ""} ${it.blank_sku || ""}`.trim() || "—"}</b></span>
+                    </div>
+                    <div style={{ fontSize: 11, color: locked ? T.amber : T.faint, marginTop: 12 }}>
+                      {locked ? "🔒 Pricing is locked — unlock in Costing to change quantities." : "Saves to the buy sheet (the single source). Totals update live."}
+                    </div>
+                  </div>
+                );
+              })()}
               {wsTask === "cost" && <WsRows rows={[["Sell / unit", "$" + (Number(it.sell_per_unit) || 0).toFixed(2)], ["Blank cost / unit", it.cost_per_unit != null ? "$" + Number(it.cost_per_unit).toFixed(2) : "—"], ["Line total", fmtMoney((Number(it.sell_per_unit) || 0) * qtyOf(it))], ...Object.entries((it.blankCosts || it.blank_costs) || {}).map(([sz, c]: any) => ["  " + sz + " blank", "$" + Number(c).toFixed(2)])]} />}
               {wsTask === "art" && <WsRows rows={[["Artwork", it.artwork_status || "not started"], ["Mockup", thumbByItem[it.id] ? "on file" : "none"]]} />}
               {wsTask === "blank" && <WsRows rows={[["S&S / order #", it.blanks_order_number || "not ordered"], ["Actual blank cost", it.blanks_order_cost != null ? fmtMoney(it.blanks_order_cost) : "—"]]} />}
