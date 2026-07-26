@@ -81,9 +81,17 @@ const norm = n => (n || "").trim().toLowerCase();
     if (Math.abs(billableBSL - billableCosting) > C) {
       internalDrift.push({ job: j.job_number, phase: j.phase, buySheet: money(billableBSL), costing: money(billableCosting), diff: money(billableBSL - billableCosting) });
     }
-    // out of sync with QB (compare the target source to QB)
+    // out of sync with QB (compare the target source to QB), with self-triage:
+    //   variance → billed on actuals, a diff from ordered qty is EXPECTED
+    //   grew     → OpsHub HIGHER than QB: order was added to since invoicing,
+    //              just not re-synced yet. Benign — needs a re-push, not a fix.
+    //   review   → OpsHub LOWER than (or otherwise off from) QB: the client was
+    //              billed more than OpsHub now shows — a discount not mirrored, a
+    //              direct-in-QB edit, or a real problem. THIS is what to look at.
     if (qbSubtotal > 0 && Math.abs(billableBSL - qbSubtotal) > C) {
-      outOfSyncQB.push({ job: j.job_number, phase: j.phase, opsHub: money(billableBSL), qb: money(qbSubtotal), diff: money(billableBSL - qbSubtotal), variancePushed });
+      const diffN = Math.round((billableBSL - qbSubtotal) * 100) / 100;
+      const category = variancePushed ? "variance" : diffN > 0 ? "grew" : "review";
+      outOfSyncQB.push({ category, job: j.job_number, phase: j.phase, opsHub: money(billableBSL), qb: money(qbSubtotal), diff: money(diffN), variancePushed });
     } else if (qbSubtotal > 0) {
       clean++;
     }
@@ -96,8 +104,19 @@ const norm = n => (n || "").trim().toLowerCase();
   console.log("");
   console.log(`### INTERNAL DRIFT NOW (buy_sheet_lines qty != costing_data qty) — live 028s: ${internalDrift.length}`);
   P(internalDrift);
+
+  const grew = outOfSyncQB.filter(r => r.category === "grew");
+  const variance = outOfSyncQB.filter(r => r.category === "variance");
+  const review = outOfSyncQB.filter(r => r.category === "review");
   console.log("");
-  console.log(`### OUT OF SYNC WITH QB (OpsHub billable != QB subtotal): ${outOfSyncQB.length}`);
-  console.log("   (variancePushed=true → billed on actuals, a diff from ordered qty is EXPECTED, not a bug)");
-  P(outOfSyncQB);
+  console.log(`### OUT OF SYNC WITH QB: ${outOfSyncQB.length}  (variance ${variance.length} · grew ${grew.length} · review ${review.length})`);
+  console.log("");
+  console.log(`  ⚠  REVIEW — OpsHub BELOW QB (client billed more than OpsHub shows; discount/direct-QB-edit/bug): ${review.length}`);
+  P(review);
+  console.log("");
+  console.log(`  ↑  GREW — OpsHub ABOVE QB (order added to since invoicing, needs a re-push; benign): ${grew.length}`);
+  P(grew);
+  console.log("");
+  console.log(`  =  VARIANCE — billed on actual received/shipped qty (a diff from ordered is expected): ${variance.length}`);
+  P(variance);
 })();
