@@ -18,11 +18,13 @@ import { isCostingLocked } from "@/lib/costing-lock";
 import { logJobActivity } from "@/components/JobActivityPanel";
 import { calcCostProduct, buildPrintersMap, lookupPrintPrice as sharedLookupPrintPrice, lookupTagPrice as sharedLookupTagPrice, effectiveShipRate } from "@/lib/pricing";
 import { DecorationPanel as DecorationPanelRaw } from "./DecorationPanel";
+import { ProofModal as ProofModalRaw } from "./ArtTab";
 import { sendQuoteAndProofs, defaultRecipient } from "@/lib/job/quote-actions";
 import { pushInvoiceToQB, recordPayment, cyclePaymentStatus, deletePayment } from "@/lib/job/invoice-actions";
 import { applyPoSentToVendorItems, revertPoSentFromVendorItems } from "@/lib/po-actions";
 import { SHIP_METHODS } from "@/lib/ship-methods";
 const DecorationPanel: any = DecorationPanelRaw; // .jsx — bypass narrow inferred prop types
+const ProofModal: any = ProofModalRaw;           // .jsx — same
 
 const fmtMoney = (n: number) => "$" + Math.round(Number(n) || 0).toLocaleString("en-US");
 const fmtDT = (iso: string) => iso ? new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
@@ -109,18 +111,21 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   }, [job?.id]);
 
   // Item files (art / mockups / proofs / print-ready) for the Art tab — live
-  // (non-superseded) only, grouped by item.
+  // (non-superseded) only, grouped by item. Full rows: ProofModal needs id /
+  // mime_type / drive_link; the revised-proof nudge needs revision_pending_send.
+  const FILE_COLS = "id, item_id, file_name, stage, drive_file_id, drive_link, mime_type, approval, revision_pending_send, created_at";
   const [filesByItem, setFilesByItem] = useState<Record<string, any[]>>({});
-  useEffect(() => {
+  const reloadAllFiles = () => {
     const ids = (itemsProp || []).map((i: any) => i.id).filter(Boolean);
     if (!ids.length) return;
-    createClient().from("item_files").select("item_id, file_name, stage, drive_file_id, approval, created_at").in("item_id", ids).is("superseded_at", null).order("created_at").then(({ data }: any) => {
+    createClient().from("item_files").select(FILE_COLS).in("item_id", ids).is("superseded_at", null).order("created_at").then(({ data }: any) => {
       if (!data) return;
       const m: Record<string, any[]> = {};
       data.forEach((f: any) => { (m[f.item_id] ||= []).push(f); });
       setFilesByItem(m);
     });
-  }, [itemsProp]);
+  };
+  useEffect(() => { reloadAllFiles(); }, [itemsProp]);
 
   // Tenant warehouse address (ship-to for ship_through/stage routes).
   const [warehouseAddr, setWarehouseAddr] = useState("");
@@ -148,7 +153,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       fd.append("itemName", item.name || "");
       const res = await fetch("/api/files", { method: "POST", body: fd });
       if (!res.ok) { console.error("[JobV2] art upload failed", await res.text().catch(() => "")); return; }
-      const { data }: any = await createClient().from("item_files").select("item_id, file_name, stage, drive_file_id, approval, created_at").eq("item_id", item.id).is("superseded_at", null).order("created_at");
+      const { data }: any = await createClient().from("item_files").select(FILE_COLS).eq("item_id", item.id).is("superseded_at", null).order("created_at");
       setFilesByItem(m => ({ ...m, [item.id]: data || [] }));
     } catch (e) { console.error("[JobV2] art upload error", e); }
     finally { setUploadingItem(null); }
@@ -156,6 +161,14 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
 
   const [wsIndex, setWsIndex] = useState<number | null>(null);   // open item worksheet index (null = closed)
   const [wsTask, setWsTask] = useState<string>("build");
+  // Proof editor (reuses the classic ProofModal — methods/locations/colors/crop/bake).
+  const [proofItemId, setProofItemId] = useState<string | null>(null);
+  const [proofMode, setProofMode] = useState<"edit" | "preview">("edit");
+  // Revised-proof re-send (classic nudge: item_files.revision_pending_send).
+  const [revisedOpen, setRevisedOpen] = useState(false);
+  const [revisedNote, setRevisedNote] = useState("");
+  const [revisedSel, setRevisedSel] = useState<Record<string, boolean>>({});
+  const [revisedBusy, setRevisedBusy] = useState(false);
   const [open, setOpen] = useState<Record<string, boolean>>({ products: true, client: false, production: true, logistics: false });
   const toggle = (k: string) => setOpen(o => ({ ...o, [k]: !o[k] }));
 
@@ -347,9 +360,10 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     setBulkTotal(""); setSelectedIds(new Set());
   };
 
-  // Esc + arrow keys for the worksheet — the proof-editor feel.
+  // Esc + arrow keys for the worksheet — the proof-editor feel. Suspended while
+  // the ProofModal is open on top (it owns the keyboard then).
   useEffect(() => {
-    if (wsIndex === null) return;
+    if (wsIndex === null || proofItemId) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setWsIndex(null);
       if (e.key === "ArrowLeft") setWsIndex(i => i === null || !items.length ? i : (i - 1 + items.length) % items.length);
@@ -357,7 +371,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [wsIndex, items.length]);
+  }, [wsIndex, items.length, proofItemId]);
 
   const client = job?.clients?.name || "";
   const units = items.reduce((a: number, it: any) => a + qtyOf(it), 0);
@@ -523,6 +537,21 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       setItems(prev => prev.map(x => (cpFor(x)?.printVendor || x.decorator || "Unassigned") === vendor && x.pipeline_stage === "in_production" ? { ...x, pipeline_stage: null } : x));
       logJobActivity(job.id, `PO for ${vendor} unmarked`);
     } catch (e) { console.error("[JobV2] unmarkPoSent", e); }
+  };
+  // Send revised proofs — classic flow: /api/email/notify type proof_revised;
+  // the server clears revision_pending_send flags, reload drops the nudge.
+  const sendRevised = async () => {
+    const recipients = Object.keys(revisedSel).filter(e => revisedSel[e]);
+    if (!recipients.length) return;
+    setRevisedBusy(true);
+    try {
+      await fetch("/api/email/notify", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobId: job.id, type: "proof_revised", recipients, note: revisedNote.trim() || undefined }) });
+      logJobActivity(job.id, `Revised proof(s) sent to client (${recipients.length} recipient${recipients.length === 1 ? "" : "s"})`);
+      setRevisedOpen(false);
+      reloadAllFiles();
+    } catch (e) { console.error("[JobV2] sendRevised", e); }
+    setRevisedBusy(false);
   };
   const doSendPO = async () => {
     if (!poVendor) return;
@@ -983,6 +1012,20 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       {block("client", flags.approved ? "done" : "todo", "Client",
         `${flags.approved ? "Approved" : flags.quoted ? "Quote sent" : "Not sent"} · ${invNum ? "Inv " + invNum : "no invoice"} · ${fmtMoney(paid)} paid${flags.grew ? " · ⚠ re-invoice" : ""}`, (
         <div>
+          {/* revised-proof nudge — revised proofs re-uploaded but not re-sent */}
+          {(() => {
+            const revisedItems = items.filter((it: any) => (filesByItem[it.id] || []).some((f: any) => f.stage === "proof" && f.revision_pending_send));
+            if (!revisedItems.length) return null;
+            return (
+              <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", border: `1px solid ${T.amber}55`, background: `${T.amber}12`, borderRadius: 10, padding: "10px 13px", marginBottom: 12 }}>
+                <span style={{ fontSize: 12.5, color: T.text, flex: 1, minWidth: 180 }}>
+                  <span style={{ fontWeight: 800, color: T.amber }}>{revisedItems.length} revised proof{revisedItems.length === 1 ? "" : "s"}</span> not yet sent — {revisedItems.map((it: any) => it.name).join(", ")}
+                </span>
+                <button onClick={() => { const sel: Record<string, boolean> = {}; flatContacts.forEach((c: any) => { sel[c.email] = true; }); setRevisedSel(sel); setRevisedNote(""); setRevisedOpen(true); }}
+                  style={{ ...actBtn, background: T.amber, color: "#fff" }}>Send revised proofs</button>
+              </div>
+            );
+          })()}
           {/* client transaction actions */}
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
             <button onClick={() => openSend("quote")} style={actBtn}>{job.quote_approved ? "Send proofs" : "Send quote & proofs"}</button>
@@ -1437,6 +1480,23 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                           onChange={e => { const f = e.target.files?.[0]; if (f) uploadArt(it, uploadStage, f); e.currentTarget.value = ""; }} />
                       </label>
                     </div>
+                    {/* proof editor — reuses the classic ProofModal (methods/locations/colors/crop/bake) */}
+                    {(() => {
+                      const mockupFile = files.find((f: any) => f.stage === "mockup") || files.find((f: any) => f.file_name?.toLowerCase().includes("mockup"));
+                      const hasProof = !!it.proof_spec;
+                      const revisedPend = files.some((f: any) => f.stage === "proof" && f.revision_pending_send);
+                      return (
+                        <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 14, paddingTop: 14, borderTop: `1px solid ${T.border}44`, flexWrap: "wrap" }}>
+                          <span style={lbl}>Proof</span>
+                          {hasProof && <button onClick={() => { setProofMode("preview"); setProofItemId(it.id); }} style={ghostBtn}>View</button>}
+                          {mockupFile && <button onClick={() => { setProofMode("edit"); setProofItemId(it.id); }}
+                            style={hasProof ? ghostBtn : { ...actBtn, background: T.amber, color: "#fff" }}>{hasProof ? "Edit proof" : "Generate proof"}</button>}
+                          {!mockupFile && <span style={{ fontSize: 12, color: T.faint }}>Upload a mockup first — the proof is built on it.</span>}
+                          {hasProof && !it.proof_sent_at && !revisedPend && <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", color: T.muted }}>Ready · not sent</span>}
+                          {revisedPend && <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", color: T.amber }}>Revised · send</span>}
+                        </div>
+                      );
+                    })()}
                     <div style={{ fontSize: 11, color: T.faint, marginTop: 12 }}>Files open full-size in a new tab. Proofs are sent &amp; approved in the Client section.</div>
                   </div>
                 );
@@ -1596,6 +1656,59 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
             </div>
             <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 18 }}>
               <button onClick={() => setDetailsOpen(false)} style={actBtn}>Done</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── proof editor — the classic ProofModal, lifted above the worksheet (z 400 > 300) ── */}
+      {proofItemId && (() => {
+        const pItem = items.find((x: any) => x.id === proofItemId);
+        if (!pItem) return null;
+        const pFiles = filesByItem[pItem.id] || [];
+        const mockupFile = pFiles.find((f: any) => f.stage === "mockup") || pFiles.find((f: any) => f.file_name?.toLowerCase().includes("mockup"));
+        return (
+          <div style={{ position: "relative", zIndex: 400 }}>
+            <ProofModal
+              key={pItem.id}
+              item={pItem}
+              clientName={client}
+              projectTitle={job.title}
+              mockupFile={mockupFile}
+              files={pFiles}
+              costingData={job.costing_data}
+              initialMode={proofMode}
+              onClose={() => setProofItemId(null)}
+              onSaved={reloadAllFiles}
+              onUpdateItem={(id: string, updates: any) => setItems(prev => prev.map((x: any) => x.id === id ? { ...x, ...updates } : x))}
+            />
+          </div>
+        );
+      })()}
+
+      {/* ── send revised proofs modal — contacts + optional note ── */}
+      {revisedOpen && (
+        <div onClick={e => { if (e.target === e.currentTarget && !revisedBusy) setRevisedOpen(false); }}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 320, display: "flex", alignItems: "center", justifyContent: "center", padding: 18 }}>
+          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 14, width: "100%", maxWidth: 420, padding: "20px 22px" }}>
+            <div style={{ fontSize: 16, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", marginBottom: 14 }}>Send revised proofs</div>
+            <div style={{ ...lbl, marginBottom: 4 }}>Recipients</div>
+            {flatContacts.length === 0 ? (
+              <div style={{ fontSize: 13, color: T.amber }}>No contacts with an email on this job.</div>
+            ) : flatContacts.map((c: any) => (
+              <label key={c.email} style={{ display: "flex", alignItems: "center", gap: 9, fontSize: 13, color: T.text, padding: "4px 0" }}>
+                <input type="checkbox" checked={!!revisedSel[c.email]} onChange={() => setRevisedSel(r => ({ ...r, [c.email]: !r[c.email] }))} style={{ accentColor: T.accent }} />
+                <span>{c.name || c.email}<span style={{ color: T.faint }}> · {c.email}{c.role_on_job ? " · " + c.role_on_job : ""}</span></span>
+              </label>
+            ))}
+            <label style={{ display: "block", marginTop: 12 }}>
+              <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Note (optional)</span>
+              <textarea value={revisedNote} onChange={e => setRevisedNote(e.target.value)} rows={3} placeholder="Anything the client should know about the revision…" style={{ ...field, resize: "vertical" }} />
+            </label>
+            <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
+              <button disabled={revisedBusy || !Object.values(revisedSel).some(Boolean)} onClick={sendRevised}
+                style={{ ...actBtn, background: T.amber, color: "#fff", opacity: revisedBusy || !Object.values(revisedSel).some(Boolean) ? 0.6 : 1 }}>{revisedBusy ? "Sending…" : "Send"}</button>
+              <button disabled={revisedBusy} onClick={() => setRevisedOpen(false)} style={ghostBtn}>Cancel</button>
             </div>
           </div>
         </div>
