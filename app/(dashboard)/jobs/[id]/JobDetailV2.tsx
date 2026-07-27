@@ -1365,15 +1365,21 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
               </div>
             );
           })()}
-          {/* client transaction actions */}
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-            <button onClick={() => openSend("quote")} style={actBtn}>{job.quote_approved ? "Send proofs" : "Send quote & proofs"}</button>
-            {job.quote_approved
-              ? <button onClick={doRevoke} disabled={actBusy} style={ghostBtn}>Approved ✓ · revoke</button>
-              : <button onClick={doApprove} disabled={actBusy} style={ghostBtn}>Mark approved</button>}
-            <button onClick={() => openSend("invoice")} style={ghostBtn}>Send invoice</button>
-            <button onClick={() => { setActErr(""); setClientAction("payment"); }} style={ghostBtn}>+ Record payment</button>
-          </div>
+          {/* client transaction actions — the FILLED button is always the next
+              step: send quote → send invoice → record payment. */}
+          {(() => {
+            const primary = !flags.approved ? "quote" : !invNum ? "invoice" : paid < orderTotal ? "payment" : null;
+            return (
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+                <button onClick={() => openSend("quote")} style={primary === "quote" ? actBtn : ghostBtn}>{job.quote_approved ? "Send proofs" : "Send quote & proofs"}</button>
+                {job.quote_approved
+                  ? <button onClick={doRevoke} disabled={actBusy} style={ghostBtn}>Approved ✓ · revoke</button>
+                  : <button onClick={doApprove} disabled={actBusy} style={ghostBtn}>Mark approved</button>}
+                <button onClick={() => openSend("invoice")} style={primary === "invoice" ? actBtn : ghostBtn}>Send invoice</button>
+                <button onClick={() => { setActErr(""); setClientAction("payment"); }} style={primary === "payment" ? actBtn : ghostBtn}>+ Record payment</button>
+              </div>
+            );
+          })()}
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
             <a href={`/api/pdf/quote/${job.id}`} target="_blank" rel="noreferrer" style={previewBtn}>Preview quote</a>
             {invNum && <a href={`/api/pdf/invoice/${job.id}`} target="_blank" rel="noreferrer" style={previewBtn}>Preview invoice</a>}
