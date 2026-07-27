@@ -1549,25 +1549,49 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
               {selectedIds.size === items.length ? "Clear all" : "Select all"}
             </button>
           </div>
+          {/* Each row is a READ-OUT for manual supplier entry (OpsHub in one
+              window, the supplier cart in the other): PO ref with letter,
+              brand/style/color big, and the per-size counts in clear view.
+              Logging = just the total paid (ordered ⇢ cost logged). */}
           {items.map((item: any) => {
             const calc = calcBlank(item);
             const ordered = item.blanks_order_cost != null && item.blanks_order_cost !== "";
             const actual = ordered ? Number(item.blanks_order_cost) : null;
             const sel = selectedIds.has(item.id);
+            const sizes = sortSizes(Object.keys(item.qtys || {})).filter(sz => (item.qtys?.[sz] || 0) > 0);
             return (
-              <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: `1px solid ${T.border}44`, flexWrap: "wrap" }}>
-                <input type="checkbox" checked={sel} onChange={() => toggleSel(item.id)} style={{ width: 15, height: 15, accentColor: T.accent, cursor: "pointer" }} />
-                <span style={{ flex: 1, minWidth: 150, fontSize: 13, fontWeight: 600 }}><span style={{ fontFamily: mono, fontSize: 10.5, fontWeight: 800, color: T.faint, marginRight: 7 }}>{letterOf(item.id)}</span>{item.name}<span style={{ color: T.faint, fontWeight: 400, marginLeft: 8, fontSize: 11 }}>{item.blank_vendor} {item.blank_sku}</span></span>
-                <input key={item.id + ":on:" + (item.blanks_order_number ?? "")} defaultValue={item.blanks_order_number || ""} placeholder="order #" title="Supplier order number (e.g. S&S)"
-                  onBlur={e => { const v = e.target.value.trim() || null; if (v !== (item.blanks_order_number ?? null)) { setItems(prev => prev.map((x: any) => x.id === item.id ? { ...x, blanks_order_number: v } : x)); (createClient().from("items") as any).update({ blanks_order_number: v }).eq("id", item.id).then(({ error }: any) => { if (error) console.error("[JobV2] order # save failed", error); }); } }}
-                  style={{ width: 90, padding: "6px 8px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: mono, outline: "none" }} />
-                <span style={{ fontSize: 11, color: T.faint, fontFamily: mono, width: 74, textAlign: "right" }}>est {fmtMoney(calc)}</span>
-                <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                  <span style={{ fontSize: 11, color: T.faint }}>$</span>
-                  <input key={item.id + ":c:" + (item.blanks_order_cost ?? "")} defaultValue={actual != null ? actual.toFixed(2) : ""} placeholder="total paid" inputMode="decimal" onBlur={e => saveBlankCost(item, e.target.value)}
-                    style={{ width: 84, padding: "6px 8px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: mono, outline: "none" }} />
+              <div key={item.id} style={{ display: "flex", gap: 14, padding: "13px 0", borderBottom: `1px solid ${T.border}44`, flexWrap: "wrap", alignItems: "flex-start" }}>
+                <input type="checkbox" checked={sel} onChange={() => toggleSel(item.id)} style={{ width: 15, height: 15, accentColor: T.accent, cursor: "pointer", marginTop: 5 }} />
+                <div style={{ flex: 1, minWidth: 260 }}>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+                    <span style={{ fontFamily: mono, fontSize: 12.5, fontWeight: 800, color: T.text }}>{job.job_number}-{letterOf(item.id)}</span>
+                    <span style={{ fontSize: 12, color: T.faint }}>{item.name}</span>
+                  </div>
+                  <div style={{ fontSize: 15, fontWeight: 800, marginTop: 3 }}>
+                    {item.blank_vendor || <span style={{ color: T.amber }}>No blank assigned</span>}
+                    {item.blank_sku && <span style={{ color: T.muted, fontWeight: 700 }}> · {item.blank_sku}</span>}
+                  </div>
+                  {sizes.length > 0 && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 7 }}>
+                      {sizes.map(sz => (
+                        <span key={sz} style={{ display: "inline-flex", alignItems: "baseline", gap: 5, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 7, padding: "4px 9px" }}>
+                          <span style={{ fontSize: 10, fontWeight: 800, color: T.faint, fontFamily: mono }}>{sz}</span>
+                          <span style={{ fontSize: 14, fontWeight: 800, fontFamily: mono }}>{item.qtys[sz]}</span>
+                        </span>
+                      ))}
+                      <span style={{ display: "inline-flex", alignItems: "center", fontSize: 11, color: T.faint, fontFamily: mono, paddingLeft: 4 }}>= {qtyOf(item).toLocaleString()} u</span>
+                    </div>
+                  )}
                 </div>
-                <span style={{ width: 62, textAlign: "right", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: ordered ? (actual! > calc ? T.red : T.green) : T.faint }}>{ordered ? (actual! > calc ? "over" : "logged ✓") : "—"}</span>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 4 }}>
+                  <span style={{ fontSize: 11, color: T.faint, fontFamily: mono }}>est {fmtMoney(calc)}</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                    <span style={{ fontSize: 11, color: T.faint }}>$</span>
+                    <input key={item.id + ":c:" + (item.blanks_order_cost ?? "")} defaultValue={actual != null ? actual.toFixed(2) : ""} placeholder="total paid" inputMode="decimal" onBlur={e => saveBlankCost(item, e.target.value)}
+                      style={{ width: 84, padding: "6px 8px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: mono, outline: "none" }} />
+                  </div>
+                  <span style={{ width: 62, textAlign: "right", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: ordered ? (actual! > calc ? T.red : T.green) : T.faint }}>{ordered ? (actual! > calc ? "over" : "logged ✓") : "—"}</span>
+                </div>
               </div>
             );
           })}
