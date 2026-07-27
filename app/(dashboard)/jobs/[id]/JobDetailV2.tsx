@@ -19,12 +19,24 @@ import { logJobActivity } from "@/components/JobActivityPanel";
 import { calcCostProduct, buildPrintersMap, lookupPrintPrice as sharedLookupPrintPrice, lookupTagPrice as sharedLookupTagPrice, effectiveShipRate } from "@/lib/pricing";
 import { DecorationPanel as DecorationPanelRaw } from "./DecorationPanel";
 import { ProofModal as ProofModalRaw } from "./ArtTab";
+import {
+  SSPicker as SSPickerRaw, ASColourPicker as ASColourPickerRaw, LAApparelPicker as LAApparelPickerRaw,
+  FavoritesPicker as FavoritesPickerRaw, OtherPicker as OtherPickerRaw, CottonCollectivePicker as CottonCollectivePickerRaw,
+  applyBlankToItem, fleeceFlag,
+} from "./BuySheetTab";
 import { sendQuoteAndProofs, defaultRecipient } from "@/lib/job/quote-actions";
 import { pushInvoiceToQB, recordPayment, cyclePaymentStatus, deletePayment } from "@/lib/job/invoice-actions";
 import { applyPoSentToVendorItems, revertPoSentFromVendorItems } from "@/lib/po-actions";
 import { SHIP_METHODS } from "@/lib/ship-methods";
 const DecorationPanel: any = DecorationPanelRaw; // .jsx — bypass narrow inferred prop types
 const ProofModal: any = ProofModalRaw;           // .jsx — same
+const SSPicker: any = SSPickerRaw, ASColourPicker: any = ASColourPickerRaw, LAApparelPicker: any = LAApparelPickerRaw,
+  FavoritesPicker: any = FavoritesPickerRaw, OtherPicker: any = OtherPickerRaw, CottonCollectivePicker: any = CottonCollectivePickerRaw;
+// Same source labels/colors as the classic add-item modal (ProductBuilder).
+const PICKER_SOURCES: [string, string, string, string][] = [
+  ["ss", "S&S Activewear", "#b65722", "#fff"], ["as", "AS Colour", "#000", "#fff"], ["la", "LA Apparel", "#fff", "#000"],
+  ["cc", "Cotton Collective", "#2d6b4f", "#fff"], ["fav", "House Party Favorites", "", ""], ["other", "Other", "", ""],
+];
 
 const fmtMoney = (n: number) => "$" + Math.round(Number(n) || 0).toLocaleString("en-US");
 const fmtDT = (iso: string) => iso ? new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
@@ -164,6 +176,9 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   // Proof editor (reuses the classic ProofModal — methods/locations/colors/crop/bake).
   const [proofItemId, setProofItemId] = useState<string | null>(null);
   const [proofMode, setProofMode] = useState<"edit" | "preview">("edit");
+  // Catalog picker overlay ("src" = source chooser, else picker key) + assign target.
+  const [pickerSrc, setPickerSrc] = useState<string | null>(null);
+  const [assignTargetId, setAssignTargetId] = useState<string | null>(null);
   // Revised-proof re-send (classic nudge: item_files.revision_pending_send).
   const [revisedOpen, setRevisedOpen] = useState(false);
   const [revisedNote, setRevisedNote] = useState("");
@@ -363,7 +378,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   // Esc + arrow keys for the worksheet — the proof-editor feel. Suspended while
   // the ProofModal is open on top (it owns the keyboard then).
   useEffect(() => {
-    if (wsIndex === null || proofItemId) return;
+    if (wsIndex === null || proofItemId || pickerSrc) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setWsIndex(null);
       if (e.key === "ArrowLeft") setWsIndex(i => i === null || !items.length ? i : (i - 1 + items.length) % items.length);
@@ -371,7 +386,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [wsIndex, items.length, proofItemId]);
+  }, [wsIndex, items.length, proofItemId, pickerSrc]);
 
   const client = job?.clients?.name || "";
   const units = items.reduce((a: number, it: any) => a + qtyOf(it), 0);
@@ -482,6 +497,76 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       setNewProd({ name: "", garment_type: "tee", blank_vendor: "", blank_sku: "", cost: "", qtys: {} });
       setAddOpen(false);
     } catch (e: any) { setActErr(e.message || "Failed to add product."); } finally { setActBusy(false); }
+  };
+
+  // ── Catalog pickers (classic S&S / AS / LA / CC / Favorites / Other) — two
+  // modes: add a new product, or assign/swap the blank on an existing item.
+  // (pickerSrc/assignTargetId state is declared up with the worksheet state —
+  // the worksheet key handler's dep array reads it.) ──
+  const [favorites, setFavorites] = useState<any[]>([]);
+  useEffect(() => { createClient().from("favorites").select("*").order("style_name").then(({ data }: any) => setFavorites(data || [])); }, []);
+  const isFav = (supplier: string, styleCode: string) => favorites.some((f: any) => f.supplier === supplier && f.style_code === styleCode);
+  const toggleFav = async (supplier: string, styleCode: string, styleName: string, sourceCategory: string) => {
+    const supabase = createClient();
+    if (isFav(supplier, styleCode)) {
+      await supabase.from("favorites").delete().eq("supplier", supplier).eq("style_code", styleCode);
+      setFavorites(f => f.filter((x: any) => !(x.supplier === supplier && x.style_code === styleCode)));
+    } else {
+      const { data }: any = await (supabase.from("favorites") as any).insert({ supplier, style_code: styleCode, style_name: styleName, category: sourceCategory || "Other" }).select().single();
+      if (data) setFavorites(f => [...f, data]);
+    }
+  };
+  const closePicker = () => { setPickerSrc(null); setAssignTargetId(null); };
+  // Assign/swap: shared classic transform → persist. Targeted line prune +
+  // upsert (never delete-all — ship/receive counters live on those rows).
+  const persistBlankAssign = async (item: any, blankData: any) => {
+    const patch = applyBlankToItem({ ...item, qtys: item.qtys || {}, sizes: item.sizes || Object.keys(item.qtys || {}) }, blankData);
+    const supabase = createClient();
+    try {
+      await (supabase.from("items") as any).update({
+        blank_vendor: patch.blank_vendor || null, blank_sku: patch.blank_sku || null,
+        cost_per_unit: patch.cost_per_unit || null,
+        blank_costs: patch.blankCosts && Object.keys(patch.blankCosts).length ? patch.blankCosts : null,
+        garment_type: patch.garment_type || null, is_fleece: !!(item.is_fleece || patch.is_fleece),
+      }).eq("id", item.id);
+      const currentSizes = new Set(Object.keys(patch.qtys || {}));
+      const { data: existing }: any = await supabase.from("buy_sheet_lines").select("size").eq("item_id", item.id);
+      const stale = (existing || []).map((r: any) => r.size).filter((s: string) => !currentSizes.has(s));
+      if (stale.length) await (supabase.from("buy_sheet_lines") as any).delete().eq("item_id", item.id).in("size", stale);
+      for (const [size, qty] of Object.entries(patch.qtys || {})) {
+        await (supabase.from("buy_sheet_lines") as any).upsert({ item_id: item.id, size, qty_ordered: qty }, { onConflict: "item_id,size" });
+      }
+      setItems(prev => prev.map((x: any) => x.id === item.id ? { ...x, ...patch, is_fleece: !!(item.is_fleece || patch.is_fleece), blankCosts: patch.blankCosts } : x));
+      logJobActivity(job.id, `Blank assigned to ${item.name}: ${patch.blank_vendor || ""} ${patch.blank_sku || ""}`.trim());
+      fetch(`/api/jobs/${job.id}/refresh-financials`, { method: "POST" }).catch(() => {});
+    } catch (e) { console.error("[JobV2] persistBlankAssign", e); }
+  };
+  // Add a new product straight from a picker payload.
+  const createProductFromPicker = async (pi: any) => {
+    const supabase = createClient();
+    try {
+      const maxSort = items.reduce((m, it: any) => Math.max(m, Number(it.sort_order) || 0), 0);
+      const { data: item, error }: any = await (supabase.from("items") as any).insert({
+        job_id: job.id, name: pi.name, blank_vendor: pi.blank_vendor || null, blank_sku: pi.blank_sku || null,
+        cost_per_unit: pi.cost_per_unit || null,
+        blank_costs: pi.blankCosts && Object.keys(pi.blankCosts).length ? pi.blankCosts : null,
+        garment_type: pi.garment_type || null, is_fleece: !!fleeceFlag(pi.garment_type).is_fleece,
+        status: "tbd", artwork_status: "not_started", sort_order: maxSort + 10,
+      }).select("*").single();
+      if (error) throw new Error(error.message);
+      if (pi.sizes?.length) await (supabase.from("buy_sheet_lines") as any).insert(
+        pi.sizes.map((sz: string) => ({ item_id: item.id, size: sz, qty_ordered: pi.qtys?.[sz] || 0, qty_shipped_from_vendor: 0, qty_received_at_hpd: 0, qty_shipped_to_customer: 0 })));
+      const qtys = Object.fromEntries((pi.sizes || []).map((sz: string) => [sz, pi.qtys?.[sz] || 0]));
+      setItems(prev => [...prev, { ...item, qtys, totalQty: sumQ(qtys), blankCosts: pi.blankCosts || {} }]);
+      logJobActivity(job.id, `Product added: ${pi.name}`);
+      fetch(`/api/jobs/${job.id}/refresh-financials`, { method: "POST" }).catch(() => {});
+    } catch (e: any) { console.error("[JobV2] createProductFromPicker", e); alert(e.message || "Failed to add product"); }
+  };
+  const handlePickerAdd = (pi: any) => {
+    const target = assignTargetId ? items.find((x: any) => x.id === assignTargetId) : null;
+    if (target) { persistBlankAssign(target, pi); }
+    else { createProductFromPicker(pi); }
+    closePicker();
   };
 
   // ── PO send (per vendor) — reuses the working classic flow: email the per-vendor
@@ -1316,6 +1401,10 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                         <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Color</span>
                         <input key={it.id + ":bs:" + it.blank_sku} defaultValue={it.blank_sku || ""} readOnly={locked} onBlur={e => saveItemField(it, "blank_sku", e.target.value)} placeholder="Color" style={field} />
                       </label>
+                      {!locked && (
+                        <button onClick={() => { setAssignTargetId(it.id); setPickerSrc("src"); }}
+                          style={{ ...ghostBtn, alignSelf: "flex-end", whiteSpace: "nowrap" }}>{it.blank_vendor ? "Swap blank ▸" : "Pick blank ▸"}</button>
+                      )}
                     </div>
                     {/* sizes + qty with remove + add */}
                     <div style={{ ...lbl, marginBottom: 6 }}>Sizes &amp; quantities</div>
@@ -1342,7 +1431,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                       </div>
                     </div>
                     <div style={{ fontSize: 11, color: locked ? T.amber : T.faint, marginTop: 14 }}>
-                      {locked ? "🔒 Pricing is locked — unlock in Costing to edit." : "Saves to the buy sheet. Full S&S/catalog blank picker is separate (Studio/classic)."}
+                      {locked ? "🔒 Pricing is locked — unlock in Costing to edit." : "Saves to the buy sheet. Pick blank ▸ opens the full catalog (S&S, AS Colour, LA Apparel, Cotton Collective, Favorites)."}
                     </div>
                   </div>
                 );
@@ -1593,8 +1682,18 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
           style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 320, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "24px 14px", overflowY: "auto" }}>
           <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 14, width: "100%", maxWidth: 460, padding: "20px 22px" }}>
             <div style={{ fontSize: 16, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", marginBottom: 14 }}>Add product</div>
+            {/* catalog sources — the classic pickers */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
+              {PICKER_SOURCES.map(([k, label, bg, color]) => (
+                <button key={k} onClick={() => { setAddOpen(false); setAssignTargetId(null); setPickerSrc(k); }}
+                  style={{ padding: "11px 10px", borderRadius: 9, border: bg ? "none" : `1px solid ${T.border}`, background: bg || T.surface, color: color || T.text, fontSize: 12.5, fontWeight: 800, cursor: "pointer", fontFamily: font }}>
+                  {label}{k === "fav" && favorites.length > 0 ? ` · ${favorites.length}` : ""}
+                </button>
+              ))}
+            </div>
+            <div style={{ ...lbl, marginBottom: 10 }}>Or quick manual entry</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              <input autoFocus value={newProd.name} onChange={e => setNewProd(p => ({ ...p, name: e.target.value }))} placeholder="Product name" style={field} />
+              <input value={newProd.name} onChange={e => setNewProd(p => ({ ...p, name: e.target.value }))} placeholder="Product name" style={field} />
               <div style={{ display: "flex", gap: 10 }}>
                 <select value={newProd.garment_type} onChange={e => setNewProd(p => ({ ...p, garment_type: e.target.value }))} style={{ ...field, flex: 1 }}>
                   {ADD_GARMENTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
@@ -1682,6 +1781,45 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
               onSaved={reloadAllFiles}
               onUpdateItem={(id: string, updates: any) => setItems(prev => prev.map((x: any) => x.id === id ? { ...x, ...updates } : x))}
             />
+          </div>
+        );
+      })()}
+
+      {/* ── catalog picker overlay (classic pickers; z 340 > worksheet 300) ── */}
+      {pickerSrc && (() => {
+        const target = assignTargetId ? items.find((x: any) => x.id === assignTargetId) : null;
+        const assignName = target?.name || "";
+        return (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 340, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
+            onClick={closePicker}>
+            <div onClick={e => e.stopPropagation()} style={{ width: "95vw", maxWidth: pickerSrc === "src" ? 440 : 1000, maxHeight: "90vh", display: "flex", flexDirection: "column" }}>
+              <div style={{ marginBottom: 8, display: "flex", gap: 8, alignItems: "center" }}>
+                <button onClick={() => { if (pickerSrc === "src") closePicker(); else setPickerSrc("src"); }}
+                  style={{ background: T.text, border: "none", borderRadius: 6, color: "#0a0a0a", fontSize: 12, fontWeight: 600, padding: "6px 14px", cursor: "pointer", fontFamily: font }}>
+                  ← {pickerSrc === "src" ? "Close" : "Sources"}
+                </button>
+                {target && <span style={{ fontSize: 11, color: T.amber, fontWeight: 600 }}>Assigning blank to {assignName}</span>}
+              </div>
+              {pickerSrc === "src" && (
+                <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 14, padding: "18px 20px" }}>
+                  <div style={{ fontSize: 15, fontWeight: 900, textTransform: "uppercase", marginBottom: 12 }}>{target ? "Pick a blank source" : "Add from catalog"}</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                    {PICKER_SOURCES.map(([k, label, bg, color]) => (
+                      <button key={k} onClick={() => setPickerSrc(k)}
+                        style={{ padding: "12px 10px", borderRadius: 9, border: bg ? "none" : `1px solid ${T.border}`, background: bg || T.surface, color: color || T.text, fontSize: 12.5, fontWeight: 800, cursor: "pointer", fontFamily: font }}>
+                        {label}{k === "fav" && favorites.length > 0 ? ` · ${favorites.length}` : ""}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {pickerSrc === "ss" && <SSPicker onAdd={handlePickerAdd} onClose={closePicker} isFav={isFav} toggleFav={toggleFav} assignMode={!!target} defaultItemName={assignName} />}
+              {pickerSrc === "as" && <ASColourPicker onAdd={handlePickerAdd} onClose={closePicker} isFav={isFav} toggleFav={toggleFav} assignMode={!!target} defaultItemName={assignName} />}
+              {pickerSrc === "la" && <LAApparelPicker onAdd={handlePickerAdd} onClose={closePicker} isFav={isFav} toggleFav={toggleFav} assignMode={!!target} defaultItemName={assignName} />}
+              {pickerSrc === "cc" && <CottonCollectivePicker onAdd={handlePickerAdd} onClose={closePicker} assignMode={!!target} defaultItemName={assignName} />}
+              {pickerSrc === "fav" && <FavoritesPicker favorites={favorites} setFavorites={setFavorites} onAdd={handlePickerAdd} onClose={closePicker} toggleFav={toggleFav} assignMode={!!target} defaultItemName={assignName} />}
+              {pickerSrc === "other" && <OtherPicker onAdd={handlePickerAdd} onClose={closePicker} assignMode={!!target} defaultItemName={assignName} />}
+            </div>
           </div>
         );
       })()}

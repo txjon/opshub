@@ -58,6 +58,75 @@ export function detectGarmentType(category, name) {
   return "custom";
 }
 
+export const FLEECE_GARMENTS = ["crewneck", "hoodie", "jacket"];
+export const fleeceFlag = (gt) => (gt && FLEECE_GARMENTS.includes(gt) ? { is_fleece: true } : {});
+
+// Assign/swap a blank onto an existing item WITHOUT losing quantities — the
+// ONE shared transform (ProductBuilder + JobDetailV2). The blank supplies
+// vendor / SKU / style / color / cost; sizes carry by exact label match.
+// When NOTHING matches but the item already has an order:
+//   - single-size blank → adopt its label and move the whole order onto it
+//     (fixes a one-size item going e.g. "One Size" → "Adjustable", which
+//      previously remapped to qty 0 and wiped the order)
+//   - multi-size blank → keep the item's own sizes + qtys, so a pre-order
+//     size breakdown can't be collapsed by a mismatched blank
+export function applyBlankToItem(it, blankData) {
+  const blankSizes = blankData.sizes || [];
+  const oldTotal = Object.values(it.qtys || {}).reduce((a, v) => a + (v || 0), 0);
+  let sizes, qtys;
+  // A blank only "carries" quantities when its qtys actually SUM to > 0. The
+  // pickers seed a zero-filled qtys object ({S:0,M:0,…}) for the blank's sizes;
+  // that must NOT be treated as authoritative or it overwrites the order with 0.
+  const blankQtySum = blankData.qtys ? Object.values(blankData.qtys).reduce((a, v) => a + (v || 0), 0) : 0;
+  if (blankQtySum > 0) {
+    sizes = blankSizes; qtys = blankData.qtys;
+  } else {
+    const exact = Object.fromEntries(blankSizes.map(sz => [sz, it.qtys?.[sz] || 0]));
+    const carried = Object.values(exact).reduce((a, v) => a + (v || 0), 0);
+    if (carried > 0 || oldTotal === 0) {
+      // Keep ordered sizes the blank DOESN'T carry (e.g. a 5001 maxes at 3XL but
+      // the pre-order has 4XL) instead of dropping them — those units are real
+      // orders. They stay on the card as substitution candidates (no blank cost
+      // until a per-size substitute is set). This is the fix for silent size/unit
+      // loss on assign; see size_subs.
+      const uncovered = (it.sizes || []).filter(sz => !blankSizes.includes(sz) && (it.qtys?.[sz] || 0) > 0);
+      sizes = [...blankSizes, ...uncovered];
+      qtys = Object.fromEntries(sizes.map(sz => [sz, it.qtys?.[sz] || 0]));
+    }
+    else if (blankSizes.length === 1) { sizes = blankSizes; qtys = { [blankSizes[0]]: oldTotal }; }
+    else { sizes = it.sizes || []; qtys = it.qtys || {}; }
+  }
+  // Normalize: qtys must hold EXACTLY the resolved sizes — strip any keys
+  // left over from the old blank's size system (e.g. "Adjustable" lingering
+  // after a swap to "OS"). Stray keys survive the save's buy_sheet_lines
+  // prune (it keys on Object.keys(qtys)) and become orphan rows that
+  // double-count and show a phantom size on the card. New sizes start at 0.
+  qtys = Object.fromEntries(sizes.map(sz => [sz, qtys[sz] || 0]));
+  const newTotal = Object.values(qtys).reduce((a, v) => a + (v || 0), 0);
+  // A blank swap must re-derive cost_per_unit from the NEW blank's per-size
+  // costs — otherwise the old blank's average lingers on the item row and
+  // the Blanks tab keeps pricing off it (a $0/free blank would still show
+  // the old cost). Same formula CostingTab uses on save (avg of the >0
+  // per-size costs; all-zero/free → 0) so the two write paths agree.
+  const newBlankCosts = blankData.blankCosts || {};
+  const costVals = Object.values(newBlankCosts).map(Number).filter(v => v > 0);
+  const newCostPerUnit = costVals.length
+    ? Math.round(costVals.reduce((a, v) => a + v, 0) / costVals.length * 100) / 100
+    : 0;
+  const gt = blankData.garment_type || detectGarmentType("", (it.name || "") + " " + (blankData.blank_vendor || "")) || it.garment_type;
+  return {
+    ...it, blank_vendor: blankData.blank_vendor, blank_sku: blankData.blank_sku,
+    style: blankData.style, color: blankData.color, sizes,
+    qtys,
+    blankCosts: newBlankCosts,
+    cost_per_unit: newCostPerUnit,
+    garment_type: gt,
+    ...fleeceFlag(gt),
+    totalQty: newTotal,
+    curve: blankData.curve || it.curve || DEFAULT_CURVE,
+  };
+}
+
 // Shift-click range selection for size pickers
 export function handleSizeToggle(sz, e, availableSizes, setSelSizes, lastClickedRef) {
   if (e?.shiftKey && lastClickedRef.current && lastClickedRef.current !== sz) {
