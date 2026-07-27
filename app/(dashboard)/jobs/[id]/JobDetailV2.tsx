@@ -1399,7 +1399,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                   ? <button onClick={doRevoke} disabled={actBusy} style={ghostBtn}>Approved ✓ · revoke</button>
                   : <button onClick={doApprove} disabled={actBusy} style={ghostBtn}>Mark approved</button>}
                 <button onClick={() => openSend("invoice")} style={primary === "invoice" ? actBtn : ghostBtn}>Send invoice</button>
-                <button onClick={() => { setActErr(""); setClientAction("payment"); }} style={primary === "payment" ? actBtn : ghostBtn}>+ Record payment</button>
+                <button onClick={() => { setActErr(""); const bal = Math.max(0, (invoiced || orderTotal) - paid); setPayForm(f => ({ ...f, amount: f.amount || (bal > 0 ? bal.toFixed(2) : "") })); setClientAction("payment"); }} style={primary === "payment" ? actBtn : ghostBtn}>+ Record payment</button>
               </div>
             );
           })()}
@@ -1478,7 +1478,10 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
 
           {/* payments — terms + records (click status to cycle, × to delete) */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "16px 0 8px", gap: 10, flexWrap: "wrap" }}>
-            <span style={lbl}>Payments · {fmtMoney(paid)} paid of {fmtMoney(invoiced || orderTotal)}</span>
+            <span style={{ ...lbl, display: "flex", alignItems: "center", gap: 8 }}>Payments · {fmtMoney(paid)} paid of {fmtMoney(invoiced || orderTotal)}
+              <button onClick={() => { setActErr(""); const bal = Math.max(0, (invoiced || orderTotal) - paid); setPayForm(f => ({ ...f, amount: f.amount || (bal > 0 ? bal.toFixed(2) : "") })); setClientAction("payment"); }}
+                style={{ background: "transparent", border: `1px solid ${T.border}`, color: T.text, fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: 6, cursor: "pointer", fontFamily: font, letterSpacing: 0, textTransform: "none" }}>+ Record</button>
+            </span>
             <select value={job.payment_terms || ""} onChange={e => saveJobCol("payment_terms", e.target.value)} style={{ ...field, width: "auto", padding: "6px 9px", fontSize: 12 }}>
               <option value="">Terms…</option>
               <option value="prepaid">Prepaid</option>
@@ -2001,12 +2004,16 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
             </div>
             {clientAction === "payment" ? (
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <div style={{ fontSize: 12.5, color: T.muted }}>Balance due: <span style={{ fontFamily: mono, fontWeight: 800, color: T.text }}>{fmtMoney(Math.max(0, (invoiced || orderTotal) - paid))}</span>{invoiced ? <span style={{ color: T.faint }}> (incl. tax)</span> : null}</div>
                 <select value={payForm.type} onChange={e => setPayForm(f => ({ ...f, type: e.target.value }))} style={field}>
                   <option value="full_payment">Full payment</option>
                   <option value="deposit">Deposit</option>
                   <option value="balance">Balance</option>
                 </select>
-                <input value={payForm.amount} onChange={e => setPayForm(f => ({ ...f, amount: e.target.value }))} placeholder="Amount" inputMode="decimal" style={field} />
+                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <span style={{ fontSize: 13, color: T.faint }}>$</span>
+                  <input value={payForm.amount} onChange={e => setPayForm(f => ({ ...f, amount: e.target.value }))} placeholder="Amount" inputMode="decimal" style={field} />
+                </div>
                 <input type="date" value={payForm.paid_date} onChange={e => setPayForm(f => ({ ...f, paid_date: e.target.value }))} style={field} />
               </div>
             ) : (
