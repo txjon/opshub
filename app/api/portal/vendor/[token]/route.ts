@@ -8,6 +8,15 @@ import { shipFromProduction } from "@/lib/production2-ship";
 import { getPdfBranding } from "@/lib/branding";
 import { ensureTracker } from "@/lib/inbound-tracking";
 
+// costProds in ITEM sort order — "first item in a share group" (who carries
+// the screen fees) resolves by array position in the pricing engine; every
+// surface must order like the costing UI / PO PDF or screens land on the
+// wrong item (or read as missing).
+function orderProdsByItemSort(costProds: any[], itemsById: Record<string, any>): any[] {
+  return [...(costProds || [])].sort((a: any, b: any) =>
+    ((itemsById[a?.id]?.sort_order ?? 1e9) as number) - ((itemsById[b?.id]?.sort_order ?? 1e9) as number));
+}
+
 const admin = () =>
   createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -147,7 +156,7 @@ export async function GET(
       const costingData = job.costing_data as any;
       if (!costingData?.costProds?.length) continue;
 
-      const allCostProds = costingData.costProds;
+      const allCostProds = orderProdsByItemSort(costingData.costProds, pre.itemsById);
 
       // Find items in this job assigned to this decorator
       const decItems = allCostProds.filter((cp: any) =>
@@ -220,8 +229,13 @@ export async function GET(
           itemTotal,
           mockupThumb: mockupByItem[item.id] ? `/api/files/thumbnail?id=${mockupByItem[item.id]}&thumb=1&size=400` : null,
           blanksOrdered: (item as any).blanks_order_cost != null,
-          // impressions = units × active print locations (vendor-facing volume)
-          impressions: totalQty * Object.values((costProd?.printLocations || {}) as Record<string, any>).filter((l: any) => l?.location).length,
+          // impressions = units × print passes per garment: ACTIVE locations
+          // (named + colors set — a named-but-empty row isn't printed) + the
+          // tag print (it's a printed pass too, repeat or not).
+          impressions: totalQty * (
+            Object.values((costProd?.printLocations || {}) as Record<string, any>).filter((l: any) => l?.location && (parseFloat(l?.screens) || 0) > 0).length
+            + (costProd?.tagPrint ? 1 : 0)
+          ),
         };
       });
 
@@ -242,7 +256,9 @@ export async function GET(
 
       const order = {
         jobId: job.id,
-        jobNumber: typeMeta.qb_invoice_number || job.job_number,
+        // Vendors reference the PO/job number — NEVER the client's QB invoice
+        // number (wrong reference for them + client billing info leak).
+        jobNumber: job.job_number,
         jobTitle: job.title,
         clientName: clientMap[job.client_id] || "Client",
         phase: job.phase,
@@ -322,7 +338,7 @@ export async function GET(
     for (const job of (completedJobs || [])) {
       const costingData = job.costing_data as any;
       if (!costingData?.costProds?.length) continue;
-      const allCostProds = costingData.costProds;
+      const allCostProds = orderProdsByItemSort(costingData.costProds, cPre.itemsById);
       const decItems = allCostProds.filter((cp: any) =>
         cp.printVendor === decorator.short_code || cp.printVendor === decorator.name
       );
@@ -380,8 +396,13 @@ export async function GET(
           itemTotal,
           mockupThumb: cMockupByItem[item.id] ? `/api/files/thumbnail?id=${cMockupByItem[item.id]}&thumb=1&size=400` : null,
           blanksOrdered: (item as any).blanks_order_cost != null,
-          // impressions = units × active print locations (vendor-facing volume)
-          impressions: totalQty * Object.values((costProd?.printLocations || {}) as Record<string, any>).filter((l: any) => l?.location).length,
+          // impressions = units × print passes per garment: ACTIVE locations
+          // (named + colors set — a named-but-empty row isn't printed) + the
+          // tag print (it's a printed pass too, repeat or not).
+          impressions: totalQty * (
+            Object.values((costProd?.printLocations || {}) as Record<string, any>).filter((l: any) => l?.location && (parseFloat(l?.screens) || 0) > 0).length
+            + (costProd?.tagPrint ? 1 : 0)
+          ),
         };
       });
 
