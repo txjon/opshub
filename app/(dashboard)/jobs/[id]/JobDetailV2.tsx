@@ -976,9 +976,11 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       const cps = (Array.isArray(cd.costProds) ? cd.costProds : []).map((c: any) => ({ ...c }));
       const allNow = its.map(assembleNow);
       const sellUpdates: { id: string; sell: number }[] = [];
+      const flushedById: Record<string, any> = {};
       for (const id of ids) {
         const item = its.find((x: any) => x.id === id); if (!item) continue;
         const p = assembleNow(item);
+        flushedById[id] = p;
         let idx = cps.findIndex((c: any) => c.id === id);
         if (idx < 0) idx = cps.findIndex((c: any) => (c.name || "").trim().toLowerCase() === (item.name || "").trim().toLowerCase());
         // Apply ONLY decoration fields from p; keep the DB's qtys/blankCosts/name
@@ -989,6 +991,19 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       }
       await (supabase.from("jobs") as any).update({ costing_data: { ...cd, costProds: cps } }).eq("id", job.id);
       for (const u of sellUpdates) await (supabase.from("items") as any).update({ sell_per_unit: u.sell }).eq("id", u.id);
+      // Auto-create/update decorator assignments for flushed items with a
+      // vendor — classic CostingTab did this on save; the vendor portal, PO
+      // sent-date tracking, and boards all key off decorator_assignments.
+      for (const id of ids) {
+        const p = flushedById[id]; if (!p?.printVendor) continue;
+        const dec: any = decoratorRecords.find((d: any) => d.short_code === p.printVendor || d.name === p.printVendor);
+        if (!dec) continue;
+        const decoType = p.decorationType || "screen_print";
+        const { data: existing }: any = await supabase.from("decorator_assignments").select("id").eq("item_id", id).limit(1).maybeSingle();
+        if (existing) await (supabase.from("decorator_assignments") as any).update({ decorator_id: dec.id, decoration_type: decoType }).eq("id", existing.id);
+        // pipeline_stage starts NULL on insert (PO send sets in_production).
+        else await (supabase.from("decorator_assignments") as any).insert({ item_id: id, decorator_id: dec.id, decoration_type: decoType, pipeline_stage: null });
+      }
       if (sellUpdates.length) setItems(prev => prev.map(x => { const u = sellUpdates.find(s => s.id === x.id); return u ? { ...x, sell_per_unit: u.sell } : x; }));
       // Keep costing_summary (Reports / God Mode KPIs) in step — same
       // fire-and-forget classic ProductBuilder uses after item mutations.
