@@ -8,7 +8,7 @@ import { T, font, mono, sortSizes } from "@/lib/theme";
 import { DriveThumb } from "@/components/DriveThumb";
 import { BoardFrame, ToggleSearch, KpiStrip, KpiBreakdownModal, ModalShell, Card, CardHeader, BoxHead, BoxMeta, ItemRow, RowMenu, RouteTag, ItemThumb, SegmentControl, SliceSortRow } from "@/components/board-kit";
 import { TrackingLink } from "@/components/TrackingModal";
-import { shipFromProduction } from "@/lib/production2-ship";
+import { shipFromProduction, findDuplicateShipHits, type DuplicateShipHit } from "@/lib/production2-ship";
 import { createPullRequest, PULL_KINDS } from "@/lib/handoff";
 import { closeShort } from "@/lib/production2-close";
 import { parseSizeMatrix } from "@/lib/size-grid";
@@ -549,6 +549,12 @@ function kpiRows(m: Map<string, Metric>, metric: MetricKey) {
 // you notify the warehouse (or see the box) after the ship modal is long gone.
 const shipHow = (box: ShippedBox) => box.pickup ? "Pickup" : [box.carrier, box.tracking].filter(Boolean).join(" · ") || "no tracking";
 const routeLabel = (box: ShippedBox) => box.pickup ? "Pickup" : box.route === "stage" ? "Stage" : box.route === "drop_ship" ? "Drop-ship" : "Ship-through";
+// Cumulative shipped exceeds the order — likely a duplicate ship entry. Rendered
+// in the row's variant slot on both Shipped views.
+const overShipFlag = (n: number) => n > 0
+  ? <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: 0.4, textTransform: "uppercase", color: T.amber }}
+      title={`Shipped ${n} more than ordered across all boxes — check for a duplicate ship entry`}>over-shipped +{n}</span>
+  : undefined;
 const WHEN_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 function fmtWhen(iso: string): string {
   const d = new Date(iso);
@@ -666,7 +672,8 @@ function ShippedBoxCard({ box }: { box: ShippedBox }) {
       <BoxMeta segments={noteSegs} />
       {lines.map((l, i) => (
         <div key={i} style={{ padding: "10px 16px", borderTop: `1px solid ${T.border}` }}>
-          <ItemRow fileId={l.mockupFileId} name={l.itemName} lead={l.invoiceNumber ? `${l.client} · #${l.invoiceNumber}` : l.client} route={box.route} qty={l.qty} />
+          <ItemRow fileId={l.mockupFileId} name={l.itemName} lead={l.invoiceNumber ? `${l.client} · #${l.invoiceNumber}` : l.client} route={box.route} qty={l.qty}
+            variant={overShipFlag(l.overShippedTotal)} />
         </div>
       ))}
     </Card>
@@ -697,7 +704,7 @@ function ShippedJobView({ boxes }: { boxes: ShippedBox[] }) {
             <div key={j} style={{ padding: "10px 16px", borderTop: `1px solid ${T.border}` }}>
               <ItemRow fileId={l.mockupFileId} name={l.itemName} route={l.box.route}
                 sub={<div style={{ fontSize: 11, color: T.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.box.vendorName} · {shipHow(l.box)}</div>}
-                qty={l.qty} />
+                qty={l.qty} variant={overShipFlag(l.overShippedTotal)} />
             </div>
           ))}
         </Card>
@@ -752,6 +759,9 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
   const [busy, setBusy] = useState(false);
   const [busyLabel, setBusyLabel] = useState("Shipping…");
   const [err, setErr] = useState<string | null>(null);
+  // Same tracking + same item already recorded → hold the ship behind an
+  // explicit "ship anyway" (two people logging one box vs a real second wave).
+  const [dupHits, setDupHits] = useState<DuplicateShipHit[] | null>(null);
   const [done, setDone] = useState<{ shipped: number; boxes: number; boxIds: string[]; jobIds: string[] } | null>(null);
   const [notified, setNotified] = useState(false);
   const [notifyTo, setNotifyTo] = useState<string | null>(null);
@@ -820,10 +830,21 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
   const setQ = (id: string, sz: string, v: string) =>
     setQtys(prev => ({ ...prev, [id]: { ...prev[id], [sz]: Math.max(0, Math.floor(Number(v) || 0)) } }));
 
-  async function confirm() {
+  async function confirm(force = false) {
     setBusy(true); setErr(null);
     try {
       const sb = createClient();
+      // Duplicate-ship guard — runs before ANY write or upload. A same-tracking
+      // + same-item inbound line means this box may already be recorded; only an
+      // explicit "ship anyway" (force) proceeds past a hit.
+      if (!force && method !== "pickup" && ref.trim()) {
+        setBusyLabel("Checking…");
+        const hits = await findDuplicateShipHits(sb, {
+          tracking: ref,
+          itemIds: activeItems.filter(it => itemTotal(it.itemId) > 0).map(it => it.itemId),
+        });
+        if (hits.length) { setDupHits(hits); setBusy(false); setBusyLabel("Shipping…"); return; }
+      }
       // upload the vendor packing slip(s) first (if any) — one bucket per shipment.
       // Each file is registered against EVERY item in the wave, so it surfaces on
       // the box no matter how the wave splits into boxes; the receiving board
@@ -876,7 +897,7 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
     const nextQ: Record<string, Record<string, number>> = {};
     for (const it of remaining) nextQ[it.itemId] = { ...it.owed };
     setActiveItems(remaining);
-    setQtys(nextQ); setFinal({}); setMoreComing({}); setRef(""); setSlipFiles([]);
+    setQtys(nextQ); setFinal({}); setMoreComing({}); setRef(""); setSlipFiles([]); setDupHits(null);
     setNotified(false); setNotifyTo(null); setNotifyErr(null); setDone(null);
   }
 
@@ -941,7 +962,7 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
             <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>How it's leaving</div>
             <div style={{ display: "flex", gap: 8 }}>
               {(["tracking", "bol", "pickup"] as const).map(m => (
-                <button key={m} onClick={() => setMethod(m)} style={{ flex: 1, fontSize: 12, fontWeight: 600, padding: "8px 0", borderRadius: 8, cursor: "pointer", border: `1px solid ${method === m ? T.text : T.border}`, background: method === m ? T.text : T.card, color: method === m ? "#0a0a0a" : T.muted }}>
+                <button key={m} onClick={() => { setMethod(m); setDupHits(null); }} style={{ flex: 1, fontSize: 12, fontWeight: 600, padding: "8px 0", borderRadius: 8, cursor: "pointer", border: `1px solid ${method === m ? T.text : T.border}`, background: method === m ? T.text : T.card, color: method === m ? "#0a0a0a" : T.muted }}>
                   {m === "tracking" ? "Tracking #" : m === "bol" ? "Freight BOL" : "Pickup"}
                 </button>
               ))}
@@ -953,7 +974,7 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
                   style={{ fontSize: 13, padding: "9px 10px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.card, fontFamily: font, fontWeight: 600, cursor: "pointer" }}>
                   {PARCEL_CARRIERS.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
-                <input value={ref} onChange={e => setRef(e.target.value)} placeholder="Tracking number"
+                <input value={ref} onChange={e => { setRef(e.target.value); setDupHits(null); }} placeholder="Tracking number"
                   style={{ flex: 1, boxSizing: "border-box", fontSize: 13, padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, fontFamily: mono, background: "#fff", color: "#0a0a0a" }} />
               </div>
             )}
@@ -963,7 +984,7 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
                 <input value={freightCarrier} onChange={e => setFreightCarrier(e.target.value)} list="p2-freight-carriers" placeholder="Freight carrier"
                   style={{ width: 190, boxSizing: "border-box", fontSize: 13, padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, fontFamily: font, background: "#fff", color: "#0a0a0a" }} />
                 <datalist id="p2-freight-carriers">{freightCarriers.map(c => <option key={c} value={c} />)}</datalist>
-                <input value={ref} onChange={e => setRef(e.target.value)} placeholder="BOL number"
+                <input value={ref} onChange={e => { setRef(e.target.value); setDupHits(null); }} placeholder="BOL number"
                   style={{ flex: 1, boxSizing: "border-box", fontSize: 13, padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, fontFamily: mono, background: "#fff", color: "#0a0a0a" }} />
               </div>
             )}
@@ -1044,6 +1065,32 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
 
           <input value={note} onChange={e => setNote(e.target.value)} placeholder="Note for the warehouse (optional)"
             style={{ width: "100%", boxSizing: "border-box", fontSize: 13, padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, fontFamily: font, background: "#fff", color: "#0a0a0a" }} />
+
+          {/* Duplicate-ship hold — this tracking + item already exists as an inbound
+              line. Two people logging one physical box creates phantom incoming
+              units; only a real second box on the same master waybill ships past. */}
+          {dupHits && dupHits.length > 0 && (
+            <div style={{ background: T.amberDim, border: `1px solid ${T.amber}`, borderRadius: 8, padding: "10px 12px" }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: T.amber, marginBottom: 6 }}>
+                This tracking number is already recorded:
+              </div>
+              {dupHits.map((h, i) => (
+                <div key={i} style={{ fontSize: 12, color: T.text, marginBottom: 3 }}>
+                  <b>{h.itemName}</b> — <span style={{ fontFamily: mono }}>{fmtWhen(h.recordedAt)}</span>
+                  {h.recordedBy ? ` by ${h.recordedBy}` : ""}{h.received ? " · already received at the warehouse" : ""}
+                </div>
+              ))}
+              <div style={{ fontSize: 11.5, color: T.muted, marginTop: 4 }}>
+                If this is a second box on the same master waybill, ship anyway. If it's the same box, cancel — a duplicate entry creates phantom incoming units.
+              </div>
+              <div style={{ display: "flex", gap: 6, marginTop: 9 }}>
+                <button onClick={() => { setDupHits(null); confirm(true); }}
+                  style={{ fontSize: 11.5, fontWeight: 600, padding: "6px 12px", borderRadius: 7, border: `1px solid ${T.amber}`, background: T.card, color: T.amber, cursor: "pointer" }}>Ship anyway — it's another box</button>
+                <button onClick={() => setDupHits(null)}
+                  style={{ fontSize: 11.5, fontWeight: 600, padding: "6px 12px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.card, color: T.muted, cursor: "pointer" }}>Cancel</button>
+              </div>
+            </div>
+          )}
         </div>
 
         <div style={{ padding: "16px 22px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
@@ -1052,8 +1099,8 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
           {gateBlocked && !err && <span style={{ fontSize: 12, color: T.amber, fontWeight: 600 }}>Choose final or more-coming on the short item first.</span>}
           <div style={{ flex: 1 }} />
           <button onClick={onClose} disabled={busy} style={{ fontSize: 13, background: "none", border: `1px solid ${T.border}`, borderRadius: 8, padding: "9px 16px", cursor: busy ? "default" : "pointer", color: T.muted }}>Cancel</button>
-          {(() => { const off = !isTest || busy || totalUnits === 0 || gateBlocked; return (
-          <button onClick={confirm} disabled={off}
+          {(() => { const off = !isTest || busy || totalUnits === 0 || gateBlocked || !!dupHits; return (
+          <button onClick={() => confirm()} disabled={off}
             style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "9px 20px", border: "none", cursor: off ? "not-allowed" : "pointer", background: off ? T.accentDim : T.text, color: off ? T.faint : "#0a0a0a" }}>
             {busy ? busyLabel : `Confirm ship · ${totalUnits}u`}
           </button>); })()}

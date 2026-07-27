@@ -322,7 +322,13 @@ export async function loadFreightCarriers(sb: Sb): Promise<string[]> {
 // ── recent shipped boxes (the Production "Shipped" view) ───────────────────
 // Boxes shipped from production, not yet received — so you can still notify the
 // warehouse/client after the ship modal is gone (a closed item leaves the board).
-export type ShippedBoxLine = { client: string; invoiceNumber: string | null; itemName: string; qty: number; qtys: SizeQtys; mockupFileId: string | null };
+export type ShippedBoxLine = {
+  client: string; invoiceNumber: string | null; itemName: string; qty: number; qtys: SizeQtys; mockupFileId: string | null;
+  // cumulative shipped across ALL boxes exceeds the order — almost always a
+  // duplicate ship entry (Tank Lock: 288 shipped vs 144 ordered sat invisible
+  // 4 days). 0 = fine.
+  overShippedTotal: number;
+};
 export type ShippedBox = {
   id: string; vendorName: string; carrier: string | null; tracking: string | null; pickup: boolean;
   createdAt: string; route: Route; totalUnits: number; clients: string[]; lines: ShippedBoxLine[]; hasSlip: boolean;
@@ -340,7 +346,7 @@ export async function loadRecentShipments(sb: Sb): Promise<ShippedBox[]> {
   if (!active.length) return [];
   const ids = active.map((s: any) => s.id);
   const { data: lines } = await sb.from("shipment_lines")
-    .select("shipment_id, item_id, job_id, description, ship_qtys, items(name, shipping_route, jobs(shipping_route, type_meta, clients(name)))").in("shipment_id", ids);
+    .select("shipment_id, item_id, job_id, description, ship_qtys, items(name, shipping_route, ship_qtys, buy_sheet_lines(qty_ordered), jobs(shipping_route, type_meta, clients(name)))").in("shipment_id", ids);
   const itemIds = Array.from(new Set((lines || []).map((l: any) => l.item_id).filter(Boolean)));
   const { data: slips } = itemIds.length
     ? await sb.from("item_files").select("item_id").eq("stage", "packing_slip").not("drive_link", "is", null).in("item_id", itemIds)
@@ -359,12 +365,16 @@ export async function loadRecentShipments(sb: Sb): Promise<ShippedBox[]> {
   for (const s of active) {
     const ls = byShip.get(s.id) || [];
     if (!ls.length) continue;
-    const boxLines: ShippedBoxLine[] = ls.map((l: any) => ({
-      client: l.items?.jobs?.clients?.name || "—",
-      invoiceNumber: l.items?.jobs?.type_meta?.qb_invoice_number || null,
-      itemName: l.items?.name || l.description || "Item",
-      qty: sumQ(l.ship_qtys), qtys: l.ship_qtys || {}, mockupFileId: mockById.get(l.item_id) || null,
-    }));
+    const boxLines: ShippedBoxLine[] = ls.map((l: any) => {
+      const ordered = (l.items?.buy_sheet_lines || []).reduce((a: number, b: any) => a + (Number(b.qty_ordered) || 0), 0);
+      return {
+        client: l.items?.jobs?.clients?.name || "—",
+        invoiceNumber: l.items?.jobs?.type_meta?.qb_invoice_number || null,
+        itemName: l.items?.name || l.description || "Item",
+        qty: sumQ(l.ship_qtys), qtys: l.ship_qtys || {}, mockupFileId: mockById.get(l.item_id) || null,
+        overShippedTotal: ordered > 0 ? Math.max(0, sumQ(l.items?.ship_qtys || {}) - ordered) : 0,
+      };
+    });
     boxes.push({
       id: s.id, vendorName: (s as any).decorators?.name || "Unassigned vendor",
       carrier: s.carrier, tracking: s.tracking, pickup: !!s.pickup, createdAt: s.created_at,
@@ -393,6 +403,8 @@ export type ReceivingLine = {
   orderedTotal: number;       // full order qty for the item (to flag a partial wave)
   shipFinal: boolean;         // item closed at ship (final flag OR fully shipped) → a
                               // gap vs ordered is a SHORTAGE, not "more coming"
+  overShippedTotal: number;   // cumulative shipped across ALL boxes − ordered (>0 =
+                              // likely duplicate ship entry; the Tank Lock signal)
   received: boolean;
   pullRequests: PullReq[];    // production-declared pulls pending on this item (fulfil at receiving)
 };
@@ -429,7 +441,7 @@ export async function loadReceivingBoard(sb: Sb): Promise<ReceivingBox[]> {
   if (!open.length) return [];
   const ids = open.map((s: any) => s.id);
   const { data: lines } = await sb.from("shipment_lines")
-    .select("shipment_id, item_id, job_id, description, ship_qtys, received_qtys, received, items(name, mockup_color, shipping_route, ship_final, received_qtys, expected_arrival, buy_sheet_lines(qty_ordered), jobs(shipping_route, type_meta, clients(name)))").in("shipment_id", ids);
+    .select("shipment_id, item_id, job_id, description, ship_qtys, received_qtys, received, items(name, mockup_color, shipping_route, ship_final, received_qtys, ship_qtys, expected_arrival, buy_sheet_lines(qty_ordered), jobs(shipping_route, type_meta, clients(name)))").in("shipment_id", ids);
   const itemIds = Array.from(new Set((lines || []).map((l: any) => l.item_id).filter(Boolean)));
 
   // pending production-declared pulls per item, to fulfil at receiving
@@ -476,15 +488,19 @@ export async function loadReceivingBoard(sb: Sb): Promise<ReceivingBox[]> {
   for (const s of open) {
     const ls = byShip.get(s.id) || [];
     if (!ls.length) continue;
-    const rLines: ReceivingLine[] = ls.map((l: any) => ({
-      itemId: l.item_id, jobId: l.job_id, itemName: l.items?.name || l.description || "Item", mockupFileId: mockById.get(l.item_id) || null,
-      client: l.items?.jobs?.clients?.name || "—", invoiceNumber: l.items?.jobs?.type_meta?.qb_invoice_number || null,
-      route: resolveRoute(l.items?.shipping_route, l.items?.jobs?.shipping_route),
-      shipQtys: l.ship_qtys || {}, receivedQtys: l.received_qtys || {}, cumReceived: l.items?.received_qtys || {},
-      orderedTotal: (l.items?.buy_sheet_lines || []).reduce((a: number, b: any) => a + (Number(b.qty_ordered) || 0), 0),
-      shipFinal: !!l.items?.ship_final,
-      received: !!l.received, pullRequests: pullBoxByItem.get(l.item_id) === s.id ? (pullsByItem.get(l.item_id) || []) : [],
-    }))
+    const rLines: ReceivingLine[] = ls.map((l: any) => {
+      const orderedTotal = (l.items?.buy_sheet_lines || []).reduce((a: number, b: any) => a + (Number(b.qty_ordered) || 0), 0);
+      return {
+        itemId: l.item_id, jobId: l.job_id, itemName: l.items?.name || l.description || "Item", mockupFileId: mockById.get(l.item_id) || null,
+        client: l.items?.jobs?.clients?.name || "—", invoiceNumber: l.items?.jobs?.type_meta?.qb_invoice_number || null,
+        route: resolveRoute(l.items?.shipping_route, l.items?.jobs?.shipping_route),
+        shipQtys: l.ship_qtys || {}, receivedQtys: l.received_qtys || {}, cumReceived: l.items?.received_qtys || {},
+        orderedTotal,
+        shipFinal: !!l.items?.ship_final,
+        overShippedTotal: orderedTotal > 0 ? Math.max(0, sumQ(l.items?.ship_qtys || {}) - orderedTotal) : 0,
+        received: !!l.received, pullRequests: pullBoxByItem.get(l.item_id) === s.id ? (pullsByItem.get(l.item_id) || []) : [],
+      };
+    })
       // drop_ship goes vendor→client and never touches HPD — it must not appear in
       // Receiving (the ship still shows in production2's Shipped view). A box with
       // ONLY drop_ship lines drops out entirely.

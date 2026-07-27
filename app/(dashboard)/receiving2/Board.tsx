@@ -249,6 +249,9 @@ function LineRow({ l, box, status, acts, showClient }: { l: ReceivingLine; box: 
   // instead of an aggregate "N partial" in the header.
   const partial = !received && l.orderedTotal > 0 && tQty(l.shipQtys) < l.orderedTotal && !l.shipFinal;
   const countedIn = !received ? tQty(l.receivedQtys) : 0; // partial receive in progress on this open line
+  // cumulative shipped exceeds the order — likely a duplicate ship entry
+  // (Tank Lock: 288/144 sat invisible 4 days). Shown regardless of status.
+  const over = l.overShippedTotal > 0;
   // stopPropagation: the whole incoming card is click-to-receive — the row's
   // ⋯ menu and its actions must not also fire the card click.
   const actions = (
@@ -259,10 +262,11 @@ function LineRow({ l, box, status, acts, showClient }: { l: ReceivingLine; box: 
     </span>
   );
   return <ItemRow fileId={l.mockupFileId} name={l.itemName} lead={showClient ? l.client : undefined} route={l.route}
-    variant={(partial || countedIn > 0) ? (
+    variant={(partial || countedIn > 0 || over) ? (
       <div style={{ textAlign: "right", display: "flex", gap: 12, justifyContent: "flex-end", alignItems: "baseline" }}>
         {countedIn > 0 && <span style={{ fontSize: 10, fontWeight: 800, fontFamily: mono, color: T.amber }} title="Counted in so far — the rest of this item is still coming in this box">{countedIn}/{tQty(l.shipQtys)} in</span>}
         {partial && <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: 0.4, textTransform: "uppercase", color: T.amber }} title={`${tQty(l.shipQtys)} of ${l.orderedTotal} ordered in this box — more coming`}>partial</span>}
+        {over && <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: 0.4, textTransform: "uppercase", color: T.amber }} title={`Shipped ${l.overShippedTotal} more than the ${l.orderedTotal} ordered across all boxes — check for a duplicate ship entry`}>over-shipped +{l.overShippedTotal}</span>}
       </div>
     ) : undefined}
     qty={tQty(qtyOf(l, status))} actions={actions} />;
@@ -292,10 +296,12 @@ function boxMetaSegs(box: ReceivingBox, status: Status): { text: string; tone?: 
   // (more coming), final = closed short → the gap is a SHORTAGE, not "more coming".
   const under = box.lines.filter(l => l.orderedTotal > 0 && tQty(l.shipQtys) < l.orderedTotal);
   const shorts = under.filter(l => l.shipFinal).length;
+  const overs = box.lines.filter(l => l.overShippedTotal > 0).length;
   const toReceive = box.lines.filter(l => !l.received).length;
   const segs: { text: string; tone?: string }[] = [];
   if (jobs > 1) segs.push({ text: `${jobs} jobs`, tone: T.blue });
   if (shorts > 0) segs.push({ text: `${shorts} short`, tone: T.red });
+  if (overs > 0) segs.push({ text: `${overs} over-shipped`, tone: T.amber });
   // ETA lives in the header chip; counts + to-receive left the header (locked
   // layout 2026-07-15 — "obvious when you look at the shipment"). Only the
   // flags above survive, as accents at the end of the detail line.
