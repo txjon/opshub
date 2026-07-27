@@ -257,6 +257,24 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   const [open, setOpen] = useState<Record<string, boolean>>({ products: true, client: false, production: true, logistics: false });
   const toggle = (k: string) => setOpen(o => ({ ...o, [k]: !o[k] }));
 
+  // ── Legacy ?tab= deep links (emails, notifications, bookmarks) — map the
+  // classic tab names onto V2 blocks: open the block and scroll to it. Old
+  // links keep working forever without touching any sender. ──
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const tab = new URLSearchParams(window.location.search).get("tab");
+    if (!tab) return;
+    const map: Record<string, string> = {
+      quote: "client", proofs: "client", invoice: "client",
+      po: "production", blanks: "production", production: "production",
+      builder: "products", costing: "products", art: "products",
+    };
+    const block = map[tab];
+    if (!block) return;
+    setOpen(o => ({ ...o, [block]: true }));
+    setTimeout(() => document.getElementById(block)?.scrollIntoView({ behavior: "smooth", block: "start" }), 350);
+  }, []);
+
   // Client transaction actions (send quote/proofs, approve, send invoice, record payment).
   const [clientAction, setClientAction] = useState<null | "quote" | "invoice" | "payment">(null);
   const [recips, setRecips] = useState<Record<string, boolean>>({});
