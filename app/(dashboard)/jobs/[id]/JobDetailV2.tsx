@@ -209,6 +209,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   // Catalog picker overlay ("src" = source chooser, else picker key) + assign target.
   const [pickerSrc, setPickerSrc] = useState<string | null>(null);
   const [assignTargetId, setAssignTargetId] = useState<string | null>(null);
+  const [clientMenu, setClientMenu] = useState(false); // ⋯ previews/hub menu in the Client block
   // Revised-proof re-send (classic nudge: item_files.revision_pending_send).
   const [revisedOpen, setRevisedOpen] = useState(false);
   const [revisedNote, setRevisedNote] = useState("");
@@ -1405,14 +1406,28 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                   : <button onClick={doApprove} disabled={actBusy} style={ghostBtn}>Mark approved</button>}
                 <button onClick={() => openSend("invoice")} style={primary === "invoice" ? (needsRevise ? { ...actBtn, background: T.amber, color: "#fff" } : actBtn) : ghostBtn}>{needsRevise ? "Send revised invoice" : "Send invoice"}</button>
                 <button onClick={() => { setActErr(""); const bal = Math.max(0, (invoiced || orderTotal) - paid); setPayForm(f => ({ ...f, amount: f.amount || (bal > 0 ? bal.toFixed(2) : "") })); setClientAction("payment"); }} style={primary === "payment" ? actBtn : ghostBtn}>+ Record payment</button>
+                {/* previews + hub — tucked into ⋯ */}
+                <div style={{ position: "relative" }}>
+                  <button onClick={() => setClientMenu(m => !m)} title="Previews & hub" style={{ ...ghostBtn, padding: "9px 13px", fontWeight: 900 }}>⋯</button>
+                  {clientMenu && (
+                    <>
+                      <div onClick={() => setClientMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+                      <div style={{ position: "absolute", top: 40, right: 0, zIndex: 41, background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, minWidth: 175, padding: 5, boxShadow: "0 12px 40px rgba(0,0,0,0.4)" }}>
+                        {[
+                          ["Preview quote", `/api/pdf/quote/${job.id}`],
+                          ...(invNum ? [["Preview invoice", `/api/pdf/invoice/${job.id}`]] : []),
+                          ...(job?.portal_token ? [["Client hub ›", `/portal/${job.portal_token}`]] : []),
+                        ].map(([label, href]) => (
+                          <a key={label} href={href} target="_blank" rel="noreferrer" onClick={() => setClientMenu(false)}
+                            style={{ display: "block", padding: "9px 12px", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.text, borderRadius: 7, textDecoration: "none" }}>{label}</a>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
               </div>
             );
           })()}
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
-            <a href={`/api/pdf/quote/${job.id}`} target="_blank" rel="noreferrer" style={previewBtn}>Preview quote</a>
-            {invNum && <a href={`/api/pdf/invoice/${job.id}`} target="_blank" rel="noreferrer" style={previewBtn}>Preview invoice</a>}
-            {job?.portal_token && <a href={`/portal/${job.portal_token}`} target="_blank" rel="noreferrer" style={{ ...previewBtn, background: "transparent" }}>Client hub ›</a>}
-          </div>
           {/* ── ORDER — the approval state ── */}
           <div style={{ ...lbl, margin: "6px 0 2px" }}>Order</div>
           {([["Quote", flags.approved ? "Sent · Approved" : flags.quoted ? "Sent" : "Not sent"],
