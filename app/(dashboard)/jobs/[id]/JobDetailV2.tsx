@@ -606,6 +606,11 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   // upsert (never delete-all — ship/receive counters live on those rows).
   const persistBlankAssign = async (item: any, blankData: any) => {
     const patch = applyBlankToItem({ ...item, qtys: item.qtys || {}, sizes: item.sizes || Object.keys(item.qtys || {}) }, blankData);
+    // New blank cost → recompute sell through the engine (respects override),
+    // same as every other cost-edit path — sell_per_unit must never lag.
+    const nextItem = { ...item, ...patch, blank_costs: patch.blankCosts && Object.keys(patch.blankCosts).length ? patch.blankCosts : null };
+    const rSell = Object.keys(printers).length ? (() => { try { return calcCostProduct(assemble(nextItem), costMargin, inclShip, inclCC, items.map((x: any) => x.id === item.id ? assemble(nextItem) : assemble(x)), printers); } catch { return null; } })() : null;
+    const sell = rSell ? Math.round(((rSell as any).sellPerUnit || 0) * 100) / 100 : null;
     const supabase = createClient();
     try {
       await (supabase.from("items") as any).update({
@@ -613,6 +618,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
         cost_per_unit: patch.cost_per_unit || null,
         blank_costs: patch.blankCosts && Object.keys(patch.blankCosts).length ? patch.blankCosts : null,
         garment_type: patch.garment_type || null, is_fleece: !!(item.is_fleece || patch.is_fleece),
+        ...(sell != null ? { sell_per_unit: sell } : {}),
       }).eq("id", item.id);
       const currentSizes = new Set(Object.keys(patch.qtys || {}));
       const { data: existing }: any = await supabase.from("buy_sheet_lines").select("size").eq("item_id", item.id);
@@ -621,7 +627,9 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       for (const [size, qty] of Object.entries(patch.qtys || {})) {
         await (supabase.from("buy_sheet_lines") as any).upsert({ item_id: item.id, size, qty_ordered: qty }, { onConflict: "item_id,size" });
       }
-      setItems(prev => prev.map((x: any) => x.id === item.id ? { ...x, ...patch, is_fleece: !!(item.is_fleece || patch.is_fleece), blankCosts: patch.blankCosts } : x));
+      // Local mirror must update blank_costs (snake) — the per-size grid and
+      // the assembler read item.blank_costs, not the transform's blankCosts.
+      setItems(prev => prev.map((x: any) => x.id === item.id ? { ...x, ...patch, is_fleece: !!(item.is_fleece || patch.is_fleece), blankCosts: patch.blankCosts, blank_costs: patch.blankCosts && Object.keys(patch.blankCosts).length ? patch.blankCosts : null, ...(sell != null ? { sell_per_unit: sell } : {}) } : x));
       logJobActivity(job.id, `Blank assigned to ${item.name}: ${patch.blank_vendor || ""} ${patch.blank_sku || ""}`.trim());
       fetch(`/api/jobs/${job.id}/refresh-financials`, { method: "POST" }).catch(() => {});
     } catch (e) { console.error("[JobV2] persistBlankAssign", e); }
