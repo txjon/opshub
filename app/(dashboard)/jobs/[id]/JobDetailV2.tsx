@@ -32,6 +32,8 @@ import { QBCustomerChooser } from "@/components/QBCustomerChooser";
 import { applyPoSentToVendorItems, revertPoSentFromVendorItems } from "@/lib/po-actions";
 import { recalcJobPhase } from "@/lib/job-phase-recalc";
 import { PROOF_RENDERER_VERSION } from "@/lib/proof-client";
+import { clientShippingRoutes } from "@/lib/tenants";
+import { calculatePriority } from "@/lib/dates";
 import { SHIP_METHODS } from "@/lib/ship-methods";
 const DecorationPanel: any = DecorationPanelRaw; // .jsx — bypass narrow inferred prop types
 const ProofModal: any = ProofModalRaw;           // .jsx — same
@@ -378,6 +380,8 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     if (!window.confirm(`Delete "${job.title}" and everything in it? This cannot be undone.`)) return;
     const supabase = createClient();
     try {
+      // Archive the whole project's Drive folder first (classic parity). Non-fatal.
+      try { await fetch("/api/files/cleanup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "archive-project", clientName: job?.clients?.name || "", projectTitle: job?.title || "", jobId: job.id }) }); } catch {}
       const ids = items.map((i: any) => i.id);
       if (ids.length) { await supabase.from("buy_sheet_lines").delete().in("item_id", ids); await supabase.from("item_files").delete().in("item_id", ids); await supabase.from("decorator_assignments").delete().in("item_id", ids); }
       await supabase.from("items").delete().eq("job_id", job.id);
@@ -431,6 +435,9 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     if (!window.confirm(`Remove "${item.name}" from this job? This deletes the product and its files.`)) return;
     const supabase = createClient();
     try {
+      // Archive the item's Drive folder BEFORE deleting rows (classic parity —
+      // otherwise the folder orphans in Drive). Non-fatal.
+      try { await fetch("/api/files/cleanup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "archive-item", clientName: job?.clients?.name || "", projectTitle: job?.title || "", itemName: item.name, itemId: item.id }) }); } catch {}
       await supabase.from("buy_sheet_lines").delete().eq("item_id", item.id);
       await supabase.from("item_files").delete().eq("item_id", item.id);
       await supabase.from("decorator_assignments").delete().eq("item_id", item.id);
@@ -1213,7 +1220,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                     <button key={label} onClick={onClick} style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: danger ? T.red : T.text, borderRadius: 7 }}>{label}</button>
                   );
                   const rows = [];
-                  if (job.phase === "on_hold") rows.push(item("Resume", () => setPhase("intake")));
+                  if (job.phase === "on_hold") rows.push(item("Resume", async () => { await setPhase("intake"); recalcPhase(); }));
                   else if (job.phase !== "cancelled") rows.push(item("Place on hold", () => setPhase("on_hold")));
                   if (job.phase === "cancelled") rows.push(item("Reactivate", () => setPhase("intake")));
                   rows.push(item("Duplicate project", duplicateJob));
@@ -1723,9 +1730,8 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                               <span style={{ fontSize: 13, fontWeight: 700 }}><span style={{ fontFamily: mono, fontSize: 10.5, fontWeight: 800, color: T.faint, marginRight: 7 }}>{letterOf(item.id)}</span>{item.name}</span>
                               <select value={item.shipping_route || ""} onChange={e => saveItemRoute(item, e.target.value)} title="Per-item route (blank = job route)" style={{ ...field, width: "auto", padding: "5px 8px", fontSize: 11 }}>
                                 <option value="">route: job default</option>
-                                <option value="drop_ship">drop ship</option>
-                                <option value="ship_through">ship-through</option>
-                                <option value="stage">stage</option>
+                                {clientShippingRoutes().map(r => <option key={r} value={r}>{r.replace(/_/g, "-")}</option>)}
+                                {item.shipping_route && !clientShippingRoutes().includes(item.shipping_route) && <option value={item.shipping_route}>{item.shipping_route}</option>}
                               </select>
                             </div>
                             <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
@@ -1754,9 +1760,11 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
             <span style={{ color: T.muted }}>Shipping route</span>
             <select value={route || ""} onChange={e => saveRoute(e.target.value)} style={{ ...field, width: "auto", minWidth: 260 }}>
               <option value="">— set route —</option>
-              <option value="drop_ship">Drop ship · vendor → client</option>
-              <option value="ship_through">Ship-through · → HPD → client</option>
-              <option value="stage">Stage · → HPD → fulfillment</option>
+              {/* tenant allow-list (DMD = ship_through only) — same as classic */}
+              {clientShippingRoutes().includes("drop_ship") && <option value="drop_ship">Drop ship · vendor → client</option>}
+              {clientShippingRoutes().includes("ship_through") && <option value="ship_through">Ship-through · → HPD → client</option>}
+              {clientShippingRoutes().includes("stage") && <option value="stage">Stage · → HPD → fulfillment</option>}
+              {route && !clientShippingRoutes().includes(route) && <option value={route}>{route}</option>}
             </select>
           </div>
           <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", fontSize: 13 }}>
@@ -2243,9 +2251,9 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
             <div style={{ fontSize: 16, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", marginBottom: 14 }}>Job details</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <label><span style={{ ...lbl, display: "block", marginBottom: 5 }}>Project name</span>
-                <input key={"jt:" + job.title} defaultValue={job.title || ""} onBlur={e => saveJobCol("title", e.target.value.trim())} style={field} /></label>
+                <input key={"jt:" + job.title} defaultValue={job.title || ""} onBlur={e => { const v = e.target.value.trim(); if (!v || v === job.title) return; saveJobCol("title", v); fetch("/api/drive/rename", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ entity: "job", id: job.id, name: v }) }).catch(() => {}); }} style={field} /></label>
               <label><span style={{ ...lbl, display: "block", marginBottom: 5 }}>Requested in-hands date</span>
-                <input type="date" key={"jd:" + (job.target_ship_date || "")} defaultValue={job.target_ship_date || ""} onChange={e => saveJobCol("target_ship_date", e.target.value || null)} style={field} /></label>
+                <input type="date" key={"jd:" + (job.target_ship_date || "")} defaultValue={job.target_ship_date || ""} onChange={e => { const v = e.target.value || null; saveJobCol("target_ship_date", v); if (v) saveJobCol("priority", calculatePriority(v)); }} style={field} /></label>
               <label><span style={{ ...lbl, display: "block", marginBottom: 5 }}>Client delivery address</span>
                 <textarea key={"jv:" + (tm.venue_address || "")} defaultValue={tm.venue_address || ""} onBlur={e => saveTypeMeta({ venue_address: e.target.value.trim() || null })} rows={2} style={{ ...field, resize: "vertical" }} /></label>
               <label><span style={{ ...lbl, display: "block", marginBottom: 5 }}>Client PO #</span>
