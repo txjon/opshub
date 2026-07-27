@@ -25,7 +25,8 @@ import {
   applyBlankToItem, fleeceFlag,
 } from "./BuySheetTab";
 import { sendQuoteAndProofs, defaultRecipient } from "@/lib/job/quote-actions";
-import { pushInvoiceToQB, recordPayment, cyclePaymentStatus, deletePayment } from "@/lib/job/invoice-actions";
+import { pushInvoiceToQB, recordPayment, cyclePaymentStatus, deletePayment, refreshPayLink, unlinkQBCustomer } from "@/lib/job/invoice-actions";
+import { QBCustomerChooser } from "@/components/QBCustomerChooser";
 import { applyPoSentToVendorItems, revertPoSentFromVendorItems } from "@/lib/po-actions";
 import { SHIP_METHODS } from "@/lib/ship-methods";
 const DecorationPanel: any = DecorationPanelRaw; // .jsx — bypass narrow inferred prop types
@@ -138,6 +139,17 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     });
   };
   useEffect(() => { reloadAllFiles(); }, [itemsProp]);
+
+  // Frozen forward packing slips = this job's outbound shipments (v2 shipping).
+  const [forwardSlips, setForwardSlips] = useState<{ id: string; tracking: string | null; createdAt: string }[]>([]);
+  useEffect(() => {
+    if (!job?.id) return;
+    createClient().from("shipment_lines").select("shipment_id, shipments(id, tracking, created_at, direction)").eq("job_id", job.id).then(({ data }: any) => {
+      const m = new Map<string, any>();
+      (data || []).forEach((l: any) => { const s = l.shipments; if (s?.direction === "outbound" && !m.has(s.id)) m.set(s.id, { id: s.id, tracking: s.tracking, createdAt: s.created_at }); });
+      setForwardSlips(Array.from(m.values()).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || "")));
+    });
+  }, [job?.id]);
 
   // Tenant warehouse address (ship-to for ship_through/stage routes).
   const [warehouseAddr, setWarehouseAddr] = useState("");
@@ -432,17 +444,42 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       setClientAction(null);
     } catch (e: any) { setActErr(e.message || "Send failed"); } finally { setActBusy(false); }
   };
-  const doSendInvoice = async () => {
+  const doSendInvoice = async (pushOpts: { qbCustomerId?: string; forceCreate?: boolean } = {}) => {
     const emails = selectedEmails(); if (!emails.length) { setActErr("Select a recipient."); return; }
     setActBusy(true); setActErr("");
     try {
-      await pushInvoiceToQB(job);
+      // Ambiguous QB customer match (409) → chooser; its action re-runs this
+      // with the picked id / forceCreate. Same flow as classic InvoiceSurface.
+      const pr = await pushInvoiceToQB(job, pushOpts);
+      if (!pr.ok) { setChooserCandidates(pr.ambiguous); setChooserOpen(true); setActBusy(false); return; }
       const [to, ...cc] = emails;
       const r = await fetch("/api/email/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "invoice", jobId: job.id, recipientEmail: to, ccEmails: cc }) });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "Invoice email failed");
       await refetchTypeMeta();
       setClientAction(null);
     } catch (e: any) { setActErr(e.message || "Invoice send failed"); } finally { setActBusy(false); }
+  };
+  // QB customer chooser (opened on ambiguous push) + pay-link refresh.
+  const [chooserOpen, setChooserOpen] = useState(false);
+  const [chooserCandidates, setChooserCandidates] = useState<any>(undefined);
+  const [refreshingLink, setRefreshingLink] = useState(false);
+  const [linkErr, setLinkErr] = useState("");
+  const doRefreshLink = async () => {
+    if (refreshingLink) return;
+    setRefreshingLink(true); setLinkErr("");
+    try {
+      const link = await refreshPayLink(job);
+      const meta = { ...(job.type_meta || {}), qb_payment_link: link };
+      setJob((j: any) => ({ ...j, type_meta: meta }));
+    } catch (e: any) { setLinkErr(e.message || "Refresh failed"); }
+    finally { setRefreshingLink(false); }
+  };
+  const handleChooserAction = async (a: any) => {
+    if (a.type === "select") { setChooserOpen(false); await doSendInvoice({ qbCustomerId: a.qbCustomerId }); return; }
+    if (a.type === "create_new") { setChooserOpen(false); await doSendInvoice({ forceCreate: true }); return; }
+    if (a.type === "unlink") {
+      try { await unlinkQBCustomer(job); } catch (e: any) { setActErr(e.message || "Unlink failed"); }
+    }
   };
   const doApprove = async () => {
     if (actBusy) return; setActBusy(true);
@@ -1133,6 +1170,20 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
               <span style={{ color: T.muted }}>{l}</span><span style={{ fontWeight: 700, color: l === "Outstanding" ? T.amber : T.text }}>{v}</span>
             </div>
           ))}
+          {/* pay link — QB hosted payment page (refresh regenerates it) */}
+          {tm.qb_invoice_id && (
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: `1px solid ${T.border}55`, fontSize: 13 }}>
+              <span style={{ color: T.muted }}>Pay link</span>
+              <span style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                {tm.qb_payment_link
+                  ? <a href={tm.qb_payment_link} target="_blank" rel="noreferrer" style={{ fontWeight: 700, color: T.green, textDecoration: "none" }}>Open ↗</a>
+                  : <span style={{ color: linkErr ? T.red : T.faint }}>{linkErr || "none"}</span>}
+                <button onClick={doRefreshLink} disabled={refreshingLink} style={{ background: "none", border: "none", color: T.accent, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font, padding: 0 }}>
+                  {refreshingLink ? "Refreshing…" : tm.qb_payment_link ? "Refresh" : "Create"}
+                </button>
+              </span>
+            </div>
+          )}
 
           {/* payments — terms + records (click status to cycle, × to delete) */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "16px 0 8px", gap: 10, flexWrap: "wrap" }}>
@@ -1320,6 +1371,22 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
               <span style={{ color: T.muted }}>Final destination (client)</span><span style={{ fontWeight: 700, textAlign: "right", maxWidth: "60%", lineHeight: 1.35 }}>{clientAddr ? addrLines(clientAddr).map((l, i) => <div key={i}>{l}</div>) : "—"}</span>
             </div>
           )}
+          {/* packing slips — frozen per outbound shipment, or the live job-level slip */}
+          {(() => {
+            const hasShipping = items.some((x: any) => x.ship_tracking || x.received_at_hpd || x.pipeline_stage === "shipped");
+            if (!forwardSlips.length && !hasShipping) return null;
+            return (
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", padding: "10px 0", borderTop: `1px solid ${T.border}44` }}>
+                <span style={{ ...lbl }}>Packing slips</span>
+                {forwardSlips.length > 0
+                  ? forwardSlips.map((s, i) => (
+                    <a key={s.id} href={`/api/pdf/packing-slip/${job.id}?shipment=${s.id}`} target="_blank" rel="noreferrer" style={previewBtn}>
+                      Slip · {s.tracking || i + 1}
+                    </a>))
+                  : <a href={`/api/pdf/packing-slip/${job.id}`} target="_blank" rel="noreferrer" style={previewBtn}>Packing slip</a>}
+              </div>
+            );
+          })()}
           <div style={{ fontSize: 11, color: T.faint, marginTop: 6 }}>
             {route === "drop_ship" ? "Vendor ships direct to the client — but vendors with a default route to HPD still land with us (set per decorator)." : route ? "Goods land at HPD first, then ship to the client." : "Set the route to determine the ship-to and post-decorator flow."}
           </div>
@@ -1628,7 +1695,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
             )}
             {actErr && <div style={{ color: T.red, fontSize: 12, marginTop: 10 }}>{actErr}</div>}
             <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
-              <button disabled={actBusy} onClick={clientAction === "payment" ? doRecordPayment : clientAction === "invoice" ? doSendInvoice : doSendQuote}
+              <button disabled={actBusy} onClick={() => { clientAction === "payment" ? doRecordPayment() : clientAction === "invoice" ? doSendInvoice() : doSendQuote(); }}
                 style={{ ...actBtn, opacity: actBusy ? 0.6 : 1 }}>{actBusy ? "Working…" : clientAction === "payment" ? "Record payment" : "Send"}</button>
               <button disabled={actBusy} onClick={() => setClientAction(null)} style={ghostBtn}>Cancel</button>
             </div>
@@ -1784,6 +1851,10 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
           </div>
         );
       })()}
+
+      {/* ── QB customer chooser (ambiguous invoice push → pick/create/unlink) ── */}
+      <QBCustomerChooser open={chooserOpen} mode="push" clientId={job.client_id} searchedName={client}
+        candidates={chooserCandidates} current={undefined} busy={actBusy} onAction={handleChooserAction} onClose={() => setChooserOpen(false)} />
 
       {/* ── catalog picker overlay (classic pickers; z 340 > worksheet 300) ── */}
       {pickerSrc && (() => {
