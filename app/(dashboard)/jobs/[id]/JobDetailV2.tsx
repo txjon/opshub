@@ -16,7 +16,7 @@ import { T, font, mono } from "@/lib/theme";
 import { createClient } from "@/lib/supabase/client";
 import { isCostingLocked } from "@/lib/costing-lock";
 import { logJobActivity } from "@/components/JobActivityPanel";
-import { calcCostProduct, buildPrintersMap, lookupPrintPrice as sharedLookupPrintPrice, lookupTagPrice as sharedLookupTagPrice } from "@/lib/pricing";
+import { calcCostProduct, buildPrintersMap, lookupPrintPrice as sharedLookupPrintPrice, lookupTagPrice as sharedLookupTagPrice, effectiveShipRate } from "@/lib/pricing";
 import { DecorationPanel as DecorationPanelRaw } from "./DecorationPanel";
 import { sendQuoteAndProofs, defaultRecipient } from "@/lib/job/quote-actions";
 import { pushInvoiceToQB, recordPayment } from "@/lib/job/invoice-actions";
@@ -553,6 +553,44 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     setDecoState(s => { const m = { ...s }; next.forEach((np: any, idx: number) => { const it = items[idx]; if (it) m[it.id] = np; }); return m; });
     next.forEach((np: any, idx: number) => { const it = items[idx]; if (it) schedulePersist(it, np); });
   };
+  // Per-item shipping buffer override (costProd.shipRate) — rides the same deco
+  // overlay + flush (which recomputes sell). Blank = auto by garment type.
+  const saveShipRate = (item: any, raw: string) => {
+    if (isCostingLocked(job)) return;
+    const v = raw === "" ? null : (parseFloat(String(raw).replace(/[^0-9.]/g, "")) || 0);
+    const next: any = { ...assemble(item) };
+    if (v == null) delete next.shipRate; else next.shipRate = v;
+    setDecoState(s => ({ ...s, [item.id]: next }));
+    schedulePersist(item, next);
+  };
+  // Job-level margin / shipping / CC change → recompute + persist EVERY item's
+  // sell through the shared engine (respects per-item overrides), + costing_data.
+  const recomputeAllSells = async (patch: { costMargin?: string; inclShip?: boolean; inclCC?: boolean }) => {
+    if (isCostingLocked(job)) return;
+    const nextMargin = patch.costMargin ?? costMargin;
+    const nextInclShip = patch.inclShip ?? inclShip;
+    const nextInclCC = patch.inclCC ?? inclCC;
+    setJob((j: any) => ({ ...j, costing_data: { ...(j.costing_data || {}), costMargin: nextMargin, inclShip: nextInclShip, inclCC: nextInclCC } }));
+    const supabase = createClient();
+    const sells: Record<string, number> = {};
+    if (Object.keys(printers).length) {
+      const allA = items.map(assemble);
+      items.forEach((it: any) => { try { const r: any = calcCostProduct(assemble(it), nextMargin, nextInclShip, nextInclCC, allA, printers); if (r) sells[it.id] = Math.round((r.sellPerUnit || 0) * 100) / 100; } catch {} });
+    }
+    if (Object.keys(sells).length) setItems(prev => prev.map(x => sells[x.id] != null ? { ...x, sell_per_unit: sells[x.id] } : x));
+    try {
+      const { data: fresh }: any = await supabase.from("jobs").select("costing_data").eq("id", job.id).single();
+      const cd = { ...(fresh?.costing_data || job.costing_data || {}), costMargin: nextMargin, inclShip: nextInclShip, inclCC: nextInclCC };
+      await (supabase.from("jobs") as any).update({ costing_data: cd }).eq("id", job.id);
+      for (const [id, sell] of Object.entries(sells)) await (supabase.from("items") as any).update({ sell_per_unit: sell }).eq("id", id);
+    } catch (e) { console.error("[JobV2] recompute-all failed", e); }
+  };
+  const toggleUnlock = async () => {
+    const unlocked = !job?.type_meta?.costing_unlocked;
+    const meta = { ...(job.type_meta || {}), costing_unlocked: unlocked };
+    setJob((j: any) => ({ ...j, type_meta: meta }));
+    try { await (createClient().from("jobs") as any).update({ type_meta: meta }).eq("id", job.id); logJobActivity(job.id, unlocked ? "Costing unlocked to revise" : "Costing re-locked"); } catch (e) { console.error(e); }
+  };
   const calcFor = (item: any) => {
     if (!Object.keys(printers).length) return null;             // wait for decorator pricing
     try { return calcCostProduct(assemble(item), costMargin, inclShip, inclCC, allAssembled, printers); }
@@ -720,6 +758,53 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       {/* PRODUCTS gallery */}
       {block("products", "done", "Products & Costing", `${items.length} items · ${units.toLocaleString()} units · ${fmtMoney(orderTotal)}`, (
         <>
+          {/* job-level costing controls + project totals */}
+          {(() => {
+            let rev = 0, blank = 0, po = 0, ship = 0;
+            items.forEach((it: any) => { const r: any = calcFor(it); const q = qtyOf(it); rev += (Number(it.sell_per_unit) || 0) * q; if (r) { blank += r.blankCost || 0; po += r.poTotal || 0; ship += r.shipping || 0; } });
+            const cc = inclCC ? rev * 0.03 : 0;
+            const cost = blank + po + ship + cc;
+            const profit = rev - cost;
+            const margin = rev > 0 ? profit / rev : 0;
+            const marginColor = margin >= 0.30 ? T.green : margin >= 0.20 ? T.amber : T.red;
+            const actualBlanks = items.reduce((a: number, it: any) => a + (Number(it.blanks_order_cost) || 0), 0);
+            const isCommitted = !!(job.quote_approved || job.type_meta?.quote_sent_at);
+            const tog = (on: boolean, label: string, onClick: () => void) => (
+              <button onClick={() => !locked && onClick()} disabled={locked} style={{ display: "flex", alignItems: "center", gap: 7, background: "none", border: "none", cursor: locked ? "default" : "pointer", fontFamily: font, opacity: locked ? 0.6 : 1 }}>
+                <span style={{ width: 30, height: 17, borderRadius: 9, background: on ? T.accent : T.card, border: `1px solid ${on ? T.accent : T.border}`, position: "relative" }}><span style={{ position: "absolute", top: 2, left: on ? 14 : 2, width: 11, height: 11, borderRadius: "50%", background: on ? T.bg : "#fff" }} /></span>
+                <span style={{ fontSize: 12, color: T.muted }}>{label}</span>
+              </button>
+            );
+            return (
+              <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: "12px 14px", marginBottom: 14 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap", marginBottom: 12 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={lbl}>Margin</span>
+                    <div style={{ display: "flex", gap: 2, background: T.card, borderRadius: 6, padding: 2 }}>
+                      {["10%", "15%", "20%", "25%", "30%"].map(m => (
+                        <button key={m} onClick={() => !locked && recomputeAllSells({ costMargin: m })} disabled={locked}
+                          style={{ background: costMargin === m ? T.amber : "transparent", color: costMargin === m ? "#0a0a0a" : T.muted, border: "none", borderRadius: 4, padding: "3px 8px", fontSize: 11, fontFamily: mono, cursor: locked ? "default" : "pointer" }}>{m}</button>
+                      ))}
+                    </div>
+                  </div>
+                  {tog(inclShip, "Shipping", () => recomputeAllSells({ inclShip: !inclShip }))}
+                  {tog(inclCC, "CC fees", () => recomputeAllSells({ inclCC: !inclCC }))}
+                  <div style={{ flex: 1 }} />
+                  {isCommitted && (
+                    <button onClick={toggleUnlock} style={{ fontSize: 11, fontWeight: 800, padding: "6px 13px", borderRadius: 999, border: `1px solid ${locked ? T.border : T.amber}`, background: locked ? T.card : T.amber, color: locked ? T.text : "#0a0a0a", cursor: "pointer", fontFamily: font }}>{locked ? "🔒 Unlock to revise" : "Re-lock"}</button>
+                  )}
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap" }}>
+                  {([["Revenue", fmtMoney(rev), T.text], ["Blanks", fmtMoney(blank), T.muted], ["Decoration", fmtMoney(po), T.muted], ...(inclShip ? [["Shipping", fmtMoney(ship), T.muted]] : []), ...(inclCC ? [["CC", fmtMoney(cc), T.muted]] : []), ["Net profit", fmtMoney(profit), marginColor], ["Margin", (margin * 100).toFixed(1) + "%", marginColor], ...(actualBlanks > 0 ? [["Actual blanks", fmtMoney(actualBlanks), actualBlanks > blank ? T.red : T.green]] : [])] as any[]).map(([l, v, c]: any, i: number, arr: any[]) => (
+                    <div key={l} style={{ flex: "1 1 auto", minWidth: 74, paddingRight: 12, marginRight: 12, borderRight: i < arr.length - 1 ? `1px solid ${T.border}44` : "none" }}>
+                      <div style={lbl}>{l}</div>
+                      <div style={{ fontFamily: mono, fontSize: 15, fontWeight: 800, color: c, marginTop: 3 }}>{v}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
           <div style={{ fontSize: 11.5, color: T.faint, padding: "8px 0 12px" }}>Tap a product for its worksheet — sizes, blank cost, decoration, vendor &amp; margin.</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(max(210px, calc((100% - 36px) / 4)), 1fr))", gap: 12 }}>
             {items.map((item: any, i: number) => {
@@ -1058,16 +1143,27 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                           ))}
                         </div>
 
-                        {/* raw blank-cost editor (writes items only) */}
-                        <label style={{ display: "block", marginTop: 18, paddingTop: 14, borderTop: `1px solid ${T.border}44` }}>
-                          <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Blank cost / unit <span style={{ fontWeight: 500, textTransform: "none", letterSpacing: 0, color: T.faint }}>· raw; buffer applied in calc</span></span>
-                          <div style={{ display: "flex", alignItems: "center", gap: 4, maxWidth: 220 }}>
-                            <span style={{ fontSize: 13, color: T.faint }}>$</span>
-                            <input key={it.id + ":bcu:" + (it.cost_per_unit ?? "")} defaultValue={it.cost_per_unit != null ? Number(it.cost_per_unit).toFixed(2) : ""} placeholder="0.00" inputMode="decimal" readOnly={locked}
-                              onBlur={e => saveBlankPerUnit(it, e.target.value)}
-                              style={{ flex: 1, padding: "9px 11px", borderRadius: 8, border: `1px solid ${T.border}`, background: locked ? T.card : T.surface, color: locked ? T.muted : T.text, fontSize: 14, fontWeight: 700, fontFamily: mono, outline: "none" }} />
-                          </div>
-                        </label>
+                        {/* raw blank-cost + shipping-buffer editors (writes items / costProd.shipRate) */}
+                        <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 18, paddingTop: 14, borderTop: `1px solid ${T.border}44` }}>
+                          <label style={{ flex: "1 1 190px" }}>
+                            <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Blank cost / unit <span style={{ fontWeight: 500, textTransform: "none", letterSpacing: 0, color: T.faint }}>· raw</span></span>
+                            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                              <span style={{ fontSize: 13, color: T.faint }}>$</span>
+                              <input key={it.id + ":bcu:" + (it.cost_per_unit ?? "")} defaultValue={it.cost_per_unit != null ? Number(it.cost_per_unit).toFixed(2) : ""} placeholder="0.00" inputMode="decimal" readOnly={locked}
+                                onBlur={e => saveBlankPerUnit(it, e.target.value)}
+                                style={{ flex: 1, padding: "9px 11px", borderRadius: 8, border: `1px solid ${T.border}`, background: locked ? T.card : T.surface, color: locked ? T.muted : T.text, fontSize: 14, fontWeight: 700, fontFamily: mono, outline: "none" }} />
+                            </div>
+                          </label>
+                          <label style={{ flex: "1 1 190px" }}>
+                            <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Shipping buffer / unit <span style={{ fontWeight: 500, textTransform: "none", letterSpacing: 0, color: T.faint }}>· blank = auto by garment</span></span>
+                            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                              <span style={{ fontSize: 13, color: T.faint }}>$</span>
+                              <input key={it.id + ":sr:" + (cp.shipRate ?? "")} defaultValue={cp.shipRate != null && cp.shipRate !== "" ? Number(cp.shipRate).toFixed(2) : ""} placeholder={"auto · $" + effectiveShipRate(allAssembled[wsIndex!]).toFixed(2)} inputMode="decimal" readOnly={locked}
+                                onBlur={e => saveShipRate(it, e.target.value)}
+                                style={{ flex: 1, padding: "9px 11px", borderRadius: 8, border: `1px solid ${T.border}`, background: locked ? T.card : T.surface, color: locked ? T.muted : T.text, fontSize: 14, fontWeight: 700, fontFamily: mono, outline: "none" }} />
+                            </div>
+                          </label>
+                        </div>
 
                         {/* decoration engine — DecorationPanel fed the full assembled array so
                             share groups (A–J / T1–T10) + qty tiers compute across items. */}
