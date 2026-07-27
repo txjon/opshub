@@ -363,6 +363,12 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       const stamp = paidDate || new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "America/Los_Angeles" });
       finalHtml = html.replace("</body>", `<div style="position:fixed;top:40%;left:50%;transform:translate(-50%,-50%) rotate(-25deg);font-size:72px;font-weight:900;color:rgba(26,140,92,0.15);letter-spacing:8px;font-family:system-ui;pointer-events:none;z-index:9999">PAID</div><div style="position:fixed;top:52%;left:50%;transform:translate(-50%,-50%) rotate(-25deg);font-size:18px;font-weight:700;color:rgba(26,140,92,0.25);font-family:system-ui;pointer-events:none;z-index:9999">${stamp}</div></body>`);
     }
+    // ?html=1 → the invoice as a WEB document (the exact HTML the PDF is
+    // rendered from, so the hub's invoice view matches the PDF by
+    // construction). Used by the client hub's View-invoice-and-pay sheet.
+    if (req.nextUrl.searchParams.get("html") === "1") {
+      return new NextResponse(finalHtml, { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } });
+    }
     const pdfBuffer = await generatePDF(finalHtml);
     // Filename = client name + number — the job memo is internal and must not
     // ride along in a client-downloaded file name.
