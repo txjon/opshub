@@ -1556,6 +1556,19 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
               </div>
             );
           })()}
+          {/* missing proof PDFs — proofs built but never baked to Drive
+              (classic-era sends never baked). Runs the send-time bake pass
+              WITHOUT sending anything. */}
+          {(() => {
+            const needBake = items.filter((it: any) => it.proof_spec && ((it.proof_spec.bakedRendererVersion == null) || it.proof_spec.bakedRendererVersion < PROOF_RENDERER_VERSION));
+            if (!needBake.length || bakeIds) return null;
+            return (
+              <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", border: `1px solid ${T.border}`, background: T.surface, borderRadius: 10, padding: "9px 13px", marginBottom: 12 }}>
+                <span style={{ fontSize: 12.5, color: T.muted, flex: 1, minWidth: 180 }}>{needBake.length} proof PDF{needBake.length === 1 ? "" : "s"} not in Drive yet (built before send-time baking).</span>
+                <button onClick={() => bakeProofPdfs(needBake.map((x: any) => x.id))} style={ghostBtn}>Bake to Drive — no emails</button>
+              </div>
+            );
+          })()}
           {/* revised-proof nudge — revised proofs re-uploaded but not re-sent */}
           {(() => {
             const revisedItems = items.filter((it: any) => (filesByItem[it.id] || []).some((f: any) => f.stage === "proof" && f.revision_pending_send));
