@@ -447,6 +447,46 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
           );
         })})()}
 
+        {/* ── Custom cost lines — live IN the print-location list (moved out
+            of the old chip modal). Same row chrome as a location line. ── */}
+        {(p.customCosts||[]).map((cc,ci)=>(
+          <div key={"cc"+ci} style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,padding:"6px 10px",display:"flex",alignItems:"center",gap:isMobile?6:10,minHeight:38,flexWrap:isMobile?"wrap":"nowrap"}}>
+            <div style={{width:isMobile?120:170,flexShrink:0}}>
+              <input value={cc.desc||""} onChange={e=>{const c=[...(p.customCosts||[])];c[ci]={...c[ci],desc:e.target.value};updateProd(i,{...p,customCosts:c});}}
+                placeholder="Custom cost..."
+                style={{background:"transparent",border:"none",outline:"none",color:T.text,fontSize:13,fontWeight:700,fontFamily:font,width:"100%",padding:0}}/>
+            </div>
+            <div style={{display:"inline-flex",background:T.card,border:`1px solid ${T.border}`,borderRadius:5,overflow:"hidden",flexShrink:0}}>
+              {[{label:"/ unit",flat:false},{label:"flat",flat:true}].map(opt=>{
+                const sel=!!cc.flat===opt.flat;
+                return <button key={opt.label} onClick={()=>{const c=[...(p.customCosts||[])];c[ci]={...c[ci],flat:opt.flat};updateProd(i,{...p,customCosts:c});}}
+                  style={{padding:"4px 10px",fontSize:10,fontWeight:600,border:"none",cursor:"pointer",background:sel?T.text:"transparent",color:sel?"#0a0a0a":T.muted,fontFamily:font}}>{opt.label}</button>;
+              })}
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:4,flexShrink:0}}>
+              <span style={{fontSize:12,color:T.faint,fontFamily:mono}}>$</span>
+              <input type="text" inputMode="decimal" value={cc.perUnit||cc.amount||""} onChange={e=>{const c=[...(p.customCosts||[])];c[ci]={...c[ci],perUnit:e.target.value,amount:e.target.value};updateProd(i,{...p,customCosts:c});}}
+                onBlur={e=>{const v=parseFloat(e.target.value)||0;const c=[...(p.customCosts||[])];c[ci]={...c[ci],perUnit:v,amount:v};updateProd(i,{...p,customCosts:c});}}
+                placeholder="0.00"
+                style={{width:56,textAlign:"center",background:T.card,border:`1px solid ${T.border}`,borderRadius:5,color:T.text,fontSize:13,fontWeight:700,fontFamily:mono,outline:"none",padding:"3px 4px"}}/>
+            </div>
+            <button onClick={()=>{const c=(p.customCosts||[]).filter((_,j)=>j!==ci);updateProd(i,{...p,customCosts:c});}}
+              style={{background:"none",border:"none",color:T.faint,cursor:"pointer",fontSize:15,flexShrink:0,padding:"0 2px",lineHeight:1}}
+              onMouseEnter={e=>e.currentTarget.style.color=T.red} onMouseLeave={e=>e.currentTarget.style.color=T.faint}>×</button>
+            <div style={{flex:1,minWidth:0}}/>
+            <span style={{fontSize:14,fontWeight:700,color:T.text,fontFamily:mono,flexShrink:0}}>
+              {(()=>{const v=parseFloat(cc.perUnit||cc.amount)||0;return cc.flat?`$${v.toFixed(2)} flat`:`$${v.toFixed(2)}`;})()}
+            </span>
+          </div>
+        ))}
+        {(p.customCosts||[]).length < 6 && (
+          <button onClick={()=>updateProd(i,{...p,customCosts:[...(p.customCosts||[]),{desc:"",perUnit:0,flat:false}]})}
+            style={{fontSize:11,fontWeight:600,color:T.faint,background:"none",border:`1px dashed ${T.border}66`,borderRadius:8,padding:"8px 10px",cursor:"pointer",fontFamily:font,textAlign:"left"}}
+            onMouseEnter={e=>{e.currentTarget.style.color=T.text;e.currentTarget.style.borderColor=T.border;}}
+            onMouseLeave={e=>{e.currentTarget.style.color=T.faint;e.currentTarget.style.borderColor=T.border+"66";}}>
+            + Custom cost
+          </button>
+        )}
       </div>
 
       {/* ── Tag · Packaging · Finishing — one horizontal row with
@@ -548,11 +588,10 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
       })()}
 
       {/* Setup Fees — collapsible */}
-      {/* ── Setup Fees · Specialty · Custom Costs — 3-column grid
-          so the collapsed summaries sit side-by-side instead of
-          stacking down the page. Each card expands inline when
-          tapped; on narrow viewports the grid wraps. */}
-      <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(3, minmax(0, 1fr))",gap:8,alignItems:"start"}}>
+      {/* ── Setup Fees · Specialty — 2-column grid (custom costs moved
+          inline into the print-location list). Each card expands inline
+          when tapped; on narrow viewports the grid wraps. */}
+      <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(2, minmax(0, 1fr))",gap:8,alignItems:"start"}}>
       {p.printVendor && pr.setup && (()=>{
         const activeSetup = Object.keys(pr.setup).filter(key => {
           const isScreens = key.toLowerCase().replace(/\s/g,"") === "screens";
@@ -723,55 +762,8 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
         );
       })() : null}
 
-      {/* Custom Costs */}
-      {(()=>{
-        const activeCosts = (p.customCosts||[]).filter(c=>c.desc);
-        const customSummary = activeCosts.length>0 ? activeCosts.map(c=>c.desc).join(", ") : "None";
-        return (
-        <div style={{borderRadius:6,border:`1px solid ${T.border}`,overflow:"hidden",minWidth:0}}>
-          <button onClick={()=>updateProd(i,{...p,_customOpen:true})}
-            style={{width:"100%",padding:"6px 10px",background:T.surface,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",fontFamily:font}}>
-            <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}>
-              <span style={{fontSize:9,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em"}}>Custom Costs</span>
-              <span style={{fontSize:9,color:activeCosts.length>0?T.accent:T.faint,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{customSummary}</span>
-            </div>
-            <span style={{fontSize:10,color:T.faint}}>›</span>
-          </button>
-          <SettingsModal open={!!p._customOpen} onClose={()=>updateProd(i,{...p,_customOpen:false})} title="Custom Costs" summary={activeCosts.length>0?activeCosts.map(c=>c.desc).join(" · "):"None applied"} width={520}>
-            <div style={{display:"flex",flexDirection:"column",gap:8}}>
-              {(p.customCosts||[]).map((cc,ci)=>(
-                <div key={ci} style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,flexWrap:"wrap"}}>
-                  <input value={cc.desc||""} onChange={e=>{const c=[...p.customCosts];c[ci]={...c[ci],desc:e.target.value};updateProd(i,{...p,customCosts:c});}}
-                    placeholder="Description"
-                    style={{flex:"1 1 160px",minWidth:120,background:T.card,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,fontSize:13,padding:"6px 10px",outline:"none",fontFamily:font,fontWeight:500}}/>
-                  <div style={{display:"inline-flex",background:T.card,border:`1px solid ${T.border}`,borderRadius:6,overflow:"hidden",flexShrink:0}}>
-                    {[{label:"/ unit",flat:false},{label:"flat",flat:true}].map(opt=>{
-                      const sel=cc.flat===opt.flat;
-                      return <button key={opt.label} onClick={()=>{const c=[...p.customCosts];c[ci]={...c[ci],flat:opt.flat};updateProd(i,{...p,customCosts:c});}}
-                        style={{padding:"6px 12px",fontSize:11,fontWeight:600,border:"none",cursor:"pointer",background:sel?T.text:"transparent",color:sel?"#0a0a0a":T.muted,fontFamily:font}}>{opt.label}</button>;
-                    })}
-                  </div>
-                  <div style={{display:"inline-flex",alignItems:"center",gap:4,background:T.card,border:`1px solid ${T.border}`,borderRadius:6,padding:"5px 10px",flexShrink:0}}>
-                    <span style={{fontSize:12,color:T.faint,fontFamily:mono}}>$</span>
-                    <input type="text" inputMode="decimal" value={cc.perUnit||cc.amount||""} onChange={e=>{const c=[...p.customCosts];c[ci]={...c[ci],perUnit:e.target.value,amount:e.target.value};updateProd(i,{...p,customCosts:c});}}
-                      placeholder="0.00"
-                      style={{width:60,textAlign:"left",background:"transparent",border:"none",color:T.text,fontSize:13,fontWeight:700,fontFamily:mono,outline:"none",padding:0}}/>
-                  </div>
-                  <button onClick={()=>{const c=p.customCosts.filter((_,j)=>j!==ci);updateProd(i,{...p,customCosts:c});}}
-                    style={{background:"none",border:"none",color:T.faint,cursor:"pointer",fontSize:18,flexShrink:0,padding:"2px 6px",lineHeight:1}}
-                    onMouseEnter={e=>e.currentTarget.style.color=T.red} onMouseLeave={e=>e.currentTarget.style.color=T.faint}>×</button>
-                </div>
-              ))}
-              <button onClick={()=>updateProd(i,{...p,customCosts:[...(p.customCosts||[]),{desc:"",perUnit:0,flat:false}]})}
-                style={{fontSize:13,fontWeight:600,color:T.muted,background:"none",border:`1px dashed ${T.border}`,borderRadius:8,padding:"12px",cursor:"pointer",fontFamily:font,textAlign:"center"}}
-                onMouseEnter={e=>e.currentTarget.style.color=T.accent} onMouseLeave={e=>e.currentTarget.style.color=T.muted}>
-                + Add cost
-              </button>
-            </div>
-          </SettingsModal>
-        </div>
-        );
-      })()}
+      {/* Custom Costs — moved INLINE into the print-location list above
+          (Jul 26); the chip + modal cell is gone. */}
       </div>
       </>}
     </div>
