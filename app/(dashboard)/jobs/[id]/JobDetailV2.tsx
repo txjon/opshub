@@ -19,7 +19,7 @@ import { logJobActivity } from "@/components/JobActivityPanel";
 import { calcCostProduct, buildPrintersMap, lookupPrintPrice as sharedLookupPrintPrice, lookupTagPrice as sharedLookupTagPrice, effectiveShipRate } from "@/lib/pricing";
 import { DecorationPanel as DecorationPanelRaw } from "./DecorationPanel";
 import { sendQuoteAndProofs, defaultRecipient } from "@/lib/job/quote-actions";
-import { pushInvoiceToQB, recordPayment } from "@/lib/job/invoice-actions";
+import { pushInvoiceToQB, recordPayment, cyclePaymentStatus, deletePayment } from "@/lib/job/invoice-actions";
 import { applyPoSentToVendorItems } from "@/lib/po-actions";
 const DecorationPanel: any = DecorationPanelRaw; // .jsx — bypass narrow inferred prop types
 
@@ -74,6 +74,8 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   useEffect(() => { setItems(itemsProp); }, [itemsProp]);
   const [payments, setPayments] = useState<any[]>(paymentsProp);
   useEffect(() => { setPayments(paymentsProp); }, [paymentsProp]);
+  const [localContacts, setLocalContacts] = useState<any[]>(contacts);
+  useEffect(() => { setLocalContacts(contacts); }, [contacts]);
   const locked = isCostingLocked(job);
 
   // Decorator pricing → printers map, for the shared cost engine (decoration cost).
@@ -164,6 +166,9 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   const [payForm, setPayForm] = useState<{ type: string; amount: string; paid_date: string }>({ type: "full_payment", amount: "", paid_date: "" });
   const [poVendor, setPoVendor] = useState<string | null>(null);
   const [poShipDate, setPoShipDate] = useState("");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [contactForm, setContactForm] = useState<{ name: string; email: string; phone: string; role: string } | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [newProd, setNewProd] = useState<{ name: string; garment_type: string; blank_vendor: string; blank_sku: string; cost: string; qtys: Record<string, string> }>({ name: "", garment_type: "tee", blank_vendor: "", blank_sku: "", cost: "", qtys: {} });
 
@@ -210,6 +215,72 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     setItems(prev => prev.map(x => x.id === item.id ? { ...x, qtys: newQtys, totalQty: sumQ(newQtys) } : x));
     try { await createClient().from("buy_sheet_lines").delete().eq("item_id", item.id).eq("size", sz); } catch (e) { console.error("[JobV2] removeSize failed", e); }
   };
+  // ── Job-level (Overview parity) ──
+  const saveJobCol = async (col: string, value: any) => {
+    setJob((j: any) => ({ ...j, [col]: value }));
+    try { await (createClient().from("jobs") as any).update({ [col]: value }).eq("id", job.id); } catch (e) { console.error("[JobV2] saveJobCol", col, e); }
+  };
+  const saveTypeMeta = async (patch: Record<string, any>) => {
+    const meta = { ...(job.type_meta || {}), ...patch };
+    setJob((j: any) => ({ ...j, type_meta: meta }));
+    try { await (createClient().from("jobs") as any).update({ type_meta: meta }).eq("id", job.id); } catch (e) { console.error("[JobV2] saveTypeMeta", e); }
+  };
+  const setPhase = async (phase: string, recalc = false) => {
+    setJob((j: any) => ({ ...j, phase }));
+    try { await (createClient().from("jobs") as any).update({ phase }).eq("id", job.id); logJobActivity(job.id, `Phase → ${phase}`); } catch (e) { console.error(e); }
+    setMenuOpen(false);
+  };
+  const duplicateJob = async () => {
+    setMenuOpen(false);
+    if (!window.confirm("Duplicate this project (items, costing, contacts)?")) return;
+    try { const r = await fetch(`/api/jobs/${job.id}/duplicate`, { method: "POST" }); const d = await r.json(); if (d?.id) window.location.href = `/jobs/${d.id}?v2=1`; else alert(d?.error || "Duplicate failed"); } catch (e: any) { alert(e.message || "Duplicate failed"); }
+  };
+  const deleteJob = async () => {
+    setMenuOpen(false);
+    if (!window.confirm(`Delete "${job.title}" and everything in it? This cannot be undone.`)) return;
+    const supabase = createClient();
+    try {
+      const ids = items.map((i: any) => i.id);
+      if (ids.length) { await supabase.from("buy_sheet_lines").delete().in("item_id", ids); await supabase.from("item_files").delete().in("item_id", ids); await supabase.from("decorator_assignments").delete().in("item_id", ids); }
+      await supabase.from("items").delete().eq("job_id", job.id);
+      await supabase.from("payment_records").delete().eq("job_id", job.id);
+      await supabase.from("job_contacts").delete().eq("job_id", job.id);
+      await supabase.from("jobs").delete().eq("id", job.id);
+      window.location.href = "/projects";
+    } catch (e: any) { alert(e.message || "Delete failed"); }
+  };
+  const cancelVoid = async () => {
+    setMenuOpen(false);
+    if (paid > 0) { alert("Can't void — a payment is recorded. Refund/adjust in QB first."); return; }
+    if (!window.confirm("Cancel this project and void its QuickBooks invoice?")) return;
+    try { const r = await fetch("/api/qb/void-invoice", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobId: job.id }) }); if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "Void failed"); await setPhase("cancelled"); } catch (e: any) { alert(e.message || "Void failed"); }
+  };
+  const addContact = async () => {
+    if (!contactForm) return;
+    const email = contactForm.email.trim().toLowerCase(); const name = contactForm.name.trim();
+    if (!email && !name) { setContactForm(null); return; }
+    const supabase = createClient();
+    try {
+      let contactId: string | null = null;
+      if (email) { const { data: existing }: any = await supabase.from("contacts").select("id").eq("client_id", job.client_id).eq("email", email).limit(1).maybeSingle(); contactId = existing?.id || null; }
+      if (!contactId) { const { data: c }: any = await (supabase.from("contacts") as any).insert({ client_id: job.client_id, name, email: email || null, phone: contactForm.phone.trim() || null }).select("id").single(); contactId = c?.id; }
+      await (supabase.from("job_contacts") as any).insert({ job_id: job.id, contact_id: contactId, role_on_job: contactForm.role });
+      const { data: fresh }: any = await supabase.from("job_contacts").select("*, contacts(*)").eq("job_id", job.id);
+      if (fresh) setLocalContacts(fresh);
+      setContactForm(null);
+    } catch (e: any) { console.error("[JobV2] addContact", e); }
+  };
+  const removeContact = async (jcId: string) => {
+    try { await createClient().from("job_contacts").delete().eq("id", jcId); setLocalContacts(prev => prev.filter((c: any) => c.id !== jcId)); } catch (e) { console.error(e); }
+  };
+  const cyclePay = async (p: any) => {
+    try { const next = await cyclePaymentStatus(job, p); const { data: fresh }: any = await createClient().from("payment_records").select("*").eq("job_id", job.id).order("created_at"); if (fresh) setPayments(fresh); else setPayments(prev => prev.map(x => x.id === p.id ? { ...x, status: next } : x)); } catch (e) { console.error(e); }
+  };
+  const delPay = async (id: string) => {
+    if (!window.confirm("Delete this payment record?")) return;
+    try { await deletePayment(id); setPayments(prev => prev.filter(x => x.id !== id)); } catch (e) { console.error(e); }
+  };
+
   const saveRoute = async (route: string) => {
     if (route === (job.shipping_route || "")) return;
     setJob((j: any) => ({ ...j, shipping_route: route }));
@@ -307,7 +378,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   const hero = PHASE_HERO[job?.phase] || PHASE_HERO.intake;
 
   // ── client-action handlers (reuse the shared libs) ──
-  const flatContacts = (contacts || []).map((c: any) => ({ email: c.contacts?.email || c.email, name: c.contacts?.name || c.name || "", role_on_job: c.role_on_job })).filter((c: any) => c.email);
+  const flatContacts = (localContacts || []).map((c: any) => ({ email: c.contacts?.email || c.email, name: c.contacts?.name || c.name || "", role_on_job: c.role_on_job })).filter((c: any) => c.email);
   const openSend = (kind: "quote" | "invoice") => {
     const { to, cc } = defaultRecipient(flatContacts);
     const sel: Record<string, boolean> = {};
@@ -680,9 +751,30 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       {/* top bar */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 0 6px", fontSize: 13 }}>
         <a href="/projects" style={{ color: T.muted, fontWeight: 700, textDecoration: "none" }}>‹ Projects</a>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <span style={{ fontSize: 10, fontWeight: 700, color: T.faint, letterSpacing: "0.1em", textTransform: "uppercase" }}>V2 preview</span>
-          <a href={`/jobs/${job?.id}`} style={{ fontSize: 11, fontWeight: 700, color: T.muted, textDecoration: "none", padding: "5px 11px", borderRadius: 999, border: `1px solid ${T.border}` }}>Classic view ›</a>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, position: "relative" }}>
+          <button onClick={() => setDetailsOpen(true)} style={{ fontSize: 11, fontWeight: 700, color: T.muted, background: "none", padding: "5px 11px", borderRadius: 999, border: `1px solid ${T.border}`, cursor: "pointer", fontFamily: font }}>Job details</button>
+          <a href={`/jobs/${job?.id}`} style={{ fontSize: 11, fontWeight: 700, color: T.muted, textDecoration: "none", padding: "5px 11px", borderRadius: 999, border: `1px solid ${T.border}` }}>Classic ›</a>
+          <button onClick={() => setMenuOpen(v => !v)} aria-label="More" style={{ width: 30, height: 30, borderRadius: 999, border: `1px solid ${T.border}`, background: "none", color: T.muted, fontSize: 16, cursor: "pointer", lineHeight: 1 }}>⋯</button>
+          {menuOpen && (
+            <>
+              <div onClick={() => setMenuOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+              <div style={{ position: "absolute", top: 36, right: 0, zIndex: 41, background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, minWidth: 190, padding: 5, boxShadow: "0 12px 40px rgba(0,0,0,0.4)" }}>
+                {(() => {
+                  const item = (label: string, onClick: () => void, danger = false) => (
+                    <button key={label} onClick={onClick} style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: danger ? T.red : T.text, borderRadius: 7 }}>{label}</button>
+                  );
+                  const rows = [];
+                  if (job.phase === "on_hold") rows.push(item("Resume", () => setPhase("intake")));
+                  else if (job.phase !== "cancelled") rows.push(item("Place on hold", () => setPhase("on_hold")));
+                  if (job.phase === "cancelled") rows.push(item("Reactivate", () => setPhase("intake")));
+                  rows.push(item("Duplicate project", duplicateJob));
+                  if (job.type_meta?.qb_invoice_number && job.phase !== "cancelled") rows.push(item("Cancel & void invoice", cancelVoid, true));
+                  rows.push(item("Delete project", deleteJob, true));
+                  return rows;
+                })()}
+              </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -859,16 +951,60 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
             {invNum && <a href={`/api/pdf/invoice/${job.id}`} target="_blank" rel="noreferrer" style={previewBtn}>Preview invoice</a>}
             {job?.portal_token && <a href={`/portal/${job.portal_token}`} target="_blank" rel="noreferrer" style={{ ...previewBtn, background: "transparent" }}>Client hub ›</a>}
           </div>
-          {[["Quote", flags.approved ? "Sent · Approved" : flags.quoted ? "Sent" : "Not sent"],
+          {([["Quote", flags.approved ? "Sent · Approved" : flags.quoted ? "Sent" : "Not sent"],
             ["Proofs", `${artApproved}/${items.length} approved`],
             ["Invoice", invNum ? `${invNum} · sent` : "not sent"],
-            ["Paid", `${fmtMoney(paid)} of ${fmtMoney(invoiced || orderTotal)}`],
-            ...(flags.grew ? [["Outstanding", `${fmtMoney(toInvoice)} added since invoicing — re-invoice`]] : []),
-            ["Contacts", (contacts || []).map((c: any) => c.contacts?.name).filter(Boolean).join(", ") || "none on job"]].map(([l, v]: any) => (
+            ...(flags.grew ? [["Outstanding", `${fmtMoney(toInvoice)} added since invoicing — re-invoice`]] : [])] as any[]).map(([l, v]: any) => (
             <div key={l} style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderBottom: `1px solid ${T.border}55`, fontSize: 13 }}>
               <span style={{ color: T.muted }}>{l}</span><span style={{ fontWeight: 700, color: l === "Outstanding" ? T.amber : T.text }}>{v}</span>
             </div>
           ))}
+
+          {/* payments — terms + records (click status to cycle, × to delete) */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "16px 0 8px", gap: 10, flexWrap: "wrap" }}>
+            <span style={lbl}>Payments · {fmtMoney(paid)} paid of {fmtMoney(invoiced || orderTotal)}</span>
+            <select value={job.payment_terms || ""} onChange={e => saveJobCol("payment_terms", e.target.value)} style={{ ...field, width: "auto", padding: "6px 9px", fontSize: 12 }}>
+              <option value="">Terms…</option>
+              <option value="prepaid">Prepaid</option>
+              <option value="deposit_balance">50% Deposit / Balance</option>
+              <option value="net_15">Net 15</option>
+              <option value="net_30">Net 30</option>
+            </select>
+          </div>
+          {payments.length === 0 ? <div style={{ fontSize: 12.5, color: T.faint, paddingBottom: 4 }}>No payments recorded.</div> : payments.map((p: any) => {
+            const sc = p.status === "paid" ? T.green : p.status === "partial" ? T.amber : p.status === "overdue" ? T.red : p.status === "void" ? T.faint : T.muted;
+            return (
+              <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: `1px solid ${T.border}44`, fontSize: 13 }}>
+                <span style={{ flex: 1, color: T.muted }}>{String(p.type || "").replace(/_/g, " ")}{p.invoice_number ? ` · #${p.invoice_number}` : ""}{p.paid_date ? ` · ${p.paid_date}` : ""}</span>
+                <span style={{ fontFamily: mono, fontWeight: 700 }}>{fmtMoney(p.amount)}</span>
+                <button onClick={() => cyclePay(p)} title="Click to cycle status" style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", color: sc, background: "none", border: `1px solid ${sc}55`, borderRadius: 999, padding: "3px 9px", cursor: "pointer", fontFamily: font }}>{p.status || "draft"}</button>
+                <button onClick={() => delPay(p.id)} title="Delete" style={{ background: "none", border: "none", color: T.faint, fontSize: 14, cursor: "pointer" }}>×</button>
+              </div>
+            );
+          })}
+
+          {/* contacts — add / remove */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "16px 0 8px", paddingTop: 12, borderTop: `1px solid ${T.border}44` }}>
+            <span style={lbl}>Contacts</span>
+            {!contactForm && <button onClick={() => setContactForm({ name: "", email: "", phone: "", role: "cc" })} style={{ ...ghostBtn, padding: "5px 11px", fontSize: 11 }}>+ Add</button>}
+          </div>
+          {localContacts.length === 0 && !contactForm ? <div style={{ fontSize: 12.5, color: T.faint }}>No contacts on this job.</div> : localContacts.map((c: any) => (
+            <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 0", borderBottom: `1px solid ${T.border}44`, fontSize: 13 }}>
+              <span style={{ flex: 1 }}>{c.contacts?.name || c.contacts?.email}<span style={{ color: T.faint }}> · {c.contacts?.email || "no email"}{c.role_on_job ? " · " + c.role_on_job : ""}</span></span>
+              <button onClick={() => removeContact(c.id)} title="Remove" style={{ background: "none", border: "none", color: T.faint, fontSize: 14, cursor: "pointer" }}>×</button>
+            </div>
+          ))}
+          {contactForm && (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
+              <input value={contactForm.name} onChange={e => setContactForm(f => f && { ...f, name: e.target.value })} placeholder="Name" style={{ ...field, flex: "1 1 120px", width: "auto" }} />
+              <input value={contactForm.email} onChange={e => setContactForm(f => f && { ...f, email: e.target.value })} placeholder="Email" style={{ ...field, flex: "1 1 140px", width: "auto" }} />
+              <select value={contactForm.role} onChange={e => setContactForm(f => f && { ...f, role: e.target.value })} style={{ ...field, width: "auto" }}>
+                {["primary", "billing", "creative", "logistics", "cc"].map(r => <option key={r} value={r}>{r}</option>)}
+              </select>
+              <button onClick={addContact} style={actBtn}>Add</button>
+              <button onClick={() => setContactForm(null)} style={ghostBtn}>Cancel</button>
+            </div>
+          )}
         </div>
       ))}
 
@@ -1339,6 +1475,37 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
             <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
               <button disabled={actBusy} onClick={createProduct} style={{ ...actBtn, opacity: actBusy ? 0.6 : 1 }}>{actBusy ? "Adding…" : "Add product"}</button>
               <button disabled={actBusy} onClick={() => setAddOpen(false)} style={ghostBtn}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── job details editor ── */}
+      {detailsOpen && (
+        <div onClick={e => { if (e.target === e.currentTarget) setDetailsOpen(false); }}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 320, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "24px 14px", overflowY: "auto" }}>
+          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 14, width: "100%", maxWidth: 460, padding: "20px 22px" }}>
+            <div style={{ fontSize: 16, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", marginBottom: 14 }}>Job details</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <label><span style={{ ...lbl, display: "block", marginBottom: 5 }}>Project name</span>
+                <input key={"jt:" + job.title} defaultValue={job.title || ""} onBlur={e => saveJobCol("title", e.target.value.trim())} style={field} /></label>
+              <label><span style={{ ...lbl, display: "block", marginBottom: 5 }}>Requested in-hands date</span>
+                <input type="date" key={"jd:" + (job.target_ship_date || "")} defaultValue={job.target_ship_date || ""} onChange={e => saveJobCol("target_ship_date", e.target.value || null)} style={field} /></label>
+              <label><span style={{ ...lbl, display: "block", marginBottom: 5 }}>Client delivery address</span>
+                <textarea key={"jv:" + (tm.venue_address || "")} defaultValue={tm.venue_address || ""} onBlur={e => saveTypeMeta({ venue_address: e.target.value.trim() || null })} rows={2} style={{ ...field, resize: "vertical" }} /></label>
+              <label><span style={{ ...lbl, display: "block", marginBottom: 5 }}>Client PO #</span>
+                <input key={"jp:" + (tm.client_po_number || "")} defaultValue={tm.client_po_number || ""} onBlur={e => saveTypeMeta({ client_po_number: e.target.value.trim() || null })} style={field} /></label>
+              <label><span style={{ ...lbl, display: "block", marginBottom: 5 }}>Project notes</span>
+                <textarea key={"jn:" + (job.notes || "")} defaultValue={job.notes || ""} onBlur={e => saveJobCol("notes", e.target.value.trim() || null)} rows={2} style={{ ...field, resize: "vertical" }} /></label>
+              <label><span style={{ ...lbl, display: "block", marginBottom: 5 }}>Shipping notes</span>
+                <textarea key={"js:" + (tm.shipping_notes || "")} defaultValue={tm.shipping_notes || ""} onBlur={e => saveTypeMeta({ shipping_notes: e.target.value.trim() || null })} rows={2} style={{ ...field, resize: "vertical" }} /></label>
+              <label style={{ display: "flex", alignItems: "center", gap: 9, fontSize: 13, color: T.text }}>
+                <input type="checkbox" checked={!!job.is_inventory} onChange={e => saveJobCol("is_inventory", e.target.checked)} style={{ accentColor: T.accent }} />
+                Inventory / stock buy (not a client order)
+              </label>
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 18 }}>
+              <button onClick={() => setDetailsOpen(false)} style={actBtn}>Done</button>
             </div>
           </div>
         </div>
