@@ -41,7 +41,9 @@ const PICKER_SOURCES: [string, string, string, string][] = [
   ["cc", "Cotton Collective", "#2d6b4f", "#fff"], ["fav", "House Party Favorites", "", ""], ["other", "Other", "", ""],
 ];
 
-const fmtMoney = (n: number) => "$" + Math.round(Number(n) || 0).toLocaleString("en-US");
+// Money shows CENTS — internal totals must read identical to QB/the hub
+// (whole-dollar rounding made matching numbers look like mismatches).
+const fmtMoney = (n: number) => "$" + (Number(n) || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtDT = (iso: string) => iso ? new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
 // thumbByItem holds a Drive file_id (not a URL) — build the thumbnail endpoint URL.
 const thumbSrc = (id: string, full = false) => id ? `/api/files/thumbnail?id=${id}${full ? "" : "&thumb=1"}` : "";
@@ -1385,14 +1387,30 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
             {invNum && <a href={`/api/pdf/invoice/${job.id}`} target="_blank" rel="noreferrer" style={previewBtn}>Preview invoice</a>}
             {job?.portal_token && <a href={`/portal/${job.portal_token}`} target="_blank" rel="noreferrer" style={{ ...previewBtn, background: "transparent" }}>Client hub ›</a>}
           </div>
+          {/* ── ORDER — the approval state ── */}
+          <div style={{ ...lbl, margin: "6px 0 2px" }}>Order</div>
           {([["Quote", flags.approved ? "Sent · Approved" : flags.quoted ? "Sent" : "Not sent"],
-            ["Proofs", `${artApproved}/${items.length} approved`],
-            ["Invoice", invNum ? `${invNum} · sent` : "not sent"],
-            ...(flags.grew ? [["Outstanding", `${fmtMoney(toInvoice)} added since invoicing — re-invoice`]] : [])] as any[]).map(([l, v]: any) => (
+            ["Proofs", `${artApproved}/${items.length} approved`]] as any[]).map(([l, v]: any) => (
             <div key={l} style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderBottom: `1px solid ${T.border}55`, fontSize: 13 }}>
-              <span style={{ color: T.muted }}>{l}</span><span style={{ fontWeight: 700, color: l === "Outstanding" ? T.amber : T.text }}>{v}</span>
+              <span style={{ color: T.muted }}>{l}</span><span style={{ fontWeight: 700 }}>{v}</span>
             </div>
           ))}
+
+          {/* ── BILLING — invoice + QB sync, pay link, extras, payments ── */}
+          <div style={{ ...lbl, margin: "18px 0 2px" }}>Billing</div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: `1px solid ${T.border}55`, fontSize: 13, gap: 10, flexWrap: "wrap" }}>
+            <span style={{ color: T.muted }}>Invoice</span>
+            <span style={{ display: "flex", gap: 10, alignItems: "center", fontWeight: 700 }}>
+              {invNum ? (
+                <>
+                  <span>{invNum} · sent</span>
+                  {Math.abs(toInvoice) <= 0.01
+                    ? <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", color: T.green }}>✓ QB in sync</span>
+                    : <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", color: T.amber }} title={`OpsHub order ${fmtMoney(orderTotal)} vs QB ${fmtMoney(invoicedSub)} (pre-tax). Send invoice re-pushes.`}>⚠ off {fmtMoney(Math.abs(toInvoice))} vs QB</span>}
+                </>
+              ) : <span>not sent</span>}
+            </span>
+          </div>
           {/* pay link — QB hosted payment page (refresh regenerates it) */}
           {tm.qb_invoice_id && (
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: `1px solid ${T.border}55`, fontSize: 13 }}>
@@ -1405,6 +1423,11 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                   {refreshingLink ? "Refreshing…" : tm.qb_payment_link ? "Refresh" : "Create"}
                 </button>
               </span>
+            </div>
+          )}
+          {flags.grew && (
+            <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderBottom: `1px solid ${T.border}55`, fontSize: 13 }}>
+              <span style={{ color: T.muted }}>Outstanding</span><span style={{ fontWeight: 700, color: T.amber }}>{fmtMoney(toInvoice)} added since invoicing — re-invoice</span>
             </div>
           )}
 
