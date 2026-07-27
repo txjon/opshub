@@ -1351,7 +1351,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
 
       {/* CLIENT */}
       {block("client", tm.change_request || flags.grew ? "warn" : flags.approved ? "done" : "todo", "Client",
-        `${flags.approved ? "Approved" : flags.quoted ? "Quote sent" : "Not sent"} · ${invNum ? "Inv " + invNum : "no invoice"} · ${fmtMoney(paid)} paid${flags.grew ? " · ⚠ re-invoice" : ""}${tm.change_request ? " · ⚠ changes requested" : ""}`, (
+        `${flags.approved ? "Approved" : flags.quoted ? "Quote sent" : "Not sent"} · ${invNum ? "Inv " + invNum : "no invoice"} · ${fmtMoney(paid)} paid${(invoiced || orderTotal) - paid > 0.01 ? ` · ${fmtMoney((invoiced || orderTotal) - paid)} due` : ""}${flags.grew ? " · ⚠ re-invoice" : ""}${tm.change_request ? " · ⚠ changes requested" : ""}`, (
         <div>
           {/* client change request (portal) — the note + tagged items, until
               dismissed here or cleared by the next approval */}
@@ -1456,6 +1456,15 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
               <span style={{ color: T.muted }}>Outstanding</span><span style={{ fontWeight: 700, color: T.amber }}>{fmtMoney(toInvoice)} added since invoicing — re-invoice</span>
             </div>
           )}
+          {/* balance due — invoiced (incl. tax) vs recorded payments */}
+          {invNum && (
+            <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderBottom: `1px solid ${T.border}55`, fontSize: 13 }}>
+              <span style={{ color: T.muted }}>Balance due</span>
+              {(invoiced || orderTotal) - paid > 0.01
+                ? <span style={{ fontWeight: 800, color: T.amber, fontFamily: mono }}>{fmtMoney((invoiced || orderTotal) - paid)}</span>
+                : <span style={{ fontWeight: 700, color: T.green }}>Paid in full</span>}
+            </div>
+          )}
 
           {/* Additional charges — invoice extra lines (same shape as classic:
               rides the quote PDF + billable total; QB push is Phase 2). */}
@@ -1483,7 +1492,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
 
           {/* payments — terms + records (click status to cycle, × to delete) */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "16px 0 8px", gap: 10, flexWrap: "wrap" }}>
-            <span style={{ ...lbl, display: "flex", alignItems: "center", gap: 8 }}>Payments · {fmtMoney(paid)} paid of {fmtMoney(invoiced || orderTotal)}
+            <span style={{ ...lbl, display: "flex", alignItems: "center", gap: 8 }}>Payments · {fmtMoney(paid)} paid of {fmtMoney(invoiced || orderTotal)}{(invoiced || orderTotal) - paid > 0.01 && <span style={{ color: T.amber }}>· {fmtMoney((invoiced || orderTotal) - paid)} due</span>}
               <button onClick={() => { setActErr(""); const bal = Math.max(0, (invoiced || orderTotal) - paid); setPayForm(f => ({ ...f, amount: f.amount || (bal > 0 ? bal.toFixed(2) : "") })); setClientAction("payment"); }}
                 style={{ background: "transparent", border: `1px solid ${T.border}`, color: T.text, fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: 6, cursor: "pointer", fontFamily: font, letterSpacing: 0, textTransform: "none" }}>+ Record</button>
             </span>
