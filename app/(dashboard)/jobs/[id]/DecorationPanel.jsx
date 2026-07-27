@@ -484,88 +484,6 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
           );
         })}
 
-        {/* ── Setup fees — inline, FULL breakdown like the old modal: every
-            configured fee shows with its count × rate math; zero rows are
-            dimmed, not hidden. Auto rows (Screens / Tag Screens / specialty-
-            linked) use the same dedupe/share logic as before. ── */}
-        {p.printVendor && pr.setup && Object.keys(pr.setup).length > 0 && (
-          <div style={{fontSize:9,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginTop:6}}>Setup fees</div>
-        )}
-        {p.printVendor && pr.setup && Object.keys(pr.setup).map(key=>{
-          const isScreens = key.toLowerCase().replace(/\s/g,"") === "screens";
-          const isTagScreens = key.toLowerCase().replace(/\s/g,"") === "tagscreens";
-          const specialtyMatch = Object.keys(pr.specialty||{}).find(sk=>key.toLowerCase().includes(sk.toLowerCase()));
-          const isAuto = isScreens || isTagScreens || !!specialtyMatch;
-          let autoVal = 0;
-          if (isScreens) {
-            const seenGroups = {};
-            const myIdx = costProds.findIndex(cp => cp.id === p.id);
-            autoVal = Object.values(p.printLocations||{}).reduce((sum,l)=>{
-              if (!l?.screens) return sum;
-              if (l.shared && l.shareGroup) {
-                const gk = l.shareGroup.trim().toLowerCase();
-                if (seenGroups[gk]) return sum;
-                seenGroups[gk] = true;
-                const firstIdx = costProds.findIndex(cp => Object.values(cp.printLocations||{}).some(cl => cl.shared && cl.shareGroup && cl.shareGroup.trim().toLowerCase() === gk && cl.screens > 0));
-                if (firstIdx >= 0 && myIdx > firstIdx) return sum;
-              }
-              return sum + (l.screens||0);
-            }, 0);
-          } else if (isTagScreens) {
-            autoVal = (p.tagPrint && !p.tagRepeat) ? (p.sizes||[]).length : 0;
-          } else if (specialtyMatch) {
-            const isPuffScreen = key.toLowerCase().includes("puff") && key.toLowerCase().includes("screen");
-            if (isPuffScreen && p.specialtyQtys?.[specialtyMatch+"_on"]) {
-              const seenPG = {};
-              autoVal = Object.values(p.printLocations||{}).reduce((sum,l)=>{
-                if (!l?.location || !l?.screens || !l.puffColors) return sum;
-                if (l.shared && l.shareGroup) { const gk = l.shareGroup.trim().toLowerCase(); if (seenPG[gk]) return sum; seenPG[gk]=true; }
-                return sum + (l.puffColors||0);
-              }, 0);
-            } else {
-              const rawCount = p.specialtyQtys?.[specialtyMatch+"_count"]||0;
-              autoVal = p.specialtyQtys?.[specialtyMatch+"_on"] ? (rawCount>0&&rawCount<activeLocs?rawCount:activeLocs) : 0;
-            }
-          }
-          const val = isAuto ? autoVal : (p.setupFees?.[key]||0);
-          const unitCost = pr.setup[key]||0;
-          const active = val > 0;
-          return (
-            <div key={"su-"+key} style={{background:active?T.surface:"transparent",border:`1px solid ${active?T.border:T.border+"66"}`,borderRadius:8,padding:"6px 10px",display:"flex",alignItems:"center",gap:isMobile?6:10,minHeight:38,flexWrap:isMobile?"wrap":"nowrap"}}>
-              <span style={{width:isMobile?120:170,flexShrink:0,fontSize:13,fontWeight:700,color:active?T.text:T.faint,fontFamily:font}}>{key}</span>
-              {isAuto ? (
-                <div style={{display:"inline-flex",alignItems:"baseline",gap:5,flexShrink:0}}>
-                  <span style={{fontSize:13,fontWeight:700,color:active?T.text:T.faint,fontFamily:mono}}>{val}</span>
-                  <span style={{fontSize:9,color:T.faint,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em"}}>auto</span>
-                </div>
-              ) : (
-                <input type="text" inputMode="decimal" value={p.setupFees?.[key]||""} onChange={e=>updateProd(i,{...p,setupFees:{...(p.setupFees||{}),[key]:parseFloat(e.target.value)||0}})}
-                  placeholder="0"
-                  style={{width:34,textAlign:"center",background:T.card,border:`1px solid ${T.border}`,borderRadius:5,color:T.text,fontSize:13,fontWeight:700,fontFamily:mono,outline:"none",padding:"3px 4px"}}/>
-              )}
-              <span style={{fontSize:10,color:T.faint,fontFamily:mono,flexShrink:0}}>× ${Number(unitCost).toFixed(2)}</span>
-              <div style={{flex:1,minWidth:0}}/>
-              <span style={{fontSize:14,fontWeight:700,color:active?T.text:T.faint,fontFamily:mono,flexShrink:0}}>${(val*unitCost).toFixed(2)} <span style={{fontSize:9,color:T.faint,fontWeight:600}}>flat</span></span>
-            </div>
-          );
-        })}
-        {/* Manual setup cost — always-visible free $ line, like the modal */}
-        {p.printVendor && pr.setup && Object.keys(pr.setup).length > 0 && (
-          (()=>{ const mActive = (p.setupFees?.manualCost||0) > 0; return (
-          <div style={{background:mActive?T.surface:"transparent",border:`1px solid ${mActive?T.border:T.border+"66"}`,borderRadius:8,padding:"6px 10px",display:"flex",alignItems:"center",gap:isMobile?6:10,minHeight:38}}>
-            <span style={{width:isMobile?120:170,flexShrink:0,fontSize:13,fontWeight:700,color:mActive?T.text:T.faint,fontFamily:font}}>Manual cost</span>
-            <div style={{display:"flex",alignItems:"center",gap:4,flexShrink:0}}>
-              <span style={{fontSize:12,color:T.faint,fontFamily:mono}}>$</span>
-              <input type="text" inputMode="decimal" value={p.setupFees?.manualCost||""} onChange={e=>updateProd(i,{...p,setupFees:{...(p.setupFees||{}),manualCost:parseFloat(e.target.value)||0}})}
-                placeholder="0.00"
-                style={{width:56,textAlign:"center",background:T.card,border:`1px solid ${T.border}`,borderRadius:5,color:T.text,fontSize:13,fontWeight:700,fontFamily:mono,outline:"none",padding:"3px 4px"}}/>
-            </div>
-            <div style={{flex:1,minWidth:0}}/>
-            <span style={{fontSize:14,fontWeight:700,color:mActive?T.text:T.faint,fontFamily:mono,flexShrink:0}}>${(p.setupFees?.manualCost||0).toFixed(2)} <span style={{fontSize:9,color:T.faint,fontWeight:600}}>flat</span></span>
-          </div>
-          ); })()
-        )}
-
         {/* ── Custom cost lines — live IN the print-location list (moved out
             of the old chip modal). Same row chrome as a location line. ── */}
         {(p.customCosts||[]).map((cc,ci)=>(
@@ -732,12 +650,88 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
                 </div>
               </div>
             )}
+
+            {/* Setup fees — condensed column, right of the selection strips.
+                Full modal breakdown (every fee, count × rate = flat total,
+                zeros dimmed) in tight single lines. Same auto/dedupe logic. */}
+            {p.printVendor && pr.setup && Object.keys(pr.setup).length > 0 && (
+              <div style={{display:"flex",flexDirection:"column",gap:0,minWidth:isMobile?0:250,marginLeft:isMobile?0:"auto",flex:isMobile?"1 1 100%":"0 1 280px"}}>
+                <div style={sectionLabel}>Setup fees</div>
+                <div style={{display:"flex",flexDirection:"column"}}>
+                  {Object.keys(pr.setup).map(key=>{
+                    const isScreens = key.toLowerCase().replace(/\s/g,"") === "screens";
+                    const isTagScreens = key.toLowerCase().replace(/\s/g,"") === "tagscreens";
+                    const specialtyMatch = Object.keys(pr.specialty||{}).find(sk=>key.toLowerCase().includes(sk.toLowerCase()));
+                    const isAuto = isScreens || isTagScreens || !!specialtyMatch;
+                    let autoVal = 0;
+                    if (isScreens) {
+                      const seenGroups = {};
+                      const myIdx = costProds.findIndex(cp => cp.id === p.id);
+                      autoVal = Object.values(p.printLocations||{}).reduce((sum,l)=>{
+                        if (!l?.screens) return sum;
+                        if (l.shared && l.shareGroup) {
+                          const gk = l.shareGroup.trim().toLowerCase();
+                          if (seenGroups[gk]) return sum;
+                          seenGroups[gk] = true;
+                          const firstIdx = costProds.findIndex(cp => Object.values(cp.printLocations||{}).some(cl => cl.shared && cl.shareGroup && cl.shareGroup.trim().toLowerCase() === gk && cl.screens > 0));
+                          if (firstIdx >= 0 && myIdx > firstIdx) return sum;
+                        }
+                        return sum + (l.screens||0);
+                      }, 0);
+                    } else if (isTagScreens) {
+                      autoVal = (p.tagPrint && !p.tagRepeat) ? (p.sizes||[]).length : 0;
+                    } else if (specialtyMatch) {
+                      const isPuffScreen = key.toLowerCase().includes("puff") && key.toLowerCase().includes("screen");
+                      if (isPuffScreen && p.specialtyQtys?.[specialtyMatch+"_on"]) {
+                        const seenPG = {};
+                        autoVal = Object.values(p.printLocations||{}).reduce((sum,l)=>{
+                          if (!l?.location || !l?.screens || !l.puffColors) return sum;
+                          if (l.shared && l.shareGroup) { const gk = l.shareGroup.trim().toLowerCase(); if (seenPG[gk]) return sum; seenPG[gk]=true; }
+                          return sum + (l.puffColors||0);
+                        }, 0);
+                      } else {
+                        const rawCount = p.specialtyQtys?.[specialtyMatch+"_count"]||0;
+                        autoVal = p.specialtyQtys?.[specialtyMatch+"_on"] ? (rawCount>0&&rawCount<activeLocs?rawCount:activeLocs) : 0;
+                      }
+                    }
+                    const val = isAuto ? autoVal : (p.setupFees?.[key]||0);
+                    const unitCost = pr.setup[key]||0;
+                    const active = val > 0;
+                    return (
+                      <div key={"su-"+key} style={{display:"flex",alignItems:"center",gap:6,padding:"3px 0",borderBottom:`1px solid ${T.border}33`,minHeight:24}}>
+                        <span style={{flex:1,minWidth:0,fontSize:11,fontWeight:600,color:active?T.text:T.faint,fontFamily:font,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{key}</span>
+                        {isAuto ? (
+                          <span style={{fontSize:11,fontWeight:700,color:active?T.text:T.faint,fontFamily:mono,flexShrink:0}}>{val}<span style={{fontSize:8,color:T.faint,fontWeight:600,marginLeft:2}}>AUTO</span></span>
+                        ) : (
+                          <input type="text" inputMode="decimal" value={p.setupFees?.[key]||""} onChange={e=>updateProd(i,{...p,setupFees:{...(p.setupFees||{}),[key]:parseFloat(e.target.value)||0}})}
+                            placeholder="0"
+                            style={{width:28,textAlign:"center",background:T.card,border:`1px solid ${T.border}`,borderRadius:4,color:T.text,fontSize:11,fontWeight:700,fontFamily:mono,outline:"none",padding:"2px 2px",flexShrink:0}}/>
+                        )}
+                        <span style={{fontSize:9,color:T.faint,fontFamily:mono,flexShrink:0}}>×${Number(unitCost).toFixed(0)}</span>
+                        <span style={{fontSize:11.5,fontWeight:700,color:active?T.text:T.faint,fontFamily:mono,flexShrink:0,minWidth:52,textAlign:"right"}}>${(val*unitCost).toFixed(2)}</span>
+                      </div>
+                    );
+                  })}
+                  {/* Manual cost — free $ line */}
+                  {(()=>{ const mActive = (p.setupFees?.manualCost||0) > 0; return (
+                    <div style={{display:"flex",alignItems:"center",gap:6,padding:"3px 0",minHeight:24}}>
+                      <span style={{flex:1,minWidth:0,fontSize:11,fontWeight:600,color:mActive?T.text:T.faint,fontFamily:font}}>Manual cost</span>
+                      <span style={{fontSize:10,color:T.faint,fontFamily:mono}}>$</span>
+                      <input type="text" inputMode="decimal" value={p.setupFees?.manualCost||""} onChange={e=>updateProd(i,{...p,setupFees:{...(p.setupFees||{}),manualCost:parseFloat(e.target.value)||0}})}
+                        placeholder="0.00"
+                        style={{width:46,textAlign:"center",background:T.card,border:`1px solid ${T.border}`,borderRadius:4,color:T.text,fontSize:11,fontWeight:700,fontFamily:mono,outline:"none",padding:"2px 2px",flexShrink:0}}/>
+                      <span style={{fontSize:11.5,fontWeight:700,color:mActive?T.text:T.faint,fontFamily:mono,flexShrink:0,minWidth:52,textAlign:"right"}}>${(p.setupFees?.manualCost||0).toFixed(2)}</span>
+                    </div>
+                  ); })()}
+                </div>
+              </div>
+            )}
           </div>
         );
       })()}
 
-      {/* Setup fees + add-ons + custom costs all live INLINE in the print
-          section now (Jul 26) — no collapsibles left. */}
+      {/* Setup fees: condensed column in the strips row. Add-ons + custom
+          costs live inline in the print section — no collapsibles left. */}
       </>}
     </div>
   );
