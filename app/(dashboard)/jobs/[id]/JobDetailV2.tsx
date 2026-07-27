@@ -45,6 +45,9 @@ const ROUTE_SUB: Record<string, string> = { drop_ship: "Vendor → client", ship
 // Blank purchasing is a job-level action — it lives in Purchasing & Production
 // (per-item or bulk), not per-item here. The modal is per-product work only.
 const TASKS = [["build", "Build"], ["cost", "Cost"], ["art", "Art"]] as const;
+// Minimal add-product options (manual entry; full catalog pickers stay in the Studio/classic).
+const ADD_SIZES = ["S", "M", "L", "XL", "2XL", "3XL", "OSFA"];
+const ADD_GARMENTS: [string, string][] = [["tee", "Tee"], ["longsleeve", "Long sleeve"], ["hoodie", "Hoodie"], ["crewneck", "Crewneck"], ["hat", "Hat"], ["beanie", "Beanie"], ["tote", "Tote"], ["shorts", "Shorts"], ["jacket", "Jacket"]];
 
 export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: paymentsProp = [], contacts = [], thumbByItem = {} }: any) {
   // Local state so edits reflect live; reseeds if the parent reloads. Note:
@@ -137,6 +140,8 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   const [payForm, setPayForm] = useState<{ type: string; amount: string; paid_date: string }>({ type: "full_payment", amount: "", paid_date: "" });
   const [poVendor, setPoVendor] = useState<string | null>(null);
   const [poShipDate, setPoShipDate] = useState("");
+  const [addOpen, setAddOpen] = useState(false);
+  const [newProd, setNewProd] = useState<{ name: string; garment_type: string; blank_vendor: string; blank_sku: string; cost: string; qtys: Record<string, string> }>({ name: "", garment_type: "tee", blank_vendor: "", blank_sku: "", cost: "", qtys: {} });
 
   // Save a single size's qty to buy_sheet_lines (the qty source of truth) and
   // reflect it locally. Blur-triggered, so flipping items never loses an edit.
@@ -291,6 +296,31 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       setPayForm({ type: "full_payment", amount: "", paid_date: "" });
       setClientAction(null);
     } catch (e: any) { setActErr(e.message || "Failed"); } finally { setActBusy(false); }
+  };
+
+  // Create a product on this job (minimal manual entry) → items + buy_sheet_lines.
+  const createProduct = async () => {
+    if (!newProd.name.trim()) { setActErr("Name is required."); return; }
+    setActBusy(true); setActErr("");
+    try {
+      const cost = parseFloat(String(newProd.cost).replace(/[^0-9.]/g, "")) || 0;
+      const sizes = Object.entries(newProd.qtys).filter(([, q]) => (parseInt(q) || 0) > 0);
+      const blank_costs = Object.fromEntries(sizes.map(([sz]) => [sz, cost]));
+      const supabase = createClient();
+      const maxSort = items.reduce((m, it: any) => Math.max(m, Number(it.sort_order) || 0), 0);
+      const { data: item, error }: any = await (supabase.from("items") as any).insert({
+        job_id: job.id, name: newProd.name.trim(), blank_vendor: newProd.blank_vendor.trim() || null, blank_sku: newProd.blank_sku.trim() || null,
+        garment_type: newProd.garment_type, blank_costs: sizes.length ? blank_costs : null, cost_per_unit: cost || null,
+        sort_order: maxSort + 10, status: "tbd", artwork_status: "not_started",
+      }).select("*").single();
+      if (error) throw new Error(error.message);
+      if (sizes.length) await (supabase.from("buy_sheet_lines") as any).insert(sizes.map(([size, q]) => ({ item_id: item.id, size, qty_ordered: parseInt(q) || 0, qty_shipped_from_vendor: 0, qty_received_at_hpd: 0, qty_shipped_to_customer: 0 })));
+      const qtys = Object.fromEntries(sizes.map(([sz, q]) => [sz, parseInt(q) || 0]));
+      setItems(prev => [...prev, { ...item, qtys, totalQty: sumQ(qtys), blankCosts: blank_costs }]);
+      try { logJobActivity(job.id, `Product added: ${newProd.name.trim()}`); } catch {}
+      setNewProd({ name: "", garment_type: "tee", blank_vendor: "", blank_sku: "", cost: "", qtys: {} });
+      setAddOpen(false);
+    } catch (e: any) { setActErr(e.message || "Failed to add product."); } finally { setActBusy(false); }
   };
 
   // ── PO send (per vendor) — reuses the working classic flow: email the per-vendor
@@ -641,6 +671,12 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                 </div>
               );
             })}
+            {!locked && (
+              <button onClick={() => { setActErr(""); setAddOpen(true); }}
+                style={{ border: `1px dashed ${T.border}`, borderRadius: 14, background: "transparent", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, color: T.faint, fontSize: 12, fontWeight: 700, minHeight: 120, cursor: "pointer", fontFamily: font }}>
+                <span style={{ fontSize: 26, fontWeight: 300, lineHeight: 1 }}>+</span>Add product
+              </button>
+            )}
           </div>
         </>
       ))}
@@ -1054,6 +1090,49 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
           </div>
         );
       })()}
+
+      {/* ── add product modal (minimal manual entry) ── */}
+      {addOpen && (
+        <div onClick={e => { if (e.target === e.currentTarget && !actBusy) setAddOpen(false); }}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 320, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "24px 14px", overflowY: "auto" }}>
+          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 14, width: "100%", maxWidth: 460, padding: "20px 22px" }}>
+            <div style={{ fontSize: 16, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", marginBottom: 14 }}>Add product</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <input autoFocus value={newProd.name} onChange={e => setNewProd(p => ({ ...p, name: e.target.value }))} placeholder="Product name" style={field} />
+              <div style={{ display: "flex", gap: 10 }}>
+                <select value={newProd.garment_type} onChange={e => setNewProd(p => ({ ...p, garment_type: e.target.value }))} style={{ ...field, flex: 1 }}>
+                  {ADD_GARMENTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                </select>
+                <div style={{ display: "flex", alignItems: "center", gap: 3, flex: 1 }}>
+                  <span style={{ fontSize: 13, color: T.faint }}>$</span>
+                  <input value={newProd.cost} onChange={e => setNewProd(p => ({ ...p, cost: e.target.value }))} placeholder="blank cost/unit" inputMode="decimal" style={field} />
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 10 }}>
+                <input value={newProd.blank_vendor} onChange={e => setNewProd(p => ({ ...p, blank_vendor: e.target.value }))} placeholder="Blank (e.g. Next Level 6210)" style={{ ...field, flex: 1 }} />
+                <input value={newProd.blank_sku} onChange={e => setNewProd(p => ({ ...p, blank_sku: e.target.value }))} placeholder="Color" style={{ ...field, flex: 1 }} />
+              </div>
+              <div>
+                <div style={{ ...lbl, marginBottom: 6 }}>Sizes &amp; quantities</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {ADD_SIZES.map(sz => (
+                    <label key={sz} style={{ display: "flex", flexDirection: "column", gap: 3, alignItems: "center" }}>
+                      <span style={{ fontSize: 10, fontWeight: 800, color: T.faint, fontFamily: mono }}>{sz}</span>
+                      <input value={newProd.qtys[sz] || ""} onChange={e => setNewProd(p => ({ ...p, qtys: { ...p.qtys, [sz]: e.target.value } }))} placeholder="0" inputMode="numeric"
+                        style={{ width: 48, textAlign: "center", padding: "7px 4px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontWeight: 700, fontFamily: mono, outline: "none" }} />
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+            {actErr && <div style={{ color: T.red, fontSize: 12, marginTop: 10 }}>{actErr}</div>}
+            <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
+              <button disabled={actBusy} onClick={createProduct} style={{ ...actBtn, opacity: actBusy ? 0.6 : 1 }}>{actBusy ? "Adding…" : "Add product"}</button>
+              <button disabled={actBusy} onClick={() => setAddOpen(false)} style={ghostBtn}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
