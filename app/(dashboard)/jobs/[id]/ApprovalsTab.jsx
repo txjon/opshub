@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
 import { SendEmailDialog } from "@/components/SendEmailDialog";
@@ -7,6 +7,7 @@ import { logJobActivity } from "@/components/JobActivityPanel";
 import { ProofModal } from "./ArtTab";
 import ProofDocView from "@/components/ProofDocView";
 import { useIsMobile } from "@/lib/useIsMobile";
+import { PROOF_RENDERER_VERSION } from "@/lib/proof-client";
 
 export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, onRecalcPhase }) {
   const supabase = createClient();
@@ -20,6 +21,20 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
   const [proofEmailSent, setProofEmailSent] = useState(false);
   const [sendingRevised, setSendingRevised] = useState(false);
   const [revisedModalOpen, setRevisedModalOpen] = useState(false);
+  // Backfill bake: proofs built classic-era were never baked to Drive (bake
+  // only happened on manual Download). Mount hidden autoBake ProofModals —
+  // same pipeline as V2 send-time baking — with ZERO emails.
+  const [bakeIds, setBakeIds] = useState(null);
+  const bakeRemainRef = useRef(new Set());
+  const startBake = (ids) => {
+    bakeRemainRef.current = new Set(ids);
+    setBakeIds(ids);
+    setTimeout(() => { if (bakeRemainRef.current.size) { console.warn("[ApprovalsTab] bake timeout"); bakeRemainRef.current = new Set(); setBakeIds(null); reloadFiles(); } }, 90000);
+  };
+  const handleBakedOne = (id) => {
+    bakeRemainRef.current.delete(id);
+    if (bakeRemainRef.current.size === 0) { setBakeIds(null); reloadFiles(); }
+  };
   const [revisedNote, setRevisedNote] = useState("");
   const [revisedSelected, setRevisedSelected] = useState({});
   const [proofReviewOpen, setProofReviewOpen] = useState(false);
@@ -273,6 +288,34 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
 
         {/* Revised-proof nudge — appears after a revised proof is re-uploaded
             for an item the client requested changes on. Staged manual send. */}
+        {/* missing proof PDFs — bake to Drive without sending anything */}
+        {(() => {
+          const needBake = items.filter(it => it.proof_spec && ((it.proof_spec.bakedRendererVersion == null) || it.proof_spec.bakedRendererVersion < PROOF_RENDERER_VERSION));
+          if (!needBake.length) return null;
+          return (
+            <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", border: `1px solid ${T.border}`, background: T.surface, borderRadius: 10, padding: "9px 13px", marginBottom: 10 }}>
+              <span style={{ fontSize: 12.5, color: T.muted, flex: 1, minWidth: 180 }}>
+                {bakeIds ? `Baking proof PDFs… ${bakeRemainRef.current.size} left` : `${needBake.length} proof PDF${needBake.length === 1 ? "" : "s"} not in the Drive folder yet (built before send-time baking).`}
+              </span>
+              {!bakeIds && (
+                <button onClick={() => startBake(needBake.map(x => x.id))}
+                  style={{ fontSize: 12, fontWeight: 700, color: T.text, background: T.card, border: `1px solid ${T.border}`, borderRadius: 999, padding: "7px 14px", cursor: "pointer", fontFamily: font }}>
+                  Bake to Drive — no emails
+                </button>
+              )}
+            </div>
+          );
+        })()}
+        {bakeIds && bakeIds.map(id => {
+          const bItem = items.find(x => x.id === id); if (!bItem) return null;
+          const bFiles = itemFiles[id] || [];
+          const bMockup = bFiles.find(f => f.stage === "mockup") || bFiles.find(f => f.file_name?.toLowerCase().includes("mockup"));
+          return (
+            <ProofModal key={"bake-" + id} hidden autoBake item={bItem} clientName={clientName} projectTitle={projectTitle}
+              mockupFile={bMockup} files={bFiles} costingData={job.costing_data} initialMode="preview"
+              onClose={() => {}} onSaved={() => {}} onUpdateItem={onUpdateItem} onBaked={handleBakedOne} />
+          );
+        })}
         {revisedPendingItems.length > 0 && (
           <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", padding: "10px 12px", marginBottom: 10, borderRadius: 8, background: T.amber + "14", border: `1px solid ${T.amber}55` }}>
             <span style={{ fontSize: 10, fontWeight: 800, color: T.amber, letterSpacing: "0.06em", textTransform: "uppercase", flexShrink: 0 }}>Revised · ready to send</span>
