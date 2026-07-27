@@ -5,6 +5,7 @@ import { buildPrintersMap, calcDecorationLines } from "@/lib/pricing";
 import { Resend } from "resend";
 import { renderBrandedEmail } from "@/lib/email-template";
 import { shipFromProduction } from "@/lib/production2-ship";
+import { getPdfBranding } from "@/lib/branding";
 import { ensureTracker } from "@/lib/inbound-tracking";
 
 const admin = () =>
@@ -426,8 +427,18 @@ export async function GET(
       ? [...completedFromActive, ...completedOrders]
       : completedOrders;
 
+    // Bill-to from tenant branding — the SAME source the PO PDF renders, so
+    // the portal can never disagree with the paper (was hardcoded stale).
+    const branding = await getPdfBranding().catch(() => null);
+    const billTo = branding ? {
+      name: branding.name,
+      addressHtml: branding.billToAddressHtml,
+      email: branding.fromEmailBilling || "",
+    } : null;
+
     return NextResponse.json({
       decorator: { name: decorator.name, shortCode: decorator.short_code },
+      billTo,
       orders,
       completed: mergedCompleted,
       completedTotal: (completedTotal || 0) + (completedOffset === 0 ? completedFromActive.length : 0),

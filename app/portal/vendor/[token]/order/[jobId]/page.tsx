@@ -44,6 +44,8 @@ export default function VendorOrderPage({ params }: { params: { token: string; j
   const [shipQtyInputs, setShipQtyInputs] = useState<Record<string, Record<string, number>>>({});
   const [packingSlipFiles, setPackingSlipFiles] = useState<Record<string, File | null>>({});
   const [issueInputs, setIssueInputs] = useState<Record<string, string>>({});
+  // Bill-to from tenant branding via the API — the same source as the PO PDF.
+  const [billTo, setBillTo] = useState<{ name: string; addressHtml: string; email: string } | null>(null);
 
   useEffect(() => { loadData(); /* eslint-disable-next-line */ }, [params.token, params.jobId]);
 
@@ -53,6 +55,7 @@ export default function VendorOrderPage({ params }: { params: { token: string; j
       if (!res.ok) { setError("This link is no longer valid."); return; }
       const d = await res.json();
       setDecorator(d.decorator);
+      setBillTo(d.billTo || null);
       const found = [...(d.orders || []), ...(d.completed || [])].find((o: Order) => o.jobId === params.jobId) || null;
       if (!found) setError("Order not found on this account.");
       setOrder(found);
@@ -177,9 +180,13 @@ export default function VendorOrderPage({ params }: { params: { token: string; j
           </div>
           <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: "12px 14px" }}>
             <div style={{ ...LBL, marginBottom: 5 }}>Bill to</div>
-            <div style={{ fontSize: 12.5, lineHeight: 1.65 }}>
-              House Party Distro<br/>production@housepartydistro.com<br/>4670 W Silverado Ranch Blvd, STE 120<br/>Las Vegas, NV 89139
-            </div>
+            {billTo ? (
+              <div style={{ fontSize: 12.5, lineHeight: 1.65 }}>
+                {billTo.name}<br/>
+                <span dangerouslySetInnerHTML={{ __html: billTo.addressHtml }} />
+                {billTo.email && <><br/>{billTo.email}</>}
+              </div>
+            ) : <div style={{ fontSize: 12.5, color: C.muted }}>—</div>}
           </div>
         </div>
 
