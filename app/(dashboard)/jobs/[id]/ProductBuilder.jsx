@@ -21,6 +21,7 @@ import { MobileBlankPicker } from "./MobileBlankPicker";
 import {
   detectGarmentType, handleSizeToggle, distribute, DEFAULT_CURVE, WAIST_INSEAM_CURVE,
   SSPicker, ASColourPicker, LAApparelPicker, FavoritesPicker, OtherPicker, CottonCollectivePicker,
+  FLEECE_GARMENTS, fleeceFlag, applyBlankToItem,
 } from "./BuySheetTab";
 
 // Non-apparel garment types — no catalog blank, priced via custom-cost lines.
@@ -33,8 +34,7 @@ const NON_GARMENT = ["accessory","patch","sticker","poster","pin","koozie","bann
 // set-only — never clears a deliberate un-fleece; the garment-type dropdown
 // handlers below own explicit set AND clear. (Jon, 2026-07-17 — HPD-2607-007
 // hoodies silently missed the upcharge because only the dropdown auto-flagged.)
-const FLEECE_GARMENTS = ["crewneck", "hoodie", "jacket"];
-const fleeceFlag = (gt) => (gt && FLEECE_GARMENTS.includes(gt) ? { is_fleece: true } : {});
+// FLEECE_GARMENTS / fleeceFlag now live in BuySheetTab (shared with JobDetailV2).
 
 /**
  * Product Builder — unified tab: PSD drop + blank assignment + sizes/qty + art files
@@ -320,70 +320,9 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
   const assignBlank = (blankData) => {
     if (!assignBlankTo) return;
     const targetIds = Array.isArray(assignBlankTo) ? assignBlankTo : [assignBlankTo];
-    updateLocal((workingItems || []).map(it => {
-      if (!targetIds.includes(it.id)) return it;
-      // Assigning a blank must NEVER delete quantities. The blank supplies
-      // vendor / SKU / style / color / cost; sizes carry by exact label match.
-      // When NOTHING matches but the item already has an order:
-      //   - single-size blank → adopt its label and move the whole order onto it
-      //     (fixes a one-size item going e.g. "One Size" → "Adjustable", which
-      //      previously remapped to qty 0 and wiped the order)
-      //   - multi-size blank → keep the item's own sizes + qtys, so a pre-order
-      //     size breakdown can't be collapsed by a mismatched blank
-      const blankSizes = blankData.sizes || [];
-      const oldTotal = Object.values(it.qtys || {}).reduce((a, v) => a + (v || 0), 0);
-      let sizes, qtys;
-      // A blank only "carries" quantities when its qtys actually SUM to > 0. The
-      // pickers seed a zero-filled qtys object ({S:0,M:0,…}) for the blank's sizes;
-      // that must NOT be treated as authoritative or it overwrites the order with 0.
-      const blankQtySum = blankData.qtys ? Object.values(blankData.qtys).reduce((a, v) => a + (v || 0), 0) : 0;
-      if (blankQtySum > 0) {
-        sizes = blankSizes; qtys = blankData.qtys;
-      } else {
-        const exact = Object.fromEntries(blankSizes.map(sz => [sz, it.qtys?.[sz] || 0]));
-        const carried = Object.values(exact).reduce((a, v) => a + (v || 0), 0);
-        if (carried > 0 || oldTotal === 0) {
-          // Keep ordered sizes the blank DOESN'T carry (e.g. a 5001 maxes at 3XL but
-          // the pre-order has 4XL) instead of dropping them — those units are real
-          // orders. They stay on the card as substitution candidates (no blank cost
-          // until a per-size substitute is set). This is the fix for silent size/unit
-          // loss on assign; see size_subs.
-          const uncovered = (it.sizes || []).filter(sz => !blankSizes.includes(sz) && (it.qtys?.[sz] || 0) > 0);
-          sizes = [...blankSizes, ...uncovered];
-          qtys = Object.fromEntries(sizes.map(sz => [sz, it.qtys?.[sz] || 0]));
-        }
-        else if (blankSizes.length === 1) { sizes = blankSizes; qtys = { [blankSizes[0]]: oldTotal }; }
-        else { sizes = it.sizes || []; qtys = it.qtys || {}; }
-      }
-      // Normalize: qtys must hold EXACTLY the resolved sizes — strip any keys
-      // left over from the old blank's size system (e.g. "Adjustable" lingering
-      // after a swap to "OS"). Stray keys survive the save's buy_sheet_lines
-      // prune (it keys on Object.keys(qtys)) and become orphan rows that
-      // double-count and show a phantom size on the card. New sizes start at 0.
-      qtys = Object.fromEntries(sizes.map(sz => [sz, qtys[sz] || 0]));
-      const newTotal = Object.values(qtys).reduce((a, v) => a + (v || 0), 0);
-      // A blank swap must re-derive cost_per_unit from the NEW blank's per-size
-      // costs — otherwise the old blank's average lingers on the item row and
-      // the Blanks tab keeps pricing off it (a $0/free blank would still show
-      // the old cost). Same formula CostingTab uses on save (avg of the >0
-      // per-size costs; all-zero/free → 0) so the two write paths agree.
-      const newBlankCosts = blankData.blankCosts || {};
-      const costVals = Object.values(newBlankCosts).map(Number).filter(v => v > 0);
-      const newCostPerUnit = costVals.length
-        ? Math.round(costVals.reduce((a, v) => a + v, 0) / costVals.length * 100) / 100
-        : 0;
-      return {
-        ...it, blank_vendor: blankData.blank_vendor, blank_sku: blankData.blank_sku,
-        style: blankData.style, color: blankData.color, sizes,
-        qtys,
-        blankCosts: newBlankCosts,
-        cost_per_unit: newCostPerUnit,
-        garment_type: blankData.garment_type || detectGarmentType("", (it.name || "") + " " + (blankData.blank_vendor || "")) || it.garment_type,
-        ...fleeceFlag(blankData.garment_type || detectGarmentType("", (it.name || "") + " " + (blankData.blank_vendor || "")) || it.garment_type),
-        totalQty: newTotal,
-        curve: blankData.curve || it.curve || DEFAULT_CURVE,
-      };
-    }));
+    // Assigning a blank must NEVER delete quantities — the carry rules live in
+    // applyBlankToItem (BuySheetTab), shared with JobDetailV2.
+    updateLocal((workingItems || []).map(it => targetIds.includes(it.id) ? applyBlankToItem(it, blankData) : it));
     setAssignBlankTo(null);
   };
 
@@ -1728,7 +1667,7 @@ function SizeSubModal({ item, size, onClose, onSave }) {
 // are active; qty grid for active sizes; Distribute helper fills by
 // the item's curve (or default S/M/L/XL ladder).
 // ═══════════════════════════════════════════════════════════════
-function EditSizesModal({ item, onClose, onSave }) {
+export function EditSizesModal({ item, onClose, onSave, zIndex = 110 }) {
   // Working copy of sizes + qtys — committed via onSave on save.
   const [sizes, setSizes] = useState(() => [...(item.sizes || [])]);
   const [qtys, setQtys] = useState(() => ({ ...(item.qtys || {}) }));
@@ -1808,7 +1747,7 @@ function EditSizesModal({ item, onClose, onSave }) {
 
   return (
     <div onClick={onClose}
-      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 110, display: "flex", alignItems: "center", justifyContent: "center", padding: "clamp(12px, 3vw, 32px)", fontFamily: font }}>
+      style={{  position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: zIndex, display: "flex", alignItems: "center", justifyContent: "center", padding: "clamp(12px, 3vw, 32px)", fontFamily: font }}>
       <div onClick={e => e.stopPropagation()}
         style={{ background: T.card, borderRadius: 12, width: "min(900px, 100%)", maxHeight: "90vh", display: "flex", flexDirection: "column", overflow: "hidden", border: `1px solid ${T.border}` }}>
         <div style={{ padding: "14px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>

@@ -39,6 +39,18 @@ export const ORDER_TERMS: Record<TermsVariant, TermClause[]> = {
 export const TERMS_HIGHLIGHT =
   "Quantities may vary ±3% and are billed as produced. Shipping and sales tax are estimated and finalized on your invoice.";
 
+// Payment-step notice — shown in the hub's invoice view right before the
+// client continues to the payment processor. The SECOND consent layer (order
+// approval was the first): review the invoice, then explicitly continue to
+// pay. Client-safe plain language. Shown wherever a pay redirect happens so
+// the wording never forks.
+export const PAYMENT_NOTICE = [
+  "Review your invoice above. The amount shown is what you'll be charged.",
+  "When you continue, you'll be securely redirected to Intuit (QuickBooks Payments), our payment processor, to pay by credit card or bank transfer (ACH).",
+  "We never see or store your card or bank details. Your payment is applied to this invoice and your order here updates automatically once it's received.",
+  "By continuing to payment, you authorize the charge for the balance shown on this invoice.",
+];
+
 export function termsVariantForSlug(slug?: string | null): TermsVariant {
   return slug === "dmd" ? "dmd" : "default";
 }

@@ -41,5 +41,7 @@ export const H_APPROVAL_THEME = {
   greenBorder: "rgba(88,201,60,0.35)",
 };
 
+// Client-facing money ALWAYS shows cents — hub numbers must match the
+// QuickBooks invoice to the cent (Jon, Jul 26; rounding read as a mismatch).
 export const fmtMoney = (n: number | null | undefined) =>
-  n == null ? "" : "$" + Math.round(n).toLocaleString("en-US");
+  n == null ? "" : "$" + Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });

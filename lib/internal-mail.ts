@@ -114,7 +114,7 @@ DONE WHEN: blanks are ordered and POs are out. This is a green light — treat i
 Their note: ${e.note || "(none — check the thread)"}
 
 DO THIS:
-1. Open the job: ${APP}/jobs/${e.jobId}
+1. Open the job: ${APP}/jobs/${e.jobId}?tab=quote (the change request shows at the top)
 2. Revise the flagged proofs (tagged items flipped back to revision automatically)
 3. Re-send — their approval re-opens in the hub on its own
 

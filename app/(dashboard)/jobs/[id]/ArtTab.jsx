@@ -273,7 +273,7 @@ const TAG_INK_KEY = "opshub_last_tag_ink";
 const getLastTagInk = () => { try { return (typeof localStorage !== "undefined" && localStorage.getItem(TAG_INK_KEY)) || "#000000"; } catch { return "#000000"; } };
 const setLastTagInk = (hex) => { try { if (typeof localStorage !== "undefined") localStorage.setItem(TAG_INK_KEY, hex); } catch {} };
 
-export function ProofModal({ item, clientName, projectTitle, mockupFile, files, costingData, onClose, onUpdateItem, onSaved, generateAllCounter, initialMode = "edit", hidden = false }) {
+export function ProofModal({ item, clientName, projectTitle, mockupFile, files, costingData, onClose, onUpdateItem, onSaved, generateAllCounter, initialMode = "edit", hidden = false, autoBake = false, onBaked = null }) {
   const isMobile = useIsMobile();
   const METHODS = ["Screen Print", "Embroidery", "PVC", "DTF"];
   // Ink/print TYPE — a child of Method (Product Spec pill), pick-list + custom.
@@ -759,6 +759,25 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
   // Dirty since last Drive bake. forceRebakeRef covers the "same spec, stale
   // renderer / never baked" case; otherwise compare the spec snapshot.
   const isDriveDirty = () => driveBakedSpecRef.current !== null && (forceRebakeRef.current || JSON.stringify(buildSpec()) !== driveBakedSpecRef.current);
+
+  // ── Auto-bake (send-time): the send flow mounts this modal HIDDEN with
+  // autoBake; once the spec + mockup settle, bake the Drive PDF if it's
+  // missing/stale (forceRebakeRef covers never-baked + renderer bumps), then
+  // report done. This is the deferred "decorator PDF bake at send" — the
+  // proof PDF lands in the item's Drive folder without anyone opening the
+  // editor. A mockup that never loads is covered by the caller's timeout.
+  const autoBakeDoneRef = useRef(false);
+  useEffect(() => {
+    if (!autoBake || autoBakeDoneRef.current || !specLoaded) return;
+    if (mockupFile && !croppedMockupUrl) return; // image still fetching/cropping
+    autoBakeDoneRef.current = true;
+    (async () => {
+      try { if (forceRebakeRef.current || isDriveDirty()) await bakeToDrive(); }
+      catch (e) { console.error("[ProofModal autoBake]", e); }
+      finally { if (onBaked) onBaked(item.id); }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoBake, specLoaded, croppedMockupUrl]);
 
   // Exit = save the DRAFT and close. No bake — drafting never touches Drive; the
   // proof PDF bakes only at Send. (This is what stopped an unsent proof from

@@ -2,14 +2,16 @@
 import { useState } from "react";
 import { T, font, mono } from "@/lib/theme";
 import { calcDecorationLines } from "@/lib/pricing";
-import { SettingsModal } from "./SettingsModal";
 import { useIsMobile } from "@/lib/useIsMobile";
 
 const LOCATION_PRESETS = ["Front","Back","Left Sleeve","Right Sleeve","Left Chest","Right Chest","Neck","Hood","Pocket"];
-const SHARE_GROUPS = ["A","B","C","D","E","F","G","H","I","J"];
+// Numbered (Jul 26) — letters collided with the A/B/C product designators.
+// Legacy letter groups on existing jobs stay valid: any non-empty group renders
+// as chosen and appears as an extra option; grouping is plain key equality.
+const SHARE_GROUPS = ["1","2","3","4","5","6","7","8","9","10"];
 const TAG_SHARE_GROUPS = ["T1","T2","T3","T4","T5","T6","T7","T8","T9","T10"];
 
-export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = [], onAddDecorator, updateProd, setCostProds, lookupPrintPrice, lookupTagPrice, costingLocked = false }) {
+export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = [], onAddDecorator, updateProd, setCostProds, lookupPrintPrice, lookupTagPrice, costingLocked = false, hideVendorApplyAll = false }) {
   const isMobile = useIsMobile();
   const pr = PRINTERS[p.printVendor] || {};
   const [forceExpanded, setForceExpanded] = useState(false);
@@ -227,11 +229,11 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
           })}
           {onAddDecorator && <option value="__add__">+ Add decorator</option>}
         </select>
-        <button onClick={()=>setCostProds(prev=>prev.map((cp,ci)=>ci>i?{...cp,printVendor:p.printVendor,printLocations:Object.fromEntries(Object.entries(cp.printLocations||{}).map(([k,v])=>([k,{...v,printer:p.printVendor}])))}:cp))}
+        {!hideVendorApplyAll && <button onClick={()=>setCostProds(prev=>prev.map((cp,ci)=>ci>i?{...cp,printVendor:p.printVendor,printLocations:Object.fromEntries(Object.entries(cp.printLocations||{}).map(([k,v])=>([k,{...v,printer:p.printVendor}])))}:cp))}
           title="Set this vendor on every item below"
           style={{fontSize:11,fontFamily:font,fontWeight:600,color:T.muted,background:"none",border:`1px solid ${T.border}`,borderRadius:6,cursor:"pointer",padding:"6px 14px",flexShrink:0,whiteSpace:"nowrap"}}
           onMouseEnter={e=>{e.currentTarget.style.color=T.text;e.currentTarget.style.borderColor=T.accent;}}
-          onMouseLeave={e=>{e.currentTarget.style.color=T.muted;e.currentTarget.style.borderColor=T.border;}}>↓ Apply to all</button>
+          onMouseLeave={e=>{e.currentTarget.style.color=T.muted;e.currentTarget.style.borderColor=T.border;}}>↓ Apply to all</button>}
         {p.printVendor&&pr.capabilities?.length>0&&(
           <div style={{display:"flex",gap:4,marginLeft:4}}>
             {pr.capabilities.map(cap=>{
@@ -374,15 +376,22 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
                   <div style={{width:84,flexShrink:0,display:"flex",alignItems:"center",gap:4}}>
                     {sharedSelected ? (
                       <>
-                        <select value={SHARE_GROUPS.includes(shareGroup) ? shareGroup : ""} onChange={e=>updateLoc(loc,{shareGroup:e.target.value})}
+                        {/* Chosen group = accent chip. Accent is WHITE on the dark
+                            theme, so the text/chevron must be dark — never assert
+                            white-on-accent (that rendered white-on-white). Legacy
+                            letter groups (pre-numbering) stay valid + selectable. */}
+                        <select value={shareGroup} onChange={e=>updateLoc(loc,{shareGroup:e.target.value})}
                           style={{
                             ...baseStyle, fontFamily: mono,
-                            border: `1px solid ${SHARE_GROUPS.includes(shareGroup)?T.accent:T.red}`,
-                            backgroundColor: SHARE_GROUPS.includes(shareGroup) ? T.accent : T.red,
-                            backgroundImage: `url("data:image/svg+xml,%3Csvg width='8' height='5' viewBox='0 0 8 5' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L4 4L7 1' stroke='%23ffffff' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E")`,
-                            color: "#fff",
+                            border: `1px solid ${shareGroup?T.accent:T.red}`,
+                            backgroundColor: shareGroup ? T.accent : T.red,
+                            backgroundImage: shareGroup
+                              ? `url("data:image/svg+xml,%3Csvg width='8' height='5' viewBox='0 0 8 5' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L4 4L7 1' stroke='%230a0a0a' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E")`
+                              : `url("data:image/svg+xml,%3Csvg width='8' height='5' viewBox='0 0 8 5' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L4 4L7 1' stroke='%23ffffff' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E")`,
+                            color: shareGroup ? "#0a0a0a" : "#fff",
                           }}>
-                          {!SHARE_GROUPS.includes(shareGroup) && <option value="" disabled>?</option>}
+                          {!shareGroup && <option value="" disabled>?</option>}
+                          {shareGroup && !SHARE_GROUPS.includes(shareGroup) && <option value={shareGroup}>{shareGroup}</option>}
                           {SHARE_GROUPS.map(g=><option key={g} value={g}>{g}</option>)}
                         </select>
                         <button onClick={()=>updateLoc(loc,{shared:false,shareGroup:""})}
@@ -437,6 +446,98 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
           );
         })})()}
 
+        {/* ── Per-print add-ons (specialty) — live IN the print list (moved
+            out of the Add-ons modal). Same pricing: rate × count of prints
+            (specialtyQtys _on/_count keys, engine untouched). Fleece
+            upcharge stays auto from the fleece flag. ── */}
+        {p.printVendor && Object.entries(pr.specialty||{}).map(([key,rate])=>{
+          const isFleeceKey = key.toLowerCase().includes("fleece");
+          if (isFleeceKey) {
+            if (!p.isFleece) return null;
+            return (
+              <div key={"sp-"+key} style={{background:T.surface,border:`1px solid ${T.green}44`,borderRadius:8,padding:"6px 10px",display:"flex",alignItems:"center",gap:isMobile?6:10,minHeight:38}}>
+                <span style={{width:isMobile?120:170,flexShrink:0,fontSize:13,fontWeight:700,color:T.green,fontFamily:font}}>{key}</span>
+                <span style={{fontSize:10,color:T.muted,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:600}}>auto · fleece · {allPrintCount} print{allPrintCount===1?"":"s"}</span>
+                <div style={{flex:1,minWidth:0}}/>
+                <span style={{fontSize:14,fontWeight:700,color:T.green,fontFamily:mono,flexShrink:0}}>${(rate*allPrintCount).toFixed(2)}</span>
+              </div>
+            );
+          }
+          const on = p.specialtyQtys?.[key+"_on"]>0;
+          if (!on) return null;
+          const stored = p.specialtyQtys?.[key+"_count"]||0;
+          const count = stored>0&&stored<activeLocs?stored:activeLocs;
+          return (
+            <div key={"sp-"+key} style={{background:T.surface,border:`1px solid ${T.green}44`,borderRadius:8,padding:"6px 10px",display:"flex",alignItems:"center",gap:isMobile?6:10,minHeight:38,flexWrap:isMobile?"wrap":"nowrap"}}>
+              <span style={{width:isMobile?120:170,flexShrink:0,fontSize:13,fontWeight:700,color:T.green,fontFamily:font}}>{key}</span>
+              <div style={{display:"flex",alignItems:"center",gap:4,flexShrink:0}}>
+                <input type="text" inputMode="numeric" value={count||""} onChange={e=>updateProd(i,{...p,specialtyQtys:{...(p.specialtyQtys||{}),[key+"_count"]:parseInt(e.target.value)||0}})}
+                  style={{width:34,textAlign:"center",background:T.card,border:`1px solid ${T.border}`,borderRadius:5,color:T.text,fontSize:13,fontWeight:700,fontFamily:mono,outline:"none",padding:"3px 4px"}}/>
+                <span style={{fontSize:10,color:T.muted}}>of {activeLocs} print{activeLocs===1?"":"s"}</span>
+              </div>
+              <button onClick={()=>updateProd(i,{...p,specialtyQtys:{...(p.specialtyQtys||{}),[key+"_on"]:0}})}
+                style={{background:"none",border:"none",color:T.faint,cursor:"pointer",fontSize:15,flexShrink:0,padding:"0 2px",lineHeight:1}}
+                onMouseEnter={e=>e.currentTarget.style.color=T.red} onMouseLeave={e=>e.currentTarget.style.color=T.faint}>×</button>
+              <div style={{flex:1,minWidth:0}}/>
+              <span style={{fontSize:14,fontWeight:700,color:T.green,fontFamily:mono,flexShrink:0}}>${(rate*count).toFixed(2)}</span>
+            </div>
+          );
+        })}
+
+        {/* ── Custom cost lines — live IN the print-location list (moved out
+            of the old chip modal). Same row chrome as a location line. ── */}
+        {(p.customCosts||[]).map((cc,ci)=>(
+          <div key={"cc"+ci} style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,padding:"6px 10px",display:"flex",alignItems:"center",gap:isMobile?6:10,minHeight:38,flexWrap:isMobile?"wrap":"nowrap"}}>
+            <div style={{width:isMobile?120:170,flexShrink:0}}>
+              <input value={cc.desc||""} onChange={e=>{const c=[...(p.customCosts||[])];c[ci]={...c[ci],desc:e.target.value};updateProd(i,{...p,customCosts:c});}}
+                placeholder="Custom cost..."
+                style={{background:"transparent",border:"none",outline:"none",color:T.text,fontSize:13,fontWeight:700,fontFamily:font,width:"100%",padding:0}}/>
+            </div>
+            <div style={{display:"inline-flex",background:T.card,border:`1px solid ${T.border}`,borderRadius:5,overflow:"hidden",flexShrink:0}}>
+              {[{label:"/ unit",flat:false},{label:"flat",flat:true}].map(opt=>{
+                const sel=!!cc.flat===opt.flat;
+                return <button key={opt.label} onClick={()=>{const c=[...(p.customCosts||[])];c[ci]={...c[ci],flat:opt.flat};updateProd(i,{...p,customCosts:c});}}
+                  style={{padding:"4px 10px",fontSize:10,fontWeight:600,border:"none",cursor:"pointer",background:sel?T.text:"transparent",color:sel?"#0a0a0a":T.muted,fontFamily:font}}>{opt.label}</button>;
+              })}
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:4,flexShrink:0}}>
+              <span style={{fontSize:12,color:T.faint,fontFamily:mono}}>$</span>
+              <input type="text" inputMode="decimal" value={cc.perUnit||cc.amount||""} onChange={e=>{const c=[...(p.customCosts||[])];c[ci]={...c[ci],perUnit:e.target.value,amount:e.target.value};updateProd(i,{...p,customCosts:c});}}
+                onBlur={e=>{const v=parseFloat(e.target.value)||0;const c=[...(p.customCosts||[])];c[ci]={...c[ci],perUnit:v,amount:v};updateProd(i,{...p,customCosts:c});}}
+                placeholder="0.00"
+                style={{width:56,textAlign:"center",background:T.card,border:`1px solid ${T.border}`,borderRadius:5,color:T.text,fontSize:13,fontWeight:700,fontFamily:mono,outline:"none",padding:"3px 4px"}}/>
+            </div>
+            <button onClick={()=>{const c=(p.customCosts||[]).filter((_,j)=>j!==ci);updateProd(i,{...p,customCosts:c});}}
+              style={{background:"none",border:"none",color:T.faint,cursor:"pointer",fontSize:15,flexShrink:0,padding:"0 2px",lineHeight:1}}
+              onMouseEnter={e=>e.currentTarget.style.color=T.red} onMouseLeave={e=>e.currentTarget.style.color=T.faint}>×</button>
+            <div style={{flex:1,minWidth:0}}/>
+            <span style={{fontSize:14,fontWeight:700,color:T.text,fontFamily:mono,flexShrink:0}}>
+              {(()=>{const v=parseFloat(cc.perUnit||cc.amount)||0;return cc.flat?`$${v.toFixed(2)} flat`:`$${v.toFixed(2)}`;})()}
+            </span>
+          </div>
+        ))}
+        {/* add strip — inactive per-print add-ons + custom cost, one line */}
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          {p.printVendor && Object.entries(pr.specialty||{}).filter(([key])=>!key.toLowerCase().includes("fleece") && !(p.specialtyQtys?.[key+"_on"]>0)).map(([key,rate])=>(
+            <button key={"add-"+key}
+              onClick={()=>{const nq={...(p.specialtyQtys||{}),[key+"_on"]:1};if(!nq[key+"_count"])nq[key+"_count"]=activeLocs;updateProd(i,{...p,specialtyQtys:nq});}}
+              title={`$${Number(rate).toFixed(2)} per print, per unit`}
+              style={{fontSize:11,fontWeight:600,color:T.faint,background:"none",border:`1px dashed ${T.border}66`,borderRadius:8,padding:"8px 10px",cursor:"pointer",fontFamily:font}}
+              onMouseEnter={e=>{e.currentTarget.style.color=T.text;e.currentTarget.style.borderColor=T.border;}}
+              onMouseLeave={e=>{e.currentTarget.style.color=T.faint;e.currentTarget.style.borderColor=T.border+"66";}}>
+              + {key}
+            </button>
+          ))}
+          {/* (setup fees no longer need add chips — the full breakdown renders above) */}
+          {(p.customCosts||[]).length < 6 && (
+            <button onClick={()=>updateProd(i,{...p,customCosts:[...(p.customCosts||[]),{desc:"",perUnit:0,flat:false}]})}
+              style={{fontSize:11,fontWeight:600,color:T.faint,background:"none",border:`1px dashed ${T.border}66`,borderRadius:8,padding:"8px 10px",cursor:"pointer",fontFamily:font,textAlign:"left"}}
+              onMouseEnter={e=>{e.currentTarget.style.color=T.text;e.currentTarget.style.borderColor=T.border;}}
+              onMouseLeave={e=>{e.currentTarget.style.color=T.faint;e.currentTarget.style.borderColor=T.border+"66";}}>
+              + Custom cost
+            </button>
+          )}
+        </div>
       </div>
 
       {/* ── Tag · Packaging · Finishing — one horizontal row with
@@ -529,240 +630,108 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
               </div>
             )}
 
-            {/* Finishing items (hem tag, hang tag, etc.) moved into the
-                Specialty/Add-ons modal — they're per-piece add-ons and
-                rarely used, so they don't earn always-visible real
-                estate next to Tag Print + Packaging. */}
+            {/* Item add-ons (finishing: hem tag, hang tag, …) — per-piece
+                toggles, back OUT of the modal: they behave exactly like
+                packaging variants so they live in the same strip row. */}
+            {p.printVendor && pr.finishing && Object.keys(pr.finishing).length > 0 && (
+              <div style={{display:"flex",flexDirection:"column",gap:0,minWidth:isMobile?0:140}}>
+                <div style={sectionLabel}>Item add-ons</div>
+                <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                  {Object.entries(pr.finishing).map(([key,rate])=>{
+                    const on = p.finishingQtys?.[key+"_on"]>0;
+                    return (
+                      <button key={key} onClick={()=>updateProd(i,{...p,finishingQtys:{...(p.finishingQtys||{}),[key+"_on"]:on?0:1}})}
+                        title={`$${Number(rate).toFixed(2)} per piece`}
+                        style={toggleBtn(on)}>
+                        {key}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Setup fees — condensed column, right of the selection strips.
+                Full modal breakdown (every fee, count × rate = flat total,
+                zeros dimmed) in tight single lines. Same auto/dedupe logic. */}
+            {p.printVendor && pr.setup && Object.keys(pr.setup).length > 0 && (
+              <div style={{display:"flex",flexDirection:"column",gap:0,minWidth:isMobile?0:250,marginLeft:isMobile?0:"auto",flex:isMobile?"1 1 100%":"0 1 280px"}}>
+                <div style={sectionLabel}>Setup fees</div>
+                <div style={{display:"flex",flexDirection:"column"}}>
+                  {Object.keys(pr.setup).map(key=>{
+                    const isScreens = key.toLowerCase().replace(/\s/g,"") === "screens";
+                    const isTagScreens = key.toLowerCase().replace(/\s/g,"") === "tagscreens";
+                    const specialtyMatch = Object.keys(pr.specialty||{}).find(sk=>key.toLowerCase().includes(sk.toLowerCase()));
+                    const isAuto = isScreens || isTagScreens || !!specialtyMatch;
+                    let autoVal = 0;
+                    if (isScreens) {
+                      const seenGroups = {};
+                      const myIdx = costProds.findIndex(cp => cp.id === p.id);
+                      autoVal = Object.values(p.printLocations||{}).reduce((sum,l)=>{
+                        if (!l?.screens) return sum;
+                        if (l.shared && l.shareGroup) {
+                          const gk = l.shareGroup.trim().toLowerCase();
+                          if (seenGroups[gk]) return sum;
+                          seenGroups[gk] = true;
+                          const firstIdx = costProds.findIndex(cp => Object.values(cp.printLocations||{}).some(cl => cl.shared && cl.shareGroup && cl.shareGroup.trim().toLowerCase() === gk && cl.screens > 0));
+                          if (firstIdx >= 0 && myIdx > firstIdx) return sum;
+                        }
+                        return sum + (l.screens||0);
+                      }, 0);
+                    } else if (isTagScreens) {
+                      autoVal = (p.tagPrint && !p.tagRepeat) ? (p.sizes||[]).length : 0;
+                    } else if (specialtyMatch) {
+                      const isPuffScreen = key.toLowerCase().includes("puff") && key.toLowerCase().includes("screen");
+                      if (isPuffScreen && p.specialtyQtys?.[specialtyMatch+"_on"]) {
+                        const seenPG = {};
+                        autoVal = Object.values(p.printLocations||{}).reduce((sum,l)=>{
+                          if (!l?.location || !l?.screens || !l.puffColors) return sum;
+                          if (l.shared && l.shareGroup) { const gk = l.shareGroup.trim().toLowerCase(); if (seenPG[gk]) return sum; seenPG[gk]=true; }
+                          return sum + (l.puffColors||0);
+                        }, 0);
+                      } else {
+                        const rawCount = p.specialtyQtys?.[specialtyMatch+"_count"]||0;
+                        autoVal = p.specialtyQtys?.[specialtyMatch+"_on"] ? (rawCount>0&&rawCount<activeLocs?rawCount:activeLocs) : 0;
+                      }
+                    }
+                    const val = isAuto ? autoVal : (p.setupFees?.[key]||0);
+                    const unitCost = pr.setup[key]||0;
+                    const active = val > 0;
+                    return (
+                      <div key={"su-"+key} style={{display:"flex",alignItems:"center",gap:6,padding:"3px 0",borderBottom:`1px solid ${T.border}33`,minHeight:24}}>
+                        <span style={{flex:1,minWidth:0,fontSize:11,fontWeight:600,color:active?T.text:T.faint,fontFamily:font,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{key}</span>
+                        {isAuto ? (
+                          <span style={{fontSize:11,fontWeight:700,color:active?T.text:T.faint,fontFamily:mono,flexShrink:0}}>{val}<span style={{fontSize:8,color:T.faint,fontWeight:600,marginLeft:2}}>AUTO</span></span>
+                        ) : (
+                          <input type="text" inputMode="decimal" value={p.setupFees?.[key]||""} onChange={e=>updateProd(i,{...p,setupFees:{...(p.setupFees||{}),[key]:parseFloat(e.target.value)||0}})}
+                            placeholder="0"
+                            style={{width:28,textAlign:"center",background:T.card,border:`1px solid ${T.border}`,borderRadius:4,color:T.text,fontSize:11,fontWeight:700,fontFamily:mono,outline:"none",padding:"2px 2px",flexShrink:0}}/>
+                        )}
+                        <span style={{fontSize:9,color:T.faint,fontFamily:mono,flexShrink:0}}>×${Number(unitCost).toFixed(0)}</span>
+                        <span style={{fontSize:11.5,fontWeight:700,color:active?T.text:T.faint,fontFamily:mono,flexShrink:0,minWidth:52,textAlign:"right"}}>${(val*unitCost).toFixed(2)}</span>
+                      </div>
+                    );
+                  })}
+                  {/* Manual cost — free $ line */}
+                  {(()=>{ const mActive = (p.setupFees?.manualCost||0) > 0; return (
+                    <div style={{display:"flex",alignItems:"center",gap:6,padding:"3px 0",minHeight:24}}>
+                      <span style={{flex:1,minWidth:0,fontSize:11,fontWeight:600,color:mActive?T.text:T.faint,fontFamily:font}}>Manual cost</span>
+                      <span style={{fontSize:10,color:T.faint,fontFamily:mono}}>$</span>
+                      <input type="text" inputMode="decimal" value={p.setupFees?.manualCost||""} onChange={e=>updateProd(i,{...p,setupFees:{...(p.setupFees||{}),manualCost:parseFloat(e.target.value)||0}})}
+                        placeholder="0.00"
+                        style={{width:46,textAlign:"center",background:T.card,border:`1px solid ${T.border}`,borderRadius:4,color:T.text,fontSize:11,fontWeight:700,fontFamily:mono,outline:"none",padding:"2px 2px",flexShrink:0}}/>
+                      <span style={{fontSize:11.5,fontWeight:700,color:mActive?T.text:T.faint,fontFamily:mono,flexShrink:0,minWidth:52,textAlign:"right"}}>${(p.setupFees?.manualCost||0).toFixed(2)}</span>
+                    </div>
+                  ); })()}
+                </div>
+              </div>
+            )}
           </div>
         );
       })()}
 
-      {/* Setup Fees — collapsible */}
-      {/* ── Setup Fees · Specialty · Custom Costs — 3-column grid
-          so the collapsed summaries sit side-by-side instead of
-          stacking down the page. Each card expands inline when
-          tapped; on narrow viewports the grid wraps. */}
-      <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(3, minmax(0, 1fr))",gap:8,alignItems:"start"}}>
-      {p.printVendor && pr.setup && (()=>{
-        const activeSetup = Object.keys(pr.setup).filter(key => {
-          const isScreens = key.toLowerCase().replace(/\s/g,"") === "screens";
-          const isTagScreens = key.toLowerCase().replace(/\s/g,"") === "tagscreens";
-          const specialtyMatch = Object.keys(pr.specialty||{}).find(sk=>key.toLowerCase().includes(sk.toLowerCase()));
-          if (isScreens) return Object.values(p.printLocations||{}).reduce((sum,l)=>sum+(l?.screens||0),0) > 0;
-          if (isTagScreens) return p.tagPrint && !p.tagRepeat;
-          if (specialtyMatch) return p.specialtyQtys?.[specialtyMatch+"_on"] > 0;
-          return (p.setupFees?.[key]||0) > 0;
-        });
-        if ((p.setupFees?.manualCost||0) > 0) activeSetup.push("Manual");
-        const setupSummary = activeSetup.length > 0 ? activeSetup.join(", ") : "None";
-        return (
-        <div style={{borderRadius:6,border:`1px solid ${T.border}`,overflow:"hidden"}}>
-          <button onClick={()=>updateProd(i,{...p,_setupOpen:true})}
-            style={{width:"100%",padding:"6px 10px",background:T.surface,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",fontFamily:font}}>
-            <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}>
-              <span style={{fontSize:9,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em"}}>Setup Fees</span>
-              <span style={{fontSize:9,color:activeSetup.length>0?T.accent:T.faint,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{setupSummary}</span>
-            </div>
-            <span style={{fontSize:10,color:T.faint}}>›</span>
-          </button>
-          <SettingsModal open={!!p._setupOpen} onClose={()=>updateProd(i,{...p,_setupOpen:false})} title="Setup Fees" summary={activeSetup.length>0?activeSetup.join(" · "):"None applied"} width={520}>
-            <div style={{display:"flex",flexDirection:"column",gap:8}}>
-              {Object.keys(pr.setup).map(key=>{
-                const isScreens = key.toLowerCase().replace(/\s/g,"") === "screens";
-                const isTagScreens = key.toLowerCase().replace(/\s/g,"") === "tagscreens";
-                const specialtyMatch = Object.keys(pr.specialty||{}).find(sk=>key.toLowerCase().includes(sk.toLowerCase()));
-                const isAuto = isScreens || isTagScreens || !!specialtyMatch;
-
-                let autoVal = 0;
-                if (isScreens) {
-                  const seenGroups = {};
-                  const myIdx = costProds.findIndex(cp => cp.id === p.id);
-                  autoVal = Object.values(p.printLocations||{}).reduce((sum,l)=>{
-                    if (!l?.screens) return sum;
-                    if (l.shared && l.shareGroup) {
-                      const gk = l.shareGroup.trim().toLowerCase();
-                      if (seenGroups[gk]) return sum;
-                      seenGroups[gk] = true;
-                      const firstIdx = costProds.findIndex(cp => Object.values(cp.printLocations||{}).some(cl => cl.shared && cl.shareGroup && cl.shareGroup.trim().toLowerCase() === gk && cl.screens > 0));
-                      if (firstIdx >= 0 && myIdx > firstIdx) return sum;
-                    }
-                    return sum + (l.screens||0);
-                  }, 0);
-                } else if (isTagScreens) {
-                  autoVal = (p.tagPrint && !p.tagRepeat) ? (p.sizes||[]).length : 0;
-                } else if (specialtyMatch) {
-                  const isPuffScreen = key.toLowerCase().includes("puff") && key.toLowerCase().includes("screen");
-                  if (isPuffScreen && p.specialtyQtys?.[specialtyMatch+"_on"]) {
-                    const seenPG = {};
-                    autoVal = Object.values(p.printLocations||{}).reduce((sum,l)=>{
-                      if (!l?.location || !l?.screens || !l.puffColors) return sum;
-                      if (l.shared && l.shareGroup) { const gk = l.shareGroup.trim().toLowerCase(); if (seenPG[gk]) return sum; seenPG[gk]=true; }
-                      return sum + (l.puffColors||0);
-                    }, 0);
-                  } else {
-                    const rawCount = p.specialtyQtys?.[specialtyMatch+"_count"]||0;
-                    autoVal = p.specialtyQtys?.[specialtyMatch+"_on"] ? (rawCount>0&&rawCount<activeLocs?rawCount:activeLocs) : 0;
-                  }
-                }
-                const val = isAuto ? autoVal : (p.setupFees?.[key]||0);
-                const unitCost = pr.setup[key]||0;
-                const rowCost = val * unitCost;
-                const active = val > 0;
-
-                return (
-                  <div key={key} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",background:T.surface,border:`1px solid ${T.border}`,borderRadius:8}}>
-                    <span style={{flex:1,fontSize:13,fontWeight:600,color:T.text,fontFamily:font}}>{key}</span>
-                    {isAuto ? (
-                      <div style={{display:"inline-flex",alignItems:"baseline",gap:6}}>
-                        <span style={{fontSize:13,fontWeight:700,color:T.text,fontFamily:mono}}>{val}</span>
-                        <span style={{fontSize:9,color:T.faint,fontFamily:font,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em"}}>auto</span>
-                      </div>
-                    ) : (
-                      <input type="text" inputMode="decimal" value={p.setupFees?.[key]||""} onChange={e=>updateProd(i,{...p,setupFees:{...(p.setupFees||{}),[key]:parseFloat(e.target.value)||0}})}
-                        placeholder="0"
-                        style={{width:60,textAlign:"center",background:T.card,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,fontSize:13,fontWeight:700,fontFamily:mono,outline:"none",padding:"5px 8px"}}/>
-                    )}
-                    <span style={{fontFamily:mono,fontWeight:700,fontSize:13,color:active?T.text:T.faint,minWidth:72,textAlign:"right"}}>${rowCost.toFixed(2)}</span>
-                  </div>
-                );
-              })}
-              {/* Manual cost — visually separated row */}
-              <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,marginTop:4}}>
-                <span style={{flex:1,fontSize:13,fontWeight:600,color:T.text,fontFamily:font}}>Manual cost</span>
-                <div style={{display:"inline-flex",alignItems:"center",gap:4,background:T.card,border:`1px solid ${T.border}`,borderRadius:6,padding:"4px 10px"}}>
-                  <span style={{fontSize:12,color:T.faint,fontFamily:mono}}>$</span>
-                  <input type="text" inputMode="decimal" value={p.setupFees?.manualCost||""} onChange={e=>updateProd(i,{...p,setupFees:{...(p.setupFees||{}),manualCost:parseFloat(e.target.value)||0}})}
-                    placeholder="0.00"
-                    style={{width:64,textAlign:"left",background:"transparent",border:"none",color:T.text,fontSize:13,fontWeight:700,fontFamily:mono,outline:"none",padding:0}}/>
-                </div>
-              </div>
-            </div>
-          </SettingsModal>
-        </div>
-        );
-      })()}
-
-      {/* Specialty + Finishing — column 2 of the grid. The two share a
-          modal as "Add-ons" since both are per-piece optional charges
-          for the print run. Specialty rows scale by location count;
-          Finishing rows are flat per-piece toggles. */}
-      {p.printVendor && ((pr.specialty && Object.keys(pr.specialty).length>0) || (pr.finishing && Object.keys(pr.finishing).length>0)) ? (()=>{
-        const activeSpecs = Object.entries(pr.specialty||{}).filter(([key])=>{
-          const isFleece = key.toLowerCase().includes("fleece");
-          return isFleece ? p.isFleece : (p.specialtyQtys?.[key+"_on"]>0);
-        }).map(([key])=>key);
-        const activeFinishing = Object.keys(pr.finishing||{}).filter(key => p.finishingQtys?.[key+"_on"]>0);
-        const activeAll = [...activeSpecs, ...activeFinishing];
-        const addonsSummary = activeAll.length>0 ? activeAll.join(", ") : "None";
-        return (
-        <div style={{borderRadius:6,border:`1px solid ${T.border}`,overflow:"hidden"}}>
-          <button onClick={()=>updateProd(i,{...p,_specOpen:true})}
-            style={{width:"100%",padding:"6px 10px",background:T.surface,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",fontFamily:font}}>
-            <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}>
-              <span style={{fontSize:9,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em"}}>Add-ons</span>
-              <span style={{fontSize:9,color:activeAll.length>0?T.accent:T.faint,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{addonsSummary}</span>
-            </div>
-            <span style={{fontSize:10,color:T.faint}}>›</span>
-          </button>
-          <SettingsModal open={!!p._specOpen} onClose={()=>updateProd(i,{...p,_specOpen:false})} title="Add-ons" summary={activeAll.length>0?activeAll.join(" · "):"None applied"} width={460}>
-            <div style={{display:"flex",flexDirection:"column",gap:8}}>
-              {Object.entries(pr.specialty||{}).map(([key,rate])=>{
-                const isFleece = key.toLowerCase().includes("fleece");
-                const on = isFleece ? p.isFleece : (p.specialtyQtys?.[key+"_on"]>0);
-                const stored = p.specialtyQtys?.[key+"_count"]||0;
-                const count = isFleece ? allPrintCount : (stored > 0 && stored < activeLocs ? stored : activeLocs);
-                const rowCost = on ? rate * count : 0;
-
-                return (
-                  <div key={key} onClick={()=>{
-                    if (isFleece) return;
-                    const newOn = !on;
-                    const newQtys = {...(p.specialtyQtys||{}), [key+"_on"]:newOn?1:0};
-                    if (newOn && !newQtys[key+"_count"]) newQtys[key+"_count"] = activeLocs;
-                    updateProd(i,{...p,specialtyQtys:newQtys});
-                  }} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",background:on?T.greenDim:T.surface,border:`1px solid ${on?T.green+"66":T.border}`,borderRadius:8,cursor:isFleece?"default":"pointer",transition:"all 0.15s",userSelect:"none"}}>
-                    <span style={{flex:1,fontSize:13,fontWeight:600,color:on?T.green:T.text,fontFamily:font}}>{key}</span>
-                    {on && !isFleece && (
-                      <div style={{display:"inline-flex",alignItems:"center",gap:6}} onClick={e=>e.stopPropagation()}>
-                        <input type="text" inputMode="numeric" value={count||""} onChange={e=>updateProd(i,{...p,specialtyQtys:{...(p.specialtyQtys||{}),[key+"_count"]:parseInt(e.target.value)||0}})}
-                          style={{width:46,textAlign:"center",background:T.card,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,fontSize:13,fontWeight:700,fontFamily:mono,outline:"none",padding:"4px 6px"}}/>
-                        <span style={{fontSize:10,color:T.muted,fontFamily:font,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em"}}>locs</span>
-                      </div>
-                    )}
-                    {isFleece && on && <span style={{fontSize:11,color:T.muted,fontFamily:mono}}>{count} sizes</span>}
-                    <span style={{fontFamily:mono,fontWeight:700,fontSize:13,color:on?T.green:T.faint,minWidth:72,textAlign:"right"}}>${on?rowCost.toFixed(2):"—"}</span>
-                  </div>
-                );
-              })}
-              {/* Finishing rows — flat per-piece, on/off only, no count input. */}
-              {Object.entries(pr.finishing||{}).map(([key,rate])=>{
-                const on = p.finishingQtys?.[key+"_on"]>0;
-                const rowCost = on ? rate * (p.totalQty||0) : 0;
-                return (
-                  <div key={"fin-"+key} onClick={()=>updateProd(i,{...p,finishingQtys:{...(p.finishingQtys||{}),[key+"_on"]:on?0:1}})}
-                    style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",background:on?T.greenDim:T.surface,border:`1px solid ${on?T.green+"66":T.border}`,borderRadius:8,cursor:"pointer",transition:"all 0.15s",userSelect:"none"}}>
-                    <span style={{flex:1,fontSize:13,fontWeight:600,color:on?T.green:T.text,fontFamily:font}}>{key}</span>
-                    <span style={{fontSize:10,color:T.muted,fontFamily:font,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em"}}>{`$${rate.toFixed(2)} ea`}</span>
-                    <span style={{fontFamily:mono,fontWeight:700,fontSize:13,color:on?T.green:T.faint,minWidth:72,textAlign:"right"}}>${on?rowCost.toFixed(2):"—"}</span>
-                  </div>
-                );
-              })}
-            </div>
-          </SettingsModal>
-        </div>
-        );
-      })() : null}
-
-      {/* Custom Costs */}
-      {(()=>{
-        const activeCosts = (p.customCosts||[]).filter(c=>c.desc);
-        const customSummary = activeCosts.length>0 ? activeCosts.map(c=>c.desc).join(", ") : "None";
-        return (
-        <div style={{borderRadius:6,border:`1px solid ${T.border}`,overflow:"hidden",minWidth:0}}>
-          <button onClick={()=>updateProd(i,{...p,_customOpen:true})}
-            style={{width:"100%",padding:"6px 10px",background:T.surface,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",fontFamily:font}}>
-            <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}>
-              <span style={{fontSize:9,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em"}}>Custom Costs</span>
-              <span style={{fontSize:9,color:activeCosts.length>0?T.accent:T.faint,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{customSummary}</span>
-            </div>
-            <span style={{fontSize:10,color:T.faint}}>›</span>
-          </button>
-          <SettingsModal open={!!p._customOpen} onClose={()=>updateProd(i,{...p,_customOpen:false})} title="Custom Costs" summary={activeCosts.length>0?activeCosts.map(c=>c.desc).join(" · "):"None applied"} width={520}>
-            <div style={{display:"flex",flexDirection:"column",gap:8}}>
-              {(p.customCosts||[]).map((cc,ci)=>(
-                <div key={ci} style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,flexWrap:"wrap"}}>
-                  <input value={cc.desc||""} onChange={e=>{const c=[...p.customCosts];c[ci]={...c[ci],desc:e.target.value};updateProd(i,{...p,customCosts:c});}}
-                    placeholder="Description"
-                    style={{flex:"1 1 160px",minWidth:120,background:T.card,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,fontSize:13,padding:"6px 10px",outline:"none",fontFamily:font,fontWeight:500}}/>
-                  <div style={{display:"inline-flex",background:T.card,border:`1px solid ${T.border}`,borderRadius:6,overflow:"hidden",flexShrink:0}}>
-                    {[{label:"/ unit",flat:false},{label:"flat",flat:true}].map(opt=>{
-                      const sel=cc.flat===opt.flat;
-                      return <button key={opt.label} onClick={()=>{const c=[...p.customCosts];c[ci]={...c[ci],flat:opt.flat};updateProd(i,{...p,customCosts:c});}}
-                        style={{padding:"6px 12px",fontSize:11,fontWeight:600,border:"none",cursor:"pointer",background:sel?T.text:"transparent",color:sel?"#0a0a0a":T.muted,fontFamily:font}}>{opt.label}</button>;
-                    })}
-                  </div>
-                  <div style={{display:"inline-flex",alignItems:"center",gap:4,background:T.card,border:`1px solid ${T.border}`,borderRadius:6,padding:"5px 10px",flexShrink:0}}>
-                    <span style={{fontSize:12,color:T.faint,fontFamily:mono}}>$</span>
-                    <input type="text" inputMode="decimal" value={cc.perUnit||cc.amount||""} onChange={e=>{const c=[...p.customCosts];c[ci]={...c[ci],perUnit:e.target.value,amount:e.target.value};updateProd(i,{...p,customCosts:c});}}
-                      placeholder="0.00"
-                      style={{width:60,textAlign:"left",background:"transparent",border:"none",color:T.text,fontSize:13,fontWeight:700,fontFamily:mono,outline:"none",padding:0}}/>
-                  </div>
-                  <button onClick={()=>{const c=p.customCosts.filter((_,j)=>j!==ci);updateProd(i,{...p,customCosts:c});}}
-                    style={{background:"none",border:"none",color:T.faint,cursor:"pointer",fontSize:18,flexShrink:0,padding:"2px 6px",lineHeight:1}}
-                    onMouseEnter={e=>e.currentTarget.style.color=T.red} onMouseLeave={e=>e.currentTarget.style.color=T.faint}>×</button>
-                </div>
-              ))}
-              <button onClick={()=>updateProd(i,{...p,customCosts:[...(p.customCosts||[]),{desc:"",perUnit:0,flat:false}]})}
-                style={{fontSize:13,fontWeight:600,color:T.muted,background:"none",border:`1px dashed ${T.border}`,borderRadius:8,padding:"12px",cursor:"pointer",fontFamily:font,textAlign:"center"}}
-                onMouseEnter={e=>e.currentTarget.style.color=T.accent} onMouseLeave={e=>e.currentTarget.style.color=T.muted}>
-                + Add cost
-              </button>
-            </div>
-          </SettingsModal>
-        </div>
-        );
-      })()}
-      </div>
+      {/* Setup fees: condensed column in the strips row. Add-ons + custom
+          costs live inline in the print section — no collapsibles left. */}
       </>}
     </div>
   );

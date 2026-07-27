@@ -1,4 +1,10 @@
 "use client";
+
+// Vendor self-serve actions (Enter Tracking + Ship Qtys / Report Discrepancy)
+// PARKED (Jon, Jul 27 2026) — behaving inconsistently; deliberately disabled
+// rather than half-fixed. Flip to false to restore; the panels + API write
+// paths below are intact.
+const VENDOR_ACTIONS_DISABLED = true;
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { sortSizes } from "@/lib/theme";
@@ -44,6 +50,8 @@ export default function VendorOrderPage({ params }: { params: { token: string; j
   const [shipQtyInputs, setShipQtyInputs] = useState<Record<string, Record<string, number>>>({});
   const [packingSlipFiles, setPackingSlipFiles] = useState<Record<string, File | null>>({});
   const [issueInputs, setIssueInputs] = useState<Record<string, string>>({});
+  // Bill-to from tenant branding via the API — the same source as the PO PDF.
+  const [billTo, setBillTo] = useState<{ name: string; addressHtml: string; email: string } | null>(null);
 
   useEffect(() => { loadData(); /* eslint-disable-next-line */ }, [params.token, params.jobId]);
 
@@ -53,6 +61,7 @@ export default function VendorOrderPage({ params }: { params: { token: string; j
       if (!res.ok) { setError("This link is no longer valid."); return; }
       const d = await res.json();
       setDecorator(d.decorator);
+      setBillTo(d.billTo || null);
       const found = [...(d.orders || []), ...(d.completed || [])].find((o: Order) => o.jobId === params.jobId) || null;
       if (!found) setError("Order not found on this account.");
       setOrder(found);
@@ -177,9 +186,13 @@ export default function VendorOrderPage({ params }: { params: { token: string; j
           </div>
           <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: "12px 14px" }}>
             <div style={{ ...LBL, marginBottom: 5 }}>Bill to</div>
-            <div style={{ fontSize: 12.5, lineHeight: 1.65 }}>
-              House Party Distro<br/>production@housepartydistro.com<br/>4670 W Silverado Ranch Blvd, STE 120<br/>Las Vegas, NV 89139
-            </div>
+            {billTo ? (
+              <div style={{ fontSize: 12.5, lineHeight: 1.65 }}>
+                {billTo.name}<br/>
+                <span dangerouslySetInnerHTML={{ __html: billTo.addressHtml }} />
+                {billTo.email && <><br/>{billTo.email}</>}
+              </div>
+            ) : <div style={{ fontSize: 12.5, color: C.muted }}>—</div>}
           </div>
         </div>
 
@@ -272,9 +285,12 @@ export default function VendorOrderPage({ params }: { params: { token: string; j
                 </div>
               )}
 
-              {/* Actions */}
+              {/* Actions — vendor self-serve tracking + discrepancy DISABLED
+                  (Jon, Jul 27: acting funny, parked rather than chased).
+                  Flip VENDOR_ACTIONS_DISABLED below to re-enable; the panels
+                  + write paths are untouched underneath. */}
               <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 14 }}>
-                {!isShipped && (
+                {!VENDOR_ACTIONS_DISABLED && !isShipped && (
                   <button onClick={() => { const next = showTracking === item.id ? null : item.id; setShowTracking(next); if (next) setShowIssue(null); }}
                     style={{ padding: "9px 16px", borderRadius: 9, background: C.green, color: "#fff", border: "none", fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: C.font }}>
                     {showTracking === item.id ? "Cancel" : "Enter Tracking + Ship Qtys"}
@@ -285,11 +301,14 @@ export default function VendorOrderPage({ params }: { params: { token: string; j
                     Shipped · <span style={{ fontFamily: C.mono }}>{item.shipTracking}</span>
                   </div>
                 )}
-                {!isShipped && (
+                {!VENDOR_ACTIONS_DISABLED && !isShipped && (
                   <button onClick={() => { const next = showIssue === item.id ? null : item.id; setShowIssue(next); if (next) setShowTracking(null); }}
                     style={{ padding: "9px 16px", borderRadius: 9, background: "transparent", color: C.amber, border: `1px solid ${C.amberBorder}`, fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: C.font }}>
                     {showIssue === item.id ? "Cancel" : "Report Discrepancy"}
                   </button>
+                )}
+                {VENDOR_ACTIONS_DISABLED && !isShipped && (
+                  <div style={{ fontSize: 12, color: C.muted }}>To report shipments or issues, reply to the PO email — your reply reaches this order&apos;s thread directly.</div>
                 )}
               </div>
 

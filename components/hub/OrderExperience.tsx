@@ -11,6 +11,7 @@
 // route-specific assumptions (everything arrives via props).
 import { useState } from "react";
 import { H, H_APPROVAL_THEME, fmtMoney } from "./theme";
+import { PAYMENT_NOTICE } from "@/lib/order-terms";
 import { PackageApproval } from "@/components/portal/PackageApproval";
 import { itemClientPhase, CLIENT_RAIL, orderRailIndex, type ClientTone } from "@/lib/portal/client-phase";
 import ProofDocView from "@/components/ProofDocView";
@@ -31,6 +32,9 @@ export function OrderExperience({ data, token, onAction }: {
 }) {
   const { project, client, quote, items, payments, paymentLink, invoiceNumber, invoiceStale } = data;
   const [proofItem, setProofItem] = useState<any>(null);
+  // Invoice sheet — the web invoice (same HTML as the PDF) + the payment
+  // consent step. Pay Now lives INSIDE it, never as a bare redirect.
+  const [invoiceOpen, setInvoiceOpen] = useState(false);
 
   const units = items.reduce((a: number, it: any) => a + (it.units || 0), 0);
   const totalPaid = payments.filter((p: any) => p.status === "paid").reduce((s: number, p: any) => s + p.amount, 0);
@@ -88,14 +92,14 @@ export function OrderExperience({ data, token, onAction }: {
         : "Paid in full. Thank you!";
     } else if (totalPaid > 0 && balance > 0.005) {
       note = `Your order total grew since invoice ${invoiceNumber ? `#${invoiceNumber}` : "was sent"}. An updated invoice for the difference is on its way${netTerms && termsLabel ? `, billed on your ${termsLabel} terms` : ""}. Nothing to pay right now.`;
-      if (!netTerms && paymentLink) { note = `Balance remaining on invoice ${invoiceNumber ? `#${invoiceNumber}` : ""}.`; cta = { label: `Pay Now · ${fmtMoney(balance)}`, href: paymentLink }; }
+      if (!netTerms && paymentLink) { note = `Balance remaining on invoice ${invoiceNumber ? `#${invoiceNumber}` : ""}.`; cta = { label: `View Invoice · ${fmtMoney(balance)} due`, href: paymentLink }; }
     } else if (netTerms) {
       // Net terms = WHEN it's due, not whether they can pay. Once the
       // invoice is sent with a live link, show it (the old always-no-cta
       // read hid sent invoices from net clients — the #4256 case).
       if (paymentLink && balance > 0.005) {
         note = `Invoice ${invoiceNumber ? `#${invoiceNumber}` : ""} is ready — due on your ${termsLabel || "net"} terms.`;
-        cta = { label: `Pay Now · ${fmtMoney(balance)}`, href: paymentLink };
+        cta = { label: `View Invoice · ${fmtMoney(balance)} due`, href: paymentLink };
       } else {
         note = `You're on ${termsLabel || "net terms"}. Production proceeds now; your invoice follows on your terms.`;
       }
@@ -106,7 +110,7 @@ export function OrderExperience({ data, token, onAction }: {
       note = termsRaw === "deposit_balance"
         ? `Your deposit invoice is ready.${preProduction ? " Production begins once it's received." : ""}`
         : `Your invoice is ready.${preProduction ? " Production begins once it's paid." : ""}`;
-      cta = { label: `Pay Now · ${fmtMoney(balance)}`, href: paymentLink };
+      cta = { label: `View Invoice · ${fmtMoney(balance)} due`, href: paymentLink };
     } else {
       note = "Your invoice and payment link will appear here once your order is confirmed.";
     }
@@ -209,12 +213,19 @@ export function OrderExperience({ data, token, onAction }: {
               {totalPaid > 0 && <div><div style={LBL}>Paid</div><div style={{ fontFamily: H.mono, fontSize: 22, fontWeight: 800, marginTop: 4, fontVariantNumeric: "tabular-nums" }}>{fmtMoney(totalPaid)}</div></div>}
               {current > 0 && <div><div style={LBL}>{revisedUp ? "Updated total" : "Order total"}</div><div style={{ fontFamily: H.mono, fontSize: 22, fontWeight: 800, marginTop: 4, color: revisedUp ? H.dim : H.text, fontVariantNumeric: "tabular-nums" }}>{fmtMoney(current)}</div></div>}
               <div style={{ flex: 1, minWidth: 220, fontSize: 12.5, color: H.dim, lineHeight: 1.55 }}>{payBand.note}</div>
-              {payBand.cta && (
+              {payBand.cta && (invoiceNumber ? (
+                // Invoice exists → open the invoice sheet (review + consent);
+                // the actual pay redirect lives inside it, never bare here.
+                <button onClick={() => setInvoiceOpen(true)}
+                  style={{ background: "#fff", color: H.ink, border: "none", cursor: "pointer", borderRadius: 999, padding: "13px 24px", fontSize: 12.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", whiteSpace: "nowrap", fontFamily: H.font }}>
+                  {payBand.cta.label}
+                </button>
+              ) : (
                 <a href={payBand.cta.href} target="_blank" rel="noopener noreferrer"
                   style={{ background: "#fff", color: H.ink, borderRadius: 999, padding: "13px 24px", fontSize: 12.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", textDecoration: "none", whiteSpace: "nowrap" }}>
                   {payBand.cta.label}
                 </a>
-              )}
+              ))}
             </div>
           </div>
         )}
@@ -284,6 +295,47 @@ export function OrderExperience({ data, token, onAction }: {
           </div>
         </div>
       </main>
+
+      {/* ── Invoice sheet: the web invoice (the EXACT HTML the PDF renders
+          from) + the payment consent step. Second approval layer: the order
+          approval said yes to the work; this one says yes to the charge. ── */}
+      {invoiceOpen && (
+        <div onClick={e => { if (e.target === e.currentTarget) setInvoiceOpen(false); }}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.78)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: "18px 12px" }}>
+          <div style={{ width: "100%", maxWidth: 880, height: "min(92vh, 1000px)", background: H.card, border: `1px solid ${H.line}`, borderRadius: 16, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 18px", borderBottom: `1px solid ${H.line}` }}>
+              <span style={{ fontSize: 13, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase" }}>Invoice {invoiceNumber ? `#${invoiceNumber}` : ""}</span>
+              <a href={`/api/pdf/invoice/${project.id}?portal=${token}&download=1`} target="_blank" rel="noopener noreferrer"
+                style={{ fontSize: 11.5, fontWeight: 700, color: H.dim, textDecoration: "none" }}>Download PDF</a>
+              <div style={{ flex: 1 }} />
+              <button onClick={() => setInvoiceOpen(false)} aria-label="Close"
+                style={{ background: "none", border: "none", color: H.dim, fontSize: 20, cursor: "pointer", lineHeight: 1, padding: "2px 6px" }}>×</button>
+            </div>
+            {/* the invoice document — white ground, same HTML as the PDF */}
+            <iframe title="Invoice" src={`/api/pdf/invoice/${project.id}?portal=${token}&html=1`}
+              style={{ flex: 1, width: "100%", border: "none", background: "#ffffff" }} />
+            {/* consent + pay */}
+            <div style={{ borderTop: `1px solid ${H.line}`, padding: "14px 18px 16px" }}>
+              <div style={{ fontSize: 12, color: H.dim, lineHeight: 1.6, maxWidth: 720 }}>
+                {PAYMENT_NOTICE.map((p, i) => <div key={i} style={{ marginBottom: 3 }}>{p}</div>)}
+              </div>
+              <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 12, flexWrap: "wrap" }}>
+                {paymentLink && balance > 0.005 ? (
+                  <a href={paymentLink} target="_blank" rel="noopener noreferrer"
+                    style={{ background: "#fff", color: H.ink, borderRadius: 999, padding: "13px 26px", fontSize: 12.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", textDecoration: "none", whiteSpace: "nowrap" }}>
+                    Continue to Payment · {fmtMoney(balance)}
+                  </a>
+                ) : (
+                  <span style={{ fontSize: 12.5, color: H.green, fontWeight: 700 }}>Paid in full. Thank you!</span>
+                )}
+                <button onClick={() => setInvoiceOpen(false)}
+                  style={{ background: "none", border: `1px solid ${H.line}`, color: H.dim, borderRadius: 999, padding: "12px 20px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: H.font }}>Not now</button>
+                <span style={{ fontSize: 11, color: H.faint }}>Payments are processed by Intuit. You can return here any time.</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Proof review: image first, full-bleed; PDF is a download link ── */}
       {proofItem && (() => {

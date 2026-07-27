@@ -433,7 +433,7 @@ function PullModal({ item, onClose, onDone }: { item: SelItem; onClose: () => vo
           <div>
             <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>Action — what happens to these</div>
             <input value={note} onChange={e => setNote(e.target.value)} placeholder="e.g. Ship to Andrew · hold for photoshoot"
-              style={{ width: "100%", boxSizing: "border-box", fontSize: 13, padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, fontFamily: font }} />
+              style={{ width: "100%", boxSizing: "border-box", fontSize: 13, padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, fontFamily: font, background: "#fff", color: "#0a0a0a" }} />
           </div>
         </div>
         <div style={{ padding: "16px 22px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
@@ -954,17 +954,17 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
                   {PARCEL_CARRIERS.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
                 <input value={ref} onChange={e => setRef(e.target.value)} placeholder="Tracking number"
-                  style={{ flex: 1, boxSizing: "border-box", fontSize: 13, padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, fontFamily: mono }} />
+                  style={{ flex: 1, boxSizing: "border-box", fontSize: 13, padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, fontFamily: mono, background: "#fff", color: "#0a0a0a" }} />
               </div>
             )}
             {/* BOL: freight carrier (learning datalist) + BOL # */}
             {method === "bol" && (
               <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                 <input value={freightCarrier} onChange={e => setFreightCarrier(e.target.value)} list="p2-freight-carriers" placeholder="Freight carrier"
-                  style={{ width: 190, boxSizing: "border-box", fontSize: 13, padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, fontFamily: font }} />
+                  style={{ width: 190, boxSizing: "border-box", fontSize: 13, padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, fontFamily: font, background: "#fff", color: "#0a0a0a" }} />
                 <datalist id="p2-freight-carriers">{freightCarriers.map(c => <option key={c} value={c} />)}</datalist>
                 <input value={ref} onChange={e => setRef(e.target.value)} placeholder="BOL number"
-                  style={{ flex: 1, boxSizing: "border-box", fontSize: 13, padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, fontFamily: mono }} />
+                  style={{ flex: 1, boxSizing: "border-box", fontSize: 13, padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, fontFamily: mono, background: "#fff", color: "#0a0a0a" }} />
               </div>
             )}
             {/* pickup: auto-stamp vendor + now (nothing to type) */}
@@ -1043,7 +1043,7 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
           </div>
 
           <input value={note} onChange={e => setNote(e.target.value)} placeholder="Note for the warehouse (optional)"
-            style={{ width: "100%", boxSizing: "border-box", fontSize: 13, padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, fontFamily: font }} />
+            style={{ width: "100%", boxSizing: "border-box", fontSize: 13, padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, fontFamily: font, background: "#fff", color: "#0a0a0a" }} />
         </div>
 
         <div style={{ padding: "16px 22px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
