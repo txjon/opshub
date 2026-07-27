@@ -31,6 +31,7 @@ import { pushInvoiceToQB, recordPayment, cyclePaymentStatus, deletePayment, refr
 import { QBCustomerChooser } from "@/components/QBCustomerChooser";
 import { applyPoSentToVendorItems, revertPoSentFromVendorItems } from "@/lib/po-actions";
 import { recalcJobPhase } from "@/lib/job-phase-recalc";
+import { PROOF_RENDERER_VERSION } from "@/lib/proof-client";
 import { SHIP_METHODS } from "@/lib/ship-methods";
 const DecorationPanel: any = DecorationPanelRaw; // .jsx — bypass narrow inferred prop types
 const ProofModal: any = ProofModalRaw;           // .jsx — same
@@ -206,6 +207,25 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   // Proof editor (reuses the classic ProofModal — methods/locations/colors/crop/bake).
   const [proofItemId, setProofItemId] = useState<string | null>(null);
   const [proofMode, setProofMode] = useState<"edit" | "preview">("edit");
+  // Send-time proof bake: hidden ProofModals mount for stale/never-baked
+  // proofs; the send continues once every one reports baked (or timeout).
+  const [bakeIds, setBakeIds] = useState<string[] | null>(null);
+  const bakeRemainRef = React.useRef<Set<string>>(new Set());
+  const bakeResolveRef = React.useRef<(() => void) | null>(null);
+  const bakeProofPdfs = (ids: string[]) => new Promise<void>(resolve => {
+    bakeRemainRef.current = new Set(ids);
+    bakeResolveRef.current = resolve;
+    setBakeIds(ids);
+    // Safety valve: a mockup that never loads or a Browserless stall must not
+    // wedge the send — continue without the missing PDFs after 90s.
+    setTimeout(() => { if (bakeResolveRef.current === resolve) { console.warn("[JobV2] proof bake timeout — continuing send"); bakeResolveRef.current = null; setBakeIds(null); resolve(); } }, 90000);
+  });
+  const handleBaked = (id: string) => {
+    bakeRemainRef.current.delete(id);
+    if (bakeRemainRef.current.size === 0 && bakeResolveRef.current) {
+      const r = bakeResolveRef.current; bakeResolveRef.current = null; setBakeIds(null); r();
+    }
+  };
   // Catalog picker overlay ("src" = source chooser, else picker key) + assign target.
   const [pickerSrc, setPickerSrc] = useState<string | null>(null);
   const [assignTargetId, setAssignTargetId] = useState<string | null>(null);
@@ -510,6 +530,10 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     try {
       const [to, ...cc] = emails;
       const hasReady = items.some((it: any) => it.proof_spec);
+      // Bake stale/never-baked proof PDFs into Drive BEFORE the send — the
+      // vendor folder + portal + client hub all read that file.
+      const needBake = items.filter((it: any) => it.proof_spec && ((it.proof_spec.bakedRendererVersion == null) || it.proof_spec.bakedRendererVersion < PROOF_RENDERER_VERSION)).map((x: any) => x.id);
+      if (needBake.length) await bakeProofPdfs(needBake);
       await sendQuoteAndProofs(job, { to, cc, includeProofs: hasReady, proofsOnly: !!job.quote_approved });
       const readyIds = items.filter((it: any) => it.proof_spec && !it.proof_sent_at).map((it: any) => it.id);
       if (readyIds.length) { const nowP = new Date().toISOString(); await (createClient().from("items") as any).update({ proof_sent_at: nowP }).in("id", readyIds); setItems(prev => prev.map(x => readyIds.includes(x.id) ? { ...x, proof_sent_at: nowP } : x)); }
@@ -2302,6 +2326,24 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
           ) : (
             <div style={{ fontSize: 12.5, color: T.text, fontWeight: 700 }}>⏳ {psdProcessing.status}</div>
           )}
+        </div>
+      )}
+
+      {/* ── send-time proof bake: hidden ProofModals render + bake to Drive ── */}
+      {bakeIds && bakeIds.map(id => {
+        const pItem = items.find((x: any) => x.id === id); if (!pItem) return null;
+        const pFiles = filesByItem[id] || [];
+        const mockupFile = pFiles.find((f: any) => f.stage === "mockup") || pFiles.find((f: any) => f.file_name?.toLowerCase().includes("mockup"));
+        return (
+          <ProofModal key={"bake-" + id} hidden autoBake item={pItem} clientName={client} projectTitle={job.title}
+            mockupFile={mockupFile} files={pFiles} costingData={job.costing_data} initialMode="preview"
+            onClose={() => {}} onSaved={reloadAllFiles} onBaked={handleBaked}
+            onUpdateItem={(iid: string, updates: any) => setItems(prev => prev.map((x: any) => x.id === iid ? { ...x, ...updates } : x))} />
+        );
+      })}
+      {bakeIds && (
+        <div style={{ position: "fixed", bottom: 22, left: "50%", transform: "translateX(-50%)", zIndex: 500, background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: "13px 18px", boxShadow: "0 8px 28px rgba(0,0,0,0.45)" }}>
+          <div style={{ fontSize: 12.5, color: T.text, fontWeight: 700 }}>⏳ Preparing proof PDFs… ({bakeIds.length})</div>
         </div>
       )}
 

@@ -256,9 +256,10 @@ export async function GET(
 
       const order = {
         jobId: job.id,
-        // Vendors reference the PO/job number — NEVER the client's QB invoice
-        // number (wrong reference for them + client billing info leak).
-        jobNumber: job.job_number,
+        // DELIBERATE (Jon): vendors get the QB invoice number as the PO
+        // reference — their invoices then match our invoiced jobs 1:1.
+        // Do NOT "fix" this to job_number.
+        jobNumber: typeMeta.qb_invoice_number || job.job_number,
         jobTitle: job.title,
         clientName: clientMap[job.client_id] || "Client",
         phase: job.phase,
