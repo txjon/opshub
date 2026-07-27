@@ -1326,8 +1326,31 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
 
       {/* CLIENT */}
       {block("client", flags.approved ? "done" : "todo", "Client",
-        `${flags.approved ? "Approved" : flags.quoted ? "Quote sent" : "Not sent"} · ${invNum ? "Inv " + invNum : "no invoice"} · ${fmtMoney(paid)} paid${flags.grew ? " · ⚠ re-invoice" : ""}`, (
+        `${flags.approved ? "Approved" : flags.quoted ? "Quote sent" : "Not sent"} · ${invNum ? "Inv " + invNum : "no invoice"} · ${fmtMoney(paid)} paid${flags.grew ? " · ⚠ re-invoice" : ""}${tm.change_request ? " · ⚠ changes requested" : ""}`, (
         <div>
+          {/* client change request (portal) — the note + tagged items, until
+              dismissed here or cleared by the next approval */}
+          {tm.change_request && (() => {
+            const cr = tm.change_request;
+            return (
+              <div style={{ border: `1px solid ${T.amber}66`, background: `${T.amber}12`, borderRadius: 10, padding: "11px 14px", marginBottom: 12 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: T.amber }}>Client requested changes</span>
+                  <span style={{ fontSize: 11, color: T.faint, fontFamily: mono }}>{fmtDT(cr.at)}</span>
+                  <div style={{ flex: 1 }} />
+                  <button onClick={() => saveTypeMeta({ change_request: null })} title="Clear once handled — re-sending proofs and the next approval also clear it"
+                    style={{ fontSize: 11, fontWeight: 700, color: T.muted, background: "none", border: `1px solid ${T.border}`, borderRadius: 999, padding: "4px 12px", cursor: "pointer", fontFamily: font }}>Dismiss</button>
+                </div>
+                {cr.note && <div style={{ fontSize: 13, color: T.text, marginTop: 7, lineHeight: 1.45 }}>&ldquo;{cr.note}&rdquo;</div>}
+                {(cr.itemIds || []).length > 0 && (
+                  <div style={{ fontSize: 11.5, color: T.muted, marginTop: 6 }}>
+                    On: {(cr.itemIds || []).map((id: string) => { const it = items.find((x: any) => x.id === id); return it ? `${letterOf(id)} · ${it.name}` : null; }).filter(Boolean).join("  ·  ") || (cr.itemNames || []).join(" · ")}
+                    <span style={{ color: T.faint }}> — art gates reopened; rework in the worksheet, then send revised proofs.</span>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
           {/* revised-proof nudge — revised proofs re-uploaded but not re-sent */}
           {(() => {
             const revisedItems = items.filter((it: any) => (filesByItem[it.id] || []).some((f: any) => f.stage === "proof" && f.revision_pending_send));
