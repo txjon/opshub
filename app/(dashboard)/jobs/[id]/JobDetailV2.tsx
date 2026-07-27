@@ -20,7 +20,8 @@ import { calcCostProduct, buildPrintersMap, lookupPrintPrice as sharedLookupPrin
 import { DecorationPanel as DecorationPanelRaw } from "./DecorationPanel";
 import { sendQuoteAndProofs, defaultRecipient } from "@/lib/job/quote-actions";
 import { pushInvoiceToQB, recordPayment, cyclePaymentStatus, deletePayment } from "@/lib/job/invoice-actions";
-import { applyPoSentToVendorItems } from "@/lib/po-actions";
+import { applyPoSentToVendorItems, revertPoSentFromVendorItems } from "@/lib/po-actions";
+import { SHIP_METHODS } from "@/lib/ship-methods";
 const DecorationPanel: any = DecorationPanelRaw; // .jsx — bypass narrow inferred prop types
 
 const fmtMoney = (n: number) => "$" + Math.round(Number(n) || 0).toLocaleString("en-US");
@@ -166,6 +167,8 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   const [payForm, setPayForm] = useState<{ type: string; amount: string; paid_date: string }>({ type: "full_payment", amount: "", paid_date: "" });
   const [poVendor, setPoVendor] = useState<string | null>(null);
   const [poShipDate, setPoShipDate] = useState("");
+  const [poMethod, setPoMethod] = useState("");
+  const [expandedVendor, setExpandedVendor] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [contactForm, setContactForm] = useState<{ name: string; email: string; phone: string; role: string } | null>(null);
@@ -477,7 +480,49 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     cl.forEach((c: any) => { if (c.email) sel[c.email] = true; });
     setRecips(sel);
     setPoShipDate((job.type_meta?.po_ship_dates || {})[vendor] || "");
+    setPoMethod((job.type_meta?.po_ship_methods || {})[vendor] || decFor(vendor)?.default_ship_method || "");
     setActErr(""); setPoVendor(vendor);
+  };
+  // Per-item PO fields (items table).
+  const saveItemPO = async (item: any, fieldK: "drive_link" | "incoming_goods" | "production_notes_po" | "packing_notes", value: string) => {
+    const v = (value || "").trim() || null;
+    if (v === (item[fieldK] ?? null)) return;
+    setItems(prev => prev.map(x => x.id === item.id ? { ...x, [fieldK]: v } : x));
+    try { await (createClient().from("items") as any).update({ [fieldK]: v }).eq("id", item.id); } catch (e) { console.error("[JobV2] saveItemPO", e); }
+  };
+  const copyPOToAll = async (vendor: string, fieldK: string, value: string) => {
+    const targets = (vendorGroups[vendor] || []);
+    setItems(prev => prev.map(x => targets.some((t: any) => t.id === x.id) ? { ...x, [fieldK]: value } : x));
+    const supabase = createClient();
+    for (const t of targets) { try { await (supabase.from("items") as any).update({ [fieldK]: value }).eq("id", t.id); } catch (e) { console.error(e); } }
+  };
+  const saveItemRoute = async (item: any, route: string) => {
+    const v = route || null;
+    setItems(prev => prev.map(x => x.id === item.id ? { ...x, shipping_route: v } : x));
+    try { await (createClient().from("items") as any).update({ shipping_route: v }).eq("id", item.id); } catch (e) { console.error(e); }
+  };
+  // Manual mark / unmark a vendor's PO sent (no email) — mirrors classic chips.
+  const markPoSent = async (vendor: string) => {
+    const supabase = createClient();
+    try {
+      await applyPoSentToVendorItems(supabase, job.id, vendor);
+      const meta = { ...(job.type_meta || {}), po_sent_vendors: Array.from(new Set([...(job.type_meta?.po_sent_vendors || []), vendor])), po_sent_dates: { ...(job.type_meta?.po_sent_dates || {}), [vendor]: new Date().toISOString().slice(0, 10) } };
+      await (supabase.from("jobs") as any).update({ type_meta: meta }).eq("id", job.id);
+      setJob((j: any) => ({ ...j, type_meta: { ...j.type_meta, ...meta } }));
+      setItems(prev => prev.map(x => (cpFor(x)?.printVendor || x.decorator || "Unassigned") === vendor && x.pipeline_stage !== "shipped" ? { ...x, pipeline_stage: "in_production" } : x));
+      logJobActivity(job.id, `PO for ${vendor} manually marked sent`);
+    } catch (e) { console.error("[JobV2] markPoSent", e); }
+  };
+  const unmarkPoSent = async (vendor: string) => {
+    const supabase = createClient();
+    try {
+      await revertPoSentFromVendorItems(supabase, job.id, vendor);
+      const meta = { ...(job.type_meta || {}), po_sent_vendors: (job.type_meta?.po_sent_vendors || []).filter((v: string) => v !== vendor) };
+      await (supabase.from("jobs") as any).update({ type_meta: meta }).eq("id", job.id);
+      setJob((j: any) => ({ ...j, type_meta: meta }));
+      setItems(prev => prev.map(x => (cpFor(x)?.printVendor || x.decorator || "Unassigned") === vendor && x.pipeline_stage === "in_production" ? { ...x, pipeline_stage: null } : x));
+      logJobActivity(job.id, `PO for ${vendor} unmarked`);
+    } catch (e) { console.error("[JobV2] unmarkPoSent", e); }
   };
   const doSendPO = async () => {
     if (!poVendor) return;
@@ -490,11 +535,12 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       const supabase = createClient();
       const [to, ...cc] = emails;
       const alreadySent = ((job.type_meta?.po_sent_vendors) || []).includes(poVendor);
-      const meta = { ...(job.type_meta || {}), po_ship_dates: { ...(job.type_meta?.po_ship_dates || {}), [poVendor]: poShipDate } };
+      const meta = { ...(job.type_meta || {}), po_ship_dates: { ...(job.type_meta?.po_ship_dates || {}), [poVendor]: poShipDate }, po_ship_methods: { ...(job.type_meta?.po_ship_methods || {}), [poVendor]: poMethod || null } };
       await (supabase.from("jobs") as any).update({ type_meta: meta }).eq("id", job.id);
       const r = await fetch("/api/email/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "po", jobId: job.id, vendor: poVendor, recipientEmail: to, ccEmails: cc, revised: alreadySent }) });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "PO email failed");
       await applyPoSentToVendorItems(supabase, job.id, poVendor);
+      try { await fetch(`/api/jobs/${job.id}/snapshot-po`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ vendor: poVendor }) }); } catch {}
       const sentVendors = Array.from(new Set([...(job.type_meta?.po_sent_vendors || []), poVendor]));
       const meta2 = { ...meta, po_sent_vendors: sentVendors, po_sent_dates: { ...(job.type_meta?.po_sent_dates || {}), [poVendor]: new Date().toISOString().slice(0, 10) } };
       await (supabase.from("jobs") as any).update({ type_meta: meta2 }).eq("id", job.id);
@@ -1076,13 +1122,48 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                     <span style={{ fontSize: 14, fontWeight: 800, flex: 1, minWidth: 120 }}>{vendor}</span>
                     <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: sent ? T.green : T.faint }}>{sent ? "✓ Sent" : "— Not sent"}</span>
                   </div>
-                  <div style={{ fontSize: 12, color: T.muted, marginTop: 4, fontFamily: mono }}>{vitems.map((it: any) => it.name).join(" · ")} · {vUnits.toLocaleString()} u</div>
+                  <div style={{ fontSize: 12, color: T.muted, marginTop: 4, fontFamily: mono }}>{vitems.map((it: any) => it.name).join(" · ")} · {vUnits.toLocaleString()} u{(job.type_meta?.po_ship_methods || {})[vendor] ? ` · ${(job.type_meta.po_ship_methods)[vendor]}` : ""}</div>
                   {!allBlanks && <div style={{ fontSize: 11, color: T.amber, marginTop: 6 }}>⚠ Not all blanks ordered for this vendor.</div>}
-                  <div style={{ display: "flex", gap: 8, marginTop: 11 }}>
+                  <div style={{ display: "flex", gap: 8, marginTop: 11, flexWrap: "wrap" }}>
                     <a href={`/api/pdf/po/${job.id}?vendor=${encodeURIComponent(vendor)}${sent ? "&revised=1" : ""}`} target="_blank" rel="noreferrer"
                       style={{ fontSize: 12, fontWeight: 800, color: T.text, textDecoration: "none", padding: "8px 15px", borderRadius: 999, border: `1px solid ${T.border}`, background: T.card }}>Preview PO</a>
                     <button onClick={() => openPoSend(vendor)} style={sent ? ghostBtn : actBtn}>{sent ? "Re-send PO" : "Send PO"}</button>
+                    {sent ? <button onClick={() => unmarkPoSent(vendor)} style={ghostBtn}>Unmark</button> : <button onClick={() => markPoSent(vendor)} style={ghostBtn}>Mark sent</button>}
+                    <button onClick={() => setExpandedVendor(v => v === vendor ? null : vendor)} style={ghostBtn}>{expandedVendor === vendor ? "Hide items ▴" : "Item details ▾"}</button>
                   </div>
+                  {expandedVendor === vendor && (
+                    <div style={{ marginTop: 12, borderTop: `1px solid ${T.border}44`, paddingTop: 12, display: "flex", flexDirection: "column", gap: 14 }}>
+                      {vitems.map((item: any) => {
+                        const poField = (fieldK: "drive_link" | "incoming_goods" | "production_notes_po" | "packing_notes", label: string, area = false) => (
+                          <label style={{ flex: area ? "1 1 100%" : "1 1 45%", minWidth: 150 }}>
+                            <span style={{ ...lbl, display: "flex", justifyContent: "space-between", marginBottom: 4 }}>{label}{vitems.length > 1 && item[fieldK] && <button onClick={() => copyPOToAll(vendor, fieldK, item[fieldK])} style={{ background: "none", border: "none", color: T.accent, fontSize: 9, fontWeight: 700, cursor: "pointer", letterSpacing: 0, textTransform: "none" }}>↓ all</button>}</span>
+                            {area
+                              ? <textarea key={item.id + fieldK + (item[fieldK] || "")} defaultValue={item[fieldK] || ""} onBlur={e => saveItemPO(item, fieldK, e.target.value)} rows={2} style={{ ...field, resize: "vertical", fontSize: 12 }} />
+                              : <input key={item.id + fieldK + (item[fieldK] || "")} defaultValue={item[fieldK] || ""} onBlur={e => saveItemPO(item, fieldK, e.target.value)} style={{ ...field, fontSize: 12 }} />}
+                          </label>
+                        );
+                        return (
+                          <div key={item.id} style={{ background: T.card, borderRadius: 10, padding: "10px 12px" }}>
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 8 }}>
+                              <span style={{ fontSize: 13, fontWeight: 700 }}>{item.name}</span>
+                              <select value={item.shipping_route || ""} onChange={e => saveItemRoute(item, e.target.value)} title="Per-item route (blank = job route)" style={{ ...field, width: "auto", padding: "5px 8px", fontSize: 11 }}>
+                                <option value="">route: job default</option>
+                                <option value="drop_ship">drop ship</option>
+                                <option value="ship_through">ship-through</option>
+                                <option value="stage">stage</option>
+                              </select>
+                            </div>
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                              {poField("drive_link", "Production files link")}
+                              {poField("incoming_goods", "Incoming goods")}
+                              {poField("production_notes_po", "Production notes", true)}
+                              {poField("packing_notes", "Packing notes", true)}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -1414,10 +1495,19 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
             style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 320, display: "flex", alignItems: "center", justifyContent: "center", padding: 18 }}>
             <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 14, width: "100%", maxWidth: 420, padding: "20px 22px" }}>
               <div style={{ fontSize: 16, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", marginBottom: 14 }}>Send PO · {poVendor}</div>
-              <label style={{ display: "block", marginBottom: 12 }}>
-                <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Ship date (required)</span>
-                <input type="date" value={poShipDate} onChange={e => setPoShipDate(e.target.value)} style={field} />
-              </label>
+              <div style={{ display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+                <label style={{ flex: "1 1 150px" }}>
+                  <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Ship date (required)</span>
+                  <input type="date" value={poShipDate} onChange={e => setPoShipDate(e.target.value)} style={field} />
+                </label>
+                <label style={{ flex: "1 1 150px" }}>
+                  <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Ship method</span>
+                  <select value={poMethod} onChange={e => setPoMethod(e.target.value)} style={field}>
+                    <option value="">— select —</option>
+                    {SHIP_METHODS.map((m: string) => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                </label>
+              </div>
               <div style={{ ...lbl, marginBottom: 4 }}>Recipients</div>
               {cl.length === 0 ? (
                 <div style={{ fontSize: 13, color: T.amber }}>No contacts on this decorator — add them on the Decorators page first.</div>
