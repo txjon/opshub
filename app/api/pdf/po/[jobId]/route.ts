@@ -166,8 +166,12 @@ function calcDecorationLines(p: any, allProds: any[] = []): { label: string; qty
     }
   }
 
-  // Setup fees — dynamic from decorator pricing
-  if (p.setupFees) {
+  // Setup fees — dynamic from decorator pricing. NOT gated on p.setupFees
+  // existing: auto fees (screens/tag screens/specialty-linked) derive from
+  // print data alone, and V2-costed jobs may have no setupFees object at all
+  // (the missing-\$80-screens bug, Jul 26).
+  {
+    const sf = p.setupFees || {};
     const isScreensKey = (k: string) => k === "Screens" || k.toLowerCase() === "screens";
     const isTagScreensKey = (k: string) => k === "TagScreens" || k === "Tag Screens" || k.toLowerCase().replace(/\s/g, "") === "tagscreens";
     const autoScreens = Math.max(0, [1,2,3,4,5,6].reduce((a: number, loc: number) => a + (parseFloat(p.printLocations?.[loc]?.screens) || 0), 0) - sharedScreensToSkip);
@@ -219,7 +223,7 @@ function calcDecorationLines(p: any, allProds: any[] = []): { label: string; qty
         }
       } else if (isTagScreensKey(k)) {
         if (p.tagRepeat) continue;
-        feeQty = p.tagPrint ? activeSizes : (p.setupFees.tagSizes || 0);
+        feeQty = p.tagPrint ? activeSizes : (sf.tagSizes || 0);
         if (feeQty === 0) continue;
         label = `Tag screen fees (${feeQty} sizes)`;
       } else {
@@ -228,7 +232,7 @@ function calcDecorationLines(p: any, allProds: any[] = []): { label: string; qty
           feeQty = specCount;
           label = `${k} (${feeQty})`;
         } else {
-          feeQty = p.setupFees[k] || 0;
+          feeQty = sf[k] || 0;
           if (feeQty === 0) continue;
           label = `${k} (${feeQty})`;
         }
@@ -237,8 +241,8 @@ function calcDecorationLines(p: any, allProds: any[] = []): { label: string; qty
       if (feeQty > 0) lines.push({ label, qty: feeQty, rate: unitCost, total: unitCost * feeQty });
     }
 
-    if (p.setupFees.manualCost > 0) {
-      lines.push({ label: "Setup (manual)", qty: 1, rate: p.setupFees.manualCost, total: p.setupFees.manualCost });
+    if (sf.manualCost > 0) {
+      lines.push({ label: "Setup (manual)", qty: 1, rate: sf.manualCost, total: sf.manualCost });
     }
   }
 
@@ -502,10 +506,20 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     }
 
     const costingData = job.costing_data || {};
-    const costProds: any[] = costingData.costProds || [];
+    const rawCostProds: any[] = costingData.costProds || [];
 
     // Sort by sort_order to match PO tab letter assignment
     const sortedItems = [...(items || [])].sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0));
+
+    // costProds in ITEM sort order — "first item in a share group" (who
+    // carries the screens) must resolve identically here and in the costing
+    // UI, which walks items in sort order. The raw stored array can be in
+    // creation order and disagree (screens showed on the wrong item / not at
+    // all). Unmatched costProds keep their relative order at the end.
+    const costProds: any[] = [
+      ...sortedItems.map((it: any) => rawCostProds.find((p: any) => p.id === it.id)).filter(Boolean),
+      ...rawCostProds.filter((p: any) => !sortedItems.some((it: any) => it.id === p.id)),
+    ];
 
     const allMapped = sortedItems.map((it: any, sortedIdx: number) => {
       const qtys: Record<string, number> = {};

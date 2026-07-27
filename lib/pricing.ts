@@ -204,9 +204,12 @@ export function calcCostProduct(p: any, margin: string, inclShip: boolean, inclC
     }
   }
 
-  // Setup fees
+  // Setup fees — NOT gated on p.setupFees existing: auto fees (screens, tag
+  // screens, specialty-linked) derive from print data alone, and V2-costed
+  // products may carry no setupFees object (the missing-screen-fees bug,
+  // Jul 26 — sells excluded screens while the panel displayed them).
   let setupTotal = 0;
-  if (p.setupFees) {
+  {
     const pr = printers[p.printVendor || p.setupFees?.printer];
     if (pr) {
       const autoScreens = Math.max(0, [1, 2, 3, 4, 5, 6].reduce((a: number, loc: number) => a + (parseFloat(p.printLocations?.[loc]?.screens) || 0), 0) - sharedScreensToSkip);
@@ -248,7 +251,7 @@ export function calcCostProduct(p: any, margin: string, inclShip: boolean, inclC
         }
       });
     }
-    if (p.setupFees.manualCost > 0) setupTotal += p.setupFees.manualCost;
+    if ((p.setupFees?.manualCost || 0) > 0) setupTotal += p.setupFees.manualCost;
   }
 
   // Custom costs
@@ -395,8 +398,10 @@ export function calcDecorationLines(
     }
   }
 
-  // Setup fees — dynamic from decorator pricing
-  if (p.setupFees) {
+  // Setup fees — dynamic from decorator pricing. NOT gated on p.setupFees
+  // existing (auto fees derive from print data; see calcCostProduct note).
+  {
+    const sf = p.setupFees || {};
     const isScreensKey = (k: string) => k === "Screens" || k.toLowerCase() === "screens";
     const isTagScreensKey = (k: string) => k === "TagScreens" || k === "Tag Screens" || k.toLowerCase().replace(/\s/g, "") === "tagscreens";
     const autoScreens = Math.max(0, [1,2,3,4,5,6].reduce((a: number, loc: number) => a + (parseFloat(p.printLocations?.[loc]?.screens) || 0), 0) - sharedScreensToSkip);
@@ -436,7 +441,7 @@ export function calcDecorationLines(
         label = `Screen fees (${autoScreens} screens)`;
       } else if (isTagScreensKey(k)) {
         if (p.tagRepeat) continue;
-        feeQty = p.tagPrint ? activeSizes : (p.setupFees.tagSizes || 0);
+        feeQty = p.tagPrint ? activeSizes : (sf.tagSizes || 0);
         if (feeQty === 0) continue;
         label = `Tag screen fees (${feeQty} sizes)`;
       } else {
@@ -445,7 +450,7 @@ export function calcDecorationLines(
           feeQty = specCount;
           label = `${k} (${feeQty})`;
         } else {
-          feeQty = p.setupFees[k] || 0;
+          feeQty = sf[k] || 0;
           if (feeQty === 0) continue;
           label = `${k} (${feeQty})`;
         }
@@ -454,8 +459,8 @@ export function calcDecorationLines(
       if (feeQty > 0) lines.push({ label, qty: feeQty, rate: unitCost, total: unitCost * feeQty });
     }
 
-    if (p.setupFees.manualCost > 0) {
-      lines.push({ label: "Setup (manual)", qty: 1, rate: p.setupFees.manualCost, total: p.setupFees.manualCost });
+    if (sf.manualCost > 0) {
+      lines.push({ label: "Setup (manual)", qty: 1, rate: sf.manualCost, total: sf.manualCost });
     }
   }
 

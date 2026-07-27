@@ -27,7 +27,7 @@ export function overlayCostProds(costProds: any[], items: any[]): any[] {
   if (!items?.length) return costProds; // legacy safety: no item rows → leave as-is
   const byId = new Map(items.map((it: any) => [it.id, it]));
   const byName = new Map(items.map((it: any) => [(it.name || "").trim().toLowerCase(), it]));
-  const out: any[] = [];
+  const out: { sort: number; p: any }[] = [];
   for (const p of costProds || []) {
     const it: any = byId.get(p.id) || byName.get((p.name || "").trim().toLowerCase());
     if (!it) continue;
@@ -36,14 +36,16 @@ export function overlayCostProds(costProds: any[], items: any[]): any[] {
     const qtys = lines.length ? bslQtys : (p.qtys || {});
     const totalQty = Object.values(qtys).reduce((a: number, v: any) => a + (Number(v) || 0), 0);
     const blankCosts = (it.blank_costs && Object.keys(it.blank_costs).length) ? it.blank_costs : (p.blankCosts || {});
-    out.push({ ...p, qtys, totalQty, blankCosts });
+    out.push({ sort: Number(it.sort_order) || 0, p: { ...p, qtys, totalQty, blankCosts } });
   }
-  return out;
+  // ITEM sort order — the engine resolves "first item in a share group" (who
+  // carries screens) by array position; every surface must agree with the UI.
+  return out.sort((a, b) => a.sort - b.sort).map(x => x.p);
 }
 
 // Fetch the item truth needed by overlayCostProds.
 async function loadItemTruth(sb: Sb, jobId: string): Promise<any[]> {
-  const { data } = await sb.from("items").select("id, name, blank_costs, buy_sheet_lines(size, qty_ordered)").eq("job_id", jobId);
+  const { data } = await sb.from("items").select("id, name, sort_order, blank_costs, buy_sheet_lines(size, qty_ordered)").eq("job_id", jobId);
   return data || [];
 }
 
