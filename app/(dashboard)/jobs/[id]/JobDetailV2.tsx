@@ -27,6 +27,21 @@ const fmtMoney = (n: number) => "$" + Math.round(Number(n) || 0).toLocaleString(
 const fmtDT = (iso: string) => iso ? new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
 // thumbByItem holds a Drive file_id (not a URL) — build the thumbnail endpoint URL.
 const thumbSrc = (id: string, full = false) => id ? `/api/files/thumbnail?id=${id}${full ? "" : "&thumb=1"}` : "";
+// Stack an address into mailing-label lines: name / street+suite / city, ST ZIP.
+// Respects existing newlines; also splits a one-line comma address on the trailing "ST ZIP".
+const addrLines = (addr: string): string[] => {
+  if (!addr) return [];
+  const out: string[] = [];
+  for (let raw of (addr.includes("\n") ? addr.split("\n") : [addr])) {
+    raw = raw.trim(); if (!raw) continue;
+    const parts = raw.split(",").map(p => p.trim()).filter(Boolean);
+    if (parts.length >= 3 && /^[A-Za-z]{2}\s+\d{5}/.test(parts[parts.length - 1])) {
+      const stateZip = parts.pop(); const city = parts.pop();
+      out.push(parts.join(", ")); out.push(`${city}, ${stateZip}`);
+    } else out.push(raw);
+  }
+  return out;
+};
 const sumQ = (o: any) => Object.values(o || {}).reduce((a: number, v: any) => a + (Number(v) || 0), 0);
 const qtyOf = (it: any) => Number(it?.totalQty) || sumQ(it?.qtys);
 
@@ -676,8 +691,10 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
         ))}
         <div style={{ minWidth: 200, flex: 1, cursor: "pointer" }} onClick={() => { setOpen(o => ({ ...o, logistics: true })); const el = document.getElementById("logistics"); if (el) el.scrollIntoView({ behavior: "smooth", block: "center" }); }} title="Edit route in Logistics">
           <div style={lbl}>Ship-to · {ROUTE_LABEL[route] || route || "route not set"} <span style={{ color: T.faint, fontWeight: 500 }}>· edit ›</span></div>
-          <div style={{ fontSize: 13, color: address ? T.text : T.faint, marginTop: 4, lineHeight: 1.4 }}>{address || "No address set"}</div>
-          <div style={{ fontSize: 11, color: T.faint, marginTop: 2 }}>{ROUTE_SUB[route] || ""}</div>
+          <div style={{ fontSize: 13, color: address ? T.text : T.faint, marginTop: 4, lineHeight: 1.35 }}>
+            {address ? addrLines(address).map((l, i) => <div key={i}>{l}</div>) : "No address set"}
+          </div>
+          <div style={{ fontSize: 11, color: T.faint, marginTop: 4 }}>{ROUTE_SUB[route] || ""}</div>
         </div>
         <div><div style={lbl}>Created</div><div style={{ fontFamily: mono, fontSize: 15, fontWeight: 700, marginTop: 3, color: T.muted }}>{created}</div></div>
         <div><div style={lbl}>In-hands</div><div style={{ fontFamily: mono, fontSize: 15, fontWeight: 700, marginTop: 3, color: inHands === "—" ? T.faint : T.text }}>{inHands}</div></div>
@@ -866,11 +883,11 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
             </select>
           </div>
           <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", fontSize: 13 }}>
-            <span style={{ color: T.muted }}>Vendor ships to</span><span style={{ fontWeight: 700, textAlign: "right", maxWidth: "60%", whiteSpace: "pre-line" }}>{address || "—"}</span>
+            <span style={{ color: T.muted }}>Vendor ships to</span><span style={{ fontWeight: 700, textAlign: "right", maxWidth: "60%", lineHeight: 1.35 }}>{address ? addrLines(address).map((l, i) => <div key={i}>{l}</div>) : "—"}</span>
           </div>
           {(route === "ship_through" || route === "stage") && clientAddr && (
             <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", fontSize: 13, borderTop: `1px solid ${T.border}44` }}>
-              <span style={{ color: T.muted }}>Final destination (client)</span><span style={{ fontWeight: 700, textAlign: "right", maxWidth: "60%", whiteSpace: "pre-line" }}>{clientAddr || "—"}</span>
+              <span style={{ color: T.muted }}>Final destination (client)</span><span style={{ fontWeight: 700, textAlign: "right", maxWidth: "60%", lineHeight: 1.35 }}>{clientAddr ? addrLines(clientAddr).map((l, i) => <div key={i}>{l}</div>) : "—"}</span>
             </div>
           )}
           <div style={{ fontSize: 11, color: T.faint, marginTop: 6 }}>
