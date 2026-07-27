@@ -639,6 +639,9 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   const [psdProcessing, setPsdProcessing] = useState<any>(null);
   const [localThumbs, setLocalThumbs] = useState<Record<string, string>>({});
   const thumbOf = (id: string) => localThumbs[id] || thumbByItem[id];
+  // Letter designator — canonical across surfaces: position in the full
+  // sort_order-ordered list (items state is already in that order).
+  const letterOf = (id: string) => { const i = items.findIndex((x: any) => x.id === id); return i >= 0 ? String.fromCharCode(65 + i) : "?"; };
   const baseNameOf = (fileName: string) => fileName
     .replace(/\.psd$/i, "").replace(/[-_ ]?mockup[-_ ]?/i, "").replace(/[-_ ]?mock[-_ ]?/i, "")
     .replace(/\.(png|jpg|jpeg|gif|webp)$/i, "").trim().toLowerCase();
@@ -1234,7 +1237,9 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                   onDragOver={e => { if (dragId) { e.preventDefault(); e.stopPropagation(); } }}
                   onDrop={e => { if (dragId) { e.preventDefault(); e.stopPropagation(); dropOnCard(item.id); } }}
                   style={{ background: T.surface, border: `1px solid ${dragId === item.id ? T.accent : T.border}`, borderRadius: 14, overflow: "hidden", cursor: "pointer", opacity: dragId === item.id ? 0.55 : 1 }}>
-                  <div style={{ aspectRatio: "1/1", background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 44 }}>
+                  <div style={{ aspectRatio: "1/1", background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 44, position: "relative" }}>
+                    {/* letter designator — canonical: position in the full sort_order list */}
+                    <span style={{ position: "absolute", top: 6, left: 6, width: 20, height: 20, borderRadius: "50%", background: "rgba(255,255,255,0.92)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 800, color: "#0a0a0a", fontFamily: mono, boxShadow: "0 1px 2px rgba(0,0,0,0.12)", border: "1px solid rgba(0,0,0,0.12)" }}>{String.fromCharCode(65 + i)}</span>
                     {thumb ? <img src={thumbSrc(thumb)} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} /> : "👕"}
                   </div>
                   <div style={{ padding: "11px 13px 13px" }}>
@@ -1393,7 +1398,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
             return (
               <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: `1px solid ${T.border}44`, flexWrap: "wrap" }}>
                 <input type="checkbox" checked={sel} onChange={() => toggleSel(item.id)} style={{ width: 15, height: 15, accentColor: T.accent, cursor: "pointer" }} />
-                <span style={{ flex: 1, minWidth: 150, fontSize: 13, fontWeight: 600 }}>{item.name}<span style={{ color: T.faint, fontWeight: 400, marginLeft: 8, fontSize: 11 }}>{item.blank_vendor} {item.blank_sku}</span></span>
+                <span style={{ flex: 1, minWidth: 150, fontSize: 13, fontWeight: 600 }}><span style={{ fontFamily: mono, fontSize: 10.5, fontWeight: 800, color: T.faint, marginRight: 7 }}>{letterOf(item.id)}</span>{item.name}<span style={{ color: T.faint, fontWeight: 400, marginLeft: 8, fontSize: 11 }}>{item.blank_vendor} {item.blank_sku}</span></span>
                 <span style={{ fontSize: 11, color: T.faint, fontFamily: mono, width: 74, textAlign: "right" }}>est {fmtMoney(calc)}</span>
                 <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
                   <span style={{ fontSize: 11, color: T.faint }}>$</span>
@@ -1433,7 +1438,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                     <span style={{ fontSize: 14, fontWeight: 800, flex: 1, minWidth: 120 }}>{vendor}</span>
                     <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: sent ? T.green : T.faint }}>{sent ? "✓ Sent" : "— Not sent"}</span>
                   </div>
-                  <div style={{ fontSize: 12, color: T.muted, marginTop: 4, fontFamily: mono }}>{vitems.map((it: any) => it.name).join(" · ")} · {vUnits.toLocaleString()} u{(job.type_meta?.po_ship_methods || {})[vendor] ? ` · ${(job.type_meta.po_ship_methods)[vendor]}` : ""}</div>
+                  <div style={{ fontSize: 12, color: T.muted, marginTop: 4, fontFamily: mono }}>{vitems.map((it: any) => `${letterOf(it.id)} · ${it.name}`).join("  ·  ")} · {vUnits.toLocaleString()} u{(job.type_meta?.po_ship_methods || {})[vendor] ? ` · ${(job.type_meta.po_ship_methods)[vendor]}` : ""}</div>
                   {!allBlanks && <div style={{ fontSize: 11, color: T.amber, marginTop: 6 }}>⚠ Not all blanks ordered for this vendor.</div>}
                   <div style={{ display: "flex", gap: 8, marginTop: 11, flexWrap: "wrap" }}>
                     <a href={`/api/pdf/po/${job.id}?vendor=${encodeURIComponent(vendor)}${sent ? "&revised=1" : ""}`} target="_blank" rel="noreferrer"
@@ -1456,7 +1461,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                         return (
                           <div key={item.id} style={{ background: T.card, borderRadius: 10, padding: "10px 12px" }}>
                             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 8 }}>
-                              <span style={{ fontSize: 13, fontWeight: 700 }}>{item.name}</span>
+                              <span style={{ fontSize: 13, fontWeight: 700 }}><span style={{ fontFamily: mono, fontSize: 10.5, fontWeight: 800, color: T.faint, marginRight: 7 }}>{letterOf(item.id)}</span>{item.name}</span>
                               <select value={item.shipping_route || ""} onChange={e => saveItemRoute(item, e.target.value)} title="Per-item route (blank = job route)" style={{ ...field, width: "auto", padding: "5px 8px", fontSize: 11 }}>
                                 <option value="">route: job default</option>
                                 <option value="drop_ship">drop ship</option>
@@ -1561,7 +1566,10 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                 {thumbOf(it.id) ? <img src={thumbSrc(thumbOf(it.id))} alt="" style={{ width: "100%", height: "100%", objectFit: "contain", borderRadius: 10 }} /> : "👕"}
               </div>
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 17, fontWeight: 900, letterSpacing: "-0.01em" }}>{it.name}</div>
+                <div style={{ fontSize: 17, fontWeight: 900, letterSpacing: "-0.01em", display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ width: 22, height: 22, borderRadius: "50%", background: T.accent, color: "#0a0a0a", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800, fontFamily: mono, flexShrink: 0 }}>{String.fromCharCode(65 + wsIndex!)}</span>
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.name}</span>
+                </div>
                 <div style={{ fontFamily: mono, fontSize: 11.5, color: T.faint, marginTop: 3 }}>{it.blank_vendor || ""} {it.blank_sku || ""} · {qtyOf(it).toLocaleString()} u · ${(Number(it.sell_per_unit) || 0).toFixed(2)}</div>
               </div>
             </div>
@@ -1592,14 +1600,16 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                           {it.garment_type && !ADD_GARMENTS.some(([v]) => v === it.garment_type) && <option value={it.garment_type}>{it.garment_type}</option>}
                         </select>
                       </label>
-                      <label style={{ flex: "1 1 130px" }}>
+                      {/* Blank + color are READ-ONLY here — the picker owns them
+                          (Pick/Swap blank), same ownership rule as classic. */}
+                      <div style={{ flex: "1 1 130px" }}>
                         <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Blank</span>
-                        <input key={it.id + ":bv:" + it.blank_vendor} defaultValue={it.blank_vendor || ""} readOnly={locked} onBlur={e => saveItemField(it, "blank_vendor", e.target.value)} placeholder="e.g. Next Level 6210" style={field} />
-                      </label>
-                      <label style={{ flex: "1 1 110px" }}>
+                        <div style={{ padding: "10px 0", fontSize: 13.5, fontWeight: 700, color: it.blank_vendor ? T.text : T.faint }}>{it.blank_vendor || "—"}</div>
+                      </div>
+                      <div style={{ flex: "1 1 110px" }}>
                         <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Color</span>
-                        <input key={it.id + ":bs:" + it.blank_sku} defaultValue={it.blank_sku || ""} readOnly={locked} onBlur={e => saveItemField(it, "blank_sku", e.target.value)} placeholder="Color" style={field} />
-                      </label>
+                        <div style={{ padding: "10px 0", fontSize: 13.5, fontWeight: 700, color: it.blank_sku ? T.text : T.faint }}>{it.blank_sku || "—"}</div>
+                      </div>
                       {!locked && (
                         <button onClick={() => { setAssignTargetId(it.id); setPickerSrc("src"); }}
                           style={{ ...ghostBtn, alignSelf: "flex-end", whiteSpace: "nowrap" }}>{it.blank_vendor ? "Swap blank ▸" : "Pick blank ▸"}</button>
