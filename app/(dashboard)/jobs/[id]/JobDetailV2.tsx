@@ -12,7 +12,7 @@
 // this scaffold; the real editors (ProductBuilder / CostingTab / ArtTab) wire in
 // next. See memory: project_cost_qty_single_source_plan.
 import React, { useState, useEffect } from "react";
-import { T, font, mono } from "@/lib/theme";
+import { T, font, mono, sortSizes } from "@/lib/theme";
 import { createClient } from "@/lib/supabase/client";
 import { isCostingLocked } from "@/lib/costing-lock";
 import { logJobActivity } from "@/components/JobActivityPanel";
@@ -22,7 +22,7 @@ import { ProofModal as ProofModalRaw } from "./ArtTab";
 import {
   SSPicker as SSPickerRaw, ASColourPicker as ASColourPickerRaw, LAApparelPicker as LAApparelPickerRaw,
   FavoritesPicker as FavoritesPickerRaw, OtherPicker as OtherPickerRaw, CottonCollectivePicker as CottonCollectivePickerRaw,
-  applyBlankToItem, fleeceFlag, distribute, DEFAULT_CURVE,
+  applyBlankToItem, fleeceFlag, FLEECE_GARMENTS, distribute, DEFAULT_CURVE,
 } from "./BuySheetTab";
 import { parsePsd } from "./ProcessingTab";
 import { uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
@@ -80,7 +80,10 @@ const ROUTE_SUB: Record<string, string> = { drop_ship: "Vendor → client", ship
 const TASKS = [["build", "Build"], ["cost", "Cost"], ["art", "Art"]] as const;
 // Minimal add-product options (manual entry; full catalog pickers stay in the Studio/classic).
 const ADD_SIZES = ["S", "M", "L", "XL", "2XL", "3XL", "OSFA"];
-const ADD_GARMENTS: [string, string][] = [["tee", "Tee"], ["longsleeve", "Long sleeve"], ["hoodie", "Hoodie"], ["crewneck", "Crewneck"], ["hat", "Hat"], ["beanie", "Beanie"], ["tote", "Tote"], ["shorts", "Shorts"], ["jacket", "Jacket"]];
+// Full garment-type list — classic ProductBuilder's dropdown + accessory
+// (all valid per mig 020; drives the QB Product/Service mapping).
+const GARMENT_TYPES = ["accessory", "bandana", "banner", "beanie", "crewneck", "custom", "flag", "hat", "hoodie", "jacket", "koozie", "lighter", "longsleeve", "pants", "patch", "pin", "poster", "samples", "shorts", "socks", "sticker", "tee", "tote", "towel", "water_bottle"];
+const ADD_GARMENTS: [string, string][] = GARMENT_TYPES.map(t => [t, t.replace(/_/g, " ")]);
 
 export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: paymentsProp = [], contacts = [], thumbByItem = {} }: any) {
   // Local state so edits reflect live; reseeds if the parent reloads. Note:
@@ -274,6 +277,20 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     setItems(prev => prev.map(x => x.id === item.id ? { ...x, [fieldK]: v } : x));
     try { await (createClient().from("items") as any).update({ [fieldK]: v }).eq("id", item.id); } catch (e) { console.error("[JobV2] item field save failed", e); }
   };
+  // Garment-type change sets AND clears is_fleece (classic dropdown behavior —
+  // fleece drives the decorator upcharge + fleece packaging in costing).
+  const saveGarmentType = async (item: any, value: string) => {
+    const v = value || null;
+    if (v === (item.garment_type ?? null)) return;
+    const isFleece = !!(v && FLEECE_GARMENTS.includes(v));
+    setItems(prev => prev.map(x => x.id === item.id ? { ...x, garment_type: v, is_fleece: isFleece } : x));
+    try { await (createClient().from("items") as any).update({ garment_type: v, is_fleece: isFleece }).eq("id", item.id); } catch (e) { console.error("[JobV2] garment type save failed", e); }
+  };
+  const toggleFleece = async (item: any) => {
+    const next = !item.is_fleece;
+    setItems(prev => prev.map(x => x.id === item.id ? { ...x, is_fleece: next } : x));
+    try { await (createClient().from("items") as any).update({ is_fleece: next }).eq("id", item.id); } catch (e) { console.error("[JobV2] fleece toggle failed", e); }
+  };
   const addSize = async (item: any, sz: string) => {
     if (item.qtys && sz in item.qtys) return;
     const newQtys = { ...(item.qtys || {}), [sz]: 0 };
@@ -303,7 +320,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   const duplicateJob = async () => {
     setMenuOpen(false);
     if (!window.confirm("Duplicate this project (items, costing, contacts)?")) return;
-    try { const r = await fetch(`/api/jobs/${job.id}/duplicate`, { method: "POST" }); const d = await r.json(); if (d?.id) window.location.href = `/jobs/${d.id}?v2=1`; else alert(d?.error || "Duplicate failed"); } catch (e: any) { alert(e.message || "Duplicate failed"); }
+    try { const r = await fetch(`/api/jobs/${job.id}/duplicate`, { method: "POST" }); const d = await r.json(); const nid = d?.jobId || d?.id; if (r.ok && nid) window.location.href = `/jobs/${nid}?v2=1`; else alert(d?.error || "Duplicate failed"); } catch (e: any) { alert(e.message || "Duplicate failed"); }
   };
   const deleteJob = async () => {
     setMenuOpen(false);
@@ -429,7 +446,11 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
 
   const client = job?.clients?.name || "";
   const units = items.reduce((a: number, it: any) => a + qtyOf(it), 0);
-  const orderTotal = items.reduce((a: number, it: any) => a + (Number(it.sell_per_unit) || 0) * qtyOf(it), 0);
+  // Order value = Σ sell×qty + invoice extra lines — the SAME billable formula
+  // as scripts/qb-reconcile.cjs, so the grew/re-invoice signal matches it.
+  const extraLines: any[] = Array.isArray(job?.type_meta?.invoice_extra_lines) ? job.type_meta.invoice_extra_lines : [];
+  const extrasTotal = extraLines.reduce((a, l: any) => a + (Number(l?.amount) || 0), 0);
+  const orderTotal = items.reduce((a: number, it: any) => a + (Number(it.sell_per_unit) || 0) * qtyOf(it), 0) + extrasTotal;
   const tm = job?.type_meta || {};
   // invoiced total incl. tax (QB or Stripe). invoicedSub = pre-tax, to compare
   // against orderTotal (also pre-tax) for the "order grew" delta.
@@ -1014,6 +1035,29 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       await (createClient().from("items") as any).update(upd).eq("id", item.id);
     } catch (e) { console.error("[JobV2] blank cost save failed", e); }
   };
+  // Per-SIZE blank cost (2XL/3XL upcharges) — refines items.blank_costs one
+  // size at a time; cost_per_unit re-derives as the avg of the >0 per-size
+  // costs (same formula as CostingTab save + applyBlankToItem).
+  const saveBlankSizeCost = async (item: any, sz: string, raw: string) => {
+    if (isCostingLocked(job)) return;
+    const val = raw === "" ? 0 : parseFloat(String(raw).replace(/[^0-9.]/g, "")) || 0;
+    const prevVal = Number((item.blank_costs || {})[sz] ?? item.cost_per_unit ?? 0);
+    if (val === prevVal) return;
+    const blank_costs: Record<string, number> = {};
+    Object.keys(item.qtys || {}).forEach(s => { blank_costs[s] = Number((item.blank_costs || {})[s] ?? item.cost_per_unit ?? 0); });
+    blank_costs[sz] = val;
+    const costVals = Object.values(blank_costs).filter(v => v > 0);
+    const cost_per_unit = costVals.length ? Math.round(costVals.reduce((a, v) => a + v, 0) / costVals.length * 100) / 100 : 0;
+    const nextItem = { ...item, blank_costs, cost_per_unit };
+    const r = Object.keys(printers).length ? (() => { try { return calcCostProduct(assemble(nextItem), costMargin, inclShip, inclCC, items.map(x => x.id === item.id ? assemble(nextItem) : assemble(x)), printers); } catch { return null; } })() : null;
+    const sell = r ? Math.round(((r as any).sellPerUnit || 0) * 100) / 100 : item.sell_per_unit;
+    setItems(prev => prev.map(x => x.id === item.id ? { ...x, blank_costs, cost_per_unit, sell_per_unit: sell } : x));
+    try {
+      const upd: any = { blank_costs, cost_per_unit };
+      if (r) upd.sell_per_unit = sell;
+      await (createClient().from("items") as any).update(upd).eq("id", item.id);
+    } catch (e) { console.error("[JobV2] per-size cost save failed", e); }
+  };
 
   // Set / clear the per-item sell OVERRIDE — the single invoice-truth control.
   // Override has no home but costing_data.costProds[i].sellOverride, so this is
@@ -1322,6 +1366,30 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
             </div>
           )}
 
+          {/* Additional charges — invoice extra lines (same shape as classic:
+              rides the quote PDF + billable total; QB push is Phase 2). */}
+          <div style={{ padding: "12px 0", borderBottom: `1px solid ${T.border}55` }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: extraLines.length ? 8 : 0 }}>
+              <span style={lbl}>Additional charges{extrasTotal ? ` · ${fmtMoney(extrasTotal)}` : ""}</span>
+              <button onClick={() => saveTypeMeta({ invoice_extra_lines: [...extraLines, { id: `xl_${Date.now()}`, description: "", amount: 0, qb_item: "Service Fee", type: "fee" }] })}
+                style={{ background: "transparent", border: `1px solid ${T.border}`, color: T.text, fontSize: 11, fontWeight: 700, padding: "4px 10px", borderRadius: 6, cursor: "pointer", fontFamily: font }}>+ Add line</button>
+            </div>
+            {extraLines.map((l: any) => (
+              <div key={l.id} style={{ display: "grid", gridTemplateColumns: "1fr 90px 100px 24px", gap: 6, alignItems: "center", marginBottom: 6 }}>
+                <input defaultValue={l.description} placeholder="e.g. Rush fee" onBlur={e => saveTypeMeta({ invoice_extra_lines: extraLines.map((x: any) => x.id === l.id ? { ...x, description: e.target.value } : x) })}
+                  style={{ ...field, padding: "6px 8px", fontSize: 12 }} />
+                <input defaultValue={l.amount} inputMode="decimal" placeholder="0.00" onBlur={e => saveTypeMeta({ invoice_extra_lines: extraLines.map((x: any) => x.id === l.id ? { ...x, amount: parseFloat(e.target.value) || 0 } : x) })}
+                  style={{ ...field, padding: "6px 8px", fontSize: 12, fontFamily: mono, textAlign: "right" }} />
+                <select value={l.type || "fee"} onChange={e => saveTypeMeta({ invoice_extra_lines: extraLines.map((x: any) => x.id === l.id ? { ...x, type: e.target.value } : x) })}
+                  style={{ ...field, padding: "6px 8px", fontSize: 12 }}>
+                  {["fee", "passthru", "charge", "discount"].map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+                <button onClick={() => saveTypeMeta({ invoice_extra_lines: extraLines.filter((x: any) => x.id !== l.id) })} title="Remove"
+                  style={{ background: "transparent", border: "none", color: T.faint, fontSize: 16, cursor: "pointer", lineHeight: 1 }}>×</button>
+              </div>
+            ))}
+          </div>
+
           {/* payments — terms + records (click status to cycle, × to delete) */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "16px 0 8px", gap: 10, flexWrap: "wrap" }}>
             <span style={lbl}>Payments · {fmtMoney(paid)} paid of {fmtMoney(invoiced || orderTotal)}</span>
@@ -1399,6 +1467,9 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
               <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: `1px solid ${T.border}44`, flexWrap: "wrap" }}>
                 <input type="checkbox" checked={sel} onChange={() => toggleSel(item.id)} style={{ width: 15, height: 15, accentColor: T.accent, cursor: "pointer" }} />
                 <span style={{ flex: 1, minWidth: 150, fontSize: 13, fontWeight: 600 }}><span style={{ fontFamily: mono, fontSize: 10.5, fontWeight: 800, color: T.faint, marginRight: 7 }}>{letterOf(item.id)}</span>{item.name}<span style={{ color: T.faint, fontWeight: 400, marginLeft: 8, fontSize: 11 }}>{item.blank_vendor} {item.blank_sku}</span></span>
+                <input key={item.id + ":on:" + (item.blanks_order_number ?? "")} defaultValue={item.blanks_order_number || ""} placeholder="order #" title="Supplier order number (e.g. S&S)"
+                  onBlur={e => { const v = e.target.value.trim() || null; if (v !== (item.blanks_order_number ?? null)) { setItems(prev => prev.map((x: any) => x.id === item.id ? { ...x, blanks_order_number: v } : x)); (createClient().from("items") as any).update({ blanks_order_number: v }).eq("id", item.id).then(({ error }: any) => { if (error) console.error("[JobV2] order # save failed", error); }); } }}
+                  style={{ width: 90, padding: "6px 8px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: mono, outline: "none" }} />
                 <span style={{ fontSize: 11, color: T.faint, fontFamily: mono, width: 74, textAlign: "right" }}>est {fmtMoney(calc)}</span>
                 <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
                   <span style={{ fontSize: 11, color: T.faint }}>$</span>
@@ -1582,7 +1653,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
             {/* task panel (scaffold: real data read; real editors wire in next) */}
             <div style={{ padding: "14px 18px 22px", minHeight: 180 }}>
               {wsTask === "build" && (() => {
-                const sizes = Object.keys(it.qtys || {});
+                const sizes = sortSizes(Object.keys(it.qtys || {}));
                 const avail = ADD_SIZES.filter(s => !(it.qtys && s in it.qtys));
                 return (
                   <div>
@@ -1594,12 +1665,19 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                     {/* garment + blank (editable text; full catalog picker is separate) */}
                     <div style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
                       <label style={{ flex: "1 1 130px" }}>
-                        <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Garment type</span>
-                        <select value={it.garment_type || "tee"} disabled={locked} onChange={e => saveItemField(it, "garment_type", e.target.value)} style={field}>
+                        <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Product type</span>
+                        <select value={it.garment_type || ""} disabled={locked} onChange={e => saveGarmentType(it, e.target.value)} style={field}>
+                          <option value="">— type —</option>
                           {ADD_GARMENTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                          {it.garment_type && !ADD_GARMENTS.some(([v]) => v === it.garment_type) && <option value={it.garment_type}>{it.garment_type}</option>}
+                          {it.garment_type && !ADD_GARMENTS.some(([v]) => v === it.garment_type) && <option value={it.garment_type}>{it.garment_type.replace(/_/g, " ")}</option>}
                         </select>
                       </label>
+                      {!locked && (
+                        <button onClick={() => toggleFleece(it)} title="Fleece applies the decorator's per-print fleece upcharge + fleece packaging"
+                          style={{ alignSelf: "flex-end", fontSize: 10, fontWeight: 700, padding: "9px 12px", borderRadius: 8, border: `1px solid ${it.is_fleece ? T.green : T.border}`, background: it.is_fleece ? T.green : T.card, color: it.is_fleece ? "#fff" : T.muted, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase", fontFamily: font }}>
+                          {it.is_fleece ? "Fleece ✓" : "Fleece?"}
+                        </button>
+                      )}
                       {/* Blank + color are READ-ONLY here — the picker owns them
                           (Pick/Swap blank), same ownership rule as classic. */}
                       <div style={{ flex: "1 1 130px" }}>
@@ -1720,9 +1798,32 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
 
                         {/* raw blank-cost + shipping-buffer editors — bottom of the sheet
                             (writes items / costProd.shipRate) */}
+                        {(() => {
+                          const csizes = sortSizes(Object.keys(it.qtys || {}));
+                          if (csizes.length <= 1) return null;
+                          return (
+                            <div style={{ marginTop: 18, paddingTop: 14, borderTop: `1px solid ${T.border}44` }}>
+                              <div style={{ ...lbl, marginBottom: 6 }}>Blank cost by size <span style={{ fontWeight: 500, textTransform: "none", letterSpacing: 0, color: T.faint }}>· 2XL/3XL upcharges live here</span></div>
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                                {csizes.map(sz => {
+                                  const v = Number((it.blank_costs || {})[sz] ?? it.cost_per_unit ?? 0);
+                                  return (
+                                    <div key={it.id + ":bcs:" + sz + ":" + v} style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "center" }}>
+                                      <span style={{ fontSize: 10, fontWeight: 800, color: T.faint, fontFamily: mono }}>{sz}</span>
+                                      <input type="text" inputMode="decimal" defaultValue={v ? v.toFixed(2) : ""} placeholder="0.00" readOnly={locked}
+                                        onFocus={e => e.target.select()} onBlur={e => saveBlankSizeCost(it, sz, e.target.value)}
+                                        onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                                        style={{ width: 62, textAlign: "center", padding: "7px 5px", borderRadius: 8, border: `1px solid ${T.border}`, background: locked ? T.card : T.surface, color: locked ? T.muted : T.text, fontSize: 12.5, fontWeight: 700, fontFamily: mono, outline: "none" }} />
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })()}
                         <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 18, paddingTop: 14, borderTop: `1px solid ${T.border}44` }}>
                           <label style={{ flex: "1 1 190px" }}>
-                            <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Blank cost / unit <span style={{ fontWeight: 500, textTransform: "none", letterSpacing: 0, color: T.faint }}>· raw</span></span>
+                            <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Blank cost / unit <span style={{ fontWeight: 500, textTransform: "none", letterSpacing: 0, color: T.faint }}>· sets ALL sizes</span></span>
                             <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                               <span style={{ fontSize: 13, color: T.faint }}>$</span>
                               <input key={it.id + ":bcu:" + (it.cost_per_unit ?? "")} defaultValue={it.cost_per_unit != null ? Number(it.cost_per_unit).toFixed(2) : ""} placeholder="0.00" inputMode="decimal" readOnly={locked}
