@@ -96,6 +96,14 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   const [payments, setPayments] = useState<any[]>(paymentsProp);
   useEffect(() => { setPayments(paymentsProp); }, [paymentsProp]);
   const [localContacts, setLocalContacts] = useState<any[]>(contacts);
+  // The contacts PROP is the classic page's FLAT shape ({...contact, role_on_job})
+  // — no job_contacts id, so × can't target the join row and the list renders
+  // "no email". Re-hydrate the nested shape (jc row + contacts(*)) on mount;
+  // addContact already refreshes in this same shape.
+  useEffect(() => {
+    if (!job?.id) return;
+    createClient().from("job_contacts").select("*, contacts(*)").eq("job_id", job.id).then(({ data }: any) => { if (data) setLocalContacts(data); });
+  }, [job?.id]);
   useEffect(() => { setLocalContacts(contacts); }, [contacts]);
   const locked = isCostingLocked(job);
 
