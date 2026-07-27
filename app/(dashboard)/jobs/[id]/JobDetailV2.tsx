@@ -25,6 +25,9 @@ import {
   applyBlankToItem, fleeceFlag, FLEECE_GARMENTS, distribute, DEFAULT_CURVE,
 } from "./BuySheetTab";
 import { parsePsd } from "./ProcessingTab";
+import { EditSizesModal as EditSizesModalRaw } from "./ProductBuilder";
+import SizeGrid from "@/components/SizeGrid";
+import { parseSizeMatrix } from "@/lib/size-grid";
 import { uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
 import { sendQuoteAndProofs, defaultRecipient } from "@/lib/job/quote-actions";
 import { pushInvoiceToQB, recordPayment, cyclePaymentStatus, deletePayment, refreshPayLink, unlinkQBCustomer } from "@/lib/job/invoice-actions";
@@ -39,6 +42,7 @@ import { calculatePriority } from "@/lib/dates";
 import { SHIP_METHODS } from "@/lib/ship-methods";
 const DecorationPanel: any = DecorationPanelRaw; // .jsx — bypass narrow inferred prop types
 const ProofModal: any = ProofModalRaw;           // .jsx — same
+const EditSizesModal: any = EditSizesModalRaw;   // .jsx — same
 const SSPicker: any = SSPickerRaw, ASColourPicker: any = ASColourPickerRaw, LAApparelPicker: any = LAApparelPickerRaw,
   FavoritesPicker: any = FavoritesPickerRaw, OtherPicker: any = OtherPickerRaw, CottonCollectivePicker: any = CottonCollectivePickerRaw;
 // Same source labels/colors as the classic add-item modal (ProductBuilder).
@@ -310,6 +314,32 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       }
       if (sell != null) await (supabase.from("items") as any).update({ sell_per_unit: sell }).eq("id", item.id);
     } catch (e) { failed("Distribute failed — not saved", e); }
+  };
+
+  // Full size editor (classic EditSizesModal: adult/youth/one-size + the
+  // waist×inseam cut-ticket grid). Saves via targeted prune + upsert so
+  // ship/receive counters survive, then recomputes sell once.
+  const [editSizesFor, setEditSizesFor] = useState<string | null>(null);
+  const saveSizesQtys = async (item: any, nextSizes: string[], nextQtysRaw: Record<string, any>) => {
+    if (isCostingLocked(job)) return;
+    const nextQtys: Record<string, number> = Object.fromEntries(nextSizes.map(sz => [sz, Number(nextQtysRaw?.[sz]) || 0]));
+    const updated = { ...item, qtys: nextQtys, totalQty: sumQ(nextQtys) };
+    const sell = Object.keys(printers).length ? (() => {
+      try { const r: any = calcCostProduct(assemble(updated), costMargin, inclShip, inclCC, items.map(x => x.id === item.id ? assemble(updated) : assemble(x)), printers); return r ? Math.round((r.sellPerUnit || 0) * 100) / 100 : null; } catch { return null; }
+    })() : null;
+    setItems(prev => prev.map(x => x.id === item.id ? { ...x, qtys: nextQtys, totalQty: sumQ(nextQtys), ...(sell != null ? { sell_per_unit: sell } : {}) } : x));
+    setEditSizesFor(null);
+    try {
+      const supabase = createClient();
+      const keep = new Set(Object.keys(nextQtys));
+      const { data: existing }: any = await supabase.from("buy_sheet_lines").select("size").eq("item_id", item.id);
+      const stale = (existing || []).map((r: any) => r.size).filter((s: string) => !keep.has(s));
+      if (stale.length) await (supabase.from("buy_sheet_lines") as any).delete().eq("item_id", item.id).in("size", stale);
+      for (const [size, q] of Object.entries(nextQtys)) {
+        await (supabase.from("buy_sheet_lines") as any).upsert({ item_id: item.id, size, qty_ordered: q }, { onConflict: "item_id,size" });
+      }
+      if (sell != null) await (supabase.from("items") as any).update({ sell_per_unit: sell }).eq("id", item.id);
+    } catch (e) { failed("Size save failed — not saved", e); }
   };
 
   // Build-tab edits: rename, add/remove a size, remove the product from the job.
@@ -1947,6 +1977,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
               {wsTask === "build" && (() => {
                 const sizes = sortSizes(Object.keys(it.qtys || {}));
                 const avail = ADD_SIZES.filter(s => !(it.qtys && s in it.qtys));
+                const dimensional = !!parseSizeMatrix(sizes, it.qtys || null);
                 return (
                   <div>
                     {/* name */}
@@ -1986,7 +2017,18 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                       )}
                     </div>
                     {/* sizes + qty with remove + add */}
-                    <div style={{ ...lbl, marginBottom: 6 }}>Sizes &amp; quantities</div>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                      <span style={lbl}>Sizes &amp; quantities</span>
+                      {!locked && <button onClick={() => setEditSizesFor(it.id)} style={{ ...ghostBtn, padding: "4px 11px", fontSize: 11 }}>Edit sizes ▸</button>}
+                    </div>
+                    {dimensional ? (
+                      /* waist×inseam runs: the shared cut-ticket read-out; edits
+                         go through the full editor (flat inputs would be soup) */
+                      <div>
+                        <SizeGrid labels={sizes} qtys={it.qtys || {}} palette={{ text: T.text, muted: T.muted, faint: T.faint, border: T.border, surface: T.surface }} mono={mono} />
+                        <div style={{ fontSize: 11, color: T.faint, marginTop: 8 }}>{qtyOf(it).toLocaleString()} units · Edit sizes ▸ opens the grid editor.</div>
+                      </div>
+                    ) : (
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "flex-end" }}>
                       {sizes.map(sz => (
                         <div key={it.id + "_" + sz + ":" + (it.qtys?.[sz] ?? "")} style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "center", position: "relative" }}>
@@ -2019,6 +2061,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                         </div>
                       )}
                     </div>
+                    )}
                     <div style={{ fontSize: 11, color: locked ? T.amber : T.faint, marginTop: 14 }}>
                       {locked ? "🔒 Pricing is locked — unlock in Costing to edit." : "Saves to the buy sheet. Pick blank ▸ opens the full catalog (S&S, AS Colour, LA Apparel, Cotton Collective, Favorites)."}
                     </div>
@@ -2494,6 +2537,18 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
           <div style={{ fontSize: 12.5, color: T.text, fontWeight: 700 }}>⏳ Preparing proof PDFs… ({bakeIds.length})</div>
         </div>
       )}
+
+      {/* ── full size editor (classic EditSizesModal: adult/youth/one-size +
+          waist×inseam grid) — z 420 over the worksheet ── */}
+      {editSizesFor && (() => {
+        const target = items.find((x: any) => x.id === editSizesFor); if (!target) return null;
+        return (
+          <EditSizesModal zIndex={420}
+            item={{ ...target, sizes: sortSizes(Object.keys(target.qtys || {})), qtys: target.qtys || {} }}
+            onClose={() => setEditSizesFor(null)}
+            onSave={(nextSizes: string[], nextQtys: Record<string, any>) => saveSizesQtys(target, nextSizes, nextQtys)} />
+        );
+      })()}
 
       {/* ── invoice variance review (reconcile-at-ship / QB heal) ── */}
       {showVariance && (

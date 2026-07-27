@@ -1667,7 +1667,7 @@ function SizeSubModal({ item, size, onClose, onSave }) {
 // are active; qty grid for active sizes; Distribute helper fills by
 // the item's curve (or default S/M/L/XL ladder).
 // ═══════════════════════════════════════════════════════════════
-function EditSizesModal({ item, onClose, onSave }) {
+export function EditSizesModal({ item, onClose, onSave, zIndex = 110 }) {
   // Working copy of sizes + qtys — committed via onSave on save.
   const [sizes, setSizes] = useState(() => [...(item.sizes || [])]);
   const [qtys, setQtys] = useState(() => ({ ...(item.qtys || {}) }));
@@ -1747,7 +1747,7 @@ function EditSizesModal({ item, onClose, onSave }) {
 
   return (
     <div onClick={onClose}
-      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 110, display: "flex", alignItems: "center", justifyContent: "center", padding: "clamp(12px, 3vw, 32px)", fontFamily: font }}>
+      style={{  position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: zIndex, display: "flex", alignItems: "center", justifyContent: "center", padding: "clamp(12px, 3vw, 32px)", fontFamily: font }}>
       <div onClick={e => e.stopPropagation()}
         style={{ background: T.card, borderRadius: 12, width: "min(900px, 100%)", maxHeight: "90vh", display: "flex", flexDirection: "column", overflow: "hidden", border: `1px solid ${T.border}` }}>
         <div style={{ padding: "14px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
