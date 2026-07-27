@@ -29,6 +29,8 @@ import { uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
 import { sendQuoteAndProofs, defaultRecipient } from "@/lib/job/quote-actions";
 import { pushInvoiceToQB, recordPayment, cyclePaymentStatus, deletePayment, refreshPayLink, unlinkQBCustomer } from "@/lib/job/invoice-actions";
 import { QBCustomerChooser } from "@/components/QBCustomerChooser";
+import { InvoiceVarianceReviewModal } from "@/components/InvoiceVarianceReviewModal";
+import { deriveInvoice } from "@/lib/job/invoice-derive";
 import { applyPoSentToVendorItems, revertPoSentFromVendorItems } from "@/lib/po-actions";
 import { recalcJobPhase } from "@/lib/job-phase-recalc";
 import { PROOF_RENDERER_VERSION } from "@/lib/proof-client";
@@ -648,6 +650,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   const [chooserOpen, setChooserOpen] = useState(false);
   const [chooserCandidates, setChooserCandidates] = useState<any>(undefined);
   const [refreshingLink, setRefreshingLink] = useState(false);
+  const [showVariance, setShowVariance] = useState(false); // reconcile-at-ship review modal
   const [linkErr, setLinkErr] = useState("");
   const doRefreshLink = async () => {
     if (refreshingLink) return;
@@ -1595,6 +1598,24 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                   {invNum && row("Balance", balDue > 0.01
                     ? <span style={{ fontWeight: 800, color: T.amber, fontFamily: mono }}>{fmtMoney(balDue)} due</span>
                     : <span style={{ color: T.green }}>Paid in full</span>)}
+                  {/* reconcile at ship — bill ACTUAL qtys; also the heal path
+                      for direct-in-QB edits (Re-review). Classic InvoiceSurface flow. */}
+                  {invNum && (() => {
+                    const s: any = deriveInvoice(job, items, payments);
+                    if (s.variancePushedAt) return row("Reconcile", (
+                      <>
+                        <span style={{ color: T.green }}>✓ finalized {fmtDT(s.variancePushedAt)}</span>
+                        <button onClick={() => setShowVariance(true)} style={{ background: "none", border: `1px solid ${T.border}`, color: T.muted, fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 999, cursor: "pointer", fontFamily: font }}>Re-review</button>
+                      </>
+                    ));
+                    if (s.step === "reconcile") return row("Reconcile", (
+                      <>
+                        <span style={{ color: T.amber }}>⚠ shipped — bill actual qtys</span>
+                        <button onClick={() => setShowVariance(true)} style={{ background: T.amber, border: "none", color: "#fff", fontSize: 11, fontWeight: 800, padding: "4px 12px", borderRadius: 999, cursor: "pointer", fontFamily: font }}>Review &amp; finalize</button>
+                      </>
+                    ));
+                    return row("Reconcile", <span style={{ color: T.faint, fontWeight: 500 }}>after ship</span>);
+                  })()}
                 </div>
               </div>
             );
@@ -2472,6 +2493,13 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
         <div style={{ position: "fixed", bottom: 22, left: "50%", transform: "translateX(-50%)", zIndex: 500, background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: "13px 18px", boxShadow: "0 8px 28px rgba(0,0,0,0.45)" }}>
           <div style={{ fontSize: 12.5, color: T.text, fontWeight: 700 }}>⏳ Preparing proof PDFs… ({bakeIds.length})</div>
         </div>
+      )}
+
+      {/* ── invoice variance review (reconcile-at-ship / QB heal) ── */}
+      {showVariance && (
+        <InvoiceVarianceReviewModal jobId={job.id} shippingRoute={job.shipping_route} jobTitle={job.title} clientName={client}
+          onClose={() => setShowVariance(false)}
+          onApproved={() => { logJobActivity(job.id, "QB invoice updated with actual qtys — revised invoice emailed to client"); setShowVariance(false); refetchTypeMeta(); recalcPhase(); }} />
       )}
 
       {/* ── QB customer chooser (ambiguous invoice push → pick/create/unlink) ── */}
