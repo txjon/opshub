@@ -1105,15 +1105,15 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   const actBtn: React.CSSProperties = { fontSize: 12, fontWeight: 800, color: "#0a0a0a", background: T.accent, border: "none", borderRadius: 999, padding: "9px 16px", cursor: "pointer", fontFamily: font };
   const ghostBtn: React.CSSProperties = { ...previewBtn, cursor: "pointer", fontFamily: font };
   const field: React.CSSProperties = { padding: "9px 11px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13.5, fontFamily: font, outline: "none", boxSizing: "border-box", width: "100%" };
-  const block = (id: string, tick: "done" | "now" | "todo", title: string, summary: string, body: React.ReactNode, dim = false) => (
-    <div id={id} style={{ border: `1px solid ${T.border}`, borderRadius: 16, background: T.card, marginTop: 14, overflow: "hidden", opacity: dim && !open[id] ? 0.6 : 1 }}>
+  const block = (id: string, tick: "done" | "now" | "todo" | "warn", title: string, summary: string, body: React.ReactNode, dim = false) => (
+    <div id={id} style={{ border: `1px solid ${tick === "warn" ? T.amber + "88" : T.border}`, borderRadius: 16, background: tick === "warn" ? `${T.amber}0d` : T.card, marginTop: 14, overflow: "hidden", opacity: dim && !open[id] ? 0.6 : 1 }}>
       <div onClick={() => toggle(id)} style={{ display: "flex", alignItems: "center", gap: 14, padding: "16px 20px", cursor: "pointer" }}>
         <span style={{ width: 22, height: 22, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 800,
-          background: tick === "done" ? T.greenDim : tick === "now" ? "rgba(107,176,232,.14)" : "transparent",
-          color: tick === "done" ? T.green : tick === "now" ? "#6bb0e8" : T.faint,
-          border: `1px solid ${tick === "done" ? T.green + "66" : tick === "now" ? "#6bb0e880" : T.border}` }}>{tick === "done" ? "✓" : tick === "now" ? "◉" : "○"}</span>
+          background: tick === "done" ? T.greenDim : tick === "now" ? "rgba(107,176,232,.14)" : tick === "warn" ? `${T.amber}22` : "transparent",
+          color: tick === "done" ? T.green : tick === "now" ? "#6bb0e8" : tick === "warn" ? T.amber : T.faint,
+          border: `1px solid ${tick === "done" ? T.green + "66" : tick === "now" ? "#6bb0e880" : tick === "warn" ? T.amber + "88" : T.border}` }}>{tick === "done" ? "✓" : tick === "now" ? "◉" : tick === "warn" ? "!" : "○"}</span>
         <span style={{ fontSize: 14, fontWeight: 800, letterSpacing: "0.02em", textTransform: "uppercase" }}>{title}</span>
-        <span style={{ flex: 1, fontSize: 12.5, color: T.muted, fontFamily: mono, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{summary}</span>
+        <span style={{ flex: 1, fontSize: 12.5, color: tick === "warn" ? T.amber : T.muted, fontFamily: mono, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: tick === "warn" ? 700 : 400 }}>{summary}</span>
         <span style={{ color: T.faint, fontSize: 13, transform: open[id] ? "none" : "rotate(-90deg)", transition: "transform .2s" }}>▾</span>
       </div>
       {open[id] && <div style={{ padding: "4px 20px 20px", borderTop: `1px solid ${T.border}55` }}>{body}</div>}
@@ -1325,7 +1325,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       ))}
 
       {/* CLIENT */}
-      {block("client", flags.approved ? "done" : "todo", "Client",
+      {block("client", tm.change_request || flags.grew ? "warn" : flags.approved ? "done" : "todo", "Client",
         `${flags.approved ? "Approved" : flags.quoted ? "Quote sent" : "Not sent"} · ${invNum ? "Inv " + invNum : "no invoice"} · ${fmtMoney(paid)} paid${flags.grew ? " · ⚠ re-invoice" : ""}${tm.change_request ? " · ⚠ changes requested" : ""}`, (
         <div>
           {/* client change request (portal) — the note + tagged items, until
