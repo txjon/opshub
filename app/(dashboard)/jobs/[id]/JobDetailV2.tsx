@@ -163,6 +163,43 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     } catch (e) { console.error("[JobV2] qty save failed", e); }
   };
 
+  // Build-tab edits: rename, add/remove a size, remove the product from the job.
+  const renameItem = async (item: any, name: string) => {
+    const n = name.trim(); if (!n || n === item.name) return;
+    setItems(prev => prev.map(x => x.id === item.id ? { ...x, name: n } : x));
+    try { await (createClient().from("items") as any).update({ name: n }).eq("id", item.id); } catch (e) { console.error("[JobV2] rename failed", e); }
+  };
+  const saveItemField = async (item: any, fieldK: "garment_type" | "blank_vendor" | "blank_sku", value: string) => {
+    const v = (value || "").trim() || null;
+    if (v === (item[fieldK] ?? null)) return;
+    setItems(prev => prev.map(x => x.id === item.id ? { ...x, [fieldK]: v } : x));
+    try { await (createClient().from("items") as any).update({ [fieldK]: v }).eq("id", item.id); } catch (e) { console.error("[JobV2] item field save failed", e); }
+  };
+  const addSize = async (item: any, sz: string) => {
+    if (item.qtys && sz in item.qtys) return;
+    const newQtys = { ...(item.qtys || {}), [sz]: 0 };
+    setItems(prev => prev.map(x => x.id === item.id ? { ...x, qtys: newQtys, totalQty: sumQ(newQtys) } : x));
+    try { await (createClient().from("buy_sheet_lines") as any).upsert({ item_id: item.id, size: sz, qty_ordered: 0, qty_shipped_from_vendor: 0, qty_received_at_hpd: 0, qty_shipped_to_customer: 0 }, { onConflict: "item_id,size" }); } catch (e) { console.error("[JobV2] addSize failed", e); }
+  };
+  const removeSize = async (item: any, sz: string) => {
+    const newQtys = { ...(item.qtys || {}) }; delete newQtys[sz];
+    setItems(prev => prev.map(x => x.id === item.id ? { ...x, qtys: newQtys, totalQty: sumQ(newQtys) } : x));
+    try { await createClient().from("buy_sheet_lines").delete().eq("item_id", item.id).eq("size", sz); } catch (e) { console.error("[JobV2] removeSize failed", e); }
+  };
+  const removeProduct = async (item: any) => {
+    if (!window.confirm(`Remove "${item.name}" from this job? This deletes the product and its files.`)) return;
+    const supabase = createClient();
+    try {
+      await supabase.from("buy_sheet_lines").delete().eq("item_id", item.id);
+      await supabase.from("item_files").delete().eq("item_id", item.id);
+      await supabase.from("decorator_assignments").delete().eq("item_id", item.id);
+      await supabase.from("items").delete().eq("id", item.id);
+      setItems(prev => prev.filter(x => x.id !== item.id));
+      setWsIndex(null);
+      try { logJobActivity(job.id, `Product removed: ${item.name}`); } catch {}
+    } catch (e) { console.error("[JobV2] remove product failed", e); }
+  };
+
   // Record a blank purchase total → items.blanks_order_cost. Per-item. (The S&S
   // order # field was dropped — we log the credit-card purchase total only.)
   const saveBlankCost = async (item: any, raw: string) => {
@@ -824,7 +861,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       {it && (
         <div onClick={e => { if (e.target === e.currentTarget) setWsIndex(null); }}
           style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.72)", zIndex: 300, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "24px 14px", overflowY: "auto" }}>
-          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 16, width: "100%", maxWidth: 640, overflow: "hidden" }}>
+          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 16, width: "100%", maxWidth: 820, overflow: "hidden" }}>
             {/* nav strip */}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", borderBottom: `1px solid ${T.border}55` }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -832,7 +869,10 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                 <button onClick={() => setWsIndex((wsIndex! + 1) % items.length)} aria-label="Next item" style={navBtn}>›</button>
                 <span style={{ fontFamily: mono, fontSize: 12, color: T.faint, marginLeft: 6 }}>{wsIndex! + 1} / {items.length}</span>
               </div>
-              <button onClick={() => setWsIndex(null)} aria-label="Close" style={{ ...navBtn, background: T.surface }}>×</button>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                {!locked && <button onClick={() => removeProduct(it)} title="Remove product from job" style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 999, color: T.muted, fontSize: 11, fontWeight: 700, padding: "6px 12px", cursor: "pointer", fontFamily: font }}>Remove</button>}
+                <button onClick={() => setWsIndex(null)} aria-label="Close" style={{ ...navBtn, background: T.surface }}>×</button>
+              </div>
             </div>
             {/* item head */}
             <div style={{ display: "flex", gap: 14, padding: "16px 18px", alignItems: "center" }}>
@@ -854,34 +894,58 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
             <div style={{ padding: "14px 18px 22px", minHeight: 180 }}>
               {wsTask === "build" && (() => {
                 const sizes = Object.keys(it.qtys || {});
+                const avail = ADD_SIZES.filter(s => !(it.qtys && s in it.qtys));
                 return (
                   <div>
-                    {sizes.length === 0 ? (
-                      <div style={{ fontSize: 13, color: T.faint }}>No sizes on this item yet.</div>
-                    ) : (
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                        {sizes.map(sz => (
-                          <label key={it.id + "_" + sz + ":" + (it.qtys?.[sz] ?? "")} style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "center" }}>
-                            <span style={{ fontSize: 10, fontWeight: 800, color: T.faint, fontFamily: mono }}>{sz}</span>
-                            <input type="text" inputMode="numeric" defaultValue={String(it.qtys?.[sz] ?? 0)} readOnly={locked}
-                              onFocus={e => e.target.select()}
-                              onBlur={e => saveQty(it, sz, e.target.value)}
-                              onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-                              style={{ width: 56, textAlign: "center", padding: "7px 6px", borderRadius: 8, border: `1px solid ${T.border}`, background: locked ? T.card : T.surface, color: locked ? T.muted : T.text, fontSize: 14, fontWeight: 700, fontFamily: mono, outline: "none" }} />
-                          </label>
-                        ))}
-                        <label style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "center", justifyContent: "flex-end" }}>
-                          <span style={{ fontSize: 10, fontWeight: 800, color: T.faint, fontFamily: mono }}>TOTAL</span>
-                          <div style={{ width: 64, textAlign: "center", padding: "7px 6px", fontSize: 15, fontWeight: 800, fontFamily: mono }}>{qtyOf(it).toLocaleString()}</div>
-                        </label>
-                      </div>
-                    )}
-                    <div style={{ display: "flex", gap: 22, marginTop: 14, fontSize: 12.5, color: T.muted }}>
-                      <span>Garment <b style={{ color: T.text }}>{it.garment_type || "—"}</b></span>
-                      <span>Blank <b style={{ color: T.text }}>{`${it.blank_vendor || ""} ${it.blank_sku || ""}`.trim() || "—"}</b></span>
+                    {/* name */}
+                    <label style={{ display: "block", marginBottom: 12 }}>
+                      <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Product name</span>
+                      <input key={it.id + ":name:" + it.name} defaultValue={it.name || ""} readOnly={locked} onBlur={e => renameItem(it, e.target.value)} style={field} />
+                    </label>
+                    {/* garment + blank (editable text; full catalog picker is separate) */}
+                    <div style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
+                      <label style={{ flex: "1 1 130px" }}>
+                        <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Garment type</span>
+                        <select value={it.garment_type || "tee"} disabled={locked} onChange={e => saveItemField(it, "garment_type", e.target.value)} style={field}>
+                          {ADD_GARMENTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                          {it.garment_type && !ADD_GARMENTS.some(([v]) => v === it.garment_type) && <option value={it.garment_type}>{it.garment_type}</option>}
+                        </select>
+                      </label>
+                      <label style={{ flex: "1 1 130px" }}>
+                        <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Blank</span>
+                        <input key={it.id + ":bv:" + it.blank_vendor} defaultValue={it.blank_vendor || ""} readOnly={locked} onBlur={e => saveItemField(it, "blank_vendor", e.target.value)} placeholder="e.g. Next Level 6210" style={field} />
+                      </label>
+                      <label style={{ flex: "1 1 110px" }}>
+                        <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Color</span>
+                        <input key={it.id + ":bs:" + it.blank_sku} defaultValue={it.blank_sku || ""} readOnly={locked} onBlur={e => saveItemField(it, "blank_sku", e.target.value)} placeholder="Color" style={field} />
+                      </label>
                     </div>
-                    <div style={{ fontSize: 11, color: locked ? T.amber : T.faint, marginTop: 12 }}>
-                      {locked ? "🔒 Pricing is locked — unlock in Costing to change quantities." : "Saves to the buy sheet (the single source). Totals update live."}
+                    {/* sizes + qty with remove + add */}
+                    <div style={{ ...lbl, marginBottom: 6 }}>Sizes &amp; quantities</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "flex-end" }}>
+                      {sizes.map(sz => (
+                        <div key={it.id + "_" + sz + ":" + (it.qtys?.[sz] ?? "")} style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "center", position: "relative" }}>
+                          <span style={{ fontSize: 10, fontWeight: 800, color: T.faint, fontFamily: mono }}>{sz}</span>
+                          <input type="text" inputMode="numeric" defaultValue={String(it.qtys?.[sz] ?? 0)} readOnly={locked}
+                            onFocus={e => e.target.select()} onBlur={e => saveQty(it, sz, e.target.value)}
+                            onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                            style={{ width: 56, textAlign: "center", padding: "7px 6px", borderRadius: 8, border: `1px solid ${T.border}`, background: locked ? T.card : T.surface, color: locked ? T.muted : T.text, fontSize: 14, fontWeight: 700, fontFamily: mono, outline: "none" }} />
+                          {!locked && <button onClick={() => removeSize(it, sz)} title="Remove size" style={{ position: "absolute", top: 10, right: -4, width: 15, height: 15, borderRadius: 999, border: "none", background: T.surface, color: T.faint, fontSize: 11, lineHeight: 1, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>}
+                        </div>
+                      ))}
+                      {!locked && avail.length > 0 && (
+                        <select value="" onChange={e => { if (e.target.value) addSize(it, e.target.value); }} style={{ ...field, width: 68, height: 34, alignSelf: "flex-end" }}>
+                          <option value="">+ size</option>
+                          {avail.map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      )}
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "center", justifyContent: "flex-end", marginLeft: 6 }}>
+                        <span style={{ fontSize: 10, fontWeight: 800, color: T.faint, fontFamily: mono }}>TOTAL</span>
+                        <div style={{ width: 64, textAlign: "center", padding: "7px 6px", fontSize: 15, fontWeight: 800, fontFamily: mono }}>{qtyOf(it).toLocaleString()}</div>
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 11, color: locked ? T.amber : T.faint, marginTop: 14 }}>
+                      {locked ? "🔒 Pricing is locked — unlock in Costing to edit." : "Saves to the buy sheet. Full S&S/catalog blank picker is separate (Studio/classic)."}
                     </div>
                   </div>
                 );
@@ -909,57 +973,55 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                       <div style={{ fontSize: 13, color: T.faint, padding: "20px 0" }}>No quantities yet — set them in Build.</div>
                     ) : (
                       <>
-                        {/* revenue from the invoice truth; cost from the assembler + shared engine */}
-                        {[["Revenue", fmtMoney(grossRev), T.text],
-                          ["Blank cost", fmtMoney(r.blankCost), T.muted],
-                          ["Decoration / PO", fmtMoney(r.poTotal), T.muted],
-                          ...(inclShip ? [["Shipping (buffer)", fmtMoney(r.shipping), T.muted]] : []),
-                          ...(inclCC ? [["CC fees", fmtMoney(ccFees), T.muted]] : []),
-                          ["Net profit", fmtMoney(netProfit), marginColor],
-                          ["Margin", (marginPct * 100).toFixed(1) + "%", marginColor]].map(([l, v, c]: any) => (
-                          <div key={l} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${T.border}44`, fontSize: 13 }}>
-                            <span style={{ color: T.muted }}>{l}</span><span style={{ fontWeight: 700, fontFamily: mono, color: c }}>{v}</span>
+                        {/* SELL + override — top, prominent (the invoice truth) */}
+                        <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 16, flexWrap: "wrap", paddingBottom: 14, borderBottom: `1px solid ${T.border}` }}>
+                          <div>
+                            <div style={{ ...lbl, marginBottom: 4 }}>Sell / unit {overridden && <span style={{ color: T.amber }}>· override</span>}</div>
+                            <div style={{ fontFamily: mono, fontSize: 27, fontWeight: 900, lineHeight: 1 }}>${sell.toFixed(2)}</div>
                           </div>
-                        ))}
-                        {/* sell / unit — the invoice truth (items.sell_per_unit) */}
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0 8px", marginTop: 4, borderTop: `1px solid ${T.border}` }}>
-                          <span style={{ fontSize: 12, fontWeight: 800, letterSpacing: "0.04em", textTransform: "uppercase", color: T.text }}>Sell / unit {overridden && <span style={{ color: T.amber, fontWeight: 700, marginLeft: 6 }}>· override</span>}</span>
-                          <span style={{ fontFamily: mono, fontSize: 20, fontWeight: 800 }}>${sell.toFixed(2)}</span>
+                          <label style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 160 }}>
+                            <span style={{ ...lbl }}>Override / unit <span style={{ fontWeight: 500, textTransform: "none", letterSpacing: 0, color: T.faint }}>· blank = auto</span></span>
+                            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                              <span style={{ fontSize: 13, color: T.faint }}>$</span>
+                              <input key={it.id + ":ovr:" + (cp.sellOverride ?? "")} defaultValue={cp.sellOverride != null && cp.sellOverride !== "" ? Number(cp.sellOverride).toFixed(2) : ""} placeholder="auto" inputMode="decimal" readOnly={locked}
+                                onBlur={e => saveOverride(it, e.target.value)}
+                                style={{ flex: 1, padding: "8px 10px", borderRadius: 8, border: `1px solid ${overridden ? T.amber + "88" : T.border}`, background: locked ? T.card : T.surface, color: locked ? T.muted : T.text, fontSize: 14, fontWeight: 700, fontFamily: mono, outline: "none" }} />
+                            </div>
+                          </label>
                         </div>
 
-                        {/* decoration engine — the real DecorationPanel, fed the full assembled
-                            array so share groups (A–J / T1–T10) + qty tiers compute across items. */}
-                        <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${T.border}44` }}>
-                          <div style={{ ...lbl, marginBottom: 10 }}>Decoration</div>
-                          <DecorationPanel p={allAssembled[wsIndex!]} i={wsIndex!} costProds={allAssembled} PRINTERS={printers} decoratorRecords={decoratorRecords} updateProd={updateProd} setCostProds={setCostProdsFn} lookupPrintPrice={lookupPrint} lookupTagPrice={lookupTag} costingLocked={locked} />
+                        {/* condensed KPI strip */}
+                        <div style={{ display: "flex", flexWrap: "wrap", marginTop: 12 }}>
+                          {([["Revenue", fmtMoney(grossRev), T.text],
+                            ["Blank", fmtMoney(r.blankCost), T.muted],
+                            ["Decoration", fmtMoney(r.poTotal), T.muted],
+                            ...(inclShip ? [["Ship", fmtMoney(r.shipping), T.muted]] : []),
+                            ...(inclCC ? [["CC", fmtMoney(ccFees), T.muted]] : []),
+                            ["Net profit", fmtMoney(netProfit), marginColor],
+                            ["Margin", (marginPct * 100).toFixed(1) + "%", marginColor]] as any[]).map(([l, v, c]: any, i: number, arr: any[]) => (
+                            <div key={l} style={{ flex: "1 1 auto", minWidth: 76, paddingRight: 12, marginRight: 12, borderRight: i < arr.length - 1 ? `1px solid ${T.border}44` : "none" }}>
+                              <div style={lbl}>{l}</div>
+                              <div style={{ fontFamily: mono, fontSize: 15, fontWeight: 800, color: c, marginTop: 3 }}>{v}</div>
+                            </div>
+                          ))}
                         </div>
 
-                        {/* raw blank-cost editor — the one thing you edit here (writes items only) */}
-                        <label style={{ display: "block", marginTop: 16, paddingTop: 14, borderTop: `1px solid ${T.border}44` }}>
-                          <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Blank cost / unit (raw — buffer applied in calc)</span>
-                          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                        {/* raw blank-cost editor (writes items only) */}
+                        <label style={{ display: "block", marginTop: 18, paddingTop: 14, borderTop: `1px solid ${T.border}44` }}>
+                          <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Blank cost / unit <span style={{ fontWeight: 500, textTransform: "none", letterSpacing: 0, color: T.faint }}>· raw; buffer applied in calc</span></span>
+                          <div style={{ display: "flex", alignItems: "center", gap: 4, maxWidth: 220 }}>
                             <span style={{ fontSize: 13, color: T.faint }}>$</span>
                             <input key={it.id + ":bcu:" + (it.cost_per_unit ?? "")} defaultValue={it.cost_per_unit != null ? Number(it.cost_per_unit).toFixed(2) : ""} placeholder="0.00" inputMode="decimal" readOnly={locked}
                               onBlur={e => saveBlankPerUnit(it, e.target.value)}
                               style={{ flex: 1, padding: "9px 11px", borderRadius: 8, border: `1px solid ${T.border}`, background: locked ? T.card : T.surface, color: locked ? T.muted : T.text, fontSize: 14, fontWeight: 700, fontFamily: mono, outline: "none" }} />
                           </div>
                         </label>
-                        <div style={{ fontSize: 11, color: locked ? T.amber : T.faint, marginTop: 10 }}>
-                          {locked ? "🔒 Locked — unlock in Costing to change the blank cost." : "Spreads across all sizes → items.blank_costs; sell recomputes and saves."}
-                        </div>
 
-                        {/* sell override — the invoice-truth manual control */}
-                        <label style={{ display: "block", marginTop: 16, paddingTop: 14, borderTop: `1px solid ${T.border}44` }}>
-                          <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Sell override / unit <span style={{ color: T.faint, fontWeight: 500, textTransform: "none", letterSpacing: 0 }}>· blank = auto from margin</span></span>
-                          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                            <span style={{ fontSize: 13, color: T.faint }}>$</span>
-                            <input key={it.id + ":ovr:" + (cp.sellOverride ?? "")} defaultValue={cp.sellOverride != null && cp.sellOverride !== "" ? Number(cp.sellOverride).toFixed(2) : ""} placeholder={"auto · $" + sell.toFixed(2)} inputMode="decimal" readOnly={locked}
-                              onBlur={e => saveOverride(it, e.target.value)}
-                              style={{ flex: 1, padding: "9px 11px", borderRadius: 8, border: `1px solid ${overridden ? T.amber + "88" : T.border}`, background: locked ? T.card : T.surface, color: locked ? T.muted : T.text, fontSize: 14, fontWeight: 700, fontFamily: mono, outline: "none" }} />
-                          </div>
-                        </label>
-                        <div style={{ fontSize: 11, color: T.faint, marginTop: 10 }}>
-                          {overridden ? "Manual price — clear the field to return to the auto (margin) price. This is the invoice truth." : "Auto price from cost + margin. Type a value to override; it becomes the invoice truth."}
+                        {/* decoration engine — DecorationPanel fed the full assembled array so
+                            share groups (A–J / T1–T10) + qty tiers compute across items. */}
+                        <div style={{ marginTop: 18, paddingTop: 14, borderTop: `1px solid ${T.border}44` }}>
+                          <div style={{ ...lbl, marginBottom: 10 }}>Decoration</div>
+                          <DecorationPanel p={allAssembled[wsIndex!]} i={wsIndex!} costProds={allAssembled} PRINTERS={printers} decoratorRecords={decoratorRecords} updateProd={updateProd} setCostProds={setCostProdsFn} lookupPrintPrice={lookupPrint} lookupTagPrice={lookupTag} costingLocked={locked} />
                         </div>
                       </>
                     )}
