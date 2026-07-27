@@ -14,6 +14,39 @@ import { calcCostProduct, buildPrintersMap } from "./pricing";
 
 type Sb = any;
 
+// ── Single-source overlay ───────────────────────────────────────────────────
+// costing_data.costProds carries VESTIGIAL qtys/blankCosts that drift once
+// quantities live in buy_sheet_lines and blank costs in items.blank_costs
+// (the 028 class — the hub showed $3,575 while the buy sheet said $2,472).
+// Before any computation, overlay each costProd with the item truth:
+//   qty ← buy_sheet_lines (fallback: costProd qtys when no lines)
+//   blankCosts ← items.blank_costs (fallback: costProd blankCosts)
+// costProds matching NO item are dropped — the buy sheet owns which products
+// exist; a lingering costProd for a removed item must not inflate totals.
+export function overlayCostProds(costProds: any[], items: any[]): any[] {
+  if (!items?.length) return costProds; // legacy safety: no item rows → leave as-is
+  const byId = new Map(items.map((it: any) => [it.id, it]));
+  const byName = new Map(items.map((it: any) => [(it.name || "").trim().toLowerCase(), it]));
+  const out: any[] = [];
+  for (const p of costProds || []) {
+    const it: any = byId.get(p.id) || byName.get((p.name || "").trim().toLowerCase());
+    if (!it) continue;
+    const lines = it.buy_sheet_lines || [];
+    const bslQtys = Object.fromEntries(lines.map((l: any) => [l.size, Number(l.qty_ordered) || 0]));
+    const qtys = lines.length ? bslQtys : (p.qtys || {});
+    const totalQty = Object.values(qtys).reduce((a: number, v: any) => a + (Number(v) || 0), 0);
+    const blankCosts = (it.blank_costs && Object.keys(it.blank_costs).length) ? it.blank_costs : (p.blankCosts || {});
+    out.push({ ...p, qtys, totalQty, blankCosts });
+  }
+  return out;
+}
+
+// Fetch the item truth needed by overlayCostProds.
+async function loadItemTruth(sb: Sb, jobId: string): Promise<any[]> {
+  const { data } = await sb.from("items").select("id, name, blank_costs, buy_sheet_lines(size, qty_ordered)").eq("job_id", jobId);
+  return data || [];
+}
+
 // Split Additional charges into HPD revenue vs $0-margin passthrough —
 // identical to CostingTab's computeExtraSummary.
 export function computeExtraSummary(lines: any[] | null | undefined): { feeRevenue: number; passthruTotal: number } {
@@ -60,7 +93,9 @@ export async function refreshJobFinancials(sb: Sb, jobId: string): Promise<{ ok:
   if (!job.costing_data?.costProds?.length) return { ok: true, reason: "no costing run — left untouched" };
   const { data: decorators } = await sb.from("decorators").select("*");
   const printers = buildPrintersMap(decorators || []);
-  const summary = computeCostingSummary(job.costing_data, job.type_meta?.invoice_extra_lines, printers);
+  const itemTruth = await loadItemTruth(sb, jobId);
+  const overlaid = { ...job.costing_data, costProds: overlayCostProds(job.costing_data.costProds, itemTruth) };
+  const summary = computeCostingSummary(overlaid, job.type_meta?.invoice_extra_lines, printers);
   if (!summary) return { ok: true, reason: "no computable products" };
   const { error } = await sb.from("jobs").update({ costing_summary: summary }).eq("id", jobId);
   if (error) return { ok: false, reason: error.message };
@@ -80,7 +115,10 @@ export async function snapshotVendorPo(sb: Sb, jobId: string, vendorName: string
   if (!job?.costing_data?.costProds?.length) return { ok: false, reason: "no costing data" };
   const { data: decorators } = await sb.from("decorators").select("*");
   const printers = buildPrintersMap(decorators || []);
-  const { costProds, costMargin, inclShip, inclCC } = job.costing_data;
+  const { costMargin, inclShip, inclCC } = job.costing_data;
+  // Same single-source overlay as the summary — a PO snapshot must freeze the
+  // REAL quantities, not costing_data's vestigial ones.
+  const costProds = overlayCostProds(job.costing_data.costProds, await loadItemTruth(sb, jobId));
   const vendorProds = (costProds as any[]).filter(p => (p.printVendor || "") === vendorName);
   if (!vendorProds.length) return { ok: false, reason: "no items for vendor" };
   const items = vendorProds.map((p: any) => {
