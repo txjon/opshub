@@ -1393,14 +1393,17 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
           {/* client transaction actions — the FILLED button is always the next
               step: send quote → send invoice → record payment. */}
           {(() => {
-            const primary = !flags.approved ? "quote" : !invNum ? "invoice" : paid < orderTotal ? "payment" : null;
+            // Out of sync with QB (order changed since invoicing) → the next
+            // action is a REVISED invoice send, and it says so.
+            const needsRevise = !!invNum && Math.abs(toInvoice) > 0.01;
+            const primary = !flags.approved ? "quote" : (!invNum || needsRevise) ? "invoice" : paid < orderTotal ? "payment" : null;
             return (
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
                 <button onClick={() => openSend("quote")} style={primary === "quote" ? actBtn : ghostBtn}>{job.quote_approved ? "Send proofs" : "Send quote & proofs"}</button>
                 {job.quote_approved
                   ? <button onClick={doRevoke} disabled={actBusy} style={ghostBtn}>Approved ✓ · revoke</button>
                   : <button onClick={doApprove} disabled={actBusy} style={ghostBtn}>Mark approved</button>}
-                <button onClick={() => openSend("invoice")} style={primary === "invoice" ? actBtn : ghostBtn}>Send invoice</button>
+                <button onClick={() => openSend("invoice")} style={primary === "invoice" ? (needsRevise ? { ...actBtn, background: T.amber, color: "#fff" } : actBtn) : ghostBtn}>{needsRevise ? "Send revised invoice" : "Send invoice"}</button>
                 <button onClick={() => { setActErr(""); const bal = Math.max(0, (invoiced || orderTotal) - paid); setPayForm(f => ({ ...f, amount: f.amount || (bal > 0 ? bal.toFixed(2) : "") })); setClientAction("payment"); }} style={primary === "payment" ? actBtn : ghostBtn}>+ Record payment</button>
               </div>
             );
@@ -2031,8 +2034,13 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
           style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 320, display: "flex", alignItems: "center", justifyContent: "center", padding: 18 }}>
           <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 14, width: "100%", maxWidth: 420, padding: "20px 22px" }}>
             <div style={{ fontSize: 16, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", marginBottom: 14 }}>
-              {clientAction === "quote" ? (job.quote_approved ? "Send proofs" : "Send quote & proofs") : clientAction === "invoice" ? "Send invoice" : "Record payment"}
+              {clientAction === "quote" ? (job.quote_approved ? "Send proofs" : "Send quote & proofs") : clientAction === "invoice" ? (invNum && Math.abs(toInvoice) > 0.01 ? "Send revised invoice" : "Send invoice") : "Record payment"}
             </div>
+            {clientAction === "invoice" && invNum && Math.abs(toInvoice) > 0.01 && (
+              <div style={{ fontSize: 12.5, color: T.muted, lineHeight: 1.5, marginBottom: 12, padding: "9px 12px", background: `${T.amber}12`, border: `1px solid ${T.amber}44`, borderRadius: 8 }}>
+                Updates QB invoice <b>#{invNum}</b> in place ({fmtMoney(invoicedSub)} → {fmtMoney(orderTotal)} pre-tax; QB recalculates tax), then emails the revised invoice. Same invoice number, same pay link.
+              </div>
+            )}
             {clientAction === "payment" ? (
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 <div style={{ fontSize: 12.5, color: T.muted }}>Balance due: <span style={{ fontFamily: mono, fontWeight: 800, color: T.text }}>{fmtMoney(Math.max(0, (invoiced || orderTotal) - paid))}</span>{invoiced ? <span style={{ color: T.faint }}> (incl. tax)</span> : null}</div>
