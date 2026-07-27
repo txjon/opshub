@@ -484,10 +484,13 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
           );
         })}
 
-        {/* ── Setup fees — inline (moved out of the last collapsible). Flat
-            per-run charges: auto rows (Screens / Tag Screens / specialty-
-            linked) appear when their driver is active — same dedupe/share
-            logic as before; manual-count fees activate from the add strip. ── */}
+        {/* ── Setup fees — inline, FULL breakdown like the old modal: every
+            configured fee shows with its count × rate math; zero rows are
+            dimmed, not hidden. Auto rows (Screens / Tag Screens / specialty-
+            linked) use the same dedupe/share logic as before. ── */}
+        {p.printVendor && pr.setup && Object.keys(pr.setup).length > 0 && (
+          <div style={{fontSize:9,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em",marginTop:6}}>Setup fees</div>
+        )}
         {p.printVendor && pr.setup && Object.keys(pr.setup).map(key=>{
           const isScreens = key.toLowerCase().replace(/\s/g,"") === "screens";
           const isTagScreens = key.toLowerCase().replace(/\s/g,"") === "tagscreens";
@@ -525,47 +528,42 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
             }
           }
           const val = isAuto ? autoVal : (p.setupFees?.[key]||0);
-          if (!(val > 0)) return null;
           const unitCost = pr.setup[key]||0;
+          const active = val > 0;
           return (
-            <div key={"su-"+key} style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,padding:"6px 10px",display:"flex",alignItems:"center",gap:isMobile?6:10,minHeight:38,flexWrap:isMobile?"wrap":"nowrap"}}>
-              <span style={{width:isMobile?120:170,flexShrink:0,fontSize:13,fontWeight:700,color:T.text,fontFamily:font}}>{key}</span>
+            <div key={"su-"+key} style={{background:active?T.surface:"transparent",border:`1px solid ${active?T.border:T.border+"66"}`,borderRadius:8,padding:"6px 10px",display:"flex",alignItems:"center",gap:isMobile?6:10,minHeight:38,flexWrap:isMobile?"wrap":"nowrap"}}>
+              <span style={{width:isMobile?120:170,flexShrink:0,fontSize:13,fontWeight:700,color:active?T.text:T.faint,fontFamily:font}}>{key}</span>
               {isAuto ? (
                 <div style={{display:"inline-flex",alignItems:"baseline",gap:5,flexShrink:0}}>
-                  <span style={{fontSize:13,fontWeight:700,color:T.text,fontFamily:mono}}>{val}</span>
+                  <span style={{fontSize:13,fontWeight:700,color:active?T.text:T.faint,fontFamily:mono}}>{val}</span>
                   <span style={{fontSize:9,color:T.faint,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em"}}>auto</span>
                 </div>
               ) : (
-                <>
-                  <input type="text" inputMode="decimal" value={p.setupFees?.[key]||""} onChange={e=>updateProd(i,{...p,setupFees:{...(p.setupFees||{}),[key]:parseFloat(e.target.value)||0}})}
-                    placeholder="0"
-                    style={{width:34,textAlign:"center",background:T.card,border:`1px solid ${T.border}`,borderRadius:5,color:T.text,fontSize:13,fontWeight:700,fontFamily:mono,outline:"none",padding:"3px 4px"}}/>
-                  <button onClick={()=>{const sf={...(p.setupFees||{})};delete sf[key];updateProd(i,{...p,setupFees:sf});}}
-                    style={{background:"none",border:"none",color:T.faint,cursor:"pointer",fontSize:15,flexShrink:0,padding:"0 2px",lineHeight:1}}
-                    onMouseEnter={e=>e.currentTarget.style.color=T.red} onMouseLeave={e=>e.currentTarget.style.color=T.faint}>×</button>
-                </>
+                <input type="text" inputMode="decimal" value={p.setupFees?.[key]||""} onChange={e=>updateProd(i,{...p,setupFees:{...(p.setupFees||{}),[key]:parseFloat(e.target.value)||0}})}
+                  placeholder="0"
+                  style={{width:34,textAlign:"center",background:T.card,border:`1px solid ${T.border}`,borderRadius:5,color:T.text,fontSize:13,fontWeight:700,fontFamily:mono,outline:"none",padding:"3px 4px"}}/>
               )}
+              <span style={{fontSize:10,color:T.faint,fontFamily:mono,flexShrink:0}}>× ${Number(unitCost).toFixed(2)}</span>
               <div style={{flex:1,minWidth:0}}/>
-              <span style={{fontSize:14,fontWeight:700,color:T.text,fontFamily:mono,flexShrink:0}}>${(val*unitCost).toFixed(2)} <span style={{fontSize:9,color:T.faint,fontWeight:600}}>flat</span></span>
+              <span style={{fontSize:14,fontWeight:700,color:active?T.text:T.faint,fontFamily:mono,flexShrink:0}}>${(val*unitCost).toFixed(2)} <span style={{fontSize:9,color:T.faint,fontWeight:600}}>flat</span></span>
             </div>
           );
         })}
-        {/* Manual setup cost — free $ line, when set (or just opened) */}
-        {p.printVendor && pr.setup && ((p.setupFees?.manualCost||0) > 0 || p._manualSetupOpen) && (
-          <div style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,padding:"6px 10px",display:"flex",alignItems:"center",gap:isMobile?6:10,minHeight:38}}>
-            <span style={{width:isMobile?120:170,flexShrink:0,fontSize:13,fontWeight:700,color:T.text,fontFamily:font}}>Setup · manual</span>
+        {/* Manual setup cost — always-visible free $ line, like the modal */}
+        {p.printVendor && pr.setup && Object.keys(pr.setup).length > 0 && (
+          (()=>{ const mActive = (p.setupFees?.manualCost||0) > 0; return (
+          <div style={{background:mActive?T.surface:"transparent",border:`1px solid ${mActive?T.border:T.border+"66"}`,borderRadius:8,padding:"6px 10px",display:"flex",alignItems:"center",gap:isMobile?6:10,minHeight:38}}>
+            <span style={{width:isMobile?120:170,flexShrink:0,fontSize:13,fontWeight:700,color:mActive?T.text:T.faint,fontFamily:font}}>Manual cost</span>
             <div style={{display:"flex",alignItems:"center",gap:4,flexShrink:0}}>
               <span style={{fontSize:12,color:T.faint,fontFamily:mono}}>$</span>
               <input type="text" inputMode="decimal" value={p.setupFees?.manualCost||""} onChange={e=>updateProd(i,{...p,setupFees:{...(p.setupFees||{}),manualCost:parseFloat(e.target.value)||0}})}
                 placeholder="0.00"
                 style={{width:56,textAlign:"center",background:T.card,border:`1px solid ${T.border}`,borderRadius:5,color:T.text,fontSize:13,fontWeight:700,fontFamily:mono,outline:"none",padding:"3px 4px"}}/>
             </div>
-            <button onClick={()=>{const sf={...(p.setupFees||{})};delete sf.manualCost;updateProd(i,{...p,setupFees:sf,_manualSetupOpen:false});}}
-              style={{background:"none",border:"none",color:T.faint,cursor:"pointer",fontSize:15,flexShrink:0,padding:"0 2px",lineHeight:1}}
-              onMouseEnter={e=>e.currentTarget.style.color=T.red} onMouseLeave={e=>e.currentTarget.style.color=T.faint}>×</button>
             <div style={{flex:1,minWidth:0}}/>
-            <span style={{fontSize:14,fontWeight:700,color:T.text,fontFamily:mono,flexShrink:0}}>${(p.setupFees?.manualCost||0).toFixed(2)} <span style={{fontSize:9,color:T.faint,fontWeight:600}}>flat</span></span>
+            <span style={{fontSize:14,fontWeight:700,color:mActive?T.text:T.faint,fontFamily:mono,flexShrink:0}}>${(p.setupFees?.manualCost||0).toFixed(2)} <span style={{fontSize:9,color:T.faint,fontWeight:600}}>flat</span></span>
           </div>
+          ); })()
         )}
 
         {/* ── Custom cost lines — live IN the print-location list (moved out
@@ -612,30 +610,7 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
               + {key}
             </button>
           ))}
-          {/* inactive MANUAL setup fees (auto ones appear on their own) */}
-          {p.printVendor && pr.setup && Object.entries(pr.setup).filter(([key])=>{
-            const k = key.toLowerCase().replace(/\s/g,"");
-            const isAuto = k === "screens" || k === "tagscreens" || !!Object.keys(pr.specialty||{}).find(sk=>key.toLowerCase().includes(sk.toLowerCase()));
-            return !isAuto && !((p.setupFees?.[key]||0) > 0);
-          }).map(([key,rate])=>(
-            <button key={"addsu-"+key}
-              onClick={()=>updateProd(i,{...p,setupFees:{...(p.setupFees||{}),[key]:1}})}
-              title={`$${Number(rate).toFixed(2)} each, flat per run`}
-              style={{fontSize:11,fontWeight:600,color:T.faint,background:"none",border:`1px dashed ${T.border}66`,borderRadius:8,padding:"8px 10px",cursor:"pointer",fontFamily:font}}
-              onMouseEnter={e=>{e.currentTarget.style.color=T.text;e.currentTarget.style.borderColor=T.border;}}
-              onMouseLeave={e=>{e.currentTarget.style.color=T.faint;e.currentTarget.style.borderColor=T.border+"66";}}>
-              + {key}
-            </button>
-          ))}
-          {p.printVendor && pr.setup && !((p.setupFees?.manualCost||0) > 0) && !p._manualSetupOpen && (
-            <button onClick={()=>updateProd(i,{...p,_manualSetupOpen:true})}
-              title="One-off flat setup charge"
-              style={{fontSize:11,fontWeight:600,color:T.faint,background:"none",border:`1px dashed ${T.border}66`,borderRadius:8,padding:"8px 10px",cursor:"pointer",fontFamily:font}}
-              onMouseEnter={e=>{e.currentTarget.style.color=T.text;e.currentTarget.style.borderColor=T.border;}}
-              onMouseLeave={e=>{e.currentTarget.style.color=T.faint;e.currentTarget.style.borderColor=T.border+"66";}}>
-              + Setup $
-            </button>
-          )}
+          {/* (setup fees no longer need add chips — the full breakdown renders above) */}
           {(p.customCosts||[]).length < 6 && (
             <button onClick={()=>updateProd(i,{...p,customCosts:[...(p.customCosts||[]),{desc:"",perUnit:0,flat:false}]})}
               style={{fontSize:11,fontWeight:600,color:T.faint,background:"none",border:`1px dashed ${T.border}66`,borderRadius:8,padding:"8px 10px",cursor:"pointer",fontFamily:font,textAlign:"left"}}
