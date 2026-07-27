@@ -958,6 +958,9 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       await (supabase.from("jobs") as any).update({ costing_data: { ...cd, costProds: cps } }).eq("id", job.id);
       for (const u of sellUpdates) await (supabase.from("items") as any).update({ sell_per_unit: u.sell }).eq("id", u.id);
       if (sellUpdates.length) setItems(prev => prev.map(x => { const u = sellUpdates.find(s => s.id === x.id); return u ? { ...x, sell_per_unit: u.sell } : x; }));
+      // Keep costing_summary (Reports / God Mode KPIs) in step — same
+      // fire-and-forget classic ProductBuilder uses after item mutations.
+      fetch(`/api/jobs/${job.id}/refresh-financials`, { method: "POST" }).catch(() => {});
     } catch (e) { console.error("[JobV2] deco flush failed", e); }
   };
   const schedulePersist = (item: any, newP: any) => {
@@ -965,6 +968,17 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     clearTimeout(persistTimer.current);
     persistTimer.current = setTimeout(flushDeco, 700);
   };
+  // Unload guard — deco edits flush on a 700ms debounce; leaving the page
+  // inside that window must warn (beforeunload) and best-effort flush
+  // (pagehide). flushRef so the handlers always call the CURRENT closure.
+  const flushRef = React.useRef(flushDeco); flushRef.current = flushDeco;
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => { if (Object.keys(pendingRef.current).length) { e.preventDefault(); e.returnValue = ""; } };
+    const onPageHide = () => { if (Object.keys(pendingRef.current).length) { clearTimeout(persistTimer.current); flushRef.current(); } };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    window.addEventListener("pagehide", onPageHide);
+    return () => { window.removeEventListener("beforeunload", onBeforeUnload); window.removeEventListener("pagehide", onPageHide); };
+  }, []);
   // DecorationPanel's edit hooks. updateProd = one item; setCostProds = fn over
   // the whole array (copy-to-all / apply-vendor-below).
   const updateProd = (i: number, newP: any) => {
