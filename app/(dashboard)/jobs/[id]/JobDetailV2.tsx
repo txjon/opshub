@@ -104,6 +104,15 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     });
   }, [itemsProp]);
 
+  // Tenant warehouse address (ship-to for ship_through/stage routes).
+  const [warehouseAddr, setWarehouseAddr] = useState("");
+  useEffect(() => {
+    if (!job?.company_id) return;
+    createClient().from("companies").select("name, warehouse_address").eq("id", job.company_id).single().then(({ data }: any) => {
+      if (data?.warehouse_address) setWarehouseAddr((data.name ? data.name + "\n" : "") + data.warehouse_address);
+    });
+  }, [job?.company_id]);
+
   // Art upload → Google Drive via /api/files (per item, per stage). On success,
   // re-pull the item's files so the grid updates.
   const [uploadStage, setUploadStage] = useState("mockup");
@@ -273,7 +282,11 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   const paid = payments.filter((p: any) => p.status === "paid").reduce((a: number, p: any) => a + (Number(p.amount) || 0), 0);
   const toInvoice = Math.round((orderTotal - invoicedSub) * 100) / 100;
   const route = job?.shipping_route || "";
-  const address = tm.venue_address || job?.clients?.shipping_address || "";
+  // Ship-to resolves by route: drop_ship → client; ship_through/stage → HPD
+  // warehouse (goods land with us first). Per-vendor defaults can still route
+  // individual vendors to HPD on a drop_ship job — the PO handles that per vendor.
+  const clientAddr = tm.venue_address || job?.clients?.shipping_address || "";
+  const address = route === "drop_ship" ? clientAddr : (route ? (warehouseAddr || "HPD warehouse") : clientAddr);
   const created = job?.created_at ? new Date(job.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—";
   const inHands = job?.target_ship_date ? new Date(job.target_ship_date + "T12:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—";
   const hero = PHASE_HERO[job?.phase] || PHASE_HERO.intake;
@@ -853,9 +866,16 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
             </select>
           </div>
           <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", fontSize: 13 }}>
-            <span style={{ color: T.muted }}>Ship-to</span><span style={{ fontWeight: 700, textAlign: "right", maxWidth: "60%" }}>{address || "—"}</span>
+            <span style={{ color: T.muted }}>Vendor ships to</span><span style={{ fontWeight: 700, textAlign: "right", maxWidth: "60%", whiteSpace: "pre-line" }}>{address || "—"}</span>
           </div>
-          <div style={{ fontSize: 11, color: T.faint, marginTop: 6 }}>Route decides the post-decorator flow. Set it during setup; it drives the ship-to and the receiving/staging steps.</div>
+          {(route === "ship_through" || route === "stage") && clientAddr && (
+            <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", fontSize: 13, borderTop: `1px solid ${T.border}44` }}>
+              <span style={{ color: T.muted }}>Final destination (client)</span><span style={{ fontWeight: 700, textAlign: "right", maxWidth: "60%", whiteSpace: "pre-line" }}>{clientAddr || "—"}</span>
+            </div>
+          )}
+          <div style={{ fontSize: 11, color: T.faint, marginTop: 6 }}>
+            {route === "drop_ship" ? "Vendor ships direct to the client — but vendors with a default route to HPD still land with us (set per decorator)." : route ? "Goods land at HPD first, then ship to the client." : "Set the route to determine the ship-to and post-decorator flow."}
+          </div>
         </div>
       ), true)}
 
