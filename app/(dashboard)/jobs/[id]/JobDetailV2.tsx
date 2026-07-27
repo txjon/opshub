@@ -1127,7 +1127,9 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   const previewBtn: React.CSSProperties = { fontSize: 12, fontWeight: 800, color: T.text, textDecoration: "none", padding: "8px 15px", borderRadius: 999, border: `1px solid ${T.border}`, background: T.card };
   const actBtn: React.CSSProperties = { fontSize: 12, fontWeight: 800, color: "#0a0a0a", background: T.accent, border: "none", borderRadius: 999, padding: "9px 16px", cursor: "pointer", fontFamily: font };
   const ghostBtn: React.CSSProperties = { ...previewBtn, cursor: "pointer", fontFamily: font };
-  const field: React.CSSProperties = { padding: "9px 11px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13.5, fontFamily: font, outline: "none", boxSizing: "border-box", width: "100%" };
+  // colorScheme dark → native controls (date-picker calendar icon, selects)
+  // render their glyphs white instead of black-on-dark.
+  const field: React.CSSProperties = { padding: "9px 11px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13.5, fontFamily: font, outline: "none", boxSizing: "border-box", width: "100%", colorScheme: "dark" };
   const block = (id: string, tick: "done" | "now" | "todo" | "warn", title: string, summary: string, body: React.ReactNode, dim = false) => (
     <div id={id} style={{ border: `1px solid ${tick === "warn" ? T.amber + "88" : T.border}`, borderRadius: 16, background: tick === "warn" ? `${T.amber}0d` : T.card, marginTop: 14, overflow: "hidden", opacity: dim && !open[id] ? 0.6 : 1 }}>
       <div onClick={() => toggle(id)} style={{ display: "flex", alignItems: "center", gap: 14, padding: "16px 20px", cursor: "pointer" }}>
