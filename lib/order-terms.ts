@@ -47,7 +47,7 @@ export const TERMS_HIGHLIGHT =
 export const PAYMENT_NOTICE = [
   "Review your invoice above. The amount shown is what you'll be charged.",
   "When you continue, you'll be securely redirected to Intuit (QuickBooks Payments), our payment processor, to pay by credit card or bank transfer (ACH).",
-  "We never see or store your card or bank details. Your receipt will come from Intuit and your payment will be applied to this invoice.",
+  "We never see or store your card or bank details. Your payment is applied to this invoice and your order here updates automatically once it's received.",
   "By continuing to payment, you authorize the charge for the balance shown on this invoice.",
 ];
 
