@@ -30,6 +30,7 @@ import { sendQuoteAndProofs, defaultRecipient } from "@/lib/job/quote-actions";
 import { pushInvoiceToQB, recordPayment, cyclePaymentStatus, deletePayment, refreshPayLink, unlinkQBCustomer } from "@/lib/job/invoice-actions";
 import { QBCustomerChooser } from "@/components/QBCustomerChooser";
 import { applyPoSentToVendorItems, revertPoSentFromVendorItems } from "@/lib/po-actions";
+import { recalcJobPhase } from "@/lib/job-phase-recalc";
 import { SHIP_METHODS } from "@/lib/ship-methods";
 const DecorationPanel: any = DecorationPanelRaw; // .jsx — bypass narrow inferred prop types
 const ProofModal: any = ProofModalRaw;           // .jsx — same
@@ -322,6 +323,17 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     setJob((j: any) => ({ ...j, type_meta: meta }));
     try { await (createClient().from("jobs") as any).update({ type_meta: meta }).eq("id", job.id); } catch (e) { console.error("[JobV2] saveTypeMeta", e); }
   };
+  // Recalc jobs.phase after any gate-changing action (payment, approval, PO,
+  // blanks) — the boards/dashboard key off phase; without this V2 actions
+  // left it stale. Fire-and-forget; refreshes the hero when it lands.
+  const recalcPhase = async () => {
+    try {
+      const sb = createClient();
+      await recalcJobPhase(sb, job.id);
+      const { data }: any = await sb.from("jobs").select("phase, phase_timestamps").eq("id", job.id).single();
+      if (data?.phase) setJob((j: any) => ({ ...j, phase: data.phase, phase_timestamps: data.phase_timestamps }));
+    } catch (e) { console.error("[JobV2] phase recalc", e); }
+  };
   const setPhase = async (phase: string, recalc = false) => {
     setJob((j: any) => ({ ...j, phase }));
     try { await (createClient().from("jobs") as any).update({ phase }).eq("id", job.id); logJobActivity(job.id, `Phase → ${phase}`); } catch (e) { console.error(e); }
@@ -371,11 +383,11 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     try { await createClient().from("job_contacts").delete().eq("id", jcId); setLocalContacts(prev => prev.filter((c: any) => c.id !== jcId)); } catch (e) { console.error(e); }
   };
   const cyclePay = async (p: any) => {
-    try { const next = await cyclePaymentStatus(job, p); const { data: fresh }: any = await createClient().from("payment_records").select("*").eq("job_id", job.id).order("created_at"); if (fresh) setPayments(fresh); else setPayments(prev => prev.map(x => x.id === p.id ? { ...x, status: next } : x)); } catch (e) { console.error(e); }
+    try { const next = await cyclePaymentStatus(job, p); const { data: fresh }: any = await createClient().from("payment_records").select("*").eq("job_id", job.id).order("created_at"); if (fresh) setPayments(fresh); else setPayments(prev => prev.map(x => x.id === p.id ? { ...x, status: next } : x)); recalcPhase(); } catch (e) { console.error(e); }
   };
   const delPay = async (id: string) => {
     if (!window.confirm("Delete this payment record?")) return;
-    try { await deletePayment(id); setPayments(prev => prev.filter(x => x.id !== id)); } catch (e) { console.error(e); }
+    try { await deletePayment(id); setPayments(prev => prev.filter(x => x.id !== id)); recalcPhase(); } catch (e) { console.error(e); }
   };
 
   const saveRoute = async (route: string) => {
@@ -408,6 +420,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     setItems(prev => prev.map(x => x.id === item.id ? { ...x, blanks_order_cost: val } : x));
     try {
       await (createClient().from("items") as any).update({ blanks_order_cost: val }).eq("id", item.id);
+      recalcPhase();
     } catch (e) { console.error("[JobV2] blank cost save failed", e); }
   };
 
@@ -439,6 +452,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     }));
     try { logJobActivity(job.id, `Bulk blanks order: $${total.toFixed(2)} across ${targets.length} item${targets.length !== 1 ? "s" : ""} — ${summaries.join(", ")}`); } catch {}
     setBulkTotal(""); setSelectedIds(new Set());
+    recalcPhase();
   };
 
   // Esc + arrow keys for the worksheet — the proof-editor feel. Suspended while
@@ -500,6 +514,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       if (readyIds.length) { const nowP = new Date().toISOString(); await (createClient().from("items") as any).update({ proof_sent_at: nowP }).in("id", readyIds); setItems(prev => prev.map(x => readyIds.includes(x.id) ? { ...x, proof_sent_at: nowP } : x)); }
       await refetchTypeMeta();
       setClientAction(null);
+      recalcPhase();
     } catch (e: any) { setActErr(e.message || "Send failed"); } finally { setActBusy(false); }
   };
   const doSendInvoice = async (pushOpts: { qbCustomerId?: string; forceCreate?: boolean } = {}) => {
@@ -546,6 +561,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       await (createClient().from("jobs") as any).update({ quote_approved: true, quote_approved_at: now }).eq("id", job.id);
       setJob((j: any) => ({ ...j, quote_approved: true, quote_approved_at: now }));
       try { logJobActivity(job.id, "Quote approved (internal)"); } catch {}
+      recalcPhase();
     } finally { setActBusy(false); }
   };
   const doRevoke = async () => {
@@ -554,6 +570,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       await (createClient().from("jobs") as any).update({ quote_approved: false, quote_approved_at: null }).eq("id", job.id);
       setJob((j: any) => ({ ...j, quote_approved: false, quote_approved_at: null }));
       try { logJobActivity(job.id, "Quote approval revoked"); } catch {}
+      recalcPhase();
     } finally { setActBusy(false); }
   };
   const doRecordPayment = async () => {
@@ -566,6 +583,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       if (freshPay) setPayments(freshPay);
       setPayForm({ type: "full_payment", amount: "", paid_date: "" });
       setClientAction(null);
+      recalcPhase();
     } catch (e: any) { setActErr(e.message || "Failed"); } finally { setActBusy(false); }
   };
 
@@ -813,6 +831,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       setJob((j: any) => ({ ...j, type_meta: { ...j.type_meta, ...meta } }));
       setItems(prev => prev.map(x => (cpFor(x)?.printVendor || x.decorator || "Unassigned") === vendor && x.pipeline_stage !== "shipped" ? { ...x, pipeline_stage: "in_production" } : x));
       logJobActivity(job.id, `PO for ${vendor} manually marked sent`);
+      recalcPhase();
     } catch (e) { console.error("[JobV2] markPoSent", e); }
   };
   const unmarkPoSent = async (vendor: string) => {
@@ -824,6 +843,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       setJob((j: any) => ({ ...j, type_meta: meta }));
       setItems(prev => prev.map(x => (cpFor(x)?.printVendor || x.decorator || "Unassigned") === vendor && x.pipeline_stage === "in_production" ? { ...x, pipeline_stage: null } : x));
       logJobActivity(job.id, `PO for ${vendor} unmarked`);
+      recalcPhase();
     } catch (e) { console.error("[JobV2] unmarkPoSent", e); }
   };
   // Send revised proofs — classic flow: /api/email/notify type proof_revised;
@@ -864,6 +884,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       setJob((j: any) => ({ ...j, type_meta: { ...j.type_meta, ...meta2 } }));
       setItems(prev => prev.map(x => (cpFor(x)?.printVendor || x.decorator || "Unassigned") === poVendor && x.pipeline_stage !== "shipped" ? { ...x, pipeline_stage: "in_production" } : x));
       setPoVendor(null);
+      recalcPhase();
     } catch (e: any) { setActErr(e.message || "Send failed"); } finally { setActBusy(false); }
   };
 
