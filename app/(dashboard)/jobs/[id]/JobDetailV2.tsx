@@ -355,6 +355,67 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     setItems(prev => prev.map(x => x.id === item.id ? { ...x, qtys: newQtys, totalQty: sumQ(newQtys) } : x));
     try { await createClient().from("buy_sheet_lines").delete().eq("item_id", item.id).eq("size", sz); } catch (e) { failed("RemoveSize failed — not saved", e); }
   };
+  // ── Client assignment (classic swapJobContactsForClient port) ──
+  const [clientPick, setClientPick] = useState(false);
+  const [clientQuery, setClientQuery] = useState("");
+  const [clientList, setClientList] = useState<any[]>([]);
+  const [clientBusy, setClientBusy] = useState(false);
+  useEffect(() => {
+    if (!clientPick || clientList.length) return;
+    createClient().from("clients").select("id, name").order("name").then(({ data }: any) => setClientList(data || []));
+  }, [clientPick]);
+  const assignClient = async (clientId: string, clientName: string) => {
+    if (clientBusy) return;
+    if (!window.confirm(`Reassign this project to "${clientName}"? Contacts, delivery address, and payment terms swap to the new client. The QB invoice link is left as-is.`)) return;
+    setClientBusy(true);
+    const supabase = createClient();
+    try {
+      await (supabase.from("jobs") as any).update({ client_id: clientId }).eq("id", job.id);
+      // Contacts: replace the job's contacts with the new client's.
+      await supabase.from("job_contacts").delete().eq("job_id", job.id);
+      const { data: cc }: any = await supabase.from("contacts").select("id, is_primary").eq("client_id", clientId);
+      if (cc?.length) await (supabase.from("job_contacts") as any).insert(cc.map((c: any) => ({ job_id: job.id, contact_id: c.id, role_on_job: c.is_primary ? "primary" : "cc" })));
+      const { data: freshJc }: any = await supabase.from("job_contacts").select("*, contacts(*)").eq("job_id", job.id);
+      setLocalContacts(freshJc || []);
+      // Address + terms from the new client's profile; stale po_ship_to cleared.
+      const { data: row }: any = await supabase.from("clients").select("shipping_address, default_terms").eq("id", clientId).single();
+      const meta = { ...(job.type_meta || {}) };
+      if (row?.shipping_address) meta.venue_address = row.shipping_address; else delete meta.venue_address;
+      delete meta.po_ship_to;
+      const updates: any = { type_meta: meta };
+      if (row?.default_terms) updates.payment_terms = row.default_terms;
+      await (supabase.from("jobs") as any).update(updates).eq("id", job.id);
+      setJob((j: any) => ({ ...j, client_id: clientId, clients: { ...(j.clients || {}), id: clientId, name: clientName }, type_meta: meta, ...(row?.default_terms ? { payment_terms: row.default_terms } : {}) }));
+      logJobActivity(job.id, `Project reassigned to client: ${clientName}`);
+      setClientPick(false); setClientQuery("");
+    } catch (e) { failed("Client reassign failed — not saved", e); }
+    finally { setClientBusy(false); }
+  };
+  const createNewClient = async (name: string) => {
+    const n = name.trim(); if (!n || clientBusy) return;
+    setClientBusy(true);
+    try {
+      const { data: c, error }: any = await (createClient().from("clients") as any).insert({ name: n }).select("id, name").single();
+      if (error) throw new Error(error.message);
+      setClientList(prev => [...prev, c].sort((a, b) => (a.name || "").localeCompare(b.name || "")));
+      setClientBusy(false);
+      await assignClient(c.id, c.name);
+    } catch (e) { setClientBusy(false); failed("Client create failed — not saved", e); }
+  };
+  // Pull any client contacts not yet on this job (classic Sync contacts).
+  const syncContacts = async () => {
+    const supabase = createClient();
+    try {
+      const { data: cc }: any = await supabase.from("contacts").select("id, is_primary").eq("client_id", job.client_id);
+      const have = new Set((localContacts || []).map((jc: any) => jc.contact_id || jc.contacts?.id));
+      const missing = (cc || []).filter((c: any) => !have.has(c.id));
+      if (!missing.length) { alert("All client contacts are already on this project."); return; }
+      await (supabase.from("job_contacts") as any).insert(missing.map((c: any) => ({ job_id: job.id, contact_id: c.id, role_on_job: c.is_primary ? "primary" : "cc" })));
+      const { data: freshJc }: any = await supabase.from("job_contacts").select("*, contacts(*)").eq("job_id", job.id);
+      setLocalContacts(freshJc || []);
+    } catch (e) { failed("Contact sync failed — not saved", e); }
+  };
+
   // ── Job-level (Overview parity) ──
   const saveJobCol = async (col: string, value: any) => {
     setJob((j: any) => ({ ...j, [col]: value }));
@@ -1593,7 +1654,10 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
           {/* contacts — add / remove */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "16px 0 8px", paddingTop: 12, borderTop: `1px solid ${T.border}44` }}>
             <span style={lbl}>Contacts</span>
-            {!contactForm && <button onClick={() => setContactForm({ name: "", email: "", phone: "", role: "cc" })} style={{ ...ghostBtn, padding: "5px 11px", fontSize: 11 }}>+ Add</button>}
+            <span style={{ display: "flex", gap: 6 }}>
+              <button onClick={syncContacts} title="Pull in any client contacts not yet on this project" style={{ ...ghostBtn, padding: "5px 11px", fontSize: 11 }}>Sync</button>
+              {!contactForm && <button onClick={() => setContactForm({ name: "", email: "", phone: "", role: "cc" })} style={{ ...ghostBtn, padding: "5px 11px", fontSize: 11 }}>+ Add</button>}
+            </span>
           </div>
           {localContacts.length === 0 && !contactForm ? <div style={{ fontSize: 12.5, color: T.faint }}>No contacts on this job.</div> : localContacts.map((c: any) => (
             <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 0", borderBottom: `1px solid ${T.border}44`, fontSize: 13 }}>
@@ -2260,6 +2324,34 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
           style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 320, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "24px 14px", overflowY: "auto" }}>
           <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 14, width: "100%", maxWidth: 460, padding: "20px 22px" }}>
             <div style={{ fontSize: 16, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", marginBottom: 14 }}>Job details</div>
+            {/* client — display + change/create (classic swap semantics) */}
+            <div style={{ marginBottom: 12, padding: "10px 12px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ ...lbl }}>Client</span>
+                <span style={{ fontSize: 13.5, fontWeight: 800, flex: 1 }}>{job?.clients?.name || "No client"}</span>
+                <button onClick={() => setClientPick(p => !p)} style={{ background: "none", border: `1px solid ${T.border}`, color: T.muted, fontSize: 11, fontWeight: 700, padding: "4px 11px", borderRadius: 999, cursor: "pointer", fontFamily: font }}>{clientPick ? "Cancel" : "Change"}</button>
+              </div>
+              {clientPick && (
+                <div style={{ marginTop: 10 }}>
+                  <input autoFocus value={clientQuery} onChange={e => setClientQuery(e.target.value)} placeholder="Search clients…" style={{ ...field, marginBottom: 6 }} />
+                  <div style={{ maxHeight: 180, overflowY: "auto", border: `1px solid ${T.border}`, borderRadius: 8 }}>
+                    {clientList.filter((c: any) => !clientQuery.trim() || (c.name || "").toLowerCase().includes(clientQuery.trim().toLowerCase())).slice(0, 30).map((c: any) => (
+                      <button key={c.id} disabled={clientBusy} onClick={() => assignClient(c.id, c.name)}
+                        style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 11px", background: c.id === job.client_id ? T.card : "none", border: "none", borderBottom: `1px solid ${T.border}44`, cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.text }}>
+                        {c.name}{c.id === job.client_id ? "  · current" : ""}
+                      </button>
+                    ))}
+                    {clientQuery.trim() && !clientList.some((c: any) => (c.name || "").toLowerCase() === clientQuery.trim().toLowerCase()) && (
+                      <button disabled={clientBusy} onClick={() => createNewClient(clientQuery)}
+                        style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 11px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 700, color: T.accent }}>
+                        + Create &ldquo;{clientQuery.trim()}&rdquo;
+                      </button>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 10.5, color: T.faint, marginTop: 6 }}>Reassigning swaps contacts, delivery address, and payment terms to the new client.</div>
+                </div>
+              )}
+            </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <label><span style={{ ...lbl, display: "block", marginBottom: 5 }}>Project name</span>
                 <input key={"jt:" + job.title} defaultValue={job.title || ""} onBlur={e => { const v = e.target.value.trim(); if (!v || v === job.title) return; saveJobCol("title", v); fetch("/api/drive/rename", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ entity: "job", id: job.id, name: v }) }).catch(() => {}); }} style={field} /></label>
