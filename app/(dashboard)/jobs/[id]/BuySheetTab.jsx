@@ -567,6 +567,8 @@ export function LAApparelPicker({ onAdd, onClose, isFav, toggleFav, assignMode, 
   const [selSizes, setSelSizes] = useState({});
   const [itemName, setItemName] = useState(defaultItemName || "");
   const [search, setSearch] = useState("");
+  const [newColorName, setNewColorName] = useState("");
+  const [addingColor, setAddingColor] = useState(false);
   const lastClickedSize = useRef(null);
 
   useEffect(() => {
@@ -575,6 +577,18 @@ export function LAApparelPicker({ onAdd, onClose, isFav, toggleFav, assignMode, 
       setLoading(false);
     });
   }, []);
+
+  // Add a colorway to the style's catalog rows, then reload variants. This is
+  // how colors get onto styles the LA Apparel live API can't serve (468/479
+  // catalog rows shipped colorless; their API has been down — Jul 27).
+  const addStyleColor = async () => {
+    const c = newColorName.trim();
+    if (!c || !selStyle || addingColor) return;
+    setAddingColor(true);
+    await fetch(`/api/laapparel?endpoint=add_color&styleCode=${encodeURIComponent(selStyle.styleCode)}&color=${encodeURIComponent(c)}`).catch(() => {});
+    setNewColorName(""); setAddingColor(false);
+    loadStyle(selStyle);
+  };
 
   const categories = [...new Set(products.map(p => p.category).filter(Boolean))].sort();
   const filteredProducts = products.filter(p => {
@@ -687,10 +701,29 @@ export function LAApparelPicker({ onAdd, onClose, isFav, toggleFav, assignMode, 
             <div style={{ flex: 1, overflowY: "auto" }}>
               {!selStyle ? <div style={{ padding: "14px 11px", fontSize: 10, color: T.faint }}>← Style</div>
                 : loadingVariants ? <div style={{ padding: "14px 11px", fontSize: 10, color: T.faint }}>Loading...</div>
-                : colorNames.filter(c => !colorSearch.trim() || c.toLowerCase().includes(colorSearch.toLowerCase())).map(c => {
+                : <>
+                  {colorNames.filter(c => !colorSearch.trim() || c.toLowerCase().includes(colorSearch.toLowerCase())).map(c => {
                     const stock = colorGroups[c].reduce((a, v) => a + (v.stock || 0), 0);
                     return colRow(c, selColor === c, () => { setSelColor(c); setSelSizes({}); }, stock > 0 ? `${stock.toLocaleString()} avail` : undefined);
-                  })
+                  })}
+                  {colorNames.length === 0 && (
+                    <div style={{ padding: "10px 11px", fontSize: 10, color: T.faint, fontFamily: font }}>
+                      No colors on file for this style — add the colorway you need:
+                    </div>
+                  )}
+                  <div style={{ padding: "6px", display: "flex", gap: 4 }}>
+                    <input value={newColorName} onChange={e => setNewColorName(e.target.value)}
+                      onKeyDown={e => { if (e.key === "Enter") addStyleColor(); }}
+                      placeholder="+ Add color" disabled={addingColor}
+                      style={{ flex: 1, minWidth: 0, fontFamily: font, fontSize: 11, color: T.text, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 4, padding: "4px 8px", outline: "none", boxSizing: "border-box" }} />
+                    {newColorName.trim() && (
+                      <button onClick={addStyleColor} disabled={addingColor}
+                        style={{ fontSize: 10, fontWeight: 700, padding: "4px 8px", borderRadius: 4, border: `1px solid ${T.border}`, background: T.card, color: T.text, cursor: addingColor ? "default" : "pointer" }}>
+                        {addingColor ? "…" : "Add"}
+                      </button>
+                    )}
+                  </div>
+                </>
               }
             </div>
           </div>
@@ -704,13 +737,15 @@ export function LAApparelPicker({ onAdd, onClose, isFav, toggleFav, assignMode, 
                     const on = selSizes[sz] !== undefined;
                     const variant = currentColorVariants.find(v => v.sizeCode === sz);
                     const price = variant?.price || 0;
-                    const stock = variant?.stock || 0;
+                    // stock null = catalog fallback (LA Apparel live API down) — unknown,
+                    // not zero. Hide the count instead of showing a false red 0.
+                    const stock = variant?.stock ?? null;
                     return (
                       <div key={sz} onClick={(e) => toggleSz(sz, e)}
                         style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 10px", borderRadius: 6, cursor: "pointer", border: `1px solid ${on ? T.accent : T.border}`, background: on ? T.accent : T.surface, transition: "all 0.12s", userSelect: "none" }}>
                         <span style={{ fontSize: 12, fontWeight: 700, color: on ? "#0a0a0a" : T.muted, fontFamily: mono }}>{sz}</span>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <span style={{ fontSize: 9, color: on ? "rgba(0,0,0,0.45)" : stock > 100 ? T.green : stock > 0 ? T.amber : T.red, fontFamily: mono }}>{stock.toLocaleString()}</span>
+                          {stock != null && <span style={{ fontSize: 9, color: on ? "rgba(0,0,0,0.45)" : stock > 100 ? T.green : stock > 0 ? T.amber : T.red, fontFamily: mono }}>{stock.toLocaleString()}</span>}
                           {price > 0 && <span style={{ fontSize: 10, color: on ? "rgba(0,0,0,0.6)" : T.muted }}>${price.toFixed(2)}</span>}
                         </div>
                       </div>

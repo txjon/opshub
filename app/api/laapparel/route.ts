@@ -137,6 +137,51 @@ async function fetchPartPricing(productId: string): Promise<Record<string, numbe
   return prices;
 }
 
+// ── catalog-derived variants fallback ────────────────────────────────────
+// When LA Apparel's live API is down (their Progress backend errors — Jul 27),
+// synthesize color/size variants from the la_apparel_catalog rows so the picker
+// still works: colors from the row's colors[], sizes expanded from the range
+// string, price from that row's case_price. stock is null (unknown — the UI
+// hides the count rather than showing a false 0). Never cached: live data
+// replaces it as soon as their API recovers.
+const LAA_SIZE_ORDER = ["XXS", "XS", "S", "M", "L", "XL", "2XL", "3XL", "4XL", "5XL"];
+function expandSizes(raw: string): string[] {
+  // Some catalog rows carry import junk ("oz Workman tee   48   XS-XL") —
+  // the size token is the last multi-space-separated chunk.
+  const chunks = (raw || "").trim().split(/\s{2,}/);
+  const token = (chunks[chunks.length - 1] || "").trim();
+  if (!token) return [];
+  if (token.includes(",")) return token.split(",").map(s => s.trim()).filter(Boolean);
+  const m = token.match(/^([A-Za-z0-9]+)-([A-Za-z0-9]+)$/);
+  if (m) {
+    const a = LAA_SIZE_ORDER.indexOf(m[1].toUpperCase()), b = LAA_SIZE_ORDER.indexOf(m[2].toUpperCase());
+    if (a >= 0 && b >= a) return LAA_SIZE_ORDER.slice(a, b + 1);
+  }
+  return [token.toUpperCase() === "OS" ? "OS" : token];
+}
+async function catalogVariants(styleCode: string) {
+  const sb = admin();
+  if (!sb) return [];
+  const { data: rows } = await sb.from("la_apparel_catalog")
+    .select("colors, sizes, case_price").eq("style_code", styleCode);
+  if (!rows?.length) return [];
+  const seen = new Set<string>();
+  const variants: { partId: string; colour: string; sizeCode: string; price: number; sku: string; stock: null }[] = [];
+  for (const row of rows) {
+    const colors: string[] = Array.isArray(row.colors) ? row.colors : [];
+    const sizes = expandSizes(row.sizes || "");
+    const price = Number(row.case_price) || 0;
+    for (const color of colors) for (const size of sizes) {
+      const key = `${color}::${size}`;
+      if (seen.has(key)) continue; // first row wins (ranges are disjoint per price tier)
+      seen.add(key);
+      const id = `${styleCode}-${color}-${size}`.replace(/\s+/g, "_");
+      variants.push({ partId: id, colour: color, sizeCode: size, price, sku: id, stock: null });
+    }
+  }
+  return variants;
+}
+
 // Get inventory for a product
 async function fetchInventory(productId: string): Promise<Record<string, number>> {
   const xml = await soapCall(INVENTORY_URL, "getInventoryLevels",
@@ -272,15 +317,42 @@ export async function GET(request: NextRequest) {
       }));
 
       if (!variants.length) {
+        const fallback = await catalogVariants(styleCode);
+        if (fallback.length) return NextResponse.json(fallback); // not cached — live data replaces it when their API recovers
         return NextResponse.json({ error: "LA Apparel returned no variants for this style (their server may be down)" }, { status: 502 });
       }
       await setCache(variantCacheKey, variants);
       return NextResponse.json(variants);
     } catch (e: any) {
       const staleVariants = await getCached(variantCacheKey);
-      if (staleVariants) return NextResponse.json(staleVariants.data);
+      if (staleVariants && Array.isArray(staleVariants.data) && staleVariants.data.length) return NextResponse.json(staleVariants.data);
+      const fallback = await catalogVariants(styleCode);
+      if (fallback.length) return NextResponse.json(fallback);
       return NextResponse.json({ error: e.message || "Failed to fetch variants" }, { status: 500 });
     }
+  }
+
+  // Append a color to a style's catalog rows. The picker has always called this
+  // (favorites panel "add color" input) but the endpoint never existed — silent
+  // 400s. With the catalog variants fallback, a manually added color makes the
+  // style fully pickable (colors × sizes × case_price) even while LA Apparel's
+  // live API is down. 468/479 catalog rows shipped with empty colors, so this
+  // is the self-serve path to fill them in as styles get used.
+  if (endpoint === "add_color") {
+    const styleCode = searchParams.get("styleCode");
+    const color = (searchParams.get("color") || "").trim();
+    if (!styleCode || !color) return NextResponse.json({ error: "Missing styleCode or color" }, { status: 400 });
+    if (color.length > 60) return NextResponse.json({ error: "Color name too long" }, { status: 400 });
+    const sb = admin();
+    if (!sb) return NextResponse.json({ error: "Not configured" }, { status: 500 });
+    const { data: rows, error } = await sb.from("la_apparel_catalog").select("id, colors").eq("style_code", styleCode);
+    if (error || !rows?.length) return NextResponse.json({ error: "Unknown style" }, { status: 404 });
+    for (const row of rows) {
+      const colors: string[] = Array.isArray(row.colors) ? row.colors : [];
+      if (colors.some(c => c.toLowerCase() === color.toLowerCase())) continue;
+      await sb.from("la_apparel_catalog").update({ colors: [...colors, color] }).eq("id", row.id);
+    }
+    return NextResponse.json({ ok: true });
   }
 
   return NextResponse.json({ error: "Unknown endpoint" }, { status: 400 });
