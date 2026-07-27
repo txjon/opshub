@@ -22,8 +22,10 @@ import { ProofModal as ProofModalRaw } from "./ArtTab";
 import {
   SSPicker as SSPickerRaw, ASColourPicker as ASColourPickerRaw, LAApparelPicker as LAApparelPickerRaw,
   FavoritesPicker as FavoritesPickerRaw, OtherPicker as OtherPickerRaw, CottonCollectivePicker as CottonCollectivePickerRaw,
-  applyBlankToItem, fleeceFlag,
+  applyBlankToItem, fleeceFlag, distribute, DEFAULT_CURVE,
 } from "./BuySheetTab";
+import { parsePsd } from "./ProcessingTab";
+import { uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
 import { sendQuoteAndProofs, defaultRecipient } from "@/lib/job/quote-actions";
 import { pushInvoiceToQB, recordPayment, cyclePaymentStatus, deletePayment, refreshPayLink, unlinkQBCustomer } from "@/lib/job/invoice-actions";
 import { QBCustomerChooser } from "@/components/QBCustomerChooser";
@@ -129,7 +131,9 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   const FILE_COLS = "id, item_id, file_name, stage, drive_file_id, drive_link, mime_type, approval, revision_pending_send, created_at";
   const [filesByItem, setFilesByItem] = useState<Record<string, any[]>>({});
   const reloadAllFiles = () => {
-    const ids = (itemsProp || []).map((i: any) => i.id).filter(Boolean);
+    // Read CURRENT items (ref), not itemsProp — items created this session
+    // (PSD drop / pickers) must keep their files across reloads.
+    const ids = (itemsRef.current || itemsProp || []).map((i: any) => i.id).filter(Boolean);
     if (!ids.length) return;
     createClient().from("item_files").select(FILE_COLS).in("item_id", ids).is("superseded_at", null).order("created_at").then(({ data }: any) => {
       if (!data) return;
@@ -233,6 +237,29 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       await (createClient().from("buy_sheet_lines") as any).upsert({ item_id: item.id, size, qty_ordered: q }, { onConflict: "item_id,size" });
       if (sell != null) await (createClient().from("items") as any).update({ sell_per_unit: sell }).eq("id", item.id);
     } catch (e) { console.error("[JobV2] qty save failed", e); }
+  };
+
+  // Distribute a total across the item's sizes by its curve (classic
+  // distribute() from BuySheetTab) — one upsert per size, sell recomputed once.
+  const distributeTotal = async (item: any, raw: string) => {
+    if (isCostingLocked(job)) return;
+    const total = parseInt(raw) || 0;
+    if (!total) return;
+    const sizes = Object.keys(item.qtys || {});
+    if (!sizes.length) return;
+    const newQtys = distribute(total, sizes, item.curve || DEFAULT_CURVE);
+    const updated = { ...item, qtys: newQtys, totalQty: sumQ(newQtys) };
+    const sell = Object.keys(printers).length ? (() => {
+      try { const r: any = calcCostProduct(assemble(updated), costMargin, inclShip, inclCC, items.map(x => x.id === item.id ? assemble(updated) : assemble(x)), printers); return r ? Math.round((r.sellPerUnit || 0) * 100) / 100 : null; } catch { return null; }
+    })() : null;
+    setItems(prev => prev.map(x => x.id === item.id ? { ...x, qtys: newQtys, totalQty: sumQ(newQtys), ...(sell != null ? { sell_per_unit: sell } : {}) } : x));
+    try {
+      const supabase = createClient();
+      for (const [size, q] of Object.entries(newQtys)) {
+        await (supabase.from("buy_sheet_lines") as any).upsert({ item_id: item.id, size, qty_ordered: q }, { onConflict: "item_id,size" });
+      }
+      if (sell != null) await (supabase.from("items") as any).update({ sell_per_unit: sell }).eq("id", item.id);
+    } catch (e) { console.error("[JobV2] distribute failed", e); }
   };
 
   // Build-tab edits: rename, add/remove a size, remove the product from the job.
@@ -604,6 +631,103 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     if (target) { persistBlankAssign(target, pi); }
     else { createProductFromPicker(pi); }
     closePicker();
+  };
+
+  // ── PSD / mockup drop → items (classic processFileDrop, adapted to V2 state).
+  // Groups files by base name; PSD parses print locations → print_ready file,
+  // matching image → mockup. Item created per group. ──
+  const [psdProcessing, setPsdProcessing] = useState<any>(null);
+  const [localThumbs, setLocalThumbs] = useState<Record<string, string>>({});
+  const thumbOf = (id: string) => localThumbs[id] || thumbByItem[id];
+  const baseNameOf = (fileName: string) => fileName
+    .replace(/\.psd$/i, "").replace(/[-_ ]?mockup[-_ ]?/i, "").replace(/[-_ ]?mock[-_ ]?/i, "")
+    .replace(/\.(png|jpg|jpeg|gif|webp)$/i, "").trim().toLowerCase();
+  const processFileDrop = async (fileList: FileList | File[]) => {
+    if (isCostingLocked(job)) return;
+    const allF = Array.from(fileList);
+    const psds = allF.filter(f => f.name.toLowerCase().endsWith(".psd"));
+    const images = allF.filter(f => /\.(png|jpg|jpeg|gif|webp)$/i.test(f.name));
+    if (!psds.length && !images.length) { setActErr(""); setAddOpen(true); return; }
+    const groups: Record<string, any> = {};
+    for (const f of psds) {
+      const base = baseNameOf(f.name);
+      if (!groups[base]) groups[base] = { psd: null, mockup: null, displayName: f.name.replace(/\.psd$/i, "").trim() };
+      groups[base].psd = f;
+    }
+    for (const f of images) {
+      const base = baseNameOf(f.name);
+      if (groups[base]) groups[base].mockup = f;
+      else {
+        const displayName = f.name.replace(/[-_ ]?mockup[-_ ]?/i, "").replace(/\.(png|jpg|jpeg|gif|webp)$/i, "").trim();
+        groups[base] = { psd: null, mockup: f, displayName: displayName || f.name };
+      }
+    }
+    const groupList = Object.values(groups);
+    setPsdProcessing({ status: `Processing ${groupList.length} item${groupList.length !== 1 ? "s" : ""}…`, done: 0, total: groupList.length });
+    const supabase = createClient();
+    const clientName = job?.clients?.name || "Unknown Client";
+    const projectTitle = job?.title || job?.job_number || "Untitled Project";
+    const failed: string[] = [];
+    let maxSort = items.reduce((m, it: any) => Math.max(m, Number(it.sort_order) || 0), 0);
+    for (let g = 0; g < groupList.length; g++) {
+      const group: any = groupList[g];
+      const itemName = group.displayName;
+      setPsdProcessing({ status: `${g + 1}/${groupList.length} — ${itemName}`, done: g, total: groupList.length });
+      try {
+        let locations: any[] = []; let hasTag = false;
+        if (group.psd) {
+          try { const parsed: any = await parsePsd(await group.psd.arrayBuffer()); locations = parsed.locations; hasTag = parsed.hasTag; }
+          catch (e) { console.warn("PSD parse error:", e); }
+        }
+        maxSort += 10;
+        const { data: newItem, error }: any = await (supabase.from("items") as any).insert({
+          job_id: job.id, name: itemName, status: "tbd", artwork_status: "not_started", sort_order: maxSort,
+        }).select("*").single();
+        if (error) throw new Error(error.message);
+        if (group.psd) {
+          const driveFile: any = await uploadToDrive({ blob: group.psd, fileName: group.psd.name, mimeType: "application/octet-stream", itemId: newItem.id, clientName, projectTitle, itemName, onProgress: undefined });
+          await registerFileInDb({ ...driveFile, itemId: newItem.id, stage: "print_ready", notes: JSON.stringify({ psd_locations: locations, psd_has_tag: hasTag }) });
+        }
+        if (group.mockup) {
+          const driveFile: any = await uploadToDrive({ blob: group.mockup, fileName: group.mockup.name, mimeType: group.mockup.type || "image/png", itemId: newItem.id, clientName, projectTitle, itemName, onProgress: undefined });
+          await registerFileInDb({ ...driveFile, itemId: newItem.id, stage: "mockup" });
+          if (driveFile?.fileId) setLocalThumbs(t => ({ ...t, [newItem.id]: driveFile.fileId }));
+        }
+        setItems(prev => [...prev, { ...newItem, qtys: {}, totalQty: 0 }]);
+        const { data: nf }: any = await supabase.from("item_files").select(FILE_COLS).eq("item_id", newItem.id).is("superseded_at", null).order("created_at");
+        setFilesByItem(m => ({ ...m, [newItem.id]: nf || [] }));
+        const parts: string[] = [];
+        if (group.psd) parts.push(`PSD: ${locations.length} location${locations.length !== 1 ? "s" : ""}${hasTag ? " + tag" : ""}`);
+        if (group.mockup) parts.push("mockup");
+        logJobActivity(job.id, `Item "${itemName}" created — ${parts.join(", ") || "no files"}`);
+      } catch (err) { console.error("File drop error:", err); failed.push(itemName); }
+    }
+    if (failed.length) {
+      // A partial/aborted upload must NOT look like success — the item + Drive
+      // folder may already exist empty. Same rule as classic.
+      setPsdProcessing({ error: `${failed.length} upload${failed.length !== 1 ? "s" : ""} didn't finish: ${failed.join(", ")}. Those items may have empty folders — delete and re-drop.` });
+    } else setPsdProcessing(null);
+  };
+
+  // ── Drag-reorder gallery cards → items.sort_order ──
+  const [dragId, setDragId] = useState<string | null>(null);
+  const dropOnCard = async (targetId: string) => {
+    if (!dragId || dragId === targetId) { setDragId(null); return; }
+    const arr = [...items];
+    const from = arr.findIndex((x: any) => x.id === dragId);
+    const to = arr.findIndex((x: any) => x.id === targetId);
+    if (from < 0 || to < 0) { setDragId(null); return; }
+    const [moved] = arr.splice(from, 1);
+    arr.splice(to, 0, moved);
+    const renumbered = arr.map((x: any, i: number) => ({ ...x, sort_order: (i + 1) * 10 }));
+    setItems(renumbered);
+    setDragId(null);
+    try {
+      const supabase = createClient();
+      for (let i = 0; i < renumbered.length; i++) {
+        if (arr[i].sort_order !== renumbered[i].sort_order) await (supabase.from("items") as any).update({ sort_order: renumbered[i].sort_order }).eq("id", renumbered[i].id);
+      }
+    } catch (e) { console.error("[JobV2] reorder save failed", e); }
   };
 
   // ── PO send (per vendor) — reuses the working classic flow: email the per-vendor
@@ -1094,14 +1218,22 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
               </div>
             );
           })()}
-          <div style={{ fontSize: 11.5, color: T.faint, padding: "8px 0 12px" }}>Tap a product for its worksheet — sizes, blank cost, decoration, vendor &amp; margin.</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(max(210px, calc((100% - 36px) / 4)), 1fr))", gap: 12 }}>
+          <div style={{ fontSize: 11.5, color: T.faint, padding: "8px 0 12px" }}>Tap a product for its worksheet — sizes, blank cost, decoration, vendor &amp; margin. Drag cards to reorder · drop PSDs/mockups anywhere here to create items.</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(max(210px, calc((100% - 36px) / 4)), 1fr))", gap: 12 }}
+            onDragOver={e => { if (e.dataTransfer.types.includes("Files")) e.preventDefault(); }}
+            onDrop={e => { if (e.dataTransfer.files.length) { e.preventDefault(); processFileDrop(e.dataTransfer.files); } }}>
             {items.map((item: any, i: number) => {
-              const thumb = thumbByItem[item.id];
+              const thumb = thumbOf(item.id);
               const q = qtyOf(item);
               const line = (Number(item.sell_per_unit) || 0) * q;
               return (
-                <div key={item.id} onClick={() => { setWsIndex(i); setWsTask("build"); }} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 14, overflow: "hidden", cursor: "pointer" }}>
+                <div key={item.id} onClick={() => { setWsIndex(i); setWsTask("build"); }}
+                  draggable={!locked}
+                  onDragStart={e => { setDragId(item.id); e.dataTransfer.effectAllowed = "move"; }}
+                  onDragEnd={() => setDragId(null)}
+                  onDragOver={e => { if (dragId) { e.preventDefault(); e.stopPropagation(); } }}
+                  onDrop={e => { if (dragId) { e.preventDefault(); e.stopPropagation(); dropOnCard(item.id); } }}
+                  style={{ background: T.surface, border: `1px solid ${dragId === item.id ? T.accent : T.border}`, borderRadius: 14, overflow: "hidden", cursor: "pointer", opacity: dragId === item.id ? 0.55 : 1 }}>
                   <div style={{ aspectRatio: "1/1", background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 44 }}>
                     {thumb ? <img src={thumbSrc(thumb)} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} /> : "👕"}
                   </div>
@@ -1426,7 +1558,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
             {/* item head */}
             <div style={{ display: "flex", gap: 14, padding: "16px 18px", alignItems: "center" }}>
               <div style={{ width: 56, height: 56, borderRadius: 10, background: "#fff", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26 }}>
-                {thumbByItem[it.id] ? <img src={thumbSrc(thumbByItem[it.id])} alt="" style={{ width: "100%", height: "100%", objectFit: "contain", borderRadius: 10 }} /> : "👕"}
+                {thumbOf(it.id) ? <img src={thumbSrc(thumbOf(it.id))} alt="" style={{ width: "100%", height: "100%", objectFit: "contain", borderRadius: 10 }} /> : "👕"}
               </div>
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 17, fontWeight: 900, letterSpacing: "-0.01em" }}>{it.name}</div>
@@ -1496,6 +1628,16 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                         <span style={{ fontSize: 10, fontWeight: 800, color: T.faint, fontFamily: mono }}>TOTAL</span>
                         <div style={{ width: 64, textAlign: "center", padding: "7px 6px", fontSize: 15, fontWeight: 800, fontFamily: mono }}>{qtyOf(it).toLocaleString()}</div>
                       </div>
+                      {!locked && sizes.length > 1 && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "center", justifyContent: "flex-end", marginLeft: 6 }}>
+                          <span style={{ fontSize: 10, fontWeight: 800, color: T.faint, fontFamily: mono }} title="Type a total — spreads across sizes by the sell-through curve">→ CURVE</span>
+                          <input type="text" inputMode="numeric" placeholder="total" key={it.id + ":dist:" + qtyOf(it)}
+                            onFocus={e => e.target.select()}
+                            onBlur={e => { if (e.target.value.trim()) { distributeTotal(it, e.target.value); e.target.value = ""; } }}
+                            onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                            style={{ width: 60, textAlign: "center", padding: "7px 6px", borderRadius: 8, border: `1px dashed ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontWeight: 700, fontFamily: mono, outline: "none" }} />
+                        </div>
+                      )}
                     </div>
                     <div style={{ fontSize: 11, color: locked ? T.amber : T.faint, marginTop: 14 }}>
                       {locked ? "🔒 Pricing is locked — unlock in Costing to edit." : "Saves to the buy sheet. Pick blank ▸ opens the full catalog (S&S, AS Colour, LA Apparel, Cotton Collective, Favorites)."}
@@ -1559,7 +1701,15 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                           ))}
                         </div>
 
-                        {/* raw blank-cost + shipping-buffer editors (writes items / costProd.shipRate) */}
+                        {/* decoration engine — DecorationPanel fed the full assembled array so
+                            share groups (A–J / T1–T10) + qty tiers compute across items. */}
+                        <div style={{ marginTop: 18, paddingTop: 14, borderTop: `1px solid ${T.border}44` }}>
+                          <div style={{ ...lbl, marginBottom: 10 }}>Decoration</div>
+                          <DecorationPanel p={allAssembled[wsIndex!]} i={wsIndex!} costProds={allAssembled} PRINTERS={printers} decoratorRecords={decoratorRecords} updateProd={updateProd} setCostProds={setCostProdsFn} lookupPrintPrice={lookupPrint} lookupTagPrice={lookupTag} costingLocked={locked} />
+                        </div>
+
+                        {/* raw blank-cost + shipping-buffer editors — bottom of the sheet
+                            (writes items / costProd.shipRate) */}
                         <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 18, paddingTop: 14, borderTop: `1px solid ${T.border}44` }}>
                           <label style={{ flex: "1 1 190px" }}>
                             <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Blank cost / unit <span style={{ fontWeight: 500, textTransform: "none", letterSpacing: 0, color: T.faint }}>· raw</span></span>
@@ -1579,13 +1729,6 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                                 style={{ flex: 1, padding: "9px 11px", borderRadius: 8, border: `1px solid ${T.border}`, background: locked ? T.card : T.surface, color: locked ? T.muted : T.text, fontSize: 14, fontWeight: 700, fontFamily: mono, outline: "none" }} />
                             </div>
                           </label>
-                        </div>
-
-                        {/* decoration engine — DecorationPanel fed the full assembled array so
-                            share groups (A–J / T1–T10) + qty tiers compute across items. */}
-                        <div style={{ marginTop: 18, paddingTop: 14, borderTop: `1px solid ${T.border}44` }}>
-                          <div style={{ ...lbl, marginBottom: 10 }}>Decoration</div>
-                          <DecorationPanel p={allAssembled[wsIndex!]} i={wsIndex!} costProds={allAssembled} PRINTERS={printers} decoratorRecords={decoratorRecords} updateProd={updateProd} setCostProds={setCostProdsFn} lookupPrintPrice={lookupPrint} lookupTagPrice={lookupTag} costingLocked={locked} />
                         </div>
                       </>
                     )}
@@ -1851,6 +1994,20 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
           </div>
         );
       })()}
+
+      {/* ── PSD/mockup drop progress toast ── */}
+      {psdProcessing && (
+        <div style={{ position: "fixed", bottom: 22, left: "50%", transform: "translateX(-50%)", zIndex: 500, background: T.card, border: `1px solid ${psdProcessing.error ? T.red : T.border}`, borderRadius: 12, padding: "13px 18px", maxWidth: 480, boxShadow: "0 8px 28px rgba(0,0,0,0.45)" }}>
+          {psdProcessing.error ? (
+            <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+              <div style={{ fontSize: 12.5, color: T.red, lineHeight: 1.45, flex: 1 }}>{psdProcessing.error}</div>
+              <button onClick={() => setPsdProcessing(null)} style={{ background: "none", border: "none", color: T.faint, fontSize: 15, cursor: "pointer", lineHeight: 1, padding: 0 }}>✕</button>
+            </div>
+          ) : (
+            <div style={{ fontSize: 12.5, color: T.text, fontWeight: 700 }}>⏳ {psdProcessing.status}</div>
+          )}
+        </div>
+      )}
 
       {/* ── QB customer chooser (ambiguous invoice push → pick/create/unlink) ── */}
       <QBCustomerChooser open={chooserOpen} mode="push" clientId={job.client_id} searchedName={client}
