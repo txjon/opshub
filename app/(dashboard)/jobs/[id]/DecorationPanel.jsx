@@ -447,6 +447,44 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
           );
         })})()}
 
+        {/* ── Per-print add-ons (specialty) — live IN the print list (moved
+            out of the Add-ons modal). Same pricing: rate × count of prints
+            (specialtyQtys _on/_count keys, engine untouched). Fleece
+            upcharge stays auto from the fleece flag. ── */}
+        {p.printVendor && Object.entries(pr.specialty||{}).map(([key,rate])=>{
+          const isFleeceKey = key.toLowerCase().includes("fleece");
+          if (isFleeceKey) {
+            if (!p.isFleece) return null;
+            return (
+              <div key={"sp-"+key} style={{background:T.surface,border:`1px solid ${T.green}44`,borderRadius:8,padding:"6px 10px",display:"flex",alignItems:"center",gap:isMobile?6:10,minHeight:38}}>
+                <span style={{width:isMobile?120:170,flexShrink:0,fontSize:13,fontWeight:700,color:T.green,fontFamily:font}}>{key}</span>
+                <span style={{fontSize:10,color:T.muted,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:600}}>auto · fleece · {allPrintCount} print{allPrintCount===1?"":"s"}</span>
+                <div style={{flex:1,minWidth:0}}/>
+                <span style={{fontSize:14,fontWeight:700,color:T.green,fontFamily:mono,flexShrink:0}}>${(rate*allPrintCount).toFixed(2)}</span>
+              </div>
+            );
+          }
+          const on = p.specialtyQtys?.[key+"_on"]>0;
+          if (!on) return null;
+          const stored = p.specialtyQtys?.[key+"_count"]||0;
+          const count = stored>0&&stored<activeLocs?stored:activeLocs;
+          return (
+            <div key={"sp-"+key} style={{background:T.surface,border:`1px solid ${T.green}44`,borderRadius:8,padding:"6px 10px",display:"flex",alignItems:"center",gap:isMobile?6:10,minHeight:38,flexWrap:isMobile?"wrap":"nowrap"}}>
+              <span style={{width:isMobile?120:170,flexShrink:0,fontSize:13,fontWeight:700,color:T.green,fontFamily:font}}>{key}</span>
+              <div style={{display:"flex",alignItems:"center",gap:4,flexShrink:0}}>
+                <input type="text" inputMode="numeric" value={count||""} onChange={e=>updateProd(i,{...p,specialtyQtys:{...(p.specialtyQtys||{}),[key+"_count"]:parseInt(e.target.value)||0}})}
+                  style={{width:34,textAlign:"center",background:T.card,border:`1px solid ${T.border}`,borderRadius:5,color:T.text,fontSize:13,fontWeight:700,fontFamily:mono,outline:"none",padding:"3px 4px"}}/>
+                <span style={{fontSize:10,color:T.muted}}>of {activeLocs} print{activeLocs===1?"":"s"}</span>
+              </div>
+              <button onClick={()=>updateProd(i,{...p,specialtyQtys:{...(p.specialtyQtys||{}),[key+"_on"]:0}})}
+                style={{background:"none",border:"none",color:T.faint,cursor:"pointer",fontSize:15,flexShrink:0,padding:"0 2px",lineHeight:1}}
+                onMouseEnter={e=>e.currentTarget.style.color=T.red} onMouseLeave={e=>e.currentTarget.style.color=T.faint}>×</button>
+              <div style={{flex:1,minWidth:0}}/>
+              <span style={{fontSize:14,fontWeight:700,color:T.green,fontFamily:mono,flexShrink:0}}>${(rate*count).toFixed(2)}</span>
+            </div>
+          );
+        })}
+
         {/* ── Custom cost lines — live IN the print-location list (moved out
             of the old chip modal). Same row chrome as a location line. ── */}
         {(p.customCosts||[]).map((cc,ci)=>(
@@ -479,14 +517,27 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
             </span>
           </div>
         ))}
-        {(p.customCosts||[]).length < 6 && (
-          <button onClick={()=>updateProd(i,{...p,customCosts:[...(p.customCosts||[]),{desc:"",perUnit:0,flat:false}]})}
-            style={{fontSize:11,fontWeight:600,color:T.faint,background:"none",border:`1px dashed ${T.border}66`,borderRadius:8,padding:"8px 10px",cursor:"pointer",fontFamily:font,textAlign:"left"}}
-            onMouseEnter={e=>{e.currentTarget.style.color=T.text;e.currentTarget.style.borderColor=T.border;}}
-            onMouseLeave={e=>{e.currentTarget.style.color=T.faint;e.currentTarget.style.borderColor=T.border+"66";}}>
-            + Custom cost
-          </button>
-        )}
+        {/* add strip — inactive per-print add-ons + custom cost, one line */}
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          {p.printVendor && Object.entries(pr.specialty||{}).filter(([key])=>!key.toLowerCase().includes("fleece") && !(p.specialtyQtys?.[key+"_on"]>0)).map(([key,rate])=>(
+            <button key={"add-"+key}
+              onClick={()=>{const nq={...(p.specialtyQtys||{}),[key+"_on"]:1};if(!nq[key+"_count"])nq[key+"_count"]=activeLocs;updateProd(i,{...p,specialtyQtys:nq});}}
+              title={`$${Number(rate).toFixed(2)} per print, per unit`}
+              style={{fontSize:11,fontWeight:600,color:T.faint,background:"none",border:`1px dashed ${T.border}66`,borderRadius:8,padding:"8px 10px",cursor:"pointer",fontFamily:font}}
+              onMouseEnter={e=>{e.currentTarget.style.color=T.text;e.currentTarget.style.borderColor=T.border;}}
+              onMouseLeave={e=>{e.currentTarget.style.color=T.faint;e.currentTarget.style.borderColor=T.border+"66";}}>
+              + {key}
+            </button>
+          ))}
+          {(p.customCosts||[]).length < 6 && (
+            <button onClick={()=>updateProd(i,{...p,customCosts:[...(p.customCosts||[]),{desc:"",perUnit:0,flat:false}]})}
+              style={{fontSize:11,fontWeight:600,color:T.faint,background:"none",border:`1px dashed ${T.border}66`,borderRadius:8,padding:"8px 10px",cursor:"pointer",fontFamily:font,textAlign:"left"}}
+              onMouseEnter={e=>{e.currentTarget.style.color=T.text;e.currentTarget.style.borderColor=T.border;}}
+              onMouseLeave={e=>{e.currentTarget.style.color=T.faint;e.currentTarget.style.borderColor=T.border+"66";}}>
+              + Custom cost
+            </button>
+          )}
+        </div>
       </div>
 
       {/* ── Tag · Packaging · Finishing — one horizontal row with
@@ -579,18 +630,34 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
               </div>
             )}
 
-            {/* Finishing items (hem tag, hang tag, etc.) moved into the
-                Specialty/Add-ons modal — they're per-piece add-ons and
-                rarely used, so they don't earn always-visible real
-                estate next to Tag Print + Packaging. */}
+            {/* Item add-ons (finishing: hem tag, hang tag, …) — per-piece
+                toggles, back OUT of the modal: they behave exactly like
+                packaging variants so they live in the same strip row. */}
+            {p.printVendor && pr.finishing && Object.keys(pr.finishing).length > 0 && (
+              <div style={{display:"flex",flexDirection:"column",gap:0,minWidth:isMobile?0:140}}>
+                <div style={sectionLabel}>Item add-ons</div>
+                <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                  {Object.entries(pr.finishing).map(([key,rate])=>{
+                    const on = p.finishingQtys?.[key+"_on"]>0;
+                    return (
+                      <button key={key} onClick={()=>updateProd(i,{...p,finishingQtys:{...(p.finishingQtys||{}),[key+"_on"]:on?0:1}})}
+                        title={`$${Number(rate).toFixed(2)} per piece`}
+                        style={toggleBtn(on)}>
+                        {key}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         );
       })()}
 
       {/* Setup Fees — collapsible */}
-      {/* ── Setup Fees · Specialty — 2-column grid (custom costs moved
-          inline into the print-location list). Each card expands inline
-          when tapped; on narrow viewports the grid wraps. */}
+      {/* ── Setup Fees — the last collapsible (custom costs + per-print
+          add-ons live inline in the print list; finishing is the ITEM
+          ADD-ONS strip). Kept at half width on desktop. ── */}
       <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"repeat(2, minmax(0, 1fr))",gap:8,alignItems:"start"}}>
       {p.printVendor && pr.setup && (()=>{
         const activeSetup = Object.keys(pr.setup).filter(key => {
@@ -691,79 +758,9 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
         );
       })()}
 
-      {/* Specialty + Finishing — column 2 of the grid. The two share a
-          modal as "Add-ons" since both are per-piece optional charges
-          for the print run. Specialty rows scale by location count;
-          Finishing rows are flat per-piece toggles. */}
-      {p.printVendor && ((pr.specialty && Object.keys(pr.specialty).length>0) || (pr.finishing && Object.keys(pr.finishing).length>0)) ? (()=>{
-        const activeSpecs = Object.entries(pr.specialty||{}).filter(([key])=>{
-          const isFleece = key.toLowerCase().includes("fleece");
-          return isFleece ? p.isFleece : (p.specialtyQtys?.[key+"_on"]>0);
-        }).map(([key])=>key);
-        const activeFinishing = Object.keys(pr.finishing||{}).filter(key => p.finishingQtys?.[key+"_on"]>0);
-        const activeAll = [...activeSpecs, ...activeFinishing];
-        const addonsSummary = activeAll.length>0 ? activeAll.join(", ") : "None";
-        return (
-        <div style={{borderRadius:6,border:`1px solid ${T.border}`,overflow:"hidden"}}>
-          <button onClick={()=>updateProd(i,{...p,_specOpen:true})}
-            style={{width:"100%",padding:"6px 10px",background:T.surface,border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",fontFamily:font}}>
-            <div style={{display:"flex",alignItems:"center",gap:8,minWidth:0}}>
-              <span style={{fontSize:9,fontWeight:700,color:T.muted,textTransform:"uppercase",letterSpacing:"0.08em"}}>Add-ons</span>
-              <span style={{fontSize:9,color:activeAll.length>0?T.accent:T.faint,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{addonsSummary}</span>
-            </div>
-            <span style={{fontSize:10,color:T.faint}}>›</span>
-          </button>
-          <SettingsModal open={!!p._specOpen} onClose={()=>updateProd(i,{...p,_specOpen:false})} title="Add-ons" summary={activeAll.length>0?activeAll.join(" · "):"None applied"} width={460}>
-            <div style={{display:"flex",flexDirection:"column",gap:8}}>
-              {Object.entries(pr.specialty||{}).map(([key,rate])=>{
-                const isFleece = key.toLowerCase().includes("fleece");
-                const on = isFleece ? p.isFleece : (p.specialtyQtys?.[key+"_on"]>0);
-                const stored = p.specialtyQtys?.[key+"_count"]||0;
-                const count = isFleece ? allPrintCount : (stored > 0 && stored < activeLocs ? stored : activeLocs);
-                const rowCost = on ? rate * count : 0;
-
-                return (
-                  <div key={key} onClick={()=>{
-                    if (isFleece) return;
-                    const newOn = !on;
-                    const newQtys = {...(p.specialtyQtys||{}), [key+"_on"]:newOn?1:0};
-                    if (newOn && !newQtys[key+"_count"]) newQtys[key+"_count"] = activeLocs;
-                    updateProd(i,{...p,specialtyQtys:newQtys});
-                  }} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",background:on?T.greenDim:T.surface,border:`1px solid ${on?T.green+"66":T.border}`,borderRadius:8,cursor:isFleece?"default":"pointer",transition:"all 0.15s",userSelect:"none"}}>
-                    <span style={{flex:1,fontSize:13,fontWeight:600,color:on?T.green:T.text,fontFamily:font}}>{key}</span>
-                    {on && !isFleece && (
-                      <div style={{display:"inline-flex",alignItems:"center",gap:6}} onClick={e=>e.stopPropagation()}>
-                        <input type="text" inputMode="numeric" value={count||""} onChange={e=>updateProd(i,{...p,specialtyQtys:{...(p.specialtyQtys||{}),[key+"_count"]:parseInt(e.target.value)||0}})}
-                          style={{width:46,textAlign:"center",background:T.card,border:`1px solid ${T.border}`,borderRadius:6,color:T.text,fontSize:13,fontWeight:700,fontFamily:mono,outline:"none",padding:"4px 6px"}}/>
-                        <span style={{fontSize:10,color:T.muted,fontFamily:font,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em"}}>locs</span>
-                      </div>
-                    )}
-                    {isFleece && on && <span style={{fontSize:11,color:T.muted,fontFamily:mono}}>{count} sizes</span>}
-                    <span style={{fontFamily:mono,fontWeight:700,fontSize:13,color:on?T.green:T.faint,minWidth:72,textAlign:"right"}}>${on?rowCost.toFixed(2):"—"}</span>
-                  </div>
-                );
-              })}
-              {/* Finishing rows — flat per-piece, on/off only, no count input. */}
-              {Object.entries(pr.finishing||{}).map(([key,rate])=>{
-                const on = p.finishingQtys?.[key+"_on"]>0;
-                const rowCost = on ? rate * (p.totalQty||0) : 0;
-                return (
-                  <div key={"fin-"+key} onClick={()=>updateProd(i,{...p,finishingQtys:{...(p.finishingQtys||{}),[key+"_on"]:on?0:1}})}
-                    style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",background:on?T.greenDim:T.surface,border:`1px solid ${on?T.green+"66":T.border}`,borderRadius:8,cursor:"pointer",transition:"all 0.15s",userSelect:"none"}}>
-                    <span style={{flex:1,fontSize:13,fontWeight:600,color:on?T.green:T.text,fontFamily:font}}>{key}</span>
-                    <span style={{fontSize:10,color:T.muted,fontFamily:font,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em"}}>{`$${rate.toFixed(2)} ea`}</span>
-                    <span style={{fontFamily:mono,fontWeight:700,fontSize:13,color:on?T.green:T.faint,minWidth:72,textAlign:"right"}}>${on?rowCost.toFixed(2):"—"}</span>
-                  </div>
-                );
-              })}
-            </div>
-          </SettingsModal>
-        </div>
-        );
-      })() : null}
-
-      {/* Custom Costs — moved INLINE into the print-location list above
-          (Jul 26); the chip + modal cell is gone. */}
+      {/* Add-ons modal removed (Jul 26): per-print specialties live inline
+          in the print list; per-piece finishing is the ITEM ADD-ONS strip
+          next to Tag/Packaging. Custom costs are inline lines above. */}
       </div>
       </>}
     </div>
