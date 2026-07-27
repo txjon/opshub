@@ -207,6 +207,16 @@ function calcDecorationLines(p: any, allProds: any[] = []): { label: string; qty
       if (isScreensKey(k)) {
         feeQty = autoScreens;
         label = `Screen fees (${autoScreens} screens)`;
+        // Shared-group screens bill ONCE, on the group's first item. Later
+        // items must SAY so on the PO — a silent zero read as "screens
+        // missing" (Jon, Jul 26).
+        if (sharedScreensToSkip > 0) {
+          if (autoScreens === 0) {
+            lines.push({ label: `Screens shared — billed once with the group (${sharedScreensToSkip} screens)`, qty: 0, rate: 0, total: 0 });
+            continue;
+          }
+          label = `Screen fees (${autoScreens} screens; ${sharedScreensToSkip} shared, billed with group)`;
+        }
       } else if (isTagScreensKey(k)) {
         if (p.tagRepeat) continue;
         feeQty = p.tagPrint ? activeSizes : (p.setupFees.tagSizes || 0);

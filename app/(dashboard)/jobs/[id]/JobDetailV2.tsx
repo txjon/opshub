@@ -1590,7 +1590,12 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                     <input key={item.id + ":c:" + (item.blanks_order_cost ?? "")} defaultValue={actual != null ? actual.toFixed(2) : ""} placeholder="total paid" inputMode="decimal" onBlur={e => saveBlankCost(item, e.target.value)}
                       style={{ width: 84, padding: "6px 8px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: mono, outline: "none" }} />
                   </div>
-                  <span style={{ width: 62, textAlign: "right", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: ordered ? (actual! > calc ? T.red : T.green) : T.faint }}>{ordered ? (actual! > calc ? "over" : "logged ✓") : "—"}</span>
+                  <span style={{ width: 108, textAlign: "right", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: ordered ? (actual! > calc + 0.005 ? T.red : T.green) : T.faint }}>
+                    {!ordered ? "—"
+                      : Math.abs(actual! - calc) < 0.005 ? "logged ✓ exact"
+                      : actual! > calc ? `+${fmtMoney(actual! - calc)} over`
+                      : `−${fmtMoney(calc - actual!)} under`}
+                  </span>
                 </div>
               </div>
             );
