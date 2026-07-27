@@ -38,6 +38,7 @@ import { applyPoSentToVendorItems, revertPoSentFromVendorItems } from "@/lib/po-
 import { recalcJobPhase } from "@/lib/job-phase-recalc";
 import { PROOF_RENDERER_VERSION } from "@/lib/proof-client";
 import { clientShippingRoutes } from "@/lib/tenants";
+import { useIsMobile } from "@/lib/useIsMobile";
 import { calculatePriority } from "@/lib/dates";
 import { SHIP_METHODS } from "@/lib/ship-methods";
 const DecorationPanel: any = DecorationPanelRaw; // .jsx — bypass narrow inferred prop types
@@ -139,6 +140,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   // Refs mirror live state so the debounced flush (a stale render closure) reads
   // the CURRENT deco edits + items, not the snapshot from when it was scheduled.
   const decoStateRef = React.useRef(decoState); decoStateRef.current = decoState;
+  const isMobile = useIsMobile();
   const itemsRef = React.useRef(items); itemsRef.current = items;
 
   // ── NO SILENT SAVE FAILURES (house rule): every write path surfaces a red
@@ -1358,7 +1360,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       </div>
 
       {/* title */}
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, padding: "2px 0 16px" }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, padding: "2px 0 16px", flexWrap: "wrap" }}>
         <h1 style={{ fontSize: "clamp(26px,4vw,40px)", fontWeight: 900, letterSpacing: "-0.02em", lineHeight: 1.02, margin: 0 }}>{client || job?.title}</h1>
         <div style={{ textAlign: "right", flexShrink: 0 }}>
           <div style={{ fontFamily: mono, fontSize: 24, fontWeight: 800, color: T.muted }}>{invNum || job?.job_number}</div>
@@ -1367,7 +1369,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       </div>
 
       {/* HERO + next action */}
-      <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 18, padding: "22px 24px", display: "grid", gridTemplateColumns: "1.3fr 1fr", gap: 24 }}>
+      <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 18, padding: isMobile ? "18px 16px" : "22px 24px", display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1.3fr 1fr", gap: isMobile ? 14 : 24 }}>
         <div>
           <div style={{ color: "#6bb0e8", fontSize: 11, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase" }}>{hero.eyebrow}</div>
           <h2 style={{ fontSize: "clamp(28px,5vw,48px)", fontWeight: 900, letterSpacing: "-0.02em", margin: "6px 0 8px", lineHeight: 0.98 }}>{hero.title}</h2>
@@ -1389,7 +1391,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       </div>
 
       {/* money + logistics strip */}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 28, alignItems: "flex-end", padding: "18px 4px 4px", marginTop: 14, borderTop: `1px solid ${T.border}55` }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: isMobile ? 16 : 28, alignItems: "flex-end", padding: "18px 4px 4px", marginTop: 14, borderTop: `1px solid ${T.border}55` }}>
         {[
           ["Order total", fmtMoney(orderTotal), `${units.toLocaleString()} units`, T.text],
           ["Invoiced", invNum ? fmtMoney(invoiced) : "—", invNum ? "Inv " + invNum : "not sent", T.text],
@@ -1957,8 +1959,8 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       {/* ── ITEM WORKSHEET (proof-editor style: flip between items, never unmount) ── */}
       {it && (
         <div onClick={e => { if (e.target === e.currentTarget) setWsIndex(null); }}
-          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.72)", zIndex: 300, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "24px 14px", overflowY: "auto" }}>
-          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 16, width: "100%", maxWidth: 820, overflow: "hidden" }}>
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.72)", zIndex: 300, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: isMobile ? "8px 4px" : "24px 14px", overflowY: "auto" }}>
+          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: isMobile ? 12 : 16, width: "100%", maxWidth: 820, overflow: "hidden" }}>
             {/* nav strip */}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", borderBottom: `1px solid ${T.border}55` }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
