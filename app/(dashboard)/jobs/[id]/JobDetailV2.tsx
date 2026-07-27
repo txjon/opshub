@@ -1216,10 +1216,15 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
         ))}
       </div>
 
-      {/* jump nav */}
-      <div style={{ position: "sticky", top: 0, zIndex: 20, background: "rgba(10,10,10,0.82)", backdropFilter: "blur(10px)", display: "flex", gap: 8, padding: "12px 0", margin: "8px 0 6px", borderBottom: `1px solid ${T.border}55`, overflowX: "auto" }}>
+      {/* jump nav — solid bg (T.bg) so stuck-state fully blacks out the
+          content scrolling underneath; buttons on card bg + white text so
+          they read as controls, not ghost outlines. */}
+      <div style={{ position: "sticky", top: 0, zIndex: 20, background: T.bg, display: "flex", gap: 8, padding: "12px 0", margin: "8px 0 6px", borderBottom: `1px solid ${T.border}`, overflowX: "auto" }}>
         {[["products", "Products & Costing"], ["client", "Client"], ["production", "Purchasing & Production"], ["logistics", "Logistics"]].map(([id, label]) => (
-          <a key={id} href={"#" + id} onClick={() => setOpen(o => ({ ...o, [id]: true }))} style={{ fontSize: 12, fontWeight: 700, color: T.muted, textDecoration: "none", padding: "7px 13px", borderRadius: 999, border: `1px solid ${T.border}`, whiteSpace: "nowrap" }}>{label}</a>
+          <a key={id} href={"#" + id} onClick={() => setOpen(o => ({ ...o, [id]: true }))}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.background = T.surface; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.background = T.card; }}
+            style={{ fontSize: 12.5, fontWeight: 800, color: T.text, textDecoration: "none", padding: "9px 16px", borderRadius: 999, border: `1px solid ${T.border}`, background: T.card, whiteSpace: "nowrap", transition: "border-color 0.15s, background 0.15s" }}>{label}</a>
         ))}
       </div>
 
