@@ -1219,7 +1219,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       {/* jump nav — solid bg (T.bg) so stuck-state fully blacks out the
           content scrolling underneath; buttons on card bg + white text so
           they read as controls, not ghost outlines. */}
-      <div style={{ position: "sticky", top: 0, zIndex: 20, background: T.bg, display: "flex", gap: 8, padding: "12px 0", margin: "8px 0 6px", borderBottom: `1px solid ${T.border}`, overflowX: "auto" }}>
+      <div style={{ position: "sticky", top: 0, zIndex: 20, background: T.bg, boxShadow: `0 -28px 0 0 ${T.bg}`, display: "flex", gap: 8, padding: "12px 0", margin: "8px 0 6px", borderBottom: `1px solid ${T.border}`, overflowX: "auto" }}>
         {[["products", "Products & Costing"], ["client", "Client"], ["production", "Purchasing & Production"], ["logistics", "Logistics"]].map(([id, label]) => (
           <a key={id} href={"#" + id} onClick={() => setOpen(o => ({ ...o, [id]: true }))}
             onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.background = T.surface; }}
