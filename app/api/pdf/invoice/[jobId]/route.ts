@@ -367,7 +367,10 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     // rendered from, so the hub's invoice view matches the PDF by
     // construction). Used by the client hub's View-invoice-and-pay sheet.
     if (req.nextUrl.searchParams.get("html") === "1") {
-      return new NextResponse(finalHtml, { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } });
+      // Viewport meta for the WEB view only (phones would render the print
+      // layout zoomed out) — the PDF path renders the HTML untouched.
+      const webHtml = finalHtml.replace("<head>", `<head><meta name="viewport" content="width=device-width, initial-scale=1"/>`).replace('max-width:780px;margin:0 auto', 'max-width:780px;margin:0 auto;padding:0 10px;box-sizing:border-box');
+      return new NextResponse(webHtml, { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } });
     }
     const pdfBuffer = await generatePDF(finalHtml);
     // Filename = client name + number — the job memo is internal and must not
