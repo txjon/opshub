@@ -163,6 +163,12 @@ export async function sendClientNotification(params: NotifyParams) {
     const toEmail = override.length > 0 ? override[0] : primary.email;
     const ccList = override.length > 0 ? override.slice(1) : ccEmails;
 
+    // Job-thread reply-to — same plus-addressing as /api/email/send's client
+    // sends (hello+c.<jobId>@domain) so replies to proof/payment emails land
+    // in the job-specific thread, not the bare inbox.
+    const fromEmail = (from.match(/<([^>]+)>/)?.[1] || from).trim();
+    const replyTo = `${fromEmail.split("@")[0] || "hello"}+c.${job.id}@${fromEmail.split("@")[1] || "housepartydistro.com"}`;
+
     // Send
     await resend.emails.send({
       from,
@@ -170,6 +176,7 @@ export async function sendClientNotification(params: NotifyParams) {
       ...(ccList.length > 0 ? { cc: ccList } : {}),
       subject,
       html,
+      replyTo,
     });
 
     // Log activity
