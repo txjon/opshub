@@ -301,7 +301,15 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   const renameItem = async (item: any, name: string) => {
     const n = name.trim(); if (!n || n === item.name) return;
     setItems(prev => prev.map(x => x.id === item.id ? { ...x, name: n } : x));
-    try { await (createClient().from("items") as any).update({ name: n }).eq("id", item.id); } catch (e) { console.error("[JobV2] rename failed", e); }
+    try {
+      await (createClient().from("items") as any).update({ name: n }).eq("id", item.id);
+      // Rename the Drive folder in place (classic doSave did this) —
+      // otherwise the next upload creates a SIBLING folder under the new
+      // name and print files/proofs split across two locations.
+      if (typeof item.id === "string" && /^[0-9a-f-]{36}$/i.test(item.id)) {
+        fetch("/api/drive/rename", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ entity: "item", id: item.id, name: n }) }).catch(() => {});
+      }
+    } catch (e) { console.error("[JobV2] rename failed", e); }
   };
   const saveItemField = async (item: any, fieldK: "garment_type" | "blank_vendor" | "blank_sku", value: string) => {
     const v = (value || "").trim() || null;
