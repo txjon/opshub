@@ -1021,28 +1021,6 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     catch { return null; }
   };
 
-  // Edit the RAW blank cost per unit → items.blank_costs (spread across sizes) +
-  // cost_per_unit, then recompute + persist sell_per_unit via the SAME engine
-  // (respects an existing sellOverride — calcCostProduct keeps it). items-table
-  // only; never touches costing_data, so no drift can be introduced.
-  const saveBlankPerUnit = async (item: any, raw: string) => {
-    if (isCostingLocked(job)) return;
-    const per = raw === "" ? 0 : parseFloat(String(raw).replace(/[^0-9.]/g, "")) || 0;
-    const sizes = Object.keys(item.qtys || {});
-    if (!sizes.length) return;
-    const blank_costs: Record<string, number> = {};
-    sizes.forEach(sz => { blank_costs[sz] = per; });
-    const nextItem = { ...item, blank_costs, cost_per_unit: per };
-    // recompute sell with the new blank cost, through the assembler + shared engine
-    const r = Object.keys(printers).length ? (() => { try { return calcCostProduct(assemble(nextItem), costMargin, inclShip, inclCC, items.map(x => x.id === item.id ? assemble(nextItem) : assemble(x)), printers); } catch { return null; } })() : null;
-    const sell = r ? Math.round((r.sellPerUnit || 0) * 100) / 100 : item.sell_per_unit;
-    setItems(prev => prev.map(x => x.id === item.id ? { ...x, blank_costs, cost_per_unit: per, sell_per_unit: sell } : x));
-    try {
-      const upd: any = { blank_costs, cost_per_unit: per };
-      if (r) upd.sell_per_unit = sell;
-      await (createClient().from("items") as any).update(upd).eq("id", item.id);
-    } catch (e) { console.error("[JobV2] blank cost save failed", e); }
-  };
   // Per-SIZE blank cost (2XL/3XL upcharges) — refines items.blank_costs one
   // size at a time; cost_per_unit re-derives as the avg of the >0 per-size
   // costs (same formula as CostingTab save + applyBlankToItem).
@@ -1801,45 +1779,33 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                             share groups (A–J / T1–T10) + qty tiers compute across items. */}
                         <div style={{ marginTop: 18, paddingTop: 14, borderTop: `1px solid ${T.border}44` }}>
                           <div style={{ ...lbl, marginBottom: 10 }}>Decoration</div>
-                          <DecorationPanel p={allAssembled[wsIndex!]} i={wsIndex!} costProds={allAssembled} PRINTERS={printers} decoratorRecords={decoratorRecords} updateProd={updateProd} setCostProds={setCostProdsFn} lookupPrintPrice={lookupPrint} lookupTagPrice={lookupTag} costingLocked={locked} />
+                          <DecorationPanel p={allAssembled[wsIndex!]} i={wsIndex!} costProds={allAssembled} PRINTERS={printers} decoratorRecords={decoratorRecords} updateProd={updateProd} setCostProds={setCostProdsFn} lookupPrintPrice={lookupPrint} lookupTagPrice={lookupTag} costingLocked={locked} hideVendorApplyAll />
                         </div>
 
                         {/* raw blank-cost + shipping-buffer editors — bottom of the sheet
                             (writes items / costProd.shipRate) */}
-                        {(() => {
-                          const csizes = sortSizes(Object.keys(it.qtys || {}));
-                          if (csizes.length <= 1) return null;
-                          return (
-                            <div style={{ marginTop: 18, paddingTop: 14, borderTop: `1px solid ${T.border}44` }}>
-                              <div style={{ ...lbl, marginBottom: 6 }}>Blank cost by size <span style={{ fontWeight: 500, textTransform: "none", letterSpacing: 0, color: T.faint }}>· 2XL/3XL upcharges live here</span></div>
-                              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                                {csizes.map(sz => {
-                                  const v = Number((it.blank_costs || {})[sz] ?? it.cost_per_unit ?? 0);
-                                  return (
-                                    <div key={it.id + ":bcs:" + sz + ":" + v} style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "center" }}>
-                                      <span style={{ fontSize: 10, fontWeight: 800, color: T.faint, fontFamily: mono }}>{sz}</span>
-                                      <input type="text" inputMode="decimal" defaultValue={v ? v.toFixed(2) : ""} placeholder="0.00" readOnly={locked}
-                                        onFocus={e => e.target.select()} onBlur={e => saveBlankSizeCost(it, sz, e.target.value)}
-                                        onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-                                        style={{ width: 62, textAlign: "center", padding: "7px 5px", borderRadius: 8, border: `1px solid ${T.border}`, background: locked ? T.card : T.surface, color: locked ? T.muted : T.text, fontSize: 12.5, fontWeight: 700, fontFamily: mono, outline: "none" }} />
-                                    </div>
-                                  );
-                                })}
-                              </div>
+                        {/* blank cost by size — THE blank-cost override surface
+                            (single source: items.blank_costs; avg → cost_per_unit) */}
+                        <div style={{ display: "flex", gap: 20, flexWrap: "wrap", alignItems: "flex-end", marginTop: 18, paddingTop: 14, borderTop: `1px solid ${T.border}44` }}>
+                          <div style={{ flex: "1 1 auto" }}>
+                            <div style={{ ...lbl, marginBottom: 6 }}>Blank cost by size <span style={{ fontWeight: 500, textTransform: "none", letterSpacing: 0, color: T.faint }}>· avg ${Number(it.cost_per_unit || 0).toFixed(2)}/u</span></div>
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                              {sortSizes(Object.keys(it.qtys || {})).map(sz => {
+                                const v = Number((it.blank_costs || {})[sz] ?? it.cost_per_unit ?? 0);
+                                return (
+                                  <div key={it.id + ":bcs:" + sz + ":" + v} style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "center" }}>
+                                    <span style={{ fontSize: 10, fontWeight: 800, color: T.faint, fontFamily: mono }}>{sz}</span>
+                                    <input type="text" inputMode="decimal" defaultValue={v ? v.toFixed(2) : ""} placeholder="0.00" readOnly={locked}
+                                      onFocus={e => e.target.select()} onBlur={e => saveBlankSizeCost(it, sz, e.target.value)}
+                                      onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                                      style={{ width: 62, textAlign: "center", padding: "7px 5px", borderRadius: 8, border: `1px solid ${T.border}`, background: locked ? T.card : T.surface, color: locked ? T.muted : T.text, fontSize: 12.5, fontWeight: 700, fontFamily: mono, outline: "none" }} />
+                                  </div>
+                                );
+                              })}
+                              {!Object.keys(it.qtys || {}).length && <span style={{ fontSize: 12, color: T.faint }}>No sizes yet — set them in Build.</span>}
                             </div>
-                          );
-                        })()}
-                        <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 18, paddingTop: 14, borderTop: `1px solid ${T.border}44` }}>
-                          <label style={{ flex: "1 1 190px" }}>
-                            <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Blank cost / unit <span style={{ fontWeight: 500, textTransform: "none", letterSpacing: 0, color: T.faint }}>· sets ALL sizes</span></span>
-                            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                              <span style={{ fontSize: 13, color: T.faint }}>$</span>
-                              <input key={it.id + ":bcu:" + (it.cost_per_unit ?? "")} defaultValue={it.cost_per_unit != null ? Number(it.cost_per_unit).toFixed(2) : ""} placeholder="0.00" inputMode="decimal" readOnly={locked}
-                                onBlur={e => saveBlankPerUnit(it, e.target.value)}
-                                style={{ flex: 1, padding: "9px 11px", borderRadius: 8, border: `1px solid ${T.border}`, background: locked ? T.card : T.surface, color: locked ? T.muted : T.text, fontSize: 14, fontWeight: 700, fontFamily: mono, outline: "none" }} />
-                            </div>
-                          </label>
-                          <label style={{ flex: "1 1 190px" }}>
+                          </div>
+                          <label style={{ flex: "0 1 190px" }}>
                             <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Shipping buffer / unit <span style={{ fontWeight: 500, textTransform: "none", letterSpacing: 0, color: T.faint }}>· blank = auto by garment</span></span>
                             <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                               <span style={{ fontSize: 13, color: T.faint }}>$</span>

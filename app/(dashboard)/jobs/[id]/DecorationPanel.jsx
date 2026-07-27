@@ -6,10 +6,13 @@ import { SettingsModal } from "./SettingsModal";
 import { useIsMobile } from "@/lib/useIsMobile";
 
 const LOCATION_PRESETS = ["Front","Back","Left Sleeve","Right Sleeve","Left Chest","Right Chest","Neck","Hood","Pocket"];
-const SHARE_GROUPS = ["A","B","C","D","E","F","G","H","I","J"];
+// Numbered (Jul 26) — letters collided with the A/B/C product designators.
+// Legacy letter groups on existing jobs stay valid: any non-empty group renders
+// as chosen and appears as an extra option; grouping is plain key equality.
+const SHARE_GROUPS = ["1","2","3","4","5","6","7","8","9","10"];
 const TAG_SHARE_GROUPS = ["T1","T2","T3","T4","T5","T6","T7","T8","T9","T10"];
 
-export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = [], onAddDecorator, updateProd, setCostProds, lookupPrintPrice, lookupTagPrice, costingLocked = false }) {
+export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = [], onAddDecorator, updateProd, setCostProds, lookupPrintPrice, lookupTagPrice, costingLocked = false, hideVendorApplyAll = false }) {
   const isMobile = useIsMobile();
   const pr = PRINTERS[p.printVendor] || {};
   const [forceExpanded, setForceExpanded] = useState(false);
@@ -227,11 +230,11 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
           })}
           {onAddDecorator && <option value="__add__">+ Add decorator</option>}
         </select>
-        <button onClick={()=>setCostProds(prev=>prev.map((cp,ci)=>ci>i?{...cp,printVendor:p.printVendor,printLocations:Object.fromEntries(Object.entries(cp.printLocations||{}).map(([k,v])=>([k,{...v,printer:p.printVendor}])))}:cp))}
+        {!hideVendorApplyAll && <button onClick={()=>setCostProds(prev=>prev.map((cp,ci)=>ci>i?{...cp,printVendor:p.printVendor,printLocations:Object.fromEntries(Object.entries(cp.printLocations||{}).map(([k,v])=>([k,{...v,printer:p.printVendor}])))}:cp))}
           title="Set this vendor on every item below"
           style={{fontSize:11,fontFamily:font,fontWeight:600,color:T.muted,background:"none",border:`1px solid ${T.border}`,borderRadius:6,cursor:"pointer",padding:"6px 14px",flexShrink:0,whiteSpace:"nowrap"}}
           onMouseEnter={e=>{e.currentTarget.style.color=T.text;e.currentTarget.style.borderColor=T.accent;}}
-          onMouseLeave={e=>{e.currentTarget.style.color=T.muted;e.currentTarget.style.borderColor=T.border;}}>↓ Apply to all</button>
+          onMouseLeave={e=>{e.currentTarget.style.color=T.muted;e.currentTarget.style.borderColor=T.border;}}>↓ Apply to all</button>}
         {p.printVendor&&pr.capabilities?.length>0&&(
           <div style={{display:"flex",gap:4,marginLeft:4}}>
             {pr.capabilities.map(cap=>{
@@ -374,20 +377,22 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
                   <div style={{width:84,flexShrink:0,display:"flex",alignItems:"center",gap:4}}>
                     {sharedSelected ? (
                       <>
-                        {/* Valid group = accent chip. Accent is WHITE on the dark
+                        {/* Chosen group = accent chip. Accent is WHITE on the dark
                             theme, so the text/chevron must be dark — never assert
-                            white-on-accent (that rendered white-on-white). */}
-                        <select value={SHARE_GROUPS.includes(shareGroup) ? shareGroup : ""} onChange={e=>updateLoc(loc,{shareGroup:e.target.value})}
+                            white-on-accent (that rendered white-on-white). Legacy
+                            letter groups (pre-numbering) stay valid + selectable. */}
+                        <select value={shareGroup} onChange={e=>updateLoc(loc,{shareGroup:e.target.value})}
                           style={{
                             ...baseStyle, fontFamily: mono,
-                            border: `1px solid ${SHARE_GROUPS.includes(shareGroup)?T.accent:T.red}`,
-                            backgroundColor: SHARE_GROUPS.includes(shareGroup) ? T.accent : T.red,
-                            backgroundImage: SHARE_GROUPS.includes(shareGroup)
+                            border: `1px solid ${shareGroup?T.accent:T.red}`,
+                            backgroundColor: shareGroup ? T.accent : T.red,
+                            backgroundImage: shareGroup
                               ? `url("data:image/svg+xml,%3Csvg width='8' height='5' viewBox='0 0 8 5' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L4 4L7 1' stroke='%230a0a0a' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E")`
                               : `url("data:image/svg+xml,%3Csvg width='8' height='5' viewBox='0 0 8 5' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L4 4L7 1' stroke='%23ffffff' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E")`,
-                            color: SHARE_GROUPS.includes(shareGroup) ? "#0a0a0a" : "#fff",
+                            color: shareGroup ? "#0a0a0a" : "#fff",
                           }}>
-                          {!SHARE_GROUPS.includes(shareGroup) && <option value="" disabled>?</option>}
+                          {!shareGroup && <option value="" disabled>?</option>}
+                          {shareGroup && !SHARE_GROUPS.includes(shareGroup) && <option value={shareGroup}>{shareGroup}</option>}
                           {SHARE_GROUPS.map(g=><option key={g} value={g}>{g}</option>)}
                         </select>
                         <button onClick={()=>updateLoc(loc,{shared:false,shareGroup:""})}
