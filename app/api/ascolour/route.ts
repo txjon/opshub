@@ -81,16 +81,20 @@ export async function GET(request: NextRequest) {
 
   try {
     if (endpoint === "products") {
-      const cached = await getCached("ascolour_products");
+      // Empty cache = a MISS, and an empty API response is never cached — one
+      // upstream failure must not shadow good data (same poisoned-[] bug as the
+      // LA Apparel route, fixed 2026-07-27).
+      let cached = await getCached("ascolour_products");
+      if (cached && Array.isArray(cached.data) && cached.data.length === 0) cached = null;
       if (cached) {
         // Return cached data immediately, refresh in background if stale
         if (!cached.fresh) {
-          paginate(`${AC_BASE}/catalog/products`, hdrs()).then(data => setCache("ascolour_products", data)).catch(() => {});
+          paginate(`${AC_BASE}/catalog/products`, hdrs()).then(data => { if (Array.isArray(data) && data.length) setCache("ascolour_products", data); }).catch(() => {});
         }
         return NextResponse.json(cached.data);
       }
       const data = await paginate(`${AC_BASE}/catalog/products`, hdrs());
-      await setCache("ascolour_products", data);
+      if (Array.isArray(data) && data.length) await setCache("ascolour_products", data);
       return NextResponse.json(data);
 
     } else if (endpoint === "variants") {
@@ -102,15 +106,16 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(await paginate(url, hdrs()));
 
     } else if (endpoint === "pricing") {
-      const cached = await getCached("ascolour_pricing");
+      let cached = await getCached("ascolour_pricing");
+      if (cached && Array.isArray(cached.data) && cached.data.length === 0) cached = null;
       if (cached) {
         if (!cached.fresh) {
-          authHdrs().then(h => paginate(`${AC_BASE}/catalog/pricelist`, h)).then(data => setCache("ascolour_pricing", data)).catch(() => {});
+          authHdrs().then(h => paginate(`${AC_BASE}/catalog/pricelist`, h)).then(data => { if (Array.isArray(data) && data.length) setCache("ascolour_pricing", data); }).catch(() => {});
         }
         return NextResponse.json(cached.data);
       }
       const data = await paginate(`${AC_BASE}/catalog/pricelist`, await authHdrs());
-      await setCache("ascolour_pricing", data);
+      if (Array.isArray(data) && data.length) await setCache("ascolour_pricing", data);
       return NextResponse.json(data);
 
     } else {
