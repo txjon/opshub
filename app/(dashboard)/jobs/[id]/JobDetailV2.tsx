@@ -2082,27 +2082,59 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
         </div>
       )}
 
-      {/* ── proof editor — the classic ProofModal, lifted above the worksheet (z 400 > 300) ── */}
+      {/* ── proof editor — classic ProofModal, lifted above the worksheet
+          (z 400 > 300). Mount-all-show-one across every proofable item with
+          ‹ › flip chrome (same pattern as classic generate-all). Flipping
+          also moves the worksheet index behind, so you always exit onto the
+          design you were just looking at. ── */}
       {proofItemId && (() => {
-        const pItem = items.find((x: any) => x.id === proofItemId);
-        if (!pItem) return null;
-        const pFiles = filesByItem[pItem.id] || [];
-        const mockupFile = pFiles.find((f: any) => f.stage === "mockup") || pFiles.find((f: any) => f.file_name?.toLowerCase().includes("mockup"));
+        const proofables = items.filter((x: any) => {
+          const fs = filesByItem[x.id] || [];
+          return x.proof_spec || fs.some((f: any) => f.stage === "mockup" || f.file_name?.toLowerCase().includes("mockup"));
+        });
+        const list = proofables.some((x: any) => x.id === proofItemId) ? proofables : items.filter((x: any) => x.id === proofItemId);
+        const idx = list.findIndex((x: any) => x.id === proofItemId);
+        if (idx < 0) return null;
+        const flip = (d: number) => {
+          const target: any = list[(idx + d + list.length) % list.length];
+          setProofItemId(target.id);
+          const wi = items.findIndex((x: any) => x.id === target.id);
+          if (wi >= 0 && wsIndex !== null) setWsIndex(wi);
+        };
         return (
           <div style={{ position: "relative", zIndex: 400 }}>
-            <ProofModal
-              key={pItem.id}
-              item={pItem}
-              clientName={client}
-              projectTitle={job.title}
-              mockupFile={mockupFile}
-              files={pFiles}
-              costingData={job.costing_data}
-              initialMode={proofMode}
-              onClose={() => setProofItemId(null)}
-              onSaved={reloadAllFiles}
-              onUpdateItem={(id: string, updates: any) => setItems(prev => prev.map((x: any) => x.id === id ? { ...x, ...updates } : x))}
-            />
+            {list.map((pItem: any) => {
+              const pFiles = filesByItem[pItem.id] || [];
+              const mockupFile = pFiles.find((f: any) => f.stage === "mockup") || pFiles.find((f: any) => f.file_name?.toLowerCase().includes("mockup"));
+              return (
+                <ProofModal
+                  key={pItem.id}
+                  hidden={pItem.id !== proofItemId}
+                  item={pItem}
+                  clientName={client}
+                  projectTitle={job.title}
+                  mockupFile={mockupFile}
+                  files={pFiles}
+                  costingData={job.costing_data}
+                  initialMode={pItem.id === proofItemId ? proofMode : (pItem.proof_spec ? "preview" : "edit")}
+                  onClose={() => setProofItemId(null)}
+                  onSaved={reloadAllFiles}
+                  onUpdateItem={(id: string, updates: any) => setItems(prev => prev.map((x: any) => x.id === id ? { ...x, ...updates } : x))}
+                />
+              );
+            })}
+            {list.length > 1 && (
+              <>
+                <button onClick={() => flip(-1)} aria-label="Previous proof"
+                  style={{ position: "fixed", left: 14, top: "50%", transform: "translateY(-50%)", zIndex: 450, width: 46, height: 46, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 22, fontWeight: 700, cursor: "pointer", boxShadow: "0 4px 16px rgba(0,0,0,0.4)", fontFamily: font, lineHeight: 1 }}>‹</button>
+                <button onClick={() => flip(1)} aria-label="Next proof"
+                  style={{ position: "fixed", right: 14, top: "50%", transform: "translateY(-50%)", zIndex: 450, width: 46, height: 46, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 22, fontWeight: 700, cursor: "pointer", boxShadow: "0 4px 16px rgba(0,0,0,0.4)", fontFamily: font, lineHeight: 1 }}>›</button>
+                <div style={{ position: "fixed", bottom: 18, left: "50%", transform: "translateX(-50%)", zIndex: 450, background: T.card, border: `1px solid ${T.border}`, borderRadius: 9, padding: "7px 14px", boxShadow: "0 4px 16px rgba(0,0,0,0.4)", display: "flex", alignItems: "baseline", gap: 10, maxWidth: "80vw" }}>
+                  <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 800, color: T.text, whiteSpace: "nowrap" }}>{letterOf(proofItemId)} · {idx + 1} / {list.length}</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: T.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{(list[idx] as any).name}</span>
+                </div>
+              </>
+            )}
           </div>
         );
       })()}
