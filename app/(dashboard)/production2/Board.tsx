@@ -549,6 +549,12 @@ function kpiRows(m: Map<string, Metric>, metric: MetricKey) {
 // you notify the warehouse (or see the box) after the ship modal is long gone.
 const shipHow = (box: ShippedBox) => box.pickup ? "Pickup" : [box.carrier, box.tracking].filter(Boolean).join(" · ") || "no tracking";
 const routeLabel = (box: ShippedBox) => box.pickup ? "Pickup" : box.route === "stage" ? "Stage" : box.route === "drop_ship" ? "Drop-ship" : "Ship-through";
+// Cumulative shipped exceeds the order — likely a duplicate ship entry. Rendered
+// in the row's variant slot on both Shipped views.
+const overShipFlag = (n: number) => n > 0
+  ? <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: 0.4, textTransform: "uppercase", color: T.amber }}
+      title={`Shipped ${n} more than ordered across all boxes — check for a duplicate ship entry`}>over-shipped +{n}</span>
+  : undefined;
 const WHEN_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 function fmtWhen(iso: string): string {
   const d = new Date(iso);
@@ -666,7 +672,8 @@ function ShippedBoxCard({ box }: { box: ShippedBox }) {
       <BoxMeta segments={noteSegs} />
       {lines.map((l, i) => (
         <div key={i} style={{ padding: "10px 16px", borderTop: `1px solid ${T.border}` }}>
-          <ItemRow fileId={l.mockupFileId} name={l.itemName} lead={l.invoiceNumber ? `${l.client} · #${l.invoiceNumber}` : l.client} route={box.route} qty={l.qty} />
+          <ItemRow fileId={l.mockupFileId} name={l.itemName} lead={l.invoiceNumber ? `${l.client} · #${l.invoiceNumber}` : l.client} route={box.route} qty={l.qty}
+            variant={overShipFlag(l.overShippedTotal)} />
         </div>
       ))}
     </Card>
@@ -697,7 +704,7 @@ function ShippedJobView({ boxes }: { boxes: ShippedBox[] }) {
             <div key={j} style={{ padding: "10px 16px", borderTop: `1px solid ${T.border}` }}>
               <ItemRow fileId={l.mockupFileId} name={l.itemName} route={l.box.route}
                 sub={<div style={{ fontSize: 11, color: T.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.box.vendorName} · {shipHow(l.box)}</div>}
-                qty={l.qty} />
+                qty={l.qty} variant={overShipFlag(l.overShippedTotal)} />
             </div>
           ))}
         </Card>
