@@ -11,6 +11,7 @@ import { upsertShipmentForItem } from "./handoff";
 import { recordShip, cleanPositive } from "./inventory-ledger";
 import { recalcJobPhase } from "./job-phase-recalc";
 import { logJobActivity } from "@/components/JobActivityPanel";
+import { normalizeTracking, isRealTracking } from "./use-shipments";
 
 export type ShipMethod = "tracking" | "bol" | "pickup";
 export type ShipItemInput = {
@@ -112,5 +113,56 @@ export async function shipFromProduction(sb: any, args: {
   } catch (e: any) {
     console.error("[production2] shipFromProduction", e);
     return { ok: false, shipped: 0, boxes: 0, boxIds: [], jobIds: [], error: e?.message || "Ship failed." };
+  }
+}
+
+// ── duplicate-ship guard ────────────────────────────────────────────────
+// The same tracking number + the same item already recorded as an inbound line
+// is almost always two people logging one physical box (Tank Lock, Jul 23:
+// Drake and Taylor 42s apart — the wave path bypasses same-tracking dedup by
+// design, so nothing stopped the second entry). Only rarely is it a legitimate
+// second box on one master waybill. The ship modal surfaces hits as an explicit
+// "ship anyway" confirm BEFORE anything is written.
+export type DuplicateShipHit = {
+  itemName: string;
+  recordedAt: string;          // shipment created_at (ISO)
+  recordedBy: string | null;   // full name if resolvable
+  received: boolean;           // that box already counted in at the warehouse
+};
+
+export async function findDuplicateShipHits(sb: any, args: {
+  tracking?: string | null;
+  itemIds: string[];
+}): Promise<DuplicateShipHit[]> {
+  try {
+    const trk = normalizeTracking(args.tracking);
+    if (!isRealTracking(trk) || !args.itemIds.length) return [];
+    const { data: ships } = await sb.from("shipments")
+      .select("id, created_at, created_by, status")
+      .eq("direction", "inbound").eq("tracking", trk);
+    if (!ships?.length) return [];
+    const shipById = new Map<string, any>(ships.map((s: any) => [s.id, s]));
+    const { data: lines } = await sb.from("shipment_lines")
+      .select("shipment_id, item_id, description")
+      .in("shipment_id", ships.map((s: any) => s.id)).in("item_id", args.itemIds);
+    if (!lines?.length) return [];
+    // Name lookup is fail-soft: an RLS-limited read just leaves recordedBy null.
+    const userIds = Array.from(new Set(ships.map((s: any) => s.created_by).filter(Boolean)));
+    const { data: profs } = userIds.length
+      ? await sb.from("profiles").select("id, full_name").in("id", userIds)
+      : { data: [] };
+    const nameById = new Map<string, string>((profs || []).map((p: any) => [p.id, p.full_name]));
+    return (lines as any[]).map(l => {
+      const s = shipById.get(l.shipment_id);
+      return {
+        itemName: l.description || "Item",
+        recordedAt: s?.created_at || "",
+        recordedBy: (s?.created_by && nameById.get(s.created_by)) || null,
+        received: s?.status === "received",
+      };
+    });
+  } catch (e) {
+    console.error("[production2] findDuplicateShipHits", e);
+    return []; // guard must never block a ship on its own failure
   }
 }
