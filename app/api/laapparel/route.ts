@@ -165,12 +165,18 @@ export async function GET(request: NextRequest) {
   // Product list — returns style codes with names and categories
   if (endpoint === "products") {
     try {
-      // Check DB cache first
-      const cached = await getCached("laapparel_products");
+      // Check DB cache first. An empty cached list is treated as a MISS: when
+      // LA Apparel's server errors (their Progress backend returns an HTML error
+      // page inside the SOAP envelope, HTTP 200), the parser finds no productIds
+      // and [] was getting cached over the 479-row DB catalog — the blank picker
+      // then served an empty catalog until someone noticed (Jul 27).
+      let cached = await getCached("laapparel_products");
+      if (cached && Array.isArray(cached.data) && cached.data.length === 0) cached = null;
       if (cached) {
         // Return immediately, refresh in background if stale
         if (!cached.fresh) {
           fetchProductList().then(async ids => {
+            if (!ids.length) return; // upstream error/empty — never cache empty over good data
             let dbProducts: Record<string, any> = {};
             const { data: catalog } = await admin().from("la_apparel_catalog").select("style_code, description, category").order("style_code");
             if (catalog) for (const row of catalog) dbProducts[row.style_code] = { name: row.description, category: row.category };
@@ -201,6 +207,7 @@ export async function GET(request: NextRequest) {
         setCache("laapparel_products", products).catch(() => {}); // non-blocking
         // Background: fetch from API to get any new products
         fetchProductList().then(async ids => {
+          if (!ids.length) return; // upstream error/empty — keep the catalog-derived cache
           const merged = ids.map(id => ({ styleCode: id, name: dbProducts[id]?.name || "", category: dbProducts[id]?.category || "", colors: [] }));
           await setCache("laapparel_products", merged);
         }).catch(() => {});
@@ -210,6 +217,9 @@ export async function GET(request: NextRequest) {
       // No catalog data — fetch from API with race against timeout
       const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("API timeout")), 25000));
       const productIds = await Promise.race([fetchProductList(), timeoutPromise]) as string[];
+      if (!productIds.length) {
+        return NextResponse.json({ error: "LA Apparel API returned no products (their server may be down)" }, { status: 502 });
+      }
       const products = productIds.map(id => ({
         styleCode: id, name: "", category: "", colors: [],
       }));
@@ -228,16 +238,17 @@ export async function GET(request: NextRequest) {
     const styleCode = searchParams.get("styleCode");
     if (!styleCode) return NextResponse.json({ error: "Missing styleCode" }, { status: 400 });
 
-    // Check cache first
+    // Check cache first — same empty-is-a-miss rule as the product list.
     const variantCacheKey = `laapparel_variants_${styleCode}`;
-    const cachedVariants = await getCached(variantCacheKey);
+    let cachedVariants = await getCached(variantCacheKey);
+    if (cachedVariants && Array.isArray(cachedVariants.data) && cachedVariants.data.length === 0) cachedVariants = null;
     if (cachedVariants) {
       if (!cachedVariants.fresh) {
         // Refresh in background
         Promise.all([fetchProduct(styleCode), fetchInventory(styleCode), fetchPartPricing(styleCode)])
           .then(async ([product, inventory, partPrices]) => {
             const variants = product.parts.map((p: any) => ({ partId: p.partId, colour: p.color, sizeCode: p.size, price: partPrices[p.partId] || p.price || 0, sku: p.partId, stock: inventory[p.partId] || 0 }));
-            await setCache(variantCacheKey, variants);
+            if (variants.length) await setCache(variantCacheKey, variants);
           }).catch(() => {});
       }
       return NextResponse.json(cachedVariants.data);
@@ -260,6 +271,9 @@ export async function GET(request: NextRequest) {
         stock: inventory[p.partId] || 0,
       }));
 
+      if (!variants.length) {
+        return NextResponse.json({ error: "LA Apparel returned no variants for this style (their server may be down)" }, { status: 502 });
+      }
       await setCache(variantCacheKey, variants);
       return NextResponse.json(variants);
     } catch (e: any) {
