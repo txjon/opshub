@@ -186,6 +186,14 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     setItems(prev => prev.map(x => x.id === item.id ? { ...x, qtys: newQtys, totalQty: sumQ(newQtys) } : x));
     try { await createClient().from("buy_sheet_lines").delete().eq("item_id", item.id).eq("size", sz); } catch (e) { console.error("[JobV2] removeSize failed", e); }
   };
+  const saveRoute = async (route: string) => {
+    if (route === (job.shipping_route || "")) return;
+    setJob((j: any) => ({ ...j, shipping_route: route }));
+    try {
+      await (createClient().from("jobs") as any).update({ shipping_route: route }).eq("id", job.id);
+      logJobActivity(job.id, `Shipping route set to ${ROUTE_LABEL[route] || route}`);
+    } catch (e) { console.error("[JobV2] route save failed", e); }
+  };
   const removeProduct = async (item: any) => {
     if (!window.confirm(`Remove "${item.name}" from this job? This deletes the product and its files.`)) return;
     const supabase = createClient();
@@ -653,8 +661,8 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
         ].map(([l, v, s, c]: any) => (
           <div key={l}><div style={lbl}>{l}</div><div style={{ fontFamily: mono, fontSize: 22, fontWeight: 800, marginTop: 3, color: c }}>{v}</div><div style={{ fontSize: 11, color: T.faint, marginTop: 2, fontFamily: mono }}>{s}</div></div>
         ))}
-        <div style={{ minWidth: 200, flex: 1 }}>
-          <div style={lbl}>Ship-to · {ROUTE_LABEL[route] || route || "route not set"}</div>
+        <div style={{ minWidth: 200, flex: 1, cursor: "pointer" }} onClick={() => { setOpen(o => ({ ...o, logistics: true })); const el = document.getElementById("logistics"); if (el) el.scrollIntoView({ behavior: "smooth", block: "center" }); }} title="Edit route in Logistics">
+          <div style={lbl}>Ship-to · {ROUTE_LABEL[route] || route || "route not set"} <span style={{ color: T.faint, fontWeight: 500 }}>· edit ›</span></div>
           <div style={{ fontSize: 13, color: address ? T.text : T.faint, marginTop: 4, lineHeight: 1.4 }}>{address || "No address set"}</div>
           <div style={{ fontSize: 11, color: T.faint, marginTop: 2 }}>{ROUTE_SUB[route] || ""}</div>
         </div>
@@ -835,12 +843,19 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       {block("logistics", beyond(phase, ["receiving", "fulfillment", "complete"]) ? "now" : "todo", "Logistics",
         `${ROUTE_LABEL[route] || "route not set"} — ${phase === "receiving" ? "receiving" : phase === "fulfillment" ? "fulfillment" : "waiting on production"}`, (
         <div>
-          <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderBottom: `1px solid ${T.border}55`, fontSize: 13 }}>
-            <span style={{ color: T.muted }}>Route</span><span style={{ fontWeight: 700 }}>{ROUTE_LABEL[route] || "—"} · {ROUTE_SUB[route] || ""}</span>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: `1px solid ${T.border}55`, fontSize: 13, gap: 12, flexWrap: "wrap" }}>
+            <span style={{ color: T.muted }}>Shipping route</span>
+            <select value={route || ""} onChange={e => saveRoute(e.target.value)} style={{ ...field, width: "auto", minWidth: 260 }}>
+              <option value="">— set route —</option>
+              <option value="drop_ship">Drop ship · vendor → client</option>
+              <option value="ship_through">Ship-through · → HPD → client</option>
+              <option value="stage">Stage · → HPD → fulfillment</option>
+            </select>
           </div>
           <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", fontSize: 13 }}>
             <span style={{ color: T.muted }}>Ship-to</span><span style={{ fontWeight: 700, textAlign: "right", maxWidth: "60%" }}>{address || "—"}</span>
           </div>
+          <div style={{ fontSize: 11, color: T.faint, marginTop: 6 }}>Route decides the post-decorator flow. Set it during setup; it drives the ship-to and the receiving/staging steps.</div>
         </div>
       ), true)}
 
