@@ -1246,7 +1246,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
           content scrolling underneath; buttons on card bg + white text so
           they read as controls, not ghost outlines. */}
       <div style={{ position: "sticky", top: 0, zIndex: 20, background: T.bg, boxShadow: `0 -28px 0 0 ${T.bg}`, display: "flex", gap: 8, padding: "12px 0", margin: "8px 0 6px", borderBottom: `1px solid ${T.border}`, overflowX: "auto" }}>
-        {[["products", "Products & Costing"], ["client", "Client"], ["production", "Purchasing & Production"], ["logistics", "Logistics"]].map(([id, label]) => (
+        {[["products", "Products & Costing"], ["client", "Approvals & Billing"], ["production", "Purchasing & Production"], ["logistics", "Logistics"]].map(([id, label]) => (
           <a key={id} href={"#" + id} onClick={() => setOpen(o => ({ ...o, [id]: true }))}
             onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.background = T.surface; }}
             onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.background = T.card; }}
@@ -1351,7 +1351,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       ))}
 
       {/* CLIENT */}
-      {block("client", tm.change_request || flags.grew ? "warn" : flags.approved ? "done" : "todo", "Client",
+      {block("client", tm.change_request || flags.grew ? "warn" : flags.approved ? "done" : "todo", "Approvals & Billing",
         `${flags.approved ? "Approved" : flags.quoted ? "Quote sent" : "Not sent"} · ${invNum ? "Inv " + invNum : "no invoice"} · ${fmtMoney(paid)} paid${(invoiced || orderTotal) - paid > 0.01 ? ` · ${fmtMoney((invoiced || orderTotal) - paid)} due` : ""}${flags.grew ? " · ⚠ re-invoice" : ""}${tm.change_request ? " · ⚠ changes requested" : ""}`, (
         <div>
           {/* client change request (portal) — the note + tagged items, until
@@ -1428,58 +1428,51 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
               </div>
             );
           })()}
-          {/* ── ORDER — the approval state ── */}
-          <div style={{ ...lbl, margin: "6px 0 2px" }}>Order</div>
-          {([["Quote", flags.approved ? "Sent · Approved" : flags.quoted ? "Sent" : "Not sent"],
-            ["Proofs", `${artApproved}/${items.length} approved`]] as any[]).map(([l, v]: any) => (
-            <div key={l} style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderBottom: `1px solid ${T.border}55`, fontSize: 13 }}>
-              <span style={{ color: T.muted }}>{l}</span><span style={{ fontWeight: 700 }}>{v}</span>
-            </div>
-          ))}
-
-          {/* ── BILLING — invoice + QB sync, pay link, extras, payments ── */}
-          <div style={{ ...lbl, margin: "18px 0 2px" }}>Billing</div>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: `1px solid ${T.border}55`, fontSize: 13, gap: 10, flexWrap: "wrap" }}>
-            <span style={{ color: T.muted }}>Invoice</span>
-            <span style={{ display: "flex", gap: 10, alignItems: "center", fontWeight: 700 }}>
-              {invNum ? (
-                <>
-                  <span>{invNum} · sent</span>
-                  {Math.abs(toInvoice) <= 0.01
-                    ? <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", color: T.green }}>✓ QB in sync</span>
-                    : <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", color: T.amber }} title={`OpsHub order ${fmtMoney(orderTotal)} vs QB ${fmtMoney(invoicedSub)} (pre-tax). Send invoice re-pushes.`}>⚠ off {fmtMoney(Math.abs(toInvoice))} vs QB</span>}
-                </>
-              ) : <span>not sent</span>}
-            </span>
-          </div>
-          {/* pay link — QB hosted payment page (refresh regenerates it) */}
-          {tm.qb_invoice_id && (
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: `1px solid ${T.border}55`, fontSize: 13 }}>
-              <span style={{ color: T.muted }}>Pay link</span>
-              <span style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                {tm.qb_payment_link
-                  ? <a href={tm.qb_payment_link} target="_blank" rel="noreferrer" style={{ fontWeight: 700, color: T.green, textDecoration: "none" }}>Open ↗</a>
-                  : <span style={{ color: linkErr ? T.red : T.faint }}>{linkErr || "none"}</span>}
-                <button onClick={doRefreshLink} disabled={refreshingLink} style={{ background: "none", border: "none", color: T.accent, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font, padding: 0 }}>
-                  {refreshingLink ? "Refreshing…" : tm.qb_payment_link ? "Refresh" : "Create"}
-                </button>
-              </span>
-            </div>
-          )}
-          {flags.grew && (
-            <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderBottom: `1px solid ${T.border}55`, fontSize: 13 }}>
-              <span style={{ color: T.muted }}>Outstanding</span><span style={{ fontWeight: 700, color: T.amber }}>{fmtMoney(toInvoice)} added since invoicing — re-invoice</span>
-            </div>
-          )}
-          {/* balance due — invoiced (incl. tax) vs recorded payments */}
-          {invNum && (
-            <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderBottom: `1px solid ${T.border}55`, fontSize: 13 }}>
-              <span style={{ color: T.muted }}>Balance due</span>
-              {(invoiced || orderTotal) - paid > 0.01
-                ? <span style={{ fontWeight: 800, color: T.amber, fontFamily: mono }}>{fmtMoney((invoiced || orderTotal) - paid)}</span>
-                : <span style={{ fontWeight: 700, color: T.green }}>Paid in full</span>}
-            </div>
-          )}
+          {/* ── ORDER + BILLING — two compact columns; label sits NEXT to its
+              value (full-width justified rows were unscannable). ── */}
+          {(() => {
+            const row = (l: string, v: React.ReactNode) => (
+              <div key={l} style={{ display: "flex", gap: 10, padding: "5px 0", fontSize: 13, alignItems: "baseline" }}>
+                <span style={{ color: T.faint, width: 86, flexShrink: 0 }}>{l}</span>
+                <span style={{ fontWeight: 700, display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>{v}</span>
+              </div>
+            );
+            const balDue = (invoiced || orderTotal) - paid;
+            return (
+              <div style={{ display: "flex", gap: 44, flexWrap: "wrap", padding: "6px 0 4px" }}>
+                <div style={{ flex: "0 1 auto", minWidth: 220 }}>
+                  <div style={{ ...lbl, marginBottom: 4 }}>Order</div>
+                  {row("Quote", flags.approved ? "Sent · Approved" : flags.quoted ? "Sent" : "Not sent")}
+                  {row("Proofs", `${artApproved}/${items.length} approved`)}
+                </div>
+                <div style={{ flex: "1 1 auto", minWidth: 260 }}>
+                  <div style={{ ...lbl, marginBottom: 4 }}>Billing</div>
+                  {row("Invoice", invNum ? (
+                    <>
+                      <span>{invNum} · sent</span>
+                      {Math.abs(toInvoice) <= 0.01
+                        ? <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", color: T.green }}>✓ QB in sync</span>
+                        : <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", color: T.amber }} title={`OpsHub order ${fmtMoney(orderTotal)} vs QB ${fmtMoney(invoicedSub)} (pre-tax). Send invoice re-pushes.`}>⚠ off {fmtMoney(Math.abs(toInvoice))} vs QB</span>}
+                    </>
+                  ) : "not sent")}
+                  {tm.qb_invoice_id && row("Pay link", (
+                    <>
+                      {tm.qb_payment_link
+                        ? <a href={tm.qb_payment_link} target="_blank" rel="noreferrer" style={{ fontWeight: 700, color: T.green, textDecoration: "none" }}>Open ↗</a>
+                        : <span style={{ color: linkErr ? T.red : T.faint }}>{linkErr || "none"}</span>}
+                      <button onClick={doRefreshLink} disabled={refreshingLink} style={{ background: "none", border: "none", color: T.accent, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font, padding: 0 }}>
+                        {refreshingLink ? "Refreshing…" : tm.qb_payment_link ? "Refresh" : "Create"}
+                      </button>
+                    </>
+                  ))}
+                  {flags.grew && row("Outstanding", <span style={{ color: T.amber }}>{fmtMoney(toInvoice)} added since invoicing — re-invoice</span>)}
+                  {invNum && row("Balance", balDue > 0.01
+                    ? <span style={{ fontWeight: 800, color: T.amber, fontFamily: mono }}>{fmtMoney(balDue)} due</span>
+                    : <span style={{ color: T.green }}>Paid in full</span>)}
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Additional charges — invoice extra lines (same shape as classic:
               rides the quote PDF + billable total; QB push is Phase 2). */}
@@ -1522,10 +1515,11 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
           {payments.length === 0 ? <div style={{ fontSize: 12.5, color: T.faint, paddingBottom: 4 }}>No payments recorded.</div> : payments.map((p: any) => {
             const sc = p.status === "paid" ? T.green : p.status === "partial" ? T.amber : p.status === "overdue" ? T.red : p.status === "void" ? T.faint : T.muted;
             return (
-              <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: `1px solid ${T.border}44`, fontSize: 13 }}>
-                <span style={{ flex: 1, color: T.muted }}>{String(p.type || "").replace(/_/g, " ")}{p.invoice_number ? ` · #${p.invoice_number}` : ""}{p.paid_date ? ` · ${p.paid_date}` : ""}</span>
-                <span style={{ fontFamily: mono, fontWeight: 700 }}>{fmtMoney(p.amount)}</span>
+              <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "5px 0", fontSize: 13 }}>
+                <span style={{ fontFamily: mono, fontWeight: 700, minWidth: 86, textAlign: "right" }}>{fmtMoney(p.amount)}</span>
                 <button onClick={() => cyclePay(p)} title="Click to cycle status" style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", color: sc, background: "none", border: `1px solid ${sc}55`, borderRadius: 999, padding: "3px 9px", cursor: "pointer", fontFamily: font }}>{p.status || "draft"}</button>
+                <span style={{ color: T.muted }}>{String(p.type || "").replace(/_/g, " ")}{p.invoice_number ? ` · #${p.invoice_number}` : ""}{p.paid_date ? ` · ${p.paid_date}` : ""}</span>
+                <div style={{ flex: 1 }} />
                 <button onClick={() => delPay(p.id)} title="Delete" style={{ background: "none", border: "none", color: T.faint, fontSize: 14, cursor: "pointer" }}>×</button>
               </div>
             );
