@@ -135,6 +135,17 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   const decoStateRef = React.useRef(decoState); decoStateRef.current = decoState;
   const itemsRef = React.useRef(items); itemsRef.current = items;
 
+  // ── NO SILENT SAVE FAILURES (house rule): every write path surfaces a red
+  // toast on error. Saves stay silent on success. ──
+  const [saveErr, setSaveErr] = useState<string | null>(null);
+  const saveErrTimer = React.useRef<any>(null);
+  const failed = (msg: string, e?: any) => {
+    console.error("[JobV2] " + msg, e);
+    setSaveErr(msg);
+    clearTimeout(saveErrTimer.current);
+    saveErrTimer.current = setTimeout(() => setSaveErr(null), 6000);
+  };
+
   // Job activity feed (read-only).
   const [activity, setActivity] = useState<any[]>([]);
   useEffect(() => {
@@ -197,10 +208,10 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       fd.append("projectTitle", job?.title || "");
       fd.append("itemName", item.name || "");
       const res = await fetch("/api/files", { method: "POST", body: fd });
-      if (!res.ok) { console.error("[JobV2] art upload failed", await res.text().catch(() => "")); return; }
+      if (!res.ok) { failed("Art upload failed", await res.text().catch(() => "")); return; }
       const { data }: any = await createClient().from("item_files").select(FILE_COLS).eq("item_id", item.id).is("superseded_at", null).order("created_at");
       setFilesByItem(m => ({ ...m, [item.id]: data || [] }));
-    } catch (e) { console.error("[JobV2] art upload error", e); }
+    } catch (e) { failed("Art upload error — not saved", e); }
     finally { setUploadingItem(null); }
   };
 
@@ -273,7 +284,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     try {
       await (createClient().from("buy_sheet_lines") as any).upsert({ item_id: item.id, size, qty_ordered: q }, { onConflict: "item_id,size" });
       if (sell != null) await (createClient().from("items") as any).update({ sell_per_unit: sell }).eq("id", item.id);
-    } catch (e) { console.error("[JobV2] qty save failed", e); }
+    } catch (e) { failed("Qty save failed — not saved", e); }
   };
 
   // Distribute a total across the item's sizes by its curve (classic
@@ -296,7 +307,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
         await (supabase.from("buy_sheet_lines") as any).upsert({ item_id: item.id, size, qty_ordered: q }, { onConflict: "item_id,size" });
       }
       if (sell != null) await (supabase.from("items") as any).update({ sell_per_unit: sell }).eq("id", item.id);
-    } catch (e) { console.error("[JobV2] distribute failed", e); }
+    } catch (e) { failed("Distribute failed — not saved", e); }
   };
 
   // Build-tab edits: rename, add/remove a size, remove the product from the job.
@@ -311,13 +322,13 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       if (typeof item.id === "string" && /^[0-9a-f-]{36}$/i.test(item.id)) {
         fetch("/api/drive/rename", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ entity: "item", id: item.id, name: n }) }).catch(() => {});
       }
-    } catch (e) { console.error("[JobV2] rename failed", e); }
+    } catch (e) { failed("Rename failed — not saved", e); }
   };
   const saveItemField = async (item: any, fieldK: "garment_type" | "blank_vendor" | "blank_sku", value: string) => {
     const v = (value || "").trim() || null;
     if (v === (item[fieldK] ?? null)) return;
     setItems(prev => prev.map(x => x.id === item.id ? { ...x, [fieldK]: v } : x));
-    try { await (createClient().from("items") as any).update({ [fieldK]: v }).eq("id", item.id); } catch (e) { console.error("[JobV2] item field save failed", e); }
+    try { await (createClient().from("items") as any).update({ [fieldK]: v }).eq("id", item.id); } catch (e) { failed("Item field save failed — not saved", e); }
   };
   // Garment-type change sets AND clears is_fleece (classic dropdown behavior —
   // fleece drives the decorator upcharge + fleece packaging in costing).
@@ -326,33 +337,33 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     if (v === (item.garment_type ?? null)) return;
     const isFleece = !!(v && FLEECE_GARMENTS.includes(v));
     setItems(prev => prev.map(x => x.id === item.id ? { ...x, garment_type: v, is_fleece: isFleece } : x));
-    try { await (createClient().from("items") as any).update({ garment_type: v, is_fleece: isFleece }).eq("id", item.id); } catch (e) { console.error("[JobV2] garment type save failed", e); }
+    try { await (createClient().from("items") as any).update({ garment_type: v, is_fleece: isFleece }).eq("id", item.id); } catch (e) { failed("Garment type save failed — not saved", e); }
   };
   const toggleFleece = async (item: any) => {
     const next = !item.is_fleece;
     setItems(prev => prev.map(x => x.id === item.id ? { ...x, is_fleece: next } : x));
-    try { await (createClient().from("items") as any).update({ is_fleece: next }).eq("id", item.id); } catch (e) { console.error("[JobV2] fleece toggle failed", e); }
+    try { await (createClient().from("items") as any).update({ is_fleece: next }).eq("id", item.id); } catch (e) { failed("Fleece toggle failed — not saved", e); }
   };
   const addSize = async (item: any, sz: string) => {
     if (item.qtys && sz in item.qtys) return;
     const newQtys = { ...(item.qtys || {}), [sz]: 0 };
     setItems(prev => prev.map(x => x.id === item.id ? { ...x, qtys: newQtys, totalQty: sumQ(newQtys) } : x));
-    try { await (createClient().from("buy_sheet_lines") as any).upsert({ item_id: item.id, size: sz, qty_ordered: 0, qty_shipped_from_vendor: 0, qty_received_at_hpd: 0, qty_shipped_to_customer: 0 }, { onConflict: "item_id,size" }); } catch (e) { console.error("[JobV2] addSize failed", e); }
+    try { await (createClient().from("buy_sheet_lines") as any).upsert({ item_id: item.id, size: sz, qty_ordered: 0, qty_shipped_from_vendor: 0, qty_received_at_hpd: 0, qty_shipped_to_customer: 0 }, { onConflict: "item_id,size" }); } catch (e) { failed("AddSize failed — not saved", e); }
   };
   const removeSize = async (item: any, sz: string) => {
     const newQtys = { ...(item.qtys || {}) }; delete newQtys[sz];
     setItems(prev => prev.map(x => x.id === item.id ? { ...x, qtys: newQtys, totalQty: sumQ(newQtys) } : x));
-    try { await createClient().from("buy_sheet_lines").delete().eq("item_id", item.id).eq("size", sz); } catch (e) { console.error("[JobV2] removeSize failed", e); }
+    try { await createClient().from("buy_sheet_lines").delete().eq("item_id", item.id).eq("size", sz); } catch (e) { failed("RemoveSize failed — not saved", e); }
   };
   // ── Job-level (Overview parity) ──
   const saveJobCol = async (col: string, value: any) => {
     setJob((j: any) => ({ ...j, [col]: value }));
-    try { await (createClient().from("jobs") as any).update({ [col]: value }).eq("id", job.id); } catch (e) { console.error("[JobV2] saveJobCol", col, e); }
+    try { await (createClient().from("jobs") as any).update({ [col]: value }).eq("id", job.id); } catch (e) { failed("Save failed — not saved", e); }
   };
   const saveTypeMeta = async (patch: Record<string, any>) => {
     const meta = { ...(job.type_meta || {}), ...patch };
     setJob((j: any) => ({ ...j, type_meta: meta }));
-    try { await (createClient().from("jobs") as any).update({ type_meta: meta }).eq("id", job.id); } catch (e) { console.error("[JobV2] saveTypeMeta", e); }
+    try { await (createClient().from("jobs") as any).update({ type_meta: meta }).eq("id", job.id); } catch (e) { failed("SaveTypeMeta failed — not saved", e); }
   };
   // Recalc jobs.phase after any gate-changing action (payment, approval, PO,
   // blanks) — the boards/dashboard key off phase; without this V2 actions
@@ -363,11 +374,11 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       await recalcJobPhase(sb, job.id);
       const { data }: any = await sb.from("jobs").select("phase, phase_timestamps").eq("id", job.id).single();
       if (data?.phase) setJob((j: any) => ({ ...j, phase: data.phase, phase_timestamps: data.phase_timestamps }));
-    } catch (e) { console.error("[JobV2] phase recalc", e); }
+    } catch (e) { failed("Phase recalc failed — not saved", e); }
   };
   const setPhase = async (phase: string, recalc = false) => {
     setJob((j: any) => ({ ...j, phase }));
-    try { await (createClient().from("jobs") as any).update({ phase }).eq("id", job.id); logJobActivity(job.id, `Phase → ${phase}`); } catch (e) { console.error(e); }
+    try { await (createClient().from("jobs") as any).update({ phase }).eq("id", job.id); logJobActivity(job.id, `Phase → ${phase}`); } catch (e) { failed("Phase change failed — not saved", e); }
     setMenuOpen(false);
   };
   const duplicateJob = async () => {
@@ -410,17 +421,17 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       const { data: fresh }: any = await supabase.from("job_contacts").select("*, contacts(*)").eq("job_id", job.id);
       if (fresh) setLocalContacts(fresh);
       setContactForm(null);
-    } catch (e: any) { console.error("[JobV2] addContact", e); }
+    } catch (e: any) { failed("AddContact failed — not saved", e); }
   };
   const removeContact = async (jcId: string) => {
-    try { await createClient().from("job_contacts").delete().eq("id", jcId); setLocalContacts(prev => prev.filter((c: any) => c.id !== jcId)); } catch (e) { console.error(e); }
+    try { await createClient().from("job_contacts").delete().eq("id", jcId); setLocalContacts(prev => prev.filter((c: any) => c.id !== jcId)); } catch (e) { failed("Contact remove failed — not saved", e); }
   };
   const cyclePay = async (p: any) => {
-    try { const next = await cyclePaymentStatus(job, p); const { data: fresh }: any = await createClient().from("payment_records").select("*").eq("job_id", job.id).order("created_at"); if (fresh) setPayments(fresh); else setPayments(prev => prev.map(x => x.id === p.id ? { ...x, status: next } : x)); recalcPhase(); } catch (e) { console.error(e); }
+    try { const next = await cyclePaymentStatus(job, p); const { data: fresh }: any = await createClient().from("payment_records").select("*").eq("job_id", job.id).order("created_at"); if (fresh) setPayments(fresh); else setPayments(prev => prev.map(x => x.id === p.id ? { ...x, status: next } : x)); recalcPhase(); } catch (e) { failed("Payment status change failed — not saved", e); }
   };
   const delPay = async (id: string) => {
     if (!window.confirm("Delete this payment record?")) return;
-    try { await deletePayment(id); setPayments(prev => prev.filter(x => x.id !== id)); recalcPhase(); } catch (e) { console.error(e); }
+    try { await deletePayment(id); setPayments(prev => prev.filter(x => x.id !== id)); recalcPhase(); } catch (e) { failed("Payment delete failed — not saved", e); }
   };
 
   const saveRoute = async (route: string) => {
@@ -429,7 +440,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     try {
       await (createClient().from("jobs") as any).update({ shipping_route: route }).eq("id", job.id);
       logJobActivity(job.id, `Shipping route set to ${ROUTE_LABEL[route] || route}`);
-    } catch (e) { console.error("[JobV2] route save failed", e); }
+    } catch (e) { failed("Route save failed — not saved", e); }
   };
   const removeProduct = async (item: any) => {
     if (!window.confirm(`Remove "${item.name}" from this job? This deletes the product and its files.`)) return;
@@ -445,7 +456,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       setItems(prev => prev.filter(x => x.id !== item.id));
       setWsIndex(null);
       try { logJobActivity(job.id, `Product removed: ${item.name}`); } catch {}
-    } catch (e) { console.error("[JobV2] remove product failed", e); }
+    } catch (e) { failed("Remove product failed — not saved", e); }
   };
 
   // Record a blank purchase total → items.blanks_order_cost. Per-item. (The S&S
@@ -457,7 +468,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     try {
       await (createClient().from("items") as any).update({ blanks_order_cost: val }).eq("id", item.id);
       recalcPhase();
-    } catch (e) { console.error("[JobV2] blank cost save failed", e); }
+    } catch (e) { failed("Blank cost save failed — not saved", e); }
   };
 
   // Bulk blank purchase — one CC total split across SELECTED items, proportional
@@ -700,7 +711,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       setItems(prev => prev.map((x: any) => x.id === item.id ? { ...x, ...patch, is_fleece: !!(item.is_fleece || patch.is_fleece), blankCosts: patch.blankCosts, blank_costs: patch.blankCosts && Object.keys(patch.blankCosts).length ? patch.blankCosts : null, ...(sell != null ? { sell_per_unit: sell } : {}) } : x));
       logJobActivity(job.id, `Blank assigned to ${item.name}: ${patch.blank_vendor || ""} ${patch.blank_sku || ""}`.trim());
       fetch(`/api/jobs/${job.id}/refresh-financials`, { method: "POST" }).catch(() => {});
-    } catch (e) { console.error("[JobV2] persistBlankAssign", e); }
+    } catch (e) { failed("PersistBlankAssign failed — not saved", e); }
   };
   // Add a new product straight from a picker payload.
   const createProductFromPicker = async (pi: any) => {
@@ -721,7 +732,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       setItems(prev => [...prev, { ...item, qtys, totalQty: sumQ(qtys), blankCosts: pi.blankCosts || {} }]);
       logJobActivity(job.id, `Product added: ${pi.name}`);
       fetch(`/api/jobs/${job.id}/refresh-financials`, { method: "POST" }).catch(() => {});
-    } catch (e: any) { console.error("[JobV2] createProductFromPicker", e); alert(e.message || "Failed to add product"); }
+    } catch (e: any) { failed("CreateProductFromPicker failed — not saved", e); alert(e.message || "Failed to add product"); }
   };
   const handlePickerAdd = (pi: any) => {
     const target = assignTargetId ? items.find((x: any) => x.id === assignTargetId) : null;
@@ -827,7 +838,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       for (let i = 0; i < renumbered.length; i++) {
         if (arr[i].sort_order !== renumbered[i].sort_order) await (supabase.from("items") as any).update({ sort_order: renumbered[i].sort_order }).eq("id", renumbered[i].id);
       }
-    } catch (e) { console.error("[JobV2] reorder save failed", e); }
+    } catch (e) { failed("Reorder save failed — not saved", e); }
   };
 
   // ── PO send (per vendor) — reuses the working classic flow: email the per-vendor
@@ -848,18 +859,18 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     const v = (value || "").trim() || null;
     if (v === (item[fieldK] ?? null)) return;
     setItems(prev => prev.map(x => x.id === item.id ? { ...x, [fieldK]: v } : x));
-    try { await (createClient().from("items") as any).update({ [fieldK]: v }).eq("id", item.id); } catch (e) { console.error("[JobV2] saveItemPO", e); }
+    try { await (createClient().from("items") as any).update({ [fieldK]: v }).eq("id", item.id); } catch (e) { failed("SaveItemPO failed — not saved", e); }
   };
   const copyPOToAll = async (vendor: string, fieldK: string, value: string) => {
     const targets = (vendorGroups[vendor] || []);
     setItems(prev => prev.map(x => targets.some((t: any) => t.id === x.id) ? { ...x, [fieldK]: value } : x));
     const supabase = createClient();
-    for (const t of targets) { try { await (supabase.from("items") as any).update({ [fieldK]: value }).eq("id", t.id); } catch (e) { console.error(e); } }
+    for (const t of targets) { try { await (supabase.from("items") as any).update({ [fieldK]: value }).eq("id", t.id); } catch (e) { failed("Copy-to-all failed — not saved", e); } }
   };
   const saveItemRoute = async (item: any, route: string) => {
     const v = route || null;
     setItems(prev => prev.map(x => x.id === item.id ? { ...x, shipping_route: v } : x));
-    try { await (createClient().from("items") as any).update({ shipping_route: v }).eq("id", item.id); } catch (e) { console.error(e); }
+    try { await (createClient().from("items") as any).update({ shipping_route: v }).eq("id", item.id); } catch (e) { failed("Route save failed — not saved", e); }
   };
   // Manual mark / unmark a vendor's PO sent (no email) — mirrors classic chips.
   const markPoSent = async (vendor: string) => {
@@ -872,7 +883,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       setItems(prev => prev.map(x => (cpFor(x)?.printVendor || x.decorator || "Unassigned") === vendor && x.pipeline_stage !== "shipped" ? { ...x, pipeline_stage: "in_production" } : x));
       logJobActivity(job.id, `PO for ${vendor} manually marked sent`);
       recalcPhase();
-    } catch (e) { console.error("[JobV2] markPoSent", e); }
+    } catch (e) { failed("MarkPoSent failed — not saved", e); }
   };
   const unmarkPoSent = async (vendor: string) => {
     const supabase = createClient();
@@ -884,7 +895,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       setItems(prev => prev.map(x => (cpFor(x)?.printVendor || x.decorator || "Unassigned") === vendor && x.pipeline_stage === "in_production" ? { ...x, pipeline_stage: null } : x));
       logJobActivity(job.id, `PO for ${vendor} unmarked`);
       recalcPhase();
-    } catch (e) { console.error("[JobV2] unmarkPoSent", e); }
+    } catch (e) { failed("UnmarkPoSent failed — not saved", e); }
   };
   // Send revised proofs — classic flow: /api/email/notify type proof_revised;
   // the server clears revision_pending_send flags, reload drops the nudge.
@@ -898,7 +909,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       logJobActivity(job.id, `Revised proof(s) sent to client (${recipients.length} recipient${recipients.length === 1 ? "" : "s"})`);
       setRevisedOpen(false);
       reloadAllFiles();
-    } catch (e) { console.error("[JobV2] sendRevised", e); }
+    } catch (e) { failed("SendRevised failed — not saved", e); }
     setRevisedBusy(false);
   };
   const doSendPO = async () => {
@@ -1047,7 +1058,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       // Keep costing_summary (Reports / God Mode KPIs) in step — same
       // fire-and-forget classic ProductBuilder uses after item mutations.
       fetch(`/api/jobs/${job.id}/refresh-financials`, { method: "POST" }).catch(() => {});
-    } catch (e) { console.error("[JobV2] deco flush failed", e); }
+    } catch (e) { failed("Deco flush failed — not saved", e); }
   };
   const schedulePersist = (item: any, newP: any) => {
     pendingRef.current[item.id] = newP;
@@ -1107,13 +1118,13 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       const cd = { ...(fresh?.costing_data || job.costing_data || {}), costMargin: nextMargin, inclShip: nextInclShip, inclCC: nextInclCC };
       await (supabase.from("jobs") as any).update({ costing_data: cd }).eq("id", job.id);
       for (const [id, sell] of Object.entries(sells)) await (supabase.from("items") as any).update({ sell_per_unit: sell }).eq("id", id);
-    } catch (e) { console.error("[JobV2] recompute-all failed", e); }
+    } catch (e) { failed("Recompute-all failed — not saved", e); }
   };
   const toggleUnlock = async () => {
     const unlocked = !job?.type_meta?.costing_unlocked;
     const meta = { ...(job.type_meta || {}), costing_unlocked: unlocked };
     setJob((j: any) => ({ ...j, type_meta: meta }));
-    try { await (createClient().from("jobs") as any).update({ type_meta: meta }).eq("id", job.id); logJobActivity(job.id, unlocked ? "Costing unlocked to revise" : "Costing re-locked"); } catch (e) { console.error(e); }
+    try { await (createClient().from("jobs") as any).update({ type_meta: meta }).eq("id", job.id); logJobActivity(job.id, unlocked ? "Costing unlocked to revise" : "Costing re-locked"); } catch (e) { failed("Lock toggle failed — not saved", e); }
   };
   const calcFor = (item: any) => {
     if (!Object.keys(printers).length) return null;             // wait for decorator pricing
@@ -1142,7 +1153,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       const upd: any = { blank_costs, cost_per_unit };
       if (r) upd.sell_per_unit = sell;
       await (createClient().from("items") as any).update(upd).eq("id", item.id);
-    } catch (e) { console.error("[JobV2] per-size cost save failed", e); }
+    } catch (e) { failed("Per-size cost save failed — not saved", e); }
   };
 
   // Set / clear the per-item sell OVERRIDE — the single invoice-truth control.
@@ -1175,7 +1186,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       if (idx >= 0) { if (override == null) delete cps[idx].sellOverride; else cps[idx].sellOverride = override; }
       await (supabase.from("jobs") as any).update({ costing_data: { ...cd, costProds: cps } }).eq("id", job.id);
       await (supabase.from("items") as any).update({ sell_per_unit: sell }).eq("id", item.id);
-    } catch (e) { console.error("[JobV2] override save failed", e); }
+    } catch (e) { failed("Override save failed — not saved", e); }
   };
 
   const lbl: React.CSSProperties = { fontSize: 9.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: T.faint };
@@ -2330,6 +2341,14 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
           </div>
         );
       })()}
+
+      {/* ── save-failure toast (house rule: silent saves, VISIBLE failures) ── */}
+      {saveErr && (
+        <div style={{ position: "fixed", bottom: 22, right: 22, zIndex: 600, background: T.card, border: `1px solid ${T.red}`, borderRadius: 12, padding: "12px 16px", maxWidth: 380, boxShadow: "0 8px 28px rgba(0,0,0,0.45)", display: "flex", gap: 12, alignItems: "flex-start" }}>
+          <div style={{ fontSize: 12.5, color: T.red, fontWeight: 700, lineHeight: 1.45, flex: 1 }}>⚠ {saveErr}. Check your connection and retry the edit.</div>
+          <button onClick={() => setSaveErr(null)} style={{ background: "none", border: "none", color: T.faint, fontSize: 15, cursor: "pointer", lineHeight: 1, padding: 0 }}>✕</button>
+        </div>
+      )}
 
       {/* ── PSD/mockup drop progress toast ── */}
       {psdProcessing && (
