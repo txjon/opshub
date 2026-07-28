@@ -235,6 +235,18 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     } catch (e) { failed("Art upload error — not saved", e); }
     finally { setUploadingItem(null); }
   };
+  // Delete a file from the worksheet strip — removes the item_files row and the
+  // Drive file (the API keeps the Drive copy if another item still references
+  // it, e.g. duplicated items sharing art).
+  const deleteFile = async (item: any, f: any) => {
+    if (!window.confirm(`Delete "${f.file_name}" from this item? It's removed from the Drive folder too.`)) return;
+    try {
+      const res = await fetch("/api/files", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fileId: f.id, driveFileId: f.drive_file_id }) });
+      if (!res.ok) { failed("File delete failed", await res.text().catch(() => "")); return; }
+      const { data }: any = await createClient().from("item_files").select(FILE_COLS).eq("item_id", item.id).is("superseded_at", null).order("created_at");
+      setFilesByItem(m => ({ ...m, [item.id]: data || [] }));
+    } catch (e) { failed("File delete error", e); }
+  };
 
   const [wsIndex, setWsIndex] = useState<number | null>(null);   // open item worksheet index (null = closed)
   const [wsTask, setWsTask] = useState<string>("build");
@@ -2315,7 +2327,9 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                         {files.map((f: any) => {
                           const ap = f.approval === "approved" ? T.green : f.approval === "revision_requested" ? T.amber : T.faint;
                           return (
-                            <a key={f.drive_file_id + f.file_name} href={thumbSrc(f.drive_file_id, true)} target="_blank" rel="noreferrer" title={f.file_name} style={{ textDecoration: "none" }}>
+                            <a key={f.drive_file_id + f.file_name} href={thumbSrc(f.drive_file_id, true)} target="_blank" rel="noreferrer" title={f.file_name} style={{ textDecoration: "none", position: "relative", display: "block" }}>
+                              <button title="Delete file" onClick={e => { e.preventDefault(); e.stopPropagation(); deleteFile(it, f); }}
+                                style={{ position: "absolute", top: 4, right: 4, zIndex: 1, width: 20, height: 20, borderRadius: 999, border: "none", background: "rgba(10,10,10,0.6)", color: "#fff", fontSize: 11, lineHeight: "20px", textAlign: "center", padding: 0, cursor: "pointer" }}>✕</button>
                               <div style={{ aspectRatio: "1 / 1", background: "#fff", borderRadius: 8, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", border: `1px solid ${T.border}` }}>
                                 <img src={thumbSrc(f.drive_file_id)} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
                               </div>
