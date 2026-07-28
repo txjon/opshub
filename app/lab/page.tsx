@@ -128,20 +128,23 @@ function ThreadPanel({ detail, me, onRefresh, onClose }: any) {
   const [note, setNote] = useState(""); const [vis, setVis] = useState<"client" | "internal">("client");
   const [busy, setBusy] = useState(false); const [uploading, setUploading] = useState(false);
   const [heroIdx, setHeroIdx] = useState<number | null>(null);
+  const [staged, setStaged] = useState<{ url: string; name: string } | null>(null);
   const fileIn = useRef<HTMLInputElement | null>(null);
   // Latest drop is the hero; every earlier drop is a filmstrip thumb (old → new).
   // Images live in the strip; the thread carries the words (mirrors studio2).
   const images = msgs.filter((m: any) => m.file_url);
   const hero = images.length ? images[heroIdx == null ? images.length - 1 : Math.min(heroIdx, images.length - 1)] : null;
   const notes = msgs.filter((m: any) => m.body && m.body.trim());
-
-  async function post(fileUrl?: string, fileName?: string) {
-    if (!note.trim() && !fileUrl) return; setBusy(true);
-    try { await fetch(`/api/lab/threads/${t.id}/messages`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ senderName: me, body: note.trim() || null, visibility: vis, fileUrl, fileName }) }); setNote(""); setHeroIdx(null); await onRefresh(); } finally { setBusy(false); }
+  // One composer, like email: type + optionally attach → Send. Attaching stages
+  // the file (a preview); Send posts the note + attachment together. Sending
+  // Client-visible hands the thread to the client — the state flips server-side.
+  async function send() {
+    if (!note.trim() && !staged) return; setBusy(true);
+    try { await fetch(`/api/lab/threads/${t.id}/messages`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ senderName: me, body: note.trim() || null, visibility: vis, fileUrl: staged?.url || null, fileName: staged?.name || null }) }); setNote(""); setStaged(null); setHeroIdx(null); await onRefresh(); } finally { setBusy(false); }
   }
-  async function onFile(f: File) { setUploading(true); try { const u = await uploadImage(f); await post(u.url, u.name); } catch (e: any) { alert(e.message); } finally { setUploading(false); } }
-  async function act(action: string) { setBusy(true); try { await fetch(`/api/lab/threads/${t.id}/action`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, senderName: me }) }); await onRefresh(); } finally { setBusy(false); } }
+  async function onFile(f: File) { setUploading(true); try { setStaged(await uploadImage(f)); } catch (e: any) { alert(e.message); } finally { setUploading(false); } }
   async function del() { if (!confirm(`Delete "${t.title}"? This removes the design and its whole thread. Can't be undone.`)) return; await fetch(`/api/lab/threads/${t.id}`, { method: "DELETE" }); onClose(); await onRefresh(); }
+  async function delAttachment(msgId: string) { if (!confirm("Delete this attachment? It comes out of the thread. Can't be undone.")) return; setBusy(true); try { await fetch(`/api/lab/messages/${msgId}`, { method: "DELETE" }); setHeroIdx(null); await onRefresh(); } finally { setBusy(false); } }
 
   return (
     <>
@@ -168,7 +171,10 @@ function ThreadPanel({ detail, me, onRefresh, onClose }: any) {
         <div style={{ marginTop: 10 }}>
           <div style={{ background: "#fff", position: "relative" }}>
             <img src={hero.file_url} alt="" style={{ width: "100%", maxHeight: "36vh", objectFit: "contain", display: "block", margin: "0 auto" }} onError={(e: any) => { e.target.parentElement.style.display = "none"; }} />
-            <span style={{ position: "absolute", right: 10, bottom: 8, fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: hero.sender_role === "client" || hero.visibility === "client" ? "#3c9a2e" : "#b7791f", background: "rgba(255,255,255,0.9)", borderRadius: 999, padding: "4px 10px" }}>{hero.sender_role === "client" ? "From client" : hero.visibility === "client" ? "Client sees this" : "Internal only"}</span>
+            <span style={{ position: "absolute", right: 10, bottom: 8, display: "flex", gap: 6, alignItems: "center" }}>
+              <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: hero.sender_role === "client" || hero.visibility === "client" ? "#3c9a2e" : "#b7791f", background: "rgba(255,255,255,0.9)", borderRadius: 999, padding: "4px 10px" }}>{hero.sender_role === "client" ? "From client" : hero.visibility === "client" ? "Client sees this" : "Internal only"}</span>
+              <button disabled={busy} onClick={() => delAttachment(hero.id)} title="Delete this attachment" style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", background: "#0a0a0a", color: H.red, border: "none", borderRadius: 999, padding: "4px 10px", cursor: "pointer", fontFamily: H.font, opacity: busy ? 0.5 : 1 }}>Delete</button>
+            </span>
           </div>
           {images.length > 1 && (
             <div style={{ display: "flex", gap: 8, padding: "10px 22px 0", overflowX: "auto", scrollbarWidth: "none" as any }}>
@@ -217,16 +223,20 @@ function ThreadPanel({ detail, me, onRefresh, onClose }: any) {
         <div style={{ padding: "16px 22px 20px", borderTop: `1px solid ${H.line}`, background: "rgba(88,201,60,.06)", fontSize: 13, color: H.dim }}><b style={{ color: H.green }}>✓ Design approved</b> by {t.approved_by} · {fmt(t.approved_at)}. Locked and ready for the front of production.</div>
       ) : (
         <>
-          <div style={{ padding: "15px 22px", borderTop: `1px solid ${H.line}`, background: H.surface }}>
-            <div style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.faint, marginBottom: 10 }}>Your next move</div>
-            {t.state === "with_client"
-              ? <div style={{ fontSize: 12.5, color: H.dim }}>Sent — waiting on the client. Keep talking below if you need to.</div>
-              : <><button disabled={busy} onClick={() => act("send_to_client")} style={{ ...primaryBtn, width: "100%", padding: "14px", fontSize: 12 }}>Send to client for approval →</button>
-                <div style={{ fontSize: 11, color: H.faint, marginTop: 9, textAlign: "center" }}>Needs another pass? Hand it to the designer <span style={{ color: H.blue }}>(coming soon)</span></div></>}
-          </div>
-          <div style={{ padding: "12px 22px 18px", borderTop: `1px solid ${H.line2}` }}>
-            <textarea value={note} onChange={e => setNote(e.target.value)} rows={2} placeholder={vis === "client" ? "Reply to the client…" : "Internal note — team + designer only…"} style={{ width: "100%", boxSizing: "border-box", background: H.surface, border: vis === "client" ? `1px solid ${H.line}` : "1px dashed rgba(244,178,43,.6)", borderRadius: 10, color: H.text, fontSize: 13, padding: "11px 13px", outline: "none", resize: "vertical", fontFamily: H.font }} />
-            <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 9, flexWrap: "wrap" }}>
+          {t.state === "with_client" && (
+            <div style={{ padding: "12px 22px", borderTop: `1px solid ${H.line}`, background: "rgba(143,199,216,.06)", fontSize: 12.5, color: H.dim }}><b style={{ color: H.blue }}>Sent — it&rsquo;s the client&rsquo;s move.</b> Reply below to keep talking, or send another draft.</div>
+          )}
+          {/* One composer, like email: type, optionally attach, send. Sending
+              Client-visible hands the thread to the client (their move). */}
+          <div style={{ padding: "12px 22px 8px", borderTop: `1px solid ${H.line2}` }}>
+            <textarea value={note} onChange={e => setNote(e.target.value)} rows={2} placeholder={vis === "client" ? "Message the client…" : "Internal note — team + designer only…"} style={{ width: "100%", boxSizing: "border-box", background: H.surface, border: vis === "client" ? `1px solid ${H.line}` : "1px dashed rgba(244,178,43,.6)", borderRadius: 10, color: H.text, fontSize: 13, padding: "11px 13px", outline: "none", resize: "vertical", fontFamily: H.font }} />
+            {staged && (
+              <div style={{ display: "inline-flex", position: "relative", marginTop: 10 }}>
+                <img src={staged.url} alt="" style={{ maxHeight: 72, borderRadius: 8, background: "#fff", border: `1px solid ${H.line}` }} />
+                <button onClick={() => setStaged(null)} aria-label="Remove attachment" style={{ position: "absolute", top: -7, right: -7, width: 20, height: 20, borderRadius: 999, background: "#fff", color: H.ink, border: "none", fontSize: 12, fontWeight: 800, lineHeight: 1, cursor: "pointer", padding: 0 }}>×</button>
+              </div>
+            )}
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 10, flexWrap: "wrap" }}>
               <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
                 <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: H.faint }}>Shows</span>
                 <span style={{ display: "inline-flex", border: `1px solid ${H.line}`, borderRadius: 999, background: H.ink, overflow: "hidden" }}>
@@ -234,10 +244,11 @@ function ThreadPanel({ detail, me, onRefresh, onClose }: any) {
                 </span>
               </span>
               <input ref={fileIn} type="file" accept="image/*,.pdf,.ai,.psd,.eps,.svg" style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; if (f) onFile(f); if (fileIn.current) fileIn.current.value = ""; }} />
-              <button disabled={uploading} onClick={() => fileIn.current?.click()} style={{ ...ghostBtn, opacity: uploading ? 0.5 : 1 }}>{uploading ? "Uploading…" : "+ Upload a draft"}</button>
-              <button disabled={busy || !note.trim()} onClick={() => post()} style={{ ...primaryBtn, marginLeft: "auto", padding: "12px 24px", fontSize: 11.5, opacity: busy || !note.trim() ? 0.5 : 1 }}>{vis === "client" ? "Send to client" : "Post internal"}</button>
+              <button disabled={uploading || !!staged} onClick={() => fileIn.current?.click()} style={{ ...ghostBtn, opacity: uploading || staged ? 0.5 : 1 }}>{uploading ? "Attaching…" : staged ? "✓ Attached" : "+ Attach"}</button>
+              <button disabled={busy || (!note.trim() && !staged)} onClick={send} style={{ ...primaryBtn, marginLeft: "auto", padding: "12px 24px", fontSize: 11.5, opacity: busy || (!note.trim() && !staged) ? 0.5 : 1 }}>{vis === "client" ? "Send to client" : "Post internal"}</button>
             </div>
           </div>
+          <div style={{ padding: "0 22px 16px", fontSize: 10.5, color: H.faint, textAlign: "center", lineHeight: 1.5 }}>Send a <b style={{ color: H.dim }}>Client-visible</b> design and it&rsquo;s the client&rsquo;s move to approve · Need a hand? The designer&rsquo;s <span style={{ color: H.blue }}>coming soon</span></div>
         </>
       )}
     </>

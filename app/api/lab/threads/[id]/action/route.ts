@@ -4,9 +4,9 @@ import { labDb } from "@/lib/lab";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// POST { action } — the three state moves.
-//   send_to_client  (HPD)    → with_client
-//   approve         (client) → approved  (locks the latest art)
+// POST { action } — the client's two moves. Handing a design TO the client is
+// just a Client-visible message now (see the messages route), not an action.
+//   approve         (client) → approved  (locks the latest design WE sent)
 //   request_changes (client) → working   (note + optional photo)
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const b = await req.json().catch(() => ({}));
@@ -20,23 +20,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
   const name = (thread as any).lab_clients?.name || "Client";
 
-  if (b.action === "send_to_client") {
-    await db.from("lab_threads").update({ state: "with_client", updated_at: now } as never).eq("id", params.id);
-    await db.from("lab_messages").insert({
-      thread_id: params.id, sender_role: "hpd", sender_name: b.senderName || "HPD",
-      body: b.note ? String(b.note).trim() : "Sent your design over for approval.", visibility: "client", kind: "comment",
-    } as never);
-    return NextResponse.json({ ok: true, state: "with_client" });
-  }
-
   if (b.action === "approve") {
     if (!isClient) return NextResponse.json({ error: "Only the client approves" }, { status: 403 });
+    // Lock the latest design WE sent (a client-visible HPD image) — never the
+    // client's own uploads. No HPD design yet → nothing to approve.
     const { data: lastFile } = await db.from("lab_messages")
-      .select("file_url").eq("thread_id", params.id).eq("visibility", "client").not("file_url", "is", null)
+      .select("file_url").eq("thread_id", params.id).eq("visibility", "client").eq("sender_role", "hpd").not("file_url", "is", null)
       .order("created_at", { ascending: false }).limit(1).maybeSingle();
+    if (!lastFile) return NextResponse.json({ error: "There's no design to approve yet" }, { status: 400 });
     await db.from("lab_threads").update({
       state: "approved", approved_at: now, approved_by: name,
-      approved_file_url: (lastFile as any)?.file_url || null, updated_at: now,
+      approved_file_url: (lastFile as any).file_url, updated_at: now,
     } as never).eq("id", params.id);
     await db.from("lab_messages").insert({
       thread_id: params.id, sender_role: "client", sender_name: name,

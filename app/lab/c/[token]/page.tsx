@@ -113,6 +113,9 @@ function ClientThreadSheet({ detail, token, onClose, onRefresh }: any) {
   const images = msgs.filter(m => m.file_url);
   const hero = images.length ? images[heroIdx == null ? images.length - 1 : Math.min(heroIdx, images.length - 1)] : null;
   const notes = msgs.filter(m => m.body && m.body.trim());
+  // The client only ever sees client-visible messages, so any image here from HPD
+  // is a design WE sent — the thing they can actually approve.
+  const hpdDesign = images.some(m => m.sender_role === "hpd");
 
   async function reply(fileUrl?: string, fileName?: string) {
     if (!note.trim() && !fileUrl) return; setBusy(true);
@@ -159,7 +162,7 @@ function ClientThreadSheet({ detail, token, onClose, onRefresh }: any) {
 
         {/* your move — approve the design / request a change */}
         <div style={{ padding: "16px 20px 0" }}>
-          {t.state === "with_client" && (
+          {t.state === "with_client" && hpdDesign && (
             <div style={{ background: "linear-gradient(180deg,rgba(244,178,43,.09),transparent)", border: `1px solid ${C.line}`, borderRadius: 16, padding: "16px 18px", marginBottom: 4 }}>
               <div style={{ fontSize: 12, fontWeight: 900, letterSpacing: "0.03em", textTransform: "uppercase", color: C.amber }}>◆ Your design&rsquo;s ready to sign off</div>
               <div style={{ fontSize: 12, color: C.dim, marginTop: 5, lineHeight: 1.45 }}>You&rsquo;re approving the <b style={{ color: C.text }}>artwork</b> — that it&rsquo;s right. Pricing and your order come next, on their own.</div>
@@ -183,6 +186,7 @@ function ClientThreadSheet({ detail, token, onClose, onRefresh }: any) {
             </div>
           )}
 
+          {t.state === "with_client" && !hpdDesign && <div style={{ fontSize: 12.5, color: C.amber, textAlign: "center", fontWeight: 700 }}>Your move — reply below.</div>}
           {t.state === "approved" && <div style={{ background: "rgba(88,201,60,.08)", border: `1px solid rgba(88,201,60,.35)`, borderRadius: 16, padding: "16px 18px", fontSize: 13, color: C.dim }}><b style={{ color: C.green }}>✓ Design approved.</b> The artwork&rsquo;s locked — the team takes it from here.</div>}
           {t.state === "working" && <div style={{ fontSize: 12.5, color: C.dim, textAlign: "center" }}>We&rsquo;re working on this — you&rsquo;ll get a note here the moment it&rsquo;s ready for you.</div>}
         </div>
