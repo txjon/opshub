@@ -403,6 +403,10 @@ export async function GET(
     }
 
     const typeMeta = (job.type_meta || {}) as any;
+    // The client legitimately has the quote in front of them only once it's sent
+    // (or approved internally). Until then, pricing is a DRAFT on our side — so
+    // gate the quote section AND per-item unit price on it (Jon, Jul 28).
+    const isQuoteSent = !!typeMeta.quote_sent_at || !!job.quote_approved;
 
     // Non-item invoice lines (service fees, passthru charges, discounts) added
     // in OpsHub via type_meta.invoice_extra_lines. They live only in QB today,
@@ -488,7 +492,7 @@ export async function GET(
         // per-job portal API so the shared component serves both doors.
         units: qty,
         sizes: Object.fromEntries(lines.filter((l: any) => l.qty_ordered > 0 && l.size).map((l: any) => [l.size, l.qty_ordered])),
-        sellPerUnit: item.sell_per_unit ?? null,
+        sellPerUnit: isQuoteSent ? (item.sell_per_unit ?? null) : null,
         blankVendor: item.blank_vendor || null,
         blankSku: item.blank_sku || null,
         pipelineStage: item.pipeline_stage || null,
@@ -528,7 +532,6 @@ export async function GET(
     // front of them. Jobs approved INTERNALLY (client PO by email/phone) never
     // set quote_sent_at — without this OR, the portal hid the quote AND the
     // whole approval panel, leaving revised proofs unapprovable (HPD-2606-038).
-    const isQuoteSent = !!typeMeta.quote_sent_at || !!job.quote_approved;
     const isInvoiceSent = !!typeMeta.invoice_sent_at;
     // A pushed QB invoice (or Stripe invoice) means the client has been billed,
     // so the total must show even if OpsHub never emailed the quote/invoice
