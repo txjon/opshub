@@ -278,7 +278,24 @@ export default function ProjectsBoard() {
               </select>
               <select value={stageFilter} onChange={e => setStageFilter(e.target.value)} style={selStyle}>
                 <option value="">All stages</option>
-                {PROJ_MILESTONES.map(m => <option key={m.k} value={m.k}>{m.label} ({stageCounts[m.k] || 0})</option>)}
+                {/* Filter labels = the WORK each bucket represents, not the
+                    milestone reached (Jon: "half a step ahead" — resting at
+                    Approved means the invoice is the next move). The strip
+                    spine keeps milestone names; this dropdown picks work. */}
+                {PROJ_MILESTONES.map(m => {
+                  const FILTER_LABELS: Record<string, string> = {
+                    quote_sent: "Needs quote sent",
+                    quote_appr: "Waiting on client",
+                    invoice: "Needs invoice",
+                    paid: "Awaiting payment",
+                    order: "Needs blanks + POs",
+                    production: "In production",
+                    receiving: "Receiving",
+                    shipping: "Shipping",
+                    fulfillment: "Staging",
+                  };
+                  return <option key={m.k} value={m.k}>{FILTER_LABELS[m.k] || m.label} ({stageCounts[m.k] || 0})</option>;
+                })}
               </select>
             </div>
           </SliceSortRow>
