@@ -1773,7 +1773,10 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         const extrasTotal = extras.reduce((a:number,l:any)=>a+(Number(l.amount)||0),0);
         const quoteTotal = subtotal + extrasTotal;
         const money = (n:number)=>"$"+Math.round(n).toLocaleString();
-        const saveOrderInfo = async (patch:any) => { const cd={...((job as any).costing_data||{})}; cd.orderInfo={...(cd.orderInfo||{}),...patch}; await supabase.from("jobs").update({costing_data:cd}).eq("id",job.id); setJob(j=>j?({...j,costing_data:cd} as any):j); };
+        // Fresh read-modify-write: local job.costing_data can be stale (another
+        // tab / V2 revising costing) and writing from it wholesale would clobber
+        // costProds — same failure class as the HPD-2607-032 wipe.
+        const saveOrderInfo = async (patch:any) => { const { data: freshJ }: any = await supabase.from("jobs").select("costing_data").eq("id",job.id).single(); const cd={...(freshJ?.costing_data||(job as any).costing_data||{})}; cd.orderInfo={...(cd.orderInfo||{}),...patch}; cd._savedAt=new Date().toISOString(); await supabase.from("jobs").update({costing_data:cd}).eq("id",job.id); setJob(j=>j?({...j,costing_data:cd} as any):j); };
         const saveExtras = async (next:any[]) => { const meta={...((job as any).type_meta||{}),invoice_extra_lines:next}; await supabase.from("jobs").update({type_meta:meta}).eq("id",job.id); setJob(j=>j?({...j,type_meta:meta} as any):j); };
         const clientPO = (job as any).type_meta?.client_po_number || "";
         const savePO = async (v:string) => { const meta={...((job as any).type_meta||{}),client_po_number:v.trim()||null}; await supabase.from("jobs").update({type_meta:meta}).eq("id",job.id); setJob(j=>j?({...j,type_meta:meta} as any):j); };

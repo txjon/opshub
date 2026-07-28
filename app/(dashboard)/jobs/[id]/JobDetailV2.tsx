@@ -602,7 +602,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
         const { data: fresh }: any = await supabase.from("jobs").select("costing_data").eq("id", job.id).single();
         const cd = fresh?.costing_data;
         if (cd?.costProds?.some((p: any) => p.id === item.id)) {
-          await (supabase.from("jobs") as any).update({ costing_data: { ...cd, costProds: cd.costProds.filter((p: any) => p.id !== item.id) } }).eq("id", job.id);
+          await (supabase.from("jobs") as any).update({ costing_data: { ...cd, costProds: cd.costProds.filter((p: any) => p.id !== item.id), _savedAt: new Date().toISOString() } }).eq("id", job.id);
         }
       } catch (e) { console.error("[JobV2] costProd prune failed", e); }
       setItems(prev => prev.filter(x => x.id !== item.id));
@@ -1194,7 +1194,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
         else cps.push(p);
         if (Object.keys(printers).length) { try { const r: any = calcCostProduct(p, costMargin, inclShip, inclCC, allNow, printers); if (r) sellUpdates.push({ id, sell: Math.round((r.sellPerUnit || 0) * 100) / 100 }); } catch {} }
       }
-      await (supabase.from("jobs") as any).update({ costing_data: { ...cd, costProds: cps } }).eq("id", job.id);
+      await (supabase.from("jobs") as any).update({ costing_data: { ...cd, costProds: cps, _savedAt: new Date().toISOString() } }).eq("id", job.id);
       for (const u of sellUpdates) await (supabase.from("items") as any).update({ sell_per_unit: u.sell }).eq("id", u.id);
       // Auto-create/update decorator assignments for flushed items with a
       // vendor — classic CostingTab did this on save; the vendor portal, PO
@@ -1270,7 +1270,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     if (Object.keys(sells).length) setItems(prev => prev.map(x => sells[x.id] != null ? { ...x, sell_per_unit: sells[x.id] } : x));
     try {
       const { data: fresh }: any = await supabase.from("jobs").select("costing_data").eq("id", job.id).single();
-      const cd = { ...(fresh?.costing_data || job.costing_data || {}), costMargin: nextMargin, inclShip: nextInclShip, inclCC: nextInclCC };
+      const cd = { ...(fresh?.costing_data || job.costing_data || {}), costMargin: nextMargin, inclShip: nextInclShip, inclCC: nextInclCC, _savedAt: new Date().toISOString() };
       await (supabase.from("jobs") as any).update({ costing_data: cd }).eq("id", job.id);
       for (const [id, sell] of Object.entries(sells)) await (supabase.from("items") as any).update({ sell_per_unit: sell }).eq("id", id);
     } catch (e) { failed("Recompute-all failed — not saved", e); }
@@ -1339,7 +1339,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       let idx = cps.findIndex((c: any) => c.id === item.id);
       if (idx < 0) idx = cps.findIndex((c: any) => (c.name || "").trim().toLowerCase() === (item.name || "").trim().toLowerCase());
       if (idx >= 0) { if (override == null) delete cps[idx].sellOverride; else cps[idx].sellOverride = override; }
-      await (supabase.from("jobs") as any).update({ costing_data: { ...cd, costProds: cps } }).eq("id", job.id);
+      await (supabase.from("jobs") as any).update({ costing_data: { ...cd, costProds: cps, _savedAt: new Date().toISOString() } }).eq("id", job.id);
       await (supabase.from("items") as any).update({ sell_per_unit: sell }).eq("id", item.id);
     } catch (e) { failed("Override save failed — not saved", e); }
   };

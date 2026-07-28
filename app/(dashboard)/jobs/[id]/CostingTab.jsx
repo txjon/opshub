@@ -1595,6 +1595,17 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
 
   const savedData = project?.costing_data || null;
 
+  // ── Stale-write guard (HPD-2607-032 wipe, Jul 28 2026) ──
+  // onSave writes costing_data WHOLESALE, so a tab that loaded costing before
+  // someone revised it elsewhere (another tab, the V2 job page) stamps its
+  // stale snapshot over their work on the next autosave / tab-switch / unmount
+  // save — that's exactly how 032 lost its vendors after invoicing. Every
+  // costing_data writer now stamps _savedAt; this tab remembers the stamp it
+  // LOADED and refuses to save over a different one, freezing with a reload
+  // notice instead of clobbering.
+  const costingStampRef = React.useRef(savedData?._savedAt ?? null);
+  const [staleCosting, setStaleCosting] = useState(false);
+
   const initItems = (buyItems || []).map(it => {
     const saved = savedData?.costProds?.find((p) => p.id === it.id);
     if (saved) {
@@ -2017,6 +2028,7 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
     // affordance, not a save gate; it makes inputs read-only so no edits
     // reach here, but autosave itself must stay live for any allowed path.
     if (isArchivedJob) return;
+    if (staleCosting) return; // frozen after a stale-write detection — reload only
     if (costingSaveInFlight.current) return;
     costingSaveInFlight.current = true;
     setSavedCostProds(JSON.parse(JSON.stringify(costProds)));
@@ -2025,6 +2037,16 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
       try {
         const { createClient } = await import("@/lib/supabase/client");
         const supabase = createClient();
+        // Refuse to overwrite a costing revision saved elsewhere since this
+        // tab loaded (stale-write guard — see costingStampRef above).
+        const { data: guardRow } = await supabase.from("jobs").select("costing_data").eq("id", project.id).single();
+        const dbStamp = guardRow?.costing_data?._savedAt ?? null;
+        if (dbStamp && dbStamp !== costingStampRef.current) {
+          console.error("Costing changed elsewhere since this tab loaded — save blocked to protect it");
+          setStaleCosting(true); setSaveStatus("error"); if (onSaveStatus) onSaveStatus("error");
+          return;
+        }
+        const costingStamp = new Date().toISOString();
         const rawResults = costProds.map((p, idx) => { const r = calcCostProduct(p, costMargin, inclShip, inclCC, costProds); return r ? { ...r, _idx: idx } : null; }).filter(Boolean);
         // Round sellPerUnit to cent first, then derive grossRev — matches what gets saved to items.sell_per_unit
         const results = rawResults.map(r => ({ ...r, sellPerUnit: Math.round(r.sellPerUnit * 100) / 100, grossRev: Math.round(Math.round(r.sellPerUnit * 100) / 100 * r.qty * 100) / 100 }));
@@ -2052,10 +2074,11 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
         const passthruTotal = Math.round((extraPassthru + passthruProducts) * 100) / 100;
         const costingSummary = { grossRev, totalCost, netProfit, margin, avgPerUnit, totalQty, feeRevenue, passthruTotal };
         await supabase.from("jobs").update({
-          costing_data: { costProds, costMargin, inclShip, inclCC, orderInfo },
+          costing_data: { costProds, costMargin, inclShip, inclCC, orderInfo, _savedAt: costingStamp },
           costing_summary: costingSummary
         }).eq("id", project.id);
-        if (onSaved) onSaved({ costing_data: { costProds, costMargin, inclShip, inclCC, orderInfo }, costing_summary: costingSummary });
+        costingStampRef.current = costingStamp;
+        if (onSaved) onSaved({ costing_data: { costProds, costMargin, inclShip, inclCC, orderInfo, _savedAt: costingStamp }, costing_summary: costingSummary });
         // Write refined blank costs + decorator assignments back to items
         // Use the already-calculated results array (same data, no second calcCostProduct call)
         for (let cpIdx = 0; cpIdx < costProds.length; cpIdx++) {
@@ -2169,7 +2192,14 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
   };
   onSaveRef.current = onSave;
   if (!pricingReady) return <div style={{padding:"2rem",color:T.muted,fontSize:13}}>Loading pricing...</div>;
-  return (
+  return (<>
+    {staleCosting && (
+      <div style={{ margin: "0 0 12px", padding: "12px 16px", background: T.redDim, border: "1px solid " + T.red, borderRadius: 8, color: T.text, fontFamily: font, fontSize: 13, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <span style={{ fontWeight: 700, color: T.red }}>Costing changed somewhere else.</span>
+        <span style={{ color: T.muted }}>This tab is holding an older copy, so saving is paused to protect the newer work. Reload to pick it up.</span>
+        <button onClick={() => window.location.reload()} style={{ marginLeft: "auto", background: T.red, border: "none", borderRadius: 6, color: "#fff", fontFamily: font, fontSize: 12, fontWeight: 700, padding: "7px 14px", cursor: "pointer" }}>Reload</button>
+      </div>
+    )}
     <CostingTab
       project={project} buyItems={buyItems} contacts={contacts} onUpdateBuyItems={onUpdateBuyItems}
       costProds={costProds} setCostProds={setCostProds} qtyEditedRef={qtyEditedInCostingRef} notesEditedRef={notesEditedInCostingRef} isGod={isGod}
@@ -2184,5 +2214,5 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
       onPullFromPsds={handlePullFromPsds} pullingPsds={pullingPsds} pullResult={pullResult}
       hideToolbar={hideToolbar} openRfqRef={openRfqRef} hideQuoteSend={hideQuoteSend}
     />
-  );
+  </>);
 }

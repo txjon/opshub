@@ -143,11 +143,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     //    slight staleness beats risking bad totals from a partial move.
     const updates = [
       db.from("jobs").update({
-        costing_data: { ...sourceCosting, costProds: sourceCostProds },
+        costing_data: { ...sourceCosting, costProds: sourceCostProds, _savedAt: new Date().toISOString() },
         updated_at: new Date().toISOString(),
       }).eq("id", sourceJobId).then(r => r),
       db.from("jobs").update({
-        costing_data: { ...destCosting, costProds: destCostProds },
+        costing_data: { ...destCosting, costProds: destCostProds, _savedAt: new Date().toISOString() },
         updated_at: new Date().toISOString(),
       }).eq("id", to_job_id).then(r => r),
     ];
