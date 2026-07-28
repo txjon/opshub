@@ -167,7 +167,7 @@ export function AppShell({
     // last-seen-at via POST /api/dashboard/seen, which clears the badge.
     // We also optimistically zero it locally so the UI doesn't flash a
     // stale number while the round-trip completes.
-    if (pathname === "/dashboard") {
+    if (pathname === "/dashboard" || pathname === "/house") {
       setDashboardUnread(0);
       fetch("/api/dashboard/seen", { method: "POST", cache: "no-store" }).catch(() => {});
     }
@@ -205,6 +205,8 @@ export function AppShell({
     const swapped = swapV2Nav(items);
     return STUDIO_UNDER_DEV ? swapped.filter((i: any) => !STUDIO_HIDDEN_HREFS.includes(i.href)) : swapped;
   };
+  // The House leads Labs — the team's daily driver comes first.
+  const NAV_FIRST: Record<string, string> = { labs: "/house" };
   const sidebarGroups: { key: string; label: string; items: { href: string; label: string }[] }[] = GROUP_ORDER
     .map(g => {
       let items: { href: string; label: string }[] = [];
@@ -213,7 +215,10 @@ export function AppShell({
         items = DEPT_NAV[g] || [];
         if (g === "owner" && email === "jon@housepartydistro.com") items = [{ href: "/god-mode", label: "Overview" }, ...items];
       }
-      return { key: g, label: GROUP_LABELS[g] || g, items: filterNavItems(items) };
+      let filtered = filterNavItems(items);
+      const first = NAV_FIRST[g];
+      if (first && filtered.some(i => i.href === first)) filtered = [...filtered.filter(i => i.href === first), ...filtered.filter(i => i.href !== first)];
+      return { key: g, label: GROUP_LABELS[g] || g, items: filtered };
     })
     .filter(g => g.items.length > 0);
   const sideQuestItems = SIDE_QUESTS.filter(sq => usePerUser ? grantedHrefs.has(sq.href) : hasExtra(sq.label.toLowerCase()));
@@ -279,7 +284,7 @@ export function AppShell({
               <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: "#666", padding: "6px 8px 3px" }}>{g.label}</div>
               {g.items.map((item: any) => {
                 const isActive = pathname === item.href || pathname?.startsWith(item.href + "/");
-                const showBadge = item.href === "/dashboard" && dashboardUnread > 0;
+                const showBadge = item.href === "/house" && dashboardUnread > 0;
                 return (
                   <Link key={item.href} href={item.href}
                     style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "6px 8px", borderRadius: 7, fontSize: 12.5, fontWeight: isActive ? 700 : 500, textDecoration: "none", color: isActive ? "#fff" : "rgba(255,255,255,0.6)", background: isActive ? "rgba(255,255,255,0.10)" : "transparent" }}>

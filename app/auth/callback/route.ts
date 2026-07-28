@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
   // verified via email and almost certainly has no password set" — force
   // them to /set-password regardless of what `next` was passed.
   const verifyType = searchParams.get("type");
-  const next = searchParams.get("next") || "/dashboard";
+  const next = searchParams.get("next") || "/house";
 
   if (code) {
     const supabase = await createClient();
