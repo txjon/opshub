@@ -1886,7 +1886,10 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                 <input type="checkbox" checked={sel} onChange={() => toggleSel(item.id)} style={{ width: 15, height: 15, accentColor: T.accent, cursor: "pointer", marginTop: 5 }} />
                 <div style={{ flex: 1, minWidth: 260 }}>
                   <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
-                    <span style={{ fontFamily: mono, fontSize: 12.5, fontWeight: 800, color: T.text }}>{job.job_number}-{letterOf(item.id)}</span>
+                    {/* Purchasing reference = QB invoice number (matches how vendor
+                        invoices tie back to invoiced jobs — same DELIBERATE rule as
+                        the vendor portal PO number). Job number only pre-invoice. */}
+                    <span style={{ fontFamily: mono, fontSize: 12.5, fontWeight: 800, color: T.text }}>{(tm.qb_invoice_number || job.job_number)}-{letterOf(item.id)}</span>
                     <span style={{ fontSize: 12, color: T.faint }}>{item.name}</span>
                   </div>
                   <div style={{ fontSize: 15, fontWeight: 800, marginTop: 3 }}>
