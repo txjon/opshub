@@ -207,7 +207,8 @@ export function AppShell({
     const studioFiltered = STUDIO_UNDER_DEV ? swapped.filter((i: any) => !STUDIO_HIDDEN_HREFS.includes(i.href)) : swapped;
     // Dashboard tucked away (Jon, Jul 28: "we really don't use it, it's
     // noisy") — the House is the daily surface. URL stays reachable.
-    return studioFiltered.filter((i: any) => i.href !== "/dashboard");
+    // Retired pages (label says so) don't earn nav rows either.
+    return studioFiltered.filter((i: any) => i.href !== "/dashboard" && !/retired/i.test(i.label));
   };
   // The House leads Labs — the team's daily driver comes first.
   const NAV_FIRST: Record<string, string> = { labs: "/house" };
@@ -283,25 +284,37 @@ export function AppShell({
               })}
             </div>
           )}
-          {sidebarGroups.map(g => (
-            <div key={g.key} style={{ marginBottom: 10 }}>
-              <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: "#666", padding: "6px 8px 3px" }}>{g.label}</div>
-              {g.items.map((item: any) => {
-                const isActive = pathname === item.href || pathname?.startsWith(item.href + "/");
-                const showBadge = item.href === "/house" && dashboardUnread > 0;
-                return (
-                  <Link key={item.href} href={item.href}
-                    style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "6px 8px", borderRadius: 7, fontSize: 12.5, fontWeight: isActive ? 700 : 500, textDecoration: "none", color: isActive ? "#fff" : "rgba(255,255,255,0.6)", background: isActive ? "rgba(255,255,255,0.10)" : "transparent" }}>
-                    <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.label}</span>
-                    {showBadge && <span style={{ background: "#e8569b", color: "#fff", fontSize: 9.5, fontWeight: 800, padding: "1px 6px", borderRadius: 99, lineHeight: 1.4, minWidth: 16, textAlign: "center" }}>{dashboardUnread}</span>}
-                  </Link>
-                );
-              })}
-            </div>
-          ))}
+          {sidebarGroups.map(g => {
+            // The group's HOME page IS the header — big, clickable ("The
+            // House", "The Distro"); children indent under it. No tiny
+            // uppercase labels (Jon, Jul 28).
+            const head = g.items.find((i: any) => i.label.startsWith("The ")) || g.items[0];
+            const children = g.items.filter((i: any) => i !== head);
+            const headActive = pathname === head.href || pathname?.startsWith(head.href + "/");
+            const headBadge = head.href === "/house" && dashboardUnread > 0;
+            return (
+              <div key={g.key} style={{ marginBottom: 14 }}>
+                <Link href={head.href}
+                  style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "7px 8px", borderRadius: 8, fontSize: 15, fontWeight: 800, letterSpacing: "-0.01em", textDecoration: "none", color: headActive ? "#fff" : "rgba(255,255,255,0.88)", background: headActive ? "rgba(255,255,255,0.10)" : "transparent" }}>
+                  <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{head.label}</span>
+                  {headBadge && <span style={{ background: "#e8569b", color: "#fff", fontSize: 9.5, fontWeight: 800, padding: "1px 6px", borderRadius: 99, lineHeight: 1.4, minWidth: 16, textAlign: "center" }}>{dashboardUnread}</span>}
+                </Link>
+                {children.map((item: any) => {
+                  const isActive = pathname === item.href || pathname?.startsWith(item.href + "/");
+                  const showBadge = item.href === "/house" && dashboardUnread > 0;
+                  return (
+                    <Link key={item.href} href={item.href}
+                      style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "5px 8px 5px 20px", borderRadius: 7, fontSize: 12.5, fontWeight: isActive ? 700 : 500, textDecoration: "none", color: isActive ? "#fff" : "rgba(255,255,255,0.6)", background: isActive ? "rgba(255,255,255,0.10)" : "transparent" }}>
+                      <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.label}</span>
+                      {showBadge && <span style={{ background: "#e8569b", color: "#fff", fontSize: 9.5, fontWeight: 800, padding: "1px 6px", borderRadius: 99, lineHeight: 1.4, minWidth: 16, textAlign: "center" }}>{dashboardUnread}</span>}
+                    </Link>
+                  );
+                })}
+              </div>
+            );
+          })}
           {(showRefs || sideQuestItems.length > 0) && (
-            <div style={{ marginBottom: 10 }}>
-              <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: "#666", padding: "6px 8px 3px" }}>More</div>
+            <div style={{ marginBottom: 10, borderTop: "1px solid rgba(255,255,255,0.07)", paddingTop: 8 }}>
               {showRefs && (
                 <Link href="/references" style={{ display: "block", padding: "6px 8px", borderRadius: 7, fontSize: 12.5, fontWeight: pathname?.startsWith("/references") ? 700 : 500, textDecoration: "none", color: pathname?.startsWith("/references") ? "#fff" : "rgba(255,255,255,0.6)", background: pathname?.startsWith("/references") ? "rgba(255,255,255,0.10)" : "transparent" }}>References</Link>
               )}
