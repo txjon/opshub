@@ -214,6 +214,9 @@ function RowActions({ l, box, acts }: { l: ReceivingLine; box: ReceivingBox; act
   return <RowMenu busy={busy} items={[
     { label: "History", onClick: () => acts.onHistory(l) },
     { label: "Edit received count", onClick: () => acts.onEdit(l, box) },
+    // Unmanifested goods surface AFTER a box is received (13H fills, Jul 28) —
+    // correcting the manifest must not require reopening the box.
+    { label: "Edit shipped count", onClick: () => acts.onEditShipped(l, box) },
     { label: "← Return to receiving", danger: true, disabled: busy, onClick: () => acts.onReturn(l, box) },
   ]} />;
 }
