@@ -351,6 +351,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     try {
       await (createClient().from("buy_sheet_lines") as any).upsert({ item_id: item.id, size, qty_ordered: q }, { onConflict: "item_id,size" });
       if (sell != null) await (createClient().from("items") as any).update({ sell_per_unit: sell }).eq("id", item.id);
+      fetch(`/api/jobs/${job.id}/refresh-financials`, { method: "POST" }).catch(() => {});
     } catch (e) { failed("Qty save failed — not saved", e); }
   };
 
@@ -374,6 +375,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
         await (supabase.from("buy_sheet_lines") as any).upsert({ item_id: item.id, size, qty_ordered: q }, { onConflict: "item_id,size" });
       }
       if (sell != null) await (supabase.from("items") as any).update({ sell_per_unit: sell }).eq("id", item.id);
+      fetch(`/api/jobs/${job.id}/refresh-financials`, { method: "POST" }).catch(() => {});
     } catch (e) { failed("Distribute failed — not saved", e); }
   };
 
@@ -400,6 +402,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
         await (supabase.from("buy_sheet_lines") as any).upsert({ item_id: item.id, size, qty_ordered: q }, { onConflict: "item_id,size" });
       }
       if (sell != null) await (supabase.from("items") as any).update({ sell_per_unit: sell }).eq("id", item.id);
+      fetch(`/api/jobs/${job.id}/refresh-financials`, { method: "POST" }).catch(() => {});
     } catch (e) { failed("Size save failed — not saved", e); }
   };
 
@@ -1292,6 +1295,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       const cd = { ...(fresh?.costing_data || job.costing_data || {}), costMargin: nextMargin, inclShip: nextInclShip, inclCC: nextInclCC, _savedAt: new Date().toISOString() };
       await (supabase.from("jobs") as any).update({ costing_data: cd }).eq("id", job.id);
       for (const [id, sell] of Object.entries(sells)) await (supabase.from("items") as any).update({ sell_per_unit: sell }).eq("id", id);
+      fetch(`/api/jobs/${job.id}/refresh-financials`, { method: "POST" }).catch(() => {});
     } catch (e) { failed("Recompute-all failed — not saved", e); }
   };
   const toggleUnlock = async () => {
@@ -1360,6 +1364,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       if (idx >= 0) { if (override == null) delete cps[idx].sellOverride; else cps[idx].sellOverride = override; }
       await (supabase.from("jobs") as any).update({ costing_data: { ...cd, costProds: cps, _savedAt: new Date().toISOString() } }).eq("id", job.id);
       await (supabase.from("items") as any).update({ sell_per_unit: sell }).eq("id", item.id);
+      fetch(`/api/jobs/${job.id}/refresh-financials`, { method: "POST" }).catch(() => {});
     } catch (e) { failed("Override save failed — not saved", e); }
   };
 
