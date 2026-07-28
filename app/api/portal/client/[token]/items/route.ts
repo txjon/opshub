@@ -38,12 +38,24 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     //    UI can filter. A "paid to archive" toggle can hide them client-side.)
     const { data: jobs } = await db
       .from("jobs")
-      .select("id, job_number, title, phase, target_ship_date, created_at, shipping_route, phase_timestamps, type_meta")
+      .select("id, job_number, title, phase, quote_approved, target_ship_date, created_at, shipping_route, phase_timestamps, type_meta")
       .eq("client_id", client.id)
       .order("created_at", { ascending: false });
     const jobById: Record<string, any> = {};
     for (const j of (jobs || [])) jobById[j.id] = j;
     const jobIds = (jobs || []).map((j: any) => j.id);
+    // Pricing is a DRAFT until the client has actually seen a number for the job
+    // — quote sent/approved, or invoiced. Gate the per-item price on this so an
+    // unquoted intake item doesn't leak a draft cost (Jon, Jul 28). Reorderable
+    // products from past (quoted/invoiced) jobs keep their price.
+    const pricingVisibleByJob: Record<string, boolean> = {};
+    for (const j of (jobs || [])) {
+      const tm = ((j as any).type_meta || {}) as any;
+      // Same gate as the order-detail endpoint: the client has legitimately seen
+      // a number once the quote is sent/approved or the invoice was actually sent.
+      // A raw QB/Stripe invoice number (internal push, not sent) does NOT count.
+      pricingVisibleByJob[(j as any).id] = !!tm.quote_sent_at || !!(j as any).quote_approved || !!tm.invoice_sent_at;
+    }
     if (jobIds.length === 0) {
       return NextResponse.json({ client: { name: client.name }, items: [] });
     }
@@ -252,7 +264,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         // what the client paid us per unit (sell_per_unit on items);
         // retail is what the client charges their end customer.
         // Profit derived on the client side for consistency.
-        cost: it.sell_per_unit != null ? Number(it.sell_per_unit) : null,
+        cost: (pricingVisibleByJob[it.job_id] && it.sell_per_unit != null) ? Number(it.sell_per_unit) : null,
         // Margin insight is a 'pipeline' grant — standard-tier clients use
         // this API only for the Reorder catalog and never see retail.
         retail: hasPipeline && it.client_retail_per_unit != null ? Number(it.client_retail_per_unit) : null,
