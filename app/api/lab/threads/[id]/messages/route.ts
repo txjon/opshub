@@ -10,7 +10,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const b = await req.json().catch(() => ({}));
   const db = labDb();
 
-  const { data: thread } = await db.from("lab_threads").select("id, client_id, lab_clients(token, name)").eq("id", params.id).maybeSingle();
+  const { data: thread } = await db.from("lab_threads").select("id, client_id, state, lab_clients(token, name)").eq("id", params.id).maybeSingle();
   if (!thread) return NextResponse.json({ error: "Thread not found" }, { status: 404 });
 
   let senderRole: "hpd" | "client" = "hpd";
@@ -30,6 +30,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     kind: b.fileUrl ? "version" : "comment",
   } as never).select("*").single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  await db.from("lab_threads").update({ updated_at: new Date().toISOString() } as never).eq("id", params.id);
+  // Ping-pong turn (email model): sending to the client hands them the ball; a
+  // client message hands it back to us. Internal HPD notes don't move it, and an
+  // approved thread is never disturbed.
+  const patch: Record<string, any> = { updated_at: new Date().toISOString() };
+  if ((thread as any).state !== "approved") {
+    if (senderRole === "client") patch.state = "working";
+    else if (visibility === "client") patch.state = "with_client";
+  }
+  await db.from("lab_threads").update(patch as never).eq("id", params.id);
   return NextResponse.json({ message: msg });
 }
