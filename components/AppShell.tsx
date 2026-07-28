@@ -194,6 +194,38 @@ export function AppShell({
     ? navItemsSwapped.filter((i: any) => !STUDIO_HIDDEN_HREFS.includes(i.href))
     : navItemsSwapped;
   const deptIcons: Record<Department, { Icon: any; label: string }> = DEPT_ICONS;
+
+  // ── Hub sidebar (desktop) — ONE nav, grouped by workflow, every granted
+  // destination visible and one click away (Jon, Jul 27: "we're in
+  // production, need receiving → click Distro → land on Distro home → click
+  // Receiving" — adjacent pipeline steps were two hops + a mode switch).
+  const GROUP_ORDER: Department[] = ["labs", "distro", "ecomm", "contacts", "owner", "billing", "settings"];
+  const GROUP_LABELS: Record<string, string> = { labs: "Labs", distro: "Distro", ecomm: "Ecomm", contacts: "People", owner: "Owner", billing: "Billing", settings: "Admin" };
+  const filterNavItems = (items: { href: string; label: string }[]) => {
+    const swapped = swapV2Nav(items);
+    return STUDIO_UNDER_DEV ? swapped.filter((i: any) => !STUDIO_HIDDEN_HREFS.includes(i.href)) : swapped;
+  };
+  const sidebarGroups: { key: string; label: string; items: { href: string; label: string }[] }[] = GROUP_ORDER
+    .map(g => {
+      let items: { href: string; label: string }[] = [];
+      if (usePerUser) items = navByGroup[g] || [];
+      else if (departments.includes(g)) {
+        items = DEPT_NAV[g] || [];
+        if (g === "owner" && email === "jon@housepartydistro.com") items = [{ href: "/god-mode", label: "Overview" }, ...items];
+      }
+      return { key: g, label: GROUP_LABELS[g] || g, items: filterNavItems(items) };
+    })
+    .filter(g => g.items.length > 0);
+  const sideQuestItems = SIDE_QUESTS.filter(sq => usePerUser ? grantedHrefs.has(sq.href) : hasExtra(sq.label.toLowerCase()));
+  const showRefs = !usePerUser || grantedHrefs.has("/references");
+
+  // Recent projects — written by the job page on visit; the fastest answer to
+  // "get back to the job I was just on" after a board side-trip.
+  const [recentJobs, setRecentJobs] = useState<{ id: string; label: string; num: string }[]>([]);
+  useEffect(() => {
+    try { setRecentJobs((JSON.parse(localStorage.getItem("opshub_recent_jobs") || "[]") as any[]).slice(0, 5)); } catch {}
+  }, [pathname]);
+
   const rawCrossLink = DEPT_CROSSLINKS[activeDept];
   const crossLink = rawCrossLink && hasDept(rawCrossLink.dept)
     ? (rawCrossLink.dept === "labs" ? { ...rawCrossLink, label: "← Labs" } : rawCrossLink)
@@ -201,116 +233,92 @@ export function AppShell({
 
   return (
     <div style={{ height: "100vh", display: "flex", background: "#0a0a0a" }}>
-      {/* ── Slim sidebar (department switcher) — desktop only ── */}
+      {/* ── HUB SIDEBAR (desktop) — one nav, grouped by workflow ── */}
       {!isMobile && (
-      <div style={{
-        width: 56, background: "#000", display: "flex", flexDirection: "column",
-        alignItems: "center", paddingTop: 12, paddingBottom: 12, flexShrink: 0,
-        justifyContent: "space-between",
-      }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "center" }}>
-          {/* Logo */}
-          <div style={{
-            width: 36, height: 36, borderRadius: 8, background: "#222",
-            display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 4,
-          }}>
-            <svg width="16" height="16" viewBox="0 0 14 14" fill="none">
+      <aside style={{ width: 218, background: "#0d0d0d", borderRight: "1px solid rgba(255,255,255,0.09)", display: "flex", flexDirection: "column", flexShrink: 0, minHeight: 0 }}>
+        {/* brand */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 14px 10px" }}>
+          <div style={{ width: 30, height: 30, borderRadius: 8, background: "#222", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
               <rect x="1" y="1" width="5" height="5" rx="1" fill="white"/>
               <rect x="8" y="1" width="5" height="5" rx="1" fill="white" opacity="0.6"/>
               <rect x="1" y="8" width="5" height="5" rx="1" fill="white" opacity="0.6"/>
               <rect x="8" y="8" width="5" height="5" rx="1" fill="white"/>
             </svg>
           </div>
-          {/* Tenant slug — tiny indicator under the logo so the active
-              company is visible at a glance. Useful when god-mode users
-              switch between tenants. */}
-          {companySlug && (
-            <div title={companyName || companySlug}
-              style={{
-                fontSize: 8, fontWeight: 800, letterSpacing: "0.06em",
-                color: "#888", textTransform: "uppercase",
-                marginBottom: 8,
-              }}>
-              {companySlug}
-            </div>
-          )}
-
-          {/* Department icons */}
-          {(Object.entries(deptIcons) as [Department, { Icon: any; label: string }][]).map(([dept, { Icon, label }]) => {
-            if (!hasDept(dept)) return null;
-            const isActive = activeDept === dept;
-            // For Jon, clicking the Owner icon lands on Overview (/god-mode)
-            // since it's the prepended first tab. Everyone else lands on
-            // the static DEPT_NAV first entry (/insights for owner).
-            const landingHref = usePerUser
-              ? (navByGroup[dept]?.[0]?.href || "/dashboard")
-              : (dept === "owner" && email === "jon@housepartydistro.com"
-                  ? "/god-mode"
-                  : DEPT_NAV[dept][0].href);
-            return (
-              <Link
-                key={dept}
-                href={landingHref}
-                onClick={() => setActiveDept(dept)}
-                title={label}
-                style={{
-                  width: 40, height: 40, borderRadius: 8,
-                  display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                  gap: 2, textDecoration: "none", transition: "all 0.15s",
-                  background: isActive ? "#73b6c9" : "transparent",
-                  color: isActive ? "#000" : "#fff",
-                }}
-              >
-                <Icon size={18} />
-                <span style={{ fontSize: 7, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase" }}>{label}</span>
-              </Link>
-            );
-          })}
-
-          {/* References — team SOPs + training docs. Always visible to
-              every authenticated user; not gated by department access. */}
-          {(() => {
-            if (usePerUser && !grantedHrefs.has("/references")) return null;
-            const isActive = pathname === "/references" || pathname?.startsWith("/references/");
-            return (
-              <Link
-                href="/references"
-                title="References"
-                style={{
-                  width: 40, height: 40, borderRadius: 8,
-                  display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                  gap: 2, textDecoration: "none", transition: "all 0.15s",
-                  background: isActive ? "#73b6c9" : "transparent",
-                  color: isActive ? "#000" : "#fff",
-                }}
-              >
-                <Lightbulb size={18} />
-                <span style={{ fontSize: 7, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase" }}>Refs</span>
-              </Link>
-            );
-          })()}
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: "#fff", letterSpacing: "-0.01em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{companyName || "OpsHub"}</div>
+            {companySlug && <div style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", color: "#777", textTransform: "uppercase" }}>{companySlug}</div>}
+          </div>
         </div>
 
-        {/* Bottom: sign out */}
-        <form action="/api/auth/signout" method="post">
-          <button
-            type="submit"
-            title="Sign out"
-            style={{
-              width: 40, height: 40, borderRadius: 8, border: "none", cursor: "pointer",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              background: "transparent", color: "#666", transition: "color 0.15s",
-            }}
-          >
-            <LogOut size={16} />
-          </button>
-        </form>
-      </div>
+        {/* search — the fastest nav in the app, up top where it's found */}
+        <div style={{ padding: "0 10px 10px" }}>
+          <GlobalSearch />
+        </div>
+
+        {/* nav groups */}
+        <div style={{ flex: 1, overflowY: "auto", minHeight: 0, padding: "0 8px 8px" }}>
+          {recentJobs.length > 0 && (
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: "#666", padding: "6px 8px 3px" }}>Recent</div>
+              {recentJobs.map(r => {
+                const href = `/jobs/${r.id}`;
+                const isActive = pathname === href || pathname?.startsWith(href + "/") || pathname?.startsWith(href + "?");
+                return (
+                  <Link key={r.id} href={href} title={`${r.num} · ${r.label}`}
+                    style={{ display: "block", padding: "5px 8px", borderRadius: 7, fontSize: 12, fontWeight: 600, textDecoration: "none", color: isActive ? "#fff" : "rgba(255,255,255,0.55)", background: isActive ? "rgba(255,255,255,0.10)" : "transparent", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {r.label}<span style={{ color: "#666", fontWeight: 500, marginLeft: 6, fontSize: 10.5 }}>{r.num}</span>
+                  </Link>
+                );
+              })}
+            </div>
+          )}
+          {sidebarGroups.map(g => (
+            <div key={g.key} style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: "#666", padding: "6px 8px 3px" }}>{g.label}</div>
+              {g.items.map((item: any) => {
+                const isActive = pathname === item.href || pathname?.startsWith(item.href + "/");
+                const showBadge = item.href === "/dashboard" && dashboardUnread > 0;
+                return (
+                  <Link key={item.href} href={item.href}
+                    style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "6px 8px", borderRadius: 7, fontSize: 12.5, fontWeight: isActive ? 700 : 500, textDecoration: "none", color: isActive ? "#fff" : "rgba(255,255,255,0.6)", background: isActive ? "rgba(255,255,255,0.10)" : "transparent" }}>
+                    <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.label}</span>
+                    {showBadge && <span style={{ background: "#e8569b", color: "#fff", fontSize: 9.5, fontWeight: 800, padding: "1px 6px", borderRadius: 99, lineHeight: 1.4, minWidth: 16, textAlign: "center" }}>{dashboardUnread}</span>}
+                  </Link>
+                );
+              })}
+            </div>
+          ))}
+          {(showRefs || sideQuestItems.length > 0) && (
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: "#666", padding: "6px 8px 3px" }}>More</div>
+              {showRefs && (
+                <Link href="/references" style={{ display: "block", padding: "6px 8px", borderRadius: 7, fontSize: 12.5, fontWeight: pathname?.startsWith("/references") ? 700 : 500, textDecoration: "none", color: pathname?.startsWith("/references") ? "#fff" : "rgba(255,255,255,0.6)", background: pathname?.startsWith("/references") ? "rgba(255,255,255,0.10)" : "transparent" }}>References</Link>
+              )}
+              {sideQuestItems.map(sq => (
+                <Link key={sq.href} href={sq.href} style={{ display: "block", padding: "6px 8px", borderRadius: 7, fontSize: 12.5, fontWeight: pathname === sq.href ? 700 : 500, textDecoration: "none", color: pathname === sq.href ? "#fff" : "rgba(255,255,255,0.6)", background: pathname === sq.href ? "rgba(255,255,255,0.10)" : "transparent" }}>{sq.label}</Link>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* footer: user + sign out */}
+        <div style={{ borderTop: "1px solid rgba(255,255,255,0.09)", padding: "8px 10px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+          <span style={{ fontSize: 11, color: "#a0a0ad", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{email?.split("@")[0]}</span>
+          <form action="/api/auth/signout" method="post" style={{ display: "flex" }}>
+            <button type="submit" title="Sign out" style={{ width: 30, height: 30, borderRadius: 8, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", color: "#666" }}>
+              <LogOut size={15} />
+            </button>
+          </form>
+        </div>
+      </aside>
       )}
 
       {/* ── Main content area ── */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
-        {/* ── Top nav bar ── */}
+        {/* ── Top nav bar — MOBILE ONLY (desktop nav lives in the hub sidebar) ── */}
+        {isMobile && (
         <div style={{
           background: "#131313", borderBottom: "1px solid rgba(255,255,255,0.13)",
           padding: isMobile ? "0 4px 0 8px" : "0 24px", display: "flex", alignItems: "center", justifyContent: "space-between",
@@ -408,6 +416,7 @@ export function AppShell({
             {!isMobile && <span style={{ fontSize: 11, color: "#a0a0ad" }}>{email?.split("@")[0]}</span>}
           </div>
         </div>
+        )}
 
         {/* ── Page content ── */}
         <div style={{
