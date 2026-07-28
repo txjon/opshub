@@ -253,12 +253,13 @@ export default function ProjectsBoard() {
         ))}
       </div>
 
-      {/* THE search — replaces the inert KPI strip: fat, centered, unmissable */}
-      <div style={{ margin: "12px 0 4px" }}>
+      {/* THE search — replaces the inert KPI strip: half-width, centered,
+          white document style (the hub's pay-button language). */}
+      <div style={{ margin: "12px 0 4px", display: "flex", justifyContent: "center" }}>
         <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search client, job #, or title…"
-          style={{ width: "100%", boxSizing: "border-box", fontSize: 17, fontWeight: 500, padding: "16px 22px", borderRadius: 14, border: `1px solid ${T.border}`, background: T.card, color: T.text, fontFamily: font, outline: "none", textAlign: "center" }}
-          onFocus={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.textAlign = "left"; }}
-          onBlur={e => { e.currentTarget.style.borderColor = T.border; if (!e.currentTarget.value) e.currentTarget.style.textAlign = "center"; }} />
+          style={{ width: "min(560px, 92%)", boxSizing: "border-box", fontSize: 16, fontWeight: 600, padding: "15px 22px", borderRadius: 999, border: "none", background: "#ffffff", color: "#0a0a0a", fontFamily: font, outline: "none", textAlign: "center", boxShadow: "0 4px 18px rgba(0,0,0,0.35)" }}
+          onFocus={e => { e.currentTarget.style.textAlign = "left"; }}
+          onBlur={e => { if (!e.currentTarget.value) e.currentTarget.style.textAlign = "center"; }} />
       </div>
 
       {tab === "active" ? (
