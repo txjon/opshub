@@ -34,6 +34,12 @@ export type ApprovalSnapshot = {
   terms: string | null;
   proofs: { itemId: string; itemName: string | null; driveFileId: string | null; fileName: string | null }[];
   via: string; // the token/channel the approval came through
+  // Per-line pricing AS APPROVED. The hub quote renders live, so the moment
+  // costing is revised the approved numbers are gone everywhere else — this is
+  // the only durable record of what the client agreed to line-by-line
+  // (HPD-2607-032, Jul 28 2026: total survived, the $/unit split didn't).
+  lines?: { itemId: string; name: string | null; qty: number; sellPerUnit: number; lineTotal: number }[];
+  extras?: { description: string; amount: number }[];
 };
 
 // Approve the whole package. Returns the frozen snapshot.
@@ -45,9 +51,25 @@ export async function approvePackage(sb: Sb, jobId: string, ctx: { via?: string 
   const tm = job?.type_meta || {};
 
   // Gather items + their active proofs (for the snapshot AND to approve).
-  const { data: items } = await sb.from("items").select("id, name").eq("job_id", jobId);
+  const { data: items } = await sb.from("items").select("id, name, sell_per_unit").eq("job_id", jobId);
   const itemIds = (items || []).map((i: any) => i.id);
   const nameById: Record<string, string> = Object.fromEntries((items || []).map((i: any) => [i.id, i.name]));
+
+  // Per-line pricing as approved — qty from buy_sheet_lines (the qty source of
+  // truth), sell from items.sell_per_unit (what the hub quote showed).
+  const qtyByItem: Record<string, number> = {};
+  if (itemIds.length) {
+    const { data: bsl } = await sb.from("buy_sheet_lines").select("item_id, qty_ordered").in("item_id", itemIds);
+    for (const r of bsl || []) qtyByItem[r.item_id] = (qtyByItem[r.item_id] || 0) + (Number(r.qty_ordered) || 0);
+  }
+  const lines = (items || []).map((i: any) => {
+    const qty = qtyByItem[i.id] || 0;
+    const sell = Math.round((Number(i.sell_per_unit) || 0) * 100) / 100;
+    return { itemId: i.id, name: i.name || null, qty, sellPerUnit: sell, lineTotal: Math.round(sell * qty * 100) / 100 };
+  });
+  const extras = (Array.isArray(tm.invoice_extra_lines) ? tm.invoice_extra_lines : [])
+    .filter((l: any) => l && (Number(l.amount) || 0) !== 0)
+    .map((l: any) => ({ description: String(l.description || ""), amount: Number(l.amount) || 0 }));
 
   let proofFiles: any[] = [];
   if (itemIds.length) {
@@ -68,6 +90,8 @@ export async function approvePackage(sb: Sb, jobId: string, ctx: { via?: string 
     terms: job?.payment_terms || null,
     proofs: proofFiles.map((f: any) => ({ itemId: f.item_id, itemName: nameById[f.item_id] || null, driveFileId: f.drive_file_id, fileName: f.file_name })),
     via: ctx.via || "portal",
+    lines,
+    extras,
   };
 
   // Flip the quote gate + freeze the snapshot + clear any prior change request.
