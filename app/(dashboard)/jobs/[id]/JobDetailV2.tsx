@@ -1075,6 +1075,13 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     if (!poShipDate) { setActErr("Set a ship date."); return; }
     setActBusy(true); setActErr("");
     try {
+      // Bake any unbaked proof PDFs for this vendor's items into Drive FIRST —
+      // the folder the PO links to must hold the proof docs the client approved.
+      // Same send-time bake as the quote path (90s valve inside bakeProofPdfs);
+      // was the deferred "decorator PDF bake" on the proof-flow punch list.
+      const vendorItems = vendorGroups[poVendor] || [];
+      const poNeedBake = vendorItems.filter((it: any) => it.proof_spec && ((it.proof_spec.bakedRendererVersion == null) || it.proof_spec.bakedRendererVersion < PROOF_RENDERER_VERSION)).map((x: any) => x.id);
+      if (poNeedBake.length) await bakeProofPdfs(poNeedBake);
       const supabase = createClient();
       const [to, ...cc] = emails;
       const alreadySent = ((job.type_meta?.po_sent_vendors) || []).includes(poVendor);
@@ -2441,6 +2448,17 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                   <span>{c.name || c.email}<span style={{ color: T.faint }}> · {c.email}{c.role ? " · " + c.role : ""}</span></span>
                 </label>
               ))}
+              {(() => {
+                // Proof-less warning (HPD-2607-032: PO went out with only PSD +
+                // mockup in the folders). Soft nudge, not a gate — some runs
+                // legitimately skip proofs, but never silently.
+                const noProof = (vendorGroups[poVendor] || []).filter((it: any) => !it.proof_spec);
+                return noProof.length > 0 ? (
+                  <div style={{ fontSize: 12.5, color: T.amber, marginTop: 10 }}>
+                    No proofs drafted for {noProof.length === (vendorGroups[poVendor] || []).length ? "these items" : noProof.map((x: any) => x.name).join(", ")} — the vendor folder will only have art files.
+                  </div>
+                ) : null;
+              })()}
               {actErr && <div style={{ color: T.red, fontSize: 12, marginTop: 10 }}>{actErr}</div>}
               <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
                 <button disabled={actBusy || cl.length === 0} onClick={doSendPO} style={{ ...actBtn, opacity: actBusy || cl.length === 0 ? 0.6 : 1 }}>{actBusy ? "Sending…" : "Send PO"}</button>
