@@ -277,7 +277,7 @@ export default function ArtRequestModal({ open, onClose, project, onSent }) {
                 Cancel
               </button>
               <button onClick={send} disabled={sending}
-                style={{ height: 36, padding: "0 18px", borderRadius: 8, border: "none", background: sending ? T.surface : T.accent, color: sending ? T.muted : "#fff", fontWeight: 700, fontSize: 13, cursor: sending ? "default" : "pointer", fontFamily: font }}>
+                style={{ height: 36, padding: "0 18px", borderRadius: 8, border: "none", background: sending ? T.surface : T.accent, color: sending ? T.muted : "#0a0a0a", fontWeight: 700, fontSize: 13, cursor: sending ? "default" : "pointer", fontFamily: font }}>
                 {sending ? "Sending…" : `Send request${selectedIds.length ? ` (${selectedIds.length})` : ""}`}
               </button>
             </div>
