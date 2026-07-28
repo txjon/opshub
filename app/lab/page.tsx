@@ -134,9 +134,11 @@ function ThreadPanel({ detail, me, onRefresh, onClose }: any) {
   const images = msgs.filter((m: any) => m.file_url);
   const hero = images.length ? images[heroIdx == null ? images.length - 1 : Math.min(heroIdx, images.length - 1)] : null;
   const notes = msgs.filter((m: any) => m.body && m.body.trim());
-  // Can't send for approval until the client can actually SEE a design — otherwise
-  // "approve the design" lands them on nothing (Jon, Jul 27: fired a blank one).
-  const clientCanSeeDesign = images.some((m: any) => m.visibility === "client");
+  // Only offer "send for approval" once WE'VE shown them a design — a client-visible
+  // image FROM HPD. Their own uploads don't count (Jon, Jul 27: bouncing their photos
+  // back read as "you didn't send me anything new").
+  const weShowedADesign = images.some((m: any) => m.visibility === "client" && m.sender_role === "hpd");
+  const onlyTheirPhotos = !weShowedADesign && images.some((m: any) => m.visibility === "client");
 
   async function post(fileUrl?: string, fileName?: string) {
     if (!note.trim() && !fileUrl) return; setBusy(true);
@@ -224,11 +226,11 @@ function ThreadPanel({ detail, me, onRefresh, onClose }: any) {
             <div style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.faint, marginBottom: 10 }}>Your next move</div>
             {t.state === "with_client"
               ? <div style={{ fontSize: 12.5, color: H.dim }}>Sent — waiting on the client. Keep talking below if you need to.</div>
-              : clientCanSeeDesign
+              : weShowedADesign
                 ? <><button disabled={busy} onClick={() => act("send_to_client")} style={{ ...primaryBtn, width: "100%", padding: "14px", fontSize: 12, opacity: busy ? 0.5 : 1 }}>Send to client for approval →</button>
                   <div style={{ fontSize: 11, color: H.faint, marginTop: 9, textAlign: "center" }}>Needs another pass? Hand it to the designer <span style={{ color: H.blue }}>(coming soon)</span></div></>
-                : <><button disabled title="Share a design the client can see first" style={{ ...primaryBtn, width: "100%", padding: "14px", fontSize: 12, opacity: 0.4, cursor: "default" }}>Send to client for approval →</button>
-                  <div style={{ fontSize: 11, color: H.faint, marginTop: 9, textAlign: "center", lineHeight: 1.5 }}>Nothing to approve yet. Share a design the client can see first — upload a draft with <b style={{ color: H.dim }}>Shows: Client-visible</b>, then send it over.</div></>}
+                : <><button disabled title="Upload your own design first" style={{ ...primaryBtn, width: "100%", padding: "14px", fontSize: 12, opacity: 0.4, cursor: "default" }}>Send to client for approval →</button>
+                  <div style={{ fontSize: 11, color: H.faint, marginTop: 9, textAlign: "center", lineHeight: 1.5 }}>{onlyTheirPhotos ? <>They&rsquo;re only looking at their own photos so far. Upload <b style={{ color: H.dim }}>your</b> design (Shows: Client-visible), then send it over.</> : <>Upload your design first — a draft the client can see (<b style={{ color: H.dim }}>Shows: Client-visible</b>), then send it over.</>}</div></>}
           </div>
           <div style={{ padding: "12px 22px 18px", borderTop: `1px solid ${H.line2}` }}>
             <textarea value={note} onChange={e => setNote(e.target.value)} rows={2} placeholder={vis === "client" ? "Reply to the client…" : "Internal note — team + designer only…"} style={{ width: "100%", boxSizing: "border-box", background: H.surface, border: vis === "client" ? `1px solid ${H.line}` : "1px dashed rgba(244,178,43,.6)", borderRadius: 10, color: H.text, fontSize: 13, padding: "11px 13px", outline: "none", resize: "vertical", fontFamily: H.font }} />
