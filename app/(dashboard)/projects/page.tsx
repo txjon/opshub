@@ -27,22 +27,33 @@ function itemLifecycleDone(it: any, jobRoute: string): boolean {
 // surfaces. client_eta is retired. Final fallback: the earliest agreed/live
 // vendor ship-by from the PO tab's vendor chips (type_meta.po_ship_live /
 // po_ship_dates) — most jobs carry their dates THERE, not on target_ship_date.
-function vendorShipFallback(job: any): string | null {
+function vendorShipFallback(job: any, liveVendors: Set<string> | null): string | null {
   const tm = job.type_meta || {};
   const dates: string[] = [];
   for (const src of [tm.po_ship_live, tm.po_ship_dates]) {
-    for (const v of Object.values(src || {})) {
+    for (const [vendor, v] of Object.entries(src || {})) {
+      // NEXT item due (Jon, Jul 28): a vendor whose items are ALL finished
+      // must stop contributing dates — stale May ship-bys were pinning
+      // months-old jobs to the top of the board "for no reason". When we
+      // can't resolve vendors (no assignments loaded), count everything.
+      if (liveVendors && !liveVendors.has(vendor)) continue;
       if (typeof v === "string" && /^\d{4}-\d{2}-\d{2}/.test(v)) dates.push(v.slice(0, 10));
     }
   }
   return dates.length ? dates.sort()[0] : null;
 }
 function firstItemDue(job: any): string | null {
-  const dates = ((job.items || []) as any[])
-    .filter(it => !itemLifecycleDone(it, job.shipping_route))
-    .map(it => it.ship_est || it.expected_arrival || null)
-    .filter(Boolean) as string[];
-  return dates.length ? dates.sort()[0] : vendorShipFallback(job);
+  const liveItems = ((job.items || []) as any[]).filter(it => !itemLifecycleDone(it, job.shipping_route));
+  const dates = liveItems.map(it => it.ship_est || it.expected_arrival || null).filter(Boolean) as string[];
+  if (dates.length) return dates.sort()[0];
+  // Fallback: vendor ship-bys, but only from vendors that still have live items.
+  const liveVendors = new Set<string>();
+  let anyResolved = false;
+  for (const it of liveItems) {
+    const dec = (it.decorator_assignments || [])[0]?.decorators;
+    if (dec) { anyResolved = true; if (dec.name) liveVendors.add(dec.name); if (dec.short_code) liveVendors.add(dec.short_code); }
+  }
+  return vendorShipFallback(job, anyResolved ? liveVendors : null);
 }
 
 // Projects Board V2 — the "find the job that needs action" board, on the shared
@@ -82,7 +93,7 @@ export default function ProjectsBoard() {
   const [query, setQuery] = useState("");
   const [stageFilter, setStageFilter] = useState("");
   const [clientFilter, setClientFilter] = useState("");
-  const [sortBy, setSortBy] = useState<"due" | "invoice" | "newest">("due"); // default: first item due
+  const [sortBy, setSortBy] = useState<"due" | "invoice" | "newest">("due"); // default: next item due
   const [unpaidOnly, setUnpaidOnly] = useState(false); // completed tab: only jobs with money outstanding
   const returnRef = useRef<BoardReturn>(null); // strip we left through, for scroll-back
   const [flashId, setFlashId] = useState<string | null>(null); // strip to ink-outline after return
@@ -134,7 +145,7 @@ export default function ProjectsBoard() {
   useEffect(() => {
     (async () => {
       const { data } = await supabase.from("jobs")
-        .select("id, job_number, title, phase, shipping_route, payment_terms, quote_approved, quote_approved_at, created_at, updated_at, phase_timestamps, target_ship_date, type_meta, costing_summary, clients(name), payment_records(amount, status, paid_date), items(id, name, sort_order, pipeline_stage, artwork_status, shipping_route, ship_est, expected_arrival, blanks_order_cost, blanks_order_number, received_at_hpd, forwarded_at, webstore_entered_at, buy_sheet_lines(qty_ordered))")
+        .select("id, job_number, title, phase, shipping_route, payment_terms, quote_approved, quote_approved_at, created_at, updated_at, phase_timestamps, target_ship_date, type_meta, costing_summary, clients(name), payment_records(amount, status, paid_date), items(id, name, sort_order, pipeline_stage, artwork_status, shipping_route, ship_est, expected_arrival, blanks_order_cost, blanks_order_number, received_at_hpd, forwarded_at, webstore_entered_at, buy_sheet_lines(qty_ordered), decorator_assignments(decorators(name, short_code)))")
         .not("phase", "in", "(cancelled)")
         .order("created_at", { ascending: false });
       const js = (data as any[]) || [];
@@ -245,7 +256,7 @@ export default function ProjectsBoard() {
           <KpiStrip metrics={[{ key: "active", label: "Active" }, { key: "action", label: "Need action" }, { key: "prequote", label: "Pre-quote" }]} get={kpi} onClick={() => { }} />
           <SliceSortRow>
             <select value={sortBy} onChange={e => setSortBy(e.target.value as any)} style={selStyle}>
-              <option value="due">First item due</option>
+              <option value="due">Next item due</option>
               <option value="invoice">Invoice #</option>
               <option value="newest">Newest</option>
             </select>
