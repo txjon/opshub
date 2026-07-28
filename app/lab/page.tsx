@@ -281,22 +281,27 @@ function ThreadPanel({ detail, me, onRefresh, onClose }: any) {
         </>
       )}
 
-      {woBuilder && <WorkOrderBuilder threadId={t.id} me={me} sourceFileUrl={hero?.file_url || t.approved_file_url || null} onClose={() => setWoBuilder(false)} onCreated={async (id: string) => { setWoBuilder(false); await loadWos(); setOpenWoId(id); }} />}
+      {woBuilder && <WorkOrderBuilder threadId={t.id} me={me} images={images} onClose={() => setWoBuilder(false)} onCreated={async (id: string) => { setWoBuilder(false); await loadWos(); setOpenWoId(id); }} />}
       {openWoId && <WorkOrderPanel woId={openWoId} me={me} onClose={() => setOpenWoId(null)} onDone={loadWos} />}
     </>
   );
 }
 
 // ── Room 2: hand a design to a designer (the work order) ──
-function WorkOrderBuilder({ threadId, me, sourceFileUrl, onClose, onCreated }: any) {
+function WorkOrderBuilder({ threadId, me, images, onClose, onCreated }: any) {
+  const imgs: any[] = images || [];
   const [type, setType] = useState("creative");
   const [instructions, setInstructions] = useState("");
   const [dueBy, setDueBy] = useState(""); const [designerName, setDesignerName] = useState("");
   const [busy, setBusy] = useState(false);
+  // Hand over ALL the thread's images by default — references + our drafts, not
+  // just the latest. Tap any to exclude.
+  const [selected, setSelected] = useState<Set<string>>(() => new Set(imgs.map((i: any) => i.file_url)));
+  const toggle = (url: string) => setSelected(prev => { const n = new Set(prev); if (n.has(url)) n.delete(url); else n.add(url); return n; });
   async function go() {
     setBusy(true);
     try {
-      const r = await fetch("/api/lab/work-orders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ threadId, type, instructions: instructions.trim() || null, dueBy: dueBy || null, designerName: designerName.trim() || null, sourceFileUrl, senderName: me }) });
+      const r = await fetch("/api/lab/work-orders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ threadId, type, instructions: instructions.trim() || null, dueBy: dueBy || null, designerName: designerName.trim() || null, sourceFileUrls: Array.from(selected), senderName: me }) });
       const j = await r.json(); if (!r.ok) throw new Error(j.error);
       onCreated(j.workOrder.id);
     } catch (e: any) { alert(e.message); setBusy(false); }
@@ -318,7 +323,18 @@ function WorkOrderBuilder({ threadId, me, sourceFileUrl, onClose, onCreated }: a
         <div style={{ flex: 1, minWidth: 130 }}><label style={lbl}>Due by</label><input type="date" value={dueBy} onChange={e => setDueBy(e.target.value)} style={inp} /></div>
         <div style={{ flex: 1, minWidth: 130 }}><label style={lbl}>Designer <span style={{ color: H.faint }}>(optional)</span></label><input value={designerName} onChange={e => setDesignerName(e.target.value)} placeholder="Name" style={inp} /></div>
       </div>
-      {sourceFileUrl && <div style={{ marginTop: 12 }}><label style={lbl}>Handing over</label><div style={{ display: "flex", alignItems: "center", gap: 10 }}><img src={sourceFileUrl} alt="" style={{ width: 54, height: 54, objectFit: "cover", borderRadius: 8, background: "#fff", border: `1px solid ${H.line}` }} /><span style={{ fontSize: 11, color: H.faint, lineHeight: 1.4 }}>this design + your instructions. The client&rsquo;s name never goes with it.</span></div></div>}
+      {imgs.length > 0 && <div style={{ marginTop: 12 }}>
+        <label style={lbl}>Handing over · {selected.size} of {imgs.length}</label>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
+          {imgs.map((im: any) => { const on = selected.has(im.file_url); return (
+            <button key={im.id} onClick={() => toggle(im.file_url)} style={{ position: "relative", width: 56, height: 56, borderRadius: 8, overflow: "hidden", background: "#fff", border: on ? "2px solid #fff" : `1px solid ${H.line}`, padding: 0, cursor: "pointer", opacity: on ? 1 : 0.4 }}>
+              <img src={im.file_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />
+              {on && <span style={{ position: "absolute", right: 3, top: 3, background: "#fff", color: H.ink, borderRadius: 999, fontSize: 9, fontWeight: 900, width: 15, height: 15, display: "flex", alignItems: "center", justifyContent: "center" }}>✓</span>}
+            </button>
+          ); })}
+        </div>
+        <div style={{ fontSize: 11, color: H.faint, marginTop: 7, lineHeight: 1.4 }}>All the references + drafts, not just the latest — tap to exclude any. The client&rsquo;s name never goes with them.</div>
+      </div>}
       <button disabled={busy} onClick={go} style={{ ...primaryBtn, width: "100%", marginTop: 16, padding: "13px" }}>{busy ? "Creating…" : "Create work order"}</button>
     </Modal>
   );

@@ -37,22 +37,34 @@ export async function POST(req: NextRequest) {
   const { data: thread } = await db.from("lab_threads").select("id, title").eq("id", b.threadId).maybeSingle();
   if (!thread) return NextResponse.json({ error: "Design not found" }, { status: 404 });
 
+  // Every image we're handing over. Accepts sourceFileUrls[] (multi) and the
+  // legacy single sourceFileUrl.
+  const urls: string[] = Array.isArray(b.sourceFileUrls) ? b.sourceFileUrls.filter(Boolean) : (b.sourceFileUrl ? [b.sourceFileUrl] : []);
   const token = newToken();
   const { data: wo, error } = await db.from("lab_work_orders").insert({
     thread_id: b.threadId, type: b.type, title: (thread as any).title || null,
     instructions: b.instructions ? String(b.instructions).trim() : null,
     due_by: b.dueBy || null,
     designer_name: b.designerName ? String(b.designerName).trim() : null,
-    token, source_file_url: b.sourceFileUrl || null, created_by: b.senderName || "HPD",
+    token, source_file_url: urls[0] || null, created_by: b.senderName || "HPD",
   } as never).select("*").single();
   if (error || !wo) return NextResponse.json({ error: error?.message || "Failed" }, { status: 500 });
 
-  // Seed the brief so the designer opens onto context — NOT the client's name.
-  await db.from("lab_wo_messages").insert({
+  // Seed the brief (instructions) + EVERY image we're handing over, so the
+  // designer opens onto full context — the references AND our drafts, not just
+  // the latest. Client identity never rides along. Staggered created_at keeps
+  // the order (brief first, images oldest → newest).
+  const base = Date.now();
+  const rows: any[] = [{
     work_order_id: (wo as any).id, sender_role: "hpd", sender_name: b.senderName || "HPD",
-    body: b.instructions ? String(b.instructions).trim() : "Here's what we need.",
-    file_url: b.sourceFileUrl || null, file_name: b.sourceFileName || null, kind: "comment",
-  } as never);
+    body: b.instructions ? String(b.instructions).trim() : "Here's what we need.", kind: "comment",
+    created_at: new Date(base).toISOString(),
+  }];
+  urls.forEach((url, i) => rows.push({
+    work_order_id: (wo as any).id, sender_role: "hpd", sender_name: b.senderName || "HPD",
+    file_url: url, kind: "comment", created_at: new Date(base + i + 1).toISOString(),
+  }));
+  await db.from("lab_wo_messages").insert(rows as never);
 
   return NextResponse.json({ workOrder: wo });
 }
