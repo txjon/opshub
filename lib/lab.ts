@@ -41,3 +41,35 @@ export function threadMove(state: LabThread["state"]): { label: string; who: "yo
   if (state === "approved") return { label: "Design approved", who: "done", tone: "green" };
   return { label: "Your move", who: "you", tone: "amber" };
 }
+
+// ── ROOM 2 — the designer lane (mig 148) ────────────────────────────────────
+export type LabWorkOrder = {
+  id: string; thread_id: string;
+  type: "creative" | "vector" | "separations";
+  title: string | null; instructions: string | null; due_by: string | null;
+  designer_name: string | null; token: string;
+  source_file_url: string | null; accepted_file_url: string | null;
+  state: "out" | "delivered" | "in_revision" | "accepted";
+  created_by: string | null; created_at: string; updated_at: string;
+};
+export type LabWoMessage = {
+  id: string; work_order_id: string; sender_role: "hpd" | "designer";
+  sender_name: string | null; body: string | null;
+  file_url: string | null; file_name: string | null;
+  kind: "comment" | "delivery" | "revision" | "accept"; created_at: string;
+};
+
+// What we can ask a designer for. Mockups are NOT here — they're internal.
+export const WO_TYPES: { id: LabWorkOrder["type"]; label: string; blurb: string }[] = [
+  { id: "creative", label: "Creative art", blurb: "Draw it from scratch" },
+  { id: "vector", label: "Vector clean-up", blurb: "Clean an existing file" },
+  { id: "separations", label: "Separations", blurb: "Split into print colors" },
+];
+
+// Loose derived state, mirrors the studio's vocabulary. Color-text, no pills.
+export function woState(s: LabWorkOrder["state"]): { label: string; color: string } {
+  if (s === "delivered") return { label: "Delivered", color: "#8fc7d8" };
+  if (s === "in_revision") return { label: "In revision", color: "#f4b22b" };
+  if (s === "accepted") return { label: "Accepted", color: "#58c93c" };
+  return { label: "Out", color: "#8a92b0" };
+}

@@ -14,6 +14,13 @@ const GUIDE: Record<string, { tint: string; head: string; text: string }> = {
   with_client: { tint: H.blue, head: "It's with the client", text: "The design is in front of the client to approve. They'll either lock it in — which hands the artwork straight to production — or send it back with notes and a photo. Nothing to do but wait, or give them a nudge below." },
 };
 const fmt = (iso?: string) => iso ? new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
+// Room 2 — what we can ask a designer for (mockups are internal, never here).
+const WO_TYPES = [
+  { id: "creative", label: "Creative art", blurb: "Draw it from scratch" },
+  { id: "vector", label: "Vector clean-up", blurb: "Clean an existing file" },
+  { id: "separations", label: "Separations", blurb: "Split into print colors" },
+];
+const WSTATE = (s: string) => s === "delivered" ? { label: "Delivered", color: H.blue } : s === "in_revision" ? { label: "In revision", color: H.amber } : s === "accepted" ? { label: "Accepted", color: H.green } : { label: "Out", color: H.faint };
 
 async function uploadImage(file: File): Promise<{ url: string; name: string }> {
   const s = await fetch("/api/lab/upload", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ filename: file.name, contentType: file.type }) });
@@ -130,6 +137,12 @@ function ThreadPanel({ detail, me, onRefresh, onClose }: any) {
   const [heroIdx, setHeroIdx] = useState<number | null>(null);
   const [staged, setStaged] = useState<{ url: string; name: string } | null>(null);
   const fileIn = useRef<HTMLInputElement | null>(null);
+  // Room 2 — designer work orders for this design.
+  const [wos, setWos] = useState<any[]>([]);
+  const [woBuilder, setWoBuilder] = useState(false);
+  const [openWoId, setOpenWoId] = useState<string | null>(null);
+  async function loadWos() { const j = await fetch(`/api/lab/work-orders?threadId=${t.id}`).then(r => r.json()).catch(() => ({})); setWos(j.workOrders || []); }
+  useEffect(() => { loadWos(); /* eslint-disable-next-line */ }, [t.id]);
   // Latest drop is the hero; every earlier drop is a filmstrip thumb (old → new).
   // Images live in the strip; the thread carries the words (mirrors studio2).
   const images = msgs.filter((m: any) => m.file_url);
@@ -219,6 +232,22 @@ function ThreadPanel({ detail, me, onRefresh, onClose }: any) {
         })}
       </div>
 
+      {/* Room 2 — the designer lane. Hand the design (or its refs) to a designer
+          for creative / vector / separations. Reverse-ping OK: available any state. */}
+      <div style={{ padding: "12px 22px", borderTop: `1px solid ${H.line}` }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.faint }}>Designer lane · Room 2</span>
+          <button onClick={() => setWoBuilder(true)} style={{ ...ghostBtn, marginLeft: "auto", color: H.blue, borderColor: "rgba(143,199,216,.4)" }}>+ Hand to a designer</button>
+        </div>
+        {wos.map((w: any) => { const ws = WSTATE(w.state); const ty = WO_TYPES.find(x => x.id === w.type); return (
+          <button key={w.id} onClick={() => setOpenWoId(w.id)} style={{ display: "flex", width: "100%", boxSizing: "border-box", alignItems: "center", gap: 10, background: H.surface, border: `1px solid ${H.line}`, borderRadius: 10, padding: "10px 12px", marginTop: 8, cursor: "pointer", fontFamily: H.font, textAlign: "left" }}>
+            <span style={{ fontSize: 12, fontWeight: 800, textTransform: "uppercase", color: H.text }}>{ty?.label || w.type}</span>
+            {w.designer_name && <span style={{ fontSize: 10, fontFamily: H.mono, color: H.faint }}>{w.designer_name}</span>}
+            <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: ws.color, marginLeft: "auto" }}>{ws.label}</span>
+          </button>
+        ); })}
+      </div>
+
       {t.state === "approved" ? (
         <div style={{ padding: "16px 22px 20px", borderTop: `1px solid ${H.line}`, background: "rgba(88,201,60,.06)", fontSize: 13, color: H.dim }}><b style={{ color: H.green }}>✓ Design approved</b> by {t.approved_by} · {fmt(t.approved_at)}. Locked and ready for the front of production.</div>
       ) : (
@@ -248,10 +277,168 @@ function ThreadPanel({ detail, me, onRefresh, onClose }: any) {
               <button disabled={busy || (!note.trim() && !staged)} onClick={send} style={{ ...primaryBtn, marginLeft: "auto", padding: "12px 24px", fontSize: 11.5, opacity: busy || (!note.trim() && !staged) ? 0.5 : 1 }}>{vis === "client" ? "Send to client" : "Post internal"}</button>
             </div>
           </div>
-          <div style={{ padding: "0 22px 16px", fontSize: 10.5, color: H.faint, textAlign: "center", lineHeight: 1.5 }}>Send a <b style={{ color: H.dim }}>Client-visible</b> design and it&rsquo;s the client&rsquo;s move to approve · Need a hand? The designer&rsquo;s <span style={{ color: H.blue }}>coming soon</span></div>
+          <div style={{ padding: "0 22px 16px", fontSize: 10.5, color: H.faint, textAlign: "center", lineHeight: 1.5 }}>Send a <b style={{ color: H.dim }}>Client-visible</b> design and it&rsquo;s the client&rsquo;s move to approve.</div>
         </>
       )}
+
+      {woBuilder && <WorkOrderBuilder threadId={t.id} me={me} images={images} onClose={() => setWoBuilder(false)} onCreated={async (id: string) => { setWoBuilder(false); await loadWos(); setOpenWoId(id); }} />}
+      {openWoId && <WorkOrderPanel woId={openWoId} me={me} onClose={() => setOpenWoId(null)} onDone={loadWos} />}
     </>
+  );
+}
+
+// ── Room 2: hand a design to a designer (the work order) ──
+function WorkOrderBuilder({ threadId, me, images, onClose, onCreated }: any) {
+  const imgs: any[] = images || [];
+  const [type, setType] = useState("creative");
+  const [instructions, setInstructions] = useState("");
+  const [dueBy, setDueBy] = useState(""); const [designerName, setDesignerName] = useState("");
+  const [busy, setBusy] = useState(false);
+  // Hand over ALL the thread's images by default — references + our drafts, not
+  // just the latest. Tap any to exclude.
+  const [selected, setSelected] = useState<Set<string>>(() => new Set(imgs.map((i: any) => i.file_url)));
+  const toggle = (url: string) => setSelected(prev => { const n = new Set(prev); if (n.has(url)) n.delete(url); else n.add(url); return n; });
+  async function go() {
+    setBusy(true);
+    try {
+      const r = await fetch("/api/lab/work-orders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ threadId, type, instructions: instructions.trim() || null, dueBy: dueBy || null, designerName: designerName.trim() || null, sourceFileUrls: Array.from(selected), senderName: me }) });
+      const j = await r.json(); if (!r.ok) throw new Error(j.error);
+      onCreated(j.workOrder.id);
+    } catch (e: any) { alert(e.message); setBusy(false); }
+  }
+  return (
+    <Modal onClose={onClose} title="Hand to a designer">
+      <label style={lbl}>What do we need?</label>
+      <div style={{ display: "grid", gap: 8 }}>
+        {WO_TYPES.map(ty => { const on = type === ty.id; return (
+          <button key={ty.id} onClick={() => setType(ty.id)} style={{ textAlign: "left", background: H.surface, border: on ? "1px solid #fff" : `1px solid ${H.line}`, boxShadow: on ? "inset 0 0 0 1px #fff" : "none", borderRadius: 10, padding: "11px 13px", cursor: "pointer", fontFamily: H.font }}>
+            <div style={{ fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", color: H.text }}>{ty.label}</div>
+            <div style={{ fontSize: 11, color: H.dim, marginTop: 2 }}>{ty.blurb}</div>
+          </button>
+        ); })}
+      </div>
+      <label style={{ ...lbl, marginTop: 12 }}>Instructions</label>
+      <textarea value={instructions} onChange={e => setInstructions(e.target.value)} rows={3} placeholder="What the file needs to be — colors, sizing, format…" style={{ ...inp, resize: "vertical" }} />
+      <div style={{ display: "flex", gap: 10, marginTop: 12, flexWrap: "wrap" }}>
+        <div style={{ flex: 1, minWidth: 130 }}><label style={lbl}>Due by</label><input type="date" value={dueBy} onChange={e => setDueBy(e.target.value)} style={inp} /></div>
+        <div style={{ flex: 1, minWidth: 130 }}><label style={lbl}>Designer <span style={{ color: H.faint }}>(optional)</span></label><input value={designerName} onChange={e => setDesignerName(e.target.value)} placeholder="Name" style={inp} /></div>
+      </div>
+      {imgs.length > 0 && <div style={{ marginTop: 12 }}>
+        <label style={lbl}>Handing over · {selected.size} of {imgs.length}</label>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
+          {imgs.map((im: any) => { const on = selected.has(im.file_url); return (
+            <button key={im.id} onClick={() => toggle(im.file_url)} style={{ position: "relative", width: 56, height: 56, borderRadius: 8, overflow: "hidden", background: "#fff", border: on ? "2px solid #fff" : `1px solid ${H.line}`, padding: 0, cursor: "pointer", opacity: on ? 1 : 0.4 }}>
+              <img src={im.file_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />
+              {on && <span style={{ position: "absolute", right: 3, top: 3, background: "#fff", color: H.ink, borderRadius: 999, fontSize: 9, fontWeight: 900, width: 15, height: 15, display: "flex", alignItems: "center", justifyContent: "center" }}>✓</span>}
+            </button>
+          ); })}
+        </div>
+        <div style={{ fontSize: 11, color: H.faint, marginTop: 7, lineHeight: 1.4 }}>All the references + drafts, not just the latest — tap to exclude any. The client&rsquo;s name never goes with them.</div>
+      </div>}
+      <button disabled={busy} onClick={go} style={{ ...primaryBtn, width: "100%", marginTop: 16, padding: "13px" }}>{busy ? "Creating…" : "Create work order"}</button>
+    </Modal>
+  );
+}
+
+// ── Room 2: review a work order — the designer link, deliveries, accept ──
+function WorkOrderPanel({ woId, me, onClose, onDone }: any) {
+  const [wo, setWo] = useState<any>(null); const [msgs, setMsgs] = useState<any[]>([]);
+  const [note, setNote] = useState(""); const [staged, setStaged] = useState<{ url: string; name: string } | null>(null);
+  const [busy, setBusy] = useState(false); const [uploading, setUploading] = useState(false);
+  const [heroIdx, setHeroIdx] = useState<number | null>(null);
+  const fileIn = useRef<HTMLInputElement | null>(null);
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+
+  async function load() { const j = await fetch(`/api/lab/work-orders/${woId}`).then(r => r.json()); if (!j.error) { setWo(j.workOrder); setMsgs(j.messages || []); } }
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [woId]);
+  const refresh = async () => { await load(); onDone?.(); };
+
+  const images = msgs.filter(m => m.file_url);
+  const hero = images.length ? images[heroIdx == null ? images.length - 1 : Math.min(heroIdx, images.length - 1)] : null;
+  const notes = msgs.filter(m => m.body && m.body.trim());
+  const hasDelivery = msgs.some(m => m.sender_role === "designer" && m.file_url);
+
+  async function send() {
+    if (!note.trim() && !staged) return; setBusy(true);
+    try { await fetch(`/api/lab/work-orders/${woId}/messages`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ senderName: me, body: note.trim() || null, fileUrl: staged?.url || null, fileName: staged?.name || null }) }); setNote(""); setStaged(null); setHeroIdx(null); await refresh(); } finally { setBusy(false); }
+  }
+  async function onFile(f: File) { setUploading(true); try { setStaged(await uploadImage(f)); } catch (e: any) { alert(e.message); } finally { setUploading(false); } }
+  async function accept() { if (!confirm("Accept this delivery as the production file?")) return; setBusy(true); try { const r = await fetch(`/api/lab/work-orders/${woId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "accept", senderName: me }) }); if (!r.ok) { const j = await r.json().catch(() => ({})); alert(j.error || "Couldn't accept."); return; } await refresh(); } finally { setBusy(false); } }
+
+  if (!wo) return <div className="sv-back" onClick={e => { if (e.target === e.currentTarget) onClose(); }}><div className="sv-sheet" style={{ padding: 30, color: H.faint, fontSize: 13 }}>Loading the work order…</div></div>;
+  const ws = WSTATE(wo.state); const ty = WO_TYPES.find(x => x.id === wo.type);
+  const link = `${origin}/lab/d/${wo.token}`; const accepted = wo.state === "accepted";
+
+  return (
+    <div className="sv-back" onClick={e => { if (e.target === e.currentTarget && !busy) onClose(); }}>
+      <div className="sv-sheet">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, padding: "18px 22px 6px" }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: H.faint }}>Designer · Room 2</div>
+            <div style={{ fontSize: 17, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", lineHeight: 1.2, marginTop: 2 }}>{ty?.label || wo.type}</div>
+            <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: ws.color, marginTop: 4 }}>{ws.label}{wo.due_by ? ` · due ${wo.due_by}` : ""}</div>
+          </div>
+          <button onClick={onClose} aria-label="Close" style={{ background: "none", border: "none", color: H.dim, fontSize: 26, cursor: "pointer", lineHeight: 1 }}>×</button>
+        </div>
+
+        <div style={{ margin: "6px 22px 0", padding: "10px 12px", background: H.surface, border: `1px solid ${H.line}`, borderRadius: 10 }}>
+          <div style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: H.faint, marginBottom: 6 }}>Designer link — send this, no login</div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <input readOnly value={link} onFocus={e => e.currentTarget.select()} style={{ ...inp, flex: 1, minWidth: 160, fontSize: 11, fontFamily: H.mono, padding: "8px 10px" }} />
+            <button onClick={() => navigator.clipboard.writeText(link)} style={ghostBtn}>Copy</button>
+            <a href={link} target="_blank" rel="noreferrer" style={{ ...ghostBtn, textDecoration: "none", display: "inline-block" }}>Open ↗</a>
+          </div>
+        </div>
+
+        {hero && (
+          <div style={{ marginTop: 12 }}>
+            <div style={{ background: "#fff", position: "relative" }}>
+              <img src={hero.file_url} alt="" style={{ width: "100%", maxHeight: "34vh", objectFit: "contain", display: "block", margin: "0 auto" }} onError={(e: any) => { e.target.parentElement.style.display = "none"; }} />
+              <span style={{ position: "absolute", right: 10, bottom: 8, fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: hero.sender_role === "designer" ? "#3c9a2e" : "#666", background: "rgba(255,255,255,0.9)", borderRadius: 999, padding: "4px 10px" }}>{hero.sender_role === "designer" ? "Designer delivery" : "What we sent"}</span>
+            </div>
+            {images.length > 1 && (
+              <div style={{ display: "flex", gap: 8, padding: "10px 22px 0", overflowX: "auto", scrollbarWidth: "none" as any }}>
+                {images.map((f, i) => { const active = (heroIdx == null ? images.length - 1 : heroIdx) === i; return (
+                  <button key={f.id} onClick={() => setHeroIdx(i)} style={{ flexShrink: 0, width: 50, height: 50, borderRadius: 9, overflow: "hidden", background: "#fff", border: active ? "2px solid #fff" : `1px solid ${H.line}`, padding: 0, cursor: "pointer", opacity: active ? 1 : 0.6 }}>
+                    <img src={f.file_url} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />
+                  </button>
+                ); })}
+              </div>
+            )}
+          </div>
+        )}
+
+        <div style={{ padding: "14px 22px 4px", display: "flex", flexDirection: "column", gap: 10, maxHeight: "28vh", overflowY: "auto" }}>
+          {notes.length === 0 ? <div style={{ fontSize: 13, color: H.faint }}>No words yet.</div> : notes.map((m: any) => {
+            const mine = m.sender_role === "hpd"; const system = String(m.body || "").startsWith("✓");
+            if (system) return <div key={m.id} style={{ alignSelf: "center", fontSize: 10, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: H.green }}>{m.body}</div>;
+            return (
+              <div key={m.id} style={{ alignSelf: mine ? "flex-end" : "flex-start", maxWidth: "84%", background: mine ? "#fff" : H.surface, color: mine ? H.ink : H.text, borderRadius: mine ? "14px 14px 4px 14px" : "14px 14px 14px 4px", padding: "9px 13px", fontSize: 13, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>
+                <span style={{ display: "block", fontSize: 8.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: mine ? "rgba(10,10,10,0.45)" : H.faint, marginBottom: 3 }}>{m.sender_name || m.sender_role} · {fmt(m.created_at)}</span>
+                {m.body}
+              </div>
+            );
+          })}
+        </div>
+
+        {accepted ? (
+          <div style={{ padding: "16px 22px 20px", borderTop: `1px solid ${H.line}`, background: "rgba(88,201,60,.06)", fontSize: 13, color: H.dim }}><b style={{ color: H.green }}>✓ Accepted</b> · {fmt(wo.updated_at)}. This file is production-ready.</div>
+        ) : (
+          <>
+            {hasDelivery && <div style={{ padding: "12px 22px 0" }}><button disabled={busy} onClick={accept} style={{ ...primaryBtn, width: "100%", padding: "13px", background: H.green, color: "#08210a" }}>✓ Accept — this is the file</button></div>}
+            <div style={{ padding: "12px 22px 18px" }}>
+              <input value={note} onChange={e => setNote(e.target.value)} placeholder="Reply to the designer…" style={{ ...inp, marginBottom: staged ? 10 : 0 }} />
+              {staged && <div style={{ display: "inline-flex", position: "relative", marginBottom: 10 }}><img src={staged.url} alt="" style={{ maxHeight: 72, borderRadius: 8, background: "#fff", border: `1px solid ${H.line}` }} /><button onClick={() => setStaged(null)} aria-label="Remove" style={{ position: "absolute", top: -7, right: -7, width: 20, height: 20, borderRadius: 999, background: "#fff", color: H.ink, border: "none", fontSize: 12, fontWeight: 800, lineHeight: 1, cursor: "pointer", padding: 0 }}>×</button></div>}
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                <input ref={fileIn} type="file" accept="image/*,.pdf,.ai,.psd,.eps,.svg" style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; if (f) onFile(f); if (fileIn.current) fileIn.current.value = ""; }} />
+                <button disabled={uploading || !!staged} onClick={() => fileIn.current?.click()} style={{ ...ghostBtn, opacity: uploading || staged ? 0.5 : 1 }}>{uploading ? "Attaching…" : staged ? "✓ Attached" : "+ Attach a reference"}</button>
+                <button disabled={busy || (!note.trim() && !staged)} onClick={send} style={{ ...primaryBtn, marginLeft: "auto", opacity: busy || (!note.trim() && !staged) ? 0.5 : 1 }}>Send</button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
   );
 }
 
