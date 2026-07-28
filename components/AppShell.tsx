@@ -190,9 +190,10 @@ export function AppShell({
   // (per-user grantedPages already drops them; this also covers the legacy
   // DEPT_NAV fallback). Nav-hide only — the routes stay reachable by URL.
   const navItemsSwapped = swapV2Nav(navItemsRaw);
-  const navItems = STUDIO_UNDER_DEV
+  const navItems = (STUDIO_UNDER_DEV
     ? navItemsSwapped.filter((i: any) => !STUDIO_HIDDEN_HREFS.includes(i.href))
-    : navItemsSwapped;
+    : navItemsSwapped)
+    .filter((i: any) => i.href !== "/dashboard"); // tucked — House is the daily surface
   const deptIcons: Record<Department, { Icon: any; label: string }> = DEPT_ICONS;
 
   // ── Hub sidebar (desktop) — ONE nav, grouped by workflow, every granted
@@ -203,7 +204,10 @@ export function AppShell({
   const GROUP_LABELS: Record<string, string> = { labs: "Labs", distro: "Distro", ecomm: "Ecomm", contacts: "People", owner: "Owner", billing: "Billing", settings: "Admin" };
   const filterNavItems = (items: { href: string; label: string }[]) => {
     const swapped = swapV2Nav(items);
-    return STUDIO_UNDER_DEV ? swapped.filter((i: any) => !STUDIO_HIDDEN_HREFS.includes(i.href)) : swapped;
+    const studioFiltered = STUDIO_UNDER_DEV ? swapped.filter((i: any) => !STUDIO_HIDDEN_HREFS.includes(i.href)) : swapped;
+    // Dashboard tucked away (Jon, Jul 28: "we really don't use it, it's
+    // noisy") — the House is the daily surface. URL stays reachable.
+    return studioFiltered.filter((i: any) => i.href !== "/dashboard");
   };
   // The House leads Labs — the team's daily driver comes first.
   const NAV_FIRST: Record<string, string> = { labs: "/house" };
