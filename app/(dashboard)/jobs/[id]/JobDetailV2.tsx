@@ -27,6 +27,9 @@ import {
 import { parsePsd } from "./ProcessingTab";
 import { EditSizesModal as EditSizesModalRaw } from "./ProductBuilder";
 import SizeGrid from "@/components/SizeGrid";
+import RfqModalRaw from "@/components/RfqModal";
+import ArtRequestModal from "@/components/ArtRequestModal";
+import MoveItemDialog from "@/components/MoveItemDialog";
 import { parseSizeMatrix } from "@/lib/size-grid";
 import { uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
 import { sendQuoteAndProofs, defaultRecipient } from "@/lib/job/quote-actions";
@@ -44,6 +47,7 @@ import { SHIP_METHODS } from "@/lib/ship-methods";
 const DecorationPanel: any = DecorationPanelRaw; // .jsx — bypass narrow inferred prop types
 const ProofModal: any = ProofModalRaw;           // .jsx — same
 const EditSizesModal: any = EditSizesModalRaw;   // .jsx — same
+const RfqModal: any = RfqModalRaw;               // .jsx — same
 const SSPicker: any = SSPickerRaw, ASColourPicker: any = ASColourPickerRaw, LAApparelPicker: any = LAApparelPickerRaw,
   FavoritesPicker: any = FavoritesPickerRaw, OtherPicker: any = OtherPickerRaw, CottonCollectivePicker: any = CottonCollectivePickerRaw;
 // Same source labels/colors as the classic add-item modal (ProductBuilder).
@@ -260,6 +264,12 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   const [pickerSrc, setPickerSrc] = useState<string | null>(null);
   const [assignTargetId, setAssignTargetId] = useState<string | null>(null);
   const [clientMenu, setClientMenu] = useState(false); // ⋯ previews/hub menu in the Client block
+  // Cost request (RFQ to a decorator / art pricing to a designer) + item ⋯ menu
+  const [costReqMenu, setCostReqMenu] = useState(false);
+  const [rfqOpen, setRfqOpen] = useState(false);
+  const [artReqOpen, setArtReqOpen] = useState(false);
+  const [wsMenu, setWsMenu] = useState(false);
+  const [moveItem, setMoveItem] = useState<{ id: string; name: string; mode: "move" | "copy" } | null>(null);
   // Revised-proof re-send (classic nudge: item_files.revision_pending_send).
   const [revisedOpen, setRevisedOpen] = useState(false);
   const [revisedNote, setRevisedNote] = useState("");
@@ -1491,6 +1501,18 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                   {tog(inclShip, "Shipping", () => recomputeAllSells({ inclShip: !inclShip }))}
                   {tog(inclCC, "CC fees", () => recomputeAllSells({ inclCC: !inclCC }))}
                   <div style={{ flex: 1 }} />
+                  <div style={{ position: "relative" }}>
+                    <button onClick={() => setCostReqMenu(m => !m)} style={{ fontSize: 11, fontWeight: 700, padding: "6px 13px", borderRadius: 999, border: `1px solid ${T.border}`, background: T.card, color: T.text, cursor: "pointer", fontFamily: font }}>Cost request ▾</button>
+                    {costReqMenu && (
+                      <>
+                        <div onClick={() => setCostReqMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+                        <div style={{ position: "absolute", top: 32, right: 0, zIndex: 41, background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, minWidth: 210, padding: 5, boxShadow: "0 12px 40px rgba(0,0,0,0.4)" }}>
+                          <button onClick={() => { setCostReqMenu(false); setRfqOpen(true); }} style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.text, borderRadius: 7 }}>Decorator quote (RFQ)</button>
+                          <button onClick={() => { setCostReqMenu(false); setArtReqOpen(true); }} style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.text, borderRadius: 7 }}>Art pricing request</button>
+                        </div>
+                      </>
+                    )}
+                  </div>
                   {isCommitted && (
                     <button onClick={toggleUnlock} style={{ fontSize: 11, fontWeight: 800, padding: "6px 13px", borderRadius: 999, border: `1px solid ${locked ? T.border : T.amber}`, background: locked ? T.card : T.amber, color: locked ? T.text : "#0a0a0a", cursor: "pointer", fontFamily: font }}>{locked ? "🔒 Unlock to revise" : "Re-lock"}</button>
                   )}
@@ -2008,7 +2030,23 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                 <span style={{ fontFamily: mono, fontSize: 12, color: T.faint, marginLeft: 6 }}>{wsIndex! + 1} / {items.length}</span>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                {!locked && <button onClick={() => removeProduct(it)} title="Remove product from job" style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 999, color: T.muted, fontSize: 11, fontWeight: 700, padding: "6px 12px", cursor: "pointer", fontFamily: font }}>Remove</button>}
+                {!locked && <><div style={{ position: "relative", display: "inline-flex" }}>
+                  <button onClick={() => setWsMenu(m => !m)} title="More item actions" style={{ ...ghostBtn, padding: "6px 11px", fontWeight: 900 }}>⋯</button>
+                  {wsMenu && (
+                    <>
+                      <div onClick={() => setWsMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+                      <div style={{ position: "absolute", top: 34, right: 0, zIndex: 41, background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, minWidth: 200, padding: 5, boxShadow: "0 12px 40px rgba(0,0,0,0.4)" }}>
+                        <button onClick={async () => { setWsMenu(false); if (!window.confirm(`Duplicate "${it.name}" on this job? Files are shared; blank and decoration carry over.`)) return; try { const r = await fetch(`/api/items/${it.id}/duplicate`, { method: "POST" }); if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "Duplicate failed"); window.location.reload(); } catch (e: any) { failed("Item duplicate failed", e); } }}
+                          style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.text, borderRadius: 7 }}>Duplicate item</button>
+                        <button onClick={() => { setWsMenu(false); setMoveItem({ id: it.id, name: it.name, mode: "copy" }); }}
+                          style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.text, borderRadius: 7 }}>Copy to another job…</button>
+                        <button onClick={() => { setWsMenu(false); setMoveItem({ id: it.id, name: it.name, mode: "move" }); }}
+                          style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.text, borderRadius: 7 }}>Move to another job…</button>
+                      </div>
+                    </>
+                  )}
+                </div>
+                <button onClick={() => removeProduct(it)} title="Remove product from job" style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 999, color: T.muted, fontSize: 11, fontWeight: 700, padding: "6px 12px", cursor: "pointer", fontFamily: font }}>Remove</button></>}
                 <button onClick={() => setWsIndex(null)} aria-label="Close" style={{ ...navBtn, background: T.surface }}>×</button>
               </div>
             </div>
@@ -2611,6 +2649,24 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
             onSave={(nextSizes: string[], nextQtys: Record<string, any>) => saveSizesQtys(target, nextSizes, nextQtys)} />
         );
       })()}
+
+      {/* ── cost request modals (shared with classic) ── */}
+      {rfqOpen && (
+        <RfqModal job={job} costProds={allAssembled} decoratorRecords={decoratorRecords}
+          onClose={() => setRfqOpen(false)}
+          onSent={(entry: any) => { const meta = { ...(job.type_meta || {}), rfq_history: [...(job.type_meta?.rfq_history || []), entry] }; setJob((j: any) => ({ ...j, type_meta: meta })); logJobActivity(job.id, `Quote request sent to ${entry.vendor}`); }} />
+      )}
+      <ArtRequestModal open={artReqOpen} onClose={() => setArtReqOpen(false)} project={job}
+        onSent={() => { logJobActivity(job.id, "Art pricing request sent"); }} />
+      {moveItem && (
+        <MoveItemDialog itemId={moveItem.id} itemName={moveItem.name} open={true} mode={moveItem.mode}
+          onClose={() => setMoveItem(null)}
+          onMoved={(result: any) => {
+            if (moveItem.mode === "move") setItems(prev => prev.filter((x: any) => x.id !== moveItem.id));
+            setMoveItem(null); setWsIndex(null);
+            if (result?.to?.id && typeof window !== "undefined") window.location.href = `/jobs/${result.to.id}?v2=1`;
+          }} />
+      )}
 
       {/* ── invoice variance review (reconcile-at-ship / QB heal) ── */}
       {showVariance && (
