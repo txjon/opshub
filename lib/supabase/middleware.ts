@@ -81,11 +81,12 @@ export async function updateSession(request: NextRequest) {
 
   // Authenticated users hitting /login etc. used to redirect to /. With
   // the marketing site living at /, that's no longer the dashboard —
-  // route them to /dashboard explicitly so the login flow lands them
-  // where they actually work.
+  // route them to /house explicitly so the login flow lands them
+  // where they actually work (team, Jul 28: the House is the daily
+  // driver; /dashboard KPIs are not a workspace).
   if (user && isAuthRoute) {
     const url = request.nextUrl.clone();
-    url.pathname = "/dashboard";
+    url.pathname = "/house";
     return NextResponse.redirect(url);
   }
 
