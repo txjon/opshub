@@ -39,11 +39,14 @@ export function OrderExperience({ data, token, onAction }: {
   const units = items.reduce((a: number, it: any) => a + (it.units || 0), 0);
   const totalPaid = payments.filter((p: any) => p.status === "paid").reduce((s: number, p: any) => s + p.amount, 0);
   const invoiced = quote?.total || 0;
-  // The order's live value (costing gross + extras) — when it outgrows the
-  // invoiced total, the band shows "Updated total" (revised-after-paid rule).
-  const current = Math.max(invoiced, data.currentTotal || 0);
+  const invoiceSent = !!invoiceNumber || !!paymentLink;
+  // The order's live value (costing gross) only matters once there's a BILLED
+  // baseline to grow past. Before an invoice is sent the client just has their
+  // quote — show that, with no phantom "growth" from the internal costing gross
+  // (the shipping/CC buffer isn't on their per-item quote lines) — Jon, Jul 28.
+  const current = invoiceSent ? Math.max(invoiced, data.currentTotal || 0) : invoiced;
   const total = invoiced;
-  const revisedUp = current > invoiced + 0.005;
+  const revisedUp = invoiceSent && current > invoiced + 0.005;
   const balance = invoiced - totalPaid;
   const termsRaw = (project.paymentTerms || "").toLowerCase();
   const netTerms = /^net/.test(termsRaw);
