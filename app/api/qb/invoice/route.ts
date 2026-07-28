@@ -335,6 +335,10 @@ export async function POST(req: NextRequest) {
         qb_invoice_created_at: new Date().toISOString(),
       },
     }).eq("id", jobId);
+    // Refresh the derived summary at first send too (the update path already
+    // does) — a summary that drifted before invoicing otherwise makes the hub
+    // read "order grew, nothing to pay" and hide the Pay button (#4411).
+    try { const { refreshJobFinancials } = await import("@/lib/costing-summary"); await refreshJobFinancials(admin, jobId); } catch {}
 
     // Open an AR row on payment_records so the dashboard's
     // overdue-payment card + the Key Facts Payment cell can fire
