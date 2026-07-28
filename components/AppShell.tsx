@@ -49,7 +49,7 @@ const DEPT_NAV: Record<Department, { href: string; label: string }[]> = {
     { href: "/fulfillment", label: "Fulfillment" },
   ],
   ecomm: [
-    { href: "/ecomm", label: "Dashboard" },
+    { href: "/ecomm", label: "The Shop" },
   ],
   contacts: [
     { href: "/intake", label: "Intake" },
