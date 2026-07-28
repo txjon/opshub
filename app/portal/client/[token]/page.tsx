@@ -79,20 +79,27 @@ export default function HomePage() {
   // "The drops." home section and its contribution to the empty-state check.
   const dropFeed = DROPS_UNDER_DEV ? [] : (drops || []).filter(d => DROP_VERB[d.status]).slice(0, 2);
   // Orders — the client's move (or where it stands).
-  const orderMove = (o: any): { verb: string; color: string; act: number } => {
-    if (!o.quote_approved && ["intake", "pending"].includes(o.phase)) return { verb: "Review & approve", color: C.amber, act: 1 };
+  const orderMove = (o: any): { verb: string; color: string; act: number; works?: boolean } => {
+    // Real asks first — only once we've actually put a number or a proof in
+    // front of them (quote SENT, not just the job existing at intake).
+    if (!o.quote_approved && o.pricing_visible && ["intake", "pending"].includes(o.phase)) return { verb: "Review & approve", color: C.amber, act: 1 };
     if ((o.proofs_pending || 0) > 0) return { verb: "Approve your proofs", color: C.amber, act: 1 };
     if (o.phase === "production") return { verb: "In production", color: C.blue, act: 0 };
     if (["receiving", "shipping"].includes(o.phase)) return { verb: "On its way", color: C.blue, act: 0 };
     if (o.phase === "complete") return { verb: "Delivered", color: C.green, act: 0 };
-    return { verb: "In motion", color: C.blue, act: 0 };
+    // Pre-production, nothing to approve yet — honestly "in the works", never an
+    // ask and never "in production" (Jon, Jul 28: intake read as further along).
+    return { verb: "In the works", color: C.blue, act: 0, works: true };
   };
   const orderRows = (orders || []).filter(o => o.phase !== "cancelled").map(o => ({ o, ...orderMove(o) }));
   // Pipeline — items on the move.
   const pipeMove = (it: any): { verb: string; color: string; meta: string } => {
+    const qty = it.qty ? `${Number(it.qty).toLocaleString()} pcs` : "";
     if (it.status === "in_stock") return { verb: "In stock", color: C.green, meta: `${(it.qty || 0).toLocaleString()} pcs ready` };
     if (it.eta) return { verb: "On the way", color: C.blue, meta: `lands ${fmtDate(it.eta)}` };
-    return { verb: "In production", color: C.blue, meta: it.qty ? `${Number(it.qty).toLocaleString()} pcs` : "" };
+    if (it.status === "shipped") return { verb: "Shipping", color: C.blue, meta: qty };
+    if (it.status === "in_production") return { verb: "In production", color: C.blue, meta: qty };
+    return { verb: "In progress", color: C.blue, meta: qty };   // honest fallback — never a false "In production"
   };
 
   // ── YOUR MOVE (Jon, Jul 22: "1 thing needs you... I don't know which one").
@@ -105,11 +112,17 @@ export default function HomePage() {
 
   // Browse feeds — everything that ISN'T already spotlighted.
   const studioFeed = briefs.filter(b => b.state !== "delivered" && !b.has_unread_external).slice(0, 3);
-  const orderFeed = orderRows.filter(x => !x.act).slice(0, 3);
-  const pipeFeed = (items || []).filter(it => !["complete", "archived", "cancelled", "on_hold"].includes(it.status)).slice(0, 4);
+  // "In the works" — pre-production projects the client can recall, honestly
+  // labeled (not a pending action, not "in production").
+  const worksOrders = orderRows.filter(x => x.works);
+  const orderFeed = orderRows.filter(x => !x.act && !x.works).slice(0, 3);
+  // "In flight" = things actually moving. Setup / pre-production items live in
+  // "In the works" (via their order), so they're excluded here — no false
+  // "In production" on an intake item (Jon, Jul 28).
+  const pipeFeed = (items || []).filter(it => !["setup", "complete", "archived", "cancelled", "on_hold"].includes(it.status)).slice(0, 4);
   const catFeed = (products || []).slice(0, 4);
 
-  const nothing = !loading && spotlightCount === 0 && studioFeed.length === 0 && dropFeed.length === 0 && orderFeed.length === 0 && pipeFeed.length === 0 && catFeed.length === 0;
+  const nothing = !loading && spotlightCount === 0 && studioFeed.length === 0 && dropFeed.length === 0 && worksOrders.length === 0 && orderFeed.length === 0 && pipeFeed.length === 0 && catFeed.length === 0;
 
   return (
     <div style={{ paddingTop: "clamp(8px, 3vw, 28px)" }}>
@@ -156,6 +169,22 @@ export default function HomePage() {
                   return plate(`mv-o-${o.id}`, art ? thumb(art) : null, o.job_number || "Your order", verb, color, o.title || "", `${base}/orders?open=${o.id}`, true);
                 })}
                 {actBriefs.map(b => plate(`mv-b-${b.id}`, bThumb(b), b.title || "Your idea", "Take a look", C.amber, b.preview_line || "new from our team", `${base}/studio`, true))}
+              </div>
+            </>
+          )}
+
+          {/* ── In the works — pre-production projects, honestly labeled so the
+              client can recall what's been asked for, without a false action or
+              a premature "in production" (Jon, Jul 28) ── */}
+          {worksOrders.length > 0 && (
+            <>
+              {sec("In the works.", "we're getting these ready", `${base}/orders`, "All orders")}
+              <div style={{ fontSize: 12, color: C.muted, margin: "-4px 0 12px", lineHeight: 1.5 }}>Your quote and proofs will show up in <b style={{ color: C.text }}>Your move</b> when they&rsquo;re ready for you.</div>
+              <div className="gh-grid">
+                {worksOrders.map(({ o, verb, color }) => {
+                  const art = (o.items || []).map((it: any) => it.thumb_id).find(Boolean);
+                  return plate(`wk-${o.id}`, art ? thumb(art) : null, o.job_number || "Your order", verb, color, o.title || "", `${base}/orders?open=${o.id}`);
+                })}
               </div>
             </>
           )}
