@@ -1,5 +1,5 @@
 "use client";
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono, sortSizes } from "@/lib/theme";
@@ -862,7 +862,20 @@ function ReceiveModal({ box, onClose, onDone }: { box: ReceivingBox; onClose: ()
 // re-appends the corrected qty (both stay on the ledger). Gated to the test client.
 function EditLineModal({ line, box, mode, onClose, onDone }: { line: ReceivingLine; box: ReceivingBox; mode: EditMode; onClose: () => void; onDone: () => void }) {
   const shipped = mode === "shipped";
-  const sizes = sortSizes(Object.keys(line.shipQtys).length ? Object.keys(line.shipQtys) : Object.keys(line.receivedQtys));
+  // Vendors sometimes include sizes that aren't on the wave's manifest at all
+  // (13H shortage-fills, Jul 28). Edit-shipped can ADD a size from the item's
+  // order — editShippedLine takes the corrected map wholesale, so a new size
+  // rides the same reverse-and-reappend correction as a count change.
+  const [added, setAdded] = useState<string[]>([]);
+  const [orderedSizes, setOrderedSizes] = useState<string[]>([]);
+  useEffect(() => {
+    if (!shipped) return;
+    createClient().from("buy_sheet_lines").select("size").eq("item_id", line.itemId)
+      .then(({ data }: any) => setOrderedSizes((data || []).map((r: any) => r.size)));
+  }, [shipped, line.itemId]);
+  const baseSizes = Object.keys(line.shipQtys).length ? Object.keys(line.shipQtys) : Object.keys(line.receivedQtys);
+  const sizes = sortSizes([...new Set([...baseSizes, ...added])]);
+  const addable = orderedSizes.filter(s => !sizes.includes(s));
   const [qtys, setQtys] = useState<Record<string, number>>({ ...(shipped ? line.shipQtys : line.receivedQtys) });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -902,6 +915,13 @@ function EditLineModal({ line, box, mode, onClose, onDone }: { line: ReceivingLi
                   style={{ width: 50, textAlign: "center", fontFamily: mono, fontSize: 13, fontWeight: 700, padding: "5px 4px", borderRadius: 5, border: `1px solid ${(shipped || got === want) ? T.border : c}`, color: c, background: T.card }} />; })}
             </div>
           ))}
+          {shipped && addable.length > 0 && (
+            <select value="" onChange={e => { const sz = e.target.value; if (sz) { setAdded(p => [...p, sz]); setQtys(p => ({ ...p, [sz]: 0 })); } }}
+              style={{ marginTop: 10, padding: "6px 10px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.surface, color: T.muted, fontSize: 12, fontFamily: font, outline: "none", cursor: "pointer" }}>
+              <option value="">+ Add a size in the box but not on the manifest…</option>
+              {sortSizes(addable).map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          )}
         </div>
       </div>
       <div style={{ padding: "14px 22px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
