@@ -3,7 +3,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { clientShippingRoutes } from "@/lib/tenants";
+import { clientShippingRoutes, isCutSewOnly, resolveSlugFromHost } from "@/lib/tenants";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { CostingTabWrapper } from "./CostingTab";
 import { isCostingLocked, isCostingCommitted } from "@/lib/costing-lock";
@@ -735,8 +735,21 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
 
   // V2 job-detail (Track 2, parallel): opt-in via ?v2=1 so it's fully isolated
   // from the live page — same loaded data, new tabless canvas shell.
-  if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("v2") === "1") {
-    return <JobDetailV2 job={job} items={items} payments={payments} contacts={contacts} thumbByItem={thumbByItem} />;
+  // ── V2 CUTOVER SWITCH ──
+  // V2_DEFAULT=false: classic is the default, ?v2=1 opts in (current state).
+  // V2_DEFAULT=true: V2 is the default, ?classic=1 is the escape hatch.
+  // Cut-and-sew tenants (DMD) ALWAYS default classic until their add-item
+  // flow exists in V2 (Jon: undecided) — ?v2=1 still works there for review.
+  const V2_DEFAULT = true; // CUTOVER Jul 28 2026 — ?classic=1 is the escape hatch
+  if (typeof window !== "undefined") {
+    const q = new URLSearchParams(window.location.search);
+    const forcedClassic = q.get("classic") === "1";
+    const forcedV2 = q.get("v2") === "1";
+    const tenantClassic = isCutSewOnly(resolveSlugFromHost(window.location.hostname));
+    const useV2 = forcedV2 || (V2_DEFAULT && !forcedClassic && !tenantClassic);
+    if (useV2) {
+      return <JobDetailV2 job={job} items={items} payments={payments} contacts={contacts} thumbByItem={thumbByItem} />;
+    }
   }
 
   // Revenue + cost KPIs reflect the CURRENT costing state. Source of

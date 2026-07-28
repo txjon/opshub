@@ -27,6 +27,9 @@ import {
 import { parsePsd } from "./ProcessingTab";
 import { EditSizesModal as EditSizesModalRaw } from "./ProductBuilder";
 import SizeGrid from "@/components/SizeGrid";
+import RfqModalRaw from "@/components/RfqModal";
+import ArtRequestModal from "@/components/ArtRequestModal";
+import MoveItemDialog from "@/components/MoveItemDialog";
 import { parseSizeMatrix } from "@/lib/size-grid";
 import { uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
 import { sendQuoteAndProofs, defaultRecipient } from "@/lib/job/quote-actions";
@@ -44,6 +47,7 @@ import { SHIP_METHODS } from "@/lib/ship-methods";
 const DecorationPanel: any = DecorationPanelRaw; // .jsx — bypass narrow inferred prop types
 const ProofModal: any = ProofModalRaw;           // .jsx — same
 const EditSizesModal: any = EditSizesModalRaw;   // .jsx — same
+const RfqModal: any = RfqModalRaw;               // .jsx — same
 const SSPicker: any = SSPickerRaw, ASColourPicker: any = ASColourPickerRaw, LAApparelPicker: any = LAApparelPickerRaw,
   FavoritesPicker: any = FavoritesPickerRaw, OtherPicker: any = OtherPickerRaw, CottonCollectivePicker: any = CottonCollectivePickerRaw;
 // Same source labels/colors as the classic add-item modal (ProductBuilder).
@@ -141,6 +145,15 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   // the CURRENT deco edits + items, not the snapshot from when it was scheduled.
   const decoStateRef = React.useRef(decoState); decoStateRef.current = decoState;
   const isMobile = useIsMobile();
+  // ── GUIDE MODE (Jon, for the team cutover): every section explains itself
+  // on first landing. 'Got it' hides all guides; the ? pill in the header
+  // brings them back any time. Persisted per browser.
+  const [guide, setGuide] = useState(true);
+  useEffect(() => { try { if (localStorage.getItem("jobv2_guide") === "off") setGuide(false); } catch {} }, []);
+  const setGuidePersist = (on: boolean) => { setGuide(on); try { localStorage.setItem("jobv2_guide", on ? "on" : "off"); } catch {} };
+  const tip = (text: React.ReactNode) => guide ? (
+    <div style={{ borderLeft: `3px solid ${T.border}`, padding: "6px 12px", margin: "2px 0 14px", fontSize: 12.5, color: T.muted, lineHeight: 1.55 }}>{text}</div>
+  ) : null;
   const itemsRef = React.useRef(items); itemsRef.current = items;
 
   // ── NO SILENT SAVE FAILURES (house rule): every write path surfaces a red
@@ -251,6 +264,12 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   const [pickerSrc, setPickerSrc] = useState<string | null>(null);
   const [assignTargetId, setAssignTargetId] = useState<string | null>(null);
   const [clientMenu, setClientMenu] = useState(false); // ⋯ previews/hub menu in the Client block
+  // Cost request (RFQ to a decorator / art pricing to a designer) + item ⋯ menu
+  const [costReqMenu, setCostReqMenu] = useState(false);
+  const [rfqOpen, setRfqOpen] = useState(false);
+  const [artReqOpen, setArtReqOpen] = useState(false);
+  const [wsMenu, setWsMenu] = useState(false);
+  const [moveItem, setMoveItem] = useState<{ id: string; name: string; mode: "move" | "copy" } | null>(null);
   // Revised-proof re-send (classic nudge: item_files.revision_pending_send).
   const [revisedOpen, setRevisedOpen] = useState(false);
   const [revisedNote, setRevisedNote] = useState("");
@@ -1333,8 +1352,9 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 0 6px", fontSize: 13 }}>
         <a href="/projects" style={{ color: T.muted, fontWeight: 700, textDecoration: "none" }}>‹ Projects</a>
         <div style={{ display: "flex", alignItems: "center", gap: 10, position: "relative" }}>
+          <button onClick={() => setGuidePersist(!guide)} title="Show or hide the guides that explain each section" style={{ fontSize: 11, fontWeight: 800, color: guide ? "#0a0a0a" : T.muted, background: guide ? T.accent : "none", padding: "5px 11px", borderRadius: 999, border: `1px solid ${guide ? T.accent : T.border}`, cursor: "pointer", fontFamily: font }}>? Guide</button>
           <button onClick={() => setDetailsOpen(true)} style={{ fontSize: 11, fontWeight: 700, color: T.muted, background: "none", padding: "5px 11px", borderRadius: 999, border: `1px solid ${T.border}`, cursor: "pointer", fontFamily: font }}>Job details</button>
-          <a href={`/jobs/${job?.id}`} style={{ fontSize: 11, fontWeight: 700, color: T.muted, textDecoration: "none", padding: "5px 11px", borderRadius: 999, border: `1px solid ${T.border}` }}>Classic ›</a>
+          <a href={`/jobs/${job?.id}?classic=1`} style={{ fontSize: 11, fontWeight: 700, color: T.muted, textDecoration: "none", padding: "5px 11px", borderRadius: 999, border: `1px solid ${T.border}` }}>Classic ›</a>
           <button onClick={() => setMenuOpen(v => !v)} aria-label="More" style={{ width: 30, height: 30, borderRadius: 999, border: `1px solid ${T.border}`, background: "none", color: T.muted, fontSize: 16, cursor: "pointer", lineHeight: 1 }}>⋯</button>
           {menuOpen && (
             <>
@@ -1433,9 +1453,22 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
         ))}
       </div>
 
+      {/* page guide — how this page works (first landing) */}
+      {guide && (
+        <div style={{ border: `1px solid ${T.border}`, background: T.card, borderRadius: 12, padding: "13px 16px", margin: "10px 0 4px" }}>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+            <div style={{ fontSize: 12.5, color: T.muted, lineHeight: 1.6, flex: 1 }}>
+              <b style={{ color: T.text }}>How this page works:</b> the sections below follow the job in order — build the products, get the client approved and paid, buy blanks and send POs, then ship. Inside each section, the <b style={{ color: T.text }}>filled white button is always your next step</b>. Tap any product card to open its worksheet (sizes, pricing, art in one place). Amber anywhere means something needs a human.
+            </div>
+            <button onClick={() => setGuidePersist(false)} style={{ flexShrink: 0, fontSize: 11, fontWeight: 800, color: "#0a0a0a", background: T.accent, border: "none", borderRadius: 999, padding: "6px 14px", cursor: "pointer", fontFamily: font }}>Got it — hide guides</button>
+          </div>
+        </div>
+      )}
+
       {/* PRODUCTS gallery */}
       {block("products", "done", "Products & Costing", `${items.length} items · ${units.toLocaleString()} units · ${fmtMoney(orderTotal)}`, (
         <>
+          {tip(<><b style={{ color: T.text }}>Everything about the products lives here.</b> The margin buttons and toggles reprice every item instantly — the price each item sells at is what lands on the quote and invoice. Tap a card for its worksheet: <b style={{ color: T.text }}>Build</b> (name, blank, sizes and quantities), <b style={{ color: T.text }}>Cost</b> (decoration, share groups, sell price), <b style={{ color: T.text }}>Art</b> (files and the proof editor). Add products from the catalogs with + Add product, drop PSDs or mockups anywhere on the grid to create items, and drag cards to reorder. Once a quote is sent, pricing locks — Unlock to revise.</>)}
           {/* job-level costing controls + project totals */}
           {(() => {
             let rev = 0, blank = 0, po = 0, ship = 0;
@@ -1468,6 +1501,18 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                   {tog(inclShip, "Shipping", () => recomputeAllSells({ inclShip: !inclShip }))}
                   {tog(inclCC, "CC fees", () => recomputeAllSells({ inclCC: !inclCC }))}
                   <div style={{ flex: 1 }} />
+                  <div style={{ position: "relative" }}>
+                    <button onClick={() => setCostReqMenu(m => !m)} style={{ fontSize: 11, fontWeight: 700, padding: "6px 13px", borderRadius: 999, border: `1px solid ${T.border}`, background: T.card, color: T.text, cursor: "pointer", fontFamily: font }}>Cost request ▾</button>
+                    {costReqMenu && (
+                      <>
+                        <div onClick={() => setCostReqMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+                        <div style={{ position: "absolute", top: 32, right: 0, zIndex: 41, background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, minWidth: 210, padding: 5, boxShadow: "0 12px 40px rgba(0,0,0,0.4)" }}>
+                          <button onClick={() => { setCostReqMenu(false); setRfqOpen(true); }} style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.text, borderRadius: 7 }}>Decorator quote (RFQ)</button>
+                          <button onClick={() => { setCostReqMenu(false); setArtReqOpen(true); }} style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.text, borderRadius: 7 }}>Art pricing request</button>
+                        </div>
+                      </>
+                    )}
+                  </div>
                   {isCommitted && (
                     <button onClick={toggleUnlock} style={{ fontSize: 11, fontWeight: 800, padding: "6px 13px", borderRadius: 999, border: `1px solid ${locked ? T.border : T.amber}`, background: locked ? T.card : T.amber, color: locked ? T.text : "#0a0a0a", cursor: "pointer", fontFamily: font }}>{locked ? "🔒 Unlock to revise" : "Re-lock"}</button>
                   )}
@@ -1533,6 +1578,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       {block("client", tm.change_request || flags.grew ? "warn" : flags.approved ? "done" : "todo", "Approvals & Billing",
         `${flags.approved ? "Approved" : flags.quoted ? "Quote sent" : "Not sent"} · ${invNum ? "Inv " + invNum : "no invoice"} · ${fmtMoney(paid)} paid${(invoiced || orderTotal) - paid > 0.01 ? ` · ${fmtMoney((invoiced || orderTotal) - paid)} due` : ""}${flags.grew ? " · ⚠ re-invoice" : ""}${tm.change_request ? " · ⚠ changes requested" : ""}`, (
         <div>
+          {tip(<><b style={{ color: T.text }}>The client transaction, start to finish.</b> Send quote &amp; proofs = one email with one portal link where the client reviews and approves everything together. Once approved, Send invoice creates the QuickBooks invoice and emails it with a pay link; if the order changes later the button turns amber (<b style={{ color: T.text }}>Send revised invoice</b>) and updates the same QB invoice in place. Record payment logs money received (prefilled with the balance). The green <b style={{ color: T.text }}>✓ QB IN SYNC</b> badge means our numbers match QuickBooks to the cent; after shipping, Reconcile bills the actual quantities. Previews and the client hub live under ⋯.</>)}
           {/* client change request (portal) — the note + tagged items, until
               dismissed here or cleared by the next approval */}
           {tm.change_request && (() => {
@@ -1767,6 +1813,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       {block("production", phase === "production" ? "now" : beyond(phase, ["receiving", "fulfillment", "complete"]) ? "done" : "todo", "Purchasing & Production",
         `${blanksOrdered}/${items.length} blanks · ${Object.keys(vendorGroups).filter(v => poSentVendors.includes(v)).length}/${Object.keys(vendorGroups).length} POs sent`, (
         <div>
+          {tip(<><b style={{ color: T.text }}>Buy blanks, then send POs.</b> The gate strip goes green when the quote is approved, payment is covered for the terms, and all proofs are approved — order nothing before that. Each blanks row is a read-out for the supplier order: PO reference, brand/style/color, and per-size counts to type into the supplier cart, then log the <b style={{ color: T.text }}>total paid</b> (select several rows to split one card charge across them). Below, each vendor card previews and sends the PO email — sending moves the items into production and starts vendor tracking. Item details holds the per-item PO notes and links.</>)}
           {/* GATES — cleared to order? */}
           <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap", padding: "8px 12px", marginTop: 6, marginBottom: 16, borderRadius: 10, background: canOrder ? T.greenDim : T.surface, border: `1px solid ${canOrder ? T.green + "44" : T.border}` }}>
             <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: canOrder ? T.green : T.amber }}>{canOrder ? "Cleared to order" : "Not cleared yet"}</span>
@@ -1915,6 +1962,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       {block("logistics", beyond(phase, ["receiving", "fulfillment", "complete"]) ? "now" : "todo", "Logistics",
         `${ROUTE_LABEL[route] || "route not set"} — ${phase === "receiving" ? "receiving" : phase === "fulfillment" ? "fulfillment" : "waiting on production"}`, (
         <div>
+          {tip(<><b style={{ color: T.text }}>Where the goods go after the decorator.</b> The route decides the ship-to on every PO: drop ship goes straight to the client, ship-through and stage come to the HPD warehouse first (some vendors always ship to us regardless — set on the decorator). Receiving, staging, and outbound shipping happen on the warehouse boards; this section shows the truth of where things stand plus the packing slips.</>)}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: `1px solid ${T.border}55`, fontSize: 13, gap: 12, flexWrap: "wrap" }}>
             <span style={{ color: T.muted }}>Shipping route</span>
             <select value={route || ""} onChange={e => saveRoute(e.target.value)} style={{ ...field, width: "auto", minWidth: 260 }}>
@@ -1982,7 +2030,23 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                 <span style={{ fontFamily: mono, fontSize: 12, color: T.faint, marginLeft: 6 }}>{wsIndex! + 1} / {items.length}</span>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                {!locked && <button onClick={() => removeProduct(it)} title="Remove product from job" style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 999, color: T.muted, fontSize: 11, fontWeight: 700, padding: "6px 12px", cursor: "pointer", fontFamily: font }}>Remove</button>}
+                {!locked && <><div style={{ position: "relative", display: "inline-flex" }}>
+                  <button onClick={() => setWsMenu(m => !m)} title="More item actions" style={{ ...ghostBtn, padding: "6px 11px", fontWeight: 900 }}>⋯</button>
+                  {wsMenu && (
+                    <>
+                      <div onClick={() => setWsMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+                      <div style={{ position: "absolute", top: 34, right: 0, zIndex: 41, background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, minWidth: 200, padding: 5, boxShadow: "0 12px 40px rgba(0,0,0,0.4)" }}>
+                        <button onClick={async () => { setWsMenu(false); if (!window.confirm(`Duplicate "${it.name}" on this job? Files are shared; blank and decoration carry over.`)) return; try { const r = await fetch(`/api/items/${it.id}/duplicate`, { method: "POST" }); if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "Duplicate failed"); window.location.reload(); } catch (e: any) { failed("Item duplicate failed", e); } }}
+                          style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.text, borderRadius: 7 }}>Duplicate item</button>
+                        <button onClick={() => { setWsMenu(false); setMoveItem({ id: it.id, name: it.name, mode: "copy" }); }}
+                          style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.text, borderRadius: 7 }}>Copy to another job…</button>
+                        <button onClick={() => { setWsMenu(false); setMoveItem({ id: it.id, name: it.name, mode: "move" }); }}
+                          style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.text, borderRadius: 7 }}>Move to another job…</button>
+                      </div>
+                    </>
+                  )}
+                </div>
+                <button onClick={() => removeProduct(it)} title="Remove product from job" style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 999, color: T.muted, fontSize: 11, fontWeight: 700, padding: "6px 12px", cursor: "pointer", fontFamily: font }}>Remove</button></>}
                 <button onClick={() => setWsIndex(null)} aria-label="Close" style={{ ...navBtn, background: T.surface }}>×</button>
               </div>
             </div>
@@ -2018,6 +2082,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                       <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Product name</span>
                       <input key={it.id + ":name:" + it.name} defaultValue={it.name || ""} readOnly={locked} onBlur={e => renameItem(it, e.target.value)} style={field} />
                     </label>
+                    {tip(<>Name, product type, and quantities live here. The blank itself comes from <b style={{ color: T.text }}>Pick/Swap blank</b> (full supplier catalogs) so costs always match a real product. Type a total into <b style={{ color: T.text }}>→ CURVE</b> to spread it across sizes automatically, or Edit sizes for youth, one-size, and pants grids.</>)}
                     {/* garment + blank (editable text; full catalog picker is separate) */}
                     <div style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
                       <label style={{ flex: "1 1 130px" }}>
@@ -2124,6 +2189,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                       <div style={{ fontSize: 13, color: T.faint, padding: "20px 0" }}>No quantities yet — set them in Build.</div>
                     ) : (
                       <>
+                        {tip(<><b style={{ color: T.text }}>Sell/unit is the number the client is billed</b> — auto-calculated from costs + margin, or type an override. Decoration below drives the cost: vendor, print locations and colors, share groups (same art shared across items combines quantities for better rates and one set of screens). Blank cost by size holds 2XL/3XL upcharges. Everything saves as you go.</>)}
                         {/* SELL + override — top, prominent (the invoice truth) */}
                         <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 16, flexWrap: "wrap", paddingBottom: 14, borderBottom: `1px solid ${T.border}` }}>
                           <div>
@@ -2212,6 +2278,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                       <span style={lbl}>Files · {files.length}</span>
                       <span style={{ fontWeight: 800, fontSize: 11, letterSpacing: "0.04em", textTransform: "uppercase", color: artColor }}>{art.replace(/_/g, " ")}</span>
                     </div>
+                    {tip(<>Upload art by stage (mockup, proof, print-ready). A mockup unlocks <b style={{ color: T.text }}>Generate proof</b> — the proof editor that clients approve and vendors print from. Files land in this item&apos;s Drive folder automatically.</>)}
                     {files.length === 0 ? (
                       <div style={{ fontSize: 13, color: T.faint, padding: "16px 0" }}>No files on this item yet.</div>
                     ) : (
@@ -2582,6 +2649,24 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
             onSave={(nextSizes: string[], nextQtys: Record<string, any>) => saveSizesQtys(target, nextSizes, nextQtys)} />
         );
       })()}
+
+      {/* ── cost request modals (shared with classic) ── */}
+      {rfqOpen && (
+        <RfqModal job={job} costProds={allAssembled} decoratorRecords={decoratorRecords}
+          onClose={() => setRfqOpen(false)}
+          onSent={(entry: any) => { const meta = { ...(job.type_meta || {}), rfq_history: [...(job.type_meta?.rfq_history || []), entry] }; setJob((j: any) => ({ ...j, type_meta: meta })); logJobActivity(job.id, `Quote request sent to ${entry.vendor}`); }} />
+      )}
+      <ArtRequestModal open={artReqOpen} onClose={() => setArtReqOpen(false)} project={job}
+        onSent={() => { logJobActivity(job.id, "Art pricing request sent"); }} />
+      {moveItem && (
+        <MoveItemDialog itemId={moveItem.id} itemName={moveItem.name} open={true} mode={moveItem.mode}
+          onClose={() => setMoveItem(null)}
+          onMoved={(result: any) => {
+            if (moveItem.mode === "move") setItems(prev => prev.filter((x: any) => x.id !== moveItem.id));
+            setMoveItem(null); setWsIndex(null);
+            if (result?.to?.id && typeof window !== "undefined") window.location.href = `/jobs/${result.to.id}?v2=1`;
+          }} />
+      )}
 
       {/* ── invoice variance review (reconcile-at-ship / QB heal) ── */}
       {showVariance && (
