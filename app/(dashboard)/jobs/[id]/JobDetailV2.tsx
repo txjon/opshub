@@ -585,9 +585,21 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       await supabase.from("item_files").delete().eq("item_id", item.id);
       await supabase.from("decorator_assignments").delete().eq("item_id", item.id);
       await supabase.from("items").delete().eq("id", item.id);
+      // Prune the item's costProd from costing_data too — a ghost entry keeps
+      // feeding share-group quantities into rate lookups on the PO. Fresh
+      // read-modify-write so nothing else is clobbered.
+      try {
+        const { data: fresh }: any = await supabase.from("jobs").select("costing_data").eq("id", job.id).single();
+        const cd = fresh?.costing_data;
+        if (cd?.costProds?.some((p: any) => p.id === item.id)) {
+          await (supabase.from("jobs") as any).update({ costing_data: { ...cd, costProds: cd.costProds.filter((p: any) => p.id !== item.id) } }).eq("id", job.id);
+        }
+      } catch (e) { console.error("[JobV2] costProd prune failed", e); }
       setItems(prev => prev.filter(x => x.id !== item.id));
       setWsIndex(null);
       try { logJobActivity(job.id, `Product removed: ${item.name}`); } catch {}
+      recalcPhase();
+      fetch(`/api/jobs/${job.id}/refresh-financials`, { method: "POST" }).catch(() => {});
     } catch (e) { failed("Remove product failed — not saved", e); }
   };
 
