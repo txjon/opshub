@@ -874,7 +874,7 @@ function EditLineModal({ line, box, mode, onClose, onDone }: { line: ReceivingLi
       .then(({ data }: any) => setOrderedSizes((data || []).map((r: any) => r.size)));
   }, [shipped, line.itemId]);
   const baseSizes = Object.keys(line.shipQtys).length ? Object.keys(line.shipQtys) : Object.keys(line.receivedQtys);
-  const sizes = sortSizes([...new Set([...baseSizes, ...added])]);
+  const sizes = sortSizes(Array.from(new Set([...baseSizes, ...added])));
   const addable = orderedSizes.filter(s => !sizes.includes(s));
   const [qtys, setQtys] = useState<Record<string, number>>({ ...(shipped ? line.shipQtys : line.receivedQtys) });
   const [busy, setBusy] = useState(false);
