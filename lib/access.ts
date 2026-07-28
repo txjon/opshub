@@ -52,7 +52,7 @@ export const PAGE_CATALOG: CatalogPage[] = [
   { key: "/warehouse", href: "/warehouse", label: "Warehouse (retired → Receiving)", group: "distro" },
   { key: "/hours", href: "/hours", label: "Log Hours", group: "distro" },
   // Ecomm
-  { key: "/ecomm", href: "/ecomm", label: "Dashboard", group: "ecomm" },
+  { key: "/ecomm", href: "/ecomm", label: "The Shop", group: "ecomm" },
   { key: "/ecomm/staging", href: "/ecomm/staging", label: "Staging", group: "ecomm" },
   // Contacts
   { key: "/intake", href: "/intake", label: "Intake", group: "contacts" },
