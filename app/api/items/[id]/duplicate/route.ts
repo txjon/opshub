@@ -158,7 +158,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
         ? [...costProds.slice(0, insertAt + 1), dupCp, ...costProds.slice(insertAt + 1)]
         : [...costProds, dupCp];
       await db.from("jobs").update({
-        costing_data: { ...costing, costProds: nextProds },
+        costing_data: { ...costing, costProds: nextProds, _savedAt: new Date().toISOString() },
         updated_at: new Date().toISOString(),
       }).eq("id", jobId);
     }

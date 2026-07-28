@@ -199,7 +199,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
         id: idMap[cp.id] || cp.id,
       }));
       await db.from("jobs").update({
-        costing_data: { ...costing, costProds: remapped },
+        costing_data: { ...costing, costProds: remapped, _savedAt: new Date().toISOString() },
       }).eq("id", newJobId);
     }
 

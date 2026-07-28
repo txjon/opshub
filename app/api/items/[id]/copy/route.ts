@@ -165,7 +165,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (matched) {
       destCostProds.push({ ...matched, id: newItem.id, blankCosts: {}, blankCostPerUnit: 0 });
       await db.from("jobs").update({
-        costing_data: { ...destCosting, costProds: destCostProds },
+        costing_data: { ...destCosting, costProds: destCostProds, _savedAt: new Date().toISOString() },
         updated_at: new Date().toISOString(),
       }).eq("id", to_job_id);
     }
