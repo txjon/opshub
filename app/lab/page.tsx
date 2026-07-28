@@ -134,13 +134,16 @@ function ThreadPanel({ detail, me, onRefresh, onClose }: any) {
   const images = msgs.filter((m: any) => m.file_url);
   const hero = images.length ? images[heroIdx == null ? images.length - 1 : Math.min(heroIdx, images.length - 1)] : null;
   const notes = msgs.filter((m: any) => m.body && m.body.trim());
+  // Can't send for approval until the client can actually SEE a design — otherwise
+  // "approve the design" lands them on nothing (Jon, Jul 27: fired a blank one).
+  const clientCanSeeDesign = images.some((m: any) => m.visibility === "client");
 
   async function post(fileUrl?: string, fileName?: string) {
     if (!note.trim() && !fileUrl) return; setBusy(true);
     try { await fetch(`/api/lab/threads/${t.id}/messages`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ senderName: me, body: note.trim() || null, visibility: vis, fileUrl, fileName }) }); setNote(""); setHeroIdx(null); await onRefresh(); } finally { setBusy(false); }
   }
   async function onFile(f: File) { setUploading(true); try { const u = await uploadImage(f); await post(u.url, u.name); } catch (e: any) { alert(e.message); } finally { setUploading(false); } }
-  async function act(action: string) { setBusy(true); try { await fetch(`/api/lab/threads/${t.id}/action`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, senderName: me }) }); await onRefresh(); } finally { setBusy(false); } }
+  async function act(action: string) { setBusy(true); try { const r = await fetch(`/api/lab/threads/${t.id}/action`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, senderName: me }) }); if (!r.ok) { const j = await r.json().catch(() => ({})); alert(j.error || "Couldn't do that."); return; } await onRefresh(); } finally { setBusy(false); } }
   async function del() { if (!confirm(`Delete "${t.title}"? This removes the design and its whole thread. Can't be undone.`)) return; await fetch(`/api/lab/threads/${t.id}`, { method: "DELETE" }); onClose(); await onRefresh(); }
 
   return (
@@ -221,8 +224,11 @@ function ThreadPanel({ detail, me, onRefresh, onClose }: any) {
             <div style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.faint, marginBottom: 10 }}>Your next move</div>
             {t.state === "with_client"
               ? <div style={{ fontSize: 12.5, color: H.dim }}>Sent — waiting on the client. Keep talking below if you need to.</div>
-              : <><button disabled={busy} onClick={() => act("send_to_client")} style={{ ...primaryBtn, width: "100%", padding: "14px", fontSize: 12 }}>Send to client for approval →</button>
-                <div style={{ fontSize: 11, color: H.faint, marginTop: 9, textAlign: "center" }}>Needs another pass? Hand it to the designer <span style={{ color: H.blue }}>(coming soon)</span></div></>}
+              : clientCanSeeDesign
+                ? <><button disabled={busy} onClick={() => act("send_to_client")} style={{ ...primaryBtn, width: "100%", padding: "14px", fontSize: 12, opacity: busy ? 0.5 : 1 }}>Send to client for approval →</button>
+                  <div style={{ fontSize: 11, color: H.faint, marginTop: 9, textAlign: "center" }}>Needs another pass? Hand it to the designer <span style={{ color: H.blue }}>(coming soon)</span></div></>
+                : <><button disabled title="Share a design the client can see first" style={{ ...primaryBtn, width: "100%", padding: "14px", fontSize: 12, opacity: 0.4, cursor: "default" }}>Send to client for approval →</button>
+                  <div style={{ fontSize: 11, color: H.faint, marginTop: 9, textAlign: "center", lineHeight: 1.5 }}>Nothing to approve yet. Share a design the client can see first — upload a draft with <b style={{ color: H.dim }}>Shows: Client-visible</b>, then send it over.</div></>}
           </div>
           <div style={{ padding: "12px 22px 18px", borderTop: `1px solid ${H.line2}` }}>
             <textarea value={note} onChange={e => setNote(e.target.value)} rows={2} placeholder={vis === "client" ? "Reply to the client…" : "Internal note — team + designer only…"} style={{ width: "100%", boxSizing: "border-box", background: H.surface, border: vis === "client" ? `1px solid ${H.line}` : "1px dashed rgba(244,178,43,.6)", borderRadius: 10, color: H.text, fontSize: 13, padding: "11px 13px", outline: "none", resize: "vertical", fontFamily: H.font }} />

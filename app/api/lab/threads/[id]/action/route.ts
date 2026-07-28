@@ -21,6 +21,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const name = (thread as any).lab_clients?.name || "Client";
 
   if (b.action === "send_to_client") {
+    // The client must be able to SEE a design before we ask them to approve it —
+    // no blank approvals (Jon, Jul 27). Mirrors the studio-side button gate.
+    const { data: design } = await db.from("lab_messages")
+      .select("id").eq("thread_id", params.id).eq("visibility", "client").not("file_url", "is", null)
+      .limit(1).maybeSingle();
+    if (!design) return NextResponse.json({ error: "Share a design the client can see before sending for approval" }, { status: 400 });
     await db.from("lab_threads").update({ state: "with_client", updated_at: now } as never).eq("id", params.id);
     await db.from("lab_messages").insert({
       thread_id: params.id, sender_role: "hpd", sender_name: b.senderName || "HPD",
