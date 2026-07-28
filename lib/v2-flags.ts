@@ -35,14 +35,15 @@ export function isV2TestClient(clientName?: string | null): boolean {
 
 // ── Studio under dev (Jon, Jul 23 2026) ──────────────────────────────────────
 // The Studio flow is being reworked in The Lab. While this is true, the studio
-// is pulled from every NAV / entry point: the client-hub Studio tab + the guest-
-// house studio section, and the main-app "Art Studio" + "Studio v2" menu items.
+// is pulled from the CLIENT-FACING entry points: the client-hub Studio tab +
+// the guest-house studio section (portal Shell/page read this flag directly).
 // This is NAV-HIDE ONLY — the pages stay reachable by direct URL and the access
-// guard (canAccessPath) is untouched, so the team can keep checking them and
-// contextual deep-links still work. Flip to false to bring the studio back.
+// guard (canAccessPath) is untouched, so contextual deep-links still work.
 export const STUDIO_UNDER_DEV = true;
-// The main-app nav hrefs pulled while STUDIO_UNDER_DEV.
-export const STUDIO_HIDDEN_HREFS = ["/art-studio", "/studio2"];
+// The main-app (team) nav hrefs pulled while STUDIO_UNDER_DEV. Art Studio
+// un-hidden for the team Jul 27 2026 per Jon — clients still don't see the
+// hub Studio tab (flag above). Studio v2 stays hidden while reworked.
+export const STUDIO_HIDDEN_HREFS = ["/studio2"];
 
 // ── Drops hidden from the client hub (Jon, Jul 23 2026) ──────────────────────
 // Pull the Drops surface from the client hub: the main-nav Drops tab (all three
