@@ -432,12 +432,24 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     const v = value || null;
     if (v === (item.garment_type ?? null)) return;
     const isFleece = !!(v && FLEECE_GARMENTS.includes(v));
+    // Garment type sets the shipping buffer (effectiveShipRate reads garment_type)
+    // and the fleece flag — persist both onto the costProd + recompute sell via the
+    // deco flush, so the summary isn't left computing on the old garment's numbers.
+    const p = { ...assemble({ ...item, garment_type: v }), garment_type: v, isFleece };
     setItems(prev => prev.map(x => x.id === item.id ? { ...x, garment_type: v, is_fleece: isFleece } : x));
+    setDecoState(s => ({ ...s, [item.id]: p }));
+    schedulePersist(item, p);
     try { await (createClient().from("items") as any).update({ garment_type: v, is_fleece: isFleece }).eq("id", item.id); } catch (e) { failed("Garment type save failed — not saved", e); }
   };
   const toggleFleece = async (item: any) => {
     const next = !item.is_fleece;
+    // Fleece drives the vendor upcharge (calcCostProduct reads costProd.isFleece)
+    // and the garment shipping buffer — route it through the deco flush like
+    // saveShipRate so the costProd, sell_per_unit and summary all move with it.
+    const p = { ...assemble(item), isFleece: next };
     setItems(prev => prev.map(x => x.id === item.id ? { ...x, is_fleece: next } : x));
+    setDecoState(s => ({ ...s, [item.id]: p }));
+    schedulePersist(item, p);
     try { await (createClient().from("items") as any).update({ is_fleece: next }).eq("id", item.id); } catch (e) { failed("Fleece toggle failed — not saved", e); }
   };
   const addSize = async (item: any, sz: string) => {
