@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
-import { BoardFrame, ToggleSearch, KpiStrip, SliceSortRow, ModalShell } from "@/components/board-kit";
+import { BoardFrame, SliceSortRow, ModalShell } from "@/components/board-kit";
 import { loadJobPhasesBatch } from "@/lib/item-state";
 import { deriveProjectStage, PROJ_MILESTONES, type ProjStage } from "@/lib/project-stage";
 import { JobStatusBar } from "@/components/JobStatusBar";
@@ -240,20 +240,30 @@ export default function ProjectsBoard() {
       .sort((a, b) => (closedAt(b.job) || "").localeCompare(closedAt(a.job) || "")),
   [done, unpaidOnly]);
 
-  const kpi = (k: string) => k === "active" ? activeAll.length : k === "action" ? activeAll.filter(r => !r.stage.preQuote && (r.stage.signal === "act" || r.stage.signal === "late")).length : activeAll.filter(r => r.stage.preQuote).length;
 
   return (
     <BoardFrame title="Projects" action={
       <a href="/jobs/new" style={{ background: T.accent, color: "#0a0a0a", borderRadius: 8, padding: "9px 16px", fontSize: 13, fontFamily: font, fontWeight: 600, textDecoration: "none", whiteSpace: "nowrap" }}>+ New Project</a>
     }>
-      <ToggleSearch
-        options={[["active", `Active · ${activeAll.length}`], ["completed", `Completed · ${rows.filter(r => r.stage.complete).length}`]]}
-        value={tab} onChange={setTab} query={query} setQuery={setQuery} placeholder="Search client, job #, or title…" />
+      {/* Active/Completed toggles — search moved below, big (Jon: "in your face") */}
+      <div style={{ display: "flex", gap: 8, alignItems: "center", margin: "14px 0 2px", flexWrap: "wrap" }}>
+        {([["active", `Active · ${activeAll.length}`], ["completed", `Completed · ${rows.filter(r => r.stage.complete).length}`]] as [typeof tab, string][]).map(([k, label]) => (
+          <button key={k} onClick={() => setTab(k)}
+            style={{ fontSize: 13, fontWeight: 600, padding: "8px 16px", borderRadius: 9, cursor: "pointer", border: `1px solid ${tab === k ? T.text : T.border}`, background: tab === k ? T.text : T.card, color: tab === k ? "#0a0a0a" : T.muted }}>{label}</button>
+        ))}
+      </div>
+
+      {/* THE search — replaces the inert KPI strip: fat, centered, unmissable */}
+      <div style={{ margin: "12px 0 4px" }}>
+        <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search client, job #, or title…"
+          style={{ width: "100%", boxSizing: "border-box", fontSize: 17, fontWeight: 500, padding: "16px 22px", borderRadius: 14, border: `1px solid ${T.border}`, background: T.card, color: T.text, fontFamily: font, outline: "none", textAlign: "center" }}
+          onFocus={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.textAlign = "left"; }}
+          onBlur={e => { e.currentTarget.style.borderColor = T.border; if (!e.currentTarget.value) e.currentTarget.style.textAlign = "center"; }} />
+      </div>
 
       {tab === "active" ? (
         loading ? <div style={{ color: T.muted, fontSize: 14, padding: 40, textAlign: "center" }}>Loading…</div> : (<>
           <style>{`@keyframes projChipPop{from{transform:translateY(2px);opacity:.35}to{transform:none;opacity:1}}.proj-chip{animation:projChipPop .13s ease-out}`}</style>
-          <KpiStrip metrics={[{ key: "active", label: "Active" }, { key: "action", label: "Need action" }, { key: "prequote", label: "Pre-quote" }]} get={kpi} onClick={() => { }} />
           <SliceSortRow>
             <select value={sortBy} onChange={e => setSortBy(e.target.value as any)} style={selStyle}>
               <option value="due">Next item due</option>
