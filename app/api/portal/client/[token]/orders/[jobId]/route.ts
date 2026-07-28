@@ -588,8 +588,11 @@ export async function GET(
         }
         const extrasTotal = (Array.isArray(typeMeta.invoice_extra_lines) ? typeMeta.invoice_extra_lines : [])
           .reduce((a: number, l: any) => a + (Number(l?.amount) || 0), 0);
-        const gross = Number(costingSummary?.grossRev) || 0;
-        const t = gross + extrasTotal;
+        // The client's number is the per-item all-inclusive price × qty
+        // (sell_per_unit is the ONE price source — CLAUDE.md). NOT grossRev, which
+        // folds the internal shipping/CC guideline on top (Jon, Jul 28).
+        const itemsTotal = quoteItems.reduce((a: number, qi: any) => a + (Number(qi.total) || 0), 0);
+        const t = itemsTotal + extrasTotal;
         return showTotals && t > 0 ? Math.round(t * 100) / 100 : null;
       })(),
       invoiceStale: (() => {

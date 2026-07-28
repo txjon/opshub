@@ -243,12 +243,11 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
       const jobPays = paysByJob[j.id] || [];
 
       // Total — prefer QB total_with_tax (source of truth after invoice push),
-      // fall back to costing_summary.grossRev, fall back to sum(sell × qty).
+      // else the per-item all-inclusive price × qty (sell_per_unit). NEVER costing
+      // grossRev — it folds the internal shipping/CC guideline on top (Jon, Jul 28).
       const typeMeta = (j.type_meta || {}) as any;
-      const costingSummary = (j.costing_summary || {}) as any;
       let total = Number(typeMeta.qb_total_with_tax) || 0;
       if (total === 0 && Number(typeMeta.stripe_total_cents)) total = Number(typeMeta.stripe_total_cents) / 100;
-      if (total === 0) total = Number(costingSummary.grossRev) || 0;
       if (total === 0) {
         for (const it of jobItems) {
           const qty = qtyByItem[it.id] || 0;
