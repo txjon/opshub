@@ -740,7 +740,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   // V2_DEFAULT=true: V2 is the default, ?classic=1 is the escape hatch.
   // Cut-and-sew tenants (DMD) ALWAYS default classic until their add-item
   // flow exists in V2 (Jon: undecided) — ?v2=1 still works there for review.
-  const V2_DEFAULT = false;
+  const V2_DEFAULT = true; // CUTOVER Jul 28 2026 — ?classic=1 is the escape hatch
   if (typeof window !== "undefined") {
     const q = new URLSearchParams(window.location.search);
     const forcedClassic = q.get("classic") === "1";
