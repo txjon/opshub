@@ -448,8 +448,19 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   };
   const removeSize = async (item: any, sz: string) => {
     const newQtys = { ...(item.qtys || {}) }; delete newQtys[sz];
-    setItems(prev => prev.map(x => x.id === item.id ? { ...x, qtys: newQtys, totalQty: sumQ(newQtys) } : x));
-    try { await createClient().from("buy_sheet_lines").delete().eq("item_id", item.id).eq("size", sz); } catch (e) { failed("RemoveSize failed — not saved", e); }
+    const updated = { ...item, qtys: newQtys, totalQty: sumQ(newQtys) };
+    // Dropping a populated size lowers qty (and can cross a rate tier) → recompute
+    // sell + refresh the summary, same as saveQty, so no dollar total lags behind.
+    const sell = Object.keys(printers).length ? (() => {
+      try { const r: any = calcCostProduct(assemble(updated), costMargin, inclShip, inclCC, items.map(x => x.id === item.id ? assemble(updated) : assemble(x)), printers); return r ? Math.round((r.sellPerUnit || 0) * 100) / 100 : null; } catch { return null; }
+    })() : null;
+    setItems(prev => prev.map(x => x.id === item.id ? { ...x, qtys: newQtys, totalQty: sumQ(newQtys), ...(sell != null ? { sell_per_unit: sell } : {}) } : x));
+    try {
+      const supabase = createClient();
+      await supabase.from("buy_sheet_lines").delete().eq("item_id", item.id).eq("size", sz);
+      if (sell != null) await (supabase.from("items") as any).update({ sell_per_unit: sell }).eq("id", item.id);
+      fetch(`/api/jobs/${job.id}/refresh-financials`, { method: "POST" }).catch(() => {});
+    } catch (e) { failed("RemoveSize failed — not saved", e); }
   };
   // ── Client assignment (classic swapJobContactsForClient port) ──
   const [clientPick, setClientPick] = useState(false);
