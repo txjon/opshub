@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { deleteDriveFileIfUnreferenced } from "@/lib/google-drive-refs";
+import { reopenProofApproval } from "@/lib/proof-revision";
 
 export async function POST(req: NextRequest) {
   try {
@@ -78,6 +79,10 @@ export async function POST(req: NextRequest) {
     if (folderLink) {
       await supabase.from("items").update({ drive_link: folderLink }).eq("id", itemId);
     }
+
+    // A genuine revision of an approved proof reopens the gate (no-op if not
+    // approved). preserveApproval = unchanged re-bake → deliberately keep it.
+    if (stage === "proof" && !preserveApproval) await reopenProofApproval(supabase, itemId);
 
     return NextResponse.json({ success: true, file: data });
   } catch (e: any) {
