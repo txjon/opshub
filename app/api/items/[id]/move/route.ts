@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
-import { calculatePhase } from "@/lib/lifecycle";
-import { poSentToItem } from "@/lib/item-status";
 import { logJobActivityServer } from "@/lib/notify-server";
+import { recalcJobPhase } from "@/lib/job-phase-recalc";
 
 export const dynamic = "force-dynamic";
 
@@ -159,8 +158,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     // 8. Recalc phase on both jobs.
     await Promise.all([
-      recalcPhase(db, sourceJobId),
-      recalcPhase(db, to_job_id),
+      recalcJobPhase(db, sourceJobId),
+      recalcJobPhase(db, to_job_id),
     ]).catch(e => {
       console.error("[item move] phase recalc failed:", e);
     });
@@ -208,79 +207,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 }
 
-// Server-side phase recalc — mirrors lib/use-warehouse.ts::recalcJobPhase
-// but uses the admin client (bypasses RLS on cross-job writes).
-async function recalcPhase(db: ReturnType<typeof admin>, jobId: string) {
-  const { data: jobData } = await db
-    .from("jobs")
-    .select("job_type, shipping_route, payment_terms, quote_approved, phase, fulfillment_status, type_meta, costing_data, phase_timestamps")
-    .eq("id", jobId)
-    .single();
-  if (!jobData || jobData.phase === "on_hold" || jobData.phase === "cancelled") return;
-
-  const { data: jobItems } = await db
-    .from("items")
-    .select("id, pipeline_stage, blanks_order_number, blanks_order_cost, ship_tracking, received_at_hpd, artwork_status, garment_type, shipping_route, webstore_entered_at")
-    .eq("job_id", jobId);
-
-  const { data: payments } = await db
-    .from("payment_records")
-    .select("amount, status")
-    .eq("job_id", jobId);
-
-  const { data: proofFiles } = await db
-    .from("item_files")
-    .select("item_id, approval")
-    .eq("stage", "proof")
-    .is("superseded_at", null)
-    .in("item_id", (jobItems || []).map((it: any) => it.id));
-
-  const proofStatus: Record<string, { allApproved: boolean }> = {};
-  for (const it of (jobItems || [])) {
-    const manualApproved = it.artwork_status === "approved";
-    const proofs = (proofFiles || []).filter((f: any) => f.item_id === it.id);
-    proofStatus[it.id] = {
-      allApproved: manualApproved || (proofs.length > 0 && proofs.every((f: any) => f.approval === "approved")),
-    };
-  }
-
-  const costProds = ((jobData.costing_data as any)?.costProds || []) as any[];
-  const vendors = Array.from(new Set(costProds.map(cp => cp.printVendor).filter(Boolean)));
-
-  const result = calculatePhase({
-    job: {
-      job_type: jobData.job_type,
-      shipping_route: jobData.shipping_route || "ship_through",
-      payment_terms: jobData.payment_terms,
-      quote_approved: jobData.quote_approved || false,
-      phase: jobData.phase,
-      fulfillment_status: jobData.fulfillment_status || null,
-    },
-    items: (jobItems || []).map((it: any) => ({
-      id: it.id,
-      pipeline_stage: it.pipeline_stage,
-      po_sent: poSentToItem({
-        printVendor: costProds.find(cp => cp.id === it.id)?.printVendor,
-        poSentVendors: (jobData.type_meta as any)?.po_sent_vendors,
-      }),
-      blanks_order_number: it.blanks_order_number,
-      blanks_order_cost: it.blanks_order_cost ?? null,
-      ship_tracking: it.ship_tracking,
-      received_at_hpd: it.received_at_hpd || false,
-      artwork_status: it.artwork_status,
-      garment_type: it.garment_type,
-      shipping_route: it.shipping_route || null,
-      webstore_entered_at: it.webstore_entered_at || null,
-    })),
-    payments: (payments || []).map((p: any) => ({ amount: p.amount, status: p.status })),
-    proofStatus,
-    poSentVendors: (jobData.type_meta as any)?.po_sent_vendors || [],
-    costingVendors: vendors,
-  });
-
-  if (result.phase !== jobData.phase) {
-    const timestamps = (jobData.phase_timestamps as any) || {};
-    timestamps[result.phase] = new Date().toISOString();
-    await db.from("jobs").update({ phase: result.phase, phase_timestamps: timestamps }).eq("id", jobId);
-  }
-}
+// Phase recompute is the canonical lib/job-phase-recalc.ts::recalcJobPhase —
+// the earlier inline copy here drifted (missed forwarded_at / ledger_open and
+// the decorator-name PO match), which mis-phased moved ship-through items.
