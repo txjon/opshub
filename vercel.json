@@ -5,6 +5,10 @@
       "schedule": "0 13 * * *"
     },
     {
+      "path": "/api/cron/costing-health",
+      "schedule": "30 12 * * *"
+    },
+    {
       "path": "/api/email/check-gmail",
       "schedule": "*/5 * * * *"
     },
