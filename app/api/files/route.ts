@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getItemFolderId, uploadFile } from "@/lib/google-drive";
 import { deleteDriveFileIfUnreferenced } from "@/lib/google-drive-refs";
+import { reopenProofApproval } from "@/lib/proof-revision";
 
 // Upload a file
 export async function POST(req: NextRequest) {
@@ -76,6 +77,9 @@ export async function POST(req: NextRequest) {
     // Auto-set item's drive_link to folder (printer needs all files: print file, mockup, proof)
     const folderUrl = `https://drive.google.com/drive/folders/${folderId}`;
     await supabase.from("items").update({ drive_link: folderUrl }).eq("id", itemId);
+
+    // A new proof over an approved one reopens the gate (no-op if not approved).
+    if (stage === "proof") await reopenProofApproval(supabase, itemId);
 
     return NextResponse.json({ success: true, file: data });
   } catch (e: any) {
