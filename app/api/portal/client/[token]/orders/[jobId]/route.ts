@@ -454,8 +454,9 @@ export async function GET(
       // Chain-resolved ETA (date model 2026-07-23): derived from PO ship-by, the
       // per-item ship/exit-factory edit (ship_est) in production, then the actual
       // land date (box expected_arrival) in receiving, + transit + route buffer.
-      // client_eta is retired. in-hands is a note, not an ETA source.
-      const etaDate = etaCutOff ? null : (() => {
+      // THE PROMISE WINS: items.client_eta (our committed client date) beats the
+      // chain when set — see the items route. in-hands is a note, not an ETA source.
+      const etaDate = etaCutOff ? null : item.client_eta || (() => {
         const dec = item.decorator_assignments?.[0]?.decorators || null;
         const tm = (job.type_meta || {}) as any;
         const keys = [dec?.name, dec?.short_code].filter(Boolean).map((s: string) => s.toLowerCase().trim());
