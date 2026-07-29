@@ -139,6 +139,8 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   // recomputes items.sell_per_unit. Never touches qty/blankCost drift-wise —
   // those come from buy_sheet_lines / items via the assembler.
   const [decoState, setDecoState] = useState<Record<string, any>>({});
+  const [pullingPsds, setPullingPsds] = useState(false);
+  const psdAutoRan = React.useRef(false);
   const persistTimer = React.useRef<any>(null);
   const pendingRef = React.useRef<Record<string, any>>({});
   // Refs mirror live state so the debounced flush (a stale render closure) reads
@@ -1307,6 +1309,86 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     setDecoState(s => ({ ...s, [item.id]: next }));
     schedulePersist(item, next);
   };
+  // ── Pull print data from PSDs (ported from classic CostingTab, Jul 28 —
+  // Taylor: V2 cost tab wasn't seeding print locations). Fast path = the
+  // psd_locations cached on item_files.notes at upload; fallback = parse the
+  // PSD with ag-psd. Seeds ONLY items with no print locations yet, and writes
+  // through the normal deco overlay + debounced flush (fresh RMW + _savedAt
+  // stamp + sell recompute + refresh-financials — the guarded path). ──
+  const pullFromPsds = async () => {
+    if (isCostingLocked(job) || pullingPsds) return 0;
+    const needs = items.filter((it: any) => {
+      const cp = decoState[it.id] || cpFor(it) || {};
+      return !Object.values(cp.printLocations || {}).some((l: any) => l?.location);
+    });
+    if (!needs.length) return 0;
+    setPullingPsds(true);
+    let populated = 0;
+    try {
+      const supabase = createClient();
+      const { data: psdFiles } = await supabase.from("item_files")
+        .select("item_id, drive_file_id, file_name, notes")
+        .in("item_id", needs.map((it: any) => it.id))
+        .ilike("file_name", "%.psd");
+      if (!psdFiles?.length) return 0;
+      const psdByItem: Record<string, any> = {};
+      for (const f of psdFiles as any[]) { if (!psdByItem[f.item_id]) psdByItem[f.item_id] = f; }
+      const PLACEMENT_MAP: Record<string, string> = { Front: "Full Front", "Full Front": "Full Front", Back: "Full Back", "Full Back": "Full Back", "Left Chest": "Left Chest", "Right Chest": "Right Chest", "Left Sleeve": "Left Sleeve", "Right Sleeve": "Right Sleeve", Neck: "Neck", Hood: "Hood", Pocket: "Pocket" };
+      const SKIP_GROUPS = ["Shirt Color", "Shadows", "Highlights", "Mask", "Client Art"];
+      for (const [itemId, psdFile] of Object.entries(psdByItem)) {
+        const item = needs.find((x: any) => x.id === itemId); if (!item) continue;
+        try {
+          let locs: { placement: string; colorCount: number }[] | null = null;
+          let hasTag = false;
+          let cached: any = null;
+          try { cached = psdFile.notes ? JSON.parse(psdFile.notes) : null; } catch {}
+          if (cached?.psd_locations) { locs = cached.psd_locations; hasTag = !!cached.psd_has_tag; }
+          else {
+            // dl=1: the thumbnail endpoint serves Drive's PNG for PSD mimes by
+            // default — we need the real bytes for ag-psd.
+            const res = await fetch(`/api/files/thumbnail?id=${psdFile.drive_file_id}&dl=1`);
+            if (!res.ok) continue;
+            const { readPsd } = await import("ag-psd");
+            const psd = readPsd(new Uint8Array(await res.arrayBuffer()));
+            const groups = [...(psd.children || [])].reverse();
+            locs = [];
+            for (const g of groups) {
+              if (SKIP_GROUPS.includes(g.name as string)) continue;
+              const isTag = (g.name || "").toLowerCase() === "tag" || (g.name || "").toLowerCase() === "tags";
+              if (isTag) { hasTag = true; continue; }
+              if (!g.children?.length) continue;
+              locs.push({ placement: (g.name || "") as string, colorCount: g.children.filter((l: any) => !SKIP_GROUPS.includes(l.name) && l.name).length });
+            }
+          }
+          if (!locs?.length && !hasTag) continue;
+          const newLocations: Record<string, any> = {};
+          let locIdx = 1;
+          for (const loc of locs || []) {
+            newLocations[String(locIdx)] = { location: PLACEMENT_MAP[loc.placement] || loc.placement, screens: loc.colorCount || 0, printer: "" };
+            locIdx++;
+          }
+          for (let pad = locIdx; pad <= 6; pad++) newLocations[String(pad)] = {};
+          const next: any = { ...assemble(item), printLocations: newLocations, printCount: locIdx - 1 };
+          if (hasTag) next.tagPrint = true;
+          setDecoState(s => ({ ...s, [itemId]: next }));
+          schedulePersist(item, next);
+          populated++;
+        } catch (e) { console.warn("[Pull from PSDs] item failed:", itemId, e); }
+      }
+      if (populated > 0) logJobActivity(job.id, `Print data pulled from PSDs on ${populated} item${populated === 1 ? "" : "s"}`);
+    } finally { setPullingPsds(false); }
+    return populated;
+  };
+  // Auto-seed once per visit (classic fired its auto-detect on load) — only
+  // un-costed items are touched, so an already-priced job is never rewritten.
+  useEffect(() => {
+    // Wait for decorator pricing so the flush can compute sells for what we seed.
+    if (psdAutoRan.current || !items.length || !job?.id || !Object.keys(printers).length) return;
+    psdAutoRan.current = true;
+    pullFromPsds();
+    // eslint-disable-next-line
+  }, [items.length, job?.id, Object.keys(printers).length]);
+
   // Job-level margin / shipping / CC change → recompute + persist EVERY item's
   // sell through the shared engine (respects per-item overrides), + costing_data.
   const recomputeAllSells = async (patch: { costMargin?: string; inclShip?: boolean; inclCC?: boolean }) => {
@@ -2309,7 +2391,11 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                         {/* decoration engine — DecorationPanel fed the full assembled array so
                             share groups (A–J / T1–T10) + qty tiers compute across items. */}
                         <div style={{ marginTop: 18, paddingTop: 14, borderTop: `1px solid ${T.border}44` }}>
-                          <div style={{ ...lbl, marginBottom: 10 }}>Decoration</div>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 10 }}>
+                            <span style={lbl}>Decoration</span>
+                            {!locked && <button onClick={() => pullFromPsds()} disabled={pullingPsds} title="Seed print locations + color counts from uploaded PSDs (only items with no locations yet)"
+                              style={{ ...ghostBtn, opacity: pullingPsds ? 0.6 : 1 }}>{pullingPsds ? "Pulling…" : "Pull from PSDs"}</button>}
+                          </div>
                           <DecorationPanel p={allAssembled[wsIndex!]} i={wsIndex!} costProds={allAssembled} PRINTERS={printers} decoratorRecords={decoratorRecords} updateProd={updateProd} setCostProds={setCostProdsFn} lookupPrintPrice={lookupPrint} lookupTagPrice={lookupTag} costingLocked={locked} hideVendorApplyAll />
                         </div>
 
@@ -2687,7 +2773,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                   projectTitle={job.title}
                   mockupFile={mockupFile}
                   files={pFiles}
-                  costingData={job.costing_data}
+                  costingData={{ ...(job.costing_data || {}), costProds: allAssembled }} /* live overlay — proofs read current costing, not the page-load baseline (Taylor, Jul 28) */
                   initialMode={pItem.id === proofItemId ? proofMode : (pItem.proof_spec ? "preview" : "edit")}
                   onClose={() => setProofItemId(null)}
                   onSaved={reloadAllFiles}
@@ -2740,7 +2826,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
         const mockupFile = pFiles.find((f: any) => f.stage === "mockup") || pFiles.find((f: any) => f.file_name?.toLowerCase().includes("mockup"));
         return (
           <ProofModal key={"bake-" + id} hidden autoBake item={pItem} clientName={client} projectTitle={job.title}
-            mockupFile={mockupFile} files={pFiles} costingData={job.costing_data} initialMode="preview"
+            mockupFile={mockupFile} files={pFiles} costingData={{ ...(job.costing_data || {}), costProds: allAssembled }} /* live overlay — proofs read current costing, not the page-load baseline (Taylor, Jul 28) */ initialMode="preview"
             onClose={() => {}} onSaved={reloadAllFiles} onBaked={handleBaked}
             onUpdateItem={(iid: string, updates: any) => setItems(prev => prev.map((x: any) => x.id === iid ? { ...x, ...updates } : x))} />
         );
