@@ -333,7 +333,7 @@ export default function ItemsPage() {
           )}
 
           {/* ── Arrival timeline (desktop) — the drop-planning overview ── */}
-          {(timed.length > 0 || inStockRows.length > 0) && (
+          {(timed.length > 0 || inStockRows.length > 0 || tbd.length > 0) && (
             <div className="px-timeline" style={{ marginBottom: 36 }}>
               <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10, marginBottom: 4 }}>
                 <h2 style={{ margin: 0, fontSize: 15, fontWeight: 900, textTransform: "uppercase" }}>Landing schedule.</h2>
@@ -401,17 +401,35 @@ export default function ItemsPage() {
                     </button>
                   );
                 })}
+                {/* Date pending — no estimate yet; rows close the timeline so every
+                    active piece lives on this one surface */}
+                {tbd.map(it => (
+                  <button key={it.id} onClick={() => setDetail(it)}
+                    style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", background: "transparent", border: "none", borderBottom: `1px solid ${C.border}`, padding: "9px 0", cursor: "pointer", fontFamily: C.font, color: C.text, textAlign: "left" }}>
+                    <div className="px-tl-name" style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
+                      <div style={{ width: 30, height: 30, background: "#fff", borderRadius: 6, overflow: "hidden", flexShrink: 0 }}>
+                        {it.thumb_id && <img src={`/api/files/thumbnail?id=${it.thumb_id}&thumb=1`} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "contain" }} onError={(e: any) => { e.target.style.display = "none"; }} />}
+                      </div>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 11.5, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.name}</div>
+                        <div style={{ fontSize: 9.5, color: C.faint, fontFamily: C.mono }}>{it.qty.toLocaleString()} pcs</div>
+                      </div>
+                    </div>
+                    <div style={{ flex: 1, position: "relative", height: 22, minWidth: 0 }}>
+                      <div style={{ position: "absolute", left: 0, right: 0, top: 10, height: 2, background: C.card, borderRadius: 2 }} />
+                    </div>
+                    <div style={{ flexShrink: 0, width: 92, textAlign: "right" }}>
+                      <div style={{ fontSize: 11, fontWeight: 800, fontFamily: C.mono, color: C.muted }}>Date TBD</div>
+                      <div style={{ fontSize: 9.5, color: C.faint, fontFamily: C.mono }}>we&rsquo;re on it</div>
+                    </div>
+                  </button>
+                ))}
                 {/* Axis */}
                 <div style={{ display: "flex", justifyContent: "space-between", paddingLeft: 162, paddingTop: 8, fontSize: 9, fontFamily: C.mono, color: C.faint }}>
                   <span>today</span>
                   {weeks.slice(1).map((w, i) => <span key={i}>{w.label}</span>)}
                 </div>
               </div>
-              {tbd.length > 0 && (
-                <div style={{ marginTop: 10, fontSize: 11, color: C.faint }}>
-                  {tbd.length} piece{tbd.length === 1 ? "" : "s"} awaiting a delivery estimate — shown in the gallery below.
-                </div>
-              )}
             </div>
           )}
 
@@ -433,7 +451,7 @@ export default function ItemsPage() {
           )}
 
           {/* ── Landing schedule, mobile: vertical agenda down a date rail ── */}
-          {(timed.length > 0 || inStockRows.length > 0) && (
+          {(timed.length > 0 || inStockRows.length > 0 || tbd.length > 0) && (
             <div className="px-timeline-mobile" style={{ marginBottom: 34 }}>
               <h2 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 900, textTransform: "uppercase" }}>Landing schedule.</h2>
               {(() => {
@@ -473,7 +491,32 @@ export default function ItemsPage() {
                         </div>
                       </div>
                     )}
-                    {dates.map(d => {
+                    {[...dates, ...(tbd.length > 0 ? ["__tbd__"] : [])].map(d => {
+                      if (d === "__tbd__") return (
+                        /* Date pending closes the rail — every active piece on one surface */
+                        <div key={d} style={{ position: "relative", marginBottom: 18 }}>
+                          <span style={{ position: "absolute", left: -18, top: 4, width: 10, height: 10, borderRadius: 999, background: C.border, border: `2px solid ${C.bg}` }} />
+                          <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 8 }}>
+                            <span style={{ fontSize: 12.5, fontWeight: 900, textTransform: "uppercase", fontFamily: C.mono, color: C.muted }}>Date pending</span>
+                            <span style={{ fontSize: 10, fontFamily: C.mono, color: C.faint, fontWeight: 700 }}>we&rsquo;re on it</span>
+                          </div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                            {tbd.map(it => (
+                              <button key={it.id} onClick={() => setDetail(it)}
+                                style={{ display: "flex", alignItems: "center", gap: 10, background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: "8px 10px", cursor: "pointer", textAlign: "left", fontFamily: C.font, color: C.text, width: "100%" }}>
+                                <span style={{ width: 34, height: 34, background: "#fff", borderRadius: 7, overflow: "hidden", flexShrink: 0 }}>
+                                  {it.thumb_id && <img src={`/api/files/thumbnail?id=${it.thumb_id}&thumb=1`} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "contain" }} onError={(e: any) => { e.target.style.display = "none"; }} />}
+                                </span>
+                                <span style={{ minWidth: 0, flex: 1 }}>
+                                  <span style={{ display: "block", fontSize: 12, fontWeight: 800, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.name}</span>
+                                  <span style={{ display: "block", fontSize: 9.5, fontFamily: C.mono, color: C.faint, marginTop: 2 }}>{it.qty.toLocaleString()} pcs</span>
+                                </span>
+                                <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", color: C.muted, whiteSpace: "nowrap", flexShrink: 0 }}>{STATUS_META[it.status]?.label || it.status}</span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      );
                       const group = byDate.get(d)!;
                       const dd = daysOut(d);
                       const soon = dd <= 7;
@@ -512,43 +555,9 @@ export default function ItemsPage() {
             </div>
           )}
 
-          {/* ── Drop planner: pieces grouped by when they're web-ready ── */}
-          {(() => {
-            const groups: { key: string; title: string; hint: string; items: Item[] }[] = [
-              { key: "now", title: "Ready now.", hint: "In stock, drop whenever", items: [] },
-              { key: "week", title: "This week.", hint: "", items: [] },
-              { key: "twoweeks", title: "Next two weeks.", hint: "Web-ready in 8 to 14 days", items: [] },
-              { key: "month", title: "This month.", hint: "Web-ready in 2 to 5 weeks", items: [] },
-              { key: "months", title: "One to three months.", hint: "The mid-range runs", items: [] },
-              { key: "far", title: "Three months plus.", hint: "The long builds", items: [] },
-              { key: "tbd", title: "Date pending.", hint: "No delivery estimate yet, we're on it", items: [] },
-            ];
-            const g = (k: string) => groups.find(x => x.key === k)!;
-            for (const it of inView) {
-              if (it.status === "in_stock") { g("now").items.push(it); continue; }
-              const eta = resolveItemEta(it);
-              if (!eta) { g("tbd").items.push(it); continue; }
-              const ready = new Date(eta.date + "T00:00").getTime() + WEB_PREP_DAYS * DAY;
-              const d = Math.round((ready - today.getTime()) / DAY);
-              if (d <= 7) g("week").items.push(it);
-              else if (d <= 14) g("twoweeks").items.push(it);
-              else if (d <= 35) g("month").items.push(it);
-              else if (d <= 92) g("months").items.push(it);
-              else g("far").items.push(it);
-            }
-            const visible = groups.filter(x => x.items.length > 0);
-            if (visible.length === 0) return <div style={{ color: C.muted, fontSize: 13, padding: "26px 0" }}>{q ? "No pieces match that search." : "No active pieces right now."}</div>;
-            return visible.map(grp => (
-              <div key={grp.key} style={{ marginBottom: 34 }}>
-                <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
-                  <h2 style={{ margin: 0, fontSize: 17, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em" }}>{grp.title}</h2>
-                  <span style={{ fontSize: 10, fontWeight: 800, color: C.faint, fontFamily: C.mono }}>{grp.items.length} piece{grp.items.length === 1 ? "" : "s"} · {grp.items.reduce((a, x) => a + x.qty, 0).toLocaleString()} pcs</span>
-                  {grp.hint && <span style={{ fontSize: 10.5, color: C.faint }}>{grp.hint}</span>}
-                </div>
-                <Gallery items={grp.items} onOpen={setDetail} empty="" />
-              </div>
-            ));
-          })()}
+          {/* Drop-planner gallery removed (Jon, Jul 28): the timeline IS the
+              pipeline — one surface, no duplicate feed underneath. In-stock
+              leads it, dated arrivals follow, date-pending closes it. */}
         </>
       )}
 
@@ -807,6 +816,20 @@ function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClo
               </div>
             )}
           </div>
+
+          {/* Retail — pipeline-grant only (the API strips retail without it).
+              The client's own price: per-unit + what the run is worth. */}
+          {item.retail != null && (
+            <div>
+              <div style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Retail</div>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+                <div style={{ fontSize: 14, color: C.text, fontWeight: 700, fontFamily: C.mono }}>${Number(item.retail).toFixed(2)}<span style={{ fontSize: 11, color: C.muted, fontWeight: 700 }}> / unit</span></div>
+                {item.qty > 0 && (
+                  <span style={{ fontSize: 11, color: C.muted, fontFamily: C.mono }}>{fmtMoneyShort(Number(item.retail) * item.qty)} at retail</span>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Row 3: Invoice — takes the slot where Project used to
               live. Project dropped per Jon's call: the order modal
