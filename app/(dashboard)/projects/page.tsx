@@ -247,7 +247,7 @@ export default function ProjectsBoard() {
     }>
       {/* Active/Completed toggles + search on ONE row (Jon, Jul 29) — search
           sits left beside the tabs, same height, white pill kept but compact. */}
-      <div style={{ display: "flex", gap: 8, alignItems: "center", margin: "14px 0 4px", flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", margin: "14px 0 22px", flexWrap: "wrap" }}>
         {([["active", `Active · ${activeAll.length}`], ["completed", `Completed · ${rows.filter(r => r.stage.complete).length}`]] as [typeof tab, string][]).map(([k, label]) => (
           <button key={k} onClick={() => setTab(k)}
             style={{ fontSize: 13, fontWeight: 600, padding: "8px 16px", borderRadius: 9, cursor: "pointer", border: `1px solid ${tab === k ? T.text : T.border}`, background: tab === k ? T.text : T.card, color: tab === k ? "#0a0a0a" : T.muted }}>{label}</button>
