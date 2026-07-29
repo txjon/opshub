@@ -2438,7 +2438,11 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                 );
               })()}
               {wsTask === "art" && (() => {
-                const files = filesByItem[it.id] || [];
+                // Packing slips attach per-item in the DB (receiving/notify need
+                // them) but they're logistics paperwork, not art — keep them out
+                // of the art strip (Jon, Jul 29). In Drive they live in the job
+                // folder's "Packing Slips", not the item folders.
+                const files = (filesByItem[it.id] || []).filter((f: any) => f.stage !== "packing_slip");
                 const art = it.artwork_status || "not_started";
                 const artColor = art === "approved" ? T.green : art === "revision_requested" ? T.amber : T.muted;
                 // Internal approval toggle (parity with classic ApprovalsTab peek modal):
