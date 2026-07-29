@@ -70,8 +70,15 @@ export async function updateSession(request: NextRequest) {
     || pathname.startsWith("/shop/");
   // The legacy /onboard intake form stays publicly reachable.
   const isLegacyPublic = pathname.startsWith("/onboard");
+  // Client-facing documents in public/ — prospectuses Jon links in emails.
+  // Exact filenames only (fail closed): these were silently login-walled,
+  // so every emailed link hit a sign-in screen (found Jul 29).
+  const isClientDoc = [
+    "/hpd-partnership-overview.html", "/hpd-partnership-overview.pdf",
+    "/hpd-manufacturing-overview.html", "/hpd-manufacturing-overview.pdf",
+  ].includes(pathname);
 
-  const isPublicRoute = isTokenPublic || isMarketingPublic || isLegacyPublic;
+  const isPublicRoute = isTokenPublic || isMarketingPublic || isLegacyPublic || isClientDoc;
 
   if (!user && !isAuthRoute && !isPublicRoute && !isApiRoute) {
     const url = request.nextUrl.clone();
