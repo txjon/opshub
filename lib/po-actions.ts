@@ -130,7 +130,10 @@ export async function shipItemFromDecorator(supabase: any, item: any, opts?: { w
     ship_tracking: pickup ? null : (item.ship_tracking || null),
     ship_date: timestamps.shipped,
     ship_qtys: shipQtysToSave,
-    expected_arrival: item.expected_arrival || null,
+    // Never seed the box ETA from the retired items.expected_arrival — a fossil
+    // date here would masquerade as a real receiving/tracker estimate. The box
+    // gets its ETA from the tracker or receiving2's edit.
+    expected_arrival: null,
     warehouse_notes: opts?.warehouseNotes || null,
   });
 

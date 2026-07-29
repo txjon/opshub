@@ -230,11 +230,14 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         thumb_id: thumbByItem[it.id] || null,
         created_at: it.created_at,
         client_eta: it.client_eta || null,
-        // The chain-resolved ETA (locked 2026-07-15): manual client_eta wins,
-        // else derives PO ship-by (+ live slips) + vendor transit + route
-        // buffer, with un-received box ETAs as the arrival override. Null =
-        // TBD — the portal never shows a guessed date (R5).
-        ...(() => {
+        // THE PROMISE WINS (Jon, Jul 28): items.client_eta is the date we
+        // committed to the client — when set, it IS the client date (essential
+        // for retro-added jobs whose production dates are backfill). The chain
+        // (PO ship-by + live slips + vendor transit + route buffer, un-received
+        // box ETAs as arrival override) fills in when no promise is set, and is
+        // the audit that should flag a stale promise. Null = TBD — the portal
+        // never shows a guessed date (R5).
+        ...(it.client_eta ? { eta: it.client_eta, eta_source: "override" as const } : (() => {
           const assignment = it.decorator_assignments?.[0];
           const dec = assignment?.decorators || null;
           const tm = (job.type_meta || {}) as any;
@@ -254,10 +257,13 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
             shipByAgreed: agreedKey ? tm.po_ship_dates[agreedKey] : null,
             shipByLive: liveKey ? tm.po_ship_live[liveKey]?.date : null,
             shipByItemOverride: it.ship_est || null,
-            arrivalOverride: boxArrivalByItem[it.id] || it.expected_arrival || null,
+            // Box-level ETA only (receiving's edit / tracker). The legacy
+            // items.expected_arrival is retired — fossil values shadowed the
+            // live chain (F Hat 9/23 vs the real 8/16, Jul 28).
+            arrivalOverride: boxArrivalByItem[it.id] || null,
           });
           return { eta: chain.clientEta, eta_source: chain.etaSource };
-        })(),
+        })()),
         client_eta_note: it.client_eta_note || null,
         archived_at: it.archived_at || null,
         // Financial fields — same as the internal worksheet. Cost is

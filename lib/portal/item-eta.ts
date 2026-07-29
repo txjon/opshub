@@ -1,11 +1,13 @@
 import { deriveDateChain } from "@/lib/date-chain";
 
-// Per-item client ETA for ONE job — the same chain the hub's items API runs
-// (client_eta override > PO ship dates + vendor transit + route buffer, with
-// un-received box arrivals as override). Shared by both portal order routes
-// so the order detail can show an estimated completion date.
+// Per-item client ETA for ONE job — the same rule the hub's items API runs:
+// THE PROMISE WINS. items.client_eta is the date we committed to the client
+// (set by us, the only hand-typed client date); when present it IS the client
+// date. The chain (PO ship dates + vendor transit + route buffer, un-received
+// box arrivals as override) fills in when no promise is set — and is the
+// audit that should flag a promise gone stale (Jon, Jul 28).
 //
-// items need: id, shipping_route, ship_est, expected_arrival.
+// items need: id, shipping_route, ship_est, client_eta.
 export async function etaByItemForJob(
   sb: any,
   job: { id: string; shipping_route?: string | null; type_meta?: any },
@@ -52,9 +54,10 @@ export async function etaByItemForJob(
       shipByAgreed: agreedKey ? tm.po_ship_dates[agreedKey] : null,
       shipByLive: liveKey ? tm.po_ship_live[liveKey]?.date : null,
       shipByItemOverride: it.ship_est || null,
-      arrivalOverride: boxArrival[it.id] || it.expected_arrival || null,
+      // Box-level ETA only — legacy items.expected_arrival retired (fossil dates shadowed the chain).
+      arrivalOverride: boxArrival[it.id] || null,
     });
-    out[it.id] = chain.clientEta || null;
+    out[it.id] = it.client_eta || chain.clientEta || null;
   }
   return out;
 }
