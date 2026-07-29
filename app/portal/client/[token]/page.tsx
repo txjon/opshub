@@ -2,22 +2,19 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useClientPortal } from "./_shared/context";
-import { C, fmtDate } from "./_shared/theme";
+import { C } from "./_shared/theme";
 import { uploadFileToDriveSession } from "@/lib/upload-drive-client";
-import { STUDIO_UNDER_DEV, DROPS_UNDER_DEV } from "@/lib/v2-flags";
+import { STUDIO_UNDER_DEV } from "@/lib/v2-flags";
 
-// HOME — the hub's front door (reworked Jul 21 2026; idea door added Jul 22,
-// Jon: "home should have a way to send an idea"). Answers: what needs me,
-// what's dropping next, what's new — and invites the next build.
-// Data: orders + items APIs (same as tabs).
+// HOME — the hub's front door (reworked Jul 21 2026; idea door added Jul 22;
+// simplified Jul 28, Jon: "the feed is confusing" — home is ONLY the Your-move
+// spotlight now). One question, one answer: what needs me. Browsing lives on
+// the tabs (Orders / Pipeline / Catalog), and the empty state points there.
 
 export default function HomePage() {
   const { data, token } = useClientPortal();
   const base = `/portal/client/${token}`;
   const [orders, setOrders] = useState<any[] | null>(null);
-  const [items, setItems] = useState<any[] | null>(null);
-  const [drops, setDrops] = useState<any[] | null>(null);
-  const [products, setProducts] = useState<any[] | null>(null);
   const features = (data as any)?.features || [];
   const hasPipeline = features.includes("pipeline");
   // Studio under dev: drop every studio surface from the client's home (the idea
@@ -28,19 +25,14 @@ export default function HomePage() {
 
   useEffect(() => {
     (async () => {
-      const [o, i, d, p] = await Promise.all([
-        fetch(`/api/portal/client/${token}/orders`).then(r => r.json()).catch(() => ({})),
-        fetch(`/api/portal/client/${token}/items`).then(r => r.json()).catch(() => ({})),
-        fetch(`/api/portal/client/${token}/drops`).then(r => r.json()).catch(() => ({})),
-        fetch(`/api/portal/client/${token}/products`).then(r => r.json()).catch(() => ({})),
-      ]);
-      setOrders(o.orders || []); setItems(i.items || []); setDrops(d.drops || []); setProducts(p.products || []);
+      const o = await fetch(`/api/portal/client/${token}/orders`).then(r => r.json()).catch(() => ({}));
+      setOrders(o.orders || []);
     })();
     // eslint-disable-next-line
   }, [token]);
 
   if (!data) return null;
-  const loading = orders === null || items === null || drops === null || products === null;
+  const loading = orders === null;
   const thumb = (id: string) => `/api/files/thumbnail?id=${id}&thumb=1&size=600`;
 
   // ── THE GUEST HOUSE (Jon, Jul 22): the client's own version of The House —
@@ -70,14 +62,6 @@ export default function HomePage() {
 
   const bThumb = (b: any) => { const t = (b.thumbs || []).find((x: any) => x.preview_drive_file_id || x.drive_file_id); return t ? thumb(t.preview_drive_file_id || t.drive_file_id) : null; };
 
-  // Drops — building / live / cut.
-  const DROP_VERB: Record<string, { verb: string; color: string }> = {
-    building: { verb: "Coming together", color: C.amber }, live: { verb: "It's live", color: C.green },
-    cut: { verb: "In production", color: C.blue }, closed: { verb: "Window closed", color: C.blue },
-  };
-  // Drops hidden from the client hub (DROPS_UNDER_DEV) — empty feed drops the
-  // "The drops." home section and its contribution to the empty-state check.
-  const dropFeed = DROPS_UNDER_DEV ? [] : (drops || []).filter(d => DROP_VERB[d.status]).slice(0, 2);
   // Orders — the client's move (or where it stands).
   const orderMove = (o: any): { verb: string; color: string; act: number; works?: boolean } => {
     // Real asks first — only once we've actually put a number or a proof in
@@ -105,37 +89,14 @@ export default function HomePage() {
   // An on-hold job must not read "we're getting these ready" either — it
   // stays on the Orders tab, not the home feed.
   const orderRows = (orders || []).filter(o => o.phase !== "cancelled" && o.phase !== "on_hold" && o.kind !== "fulfillment").map(o => ({ o, ...orderMove(o) }));
-  // Pipeline — items on the move.
-  const pipeMove = (it: any): { verb: string; color: string; meta: string } => {
-    const qty = it.qty ? `${Number(it.qty).toLocaleString()} pcs` : "";
-    if (it.status === "in_stock") return { verb: "In stock", color: C.green, meta: `${(it.qty || 0).toLocaleString()} pcs ready` };
-    if (it.eta) return { verb: "On the way", color: C.blue, meta: `lands ${fmtDate(it.eta)}` };
-    if (it.status === "shipped") return { verb: "Shipping", color: C.blue, meta: qty };
-    if (it.status === "in_production") return { verb: "In production", color: C.blue, meta: qty };
-    return { verb: "In progress", color: C.blue, meta: qty };   // honest fallback — never a false "In production"
-  };
 
   // ── YOUR MOVE (Jon, Jul 22: "1 thing needs you... I don't know which one").
-  //    The actionable items LEAD the feed in their own spotlight, so what needs
-  //    the client is the first, labeled, amber-bordered thing — and they're
-  //    pulled OUT of the browse sections below so nothing shows twice. ──
+  //    Home IS the spotlight — the only feed on the page (Jon, Jul 28). ──
   const actOrders = orderRows.filter(x => x.act);
   const actBriefs = (hasStudio ? briefs : []).filter(b => b.state !== "delivered" && b.has_unread_external);
   const spotlightCount = actOrders.length + actBriefs.length;
 
-  // Browse feeds — everything that ISN'T already spotlighted.
-  const studioFeed = briefs.filter(b => b.state !== "delivered" && !b.has_unread_external).slice(0, 3);
-  // "In the works" — pre-production projects the client can recall, honestly
-  // labeled (not a pending action, not "in production").
-  const worksOrders = orderRows.filter(x => x.works);
-  const orderFeed = orderRows.filter(x => !x.act && !x.works).slice(0, 3);
-  // "In flight" = things actually moving. Setup / pre-production items live in
-  // "In the works" (via their order), so they're excluded here — no false
-  // "In production" on an intake item (Jon, Jul 28).
-  const pipeFeed = (items || []).filter(it => !["setup", "complete", "archived", "cancelled", "on_hold"].includes(it.status)).slice(0, 4);
-  const catFeed = (products || []).slice(0, 4);
-
-  const nothing = !loading && spotlightCount === 0 && studioFeed.length === 0 && dropFeed.length === 0 && worksOrders.length === 0 && orderFeed.length === 0 && pipeFeed.length === 0 && catFeed.length === 0;
+  const nothing = !loading && spotlightCount === 0 && orderRows.length === 0 && briefs.length === 0;
 
   return (
     <div style={{ paddingTop: "clamp(8px, 3vw, 28px)" }}>
@@ -160,110 +121,37 @@ export default function HomePage() {
       {/* The idea door — the Studio's front-door form, in place */}
       {hasStudio && <IdeaDoor token={token} base={base} />}
 
-      {/* Reassurance only when nothing needs them — otherwise the spotlight owns it */}
-      {!loading && spotlightCount === 0 && (
-        <div style={{ fontSize: 13, color: C.muted, margin: "0 0 8px", lineHeight: 1.6, textAlign: "center" }}>
-          {nothing ? "Nothing here yet. Share something above to get started." : "Nothing needs you right now. Here's where everything stands."}
-        </div>
-      )}
-
       {loading ? (
         <div style={{ color: C.faint, fontSize: 13, padding: "40px 0", textAlign: "center" }}>Loading your house…</div>
-      ) : (
+      ) : spotlightCount > 0 ? (
         <>
-          {/* ── Your move — the spotlight leads the feed, so what needs the client
-              is the first, labeled, amber-bordered thing (Jon, Jul 22) ── */}
-          {spotlightCount > 0 && (
-            <>
-              {sec("Your move.", `${spotlightCount} thing${spotlightCount === 1 ? "" : "s"} need${spotlightCount === 1 ? "s" : ""} you — tap in`)}
-              <div className="gh-grid">
-                {actOrders.map(({ o, verb, color }) => {
-                  const art = (o.items || []).map((it: any) => it.thumb_id).find(Boolean);
-                  return plate(`mv-o-${o.id}`, art ? thumb(art) : null, o.job_number || "Your order", verb, color, o.title || "", `${base}/orders?open=${o.id}`, true);
-                })}
-                {actBriefs.map(b => plate(`mv-b-${b.id}`, bThumb(b), b.title || "Your idea", "Take a look", C.amber, b.preview_line || "new from our team", `${base}/studio`, true))}
-              </div>
-            </>
-          )}
-
-          {/* ── In the works — pre-production projects, honestly labeled so the
-              client can recall what's been asked for, without a false action or
-              a premature "in production" (Jon, Jul 28) ── */}
-          {worksOrders.length > 0 && (
-            <>
-              {sec("In the works.", "we're getting these ready", `${base}/orders`, "All orders")}
-              <div style={{ fontSize: 12, color: C.muted, margin: "-4px 0 12px", lineHeight: 1.5 }}>Your quote and proofs will show up in <b style={{ color: C.text }}>Your move</b> when they&rsquo;re ready for you.</div>
-              <div className="gh-grid">
-                {worksOrders.map(({ o, verb, color }) => {
-                  const art = (o.items || []).map((it: any) => it.thumb_id).find(Boolean);
-                  return plate(`wk-${o.id}`, art ? thumb(art) : null, o.job_number || "Your order", verb, color, o.title || "", `${base}/orders?open=${o.id}`);
-                })}
-              </div>
-            </>
-          )}
-
-          {/* ── Studio ── */}
-          {hasStudio && studioFeed.length > 0 && (
-            <>
-              {sec("The studio.", "your ideas in motion", `${base}/studio`, "Open studio")}
-              <div className="gh-grid">
-                {studioFeed.map(b => plate(`st-${b.id}`, bThumb(b), b.title || "Your idea",
-                  b.has_unread_external ? "Take a look" : "In the studio",
-                  b.has_unread_external ? C.amber : C.blue,
-                  b.preview_line || "we're on it", `${base}/studio`))}
-              </div>
-            </>
-          )}
-
-          {/* ── Drops ── */}
-          {dropFeed.length > 0 && (
-            <>
-              {sec("The drops.", "your releases", `${base}/drops`, "Open drops")}
-              <div className="gh-grid">
-                {dropFeed.map(d => { const dv = DROP_VERB[d.status]; return plate(`dr-${d.id}`, null, d.title, dv.verb, dv.color,
-                  `${d.model === "stock" ? "in-stock" : "pre-order"}${d.target_live_date ? ` · live ${fmtDate(d.target_live_date)}` : ""}`, `${base}/drops`); })}
-              </div>
-            </>
-          )}
-
-          {/* ── Orders ── */}
-          {orderFeed.length > 0 && (
-            <>
-              {sec("Your orders.", "where each one stands", `${base}/orders`, "All orders")}
-              <div className="gh-grid">
-                {orderFeed.map(({ o, verb, color }) => {
-                  const art = (o.items || []).map((it: any) => it.thumb_id).find(Boolean);
-                  return plate(`or-${o.id}`, art ? thumb(art) : null,
-                    o.job_number || "Your order", verb, color, o.title || "", `${base}/orders?open=${o.id}`);
-                })}
-              </div>
-            </>
-          )}
-
-          {/* ── Pipeline ── */}
-          {hasPipeline && pipeFeed.length > 0 && (
-            <>
-              {sec("In flight.", "everything on the move", `${base}/items`, "Full pipeline")}
-              <div className="gh-grid">
-                {pipeFeed.map(it => { const pm = pipeMove(it); return plate(`pi-${it.id}`, it.thumb_id ? thumb(it.thumb_id) : null,
-                  it.name, pm.verb, pm.color, pm.meta, `${base}/items`); })}
-              </div>
-            </>
-          )}
-
-          {/* ── Catalog ── */}
-          {catFeed.length > 0 && (
-            <>
-              {sec("Your catalog.", "run any of it back", `${base}/reorder`, "Open catalog")}
-              <div className="gh-grid">
-                {catFeed.map(p => plate(`ca-${p.id}`, p.artFileId ? thumb(p.artFileId) : null, p.title, "Run it back", C.text,
-                  `${p.format || "product"}${p.retail != null ? ` · $${p.retail}` : ""}`, `${base}/reorder`))}
-              </div>
-            </>
-          )}
-
+          {/* ── Your move — the only feed on home: what needs the client, amber,
+              labeled, nothing else competing with it (Jon, Jul 28) ── */}
+          {sec("Your move.", `${spotlightCount} thing${spotlightCount === 1 ? "" : "s"} need${spotlightCount === 1 ? "s" : ""} you — tap in`)}
+          <div className="gh-grid">
+            {actOrders.map(({ o, verb, color }) => {
+              const art = (o.items || []).map((it: any) => it.thumb_id).find(Boolean);
+              return plate(`mv-o-${o.id}`, art ? thumb(art) : null, o.job_number || "Your order", verb, color, o.title || "", `${base}/orders?open=${o.id}`, true);
+            })}
+            {actBriefs.map(b => plate(`mv-b-${b.id}`, bThumb(b), b.title || "Your idea", "Take a look", C.amber, b.preview_line || "new from our team", `${base}/studio`, true))}
+          </div>
           <div style={{ height: 60 }} />
         </>
+      ) : (
+        /* All caught up — calm, and point at the tabs (they hold the browsing
+           that used to crowd this page) */
+        <div style={{ textAlign: "center", padding: "34px 0 60px" }}>
+          <div style={{ fontSize: 13, color: C.muted, lineHeight: 1.6 }}>
+            {nothing ? (hasStudio ? "Nothing here yet. Share something above to get started." : "Nothing here yet.") : "Nothing needs you right now — we've got it from here."}
+          </div>
+          <div style={{ display: "flex", gap: 22, justifyContent: "center", flexWrap: "wrap", marginTop: 22 }}>
+            {([["Your orders", `${base}/orders`], ...(hasPipeline ? [["The pipeline", `${base}/items`]] : []), ["Your catalog", `${base}/reorder`]] as string[][]).map(([label, href]) => (
+              <Link key={href} href={href} style={{ fontSize: 10.5, color: C.text, textDecoration: "none", fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", borderBottom: `1px solid ${C.border}`, paddingBottom: 4 }}>
+                {label} →
+              </Link>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   );

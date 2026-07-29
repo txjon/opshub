@@ -121,6 +121,10 @@ export default function Shell({ children }: { children: ReactNode }) {
   const { data, loading, error, token, toasts, dismissToast } = useClientPortal();
   const pathname = usePathname();
   const base = `/portal/client/${token}`;
+  // Website header: one slim fixed bar, wordmark always centered, nav lives in
+  // the hamburger. Hook must sit above the early returns — it rendering 2 hooks
+  // while loading and 3 after data was a rules-of-hooks violation.
+  const [menuOpen, setMenuOpen] = useState(false);
 
   if (loading) return <CenterMsg msg="Loading…" />;
   if (error) return <CenterMsg msg={error} err />;
@@ -142,10 +146,6 @@ export default function Shell({ children }: { children: ReactNode }) {
 
   const isActive = (path: string) =>
     path === "" ? pathname === base || pathname === base + "/" : !!pathname?.startsWith(base + path);
-
-  // Website header: one slim fixed bar, wordmark always centered,
-  // nav lives in the hamburger. Content starts right beneath it.
-  const [menuOpen, setMenuOpen] = useState(false);
 
   return (
     <div className="portal-shell" style={{ minHeight: "100vh", background: C.bg, fontFamily: C.font, color: C.text }}>
