@@ -2481,10 +2481,11 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                             <a key={f.drive_file_id + f.file_name} href={thumbSrc(f.drive_file_id, true)} target="_blank" rel="noreferrer" title={f.file_name} style={{ textDecoration: "none", position: "relative", display: "block" }}>
                               <button title="Delete file" onClick={e => { e.preventDefault(); e.stopPropagation(); deleteFile(it, f); }}
                                 style={{ position: "absolute", top: 4, right: 4, zIndex: 1, width: 20, height: 20, borderRadius: 999, border: "none", background: "rgba(10,10,10,0.6)", color: "#fff", fontSize: 11, lineHeight: "20px", textAlign: "center", padding: 0, cursor: "pointer" }}>✕</button>
-                              {/* dl=1 = full-file bytes + attachment disposition (drive-proxy) */}
-                              <a title={`Download ${f.file_name}`} href={`/api/files/thumbnail?id=${f.drive_file_id}&dl=1`} download={f.file_name}
-                                onClick={e => e.stopPropagation()}
-                                style={{ position: "absolute", top: 4, left: 4, zIndex: 1, width: 20, height: 20, borderRadius: 999, background: "rgba(10,10,10,0.6)", color: "#fff", fontSize: 11, lineHeight: "20px", textAlign: "center", textDecoration: "none", display: "block" }}>⬇</a>
+                              {/* button (an <a> can't nest in the tile's <a>) — dl=1 serves the
+                                  full file with attachment disposition, so navigation stays put */}
+                              <button title={`Download ${f.file_name}`}
+                                onClick={e => { e.preventDefault(); e.stopPropagation(); window.location.href = `/api/files/thumbnail?id=${f.drive_file_id}&dl=1`; }}
+                                style={{ position: "absolute", top: 4, left: 4, zIndex: 1, width: 20, height: 20, borderRadius: 999, border: "none", background: "rgba(10,10,10,0.6)", color: "#fff", fontSize: 11, lineHeight: "20px", textAlign: "center", padding: 0, cursor: "pointer" }}>⬇</button>
                               <div style={{ aspectRatio: "1 / 1", background: "#fff", borderRadius: 8, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", border: `1px solid ${T.border}` }}>
                                 <img src={thumbSrc(f.drive_file_id)} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
                               </div>
