@@ -2217,7 +2217,8 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                             onFocus={e => e.target.select()} onBlur={e => saveQty(it, sz, e.target.value)}
                             onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
                             style={{ width: 56, textAlign: "center", padding: "7px 6px", borderRadius: 8, border: `1px solid ${T.border}`, background: locked ? T.card : T.surface, color: locked ? T.muted : T.text, fontSize: 14, fontWeight: 700, fontFamily: mono, outline: "none" }} />
-                          {!locked && <button onClick={() => removeSize(it, sz)} title="Remove size" style={{ position: "absolute", top: 10, right: -4, width: 15, height: 15, borderRadius: 999, border: "none", background: T.surface, color: T.faint, fontSize: 11, lineHeight: 1, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>}
+                          {/* tabIndex -1: tabbing runs qty→qty for fast entry — the × stays mouse-only (Jon, Jul 28) */}
+                          {!locked && <button onClick={() => removeSize(it, sz)} title="Remove size" tabIndex={-1} style={{ position: "absolute", top: 10, right: -4, width: 15, height: 15, borderRadius: 999, border: "none", background: T.surface, color: T.faint, fontSize: 11, lineHeight: 1, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>}
                         </div>
                       ))}
                       {!locked && avail.length > 0 && (
