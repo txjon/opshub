@@ -544,6 +544,10 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     const meta = { ...(job.type_meta || {}), ...patch };
     setJob((j: any) => ({ ...j, type_meta: meta }));
     try { await (createClient().from("jobs") as any).update({ type_meta: meta }).eq("id", job.id); } catch (e) { failed("SaveTypeMeta failed — not saved", e); }
+    // invoice_extra_lines feed costing_summary (feeRevenue / passthruTotal) —
+    // refresh so KPIs don't lag additional-charge edits. Scoped to that key;
+    // other type_meta keys (venue, PO#, notes) don't touch the summary.
+    if ("invoice_extra_lines" in patch) fetch(`/api/jobs/${job.id}/refresh-financials`, { method: "POST" }).catch(() => {});
   };
   // Recalc jobs.phase after any gate-changing action (payment, approval, PO,
   // blanks) — the boards/dashboard key off phase; without this V2 actions
@@ -1354,6 +1358,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       const upd: any = { blank_costs, cost_per_unit };
       if (r) upd.sell_per_unit = sell;
       await (createClient().from("items") as any).update(upd).eq("id", item.id);
+      fetch(`/api/jobs/${job.id}/refresh-financials`, { method: "POST" }).catch(() => {});
     } catch (e) { failed("Per-size cost save failed — not saved", e); }
   };
 
