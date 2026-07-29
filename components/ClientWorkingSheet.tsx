@@ -520,7 +520,7 @@ export function ClientWorkingSheet({ clientId, clientName, jobs, onItemLocalChan
           <div onClick={close}
             style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1100, display: "flex", alignItems: "center", justifyContent: "center", padding: "clamp(12px, 3vw, 32px)", fontFamily: font }}>
             <div onClick={e => e.stopPropagation()}
-              style={{ background: T.card, borderRadius: 14, width: "min(820px, 100%)", maxHeight: "94vh", overflow: "hidden", display: "flex", flexDirection: "column", border: `1px solid ${T.border}` }}>
+              style={{ background: T.card, borderRadius: 14, width: "min(440px, 100%)", maxHeight: "94vh", overflow: "hidden", display: "flex", flexDirection: "column", border: `1px solid ${T.border}` }}>
               <div style={{ padding: "14px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
                 <div style={{ width: 44, height: 44, flexShrink: 0, background: "#fff", borderRadius: 8, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", border: `1px solid ${T.border}` }}>
                   {itemThumbs[it.id] ? (
@@ -539,34 +539,12 @@ export function ClientWorkingSheet({ clientId, clientName, jobs, onItemLocalChan
                 <button onClick={close} style={{ background: "none", border: "none", color: T.muted, fontSize: 22, cursor: "pointer", padding: "0 6px", lineHeight: 1 }}>×</button>
               </div>
               <div style={{ flex: 1, overflowY: "auto", padding: "18px 20px" }}>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
+                {/* Stacked single column (Jon, Jul 28): the two CLIENT-facing levers
+                    lead — suggested retail, then the promised date — money/status
+                    reference below. */}
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                   <div>
-                    <label style={{ fontSize: 10, color: T.faint, marginBottom: 3, display: "block", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Qty (read-only)</label>
-                    <input value={it.totalQty} disabled style={{ ...ic, background: T.surface, color: T.faint, fontFamily: mono }} />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: 10, color: T.faint, marginBottom: 3, display: "block", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Unit Cost <span style={{ color: T.amber }}>·</span> sell_per_unit</label>
-                    <input type="number" step="0.01" min="0" value={it.sell_per_unit ?? ""}
-                      onChange={e => saveItemField(it.id, "sell_per_unit", e.target.value === "" ? null : Number(e.target.value))}
-                      onBlur={e => {
-                        const v = e.target.value === "" ? null : Number(e.target.value);
-                        flushItemField(it.id, "sell_per_unit", v);
-                        if (v !== (Number(it.sell_per_unit) || null)) {
-                          logWorksheet(it.jobId, `Unit cost set to ${v == null ? "—" : "$" + Number(v).toFixed(2)} — ${it.name}`);
-                        }
-                      }}
-                      style={{ ...ic, fontFamily: mono }} />
-                    {saveErrors[`${it.id}_sell_per_unit`] && (
-                      <div style={{ fontSize: 9, color: T.red, marginTop: 4, lineHeight: 1.4, fontWeight: 600 }}>Save failed: {saveErrors[`${it.id}_sell_per_unit`]}</div>
-                    )}
-                    {it.quoteApprovedAt && (
-                      <div style={{ fontSize: 9, color: T.amber, marginTop: 4, lineHeight: 1.4 }}>
-                        Quote approved {new Date(it.quoteApprovedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}. Changes apply to future invoices only.
-                      </div>
-                    )}
-                  </div>
-                  <div>
-                    <label style={{ fontSize: 10, color: T.faint, marginBottom: 3, display: "block", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Retail (manual)</label>
+                    <label style={{ fontSize: 10, color: T.faint, marginBottom: 3, display: "block", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Suggested retail</label>
                     <input type="number" step="0.01" min="0" value={it.client_retail_per_unit ?? ""}
                       onChange={e => saveItemField(it.id, "client_retail_per_unit", e.target.value === "" ? null : Number(e.target.value))}
                       onBlur={e => {
@@ -582,12 +560,49 @@ export function ClientWorkingSheet({ clientId, clientName, jobs, onItemLocalChan
                     )}
                   </div>
                   <div>
-                    <label style={{ fontSize: 10, color: T.faint, marginBottom: 3, display: "block", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Profit (derived)</label>
-                    <div style={{ ...ic, color: profit > 0 ? T.green : T.faint, fontFamily: mono, display: "flex", alignItems: "center", fontWeight: 600 }}>
-                      {profit !== 0 ? fmtMoneyShort(profit) : "—"}
+                    <label style={{ fontSize: 10, color: T.faint, marginBottom: 3, display: "block", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Client facing date</label>
+                    <input type="date" value={it.client_eta || ""}
+                      onChange={e => saveItemField(it.id, "client_eta", e.target.value || null)}
+                      style={{ ...ic, fontFamily: mono, colorScheme: "dark" }} />
+                    <div style={{ fontSize: 9, color: T.faint, marginTop: 4, lineHeight: 1.4 }}>
+                      The date the client sees on their hub. Blank lets the date chain derive it
+                      (PO ship-by · transit · route buffer) automatically.
                     </div>
                   </div>
-                  <div style={{ gridColumn: "span 2" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+                    <div>
+                      <label style={{ fontSize: 10, color: T.faint, marginBottom: 3, display: "block", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Qty</label>
+                      <input value={it.totalQty} disabled style={{ ...ic, background: T.surface, color: T.faint, fontFamily: mono }} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 10, color: T.faint, marginBottom: 3, display: "block", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Unit cost</label>
+                      <input type="number" step="0.01" min="0" value={it.sell_per_unit ?? ""}
+                        onChange={e => saveItemField(it.id, "sell_per_unit", e.target.value === "" ? null : Number(e.target.value))}
+                        onBlur={e => {
+                          const v = e.target.value === "" ? null : Number(e.target.value);
+                          flushItemField(it.id, "sell_per_unit", v);
+                          if (v !== (Number(it.sell_per_unit) || null)) {
+                            logWorksheet(it.jobId, `Unit cost set to ${v == null ? "—" : "$" + Number(v).toFixed(2)} — ${it.name}`);
+                          }
+                        }}
+                        style={{ ...ic, fontFamily: mono }} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 10, color: T.faint, marginBottom: 3, display: "block", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Profit</label>
+                      <div style={{ ...ic, color: profit > 0 ? T.green : T.faint, fontFamily: mono, display: "flex", alignItems: "center", fontWeight: 600 }}>
+                        {profit !== 0 ? fmtMoneyShort(profit) : "—"}
+                      </div>
+                    </div>
+                  </div>
+                  {saveErrors[`${it.id}_sell_per_unit`] && (
+                    <div style={{ fontSize: 9, color: T.red, lineHeight: 1.4, fontWeight: 600 }}>Save failed: {saveErrors[`${it.id}_sell_per_unit`]}</div>
+                  )}
+                  {it.quoteApprovedAt && (
+                    <div style={{ fontSize: 9, color: T.amber, lineHeight: 1.4, marginTop: -6 }}>
+                      Quote approved {new Date(it.quoteApprovedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}. Cost changes apply to future invoices only.
+                    </div>
+                  )}
+                  <div>
                     <label style={{ fontSize: 10, color: T.faint, marginBottom: 3, display: "block", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Status</label>
                     <div style={{ padding: "8px 10px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
                       <span style={{ fontSize: 11, fontWeight: 700, color: stateColor, textTransform: "uppercase", letterSpacing: "0.06em" }}>{stateLabel}</span>
@@ -624,17 +639,7 @@ export function ClientWorkingSheet({ clientId, clientName, jobs, onItemLocalChan
                       {it.completedAt ? "Manually completed. Reopen to fall back to underlying data." : "Derived from OpsHub. Mark Complete on In Stock items to release them manually."}
                     </div>
                   </div>
-                  <div style={{ gridColumn: "span 2" }}>
-                    <label style={{ fontSize: 10, color: T.faint, marginBottom: 3, display: "block", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Client date (promise)</label>
-                    <input type="date" value={it.client_eta || ""}
-                      onChange={e => saveItemField(it.id, "client_eta", e.target.value || null)}
-                      style={{ ...ic, fontFamily: mono }} />
-                    <div style={{ fontSize: 9, color: T.faint, marginTop: 4, lineHeight: 1.4 }}>
-                      The date we committed to the client — it wins on their hub. Blank lets the
-                      date chain derive it (PO ship-by · transit · route buffer) automatically.
-                    </div>
-                  </div>
-                  <div style={{ gridColumn: "span 4" }}>
+                  <div>
                     <label style={{ fontSize: 10, color: T.faint, marginBottom: 3, display: "block", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Notes</label>
                     <input value={it.notes || ""} onChange={e => saveItemField(it.id, "notes", e.target.value)} style={ic} />
                   </div>
