@@ -238,6 +238,9 @@ export default function ItemsPage() {
   }
   const tbd = activeItems.filter(it => isEtaTbd(it));
   const inStock = activeItems.filter(it => it.status === "in_stock");
+  // In-stock leads the landing schedule (Jon, Jul 28): already-landed pieces sit
+  // at the top of the timeline as "ready now" rows, biggest stock first.
+  const inStockRows = [...inStock].sort((a, b) => (b.qty || 0) - (a.qty || 0));
   const landingSoon = timed.filter(x => new Date(x.eta.date + "T00:00").getTime() - today.getTime() <= 7 * DAY).length;
 
   const fmtShort = (iso: string) => new Date(iso + "T00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
@@ -330,7 +333,7 @@ export default function ItemsPage() {
           )}
 
           {/* ── Arrival timeline (desktop) — the drop-planning overview ── */}
-          {timed.length > 0 && (
+          {(timed.length > 0 || inStockRows.length > 0) && (
             <div className="px-timeline" style={{ marginBottom: 36 }}>
               <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10, marginBottom: 4 }}>
                 <h2 style={{ margin: 0, fontSize: 15, fontWeight: 900, textTransform: "uppercase" }}>Landing schedule.</h2>
@@ -342,6 +345,31 @@ export default function ItemsPage() {
                     <div key={i} style={{ position: "absolute", left: `calc(${w.x}% * (100% - 150px) / 100% + 150px)`, top: 0, bottom: 0 }} />
                   ))}
                 </div>
+                {/* In stock — already landed, ready to drop; pinned above the arrivals */}
+                {inStockRows.map(it => (
+                  <button key={it.id} onClick={() => setDetail(it)}
+                    style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", background: "transparent", border: "none", borderBottom: `1px solid ${C.border}`, padding: "9px 0", cursor: "pointer", fontFamily: C.font, color: C.text, textAlign: "left" }}>
+                    <div className="px-tl-name" style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
+                      <div style={{ width: 30, height: 30, background: "#fff", borderRadius: 6, overflow: "hidden", flexShrink: 0 }}>
+                        {it.thumb_id && <img src={`/api/files/thumbnail?id=${it.thumb_id}&thumb=1`} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "contain" }} onError={(e: any) => { e.target.style.display = "none"; }} />}
+                      </div>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 11.5, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.name}</div>
+                        <div style={{ fontSize: 9.5, color: C.faint, fontFamily: C.mono }}>{it.qty.toLocaleString()} pcs</div>
+                      </div>
+                    </div>
+                    <div style={{ flex: 1, position: "relative", height: 22, minWidth: 0 }}>
+                      <div style={{ position: "absolute", left: 0, right: 0, top: 10, height: 2, background: C.card, borderRadius: 2 }} />
+                      {/* at the wall — a filled marker at today, nothing left to travel */}
+                      <div style={{ position: "absolute", left: 0, top: 8, width: 10, height: 6, borderRadius: 3, background: "#14b8a6" }} />
+                      <div style={{ position: "absolute", left: 10, top: 4, width: 2, height: 14, background: "#fff", borderRadius: 1 }} />
+                    </div>
+                    <div style={{ flexShrink: 0, width: 92, textAlign: "right" }}>
+                      <div style={{ fontSize: 11, fontWeight: 800, fontFamily: C.mono, color: "#14b8a6" }}>In stock</div>
+                      <div style={{ fontSize: 9.5, color: C.faint, fontFamily: C.mono }}>ready now</div>
+                    </div>
+                  </button>
+                ))}
                 {timed.map(({ it, eta }) => {
                   const etaT = new Date(eta.date + "T00:00").getTime();
                   const barEnd = pct(etaT);
@@ -405,7 +433,7 @@ export default function ItemsPage() {
           )}
 
           {/* ── Landing schedule, mobile: vertical agenda down a date rail ── */}
-          {timed.length > 0 && (
+          {(timed.length > 0 || inStockRows.length > 0) && (
             <div className="px-timeline-mobile" style={{ marginBottom: 34 }}>
               <h2 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 900, textTransform: "uppercase" }}>Landing schedule.</h2>
               {(() => {
@@ -420,6 +448,31 @@ export default function ItemsPage() {
                   <div style={{ position: "relative", paddingLeft: 18 }}>
                     {/* the rail */}
                     <div style={{ position: "absolute", left: 4, top: 6, bottom: 6, width: 2, background: C.border, borderRadius: 2 }} />
+                    {/* In stock leads the rail — already landed, ready to drop */}
+                    {inStockRows.length > 0 && (
+                      <div style={{ position: "relative", marginBottom: 18 }}>
+                        <span style={{ position: "absolute", left: -18, top: 4, width: 10, height: 10, borderRadius: 999, background: "#14b8a6" }} />
+                        <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 8 }}>
+                          <span style={{ fontSize: 12.5, fontWeight: 900, textTransform: "uppercase", fontFamily: C.mono, color: "#14b8a6" }}>In stock</span>
+                          <span style={{ fontSize: 10, fontFamily: C.mono, color: C.faint, fontWeight: 700 }}>ready now</span>
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                          {inStockRows.map(it => (
+                            <button key={it.id} onClick={() => setDetail(it)}
+                              style={{ display: "flex", alignItems: "center", gap: 10, background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, padding: "8px 10px", cursor: "pointer", textAlign: "left", fontFamily: C.font, color: C.text, width: "100%" }}>
+                              <span style={{ width: 34, height: 34, background: "#fff", borderRadius: 7, overflow: "hidden", flexShrink: 0 }}>
+                                {it.thumb_id && <img src={`/api/files/thumbnail?id=${it.thumb_id}&thumb=1`} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "contain" }} onError={(e: any) => { e.target.style.display = "none"; }} />}
+                              </span>
+                              <span style={{ minWidth: 0, flex: 1 }}>
+                                <span style={{ display: "block", fontSize: 12, fontWeight: 800, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.name}</span>
+                                <span style={{ display: "block", fontSize: 9.5, fontFamily: C.mono, color: C.faint, marginTop: 2 }}>{it.qty.toLocaleString()} pcs</span>
+                              </span>
+                              <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", color: "#14b8a6", whiteSpace: "nowrap", flexShrink: 0 }}>In Stock</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     {dates.map(d => {
                       const group = byDate.get(d)!;
                       const dd = daysOut(d);
