@@ -65,7 +65,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     //    this item's decorator? Used by the canonical status compute).
     const { data: items } = await db
       .from("items")
-      .select("id, job_id, name, garment_type, mockup_color, blank_vendor, blank_sku, pipeline_stage, received_at_hpd, blanks_order_cost, sell_per_unit, client_retail_per_unit, notes, design_id, created_at, sort_order, client_eta, client_eta_note, archived_at, completed_at, shipping_route, forwarded_at, expected_arrival, ship_est, decorator_assignments(decorators(name, short_code, lead_time_days, transit_defaults)), buy_sheet_lines(size, qty_ordered)")
+      .select("id, job_id, name, garment_type, mockup_color, blank_vendor, blank_sku, pipeline_stage, received_at_hpd, blanks_order_cost, sell_per_unit, client_retail_per_unit, notes, design_id, created_at, sort_order, client_eta, client_eta_note, archived_at, completed_at, shipping_route, forwarded_at, expected_arrival, ship_est, webstore_entered_at, decorator_assignments(decorators(name, short_code, lead_time_days, transit_defaults)), buy_sheet_lines(size, qty_ordered)")
       .in("job_id", jobIds)
       .order("created_at", { ascending: false });
     const itemIds = (items || []).map((i: any) => i.id);
@@ -212,7 +212,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
           // client-facing: internal vendor→HPD legs collapse to In Production —
           // EXCEPT stage-route items (fulfillment clients), which pass the true
           // In Transit / In Stock phase through (route arg below).
-          return clientItemStatus(resolveItemStatus({
+          const resolved = resolveItemStatus({
             archived_at: it.archived_at,
             completed_at: it.completed_at,
             pipeline_stage: it.pipeline_stage,
@@ -225,7 +225,17 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
             item_shipping_route: it.shipping_route || null,
             job_completed_at: (job.phase_timestamps as any)?.complete || null,
             forwarded_at: it.forwarded_at || null,
-          }), it.shipping_route || job.shipping_route || null);
+          });
+          // 30-DAY IN-STOCK WINDOW (Jon, Jul 28): a stage-route item stays "In
+          // Stock" on the client pipeline for 30 days after webstore entry, even
+          // though completing the job resolves it complete internally — entering
+          // the last piece was making fresh stock vanish into History. Manual
+          // archive still wins (resolved "archived" passes through untouched).
+          const route = it.shipping_route || job.shipping_route || null;
+          const enteredRecently = !!it.webstore_entered_at &&
+            (Date.now() - new Date(it.webstore_entered_at).getTime()) < 30 * 86400000;
+          const eff = resolved === "complete" && route === "stage" && enteredRecently ? "in_stock" : resolved;
+          return clientItemStatus(eff, route);
         })(),
         thumb_id: thumbByItem[it.id] || null,
         created_at: it.created_at,

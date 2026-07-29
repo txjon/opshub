@@ -789,9 +789,13 @@ export type StagingItem = {
 };
 
 export async function loadStagingBoard(sb: Sb): Promise<StagingItem[]> {
+  // COMPLETE stage jobs stay on the board: entering the last units flips the
+  // job complete, and dropping it here made freshly-entered items vanish from
+  // the Entered tab (KYS tee / Overpass, Jul 28). The availableToEnter/entered
+  // guard below keeps anything without staged history off the board.
   const { data: jobs } = await sb.from("jobs")
     .select("id, job_number, phase, shipping_route, type_meta, costing_data, clients(name)")
-    .in("phase", ["receiving", "shipping", "fulfillment"]);
+    .or("phase.in.(receiving,shipping,fulfillment),and(phase.eq.complete,shipping_route.eq.stage)");
   if (!jobs?.length) return [];
   const jobById = new Map<string, any>((jobs as any[]).map(j => [j.id, j]));
 

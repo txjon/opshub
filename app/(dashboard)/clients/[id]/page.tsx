@@ -10,6 +10,7 @@ import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { H } from "@/components/hub/theme";
 import { JOB_DIRECTIVES } from "@/lib/directives";
+import { ClientWorkingSheet } from "@/components/ClientWorkingSheet";
 
 const PURPLE = "#fd3aa3";
 const thumbSrc = (id: string, size = 300) => `/api/files/thumbnail?id=${id}&thumb=1&size=${size}`;
@@ -43,7 +44,9 @@ export default function ClientSpacePage() {
         supabase.from("clients").select("*").eq("id", id).single(),
         supabase.from("contacts").select("*").eq("client_id", id).order("name"),
         supabase.from("jobs")
-          .select("id, job_number, title, phase, target_ship_date, created_at, quote_approved, type_meta, costing_summary, items(id, name, pipeline_stage, received_at_hpd, forwarded_at, webstore_entered_at, sell_per_unit, product_id, design_id, buy_sheet_lines(qty_ordered)), payment_records(id, amount, status, due_date, invoice_number)")
+          // shipping_route / phase_timestamps / quote_approved_at + the item money
+          // and lifecycle fields feed the Working Sheet in the Pipeline section.
+          .select("id, job_number, title, phase, target_ship_date, created_at, quote_approved, quote_approved_at, shipping_route, phase_timestamps, type_meta, costing_summary, items(id, name, pipeline_stage, received_at_hpd, forwarded_at, webstore_entered_at, sell_per_unit, client_retail_per_unit, client_eta, notes, archived_at, completed_at, shipping_route, blanks_order_cost, product_id, design_id, decorator_assignments(decorators(name, short_code)), buy_sheet_lines(size, qty_ordered)), payment_records(id, amount, status, due_date, invoice_number)")
           .eq("client_id", id).order("created_at", { ascending: false }),
         supabase.from("releases").select("*").eq("client_id", id).order("created_at", { ascending: false }),
         supabase.from("products").select("*").eq("client_id", id).order("created_at", { ascending: false }),
@@ -181,7 +184,24 @@ export default function ClientSpacePage() {
         {section === "Studio" && <StudioRail briefs={briefs} secHead={secHead} />}
         {section === "Drops" && <DropsRail releases={releases} secHead={secHead} />}
         {section === "Orders" && <OrdersRail model={model} secHead={secHead} />}
-        {section === "Pipeline" && <PipelineRail model={model} secHead={secHead} />}
+        {section === "Pipeline" && (
+          <>
+            {secHead("The pipeline.", "the working sheet — cost, retail, status, promises")}
+            {/* The Working Sheet moved here from classic (Jon, Jul 28) — same
+                component both places; edits sync this page's jobs state. */}
+            <ClientWorkingSheet
+              variant="inline"
+              clientId={params.id}
+              clientName={client.name}
+              jobs={jobs}
+              onItemLocalChange={(itemId, field, value) =>
+                setJobs(prev => prev.map((j: any) => ({
+                  ...j,
+                  items: (j.items || []).map((it: any) => it.id === itemId ? { ...it, [field]: value } : it),
+                })))}
+            />
+          </>
+        )}
         {section === "Catalog" && <CatalogRail products={products} briefs={briefs} model={model} router={router} secHead={secHead} />}
         {section === "Archive" && <ArchiveRail archive={archive} briefs={briefs} clientId={params.id} secHead={secHead} />}
         {section === "Money" && <MoneyRail model={model} hist={hist} secHead={secHead} />}
@@ -320,25 +340,8 @@ function OrdersRail({ model, secHead }: any) {
   );
 }
 
-// ── Pipeline: items in flight ──
-function PipelineRail({ model, secHead }: any) {
-  return (
-    <>
-      {secHead("The pipeline.", "every unit somewhere between press and shelf")}
-      {model.inFlight.length === 0 && <div style={{ color: H.faint, fontSize: 12.5 }}>Nothing on press or in the air.</div>}
-      {model.inFlight.map((i: any) => {
-        const st = model.stageOf(i);
-        return (
-          <a key={i.id} className="cs-row" href={`/jobs/${i.job.id}`}>
-            <span style={{ fontSize: 13.5, fontWeight: 800, textTransform: "uppercase", flex: 1, minWidth: 160 }}>{i.name}</span>
-            <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: st.c }}>{st.t}</span>
-            <span style={{ fontSize: 11, fontFamily: H.mono, color: H.dim }}>{i.job.type_meta?.qb_invoice_number ? `#${i.job.type_meta.qb_invoice_number}` : i.job.job_number}</span>
-          </a>
-        );
-      })}
-    </>
-  );
-}
+// PipelineRail retired Jul 28 — the Pipeline section renders the shared
+// ClientWorkingSheet (moved from classic). Git history holds the old rail.
 
 // ── Catalog: products (the real thing) + produced families (the pre-products era) ──
 function CatalogRail({ products, briefs, model, router, secHead }: any) {
