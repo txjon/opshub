@@ -1,0 +1,108 @@
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+import { resendForSlug } from "@/lib/resend-client";
+
+const admin = () =>
+  createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+
+/**
+ * COSTING HEALTH TRIPWIRE — runs via Vercel Cron.
+ *
+ * Guards the ONE invariant that must always hold regardless of decorator-rate
+ * era: a job's reported revenue must equal the sum of the prices actually
+ * charged. costing_summary.grossRev == Σ(items.sell_per_unit × qty) over
+ * non-passthrough items. sell_per_unit is the source of truth (quote / invoice
+ * / QB all read it); grossRev is a derived cache every write path must keep in
+ * step. A mismatch means a write path left the summary stale (the Jul 28 bug
+ * class) — this surfaces it by email in a day instead of when a client notices.
+ *
+ * Also flags fleece items whose costProd never caught isFleece (the vendor
+ * upcharge + shipping buffer weren't applied → possible under-price).
+ *
+ * Silent when clean (no email). Protected by CRON_SECRET.
+ */
+
+// Known-correct exceptions, confirmed against QuickBooks. Keep tiny + documented.
+const SKIP = new Set<string>([
+  "HPD-2606-040", // passthrough/wave edge case — correct to QB (Jon, Jul 28 2026)
+]);
+
+export async function GET(req: NextRequest) {
+  const authHeader = req.headers.get("authorization");
+  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  try {
+    const sb = admin();
+    const { data: jobs, error } = await sb
+      .from("jobs")
+      .select("job_number, phase, costing_data, costing_summary, items(id, name, is_fleece, sell_per_unit, buy_sheet_lines(qty_ordered))")
+      .not("costing_summary", "is", null);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    const drift: { job: string; phase: string; grossRev: number; target: number; delta: number }[] = [];
+    const fleeceGaps: string[] = [];
+    let consistent = 0;
+
+    for (const j of jobs || []) {
+      const gr = Number((j.costing_summary as any)?.grossRev);
+      const cps: any[] = (j.costing_data as any)?.costProds || [];
+      const passthru = new Set(cps.filter(p => p.passthrough).map(p => p.id));
+
+      for (const it of (j.items as any[]) || []) {
+        if (!it.is_fleece) continue;
+        const cp = cps.find(c => c.id === it.id) || cps.find(c => (c.name || "").trim().toLowerCase() === (it.name || "").trim().toLowerCase());
+        if (cp && !cp.isFleece) fleeceGaps.push(`${j.job_number} · ${it.name || "?"} (${j.phase})`);
+      }
+
+      if (!gr) continue;
+      let target = 0;
+      for (const it of (j.items as any[]) || []) {
+        if (passthru.has(it.id)) continue;
+        const q = (it.buy_sheet_lines || []).reduce((a: number, l: any) => a + (Number(l.qty_ordered) || 0), 0);
+        target += (Number(it.sell_per_unit) || 0) * q;
+      }
+      target = Math.round(target * 100) / 100;
+      if (target === 0) continue; // unpriced — nothing to compare
+      const delta = Math.round((gr - target) * 100) / 100;
+      if (Math.abs(delta) <= 1) { consistent++; continue; }
+      if (SKIP.has(j.job_number)) continue;
+      drift.push({ job: j.job_number, phase: j.phase, grossRev: gr, target, delta });
+    }
+
+    drift.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+
+    // Email the owner ONLY when something is wrong. Silent when clean.
+    if ((drift.length || fleeceGaps.length) && process.env.OWNER_EMAIL) {
+      try {
+        const resend = resendForSlug("hpd");
+        const driftRows = drift.map(d =>
+          `<li style="margin:4px 0;font-size:14px"><b>${d.job}</b> (${d.phase}) — reports $${d.grossRev.toLocaleString()}, should be $${d.target.toLocaleString()} · off by $${d.delta.toLocaleString()}</li>`
+        ).join("");
+        const fleeceRows = fleeceGaps.map(f => `<li style="margin:4px 0;font-size:14px">${f}</li>`).join("");
+        const html = `
+<div style="font-family:sans-serif;max-width:600px">
+  <h2 style="margin:0 0 8px">OpsHub · Costing Health</h2>
+  <p style="color:#666;margin:0 0 16px">${consistent} jobs consistent · ${drift.length} drifted · ${fleeceGaps.length} fleece gap${fleeceGaps.length !== 1 ? "s" : ""}</p>
+  ${drift.length ? `<h3 style="color:#ef4444;margin:16px 0 8px">Revenue drift — summary out of step with item prices (${drift.length})</h3><ul style="margin:0;padding-left:20px">${driftRows}</ul>` : ""}
+  ${fleeceGaps.length ? `<h3 style="color:#d97706;margin:16px 0 8px">Fleece not applied in costing (${fleeceGaps.length})</h3><ul style="margin:0;padding-left:20px">${fleeceRows}</ul>` : ""}
+  <p style="margin:20px 0 0;font-size:12px;color:#999">Open the job in the costing tab and re-save, or run scripts/costing-health.cjs. — OpsHub tripwire</p>
+</div>`;
+        await resend.emails.send({
+          from: process.env.EMAIL_FROM_QUOTES || "onboarding@resend.dev",
+          to: process.env.OWNER_EMAIL,
+          subject: `OpsHub · ⚠️ costing drift on ${drift.length} job${drift.length !== 1 ? "s" : ""}`,
+          html,
+        });
+      } catch (emailErr) {
+        console.error("Costing-health email error:", emailErr);
+      }
+    }
+
+    return NextResponse.json({ consistent, drifted: drift.length, fleeceGaps: fleeceGaps.length, jobs: drift.map(d => d.job) });
+  } catch (e: any) {
+    console.error("Costing-health cron error:", e);
+    return NextResponse.json({ error: e.message }, { status: 500 });
+  }
+}
