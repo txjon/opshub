@@ -121,8 +121,8 @@ export function ClientWorkingSheet({ clientId, clientName, jobs, onItemLocalChan
   const itemSaveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const isOpen = variant === "inline" || open;
 
-  // Chain-resolved ETAs (read-only column) — same values the Client Hub shows.
-  // ✎ = manual override (client_eta, THE PROMISE).
+  // Chain-resolved ETAs — the INTERNAL CLOCK, reference only (rides under the
+  // editable promise in the Client date column). Pure chain: never the promise.
   useEffect(() => {
     let dead = false;
     fetch(`/api/item-etas?clientId=${clientId}`)
@@ -406,7 +406,7 @@ export function ClientWorkingSheet({ clientId, clientName, jobs, onItemLocalChan
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "28px minmax(0, 1fr) 60px 76px 76px 80px 110px 78px 44px", gap: 8, padding: "4px 10px", fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", alignItems: "center" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "28px minmax(0, 1fr) 60px 76px 76px 80px 96px 132px 44px", gap: 8, padding: "4px 10px", fontSize: 9, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em", alignItems: "center" }}>
             {(() => {
               const visibleIds = currentItems.map((it: any) => it.id);
               const allChecked = visibleIds.length > 0 && visibleIds.every((id: string) => selectedWsIds.has(id));
@@ -432,7 +432,7 @@ export function ClientWorkingSheet({ clientId, clientName, jobs, onItemLocalChan
             <div style={{ textAlign: "right" }}>Retail</div>
             <div style={{ textAlign: "right" }}>Profit</div>
             <div>Status</div>
-            <div>ETA</div>
+            <div>Client date</div>
             <div style={{ textAlign: "center" }}>Paid</div>
           </div>
           {currentItems.map((it: any) => {
@@ -455,7 +455,7 @@ export function ClientWorkingSheet({ clientId, clientName, jobs, onItemLocalChan
                 <div role="button" tabIndex={0}
                   onClick={() => setWorkingRowExpanded(it.id)}
                   onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setWorkingRowExpanded(it.id); } }}
-                  style={{ width: "100%", display: "grid", gridTemplateColumns: "28px minmax(0, 1fr) 60px 76px 76px 80px 110px 78px 44px", gap: 8, padding: "10px", alignItems: "center", background: "transparent", cursor: "pointer", textAlign: "left", fontFamily: font, color: T.text }}>
+                  style={{ width: "100%", display: "grid", gridTemplateColumns: "28px minmax(0, 1fr) 60px 76px 76px 80px 96px 132px 44px", gap: 8, padding: "10px", alignItems: "center", background: "transparent", cursor: "pointer", textAlign: "left", fontFamily: font, color: T.text }}>
                   <div onClick={e => { e.stopPropagation(); toggle(); }} style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
                     <input type="checkbox" checked={isSelected} onChange={toggle} onClick={e => e.stopPropagation()}
                       aria-label={`Select ${it.name}`} style={{ cursor: "pointer", width: 14, height: 14, accentColor: T.accent }} />
@@ -480,12 +480,20 @@ export function ClientWorkingSheet({ clientId, clientName, jobs, onItemLocalChan
                   <div style={{ fontSize: 12, fontFamily: mono, color: retail > 0 ? T.text : T.faint, textAlign: "right" }}>{retail > 0 ? fmtMoney(retail) : "—"}</div>
                   <div style={{ fontSize: 12, fontFamily: mono, fontWeight: 600, color: profit > 0 ? T.green : T.faint, textAlign: "right" }}>{profit !== 0 ? fmtMoneyShort(profit) : "—"}</div>
                   <div style={{ fontSize: 10, fontWeight: 700, color: stateColor, textTransform: "uppercase", letterSpacing: "0.06em" }}>{stateLabel}</div>
-                  <div style={{ fontSize: 11, fontFamily: mono, color: T.muted }}>
-                    {(() => {
-                      const ce = chainEtas[it.id];
-                      if (!ce?.eta) return "TBD";
-                      return `${asLocalD(ce.eta).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" })}${ce.source === "override" ? " ✎" : ""}`;
-                    })()}
+                  {/* Client date = THE PROMISE, editable in place — this is what the
+                      client's hub shows. The internal chain clock rides underneath as
+                      reference only (Jon, Jul 28). Blank promise = chain rules. */}
+                  <div onClick={e => e.stopPropagation()} style={{ minWidth: 0 }}>
+                    <input type="date" value={it.client_eta || ""}
+                      onChange={e => saveItemField(it.id, "client_eta", e.target.value || null)}
+                      title="The date the client sees on their hub. Blank = the chain derives it."
+                      style={{ width: "100%", padding: "4px 6px", border: `1px solid ${T.border}`, borderRadius: 5, background: T.surface, color: it.client_eta ? T.text : T.faint, fontSize: 11, fontFamily: mono, boxSizing: "border-box", outline: "none", colorScheme: "dark" }} />
+                    <div style={{ fontSize: 8.5, fontFamily: mono, color: T.faint, marginTop: 2, whiteSpace: "nowrap" }}>
+                      {(() => {
+                        const ce = chainEtas[it.id];
+                        return ce?.eta ? `chain ${asLocalD(ce.eta).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : "chain TBD";
+                      })()}
+                    </div>
                   </div>
                   <div style={{ textAlign: "center", fontSize: 14, color: isPaid ? T.green : T.faint }}>{isPaid ? "✓" : "—"}</div>
                 </div>
