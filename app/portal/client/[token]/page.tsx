@@ -85,7 +85,14 @@ export default function HomePage() {
     if (!o.quote_approved && o.pricing_visible && ["intake", "pending"].includes(o.phase)) return { verb: "Review & approve", color: C.amber, act: 1 };
     if ((o.proofs_pending || 0) > 0) return { verb: "Approve your proofs", color: C.amber, act: 1 };
     if (o.phase === "production") return { verb: "In production", color: C.blue, act: 0 };
-    if (["receiving", "shipping"].includes(o.phase)) return { verb: "On its way", color: C.blue, act: 0 };
+    if (["receiving", "shipping"].includes(o.phase)) {
+      // Mixed order: samples can land while the bulk is still being made
+      // (HPD-2605-032 — jackets at Battle Maple until Oct after the sample
+      // runs delivered). "On its way" only when nothing is still at the
+      // vendor; otherwise the truthful read is still "In production".
+      const stillMaking = (o.items || []).some((it: any) => ["in_production", "setup"].includes(it.status));
+      return stillMaking ? { verb: "In production", color: C.blue, act: 0 } : { verb: "On its way", color: C.blue, act: 0 };
+    }
     if (o.phase === "complete") return { verb: "Delivered", color: C.green, act: 0 };
     // Pre-production, nothing to approve yet — honestly "in the works", never an
     // ask and never "in production" (Jon, Jul 28: intake read as further along).
