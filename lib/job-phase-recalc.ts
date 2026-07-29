@@ -17,9 +17,9 @@ import { calculatePhase } from "./lifecycle";
 import { poSentToItem } from "./item-status";
 import { deriveItem } from "./item-derivation";
 
-export async function recalcJobPhase(sb: any, jobId: string): Promise<void> {
+export async function recalcJobPhase(sb: any, jobId: string, opts?: { commit?: boolean }): Promise<{ phase: string; stored: string; changed: boolean } | null> {
   const { data: jobData } = await sb.from("jobs").select("*, clients(name)").eq("id", jobId).single();
-  if (!jobData || jobData.phase === "on_hold" || jobData.phase === "cancelled") return;
+  if (!jobData || jobData.phase === "on_hold" || jobData.phase === "cancelled") return null;
   const { data: jobItems } = await sb.from("items")
     .select("id, pipeline_stage, blanks_order_number, blanks_order_cost, ship_tracking, received_at_hpd, artwork_status, garment_type, shipping_route, webstore_entered_at, forwarded_at, decorator_assignments(decorators(name, short_code))")
     .eq("job_id", jobId);
@@ -84,9 +84,14 @@ export async function recalcJobPhase(sb: any, jobId: string): Promise<void> {
     poSentVendors,
     costingVendors: Array.from(new Set(costProds.map(cp => cp.printVendor).filter(Boolean))),
   });
-  if (result.phase !== jobData.phase) {
+  const changed = result.phase !== jobData.phase;
+  // Dry-run (opts.commit === false) computes + returns WITHOUT writing — used by
+  // the phase tripwire to detect drift. Default commits, exactly as every
+  // existing caller expects.
+  if (changed && opts?.commit !== false) {
     const timestamps = jobData.phase_timestamps || {};
     timestamps[result.phase] = new Date().toISOString();
     await sb.from("jobs").update({ phase: result.phase, phase_timestamps: timestamps }).eq("id", jobId);
   }
+  return { phase: result.phase, stored: jobData.phase, changed };
 }
