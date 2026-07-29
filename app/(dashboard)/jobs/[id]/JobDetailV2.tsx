@@ -1690,7 +1690,9 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
             );
           })()}
           <div style={{ fontSize: 11.5, color: T.faint, padding: "8px 0 12px" }}>Tap a product for its worksheet — sizes, blank cost, decoration, vendor &amp; margin. Drag cards to reorder · drop PSDs/mockups anywhere here to create items.</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(max(210px, calc((100% - 36px) / 4)), 1fr))", gap: 12 }}
+          {/* auto-FILL (not -fit): empty tracks stay, so one product renders as
+              one quarter-width card instead of a full-page banner (Jon, Jul 29) */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(max(210px, calc((100% - 36px) / 4)), 1fr))", gap: 12 }}
             onDragOver={e => { if (e.dataTransfer.types.includes("Files")) e.preventDefault(); }}
             onDrop={e => { if (e.dataTransfer.files.length) { e.preventDefault(); processFileDrop(e.dataTransfer.files); } }}>
             {items.map((item: any, i: number) => {
@@ -2479,6 +2481,11 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                             <a key={f.drive_file_id + f.file_name} href={thumbSrc(f.drive_file_id, true)} target="_blank" rel="noreferrer" title={f.file_name} style={{ textDecoration: "none", position: "relative", display: "block" }}>
                               <button title="Delete file" onClick={e => { e.preventDefault(); e.stopPropagation(); deleteFile(it, f); }}
                                 style={{ position: "absolute", top: 4, right: 4, zIndex: 1, width: 20, height: 20, borderRadius: 999, border: "none", background: "rgba(10,10,10,0.6)", color: "#fff", fontSize: 11, lineHeight: "20px", textAlign: "center", padding: 0, cursor: "pointer" }}>✕</button>
+                              {/* button (an <a> can't nest in the tile's <a>) — dl=1 serves the
+                                  full file with attachment disposition, so navigation stays put */}
+                              <button title={`Download ${f.file_name}`}
+                                onClick={e => { e.preventDefault(); e.stopPropagation(); window.location.href = `/api/files/thumbnail?id=${f.drive_file_id}&dl=1`; }}
+                                style={{ position: "absolute", top: 4, left: 4, zIndex: 1, width: 20, height: 20, borderRadius: 999, border: "none", background: "rgba(10,10,10,0.6)", color: "#fff", fontSize: 11, lineHeight: "20px", textAlign: "center", padding: 0, cursor: "pointer" }}>⬇</button>
                               <div style={{ aspectRatio: "1 / 1", background: "#fff", borderRadius: 8, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", border: `1px solid ${T.border}` }}>
                                 <img src={thumbSrc(f.drive_file_id)} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
                               </div>
