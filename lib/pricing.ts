@@ -79,8 +79,20 @@ export function calcCostProduct(p: any, margin: string, inclShip: boolean, inclC
     return (p.blankCostPerUnit || 0) * qty * blankBuffer;
   })();
 
-  // Non-garment items: only custom costs + shipping (no blank, print, finishing, or setup).
-  if (isNonGarment) {
+  // Non-garment items historically price decoration through CUSTOM COST lines
+  // only (no blank, print, finishing, or setup) — the location grid on them was
+  // spec for the PSD/proof, not money. That silently zeroed real screen-print
+  // pricing on bags/totes built the new way (HPD-2606-027 candy bag, Jul 29).
+  // GATED CHANGE (Jon): a non-garment item with REAL print locations and NO
+  // custom cost lines falls through to the normal decoration engine (vendor
+  // rates, screens, share groups) — blank cost stays 0 (isNonGarment above).
+  // The gate protects the back catalog: legacy accessories carry customCosts
+  // AND PSD-seeded ghost locations, and must never double-count.
+  const hasPricedLocations = Object.values(p.printLocations || {}).some(
+    (l: any) => l && l.location && (parseFloat(l.screens) || 0) > 0 && (l.printer || p.printVendor)
+  );
+  const hasCustomCosts = (p.customCosts || []).some((c: any) => (parseFloat(c.perUnit || c.amount) || 0) !== 0);
+  if (isNonGarment && !(hasPricedLocations && !hasCustomCosts)) {
     const customTotal = (p.customCosts || []).reduce((a: number, c: any) => {
       const v = parseFloat(c.perUnit || c.amount) || 0;
       const isFlat = c.flat === true || c.flat === "true";
