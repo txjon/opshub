@@ -254,7 +254,10 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
             shipByAgreed: agreedKey ? tm.po_ship_dates[agreedKey] : null,
             shipByLive: liveKey ? tm.po_ship_live[liveKey]?.date : null,
             shipByItemOverride: it.ship_est || null,
-            arrivalOverride: boxArrivalByItem[it.id] || it.expected_arrival || null,
+            // Box-level ETA only (receiving's edit / tracker). The legacy
+            // items.expected_arrival is retired — fossil values shadowed the
+            // live chain (F Hat 9/23 vs the real 8/16, Jul 28).
+            arrivalOverride: boxArrivalByItem[it.id] || null,
           });
           return { eta: chain.clientEta, eta_source: chain.etaSource };
         })(),

@@ -52,7 +52,8 @@ export async function etaByItemForJob(
       shipByAgreed: agreedKey ? tm.po_ship_dates[agreedKey] : null,
       shipByLive: liveKey ? tm.po_ship_live[liveKey]?.date : null,
       shipByItemOverride: it.ship_est || null,
-      arrivalOverride: boxArrival[it.id] || it.expected_arrival || null,
+      // Box-level ETA only — legacy items.expected_arrival retired (fossil dates shadowed the chain).
+      arrivalOverride: boxArrival[it.id] || null,
     });
     out[it.id] = chain.clientEta || null;
   }

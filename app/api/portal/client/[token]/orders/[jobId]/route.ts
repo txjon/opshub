@@ -474,7 +474,8 @@ export async function GET(
           shipByAgreed: aK ? tm.po_ship_dates[aK] : null,
           shipByLive: lK ? tm.po_ship_live[lK]?.date : null,
           shipByItemOverride: item.ship_est || null,
-          arrivalOverride: boxArrivalByItem[item.id] || item.expected_arrival || null,
+          // Box-level ETA only — legacy items.expected_arrival retired (see items route).
+          arrivalOverride: boxArrivalByItem[item.id] || null,
         }).clientEta;
       })();
       const eta_tbd = !etaCutOff && !etaDate;

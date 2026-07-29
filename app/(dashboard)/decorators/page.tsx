@@ -32,6 +32,11 @@ type Decorator = {
   capabilities: string[];
   lead_time_days: number | null;
   transit_days: number | null;
+  // The date chain's transit buckets (migration 123) — the PO ship method picks
+  // which one applies. This is what client ETAs derive from; transit_days above
+  // is the retired pre-chain flat value (no longer editable, kept in the type
+  // for the DB row shape).
+  transit_defaults: { ground?: number | null; freight?: number | null; ocean?: number | null } | null;
   notes: string | null;
   default_shipping_route: string | null;
   default_ship_method: string | null;
@@ -531,10 +536,22 @@ export default function DecoratorsPage() {
                       <SectionHead title="Company Info" />
                       <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:16 }}>
                         <Field label="Company name" value={d.name||""} onChange={v=>upd({name:v})} placeholder="ICON Printing" />
-                        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8 }}>
+                        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
                           <Field label="Short code" value={d.short_code||""} onChange={v=>upd({short_code:v.toUpperCase()})} placeholder="ICON" isMono />
                           <Field label="Lead time (days)" value={String(d.lead_time_days||"")} onChange={v=>upd({lead_time_days:parseInt(v)||null} as any)} placeholder="7" isMono />
-                          <Field label="Transit days" value={String(d.transit_days||"")} onChange={v=>upd({transit_days:parseInt(v)||null} as any)} placeholder="5" isMono />
+                        </div>
+                        {/* Transit buckets = the date chain's vendor leg. The PO's ship
+                            method picks the bucket (Vendor's Choice/parcel → ground,
+                            Freight/LTL → freight, Ocean → ocean; Pick Up = 0). Client
+                            ETAs derive from these — this replaces the old flat
+                            "Transit days", which nothing read anymore. */}
+                        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8 }}>
+                          {(["ground","freight","ocean"] as const).map(mode => (
+                            <Field key={mode} label={`Transit ${mode} (days)`} isMono
+                              value={String(d.transit_defaults?.[mode] ?? "")}
+                              onChange={v=>upd({transit_defaults:{ ...(d.transit_defaults||{}), [mode]: v.trim()==="" ? null : (parseInt(v)||0) }} as any)}
+                              placeholder={mode==="ocean" ? "35" : "3"} />
+                          ))}
                         </div>
                         {/* Default shipping route — applied to this vendor's items
                             on PO send (only when the item has no manual route).

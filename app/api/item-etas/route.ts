@@ -73,7 +73,8 @@ export async function GET(req: NextRequest) {
         shipByAgreed: aK ? tm.po_ship_dates[aK] : null,
         shipByLive: lK ? tm.po_ship_live[lK]?.date : null,
         shipByItemOverride: it.ship_est || null,
-        arrivalOverride: boxArrivalByItem[it.id] || it.expected_arrival || null,
+        // Box-level ETA only — legacy items.expected_arrival retired (fossil dates shadowed the chain).
+        arrivalOverride: boxArrivalByItem[it.id] || null,
       });
       etas[it.id] = { eta: chain.clientEta, source: chain.etaSource };
     }
