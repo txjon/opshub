@@ -91,7 +91,13 @@ export default function HomePage() {
     // ask and never "in production" (Jon, Jul 28: intake read as further along).
     return { verb: "In the works", color: C.blue, act: 0, works: true };
   };
-  const orderRows = (orders || []).filter(o => o.phase !== "cancelled").map(o => ({ o, ...orderMove(o) }));
+  // Fulfillment/postage/services invoice reports (kind "fulfillment") are
+  // billing paperwork, not orders being prepped — on the home feed they all
+  // fell through orderMove to "In the works" (Jon, Jul 28: six invoice cards
+  // in the lane). They stay on the Orders tab; the home page skips them.
+  // An on-hold job must not read "we're getting these ready" either — it
+  // stays on the Orders tab, not the home feed.
+  const orderRows = (orders || []).filter(o => o.phase !== "cancelled" && o.phase !== "on_hold" && o.kind !== "fulfillment").map(o => ({ o, ...orderMove(o) }));
   // Pipeline — items on the move.
   const pipeMove = (it: any): { verb: string; color: string; meta: string } => {
     const qty = it.qty ? `${Number(it.qty).toLocaleString()} pcs` : "";
