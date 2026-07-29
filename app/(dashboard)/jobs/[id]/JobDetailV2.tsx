@@ -2354,11 +2354,28 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                 const files = filesByItem[it.id] || [];
                 const art = it.artwork_status || "not_started";
                 const artColor = art === "approved" ? T.green : art === "revision_requested" ? T.amber : T.muted;
+                // Internal approval toggle (parity with classic ApprovalsTab peek modal):
+                // for verbal/email approvals — same artwork_status the client hub writes,
+                // so the Blanks/PO gate and phase engine see it identically.
+                const markInternal = async () => {
+                  const newStatus = art === "approved" ? "not_started" : "approved";
+                  try {
+                    await (createClient().from("items") as any).update({ artwork_status: newStatus }).eq("id", it.id);
+                    setItems(prev => prev.map(x => x.id === it.id ? { ...x, artwork_status: newStatus } : x));
+                    if (newStatus === "approved") logJobActivity(job.id, `${it.name} approved internally`);
+                    else logJobActivity(job.id, `${it.name} internal approval removed`);
+                    recalcPhase();
+                  } catch (e) { failed("Approval not saved", e); }
+                };
                 return (
                   <div>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 10 }}>
                       <span style={lbl}>Files · {files.length}</span>
-                      <span style={{ fontWeight: 800, fontSize: 11, letterSpacing: "0.04em", textTransform: "uppercase", color: artColor }}>{art.replace(/_/g, " ")}</span>
+                      <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <span style={{ fontWeight: 800, fontSize: 11, letterSpacing: "0.04em", textTransform: "uppercase", color: artColor }}>{art.replace(/_/g, " ")}</span>
+                        <button onClick={markInternal} title={art === "approved" ? "Clear the approval (back to not started)" : "Approve without a client click — for approvals given verbally or by email"}
+                          style={ghostBtn}>{art === "approved" ? "Undo approval" : "Mark approved"}</button>
+                      </span>
                     </div>
                     {tip(<>Upload art by stage (mockup, proof, print-ready). A mockup unlocks <b style={{ color: T.text }}>Generate proof</b> — the proof editor that clients approve and vendors print from. Files land in this item&apos;s Drive folder automatically.</>)}
                     {files.length === 0 ? (
@@ -2414,7 +2431,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                         </div>
                       );
                     })()}
-                    <div style={{ fontSize: 11, color: T.faint, marginTop: 12 }}>Files open full-size in a new tab. Proofs are sent &amp; approved in the Client section.</div>
+                    <div style={{ fontSize: 11, color: T.faint, marginTop: 12 }}>Files open full-size in a new tab. Proofs are sent from the Client section; the client approves in their hub — or use <b style={{ color: T.muted }}>Mark approved</b> above when they&apos;ve okayed it verbally.</div>
                   </div>
                 );
               })()}
