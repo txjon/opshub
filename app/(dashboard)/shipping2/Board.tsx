@@ -266,7 +266,7 @@ function ForwardModal({ job, onClose, onDone }: { job: ShippingJob; onClose: () 
             <select value={carrier} onChange={e => setCarrier(e.target.value)} style={{ fontSize: 13, padding: "9px 10px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.card, fontFamily: font, fontWeight: 600, cursor: "pointer" }}>
               {CARRIERS.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
-            <input value={tracking} onChange={e => setTracking(e.target.value)} placeholder="Tracking number" style={{ flex: 1, boxSizing: "border-box", fontSize: 13, padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, fontFamily: mono }} />
+            <input value={tracking} onChange={e => setTracking(e.target.value)} placeholder="Tracking number" style={{ flex: 1, boxSizing: "border-box", fontSize: 13, padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: T.text, outline: "none", fontFamily: mono }} />
           </div>
         </div>
         <div style={{ fontSize: 12, color: T.blue, background: T.blueDim, border: `1px dashed ${T.blue}`, borderRadius: 8, padding: "9px 11px" }}>
