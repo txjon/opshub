@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { resendForSlug } from "@/lib/resend-client";
+import { recalcJobPhase } from "@/lib/job-phase-recalc";
+
+export const maxDuration = 60; // per-job phase recompute over the active jobs
 
 const admin = () =>
   createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
@@ -73,26 +76,43 @@ export async function GET(req: NextRequest) {
 
     drift.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
 
+    // ── Phase tripwire: stored jobs.phase vs the canonical dry-run recompute ──
+    // A mismatch means a write path changed a gate input without recomputing
+    // phase (the payment-webhook class). Active jobs only — on_hold/cancelled
+    // are intentionally locked, and recalcJobPhase returns null for them.
+    const { data: activeJobs } = await sb.from("jobs")
+      .select("id, job_number, phase")
+      .in("phase", ["intake", "pending", "ready", "production", "receiving", "fulfillment"]);
+    const phaseDrift: { job: string; stored: string; computed: string }[] = [];
+    for (const j of activeJobs || []) {
+      try {
+        const r = await recalcJobPhase(sb, j.id, { commit: false });
+        if (r && r.changed) phaseDrift.push({ job: j.job_number, stored: r.stored, computed: r.phase });
+      } catch { /* one job erroring must not sink the whole sweep */ }
+    }
+
     // Email the owner ONLY when something is wrong. Silent when clean.
-    if ((drift.length || fleeceGaps.length) && process.env.OWNER_EMAIL) {
+    if ((drift.length || fleeceGaps.length || phaseDrift.length) && process.env.OWNER_EMAIL) {
       try {
         const resend = resendForSlug("hpd");
         const driftRows = drift.map(d =>
           `<li style="margin:4px 0;font-size:14px"><b>${d.job}</b> (${d.phase}) — reports $${d.grossRev.toLocaleString()}, should be $${d.target.toLocaleString()} · off by $${d.delta.toLocaleString()}</li>`
         ).join("");
         const fleeceRows = fleeceGaps.map(f => `<li style="margin:4px 0;font-size:14px">${f}</li>`).join("");
+        const phaseRows = phaseDrift.map(p => `<li style="margin:4px 0;font-size:14px"><b>${p.job}</b> — reads "${p.stored}", should be "${p.computed}"</li>`).join("");
         const html = `
 <div style="font-family:sans-serif;max-width:600px">
-  <h2 style="margin:0 0 8px">OpsHub · Costing Health</h2>
-  <p style="color:#666;margin:0 0 16px">${consistent} jobs consistent · ${drift.length} drifted · ${fleeceGaps.length} fleece gap${fleeceGaps.length !== 1 ? "s" : ""}</p>
+  <h2 style="margin:0 0 8px">OpsHub · Ops Health</h2>
+  <p style="color:#666;margin:0 0 16px">${consistent} costing-consistent · ${drift.length} revenue drift · ${fleeceGaps.length} fleece · ${phaseDrift.length} phase drift</p>
   ${drift.length ? `<h3 style="color:#ef4444;margin:16px 0 8px">Revenue drift — summary out of step with item prices (${drift.length})</h3><ul style="margin:0;padding-left:20px">${driftRows}</ul>` : ""}
   ${fleeceGaps.length ? `<h3 style="color:#d97706;margin:16px 0 8px">Fleece not applied in costing (${fleeceGaps.length})</h3><ul style="margin:0;padding-left:20px">${fleeceRows}</ul>` : ""}
-  <p style="margin:20px 0 0;font-size:12px;color:#999">Open the job in the costing tab and re-save, or run scripts/costing-health.cjs. — OpsHub tripwire</p>
+  ${phaseDrift.length ? `<h3 style="color:#ef4444;margin:16px 0 8px">Phase drift — stored phase ≠ recomputed (${phaseDrift.length})</h3><ul style="margin:0;padding-left:20px">${phaseRows}</ul>` : ""}
+  <p style="margin:20px 0 0;font-size:12px;color:#999">Costing: re-save the job's costing tab. Phase: open the job (V2 heals on load). — OpsHub tripwire</p>
 </div>`;
         await resend.emails.send({
           from: process.env.EMAIL_FROM_QUOTES || "onboarding@resend.dev",
           to: process.env.OWNER_EMAIL,
-          subject: `OpsHub · ⚠️ costing drift on ${drift.length} job${drift.length !== 1 ? "s" : ""}`,
+          subject: `OpsHub · ⚠️ ${drift.length + fleeceGaps.length + phaseDrift.length} health issue${drift.length + fleeceGaps.length + phaseDrift.length !== 1 ? "s" : ""} (${drift.length} rev · ${phaseDrift.length} phase)`,
           html,
         });
       } catch (emailErr) {
@@ -100,7 +120,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ consistent, drifted: drift.length, fleeceGaps: fleeceGaps.length, jobs: drift.map(d => d.job) });
+    return NextResponse.json({ consistent, drifted: drift.length, fleeceGaps: fleeceGaps.length, phaseDrift: phaseDrift.length, jobs: drift.map(d => d.job), phaseJobs: phaseDrift.map(p => p.job) });
   } catch (e: any) {
     console.error("Costing-health cron error:", e);
     return NextResponse.json({ error: e.message }, { status: 500 });
