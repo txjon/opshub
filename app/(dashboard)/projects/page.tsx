@@ -193,7 +193,7 @@ export default function ProjectsBoard() {
   const clients = useMemo(() => [...new Set(rows.filter(r => tab === "completed" ? r.stage.complete : !r.stage.complete).map(clientName))].sort(), [rows, tab]);
 
   const q = query.toLowerCase().trim();
-  const matchQ = (r: Row) => !q || `${r.job.job_number} ${clientName(r)} ${r.job.title || ""}`.toLowerCase().includes(q);
+  const matchQ = (r: Row) => !q || `${r.job.job_number} ${(r.job as any).type_meta?.qb_invoice_number || ""} ${clientName(r)} ${r.job.title || ""}`.toLowerCase().includes(q);
   const base = rows.filter(r => (!clientFilter || clientName(r) === clientFilter) && matchQ(r));
   const activeCQ = base.filter(r => !r.stage.complete); // client + search filtered — drives the stage counts
   const done = base.filter(r => r.stage.complete);
@@ -245,21 +245,15 @@ export default function ProjectsBoard() {
     <BoardFrame title="Projects" action={
       <a href="/jobs/new" style={{ background: T.accent, color: "#0a0a0a", borderRadius: 8, padding: "9px 16px", fontSize: 13, fontFamily: font, fontWeight: 600, textDecoration: "none", whiteSpace: "nowrap" }}>+ New Project</a>
     }>
-      {/* Active/Completed toggles — search moved below, big (Jon: "in your face") */}
-      <div style={{ display: "flex", gap: 8, alignItems: "center", margin: "14px 0 2px", flexWrap: "wrap" }}>
+      {/* Active/Completed toggles + search on ONE row (Jon, Jul 29) — search
+          sits left beside the tabs, same height, white pill kept but compact. */}
+      <div style={{ display: "flex", gap: 8, alignItems: "center", margin: "14px 0 22px", flexWrap: "wrap" }}>
         {([["active", `Active · ${activeAll.length}`], ["completed", `Completed · ${rows.filter(r => r.stage.complete).length}`]] as [typeof tab, string][]).map(([k, label]) => (
           <button key={k} onClick={() => setTab(k)}
             style={{ fontSize: 13, fontWeight: 600, padding: "8px 16px", borderRadius: 9, cursor: "pointer", border: `1px solid ${tab === k ? T.text : T.border}`, background: tab === k ? T.text : T.card, color: tab === k ? "#0a0a0a" : T.muted }}>{label}</button>
         ))}
-      </div>
-
-      {/* THE search — replaces the inert KPI strip: half-width, centered,
-          white document style (the hub's pay-button language). */}
-      <div style={{ margin: "12px 0 4px", display: "flex", justifyContent: "center" }}>
-        <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search client, job #, or title…"
-          style={{ width: "min(560px, 92%)", boxSizing: "border-box", fontSize: 16, fontWeight: 600, padding: "15px 22px", borderRadius: 999, border: "none", background: "#ffffff", color: "#0a0a0a", fontFamily: font, outline: "none", textAlign: "center", boxShadow: "0 4px 18px rgba(0,0,0,0.35)" }}
-          onFocus={e => { e.currentTarget.style.textAlign = "left"; }}
-          onBlur={e => { if (!e.currentTarget.value) e.currentTarget.style.textAlign = "center"; }} />
+        <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search client, job #, invoice #, or title…"
+          style={{ width: "min(360px, 100%)", boxSizing: "border-box", fontSize: 13, fontWeight: 600, padding: "8px 16px", borderRadius: 999, border: "none", background: "#ffffff", color: "#0a0a0a", fontFamily: font, outline: "none" }} />
       </div>
 
       {tab === "active" ? (
