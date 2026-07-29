@@ -223,18 +223,22 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     if (!file) return;
     setUploadingItem(item.id);
     try {
-      const fd = new FormData();
-      fd.append("file", file);
-      fd.append("itemId", item.id);
-      fd.append("stage", stage);
-      fd.append("clientName", job?.clients?.name || "");
-      fd.append("projectTitle", job?.title || "");
-      fd.append("itemName", item.name || "");
-      const res = await fetch("/api/files", { method: "POST", body: fd });
-      if (!res.ok) { failed("Art upload failed", await res.text().catch(() => "")); return; }
+      // Chunked Drive session upload (same path as PSD drops) — the old
+      // single-POST /api/files hit Vercel's ~4.5MB body cap, so any real
+      // print file failed with "Art upload failed" on prod (Taylor, Jul 29).
+      // /api/drive/register keeps full /api/files parity: same-stage
+      // supersede, proof approval carry, item drive_link auto-set.
+      const driveFile: any = await (uploadToDrive as any)({
+        blob: file, fileName: file.name, mimeType: file.type || "application/octet-stream",
+        itemId: item.id, clientName: job?.clients?.name || "", projectTitle: job?.title || "", itemName: item.name || "",
+      });
+      await registerFileInDb({
+        ...driveFile, itemId: item.id, stage,
+        fileName: file.name, mimeType: file.type || "application/octet-stream", fileSize: file.size,
+      });
       const { data }: any = await createClient().from("item_files").select(FILE_COLS).eq("item_id", item.id).is("superseded_at", null).order("created_at");
       setFilesByItem(m => ({ ...m, [item.id]: data || [] }));
-    } catch (e) { failed("Art upload error — not saved", e); }
+    } catch (e) { failed("Art upload failed", e); }
     finally { setUploadingItem(null); }
   };
   // Delete a file from the worksheet strip — removes the item_files row and the
