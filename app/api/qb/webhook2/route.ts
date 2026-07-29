@@ -7,6 +7,7 @@ import { createHmac } from "crypto";
 import { sendClientNotification } from "@/lib/auto-email";
 import { appBaseUrl } from "@/lib/public-url";
 import { derivePaymentType } from "@/lib/payment-status";
+import { recalcJobPhase } from "@/lib/job-phase-recalc";
 
 const QB_BASE_URL = "https://quickbooks.api.intuit.com";
 
@@ -294,6 +295,11 @@ async function processPayment(payment: any, supabase: any, paymentId: string) {
       type: "auto",
       message: `Payment received — $${amount.toLocaleString()} via QuickBooks`,
     });
+
+    // Payment satisfies the phase gate (pending → ready) — recompute + persist
+    // phase so the team gets the "order blanks / send PO" prompt. Wrapped so a
+    // recalc hiccup can never break the webhook's required 200 response.
+    try { await recalcJobPhase(supabase, job.id); } catch (e) { console.error("[QB Webhook2] phase recalc failed:", (e as any)?.message); }
 
     // Notifications table deprecated — bell UI was removed.
 

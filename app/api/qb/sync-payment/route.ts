@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { getAccessToken } from "@/lib/quickbooks";
 import { derivePaymentType } from "@/lib/payment-status";
+import { recalcJobPhase } from "@/lib/job-phase-recalc";
 
 const QB_BASE_URL = "https://quickbooks.api.intuit.com";
 
@@ -210,6 +211,10 @@ export async function POST(req: NextRequest) {
         job_id: job.id, user_id: null, type: "auto",
         message: `Payment received — $${amount.toLocaleString()} via QuickBooks (manual sync)`,
       });
+
+      // Payment satisfies the phase gate — recompute + persist phase so the
+      // paid job advances to "ready" and the team gets the prompt.
+      try { await recalcJobPhase(admin, job.id); } catch (e) { console.error("[QB sync-payment] phase recalc failed:", (e as any)?.message); }
 
       // Notifications table deprecated — bell UI was removed.
 

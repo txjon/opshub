@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { verifyWebhookSignature } from "@/lib/stripe";
+import { recalcJobPhase } from "@/lib/job-phase-recalc";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -91,6 +92,12 @@ export async function POST(req: NextRequest) {
             job_id: job.id, user_id: null, type: "auto",
             message: `Stripe invoice #${inv.number || inv.id} paid — $${amount.toFixed(2)}`,
           });
+          // Payment implies quote approval (mirror the QB paths). The extra
+          // .eq keeps it idempotent — only flips a not-yet-approved job, so the
+          // timestamp isn't reset on repeat events. Then recompute phase so the
+          // paid job advances to "ready".
+          await sb.from("jobs").update({ quote_approved: true, quote_approved_at: new Date().toISOString(), quote_rejection_notes: null }).eq("id", job.id).eq("quote_approved", false);
+          try { await recalcJobPhase(sb, job.id); } catch (e) { console.error("[stripe/webhook] phase recalc failed:", (e as any)?.message); }
         }
         break;
       }
