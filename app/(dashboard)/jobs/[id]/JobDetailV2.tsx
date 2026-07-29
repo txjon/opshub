@@ -506,6 +506,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       await (supabase.from("jobs") as any).update(updates).eq("id", job.id);
       setJob((j: any) => ({ ...j, client_id: clientId, clients: { ...(j.clients || {}), id: clientId, name: clientName }, type_meta: meta, ...(row?.default_terms ? { payment_terms: row.default_terms } : {}) }));
       logJobActivity(job.id, `Project reassigned to client: ${clientName}`);
+      if (row?.default_terms) recalcPhase(); // new client's terms may move the payment gate
       setClientPick(false); setClientQuery("");
     } catch (e) { failed("Client reassign failed — not saved", e); }
     finally { setClientBusy(false); }
@@ -539,6 +540,9 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   const saveJobCol = async (col: string, value: any) => {
     setJob((j: any) => ({ ...j, [col]: value }));
     try { await (createClient().from("jobs") as any).update({ [col]: value }).eq("id", job.id); } catch (e) { failed("Save failed — not saved", e); }
+    // payment_terms is a phase gate (net auto-meets it; prepaid/deposit need a
+    // payment) — recompute so switching terms opens/closes "ready" immediately.
+    if (col === "payment_terms") recalcPhase();
   };
   const saveTypeMeta = async (patch: Record<string, any>) => {
     const meta = { ...(job.type_meta || {}), ...patch };
@@ -624,6 +628,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     try {
       await (createClient().from("jobs") as any).update({ shipping_route: route }).eq("id", job.id);
       logJobActivity(job.id, `Shipping route set to ${ROUTE_LABEL[route] || route}`);
+      recalcPhase(); // route drives receiving vs drop-ship-complete gating
     } catch (e) { failed("Route save failed — not saved", e); }
   };
   const removeProduct = async (item: any) => {
@@ -1067,7 +1072,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   const saveItemRoute = async (item: any, route: string) => {
     const v = route || null;
     setItems(prev => prev.map(x => x.id === item.id ? { ...x, shipping_route: v } : x));
-    try { await (createClient().from("items") as any).update({ shipping_route: v }).eq("id", item.id); } catch (e) { failed("Route save failed — not saved", e); }
+    try { await (createClient().from("items") as any).update({ shipping_route: v }).eq("id", item.id); recalcPhase(); } catch (e) { failed("Route save failed — not saved", e); }
   };
   // Manual mark / unmark a vendor's PO sent (no email) — mirrors classic chips.
   const markPoSent = async (vendor: string) => {
