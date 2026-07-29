@@ -70,8 +70,12 @@ export async function updateSession(request: NextRequest) {
     || pathname.startsWith("/shop/");
   // The legacy /onboard intake form stays publicly reachable.
   const isLegacyPublic = pathname.startsWith("/onboard");
+  // Client-facing documents share via MAGIC LINKS only (/d/[token] → doc_links,
+  // mig 153). The raw public/ filenames stay login-walled on purpose — Jon:
+  // "I don't want it to be this easy to find."
+  const isDocLink = pathname.startsWith("/d/");
 
-  const isPublicRoute = isTokenPublic || isMarketingPublic || isLegacyPublic;
+  const isPublicRoute = isTokenPublic || isMarketingPublic || isLegacyPublic || isDocLink;
 
   if (!user && !isAuthRoute && !isPublicRoute && !isApiRoute) {
     const url = request.nextUrl.clone();
