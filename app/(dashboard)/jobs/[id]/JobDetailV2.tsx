@@ -357,7 +357,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     try {
       await (createClient().from("buy_sheet_lines") as any).upsert({ item_id: item.id, size, qty_ordered: q }, { onConflict: "item_id,size" });
       if (sell != null) await (createClient().from("items") as any).update({ sell_per_unit: sell }).eq("id", item.id);
-      fetch(`/api/jobs/${job.id}/refresh-financials`, { method: "POST" }).catch(() => {});
+      fetch(`/api/jobs/${job.id}/refresh-financials`, { method: "POST", keepalive: true }).catch(() => {});
     } catch (e) { failed("Qty save failed — not saved", e); }
   };
 
@@ -381,7 +381,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
         await (supabase.from("buy_sheet_lines") as any).upsert({ item_id: item.id, size, qty_ordered: q }, { onConflict: "item_id,size" });
       }
       if (sell != null) await (supabase.from("items") as any).update({ sell_per_unit: sell }).eq("id", item.id);
-      fetch(`/api/jobs/${job.id}/refresh-financials`, { method: "POST" }).catch(() => {});
+      fetch(`/api/jobs/${job.id}/refresh-financials`, { method: "POST", keepalive: true }).catch(() => {});
     } catch (e) { failed("Distribute failed — not saved", e); }
   };
 
@@ -408,7 +408,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
         await (supabase.from("buy_sheet_lines") as any).upsert({ item_id: item.id, size, qty_ordered: q }, { onConflict: "item_id,size" });
       }
       if (sell != null) await (supabase.from("items") as any).update({ sell_per_unit: sell }).eq("id", item.id);
-      fetch(`/api/jobs/${job.id}/refresh-financials`, { method: "POST" }).catch(() => {});
+      fetch(`/api/jobs/${job.id}/refresh-financials`, { method: "POST", keepalive: true }).catch(() => {});
     } catch (e) { failed("Size save failed — not saved", e); }
   };
 
@@ -477,7 +477,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       const supabase = createClient();
       await supabase.from("buy_sheet_lines").delete().eq("item_id", item.id).eq("size", sz);
       if (sell != null) await (supabase.from("items") as any).update({ sell_per_unit: sell }).eq("id", item.id);
-      fetch(`/api/jobs/${job.id}/refresh-financials`, { method: "POST" }).catch(() => {});
+      fetch(`/api/jobs/${job.id}/refresh-financials`, { method: "POST", keepalive: true }).catch(() => {});
     } catch (e) { failed("RemoveSize failed — not saved", e); }
   };
   // ── Client assignment (classic swapJobContactsForClient port) ──
@@ -557,7 +557,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     // invoice_extra_lines feed costing_summary (feeRevenue / passthruTotal) —
     // refresh so KPIs don't lag additional-charge edits. Scoped to that key;
     // other type_meta keys (venue, PO#, notes) don't touch the summary.
-    if ("invoice_extra_lines" in patch) fetch(`/api/jobs/${job.id}/refresh-financials`, { method: "POST" }).catch(() => {});
+    if ("invoice_extra_lines" in patch) fetch(`/api/jobs/${job.id}/refresh-financials`, { method: "POST", keepalive: true }).catch(() => {});
   };
   // Recalc jobs.phase after any gate-changing action (payment, approval, PO,
   // blanks) — the boards/dashboard key off phase; without this V2 actions
@@ -662,7 +662,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       setWsIndex(null);
       try { logJobActivity(job.id, `Product removed: ${item.name}`); } catch {}
       recalcPhase();
-      fetch(`/api/jobs/${job.id}/refresh-financials`, { method: "POST" }).catch(() => {});
+      fetch(`/api/jobs/${job.id}/refresh-financials`, { method: "POST", keepalive: true }).catch(() => {});
     } catch (e) { failed("Remove product failed — not saved", e); }
   };
 
@@ -918,7 +918,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       // the assembler read item.blank_costs, not the transform's blankCosts.
       setItems(prev => prev.map((x: any) => x.id === item.id ? { ...x, ...patch, is_fleece: !!(item.is_fleece || patch.is_fleece), blankCosts: patch.blankCosts, blank_costs: patch.blankCosts && Object.keys(patch.blankCosts).length ? patch.blankCosts : null, ...(sell != null ? { sell_per_unit: sell } : {}) } : x));
       logJobActivity(job.id, `Blank assigned to ${item.name}: ${patch.blank_vendor || ""} ${patch.blank_sku || ""}`.trim());
-      fetch(`/api/jobs/${job.id}/refresh-financials`, { method: "POST" }).catch(() => {});
+      fetch(`/api/jobs/${job.id}/refresh-financials`, { method: "POST", keepalive: true }).catch(() => {});
     } catch (e) { failed("PersistBlankAssign failed — not saved", e); }
   };
   // Add a new product straight from a picker payload.
@@ -939,7 +939,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       const qtys = Object.fromEntries((pi.sizes || []).map((sz: string) => [sz, pi.qtys?.[sz] || 0]));
       setItems(prev => [...prev, { ...item, qtys, totalQty: sumQ(qtys), blankCosts: pi.blankCosts || {} }]);
       logJobActivity(job.id, `Product added: ${pi.name}`);
-      fetch(`/api/jobs/${job.id}/refresh-financials`, { method: "POST" }).catch(() => {});
+      fetch(`/api/jobs/${job.id}/refresh-financials`, { method: "POST", keepalive: true }).catch(() => {});
     } catch (e: any) { failed("CreateProductFromPicker failed — not saved", e); alert(e.message || "Failed to add product"); }
   };
   const handlePickerAdd = (pi: any) => {
@@ -1272,7 +1272,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       if (sellUpdates.length) setItems(prev => prev.map(x => { const u = sellUpdates.find(s => s.id === x.id); return u ? { ...x, sell_per_unit: u.sell } : x; }));
       // Keep costing_summary (Reports / God Mode KPIs) in step — same
       // fire-and-forget classic ProductBuilder uses after item mutations.
-      fetch(`/api/jobs/${job.id}/refresh-financials`, { method: "POST" }).catch(() => {});
+      fetch(`/api/jobs/${job.id}/refresh-financials`, { method: "POST", keepalive: true }).catch(() => {});
     } catch (e) { failed("Deco flush failed — not saved", e); }
   };
   const schedulePersist = (item: any, newP: any) => {
@@ -1413,7 +1413,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       const cd = { ...(fresh?.costing_data || job.costing_data || {}), costMargin: nextMargin, inclShip: nextInclShip, inclCC: nextInclCC, _savedAt: new Date().toISOString() };
       await (supabase.from("jobs") as any).update({ costing_data: cd }).eq("id", job.id);
       for (const [id, sell] of Object.entries(sells)) await (supabase.from("items") as any).update({ sell_per_unit: sell }).eq("id", id);
-      fetch(`/api/jobs/${job.id}/refresh-financials`, { method: "POST" }).catch(() => {});
+      fetch(`/api/jobs/${job.id}/refresh-financials`, { method: "POST", keepalive: true }).catch(() => {});
     } catch (e) { failed("Recompute-all failed — not saved", e); }
   };
   const toggleUnlock = async () => {
@@ -1449,7 +1449,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       const upd: any = { blank_costs, cost_per_unit };
       if (r) upd.sell_per_unit = sell;
       await (createClient().from("items") as any).update(upd).eq("id", item.id);
-      fetch(`/api/jobs/${job.id}/refresh-financials`, { method: "POST" }).catch(() => {});
+      fetch(`/api/jobs/${job.id}/refresh-financials`, { method: "POST", keepalive: true }).catch(() => {});
     } catch (e) { failed("Per-size cost save failed — not saved", e); }
   };
 
@@ -1483,7 +1483,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       if (idx >= 0) { if (override == null) delete cps[idx].sellOverride; else cps[idx].sellOverride = override; }
       await (supabase.from("jobs") as any).update({ costing_data: { ...cd, costProds: cps, _savedAt: new Date().toISOString() } }).eq("id", job.id);
       await (supabase.from("items") as any).update({ sell_per_unit: sell }).eq("id", item.id);
-      fetch(`/api/jobs/${job.id}/refresh-financials`, { method: "POST" }).catch(() => {});
+      fetch(`/api/jobs/${job.id}/refresh-financials`, { method: "POST", keepalive: true }).catch(() => {});
     } catch (e) { failed("Override save failed — not saved", e); }
   };
 
