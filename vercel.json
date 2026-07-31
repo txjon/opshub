@@ -23,6 +23,10 @@
     {
       "path": "/api/cron/sweep-orphan-uploads",
       "schedule": "30 9 * * *"
+    },
+    {
+      "path": "/api/cron/history-sync",
+      "schedule": "10 9 * * *"
     }
   ]
 }
