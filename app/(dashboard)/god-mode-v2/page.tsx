@@ -36,7 +36,7 @@ export default function GodModeV2Page() {
   const [group, setGroup] = useState<string>("ALL");
   // scope: "pure" = the archive only; "all" = + the OpsHub era (the stamped
   // QB lines ARE the OpsHub jobs as invoiced — either scope is double-count-free)
-  const [scope, setScope] = useState<"pure" | "all">("pure");
+  const [scope, setScope] = useState<"pure" | "all">("all");   // default = the FULL book (Jon, Jul 31 — the archive-only default hid the OpsHub era and read $1.7M for 2026)
 
   useEffect(() => {
     (async () => {
