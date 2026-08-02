@@ -327,6 +327,10 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   // Client transaction actions (send quote/proofs, approve, send invoice, record payment).
   const [clientAction, setClientAction] = useState<null | "quote" | "invoice" | "payment">(null);
   const [recips, setRecips] = useState<Record<string, boolean>>({});
+  // Manual one-off recipients (Jon, Aug 1) — an invoice sometimes goes to an
+  // address that isn't a job contact (client's bookkeeper etc.).
+  const [manualEmails, setManualEmails] = useState<string[]>([]);
+  const [manualInput, setManualInput] = useState("");
   const [actBusy, setActBusy] = useState(false);
   const [actErr, setActErr] = useState("");
   const [payForm, setPayForm] = useState<{ type: string; amount: string; paid_date: string }>({ type: "full_payment", amount: "", paid_date: "" });
@@ -753,9 +757,18 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     const { to, cc } = defaultRecipient(flatContacts);
     const sel: Record<string, boolean> = {};
     flatContacts.forEach((c: any) => { sel[c.email] = c.email === to || cc.includes(c.email); });
-    setRecips(sel); setActErr(""); setClientAction(kind);
+    setRecips(sel); setManualEmails([]); setManualInput(""); setActErr(""); setClientAction(kind);
   };
-  const selectedEmails = () => flatContacts.filter((c: any) => recips[c.email]).map((c: any) => c.email);
+  const selectedEmails = () => [
+    ...flatContacts.filter((c: any) => recips[c.email]).map((c: any) => c.email),
+    ...manualEmails,
+  ];
+  const addManualEmail = () => {
+    const v = manualInput.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) { setActErr("That doesn't look like an email address."); return; }
+    if (!manualEmails.includes(v)) setManualEmails(m => [...m, v]);
+    setManualInput(""); setActErr("");
+  };
   const refetchTypeMeta = async () => { const { data }: any = await createClient().from("jobs").select("type_meta, quote_approved, quote_approved_at").eq("id", job.id).single(); if (data) setJob((j: any) => ({ ...j, quote_approved: data.quote_approved, quote_approved_at: data.quote_approved_at, type_meta: { ...j.type_meta, ...data.type_meta } })); };
   const doSendQuote = async () => {
     const emails = selectedEmails(); if (!emails.length) { setActErr("Select a recipient."); return; }
@@ -2580,6 +2593,19 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                       <span>{c.name || c.email}<span style={{ color: T.faint }}> · {c.email}{c.role_on_job ? " · " + c.role_on_job : ""}</span></span>
                     </label>
                   ))}
+                {manualEmails.map(m => (
+                  <label key={m} style={{ display: "flex", alignItems: "center", gap: 9, fontSize: 13, color: T.text, padding: "4px 0" }}>
+                    <input type="checkbox" checked onChange={() => setManualEmails(x => x.filter(e => e !== m))} style={{ accentColor: T.accent }} />
+                    <span>{m}<span style={{ color: T.faint }}> · added</span></span>
+                  </label>
+                ))}
+                <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                  <input value={manualInput} onChange={e => setManualInput(e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addManualEmail(); } }}
+                    placeholder="Add another email…" type="email"
+                    style={{ flex: 1, padding: "8px 11px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: font, outline: "none" }} />
+                  <button onClick={addManualEmail} disabled={!manualInput.trim()} style={{ ...ghostBtn, opacity: manualInput.trim() ? 1 : 0.5 }}>Add</button>
+                </div>
               </div>
             )}
             {actErr && <div style={{ color: T.red, fontSize: 12, marginTop: 10 }}>{actErr}</div>}
