@@ -661,12 +661,11 @@ export function useWarehouse() {
       // receives where we don't want to spam clients about boxes that
       // arrived weeks ago. Activity log + phase recalc still fire so
       // OpsHub's internal state stays consistent.
-      if (allReceived && !opts?.skipClientEmail) {
-        fetch("/api/email/notify", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ jobId, type: "production_complete" }),
-        }).catch(() => {});
-      }
+      // production_complete client email RETIRED (Jon, Aug 3 email audit —
+      // "get rid of Production complete"). The all-received computation stays
+      // for the callers that branch on it; only the send is gone. The notify
+      // route's handler remains for history but nothing fires it.
+      void allReceived; void opts;
       // Phase recalc — fresh DB read inside recalcJobPhase. Slight
       // delay so the receive writes finish settling first.
       setTimeout(() => recalcJobPhase(jobId), 300);

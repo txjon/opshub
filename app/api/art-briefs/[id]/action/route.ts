@@ -2,9 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { notifyTeamServer } from "@/lib/notify-server";
-import { renderBrandedEmail } from "@/lib/email-template";
-import { appBaseUrl } from "@/lib/public-url";
-import { resendKeyForSlug } from "@/lib/resend-client";
 
 export const dynamic = "force-dynamic";
 
@@ -222,7 +219,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     //      (renderBrandedEmail + Resend, same pattern as the other
     //      transactional sends in OpsHub).
     if ((action === "forward_to_client" || action === "send_to_client") && brief.state === "wip_review") {
-      const portalToken = (brief as any).clients?.portal_token as string | null | undefined;
       try {
         await db.from("art_brief_files")
           .update({ shared_with_client_at: new Date().toISOString() })
@@ -233,100 +229,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         console.error("[art-brief action] failed to flip shared_with_client_at:", e);
       }
 
-      const briefSlug = ((brief as any).clients?.companies?.slug || "hpd") as string;
-      const briefResendKey = resendKeyForSlug(briefSlug);
-      if (portalToken && briefResendKey) {
-        try {
-          const [contactsRes, filesRes] = await Promise.all([
-            db.from("contacts")
-              .select("email")
-              .eq("client_id", (brief as any).client_id)
-              .not("email", "is", null)
-              .limit(5),
-            db.from("art_brief_files")
-              .select("id, kind, drive_file_id, preview_drive_file_id, created_at, shared_with_client_at")
-              .eq("brief_id", brief.id),
-          ]);
-          const recipients = (contactsRes.data || []).map((c: any) => c.email).filter(Boolean);
-          if (recipients.length > 0) {
-            const title = brief.title || "your design";
-            const portalUrl = `${await appBaseUrl()}/portal/client/${portalToken}/designs?brief=${brief.id}`;
-
-            // Hero file for the email thumbnail. Same visibility rules as
-            // the client portal (no print_ready; WIPs only when shared).
-            // Preference order: revision > first_draft > shared WIP. PSDs
-            // need the rendered preview; everything else falls back to the
-            // raw drive_file_id.
-            const visibleDeliverables = (filesRes.data || []).filter((f: any) =>
-              f.kind !== "reference"
-              && f.kind !== "print_ready"
-              && !(f.kind === "wip" && !f.shared_with_client_at)
-            );
-            const byKind = (k: string) => visibleDeliverables
-              .filter((f: any) => f.kind === k)
-              .sort((a: any, b: any) => (b.created_at || "").localeCompare(a.created_at || ""))[0] || null;
-            const heroFile = byKind("revision") || byKind("first_draft") || byKind("wip") || null;
-            const hasDraft = !!visibleDeliverables.find((f: any) => f.kind === "first_draft" || f.kind === "revision");
-            const thumbId = heroFile?.preview_drive_file_id || heroFile?.drive_file_id || null;
-            // Email thumbnails are intentionally low-res (Level 2 of the
-            // proof plan) — the client gets a recognizable preview but
-            // not a print-quality file they can grab from their inbox.
-            // Full proof view (with watermark) lives in the portal.
-            const thumbUrl = thumbId ? `https://drive.google.com/thumbnail?id=${thumbId}&sz=w900` : null;
-
-            const heading = hasDraft
-              ? `${title} — ready for your review`
-              : `${title} — your design team wants your input`;
-            const bodyHtml = hasDraft
-              ? `Your design team just shared a draft of <strong>${title}</strong>. Approve it below, or open the portal to leave feedback on the file.`
-              : `Your design team shared a work-in-progress on <strong>${title}</strong>. Open the portal to leave feedback directly on the file — comments go straight to the team.`;
-
-            // Inline thumbnail. Wraps the image in an <a> so a tap on the
-            // image lands in the same place as the CTA. Background sits
-            // behind the image so the email looks intentional in dark
-            // mode even before the image loads.
-            const extraHtml = thumbUrl
-              ? `<a href="${portalUrl}" style="display:block;margin:8px 0 16px;background:#f4f4f7;border-radius:10px;overflow:hidden;text-decoration:none;border:1px solid #e0e0e4;"><img src="${thumbUrl}" alt="${title}" style="width:100%;max-width:100%;height:auto;max-height:380px;object-fit:contain;display:block;background:#f4f4f7;" /></a>`
-              : "";
-
-            const cta = hasDraft
-              ? { label: "✓ Approve this design", url: `${portalUrl}&approve=1`, style: "green" as const }
-              : { label: "Open the portal →", url: portalUrl, style: "dark" as const };
-            const secondaryCta = hasDraft
-              ? { label: "Open & comment", url: portalUrl, style: "outline" as const }
-              : undefined;
-
-            const subject = hasDraft
-              ? `${title} — design ready for review`
-              : `${title} — feedback wanted`;
-
-            const html = renderBrandedEmail({
-              heading,
-              greeting: `Hi ${clientName},`,
-              bodyHtml,
-              extraHtml,
-              cta,
-              secondaryCta,
-              hint: hasDraft
-                ? "Approving sends the design to production prep. Need changes? Use comments instead — your design team picks them up."
-                : "Comments go straight to your design team. We'll loop back when there's a next version.",
-              closing: "",
-            });
-            await fetch("https://api.resend.com/emails", {
-              method: "POST",
-              headers: { Authorization: `Bearer ${briefResendKey}`, "Content-Type": "application/json" },
-              body: JSON.stringify({
-                from: process.env.EMAIL_FROM_QUOTES || "hello@housepartydistro.com",
-                to: recipients,
-                subject,
-                html,
-              }),
-            });
-          }
-        } catch (e) {
-          console.error("[art-brief action] forward email send failed:", e);
-        }
-      }
+      // Client "design update" email RETIRED (Jon, Aug 3 email audit) — the
+      // hub's studio feed (NEW markers) is the update surface; the forward
+      // action itself still shares WIPs + flips visibility above. Full email
+      // body in git history if it ever comes back.
     }
 
     return NextResponse.json({ brief: updated, action, from: brief.state, to: tx.to });

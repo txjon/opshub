@@ -2,6 +2,7 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 import { NextRequest, NextResponse } from "next/server";
+import { resolveRecipientEmails } from "@/lib/recipients";
 import { createClient } from "@supabase/supabase-js";
 import { createClient as createAuthClient } from "@/lib/supabase/server";
 import { generatePDF } from "@/lib/pdf/browser";
@@ -962,14 +963,15 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     // types since they all render an invoice-style cover page.
     const { data: contacts } = await supabase
       .from("contacts")
-      .select("email, role_label")
+      .select("email, role_label, doc_routing, is_primary")
       .eq("client_id", report.client_id);
     const branding = await getPdfBranding();
     const tenantEmailDomain = (branding.fromEmailQuotes || "").split("@")[1] || "housepartydistro.com";
-    const contactList = (contacts || []) as Array<{ email: string | null; role_label: string | null }>;
+    const contactList = (contacts || []) as Array<{ email: string | null; role_label: string | null; doc_routing?: string[] | null; is_primary?: boolean | null }>;
     const externalContacts = contactList.filter(c => c.email && !new RegExp(`@${tenantEmailDomain.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i").test(c.email));
-    const ownerContact = externalContacts.find(c => (c.role_label || "").toLowerCase().includes("owner"));
-    const clientBillingEmail: string | null = (ownerContact || externalContacts[0])?.email || null;
+    // Bill-to = the Invoices-routed contact (doc_routing, Aug 3) — replaces
+    // the old role_label "owner" string-match, the last magic string.
+    const clientBillingEmail: string | null = resolveRecipientEmails("invoices", externalContacts)[0] || null;
 
     const html = isCombined
       ? renderCombinedReportHTML({

@@ -16,6 +16,7 @@ import { T, font, mono, sortSizes } from "@/lib/theme";
 import { createClient } from "@/lib/supabase/client";
 import { isCostingLocked } from "@/lib/costing-lock";
 import { logJobActivity } from "@/components/JobActivityPanel";
+import { resolveRecipientEmails } from "@/lib/recipients";
 import { calcCostProduct, buildPrintersMap, lookupPrintPrice as sharedLookupPrintPrice, lookupTagPrice as sharedLookupTagPrice, effectiveShipRate } from "@/lib/pricing";
 import { DecorationPanel as DecorationPanelRaw } from "./DecorationPanel";
 import { ProofModal as ProofModalRaw } from "./ArtTab";
@@ -752,11 +753,14 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   const hero = PHASE_HERO[job?.phase] || PHASE_HERO.intake;
 
   // ── client-action handlers (reuse the shared libs) ──
-  const flatContacts = (localContacts || []).map((c: any) => ({ email: c.contacts?.email || c.email, name: c.contacts?.name || c.name || "", role_on_job: c.role_on_job })).filter((c: any) => c.email);
+  const flatContacts = (localContacts || []).map((c: any) => ({ email: c.contacts?.email || c.email, name: c.contacts?.name || c.name || "", role_on_job: c.role_on_job, doc_routing: c.contacts?.doc_routing || null })).filter((c: any) => c.email);
   const openSend = (kind: "quote" | "invoice") => {
-    const { to, cc } = defaultRecipient(flatContacts);
+    // Pre-check the ROUTED contacts for this document category (Aug 3):
+    // quote & proofs → Approvals people, invoice → Invoices people.
+    // Unrouted contacts are admins and stay checked; still fully editable.
+    const routed = new Set(resolveRecipientEmails(kind === "quote" ? "approvals" : "invoices", flatContacts));
     const sel: Record<string, boolean> = {};
-    flatContacts.forEach((c: any) => { sel[c.email] = c.email === to || cc.includes(c.email); });
+    flatContacts.forEach((c: any) => { sel[c.email] = routed.has(String(c.email).toLowerCase()); });
     setRecips(sel); setManualEmails([]); setManualInput(""); setActErr(""); setClientAction(kind);
   };
   const selectedEmails = () => [

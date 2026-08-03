@@ -7,6 +7,7 @@ import { createClient } from "@supabase/supabase-js";
 import { renderBrandedEmail, tenantClosing } from "@/lib/email-template";
 import { appBaseUrl } from "@/lib/public-url";
 import { resendForSlug } from "@/lib/resend-client";
+import { resolveRecipients } from "@/lib/recipients";
 
 const admin = () =>
   createClient(
@@ -75,24 +76,25 @@ export async function sendClientNotification(params: NotifyParams) {
     const contactIds = jobContacts.map((jc: any) => jc.contact_id);
     const { data: contacts } = await sb
       .from("contacts")
-      .select("id, name, email")
+      .select("id, name, email, doc_routing")
       .in("id", contactIds);
     if (!contacts?.length) return;
 
-    // Primary gets the email, others get CC
-    const primaryContactId = jobContacts.find(
-      (jc: any) => jc.role_on_job === "primary"
-    )?.contact_id;
-    const primary = contacts.find((c: any) => c.id === primaryContactId) || contacts[0];
+    // Per-contact document routing (Aug 3): proofs → Approvals people,
+    // payment receipts → Invoices people; unassigned contacts are admins
+    // (get everything). First routed = To, rest of routed = CC — the
+    // everyone-gets-CC'd behavior is exactly what routing retires.
+    const category = params.type === "payment_received" ? "invoices" as const : "approvals" as const;
+    const primaryId = jobContacts.find((jc: any) => jc.role_on_job === "primary")?.contact_id;
+    const routable = contacts.map((c: any) => ({ ...c, is_primary: c.id === primaryId }));
+    const routed = resolveRecipients(category, routable);
+    const primary = routed[0] as any;
     if (!primary?.email) {
-      console.warn(`[Auto-email] Primary contact has no email on job ${job.id} — skipping ${params.type}`);
-      await sb.from("job_activity").insert({ job_id: job.id, user_id: null, type: "auto", message: `Auto-email skipped (${params.type}): primary contact has no email` });
+      console.warn(`[Auto-email] No routable contact with email on job ${job.id} — skipping ${params.type}`);
+      await sb.from("job_activity").insert({ job_id: job.id, user_id: null, type: "auto", message: `Auto-email skipped (${params.type}): no contact with email` });
       return;
     }
-
-    const ccEmails = contacts
-      .filter((c: any) => c.id !== primary.id && c.email)
-      .map((c: any) => c.email);
+    const ccEmails = routed.slice(1).map((c: any) => c.email);
 
     // Build portal URL
     const baseUrl = await appBaseUrl();
