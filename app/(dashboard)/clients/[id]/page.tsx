@@ -11,6 +11,7 @@ import { createClient } from "@/lib/supabase/client";
 import { H } from "@/components/hub/theme";
 import { JOB_DIRECTIVES } from "@/lib/directives";
 import { ClientWorkingSheet } from "@/components/ClientWorkingSheet";
+import { QBCustomerChooser } from "@/components/QBCustomerChooser";
 import { JobStatusBar } from "@/components/JobStatusBar";
 import { deriveProjectStage } from "@/lib/project-stage";
 import { loadJobPhasesBatch } from "@/lib/item-state";
@@ -211,6 +212,7 @@ export default function ClientSpacePage() {
           <>
             <ActionFeed jobs={jobs} phaseViews={phaseViews} proofStatus={proofStatus} router={router} secHead={secHead} />
             <Overview client={client} contacts={contacts} wire={wire} model={model} briefs={briefs} secHead={secHead} onEdit={() => setEditOpen(true)} />
+            <DocsBlock clientId={params.id} secHead={secHead} />
           </>
         )}
         {editOpen && (
@@ -394,7 +396,35 @@ function EditClientModal({ client, contacts, onClose, onSaved }: any) {
     default_terms: client.default_terms || "", website: client.website || "",
     billing_address: client.billing_address || "", shipping_address: client.shipping_address || "",
     notes: client.notes || "",
+    tax_exempt: !!client.tax_exempt, allow_cc: client.allow_cc !== false, allow_ach: client.allow_ach !== false,
   });
+  // QB customer link — same /api/qb/link-customer API classic uses; acts
+  // immediately (its own deliberate dialog), independent of Save.
+  const [qbLinked, setQbLinked] = useState<any | "loading">("loading");
+  const [qbChooserOpen, setQbChooserOpen] = useState(false);
+  const [qbBusy, setQbBusy] = useState(false);
+  const [qbMsg, setQbMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  useEffect(() => {
+    fetch(`/api/qb/link-customer?clientId=${client.id}`).then(r => r.json())
+      .then(d => setQbLinked(d.current ?? null)).catch(() => setQbLinked(null));
+    // eslint-disable-next-line
+  }, []);
+  async function handleQbAction(a: any) {
+    if (qbBusy) return;
+    setQbBusy(true); setQbMsg(null);
+    try {
+      const body = a.type === "select" ? { clientId: client.id, qbCustomerId: a.qbCustomerId }
+        : a.type === "create_new" ? { clientId: client.id, createNew: true }
+        : { clientId: client.id, qbCustomerId: null };
+      const res = await fetch("/api/qb/link-customer", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "QB operation failed");
+      setQbLinked(a.type === "unlink" ? null : (data.current ?? null));
+      setQbChooserOpen(false);
+      setQbMsg({ ok: true, text: a.type === "unlink" ? "Unlinked — next push re-runs the smart match." : `Linked to "${data.current?.displayName || ""}".` });
+    } catch (e: any) { setQbMsg({ ok: false, text: e.message }); }
+    finally { setQbBusy(false); }
+  }
   const [rows, setRows] = useState<any[]>(contacts.map((c: any) => ({ ...c })));
   const [removed, setRemoved] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -425,6 +455,7 @@ function EditClientModal({ client, contacts, onClose, onSaved }: any) {
         default_terms: form.default_terms || null, website: form.website.trim() || null,
         billing_address: form.billing_address.trim() || null, shipping_address: form.shipping_address.trim() || null,
         notes: form.notes.trim() || null,
+        tax_exempt: !!form.tax_exempt, allow_cc: !!form.allow_cc, allow_ach: !!form.allow_ach,
       };
       const { error: ce } = await (supabase.from("clients") as any).update(cPatch).eq("id", client.id);
       if (ce) throw new Error(ce.message);
@@ -479,6 +510,29 @@ function EditClientModal({ client, contacts, onClose, onSaved }: any) {
           <div><span style={lab}>Notes</span><textarea style={{ ...inp, minHeight: 64, resize: "vertical", lineHeight: 1.5 }} value={form.notes} onChange={e => setForm((f: any) => ({ ...f, notes: e.target.value }))} /></div>
 
           <div>
+            <span style={lab}>Billing</span>
+            <div style={{ display: "flex", gap: 18, alignItems: "center", flexWrap: "wrap", padding: "4px 0 2px" }}>
+              {([["tax_exempt", "Tax exempt"], ["allow_cc", "Card payments"], ["allow_ach", "ACH payments"]] as [string, string][]).map(([k, l]) => (
+                <label key={k} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: H.text, cursor: "pointer" }}>
+                  <input type="checkbox" checked={!!form[k]} onChange={e => setForm((f: any) => ({ ...f, [k]: e.target.checked }))} style={{ accentColor: "#fff", width: 15, height: 15 }} />
+                  {l}
+                </label>
+              ))}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto" }}>
+                <span style={{ fontSize: 11, color: H.faint }}>QuickBooks:</span>
+                <span style={{ fontSize: 11.5, fontFamily: H.mono, color: qbLinked && qbLinked !== "loading" ? H.green : H.faint }}>
+                  {qbLinked === "loading" ? "…" : qbLinked ? qbLinked.displayName : "not linked"}
+                </span>
+                <button onClick={() => setQbChooserOpen(true)}
+                  style={{ borderRadius: 999, border: `1px solid ${H.line}`, background: "transparent", color: H.dim, fontSize: 9.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", padding: "5px 11px", cursor: "pointer", fontFamily: H.font }}>
+                  {qbLinked && qbLinked !== "loading" ? "Change" : "Link"}
+                </button>
+              </div>
+            </div>
+            {qbMsg && <div style={{ fontSize: 11, color: qbMsg.ok ? H.green : H.red, marginTop: 4 }}>{qbMsg.text}</div>}
+          </div>
+
+          <div>
             <span style={lab}>Contacts</span>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {rows.map((r, i) => (
@@ -520,6 +574,8 @@ function EditClientModal({ client, contacts, onClose, onSaved }: any) {
           <button disabled={busy} onClick={onClose}
             style={{ borderRadius: 999, border: `1px solid ${H.line}`, background: "transparent", color: H.dim, fontSize: 12, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", padding: "11px 22px", cursor: "pointer", fontFamily: H.font }}>Cancel</button>
         </div>
+        <QBCustomerChooser open={qbChooserOpen} mode="link" clientId={client.id} searchedName={form.name || client.name || ""}
+          current={qbLinked === "loading" ? undefined : qbLinked} busy={qbBusy} onAction={handleQbAction} onClose={() => setQbChooserOpen(false)} />
       </div>
     </div>
   );
@@ -556,6 +612,61 @@ function ActionFeed({ jobs, phaseViews, proofStatus, router, secHead }: any) {
           <div style={{ flex: 1, minWidth: 0 }} onClick={e => e.stopPropagation()}>
             <JobStatusBar job={job} stage={stage} items={job.items} payments={job.payment_records} navigate />
           </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+
+// ── Documents — client files (contracts, tax certs, W9s). SAME storage as
+// classic: /api/clients/[id]/files → OpsHub Files / Clients / {name} /
+// {Tax Documents|W9|MSAs|Other} in Drive + client_files rows, so everything
+// uploaded on either page shows on both. ──
+function DocsBlock({ clientId, secHead }: any) {
+  const [files, setFiles] = useState<any[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [kind, setKind] = useState("tax_exempt");
+  const [confirmId, setConfirmId] = useState<string | null>(null);
+  const load = () => fetch(`/api/clients/${clientId}/files`).then(r => r.json()).then(d => setFiles(d.files || [])).catch(() => {});
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [clientId]);
+  const up = async (f: File) => {
+    setUploading(true);
+    try {
+      const fd = new FormData(); fd.append("file", f); fd.append("kind", kind);
+      await fetch(`/api/clients/${clientId}/files`, { method: "POST", body: fd });
+      load();
+    } finally { setUploading(false); }
+  };
+  const del = async (id: string) => { await fetch(`/api/clients/${clientId}/files?fileId=${id}`, { method: "DELETE" }); setConfirmId(null); load(); };
+  const size = (n: number | null) => !n ? "" : n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.round(n / 1024)} KB`;
+  const KINDS: [string, string][] = [["tax_exempt", "Tax Document"], ["w9", "W9"], ["msa", "MSA"], ["other", "Other"]];
+  return (
+    <div style={{ maxWidth: 560 }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
+        <div style={{ flex: 1 }}>{secHead("Documents.", "certs, W9s, agreements — on file in Drive")}</div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", alignSelf: "center" }}>
+          <select value={kind} onChange={e => setKind(e.target.value)}
+            style={{ padding: "7px 10px", borderRadius: 8, border: `1px solid ${H.line}`, background: H.surface, color: H.text, fontSize: 11, fontFamily: H.font, outline: "none", cursor: "pointer" }}>
+            {KINDS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+          </select>
+          <label style={{ borderRadius: 999, border: `1px solid ${H.line}`, background: "transparent", color: H.dim, fontSize: 10, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", padding: "8px 14px", cursor: uploading ? "default" : "pointer", fontFamily: H.font, opacity: uploading ? 0.6 : 1 }}>
+            {uploading ? "Uploading…" : "+ Upload"}
+            <input type="file" style={{ display: "none" }} disabled={uploading}
+              onChange={e => { const f = e.target.files?.[0]; if (f) up(f); e.target.value = ""; }} />
+          </label>
+        </div>
+      </div>
+      {files.length === 0 && <div style={{ color: H.faint, fontSize: 12.5 }}>No documents on file.</div>}
+      {files.map((f: any) => (
+        <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: `1px solid ${H.line}` }}>
+          <a href={f.drive_link || "#"} target="_blank" rel="noreferrer" style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 700, color: H.text, textDecoration: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.file_name}</a>
+          <span style={{ fontSize: 9.5, fontFamily: H.mono, color: H.faint, flexShrink: 0 }}>{size(f.file_size)}</span>
+          {confirmId === f.id ? (
+            <button onClick={() => del(f.id)} style={{ border: "none", background: H.red, color: "#fff", borderRadius: 999, fontSize: 9.5, fontWeight: 800, padding: "4px 10px", cursor: "pointer", fontFamily: H.font }}>Delete?</button>
+          ) : (
+            <button onClick={() => setConfirmId(f.id)} style={{ border: "none", background: "transparent", color: H.faint, fontSize: 13, cursor: "pointer", padding: "0 4px" }}>✕</button>
+          )}
         </div>
       ))}
     </div>
