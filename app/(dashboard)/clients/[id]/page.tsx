@@ -212,7 +212,6 @@ export default function ClientSpacePage() {
           <>
             <ActionFeed jobs={jobs} phaseViews={phaseViews} proofStatus={proofStatus} router={router} secHead={secHead} />
             <Overview client={client} contacts={contacts} wire={wire} model={model} briefs={briefs} secHead={secHead} onEdit={() => setEditOpen(true)} />
-            <DocsBlock clientId={params.id} secHead={secHead} />
           </>
         )}
         {editOpen && (
@@ -280,6 +279,7 @@ function Overview({ client, contacts, wire, model, briefs, secHead, onEdit }: an
               <div style={{ fontSize: 13, color: H.dim, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{client.notes}</div>
             </>
           )}
+          <DocsBlock clientId={client.id} secHead={secHead} />
         </div>
         <div>
           {secHead("The wire.", "every move in this room, newest first")}
