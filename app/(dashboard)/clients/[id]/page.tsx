@@ -26,6 +26,7 @@ export default function ClientSpacePage() {
   const router = useRouter();
   const supabase = createClient();
   const [section, setSection] = useState<Section>("Overview");
+  const [editOpen, setEditOpen] = useState(false);
   const [client, setClient] = useState<any | null>(null);
   const [contacts, setContacts] = useState<any[]>([]);
   const [jobs, setJobs] = useState<any[]>([]);
@@ -180,7 +181,12 @@ export default function ClientSpacePage() {
           })}
         </div>
 
-        {section === "Overview" && <Overview client={client} contacts={contacts} wire={wire} model={model} briefs={briefs} secHead={secHead} />}
+        {section === "Overview" && <Overview client={client} contacts={contacts} wire={wire} model={model} briefs={briefs} secHead={secHead} onEdit={() => setEditOpen(true)} />}
+        {editOpen && (
+          <EditClientModal client={client} contacts={contacts}
+            onClose={() => setEditOpen(false)}
+            onSaved={(cPatch: any, nextContacts: any[]) => { setClient((c: any) => ({ ...c, ...cPatch })); setContacts(nextContacts); setEditOpen(false); }} />
+        )}
         {section === "Studio" && <StudioRail briefs={briefs} secHead={secHead} />}
         {section === "Drops" && <DropsRail releases={releases} secHead={secHead} />}
         {section === "Orders" && <OrdersRail model={model} secHead={secHead} />}
@@ -211,13 +217,18 @@ export default function ClientSpacePage() {
 }
 
 // ── Overview: the room at a glance ──
-function Overview({ client, contacts, wire, model, briefs, secHead }: any) {
+function Overview({ client, contacts, wire, model, briefs, secHead, onEdit }: any) {
   const wt = (iso: string) => new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
   return (
     <>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 40 }}>
         <div>
-          {secHead("People.", "who picks up when you call")}
+          <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
+            <div style={{ flex: 1 }}>{secHead("People.", "who picks up when you call")}</div>
+            {/* Deliberate edit (Jul-24 spec): explicit action -> modal, never
+                casual inline — client info shouldn't be fat-fingered. */}
+            <button onClick={onEdit} style={{ borderRadius: 999, border: `1px solid ${H.line}`, background: "transparent", color: H.dim, fontSize: 10, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", padding: "8px 14px", cursor: "pointer", fontFamily: H.font, alignSelf: "center" }}>✎ Edit client</button>
+          </div>
           {contacts.length === 0 && <div style={{ color: H.faint, fontSize: 12.5 }}>No contacts on file.</div>}
           {contacts.map((c: any) => (
             <div key={c.id} style={{ padding: "9px 0", borderBottom: `1px solid ${H.line}` }}>
@@ -337,6 +348,130 @@ function OrdersRail({ model, secHead }: any) {
         </>
       )}
     </>
+  );
+}
+
+
+// ── Edit client — deliberate modal (Jul-24 spec: explicit Edit → modal, save
+// on commit, no casual inline). Client identity fields + the contact roster;
+// primary is exclusive; contact delete unassigns job_contacts first (no ON
+// DELETE CASCADE — same guard classic uses). ──
+function EditClientModal({ client, contacts, onClose, onSaved }: any) {
+  const supabase = createClient();
+  const [form, setForm] = useState<any>({
+    name: client.name || "", client_type: client.client_type || "",
+    default_terms: client.default_terms || "", website: client.website || "",
+    billing_address: client.billing_address || "", shipping_address: client.shipping_address || "",
+    notes: client.notes || "",
+  });
+  const [rows, setRows] = useState<any[]>(contacts.map((c: any) => ({ ...c })));
+  const [removed, setRemoved] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line
+  }, []);
+  const inp = { width: "100%", boxSizing: "border-box" as const, padding: "9px 12px", borderRadius: 8, border: `1px solid ${H.line}`, background: H.surface, color: H.text, fontSize: 13, fontFamily: H.font, outline: "none" };
+  const lab = { fontSize: 9.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase" as const, color: H.faint, marginBottom: 5, display: "block" };
+  const patchRow = (i: number, patch: any) => setRows(r => r.map((x, j) => j === i ? { ...x, ...patch } : x));
+  const setPrimary = (i: number) => setRows(r => r.map((x, j) => ({ ...x, is_primary: j === i })));
+  const removeRow = (i: number) => setRows(r => { const x = r[i]; if (x.id) setRemoved(d => [...d, x.id]); return r.filter((_, j) => j !== i); });
+
+  async function save() {
+    if (!form.name.trim()) { setErr("Name can't be empty."); return; }
+    setBusy(true); setErr(null);
+    try {
+      const cPatch = {
+        name: form.name.trim(), client_type: form.client_type || null,
+        default_terms: form.default_terms || null, website: form.website.trim() || null,
+        billing_address: form.billing_address.trim() || null, shipping_address: form.shipping_address.trim() || null,
+        notes: form.notes.trim() || null,
+      };
+      const { error: ce } = await (supabase.from("clients") as any).update(cPatch).eq("id", client.id);
+      if (ce) throw new Error(ce.message);
+      for (const id of removed) {
+        const jc = await supabase.from("job_contacts").delete().eq("contact_id", id);
+        if (jc.error) throw new Error(`Couldn't unassign contact from projects: ${jc.error.message}`);
+        const dc = await supabase.from("contacts").delete().eq("id", id);
+        if (dc.error) throw new Error(dc.error.message);
+      }
+      const next: any[] = [];
+      for (const r of rows) {
+        const body = { name: (r.name || "").trim(), email: (r.email || "").trim() || null, phone: (r.phone || "").trim() || null, role_label: (r.role_label || "").trim() || null, is_primary: !!r.is_primary };
+        if (!body.name) continue;
+        if (r.id) {
+          const { error } = await (supabase.from("contacts") as any).update(body).eq("id", r.id);
+          if (error) throw new Error(error.message);
+          next.push({ ...r, ...body });
+        } else {
+          const { data, error } = await (supabase.from("contacts") as any).insert({ ...body, client_id: client.id }).select("*").single();
+          if (error) throw new Error(error.message);
+          next.push(data);
+        }
+      }
+      onSaved(cPatch, next);
+    } catch (e: any) { setErr(e.message || "Save failed."); setBusy(false); }
+  }
+
+  return (
+    <div onClick={e => { if (e.target === e.currentTarget && !busy) onClose(); }}
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 400, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "clamp(12px,4vh,48px) 16px", overflowY: "auto", fontFamily: H.font }}>
+      <div style={{ background: H.card, border: `1px solid ${H.line}`, borderRadius: 16, width: "min(680px, 100%)", padding: "22px 24px", color: H.text }}>
+        <div style={{ fontSize: 17, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", marginBottom: 16 }}>Edit client.</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div><span style={lab}>Name</span><input style={inp} value={form.name} onChange={e => setForm((f: any) => ({ ...f, name: e.target.value }))} /></div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+            <div><span style={lab}>Type</span>
+              <select style={{ ...inp, cursor: "pointer" }} value={form.client_type} onChange={e => setForm((f: any) => ({ ...f, client_type: e.target.value }))}>
+                <option value="">—</option>
+                {["corporate", "brand", "artist", "tour", "webstore"].map(t => <option key={t} value={t}>{t}</option>)}
+              </select></div>
+            <div><span style={lab}>Payment terms</span>
+              <select style={{ ...inp, cursor: "pointer" }} value={form.default_terms} onChange={e => setForm((f: any) => ({ ...f, default_terms: e.target.value }))}>
+                <option value="">—</option>
+                {["net_15", "net_30", "deposit_balance", "prepaid"].map(t => <option key={t} value={t}>{t.replace(/_/g, " ")}</option>)}
+              </select></div>
+            <div><span style={lab}>Website</span><input style={inp} value={form.website} onChange={e => setForm((f: any) => ({ ...f, website: e.target.value }))} /></div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <div><span style={lab}>Billing address</span><textarea style={{ ...inp, minHeight: 76, resize: "vertical", lineHeight: 1.5 }} value={form.billing_address} onChange={e => setForm((f: any) => ({ ...f, billing_address: e.target.value }))} /></div>
+            <div><span style={lab}>Shipping address</span><textarea style={{ ...inp, minHeight: 76, resize: "vertical", lineHeight: 1.5 }} value={form.shipping_address} onChange={e => setForm((f: any) => ({ ...f, shipping_address: e.target.value }))} /></div>
+          </div>
+          <div><span style={lab}>Notes</span><textarea style={{ ...inp, minHeight: 64, resize: "vertical", lineHeight: 1.5 }} value={form.notes} onChange={e => setForm((f: any) => ({ ...f, notes: e.target.value }))} /></div>
+
+          <div>
+            <span style={lab}>Contacts</span>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {rows.map((r, i) => (
+                <div key={r.id || "new-" + i} style={{ display: "grid", gridTemplateColumns: "1.1fr 1.4fr 1fr 1fr auto auto", gap: 8, alignItems: "center" }}>
+                  <input style={inp} placeholder="Name" value={r.name || ""} onChange={e => patchRow(i, { name: e.target.value })} />
+                  <input style={inp} placeholder="Email" value={r.email || ""} onChange={e => patchRow(i, { email: e.target.value })} />
+                  <input style={inp} placeholder="Phone" value={r.phone || ""} onChange={e => patchRow(i, { phone: e.target.value })} />
+                  <input style={inp} placeholder="Role" value={r.role_label || ""} onChange={e => patchRow(i, { role_label: e.target.value })} />
+                  <button title="Primary contact" onClick={() => setPrimary(i)}
+                    style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 13, color: r.is_primary ? PURPLE : H.faint, fontWeight: 900 }}>{r.is_primary ? "★" : "☆"}</button>
+                  <button title="Remove contact" onClick={() => removeRow(i)}
+                    style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 14, color: H.faint }}>✕</button>
+                </div>
+              ))}
+              <button onClick={() => setRows(r => [...r, { name: "", email: "", phone: "", role_label: "", is_primary: r.length === 0 }])}
+                style={{ alignSelf: "flex-start", borderRadius: 999, border: `1px solid ${H.line}`, background: "transparent", color: H.dim, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", padding: "8px 14px", cursor: "pointer", fontFamily: H.font }}>+ Add contact</button>
+            </div>
+            {removed.length > 0 && <div style={{ fontSize: 10.5, color: H.amber, marginTop: 6 }}>{removed.length} contact{removed.length === 1 ? "" : "s"} will be removed on save (also unassigned from projects).</div>}
+          </div>
+        </div>
+        {err && <div style={{ color: H.red, fontSize: 12.5, marginTop: 12 }}>{err}</div>}
+        <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
+          <button disabled={busy} onClick={save}
+            style={{ borderRadius: 999, border: "none", background: "#fff", color: H.ink, fontSize: 12, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", padding: "11px 22px", cursor: "pointer", fontFamily: H.font, opacity: busy ? 0.6 : 1 }}>{busy ? "Saving…" : "Save"}</button>
+          <button disabled={busy} onClick={onClose}
+            style={{ borderRadius: 999, border: `1px solid ${H.line}`, background: "transparent", color: H.dim, fontSize: 12, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", padding: "11px 22px", cursor: "pointer", fontFamily: H.font }}>Cancel</button>
+        </div>
+      </div>
+    </div>
   );
 }
 
