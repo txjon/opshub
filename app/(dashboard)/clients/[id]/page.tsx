@@ -487,7 +487,7 @@ function EditClientModal({ client, contacts, onClose, onSaved }: any) {
                     <input style={inp} placeholder="Name" value={r.name || ""} onChange={e => patchRow(i, { name: e.target.value })} />
                     <input style={inp} placeholder="Email" value={r.email || ""} onChange={e => patchRow(i, { email: e.target.value })} />
                     <input style={inp} placeholder="Phone" value={r.phone || ""} onChange={e => patchRow(i, { phone: e.target.value })} />
-                    <input style={inp} placeholder="Role" value={r.role_label || ""} onChange={e => patchRow(i, { role_label: e.target.value })} />
+                    <input style={inp} placeholder="Title (display only)" value={r.role_label || ""} onChange={e => patchRow(i, { role_label: e.target.value })} />
                     <button title="Primary contact" onClick={() => setPrimary(i)}
                       style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 13, color: r.is_primary ? PURPLE : H.faint, fontWeight: 900 }}>{r.is_primary ? "★" : "☆"}</button>
                     <button title="Remove contact" onClick={() => removeRow(i)}
