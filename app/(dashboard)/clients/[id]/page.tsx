@@ -11,6 +11,9 @@ import { createClient } from "@/lib/supabase/client";
 import { H } from "@/components/hub/theme";
 import { JOB_DIRECTIVES } from "@/lib/directives";
 import { ClientWorkingSheet } from "@/components/ClientWorkingSheet";
+import { JobStatusBar } from "@/components/JobStatusBar";
+import { deriveProjectStage } from "@/lib/project-stage";
+import { loadJobPhasesBatch } from "@/lib/item-state";
 
 const PURPLE = "#fd3aa3";
 const thumbSrc = (id: string, size = 300) => `/api/files/thumbnail?id=${id}&thumb=1&size=${size}`;
@@ -27,6 +30,10 @@ export default function ClientSpacePage() {
   const supabase = createClient();
   const [section, setSection] = useState<Section>("Overview");
   const [editOpen, setEditOpen] = useState(false);
+  // Action feed inputs — same batch loads the /projects board uses, so the
+  // status bars here can never disagree with that board.
+  const [phaseViews, setPhaseViews] = useState<Map<string, any>>(new Map());
+  const [proofStatus, setProofStatus] = useState<Record<string, { allApproved: boolean }> | undefined>(undefined);
   const [client, setClient] = useState<any | null>(null);
   const [contacts, setContacts] = useState<any[]>([]);
   const [jobs, setJobs] = useState<any[]>([]);
@@ -47,7 +54,7 @@ export default function ClientSpacePage() {
         supabase.from("jobs")
           // shipping_route / phase_timestamps / quote_approved_at + the item money
           // and lifecycle fields feed the Working Sheet in the Pipeline section.
-          .select("id, job_number, title, phase, target_ship_date, created_at, quote_approved, quote_approved_at, shipping_route, phase_timestamps, type_meta, costing_summary, items(id, name, pipeline_stage, received_at_hpd, forwarded_at, webstore_entered_at, sell_per_unit, client_retail_per_unit, client_eta, notes, archived_at, completed_at, shipping_route, blanks_order_cost, product_id, design_id, decorator_assignments(decorators(name, short_code)), buy_sheet_lines(size, qty_ordered)), payment_records(id, amount, status, due_date, invoice_number)")
+          .select("id, job_number, title, phase, payment_terms, target_ship_date, created_at, quote_approved, quote_approved_at, shipping_route, phase_timestamps, type_meta, costing_summary, items(id, name, pipeline_stage, artwork_status, received_at_hpd, forwarded_at, webstore_entered_at, sell_per_unit, client_retail_per_unit, client_eta, notes, archived_at, completed_at, shipping_route, blanks_order_cost, blanks_order_number, product_id, design_id, decorator_assignments(decorators(name, short_code)), buy_sheet_lines(size, qty_ordered)), payment_records(id, amount, status, due_date, invoice_number)")
           .eq("client_id", id).order("created_at", { ascending: false }),
         supabase.from("releases").select("*").eq("client_id", id).order("created_at", { ascending: false }),
         supabase.from("products").select("*").eq("client_id", id).order("created_at", { ascending: false }),
@@ -86,6 +93,25 @@ export default function ClientSpacePage() {
         setBriefs((body.briefs || []).filter((b: any) => b.client_id === id && !b.client_aborted_at));
       } catch {}
       setLoaded(true);
+      // action-feed batches (fire-and-forget; bars render with gates off until they land)
+      const activeJs = ((js || []) as any[]).filter(j => !["complete", "cancelled"].includes(j.phase));
+      loadJobPhasesBatch(supabase, activeJs.map(j => j.id)).then(setPhaseViews).catch(() => {});
+      (async () => {
+        const ids = activeJs.flatMap(j => (j.items || []).map((i: any) => i.id));
+        const ps: Record<string, { allApproved: boolean }> = {};
+        for (let i = 0; i < ids.length; i += 150) {
+          const { data: files } = await supabase.from("item_files")
+            .select("item_id, stage, approval").eq("stage", "proof").is("superseded_at", null)
+            .in("item_id", ids.slice(i, i + 150));
+          const byItem: Record<string, any[]> = {};
+          for (const f of (files || []) as any[]) (byItem[f.item_id] ||= []).push(f);
+          for (const id of ids.slice(i, i + 150)) {
+            const proofs = byItem[id] || [];
+            ps[id] = { allApproved: proofs.length > 0 && proofs.every((f: any) => f.approval === "approved") };
+          }
+        }
+        setProofStatus(ps);
+      })().catch(() => {});
     })();
     // eslint-disable-next-line
   }, [params.id]);
@@ -181,7 +207,12 @@ export default function ClientSpacePage() {
           })}
         </div>
 
-        {section === "Overview" && <Overview client={client} contacts={contacts} wire={wire} model={model} briefs={briefs} secHead={secHead} onEdit={() => setEditOpen(true)} />}
+        {section === "Overview" && (
+          <>
+            <ActionFeed jobs={jobs} phaseViews={phaseViews} proofStatus={proofStatus} router={router} secHead={secHead} />
+            <Overview client={client} contacts={contacts} wire={wire} model={model} briefs={briefs} secHead={secHead} onEdit={() => setEditOpen(true)} />
+          </>
+        )}
         {editOpen && (
           <EditClientModal client={client} contacts={contacts}
             onClose={() => setEditOpen(false)}
@@ -471,6 +502,43 @@ function EditClientModal({ client, contacts, onClose, onSaved }: any) {
             style={{ borderRadius: 999, border: `1px solid ${H.line}`, background: "transparent", color: H.dim, fontSize: 12, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", padding: "11px 22px", cursor: "pointer", fontFamily: H.font }}>Cancel</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+
+// ── The action feed (Jul-24 spec item 2) — the client's active jobs wearing
+// the SAME status bars as /projects, ordered action-first: late (red) floats
+// above act (our amber move) above wait (client's court). The bar's amber/red
+// segments ARE the action items; clicking a segment deep-links, clicking the
+// row opens the job. ──
+function ActionFeed({ jobs, phaseViews, proofStatus, router, secHead }: any) {
+  const [raised, setRaised] = useState<string | null>(null);
+  const rows = jobs
+    .filter((j: any) => !["complete", "cancelled"].includes(j.phase))
+    .map((j: any) => ({ job: j, stage: deriveProjectStage(j, phaseViews.get(j.id), j.items || [], j.payment_records || [], proofStatus) }))
+    .filter((r: any) => !r.stage.complete);
+  const rank = (sig: string) => sig === "late" ? 0 : sig === "act" ? 1 : 2;
+  rows.sort((a: any, b: any) => rank(a.stage.signal) - rank(b.stage.signal) || String(a.job.job_number).localeCompare(String(b.job.job_number)));
+  if (!rows.length) return null;
+  return (
+    <div style={{ marginBottom: 8 }}>
+      {secHead("The action feed.", "active orders, our moves first — tap a segment to jump in")}
+      {rows.map(({ job, stage }: any) => (
+        <div key={job.id} onMouseEnter={() => setRaised(job.id)} onMouseLeave={() => setRaised(r => r === job.id ? null : r)}
+          onClick={() => router.push(`/jobs/${job.id}`)}
+          style={{ display: "flex", alignItems: "center", gap: 16, padding: "10px 0", borderBottom: `1px solid ${H.line}`, cursor: "pointer", position: "relative", zIndex: raised === job.id ? 5 : 1 }}>
+          <div style={{ width: 190, flexShrink: 0, minWidth: 0 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 800, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              <span style={{ fontFamily: H.mono, color: H.dim, marginRight: 8 }}>{job.type_meta?.qb_invoice_number ? `#${job.type_meta.qb_invoice_number}` : job.job_number}</span>
+            </div>
+            <div style={{ fontSize: 10.5, color: H.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{stage.reason || stage.now}</div>
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }} onClick={e => e.stopPropagation()}>
+            <JobStatusBar job={job} stage={stage} items={job.items} payments={job.payment_records} navigate />
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
