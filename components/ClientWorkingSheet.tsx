@@ -215,7 +215,20 @@ export function ClientWorkingSheet({ clientId, clientName, jobs, onItemLocalChan
     logJobActivity(jobId, `${message} (worksheet)`);
   }
 
-  const wsItems = flattenClientItems(jobs).map((it: any) => ({ ...it, _ws: resolveWsState(it) }));
+  // 30-DAY IN-STOCK WINDOW — parity with the client hub pipeline (Jon, Aug 3):
+  // a stage-route item on a COMPLETE job reads In Stock here for 30 days after
+  // webstore entry, exactly like the client sees it, so archiving from this
+  // bucket stays the kill switch. Manual archive/cancel still wins; _ws stays
+  // canonical (editor buttons key off it) — _window only redirects the bucket.
+  const IN_STOCK_WINDOW_MS = 30 * 86400000;
+  const wsItems = flattenClientItems(jobs).map((it: any) => {
+    const _ws = resolveWsState(it);
+    const _window = _ws === "complete"
+      && (it.itemShippingRoute || it.shippingRoute) === "stage"
+      && !!it.webstore_entered_at
+      && (Date.now() - new Date(it.webstore_entered_at).getTime()) < IN_STOCK_WINDOW_MS;
+    return { ...it, _ws, _window, _wsDisplay: _window ? "in_stock" : _ws };
+  });
   const paidJobIds = new Set(
     (jobs || []).filter((j: any) => (j.payment_records || []).some((p: any) => p.status === "paid")).map((j: any) => j.id)
   );
@@ -270,13 +283,13 @@ export function ClientWorkingSheet({ clientId, clientName, jobs, onItemLocalChan
     return { count, qty, cost, gross, profit: gross - cost };
   };
   const byStatus: Record<TabKey, any[]> = {
-    setup: wsItems.filter((it: any) => it._ws === "setup"),
-    in_production: wsItems.filter((it: any) => it._ws === "in_production"),
-    shipped: wsItems.filter((it: any) => it._ws === "shipped"),
-    in_stock: wsItems.filter((it: any) => it._ws === "in_stock"),
-    archived: wsItems.filter((it: any) => it._ws === "complete" || it._ws === "archived" || it._ws === "cancelled"),
+    setup: wsItems.filter((it: any) => it._wsDisplay === "setup"),
+    in_production: wsItems.filter((it: any) => it._wsDisplay === "in_production"),
+    shipped: wsItems.filter((it: any) => it._wsDisplay === "shipped"),
+    in_stock: wsItems.filter((it: any) => it._wsDisplay === "in_stock"),
+    archived: wsItems.filter((it: any) => it._wsDisplay === "complete" || it._wsDisplay === "archived" || it._wsDisplay === "cancelled"),
   };
-  const activeWsItems = wsItems.filter((it: any) => it._ws !== "complete" && it._ws !== "archived" && it._ws !== "cancelled");
+  const activeWsItems = wsItems.filter((it: any) => it._wsDisplay !== "complete" && it._wsDisplay !== "archived" && it._wsDisplay !== "cancelled");
   const rollups = {
     setup: rollup(byStatus.setup), in_production: rollup(byStatus.in_production),
     shipped: rollup(byStatus.shipped), in_stock: rollup(byStatus.in_stock),
@@ -440,8 +453,8 @@ export function ClientWorkingSheet({ clientId, clientName, jobs, onItemLocalChan
             const retail = Number(it.client_retail_per_unit) || 0;
             const profit = (retail - cost) * it.totalQty;
             const isPaid = paidJobIds.has(it.jobId);
-            const stateLabel = STATE_LABELS[it._ws as ItemState] || "—";
-            const stateColor = ITEM_STATE_COLORS[it._ws as ItemState] || T.muted;
+            const stateLabel = STATE_LABELS[it._wsDisplay as ItemState] || "—";
+            const stateColor = ITEM_STATE_COLORS[it._wsDisplay as ItemState] || T.muted;
             const isSelected = selectedWsIds.has(it.id);
             const toggle = () => {
               setSelectedWsIds(prev => {
@@ -479,7 +492,7 @@ export function ClientWorkingSheet({ clientId, clientName, jobs, onItemLocalChan
                   <div style={{ fontSize: 12, fontFamily: mono, color: T.text, textAlign: "right" }}>{cost > 0 ? fmtMoney(cost) : "—"}</div>
                   <div style={{ fontSize: 12, fontFamily: mono, color: retail > 0 ? T.text : T.faint, textAlign: "right" }}>{retail > 0 ? fmtMoney(retail) : "—"}</div>
                   <div style={{ fontSize: 12, fontFamily: mono, fontWeight: 600, color: profit > 0 ? T.green : T.faint, textAlign: "right" }}>{profit !== 0 ? fmtMoneyShort(profit) : "—"}</div>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: stateColor, textTransform: "uppercase", letterSpacing: "0.06em" }}>{stateLabel}</div>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: stateColor, textTransform: "uppercase", letterSpacing: "0.06em" }}>{stateLabel}{it._window && <span style={{ color: T.faint, fontWeight: 600, letterSpacing: 0, textTransform: "none" }}> · window</span>}</div>
                   {/* Client date = THE PROMISE, editable in place — this is what the
                       client's hub shows. The internal chain clock rides underneath as
                       reference only (Jon, Jul 28). Blank promise = chain rules. */}
@@ -511,8 +524,8 @@ export function ClientWorkingSheet({ clientId, clientName, jobs, onItemLocalChan
         const cost = Number(it.sell_per_unit) || 0;
         const retail = Number(it.client_retail_per_unit) || 0;
         const profit = (retail - cost) * it.totalQty;
-        const stateLabel = STATE_LABELS[it._ws as ItemState] || "—";
-        const stateColor = ITEM_STATE_COLORS[it._ws as ItemState] || T.muted;
+        const stateLabel = (STATE_LABELS[it._wsDisplay as ItemState] || "—") + (it._window ? " · 30d window" : "");
+        const stateColor = ITEM_STATE_COLORS[it._wsDisplay as ItemState] || T.muted;
         const isArchived = it.archivedAt != null || it._ws === "archived" || it._ws === "cancelled";
         const isPaid = paidJobIds.has(it.jobId);
         const close = () => setWorkingRowExpanded(null);
