@@ -1,6 +1,7 @@
 export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
+import { resolveRecipientEmails, type DocCategory } from "@/lib/recipients";
 import { createClient } from "@/lib/supabase/server";
 import { sendClientNotification } from "@/lib/auto-email";
 import { renderBrandedEmail, trackingBlock, tenantClosing } from "@/lib/email-template";
@@ -39,18 +40,19 @@ import { resolveSlugFromHost } from "@/lib/tenants";
 
 const FROM_ADDR = () => process.env.EMAIL_FROM_QUOTES || "hello@housepartydistro.com";
 
-async function loadJobAndClientEmail(sb: any, jobId: string) {
+async function loadJobAndClientEmail(sb: any, jobId: string, category: DocCategory) {
   const { data: job } = await sb.from("jobs").select("*, clients(name, portal_token, client_hub_enabled)").eq("id", jobId).single();
-  if (!job) return { job: null, clientEmail: null, clientName: "" };
+  if (!job) return { job: null, clientEmail: null, clientEmails: [] as string[], clientName: "" };
   const { data: contacts } = await sb
     .from("job_contacts")
-    .select("role_on_job, contacts(email, name)")
+    .select("role_on_job, contacts(email, name, doc_routing)")
     .eq("job_id", jobId);
-  const billing = (contacts as any)?.find((c: any) => c.role_on_job === "billing")?.contacts;
-  const primary = (contacts as any)?.find((c: any) => c.role_on_job === "primary")?.contacts;
-  const anyContact = (contacts as any)?.map((c: any) => c.contacts).find((c: any) => c?.email);
-  const clientEmail: string | null = billing?.email || primary?.email || anyContact?.email || null;
-  return { job, clientEmail, clientName: (job as any).clients?.name || "" };
+  // Per-contact document routing (Aug 3): unassigned contacts = admins get
+  // everything; a category with nobody assigned falls back to admins →
+  // primary → anyone. See lib/recipients.
+  const routable = ((contacts as any) || []).map((c: any) => ({ email: c.contacts?.email, doc_routing: c.contacts?.doc_routing, role_on_job: c.role_on_job }));
+  const clientEmails = resolveRecipientEmails(category, routable);
+  return { job, clientEmail: clientEmails[0] || null, clientEmails, clientName: (job as any).clients?.name || "" };
 }
 
 async function fetchPdf(url: string, slug?: string) {
@@ -100,7 +102,7 @@ export async function POST(req: NextRequest) {
 
     // ── Shipping emails (drop-ship + ship-through) ─────────────────────────────
     if (type === "order_shipped_vendor" || type === "order_shipped_hpd") {
-      const { job, clientEmail, clientName } = await loadJobAndClientEmail(sb, jobId);
+      const { job, clientEmail, clientEmails, clientName } = await loadJobAndClientEmail(sb, jobId, "shipping");
       if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
       if (!clientEmail) return NextResponse.json({ success: true, skipped: "no email" });
 
@@ -181,7 +183,7 @@ export async function POST(req: NextRequest) {
       // recording "sent" in OpsHub for emails Resend rejected.
       const _r1 = await resend.emails.send({
         from: tenantFromQuotes,
-        to: clientEmail,
+        to: clientEmails,
         subject,
         html,
         attachments: pdfBuffer ? [{ filename: pdfFilename, content: pdfBuffer.toString("base64") }] : undefined,
@@ -211,7 +213,7 @@ export async function POST(req: NextRequest) {
 
     // ── Production complete — stage route, all items received at HPD ───────────
     if (type === "production_complete") {
-      const { job, clientEmail, clientName } = await loadJobAndClientEmail(sb, jobId);
+      const { job, clientEmail, clientEmails, clientName } = await loadJobAndClientEmail(sb, jobId, "shipping");
       if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
       if (!clientEmail) return NextResponse.json({ success: true, skipped: "no email" });
 
@@ -281,7 +283,7 @@ export async function POST(req: NextRequest) {
 
       const _r2 = await resend.emails.send({
         from: tenantFromQuotes,
-        to: clientEmail,
+        to: clientEmails,
         subject: `Production complete · ${clientName} · Invoice ${invoiceNum}`,
         html,
       });
@@ -308,7 +310,7 @@ export async function POST(req: NextRequest) {
 
     // ── Revised invoice ────────────────────────────────────────────────────────
     if (type === "invoice_revised") {
-      const { job, clientEmail, clientName } = await loadJobAndClientEmail(sb, jobId);
+      const { job, clientEmail, clientEmails, clientName } = await loadJobAndClientEmail(sb, jobId, "invoices");
       if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
       if (!clientEmail) return NextResponse.json({ success: true, skipped: "no email" });
 
@@ -343,7 +345,7 @@ export async function POST(req: NextRequest) {
 
       const _r3 = await resend.emails.send({
         from: tenantFromQuotes,
-        to: clientEmail,
+        to: clientEmails,
         subject: [
           `Revised Invoice${invoiceNum ? ` ${invoiceNum}` : ""}`,
           clientName,

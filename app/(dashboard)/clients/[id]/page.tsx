@@ -408,6 +408,11 @@ function EditClientModal({ client, contacts, onClose, onSaved }: any) {
   const inp = { width: "100%", boxSizing: "border-box" as const, padding: "9px 12px", borderRadius: 8, border: `1px solid ${H.line}`, background: H.surface, color: H.text, fontSize: 13, fontFamily: H.font, outline: "none" };
   const lab = { fontSize: 9.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase" as const, color: H.faint, marginBottom: 5, display: "block" };
   const patchRow = (i: number, patch: any) => setRows(r => r.map((x, j) => j === i ? { ...x, ...patch } : x));
+  const toggleRoute = (i: number, cat: string) => setRows(r => r.map((x, j) => {
+    if (j !== i) return x;
+    const cur: string[] = x.doc_routing || [];
+    return { ...x, doc_routing: cur.includes(cat) ? cur.filter((c: string) => c !== cat) : [...cur, cat] };
+  }));
   const setPrimary = (i: number) => setRows(r => r.map((x, j) => ({ ...x, is_primary: j === i })));
   const removeRow = (i: number) => setRows(r => { const x = r[i]; if (x.id) setRemoved(d => [...d, x.id]); return r.filter((_, j) => j !== i); });
 
@@ -431,7 +436,7 @@ function EditClientModal({ client, contacts, onClose, onSaved }: any) {
       }
       const next: any[] = [];
       for (const r of rows) {
-        const body = { name: (r.name || "").trim(), email: (r.email || "").trim() || null, phone: (r.phone || "").trim() || null, role_label: (r.role_label || "").trim() || null, is_primary: !!r.is_primary };
+        const body = { name: (r.name || "").trim(), email: (r.email || "").trim() || null, phone: (r.phone || "").trim() || null, role_label: (r.role_label || "").trim() || null, is_primary: !!r.is_primary, doc_routing: (r.doc_routing && r.doc_routing.length) ? r.doc_routing : null };
         if (!body.name) continue;
         if (r.id) {
           const { error } = await (supabase.from("contacts") as any).update(body).eq("id", r.id);
@@ -477,15 +482,29 @@ function EditClientModal({ client, contacts, onClose, onSaved }: any) {
             <span style={lab}>Contacts</span>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {rows.map((r, i) => (
-                <div key={r.id || "new-" + i} style={{ display: "grid", gridTemplateColumns: "1.1fr 1.4fr 1fr 1fr auto auto", gap: 8, alignItems: "center" }}>
-                  <input style={inp} placeholder="Name" value={r.name || ""} onChange={e => patchRow(i, { name: e.target.value })} />
-                  <input style={inp} placeholder="Email" value={r.email || ""} onChange={e => patchRow(i, { email: e.target.value })} />
-                  <input style={inp} placeholder="Phone" value={r.phone || ""} onChange={e => patchRow(i, { phone: e.target.value })} />
-                  <input style={inp} placeholder="Role" value={r.role_label || ""} onChange={e => patchRow(i, { role_label: e.target.value })} />
-                  <button title="Primary contact" onClick={() => setPrimary(i)}
-                    style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 13, color: r.is_primary ? PURPLE : H.faint, fontWeight: 900 }}>{r.is_primary ? "★" : "☆"}</button>
-                  <button title="Remove contact" onClick={() => removeRow(i)}
-                    style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 14, color: H.faint }}>✕</button>
+                <div key={r.id || "new-" + i} style={{ borderBottom: `1px solid ${H.line}`, paddingBottom: 8 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1.1fr 1.4fr 1fr 1fr auto auto", gap: 8, alignItems: "center" }}>
+                    <input style={inp} placeholder="Name" value={r.name || ""} onChange={e => patchRow(i, { name: e.target.value })} />
+                    <input style={inp} placeholder="Email" value={r.email || ""} onChange={e => patchRow(i, { email: e.target.value })} />
+                    <input style={inp} placeholder="Phone" value={r.phone || ""} onChange={e => patchRow(i, { phone: e.target.value })} />
+                    <input style={inp} placeholder="Role" value={r.role_label || ""} onChange={e => patchRow(i, { role_label: e.target.value })} />
+                    <button title="Primary contact" onClick={() => setPrimary(i)}
+                      style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 13, color: r.is_primary ? PURPLE : H.faint, fontWeight: 900 }}>{r.is_primary ? "★" : "☆"}</button>
+                    <button title="Remove contact" onClick={() => removeRow(i)}
+                      style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 14, color: H.faint }}>✕</button>
+                  </div>
+                  {/* Document routing — which emails this contact receives. NO
+                      categories = admin, receives everything (zero-config default). */}
+                  <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 6 }}>
+                    {[["approvals", "Approvals"], ["invoices", "Invoices"], ["shipping", "Shipping"]].map(([cat, label]) => {
+                      const on = (r.doc_routing || []).includes(cat);
+                      return (
+                        <button key={cat} onClick={() => toggleRoute(i, cat)}
+                          style={{ borderRadius: 999, border: `1px solid ${on ? "#fff" : H.line}`, background: on ? "#fff" : "transparent", color: on ? H.ink : H.faint, fontSize: 9, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", padding: "5px 11px", cursor: "pointer", fontFamily: H.font }}>{label}</button>
+                      );
+                    })}
+                    <span style={{ fontSize: 9.5, color: H.faint, marginLeft: 4 }}>{(r.doc_routing || []).length === 0 ? "none set = receives everything" : "receives only these"}</span>
+                  </div>
                 </div>
               ))}
               <button onClick={() => setRows(r => [...r, { name: "", email: "", phone: "", role_label: "", is_primary: r.length === 0 }])}

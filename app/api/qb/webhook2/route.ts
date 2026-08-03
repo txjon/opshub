@@ -1,6 +1,7 @@
 export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
+import { resolveRecipientEmails } from "@/lib/recipients";
 import { createClient } from "@supabase/supabase-js";
 import { getAccessToken, parseWebhookEvents } from "@/lib/quickbooks";
 import { createHmac } from "crypto";
@@ -310,11 +311,13 @@ async function processPayment(payment: any, supabase: any, paymentId: string) {
         // QB integration is HPD-tenant only (IHM uses Stripe).
         const resend = resendForSlug("hpd");
         // Get client email (prefer billing, then primary, then any)
-        const { data: contacts } = await supabase.from("job_contacts").select("role_on_job, contacts(email, name)").eq("job_id", job.id);
+        const { data: contacts } = await supabase.from("job_contacts").select("role_on_job, contacts(email, name, doc_routing)").eq("job_id", job.id);
+        // Routed: Invoices people (doc_routing, Aug 3); admins/fallback inside.
+        const routedReceipt = resolveRecipientEmails("invoices", (contacts || []).map((c: any) => ({ email: c.contacts?.email, doc_routing: c.contacts?.doc_routing, role_on_job: c.role_on_job })));
         const billing = contacts?.find((c: any) => c.role_on_job === "billing")?.contacts;
         const primary = contacts?.find((c: any) => c.role_on_job === "primary")?.contacts;
         const anyContact = contacts?.map((c: any) => c.contacts).find((c: any) => c?.email);
-        const clientEmail = billing?.email || primary?.email || anyContact?.email;
+        const clientEmail = routedReceipt[0] || billing?.email || primary?.email || anyContact?.email;
         if (!clientEmail) {
           console.error("[QB Webhook2] No client email found for job:", job.id);
           return;
@@ -408,11 +411,10 @@ async function tryMatchShipstationReport(supabase: any, qbInvoiceId: string, amo
     try {
       const { data: contacts } = await supabase
         .from("contacts")
-        .select("email, name, is_primary")
+        .select("email, name, is_primary, doc_routing")
         .eq("client_id", report.client_id);
-      const primary = contacts?.find((c: any) => c.is_primary)?.email;
-      const anyEmail = contacts?.map((c: any) => c.email).find(Boolean);
-      const clientEmail = primary || anyEmail;
+      // Routed: Invoices people (doc_routing, Aug 3).
+      const clientEmail = resolveRecipientEmails("invoices", contacts || [])[0] || null;
       if (!clientEmail) {
         console.error("[QB Webhook2] No client email for ShipStation report:", report.id);
         return;
