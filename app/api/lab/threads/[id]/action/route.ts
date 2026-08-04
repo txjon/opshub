@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { labDb } from "@/lib/lab";
-import { sendInternalMail } from "@/lib/internal-mail";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -83,7 +82,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     } as never);
     if (reqErr) return NextResponse.json({ error: reqErr.message }, { status: 500 });
     await marker(`✓ Ordered this design: ${blank || "blank TBD"}${qty ? `, ${qty} pieces` : ""}.`, "order");
-    sendInternalMail({ kind: "lab_order_request", client: name, title: (thread as any).title, blank, qty, note }).catch(() => {});
+    // NO email while the Lab is a sandbox (Jon, Aug 4) — test orders were
+    // hitting the real production inbox. The lab_order_request template stays
+    // in lib/internal-mail.ts; re-wire it here at graduation.
     return NextResponse.json({ ok: true, state: "approved" });
   }
 
