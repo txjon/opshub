@@ -191,7 +191,9 @@ async function processPayment(payment: any, supabase: any, paymentId: string) {
     if (!jobs?.length) {
       // Not a job invoice — try matching to a ShipStation sales report
       // (fulfillment fee invoice pushed from /reports/shipstation/...).
-      const handled = await tryMatchShipstationReport(supabase, qbInvoiceId, amount, realmId);
+      // Realm: events from any other realm are rejected up top, so the env
+      // realm is authoritative here (processPayment has no event in scope).
+      const handled = await tryMatchShipstationReport(supabase, qbInvoiceId, amount);
       if (handled) continue;
       console.error("[QB Webhook2] NO JOB OR REPORT FOUND for QB invoice:", qbInvoiceId);
       continue;
