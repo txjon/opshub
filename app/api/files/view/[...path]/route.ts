@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAccessToken } from "@/lib/drive-auth";
 
-// URL: /api/files/view/My-Proof-File.pdf?id=driveFileId
-// The filename is in the URL path so browsers use it for Save As
+// URL: /api/files/view/My-Proof-File.pdf?id=driveFileId[&download=1]
+// The filename is in the URL path so browsers use it for Save As.
+// download=1 flips the disposition to attachment — a one-click direct save
+// (lands wherever the browser's download location points).
 export async function GET(req: NextRequest, { params }: { params: { path: string[] } }) {
   const fileId = req.nextUrl.searchParams.get("id");
   if (!fileId) return NextResponse.json({ error: "Missing id" }, { status: 400 });
@@ -24,7 +26,7 @@ export async function GET(req: NextRequest, { params }: { params: { path: string
     return new NextResponse(buf, {
       headers: {
         "Content-Type": contentType,
-        "Content-Disposition": `inline; filename="${fileName}"`,
+        "Content-Disposition": `${req.nextUrl.searchParams.get("download") ? "attachment" : "inline"}; filename="${fileName}"`,
         "Cache-Control": "public, max-age=3600, s-maxage=3600",
       },
     });
