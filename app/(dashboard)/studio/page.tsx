@@ -26,6 +26,7 @@ export default function StudioPage() {
   const [showNew, setShowNew] = useState(false);
   const [showKilled, setShowKilled] = useState(false);
   const [showPiped, setShowPiped] = useState(false);
+  const [clientFilter, setClientFilter] = useState("");
   const params = useSearchParams();
 
   async function loadList() {
@@ -44,8 +45,11 @@ export default function StudioPage() {
     { key: "approved", title: "The bank.", hint: "greenlit designs, order-ready", color: H.green },
     { key: "shelved", title: "On the shelf.", hint: "parked by the client, re-pitch whenever", color: H.faint },
   ];
-  const killed = briefs.filter(b => b.state === "killed" && !b._job);
-  const piped = briefs.filter(b => b._job);
+  // Client filter — board convention: a select, scoping every bucket at once.
+  const clientNames = [...new Set(briefs.map(b => b.client_name).filter(Boolean))].sort() as string[];
+  const visible = clientFilter ? briefs.filter(b => b.client_name === clientFilter) : briefs;
+  const killed = visible.filter(b => b.state === "killed" && !b._job);
+  const piped = visible.filter(b => b._job);
   const thumb = (id: string, size = 600) => `/api/files/thumbnail?id=${id}&thumb=1&size=${size}`;
   const card = (b: any) => {
     const st = STATE(b.state);
@@ -80,12 +84,16 @@ export default function StudioPage() {
       <div style={{ display: "flex", alignItems: "baseline", gap: 16, flexWrap: "wrap", margin: "6px 0 4px" }}>
         <h1 style={{ fontSize: "clamp(34px,5vw,60px)", fontWeight: 900, lineHeight: 0.98, letterSpacing: "-0.02em", textTransform: "uppercase", margin: 0 }}>The studio.</h1>
         <button onClick={() => setShowNew(true)} style={{ ...primaryBtn, padding: "12px 22px" }}>+ Start something</button>
+        <select value={clientFilter} onChange={e => setClientFilter(e.target.value)} style={{ marginLeft: "auto", background: H.surface, border: `1px solid ${clientFilter ? "rgba(255,255,255,.45)" : H.line}`, borderRadius: 999, color: clientFilter ? H.text : H.dim, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", padding: "10px 14px", cursor: "pointer", fontFamily: H.font, outline: "none" }}>
+          <option value="">All clients</option>
+          {clientNames.map(n => <option key={n} value={n}>{n}</option>)}
+        </select>
       </div>
 
-      {briefs.length === 0 && <div style={{ color: H.faint, fontSize: 13, padding: "40px 0" }}>Nothing here yet. Start something.</div>}
+      {visible.length === 0 && <div style={{ color: H.faint, fontSize: 13, padding: "40px 0" }}>{clientFilter ? `Nothing in the studio for ${clientFilter} yet.` : "Nothing here yet. Start something."}</div>}
 
       {buckets.map(bk => {
-        const list = briefs.filter(b => b.state === bk.key && !b._job);
+        const list = visible.filter(b => b.state === bk.key && !b._job);
         if (!list.length) return null;
         return (
           <section key={bk.key} style={{ marginTop: 34 }}>
