@@ -36,7 +36,7 @@ const catOfGarment = (g: string | null) => {
   return CATALOG_CATS.find(c => c.match(x))?.key || "other";
 };
 
-const SECTIONS = ["Overview", "Studio", "Drops", "Orders", "Pipeline", "Catalog", "Archive", "Money"] as const;
+const SECTIONS = ["Overview", "Studio", "Drops", "Orders", "Pipeline", "Catalog", "Archive"] as const;
 type Section = typeof SECTIONS[number];
 
 export default function ClientSpacePage() {
@@ -70,7 +70,7 @@ export default function ClientSpacePage() {
         supabase.from("jobs")
           // shipping_route / phase_timestamps / quote_approved_at + the item money
           // and lifecycle fields feed the Working Sheet in the Pipeline section.
-          .select("id, job_number, title, phase, payment_terms, target_ship_date, created_at, quote_approved, quote_approved_at, shipping_route, phase_timestamps, type_meta, costing_summary, items(id, name, created_at, blank_sku, blank_vendor, garment_type, pipeline_stage, artwork_status, received_at_hpd, forwarded_at, webstore_entered_at, sell_per_unit, client_retail_per_unit, client_eta, notes, archived_at, completed_at, shipping_route, blanks_order_cost, blanks_order_number, product_id, design_id, decorator_assignments(decorators(name, short_code)), buy_sheet_lines(size, qty_ordered)), payment_records(id, amount, status, due_date, invoice_number)")
+          .select("id, job_number, title, phase, payment_terms, target_ship_date, created_at, quote_approved, quote_approved_at, shipping_route, phase_timestamps, type_meta, costing_summary, items(id, name, created_at, blank_sku, blank_vendor, garment_type, pipeline_stage, artwork_status, received_at_hpd, forwarded_at, webstore_entered_at, sell_per_unit, client_retail_per_unit, client_eta, notes, archived_at, completed_at, shipping_route, blanks_order_cost, blanks_order_number, product_id, design_id, decorator_assignments(decorators(name, short_code)), buy_sheet_lines(size, qty_ordered)), payment_records(id, amount, status, due_date, paid_date, invoice_number)")
           .eq("client_id", id).order("created_at", { ascending: false }),
         supabase.from("releases").select("*").eq("client_id", id).order("created_at", { ascending: false }),
         supabase.from("products").select("*").eq("client_id", id).order("created_at", { ascending: false }),
@@ -249,7 +249,7 @@ export default function ClientSpacePage() {
               : s === "Archive" ? archive.length : 0;
             return (
               <button key={s} style={pill(section === s)} onClick={() => setSection(s)}>
-                {s}{n > 0 && s !== "Overview" && s !== "Money" ? ` · ${n > 999 ? "999+" : n}` : ""}
+                {s}{n > 0 && s !== "Overview" ? ` · ${n > 999 ? "999+" : n}` : ""}
               </button>
             );
           })}
@@ -268,7 +268,7 @@ export default function ClientSpacePage() {
         )}
         {section === "Studio" && <StudioRail briefs={briefs} secHead={secHead} />}
         {section === "Drops" && <DropsRail releases={releases} secHead={secHead} />}
-        {section === "Orders" && <OrdersRail model={model} secHead={secHead} />}
+        {section === "Orders" && <OrdersRail model={model} hist={hist} secHead={secHead} />}
         {section === "Pipeline" && (
           <>
             {secHead("The pipeline.", "the working sheet — cost, retail, status, promises")}
@@ -289,7 +289,6 @@ export default function ClientSpacePage() {
         )}
         {section === "Catalog" && <CatalogRail products={products} briefs={briefs} model={model} router={router} secHead={secHead} thumbs={itemThumbs} />}
         {section === "Archive" && <ArchiveRail archive={archive} briefs={briefs} clientId={params.id} secHead={secHead} />}
-        {section === "Money" && <MoneyRail model={model} hist={hist} secHead={secHead} />}
       </div>
     </div>
   );
@@ -403,15 +402,27 @@ function DropsRail({ releases, secHead }: any) {
 }
 
 // ── Orders: the jobs, verbs first ──
-function OrdersRail({ model, secHead }: any) {
+function OrdersRail({ model, hist, secHead }: any) {
   const row = (j: any) => {
     const units = (j.items || []).reduce((a: number, i: any) => a + (i.buy_sheet_lines || []).reduce((s: number, l: any) => s + (Number(l.qty_ordered) || 0), 0), 0);
     const ref = j.type_meta?.qb_invoice_number ? `#${j.type_meta.qb_invoice_number}` : j.job_number;
     const d = JOB_DIRECTIVES[j.phase];
+    // Payment chip — the hub's orders-page read: PAID + date, overdue red,
+    // due amber, quiet when nothing's invoiced. (Money tab merged in, Aug 3.)
+    const recs = (j.payment_records || []).filter((p: any) => p.status !== "void" && p.status !== "draft");
+    const paidRecs = recs.filter((p: any) => p.status === "paid");
+    const openRecs = recs.filter((p: any) => p.status !== "paid");
+    const lastPaid = paidRecs.map((p: any) => p.paid_date).filter(Boolean).sort().pop();
+    const overdue = openRecs.some((p: any) => p.status === "overdue" || (p.due_date && p.due_date < new Date().toISOString().slice(0, 10)));
+    const openAmt = openRecs.reduce((a: number, p: any) => a + (Number(p.amount) || 0), 0);
+    const pay = paidRecs.length && !openRecs.length ? { t: `paid${lastPaid ? " " + fmtShort(lastPaid) : ""}`, c: H.green }
+      : openRecs.length ? { t: `${fmt$(openAmt)} ${overdue ? "overdue" : "due"}`, c: overdue ? H.red : H.amber }
+      : null;
     return (
       <a key={j.id} className="cs-row" href={`/jobs/${j.id}`}>
         <span style={{ fontSize: 12, fontFamily: H.mono, fontWeight: 700, color: H.blue, minWidth: 74 }}>{ref}</span>
         <span style={{ fontSize: 13.5, fontWeight: 800, textTransform: "uppercase", flex: 1, minWidth: 160 }}>{j.title}</span>
+        {pay && <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: pay.c }}>{pay.t}</span>}
         <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: ["complete"].includes(j.phase) ? H.green : H.amber }}>{["complete", "cancelled"].includes(j.phase) ? j.phase : (d?.verb || j.phase)}</span>
         <span style={{ fontSize: 11, fontFamily: H.mono, color: H.dim }}>{units ? `${units.toLocaleString()} pcs` : ""}{j.costing_summary?.grossRev ? ` · ${fmt$(j.costing_summary.grossRev)}` : ""}{j.target_ship_date ? ` · ship ${fmtShort(j.target_ship_date)}` : ""}</span>
       </a>
@@ -419,6 +430,12 @@ function OrdersRail({ model, secHead }: any) {
   };
   return (
     <>
+      {model.outstanding > 0 && (
+        <div style={{ fontSize: 12.5, color: H.dim, margin: "26px 0 -14px" }}>
+          Outstanding: <strong style={{ color: H.amber }}>{fmt$(model.outstanding)}</strong>
+          <span style={{ color: H.faint }}> · lifetime: pre-OpsHub {fmt$(hist?.gross || 0)} + OpsHub {fmt$(model.liveGross)}</span>
+        </div>
+      )}
       {secHead("Orders in motion.", "verbs first — tap into the job for the full machine")}
       {model.active.length === 0 && <div style={{ color: H.faint, fontSize: 12.5 }}>Nothing in motion.</div>}
       {model.active.map(row)}
@@ -1042,26 +1059,4 @@ function ArchiveRail({ archive, briefs, clientId, secHead }: any) {
 }
 
 // ── Money: internal only ──
-function MoneyRail({ model, hist, secHead }: any) {
-  const open = model.payments.filter((p: any) => !["paid", "void"].includes(p.status));
-  const paid = model.payments.filter((p: any) => p.status === "paid");
-  const row = (p: any) => (
-    <a key={p.id} className="cs-row" href={`/jobs/${p.job.id}`}>
-      <span style={{ fontSize: 12, fontFamily: H.mono, fontWeight: 700, color: H.blue, minWidth: 90 }}>{p.invoice_number ? `#${p.invoice_number}` : p.job.job_number}</span>
-      <span style={{ fontSize: 13.5, fontWeight: 800, flex: 1 }}>{fmt$(Number(p.amount) || 0)}</span>
-      <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: p.status === "paid" ? H.green : ["overdue"].includes(p.status) ? H.red : H.amber }}>{p.status}</span>
-      <span style={{ fontSize: 11, fontFamily: H.mono, color: H.dim }}>{p.due_date ? `due ${fmtShort(p.due_date)}` : ""}</span>
-    </a>
-  );
-  return (
-    <>
-      {secHead("The money.", "internal eyes only — the hub never shows this framing")}
-      <div style={{ fontSize: 12.5, color: H.dim, marginBottom: 18 }}>
-        Pre-OpsHub era: <strong style={{ color: H.text }}>{fmt$(hist?.gross || 0)}</strong> across {Math.round(hist?.units || 0).toLocaleString()} units · OpsHub era: <strong style={{ color: H.text }}>{fmt$(model.liveGross)}</strong>
-      </div>
-      {open.length > 0 && (<>{secHead("Open.", "unpaid, unsettled")}{open.map(row)}</>)}
-      {paid.length > 0 && (<>{secHead("Settled.", `${paid.length} payments`)}{paid.slice(0, 12).map(row)}</>)}
-      {model.payments.length === 0 && <div style={{ color: H.faint, fontSize: 12.5 }}>No payment records yet.</div>}
-    </>
-  );
-}
+// MoneyRail merged into OrdersRail (Jon, Aug 3) — git history holds it.
