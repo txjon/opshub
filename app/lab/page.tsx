@@ -120,7 +120,7 @@ export default function LabStudio() {
         <section style={{ marginTop: 30 }}>
           <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
             <h2 style={{ margin: 0, fontSize: 19, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", color: H.amber }}>Order requests.</h2>
-            <span style={{ fontSize: 10.5, color: H.faint }}>the ask is in. price it, get them a quote, mark it done</span>
+            <span style={{ fontSize: 10.5, color: H.faint }}>the ask is in. build the job, quote it there, then clear the card</span>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {reqs.map((r: any) => (
@@ -133,7 +133,7 @@ export default function LabStudio() {
                   <span style={{ display: "block", fontSize: 11, color: H.dim, marginTop: 2 }}>{r.blank || "blank TBD"}{r.qty ? ` × ${r.qty}` : ""}{r.note ? ` · "${r.note}"` : ""}</span>
                 </span>
                 <span style={{ fontSize: 9.5, fontFamily: H.mono, color: H.faint, flexShrink: 0 }}>{fmt(r.created_at)}</span>
-                <button onClick={e => { e.stopPropagation(); reqDone(r.id); }} title="Priced and quoted" style={{ ...ghostBtn, flexShrink: 0, color: H.green, borderColor: "rgba(88,201,60,.4)" }}>✓ Done</button>
+                <button onClick={e => { e.stopPropagation(); reqDone(r.id); }} title="The ask is carried into a real job" style={{ ...ghostBtn, flexShrink: 0, color: H.green, borderColor: "rgba(88,201,60,.4)" }}>✓ In a job</button>
               </div>
             ))}
           </div>
