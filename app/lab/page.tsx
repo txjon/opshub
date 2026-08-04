@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import ThumbIcon from "@/components/ThumbIcon";
 
 // THE LAB · STUDIO (HPD) — built to LOOK like the real studio2: a magazine feed
 // of design cards → a sheet modal. Same chrome, same buttons, same composer, so
@@ -185,7 +186,7 @@ function ThreadPanel({ detail, me, onRefresh, onClose }: any) {
           <div style={{ background: "#fff", position: "relative" }}>
             <img src={hero.file_url} alt="" style={{ width: "100%", maxHeight: "36vh", objectFit: "contain", display: "block", margin: "0 auto" }} onError={(e: any) => { e.target.parentElement.style.display = "none"; }} />
             <span style={{ position: "absolute", right: 10, bottom: 8, display: "flex", gap: 6, alignItems: "center" }}>
-              <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: hero.reaction === "down" ? "#b3455a" : hero.sender_role === "client" || hero.visibility === "client" ? "#3c9a2e" : "#b7791f", background: "rgba(255,255,255,0.9)", borderRadius: 999, padding: "4px 10px" }}>{hero.reaction === "down" ? "👎 Client passed on this" : hero.sender_role === "client" ? "From client" : hero.visibility === "client" ? "Client sees this" : "Internal only"}</span>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: hero.reaction === "down" ? "#b3455a" : hero.sender_role === "client" || hero.visibility === "client" ? "#3c9a2e" : "#b7791f", background: "rgba(255,255,255,0.9)", borderRadius: 999, padding: "4px 10px" }}>{hero.reaction === "down" ? <><ThumbIcon down size={10} color="#b3455a" strokeWidth={2.5} /> Client passed on this</> : hero.sender_role === "client" ? "From client" : hero.visibility === "client" ? "Client sees this" : "Internal only"}</span>
               <button disabled={busy} onClick={() => delAttachment(hero.id)} title="Delete this attachment" style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", background: "#0a0a0a", color: H.red, border: "none", borderRadius: 999, padding: "4px 10px", cursor: "pointer", fontFamily: H.font, opacity: busy ? 0.5 : 1 }}>Delete</button>
             </span>
           </div>
@@ -199,7 +200,7 @@ function ThreadPanel({ detail, me, onRefresh, onClose }: any) {
                   <button key={f.id} onClick={() => setHeroIdx(i)} style={{ flexShrink: 0, width: 50, height: 50, borderRadius: 9, overflow: "hidden", background: "#fff", border: active ? "2px solid #fff" : `1px solid ${H.line}`, padding: 0, cursor: "pointer", opacity: active ? 1 : down ? 0.35 : 0.6, position: "relative" }}>
                     <img src={f.file_url} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover", filter: down ? "grayscale(70%)" : "none" }} onError={(e: any) => { e.target.style.display = "none"; }} />
                     {internal && <span style={{ position: "absolute", inset: 0, boxShadow: "inset 0 0 0 2px rgba(244,178,43,.75)", borderRadius: 8, pointerEvents: "none" }} />}
-                    {down && <span style={{ position: "absolute", right: 2, bottom: 1, fontSize: 11, lineHeight: 1, pointerEvents: "none" }}>👎</span>}
+                    {down && <span style={{ position: "absolute", right: 2, bottom: 2, background: "rgba(255,255,255,.92)", borderRadius: 4, padding: 2, display: "grid", placeItems: "center", pointerEvents: "none" }}><ThumbIcon down size={9} color="#b3455a" strokeWidth={2.5} /></span>}
                   </button>
                 );
               })}

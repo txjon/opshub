@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import ThumbIcon from "@/components/ThumbIcon";
 
 // THE LAB · CLIENT HUB (magic link). Built to look like the real client portal
 // studio: a magazine feed of ideas → a bottom-SHEET modal (slides up on mobile,
@@ -176,7 +177,7 @@ function ClientThreadSheet({ detail, token, onClose, onRefresh }: any) {
                   return (
                     <button key={im.id} onClick={() => setHeroId(im.id)} style={{ flexShrink: 0, width: 40, height: 40, borderRadius: 8, overflow: "hidden", background: "#fff", border: active ? "2px solid #fff" : `1px solid ${C.line2}`, padding: 0, cursor: "pointer", opacity: active ? 0.9 : 0.4, position: "relative" }}>
                       <img src={im.file_url} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover", filter: "grayscale(70%)" }} onError={(e: any) => { e.target.style.display = "none"; }} />
-                      <span style={{ position: "absolute", right: 2, bottom: 1, fontSize: 10, lineHeight: 1 }}>👎</span>
+                      <span style={{ position: "absolute", right: 2, bottom: 2, background: "rgba(255,255,255,.92)", borderRadius: 4, padding: 2, display: "grid", placeItems: "center" }}><ThumbIcon down size={9} color="#b3455a" strokeWidth={2.5} /></span>
                     </button>
                   );
                 })}
@@ -191,9 +192,9 @@ function ClientThreadSheet({ detail, token, onClose, onRefresh }: any) {
             <div style={{ background: hero.reaction === "down" ? "transparent" : "linear-gradient(180deg,rgba(244,178,43,.07),transparent)", border: `1px solid ${C.line}`, borderRadius: 16, padding: "14px 16px", marginBottom: 4 }}>
               {bar === "idle" && (
                 <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <button disabled={busy} onClick={() => setBar("lock")} aria-label="Thumbs up" style={{ flexShrink: 0, width: 52, height: 52, borderRadius: 999, background: "rgba(88,201,60,.14)", border: "1px solid rgba(88,201,60,.45)", fontSize: 22, cursor: "pointer", fontFamily: C.font }}>👍</button>
+                  <button disabled={busy} onClick={() => setBar("lock")} aria-label="Thumbs up" style={{ flexShrink: 0, width: 52, height: 52, borderRadius: 999, background: "rgba(88,201,60,.14)", border: "1px solid rgba(88,201,60,.45)", display: "grid", placeItems: "center", cursor: "pointer", fontFamily: C.font }}><ThumbIcon size={22} color={C.green} /></button>
                   {hero.reaction !== "down" && (
-                    <button disabled={busy} onClick={() => setBar("pass")} aria-label="Thumbs down" style={{ flexShrink: 0, width: 52, height: 52, borderRadius: 999, background: C.surface, border: `1px solid ${C.line}`, fontSize: 22, cursor: "pointer", fontFamily: C.font }}>👎</button>
+                    <button disabled={busy} onClick={() => setBar("pass")} aria-label="Thumbs down" style={{ flexShrink: 0, width: 52, height: 52, borderRadius: 999, background: C.surface, border: `1px solid ${C.line}`, display: "grid", placeItems: "center", cursor: "pointer", fontFamily: C.font }}><ThumbIcon down size={22} color={C.dim} /></button>
                   )}
                   <div style={{ minWidth: 0 }}>
                     {t.state === "with_client" && hero.reaction !== "down" && <div style={{ fontSize: 11, fontWeight: 900, letterSpacing: "0.03em", textTransform: "uppercase", color: C.amber }}>◆ Your move</div>}
@@ -205,7 +206,7 @@ function ClientThreadSheet({ detail, token, onClose, onRefresh }: any) {
               )}
               {bar === "lock" && (
                 <div>
-                  <div style={{ fontSize: 12.5, fontWeight: 900, letterSpacing: "0.02em", textTransform: "uppercase", color: C.green }}>👍 Lock this artwork in?</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, fontWeight: 900, letterSpacing: "0.02em", textTransform: "uppercase", color: C.green }}><ThumbIcon size={14} color={C.green} strokeWidth={2.5} /> Lock this artwork in?</div>
                   <div style={{ fontSize: 12, color: C.dim, marginTop: 5, lineHeight: 1.45 }}>You&rsquo;re approving the <b style={{ color: C.text }}>artwork</b>, that it&rsquo;s right. Pricing and your order come next, on their own.</div>
                   <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
                     <button disabled={busy} onClick={lockIn} style={{ flex: 1, minWidth: 150, background: C.green, color: "#08210a", border: "none", borderRadius: 999, padding: "13px", fontSize: 11.5, fontWeight: 900, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer", fontFamily: C.font, opacity: busy ? 0.6 : 1 }}>✓ Lock it in</button>
@@ -215,7 +216,7 @@ function ClientThreadSheet({ detail, token, onClose, onRefresh }: any) {
               )}
               {bar === "pass" && (
                 <div>
-                  <div style={{ fontSize: 12.5, fontWeight: 900, letterSpacing: "0.02em", textTransform: "uppercase", color: C.text }}>👎 Not this one. Anything specific?</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, fontWeight: 900, letterSpacing: "0.02em", textTransform: "uppercase", color: C.text }}><ThumbIcon down size={14} color={C.text} strokeWidth={2.5} /> Not this one. Anything specific?</div>
                   <textarea value={chNote} onChange={e => setChNote(e.target.value)} rows={2} placeholder="Totally optional. What would you like different?" style={{ ...inp, resize: "vertical", marginTop: 10 }} />
                   {chFile && <div style={{ marginTop: 8 }}><img src={chFile.url} alt="" style={{ maxHeight: 70, borderRadius: 8, background: "#fff", border: `1px solid ${C.line}` }} /></div>}
                   <input ref={chIn} type="file" accept="image/*" style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; if (f) onChFile(f); if (chIn.current) chIn.current.value = ""; }} />
