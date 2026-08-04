@@ -59,6 +59,19 @@ export default function LabStudio() {
     await fetch("/api/lab/order-requests", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, done: true }) });
     await loadList();
   }
+  // THE BRIDGE — one tap runs the four hops: real client, brief promotion,
+  // files to Drive, product + job in intake. Lands you in the job.
+  const [bridging, setBridging] = useState<string | null>(null);
+  const [bridgeErr, setBridgeErr] = useState<Record<string, string>>({});
+  async function startJob(id: string) {
+    setBridging(id); setBridgeErr(e => ({ ...e, [id]: "" }));
+    try {
+      const r = await fetch("/api/lab/bridge", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ requestId: id }) }).then(x => x.json());
+      if (r.error) { setBridgeErr(e => ({ ...e, [id]: r.error })); return; }
+      window.open(`/jobs/${r.jobId}`, "_blank");
+      await loadList();
+    } finally { setBridging(null); }
+  }
   async function loadDetail(id: string) { setDetail(await fetch(`/api/lab/threads/${id}`).then(r => r.json())); }
   useEffect(() => { loadList(); }, []);
   useEffect(() => { if (openId) loadDetail(openId); else setDetail(null); }, [openId]);
@@ -124,16 +137,20 @@ export default function LabStudio() {
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {reqs.map((r: any) => (
-              <div key={r.id} onClick={() => setOpenId(r.lab_threads?.id || r.thread_id)} style={{ display: "flex", alignItems: "center", gap: 12, background: H.panel, border: `1px solid ${H.line}`, borderLeft: `3px solid ${H.amber}`, borderRadius: 12, padding: "10px 14px 10px 10px", cursor: "pointer" }}>
-                <span style={{ width: 44, height: 44, borderRadius: 8, overflow: "hidden", background: "#fff", flexShrink: 0 }}>
-                  {r.design_file_url && <img src={r.design_file_url} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />}
-                </span>
-                <span style={{ minWidth: 0, flex: 1 }}>
-                  <span style={{ display: "block", fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.lab_clients?.name || "—"} · {r.lab_threads?.title || "design"}</span>
-                  <span style={{ display: "block", fontSize: 11, color: H.dim, marginTop: 2 }}>{r.blank || "blank TBD"}{r.qty ? ` × ${r.qty}` : ""}{r.note ? ` · "${r.note}"` : ""}</span>
-                </span>
-                <span style={{ fontSize: 9.5, fontFamily: H.mono, color: H.faint, flexShrink: 0 }}>{fmt(r.created_at)}</span>
-                <button onClick={e => { e.stopPropagation(); reqDone(r.id); }} title="The ask is carried into a real job" style={{ ...ghostBtn, flexShrink: 0, color: H.green, borderColor: "rgba(88,201,60,.4)" }}>✓ In a job</button>
+              <div key={r.id} onClick={() => setOpenId(r.lab_threads?.id || r.thread_id)} style={{ background: H.panel, border: `1px solid ${H.line}`, borderLeft: `3px solid ${H.amber}`, borderRadius: 12, padding: "10px 14px 10px 10px", cursor: "pointer" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <span style={{ width: 44, height: 44, borderRadius: 8, overflow: "hidden", background: "#fff", flexShrink: 0 }}>
+                    {r.design_file_url && <img src={r.design_file_url} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />}
+                  </span>
+                  <span style={{ minWidth: 0, flex: 1 }}>
+                    <span style={{ display: "block", fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.lab_clients?.name || "—"} · {r.lab_threads?.title || "design"}</span>
+                    <span style={{ display: "block", fontSize: 11, color: H.dim, marginTop: 2 }}>{r.blank || "blank TBD"}{r.qty ? ` × ${r.qty}` : ""}{r.note ? ` · "${r.note}"` : ""}</span>
+                  </span>
+                  <span style={{ fontSize: 9.5, fontFamily: H.mono, color: H.faint, flexShrink: 0 }}>{fmt(r.created_at)}</span>
+                  <button disabled={bridging === r.id} onClick={e => { e.stopPropagation(); startJob(r.id); }} title="Real client + brief + product + job in intake, art carried" style={{ ...primaryBtn, flexShrink: 0, background: H.green, color: "#08210a", opacity: bridging === r.id ? 0.6 : 1 }}>{bridging === r.id ? "Building…" : "Start the job →"}</button>
+                  <button onClick={e => { e.stopPropagation(); reqDone(r.id); }} title="Clear without the bridge — carried over by hand" style={{ ...ghostBtn, flexShrink: 0, border: "none", color: H.faint }}>clear</button>
+                </div>
+                {bridgeErr[r.id] && <div style={{ marginTop: 8, marginLeft: 56, fontSize: 11.5, color: H.red }}>{bridgeErr[r.id]}</div>}
               </div>
             ))}
           </div>
@@ -534,21 +551,65 @@ function NewDesign({ clients, me, onClose, onCreated, onNeedClients }: any) {
   );
 }
 
+// Clients ride REAL identity now (decided Aug 4): pick an existing OpsHub
+// client (search-first, company-scoped) or create a LEAD — a real clients row
+// flagged is_lead, hidden from ops lists until their first job flips it.
 function ClientsPanel({ clients, onClose, onChanged }: any) {
-  const [name, setName] = useState(""); const [busy, setBusy] = useState(false);
+  const [q, setQ] = useState(""); const [results, setResults] = useState<any[]>([]);
+  const [leadForm, setLeadForm] = useState(false); const [leadName, setLeadName] = useState(""); const [leadEmail, setLeadEmail] = useState("");
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState("");
   const origin = typeof window !== "undefined" ? window.location.origin : "";
-  async function add() { if (!name.trim()) return; setBusy(true); try { await fetch("/api/lab/clients", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: name.trim() }) }); setName(""); await onChanged(); } finally { setBusy(false); } }
+  useEffect(() => {
+    if (!q.trim()) { setResults([]); return; }
+    const t = setTimeout(async () => {
+      const r = await fetch(`/api/lab/real-clients?q=${encodeURIComponent(q.trim())}`).then(x => x.json()).catch(() => ({}));
+      if (r.error) setErr(r.error); else { setErr(""); setResults(r.clients || []); }
+    }, 250);
+    return () => clearTimeout(t);
+  }, [q]);
+  async function link(clientId: string) {
+    setBusy(true); setErr("");
+    try { const r = await fetch("/api/lab/real-clients", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ clientId }) }).then(x => x.json()); if (r.error) setErr(r.error); else { setQ(""); setResults([]); await onChanged(); } } finally { setBusy(false); }
+  }
+  async function addLead() {
+    setBusy(true); setErr("");
+    try { const r = await fetch("/api/lab/real-clients", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: leadName.trim(), email: leadEmail.trim() }) }).then(x => x.json()); if (r.error) setErr(r.error); else { setLeadForm(false); setLeadName(""); setLeadEmail(""); await onChanged(); } } finally { setBusy(false); }
+  }
   return (
     <Modal onClose={onClose} title="Clients & their links">
-      <div style={{ display: "flex", gap: 8, marginBottom: 14 }}><input value={name} onChange={e => setName(e.target.value)} placeholder="New client name" style={{ ...inp, flex: 1 }} /><button disabled={busy} onClick={add} style={primaryBtn}>Add</button></div>
-      {clients.length === 0 && <div style={{ color: H.faint, fontSize: 13 }}>No clients yet.</div>}
-      {clients.map((c: any) => { const link = `${origin}/lab/c/${c.token}`; return (
+      <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search your real clients…" style={{ ...inp, marginBottom: 8 }} />
+      {results.map((c: any) => (
+        <button key={c.id} disabled={busy || c.in_lab} onClick={() => link(c.id)} style={{ display: "flex", width: "100%", alignItems: "center", gap: 8, background: H.surface, border: `1px solid ${H.line2}`, borderRadius: 9, padding: "9px 12px", marginBottom: 6, cursor: c.in_lab ? "default" : "pointer", fontFamily: H.font, color: H.text, opacity: c.in_lab ? 0.55 : 1 }}>
+          <span style={{ fontSize: 12.5, fontWeight: 800, textTransform: "uppercase" }}>{c.name}</span>
+          {c.is_lead && <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: H.amber }}>Lead</span>}
+          <span style={{ marginLeft: "auto", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: c.in_lab ? H.faint : H.blue }}>{c.in_lab ? "In the studio" : "+ Bring in"}</span>
+        </button>
+      ))}
+      {!leadForm ? (
+        <button onClick={() => setLeadForm(true)} style={{ ...ghostBtn, marginBottom: 12 }}>+ New lead</button>
+      ) : (
+        <div style={{ border: `1px dashed ${H.line}`, borderRadius: 10, padding: 12, marginBottom: 12 }}>
+          <div style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: H.faint, marginBottom: 8 }}>New lead · real client, hidden from ops lists until their first job</div>
+          <input value={leadName} onChange={e => setLeadName(e.target.value)} placeholder="Name" style={{ ...inp, marginBottom: 6 }} />
+          <input value={leadEmail} onChange={e => setLeadEmail(e.target.value)} placeholder="Email — where the quote goes" style={{ ...inp, marginBottom: 8 }} />
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => setLeadForm(false)} style={{ ...ghostBtn, border: "none", color: H.faint }}>Cancel</button>
+            <button disabled={busy || !leadName.trim() || !leadEmail.trim()} onClick={addLead} style={{ ...primaryBtn, marginLeft: "auto", opacity: busy || !leadName.trim() || !leadEmail.trim() ? 0.5 : 1 }}>Create the lead</button>
+          </div>
+        </div>
+      )}
+      {err && <div style={{ color: H.red, fontSize: 12, marginBottom: 10 }}>{err}</div>}
+      {clients.length === 0 && <div style={{ color: H.faint, fontSize: 13 }}>No studio clients yet.</div>}
+      {clients.map((c: any) => { const link2 = `${origin}/lab/c/${c.token}`; return (
         <div key={c.id} style={{ padding: "11px 0", borderTop: `1px solid ${H.line2}` }}>
-          <div style={{ fontSize: 14, fontWeight: 800 }}>{c.name}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 14, fontWeight: 800 }}>{c.name}</span>
+            <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: c.client_id ? H.green : H.amber }}>{c.client_id ? "Linked" : "Sandbox only"}</span>
+          </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 5, flexWrap: "wrap" }}>
-            <input readOnly value={link} style={{ ...inp, flex: 1, fontSize: 11, fontFamily: H.mono, padding: "7px 9px" }} onFocus={e => e.currentTarget.select()} />
-            <button onClick={() => navigator.clipboard.writeText(link)} style={ghostBtn}>Copy</button>
-            <a href={link} target="_blank" rel="noreferrer" style={{ ...ghostBtn, textDecoration: "none", display: "inline-block" }}>Open ↗</a>
+            <input readOnly value={link2} style={{ ...inp, flex: 1, fontSize: 11, fontFamily: H.mono, padding: "7px 9px" }} onFocus={e => e.currentTarget.select()} />
+            <button onClick={() => navigator.clipboard.writeText(link2)} style={ghostBtn}>Copy</button>
+            <a href={link2} target="_blank" rel="noreferrer" style={{ ...ghostBtn, textDecoration: "none", display: "inline-block" }}>Open ↗</a>
           </div>
         </div>); })}
     </Modal>
