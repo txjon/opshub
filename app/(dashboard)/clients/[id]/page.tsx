@@ -22,7 +22,21 @@ const fmt$ = (n: number) => "$" + Math.round(n).toLocaleString();
 const fmtDate = (iso?: string | null) => iso ? new Date(String(iso).includes("T") ? iso : iso + "T00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "";
 const fmtShort = (iso?: string | null) => iso ? new Date(String(iso).includes("T") ? iso : iso + "T00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
 
-const SECTIONS = ["Overview", "Studio", "Drops", "Orders", "Pipeline", "Catalog", "Archive", "Money"] as const;
+// Catalog category chips — IDENTICAL definitions to the client hub's reorder
+// page (Tees / Hoodies / Hats / Patches / Everything else), so the internal
+// catalog filters the same pieces into the same buckets the client sees.
+const CATALOG_CATS: { key: string; label: string; match: (g: string) => boolean }[] = [
+  { key: "tees", label: "Tees", match: g => g.includes("tee") || g === "tank" || g.includes("shirt") },
+  { key: "hoodies", label: "Hoodies", match: g => g.includes("hoodie") || g.includes("crewneck") || g.includes("sweat") },
+  { key: "hats", label: "Hats", match: g => g.includes("hat") || g.includes("beanie") || g.includes("cap") },
+  { key: "patches", label: "Patches", match: g => g.includes("patch") },
+];
+const catOfGarment = (g: string | null) => {
+  const x = (g || "").toLowerCase();
+  return CATALOG_CATS.find(c => c.match(x))?.key || "other";
+};
+
+const SECTIONS = ["Overview", "Studio", "Drops", "Orders", "Pipeline", "Catalog", "Archive"] as const;
 type Section = typeof SECTIONS[number];
 
 export default function ClientSpacePage() {
@@ -35,6 +49,7 @@ export default function ClientSpacePage() {
   // status bars here can never disagree with that board.
   const [phaseViews, setPhaseViews] = useState<Map<string, any>>(new Map());
   const [proofStatus, setProofStatus] = useState<Record<string, { allApproved: boolean }> | undefined>(undefined);
+  const [itemThumbs, setItemThumbs] = useState<Record<string, string>>({});
   const [client, setClient] = useState<any | null>(null);
   const [contacts, setContacts] = useState<any[]>([]);
   const [jobs, setJobs] = useState<any[]>([]);
@@ -43,6 +58,7 @@ export default function ClientSpacePage() {
   const [products, setProducts] = useState<any[]>([]);
   const [archive, setArchive] = useState<any[]>([]);
   const [hist, setHist] = useState<{ gross: number; units: number } | null>(null);
+  const [fulfillReports, setFulfillReports] = useState<any[]>([]);
   const [wire, setWire] = useState<any[]>([]);
   const [loaded, setLoaded] = useState(false);
 
@@ -55,7 +71,7 @@ export default function ClientSpacePage() {
         supabase.from("jobs")
           // shipping_route / phase_timestamps / quote_approved_at + the item money
           // and lifecycle fields feed the Working Sheet in the Pipeline section.
-          .select("id, job_number, title, phase, payment_terms, target_ship_date, created_at, quote_approved, quote_approved_at, shipping_route, phase_timestamps, type_meta, costing_summary, items(id, name, pipeline_stage, artwork_status, received_at_hpd, forwarded_at, webstore_entered_at, sell_per_unit, client_retail_per_unit, client_eta, notes, archived_at, completed_at, shipping_route, blanks_order_cost, blanks_order_number, product_id, design_id, decorator_assignments(decorators(name, short_code)), buy_sheet_lines(size, qty_ordered)), payment_records(id, amount, status, due_date, invoice_number)")
+          .select("id, job_number, title, phase, payment_terms, target_ship_date, created_at, quote_approved, quote_approved_at, shipping_route, phase_timestamps, type_meta, costing_summary, items(id, name, created_at, blank_sku, blank_vendor, garment_type, pipeline_stage, artwork_status, received_at_hpd, forwarded_at, webstore_entered_at, sell_per_unit, client_retail_per_unit, client_eta, notes, archived_at, completed_at, shipping_route, blanks_order_cost, blanks_order_number, product_id, design_id, decorator_assignments(decorators(name, short_code)), buy_sheet_lines(size, qty_ordered)), payment_records(id, amount, status, due_date, paid_date, invoice_number)")
           .eq("client_id", id).order("created_at", { ascending: false }),
         supabase.from("releases").select("*").eq("client_id", id).order("created_at", { ascending: false }),
         supabase.from("products").select("*").eq("client_id", id).order("created_at", { ascending: false }),
@@ -71,6 +87,10 @@ export default function ClientSpacePage() {
         })(),
       ]);
       setClient(c); setContacts(cts || []); setJobs(js || []); setReleases(rel || []);
+      supabase.from("shipstation_reports")
+        .select("id, period_label, report_type, qb_invoice_number, qb_total_with_tax, paid_at, paid_amount, created_at")
+        .eq("client_id", id).order("created_at", { ascending: false })
+        .then(({ data: fr }) => setFulfillReports(fr || []));
       setProducts(prods || []); setArchive(arc || []);
       // pre-OpsHub history (pure — the era wall keeps live jobs uncounted here)
       if ((c as any)?.name) {
@@ -84,7 +104,7 @@ export default function ClientSpacePage() {
       const jobIds = ((js || []) as any[]).map(j => j.id);
       if (jobIds.length) {
         const { data: act } = await supabase.from("job_activity")
-          .select("message, created_at, jobs(job_number)").in("job_id", jobIds)
+          .select("message, created_at, jobs(job_number, type_meta)").in("job_id", jobIds)
           .order("created_at", { ascending: false }).limit(14);
         setWire(act || []);
       }
@@ -97,6 +117,22 @@ export default function ClientSpacePage() {
       // action-feed batches (fire-and-forget; bars render with gates off until they land)
       const activeJs = ((js || []) as any[]).filter(j => !["complete", "cancelled"].includes(j.phase));
       loadJobPhasesBatch(supabase, activeJs.map(j => j.id)).then(setPhaseViews).catch(() => {});
+      // catalog thumbnails (mockup > proof, newest, non-superseded — hub parity)
+      (async () => {
+        const ids = ((js || []) as any[]).flatMap(j => (j.items || []).map((i: any) => i.id));
+        const th: Record<string, string> = {};
+        for (let i = 0; i < ids.length; i += 150) {
+          const { data: files } = await supabase.from("item_files")
+            .select("item_id, stage, drive_file_id, created_at").in("stage", ["mockup", "proof"]).is("superseded_at", null)
+            .not("drive_file_id", "is", null).in("item_id", ids.slice(i, i + 150))
+            .order("created_at", { ascending: false });
+          for (const f of (files || []) as any[]) {
+            if (!th[f.item_id] && f.stage === "mockup") th[f.item_id] = f.drive_file_id;
+          }
+          for (const f of (files || []) as any[]) { if (!th[f.item_id]) th[f.item_id] = f.drive_file_id; }
+        }
+        setItemThumbs(th);
+      })().catch(() => {});
       (async () => {
         const ids = activeJs.flatMap(j => (j.items || []).map((i: any) => i.id));
         const ps: Record<string, { allApproved: boolean }> = {};
@@ -139,9 +175,25 @@ export default function ClientSpacePage() {
       else fam.set(key, { name: i.name, runs: 1, lastJob: j, units, price: i.sell_per_unit ?? null, productId: i.product_id || null });
     }
     const families = Array.from(fam.values()).sort((a, b) => b.units - a.units);
+    // Catalog pieces — SAME shape/order as the client hub's reorder catalog:
+    // dedupe by name|blank_sku, newest instance represents the piece, newest
+    // first (Jon, Aug 3: internal catalog mirrors what the client sees).
+    const pieces = (() => {
+      const byKey = new Map<string, any>();
+      const flat = jobs.flatMap(j => (j.items || []).map((i: any) => ({ ...i, job: j })))
+        .sort((a: any, b: any) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
+      for (const it of flat) {
+        if (!(it.name || "").trim()) continue;
+        const key = `${(it.name || "").trim().toLowerCase()}|${(it.blank_sku || "").trim().toLowerCase()}`;
+        const ex = byKey.get(key);
+        if (ex) { ex.runs++; continue; }
+        byKey.set(key, { key, itemId: it.id, name: it.name, jobId: it.job.id, runs: 1, cat: catOfGarment(it.garment_type) });
+      }
+      return Array.from(byKey.values());
+    })();
     const payments = jobs.flatMap(j => (j.payment_records || []).map((p: any) => ({ ...p, job: j })));
     const outstanding = payments.filter(p => !["paid", "void", "draft"].includes(p.status)).reduce((a, p) => a + (Number(p.amount) || 0), 0);
-    return { liveGross, liveUnits, active, done, inFlight, stageOf, families, payments, outstanding };
+    return { liveGross, liveUnits, active, done, inFlight, stageOf, families, pieces, payments, outstanding };
   }, [jobs]);
 
   const pill = (active: boolean): React.CSSProperties => ({ borderRadius: 999, border: active ? "1px solid #fff" : `1px solid ${H.line}`, background: active ? "#fff" : "transparent", color: active ? H.ink : H.dim, fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", padding: "9px 15px", cursor: "pointer", fontFamily: H.font });
@@ -202,7 +254,7 @@ export default function ClientSpacePage() {
               : s === "Archive" ? archive.length : 0;
             return (
               <button key={s} style={pill(section === s)} onClick={() => setSection(s)}>
-                {s}{n > 0 && s !== "Overview" && s !== "Money" ? ` · ${n > 999 ? "999+" : n}` : ""}
+                {s}{n > 0 && s !== "Overview" ? ` · ${n > 999 ? "999+" : n}` : ""}
               </button>
             );
           })}
@@ -221,7 +273,7 @@ export default function ClientSpacePage() {
         )}
         {section === "Studio" && <StudioRail briefs={briefs} secHead={secHead} />}
         {section === "Drops" && <DropsRail releases={releases} secHead={secHead} />}
-        {section === "Orders" && <OrdersRail model={model} secHead={secHead} />}
+        {section === "Orders" && <OrdersRail model={model} hist={hist} reports={fulfillReports} secHead={secHead} />}
         {section === "Pipeline" && (
           <>
             {secHead("The pipeline.", "the working sheet — cost, retail, status, promises")}
@@ -240,9 +292,8 @@ export default function ClientSpacePage() {
             />
           </>
         )}
-        {section === "Catalog" && <CatalogRail products={products} briefs={briefs} model={model} router={router} secHead={secHead} />}
+        {section === "Catalog" && <CatalogRail products={products} briefs={briefs} model={model} router={router} secHead={secHead} thumbs={itemThumbs} />}
         {section === "Archive" && <ArchiveRail archive={archive} briefs={briefs} clientId={params.id} secHead={secHead} />}
-        {section === "Money" && <MoneyRail model={model} hist={hist} secHead={secHead} />}
       </div>
     </div>
   );
@@ -288,7 +339,8 @@ function Overview({ client, contacts, wire, model, briefs, secHead, onEdit }: an
             <div key={i} style={{ display: "flex", gap: 12, alignItems: "baseline", padding: "9px 0", borderBottom: `1px solid ${H.line}` }}>
               <span style={{ fontSize: 10, fontFamily: H.mono, color: H.faint, whiteSpace: "nowrap", flexShrink: 0 }}>{wt(w.created_at)}</span>
               <span style={{ fontSize: 12.5, lineHeight: 1.5, minWidth: 0 }}>
-                <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.08em", color: H.faint, marginRight: 7 }}>{w.jobs?.job_number || ""}</span>
+                {/* invoice # is the client-facing identity when it exists (Jon, Aug 3) */}
+                <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.08em", color: H.faint, marginRight: 7 }}>{w.jobs?.type_meta?.qb_invoice_number ? `#${w.jobs.type_meta.qb_invoice_number}` : (w.jobs?.job_number || "")}</span>
                 {w.message}
               </span>
             </div>
@@ -355,29 +407,87 @@ function DropsRail({ releases, secHead }: any) {
 }
 
 // ── Orders: the jobs, verbs first ──
-function OrdersRail({ model, secHead }: any) {
+function OrdersRail({ model, hist, reports, secHead }: any) {
+  // Fulfillment/shipping invoices (ShipStation reports) — same list the hub's
+  // orders landing shows. Row links to the internal report page.
+  const reportRow = (r: any) => {
+    const total = Number(r.qb_total_with_tax) || 0;
+    const paidAmt = Number(r.paid_amount) || 0;
+    // Early-era reports (pre-OpsHub invoice push) have NO QB total on file —
+    // their fee was hand-merged into a combined QB invoice (#3682 class). A
+    // recorded payment there means settled; never compute against a null total.
+    const pay = total <= 0
+      ? (paidAmt > 0 || r.paid_at ? { t: `paid${r.paid_at ? " " + fmtShort(r.paid_at) : ""} · merged inv`, c: H.green } : null)
+      : paidAmt >= total - 0.01 ? { t: `paid${r.paid_at ? " " + fmtShort(r.paid_at) : ""}`, c: H.green }
+      : paidAmt > 0 ? { t: `partial · ${fmt$(Math.max(0, total - paidAmt))} due`, c: H.amber }
+      : { t: `${fmt$(total)} due`, c: H.amber };
+    const label = r.report_type === "combined" ? "Full service" : (r.report_type === "postage" || r.report_type === "fulfillment") ? "Fulfillment" : "Services";
+    return (
+      <a key={`rep-${r.id}`} href={`/reports/shipstation/${r.id}`}
+        style={{ display: "grid", gridTemplateColumns: "84px 64px minmax(160px, 1fr) 130px 120px minmax(150px, 220px)", gap: 12, alignItems: "center", padding: "11px 0", borderBottom: `1px solid ${H.line}`, textDecoration: "none", color: H.text }}>
+        <span style={{ fontSize: 12, fontFamily: H.mono, fontWeight: 700, color: H.blue }}>{r.qb_invoice_number ? `#${r.qb_invoice_number}` : "—"}</span>
+        <span style={{ fontSize: 10.5, fontFamily: H.mono, color: H.faint }}>{fmtShort(r.created_at)}</span>
+        <span style={{ fontSize: 13.5, fontWeight: 800, textTransform: "uppercase", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label} · {r.period_label}</span>
+        <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: pay ? pay.c : H.faint, whiteSpace: "nowrap" }}>{pay ? pay.t : ""}</span>
+        <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: H.blue, whiteSpace: "nowrap" }}>fulfillment</span>
+        <span style={{ fontSize: 11, fontFamily: H.mono, color: H.dim, textAlign: "right", whiteSpace: "nowrap" }}>{fmt$(total > 0 ? total : (paidAmt || Number(r.totals?.fee) || 0))}</span>
+      </a>
+    );
+  };
+  const openReports = (reports || []).filter((r: any) => (Number(r.paid_amount) || 0) < (Number(r.qb_total_with_tax) || 0) - 0.01);
+  const paidReports = (reports || []).filter((r: any) => !openReports.includes(r));
   const row = (j: any) => {
     const units = (j.items || []).reduce((a: number, i: any) => a + (i.buy_sheet_lines || []).reduce((s: number, l: any) => s + (Number(l.qty_ordered) || 0), 0), 0);
     const ref = j.type_meta?.qb_invoice_number ? `#${j.type_meta.qb_invoice_number}` : j.job_number;
     const d = JOB_DIRECTIVES[j.phase];
+    // Payment chip — the hub's orders-page read: PAID + date, overdue red,
+    // due amber, quiet when nothing's invoiced. (Money tab merged in, Aug 3.)
+    const recs = (j.payment_records || []).filter((p: any) => p.status !== "void" && p.status !== "draft");
+    const paidRecs = recs.filter((p: any) => p.status === "paid");
+    const openRecs = recs.filter((p: any) => p.status !== "paid");
+    const lastPaid = paidRecs.map((p: any) => p.paid_date).filter(Boolean).sort().pop();
+    const overdue = openRecs.some((p: any) => p.status === "overdue" || (p.due_date && p.due_date < new Date().toISOString().slice(0, 10)));
+    // Truth = QB invoice total vs Σ(paid). Records alone lied: a $60k deposit
+    // marked paid on a $120k invoice read "paid" (#4365, Aug 3).
+    const invoicedTotal = Number(j.type_meta?.qb_total_with_tax) || 0;
+    const paidAmt = paidRecs.reduce((a: number, p: any) => a + (Number(p.amount) || 0), 0);
+    const openAmt = invoicedTotal > 0 ? Math.max(0, invoicedTotal - paidAmt) : openRecs.reduce((a: number, p: any) => a + (Number(p.amount) || 0), 0);
+    const settled = invoicedTotal > 0 ? paidAmt >= invoicedTotal - 0.01 : (paidRecs.length > 0 && !openRecs.length);
+    const pay = settled && paidRecs.length ? { t: `paid${lastPaid ? " " + fmtShort(lastPaid) : ""}`, c: H.green }
+      : paidAmt > 0 && openAmt > 0 ? { t: `partial · ${fmt$(openAmt)} due`, c: H.amber }
+      : openAmt > 0 ? { t: `${fmt$(openAmt)} ${overdue ? "overdue" : "due"}`, c: overdue ? H.red : H.amber }
+      : null;
     return (
-      <a key={j.id} className="cs-row" href={`/jobs/${j.id}`}>
-        <span style={{ fontSize: 12, fontFamily: H.mono, fontWeight: 700, color: H.blue, minWidth: 74 }}>{ref}</span>
-        <span style={{ fontSize: 13.5, fontWeight: 800, textTransform: "uppercase", flex: 1, minWidth: 160 }}>{j.title}</span>
-        <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: ["complete"].includes(j.phase) ? H.green : H.amber }}>{["complete", "cancelled"].includes(j.phase) ? j.phase : (d?.verb || j.phase)}</span>
-        <span style={{ fontSize: 11, fontFamily: H.mono, color: H.dim }}>{units ? `${units.toLocaleString()} pcs` : ""}{j.costing_summary?.grossRev ? ` · ${fmt$(j.costing_summary.grossRev)}` : ""}{j.target_ship_date ? ` · ship ${fmtShort(j.target_ship_date)}` : ""}</span>
+      // Columnized (Jon, Aug 3): fixed grid so refs / dates / chips align
+      // down the page. ref · created · title · paid · status · meta.
+      <a key={j.id} href={`/jobs/${j.id}`}
+        style={{ display: "grid", gridTemplateColumns: "84px 64px minmax(160px, 1fr) 130px 120px minmax(150px, 220px)", gap: 12, alignItems: "center", padding: "11px 0", borderBottom: `1px solid ${H.line}`, textDecoration: "none", color: H.text }}>
+        <span style={{ fontSize: 12, fontFamily: H.mono, fontWeight: 700, color: H.blue }}>{ref}</span>
+        <span style={{ fontSize: 10.5, fontFamily: H.mono, color: H.faint }}>{fmtShort(j.created_at)}</span>
+        <span style={{ fontSize: 13.5, fontWeight: 800, textTransform: "uppercase", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.title}</span>
+        <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: pay ? pay.c : H.faint, whiteSpace: "nowrap" }}>{pay ? pay.t : ""}</span>
+        <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: ["complete"].includes(j.phase) ? H.green : H.amber, whiteSpace: "nowrap" }}>{["complete", "cancelled"].includes(j.phase) ? j.phase : (d?.verb || j.phase)}</span>
+        <span style={{ fontSize: 11, fontFamily: H.mono, color: H.dim, textAlign: "right", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{units ? `${units.toLocaleString()} pcs` : ""}{j.costing_summary?.grossRev ? ` · ${fmt$(j.costing_summary.grossRev)}` : ""}{j.target_ship_date ? ` · ship ${fmtShort(j.target_ship_date)}` : ""}</span>
       </a>
     );
   };
   return (
     <>
+      {model.outstanding > 0 && (
+        <div style={{ fontSize: 12.5, color: H.dim, margin: "26px 0 -14px" }}>
+          Outstanding: <strong style={{ color: H.amber }}>{fmt$(model.outstanding)}</strong>
+          <span style={{ color: H.faint }}> · lifetime: pre-OpsHub {fmt$(hist?.gross || 0)} + OpsHub {fmt$(model.liveGross)}</span>
+        </div>
+      )}
       {secHead("Orders in motion.", "verbs first — tap into the job for the full machine")}
-      {model.active.length === 0 && <div style={{ color: H.faint, fontSize: 12.5 }}>Nothing in motion.</div>}
+      {model.active.length === 0 && openReports.length === 0 && <div style={{ color: H.faint, fontSize: 12.5 }}>Nothing in motion.</div>}
       {model.active.map(row)}
+      {openReports.map(reportRow)}
       {model.done.length > 0 && (
         <>
-          {secHead("The record.", `${model.done.length} completed`)}
+          {secHead("The record.", `${model.done.length + paidReports.length} completed`)}
           {model.done.slice(0, 15).map(row)}
+          {paidReports.slice(0, 10).map(reportRow)}
         </>
       )}
     </>
@@ -738,7 +848,8 @@ function DocsBlock({ clientId, secHead }: any) {
 // ClientWorkingSheet (moved from classic). Git history holds the old rail.
 
 // ── Catalog: products (the real thing) + produced families (the pre-products era) ──
-function CatalogRail({ products, briefs, model, router, secHead }: any) {
+function CatalogRail({ products, briefs, model, router, secHead, thumbs }: any) {
+  const [cat, setCat] = useState<string>("all");
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const artFor = (p: any) => {
@@ -805,19 +916,35 @@ function CatalogRail({ products, briefs, model, router, secHead }: any) {
           })}
         </div>
       )}
-      {model.families.length > 0 && (
+      {model.pieces.length > 0 && (
         <>
-          {secHead("Everything produced.", "every item ever run, grouped — repeats counted")}
-          {model.families.map((f: any) => (
-            <a key={f.name} className="cs-row" href={`/jobs/${f.lastJob.id}`}>
-              <span style={{ fontSize: 13.5, fontWeight: 800, textTransform: "uppercase", flex: 1, minWidth: 180 }}>{f.name}</span>
-              {f.runs > 1 && <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: PURPLE }}>×{f.runs} runs</span>}
-              <span style={{ fontSize: 11, fontFamily: H.mono, color: H.dim }}>{f.units.toLocaleString()} pcs{f.price != null ? ` · last at $${f.price}` : ""}</span>
-            </a>
-          ))}
+          {secHead("Everything produced.", "the client's catalog, exactly as their hub sorts it — newest first")}
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+            {[{ key: "all", label: "All" }, ...CATALOG_CATS, { key: "other", label: "Everything else" }].map((c: any) => {
+              const on = cat === c.key;
+              return (
+                <button key={c.key} onClick={() => setCat(c.key)}
+                  style={{ borderRadius: 999, border: `1px solid ${on ? "#fff" : H.line}`, background: on ? "#fff" : "transparent", color: on ? H.ink : H.dim, fontSize: 10, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", padding: "8px 15px", cursor: "pointer", fontFamily: H.font }}>{c.label}</button>
+              );
+            })}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 10 }}>
+            {model.pieces.filter((pc: any) => cat === "all" || pc.cat === cat).map((pc: any) => (
+              <a key={pc.key} href={`/jobs/${pc.jobId}`} title={pc.name}
+                style={{ position: "relative", display: "block", aspectRatio: "1", borderRadius: 10, overflow: "hidden", background: thumbs[pc.itemId] ? "#fff" : H.surface, textDecoration: "none" }}>
+                {thumbs[pc.itemId] && (
+                  <img src={thumbSrc(thumbs[pc.itemId], 400)} alt="" loading="lazy" referrerPolicy="no-referrer"
+                    style={{ width: "100%", height: "100%", objectFit: "contain" }} onError={(e: any) => { e.target.style.display = "none"; }} />
+                )}
+                <span style={{ position: "absolute", left: 0, right: 0, bottom: 0, padding: "18px 9px 7px", background: "linear-gradient(transparent, rgba(0,0,0,0.75))", color: "#fff", fontSize: 9.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.04em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {pc.name}{pc.runs > 1 ? <span style={{ color: PURPLE }}> ·×{pc.runs}</span> : null}
+                </span>
+              </a>
+            ))}
+          </div>
         </>
       )}
-      {products.length === 0 && model.families.length === 0 && (
+      {products.length === 0 && model.pieces.length === 0 && (
         <div style={{ color: H.faint, fontSize: 12.5 }}>Empty shelf — the greenlight fork fills it.</div>
       )}
     </>
@@ -977,26 +1104,4 @@ function ArchiveRail({ archive, briefs, clientId, secHead }: any) {
 }
 
 // ── Money: internal only ──
-function MoneyRail({ model, hist, secHead }: any) {
-  const open = model.payments.filter((p: any) => !["paid", "void"].includes(p.status));
-  const paid = model.payments.filter((p: any) => p.status === "paid");
-  const row = (p: any) => (
-    <a key={p.id} className="cs-row" href={`/jobs/${p.job.id}`}>
-      <span style={{ fontSize: 12, fontFamily: H.mono, fontWeight: 700, color: H.blue, minWidth: 90 }}>{p.invoice_number ? `#${p.invoice_number}` : p.job.job_number}</span>
-      <span style={{ fontSize: 13.5, fontWeight: 800, flex: 1 }}>{fmt$(Number(p.amount) || 0)}</span>
-      <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: p.status === "paid" ? H.green : ["overdue"].includes(p.status) ? H.red : H.amber }}>{p.status}</span>
-      <span style={{ fontSize: 11, fontFamily: H.mono, color: H.dim }}>{p.due_date ? `due ${fmtShort(p.due_date)}` : ""}</span>
-    </a>
-  );
-  return (
-    <>
-      {secHead("The money.", "internal eyes only — the hub never shows this framing")}
-      <div style={{ fontSize: 12.5, color: H.dim, marginBottom: 18 }}>
-        Pre-OpsHub era: <strong style={{ color: H.text }}>{fmt$(hist?.gross || 0)}</strong> across {Math.round(hist?.units || 0).toLocaleString()} units · OpsHub era: <strong style={{ color: H.text }}>{fmt$(model.liveGross)}</strong>
-      </div>
-      {open.length > 0 && (<>{secHead("Open.", "unpaid, unsettled")}{open.map(row)}</>)}
-      {paid.length > 0 && (<>{secHead("Settled.", `${paid.length} payments`)}{paid.slice(0, 12).map(row)}</>)}
-      {model.payments.length === 0 && <div style={{ color: H.faint, fontSize: 12.5 }}>No payment records yet.</div>}
-    </>
-  );
-}
+// MoneyRail merged into OrdersRail (Jon, Aug 3) — git history holds it.
