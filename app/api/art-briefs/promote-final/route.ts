@@ -64,7 +64,7 @@ export async function POST(req: NextRequest) {
 
     // Move brief toward delivered state
     await supabase.from("art_briefs").update({
-      state: "delivered",
+      state: "approved",
       updated_at: new Date().toISOString(),
     }).eq("id", brief.id);
 

@@ -166,10 +166,10 @@ export function unreadEventFor(
   }
 
   // Fallback — state + role for cases where preview wasn't captured.
-  if (state === "final_approved" && unreadByRole === "client") {
+  if (state === "approved" && unreadByRole === "client") {
     return { kind: "approval", label: "APPROVED", color: "#4ddb88" };
   }
-  if (state === "revisions" && unreadByRole === "client") {
+  if (state === "working" && unreadByRole === "client") {
     return { kind: "revisions", label: "REVISIONS", color: "#fd3aa3" };
   }
   return null;

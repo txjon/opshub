@@ -53,11 +53,11 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
   }
 
   if (action === "approve") {
-    if (brief.state !== "client_review") {
+    if (brief.state !== "with_client") {
       return NextResponse.json({ error: `Cannot approve from state '${brief.state}'` }, { status: 409 });
     }
     await ctx.db.from("art_briefs").update({
-      state: "final_approved",
+      state: "approved",
       updated_at: new Date().toISOString(),
     }).eq("id", brief.id);
     await postSystemMarker("✓ Approved");
@@ -65,7 +65,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
       await notifyTeamServer(`${clientName} approved ${briefLabel}`, "approval", brief.id, "art_brief");
       if (brief.job_id) await logJobActivityServer(brief.job_id, `Client approved ${briefLabel}`);
     } catch {}
-    return NextResponse.json({ success: true, to: "final_approved" });
+    return NextResponse.json({ success: true, to: "approved" });
   }
 
   if (action === "request_changes") {
@@ -85,7 +85,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
         .eq("brief_id", brief.id);
     }
     await ctx.db.from("art_briefs").update({
-      state: "revisions",
+      state: "working",
       updated_at: new Date().toISOString(),
     }).eq("id", brief.id);
     await postSystemMarker("Requested changes");

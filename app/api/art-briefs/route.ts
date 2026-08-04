@@ -265,7 +265,7 @@ export async function POST(req: NextRequest) {
       reference_urls: reference_urls || [],
       deadline, internal_notes, assigned_to,
       assigned_designer_id: finalDesignerId,
-      state: state || "draft",
+      state: state || "working",
       created_by: user.id,
     }).select("*").single();
 

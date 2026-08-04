@@ -93,7 +93,7 @@ export default function HomePage() {
   // ── YOUR MOVE (Jon, Jul 22: "1 thing needs you... I don't know which one").
   //    Home IS the spotlight — the only feed on the page (Jon, Jul 28). ──
   const actOrders = orderRows.filter(x => x.act);
-  const actBriefs = (hasStudio ? briefs : []).filter(b => b.state !== "delivered" && b.has_unread_external);
+  const actBriefs = (hasStudio ? briefs : []).filter(b => !["killed", "shelved"].includes(b.state) && b.has_unread_external);
   const spotlightCount = actOrders.length + actBriefs.length;
 
   const nothing = !loading && spotlightCount === 0 && orderRows.length === 0 && briefs.length === 0;

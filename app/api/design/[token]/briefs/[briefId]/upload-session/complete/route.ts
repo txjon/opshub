@@ -93,9 +93,9 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     // first designer deliverable, going straight to client_review.
     const now = new Date().toISOString();
     let newState = (ctx.brief as any).state;
-    if (k === "first_draft") newState = "client_review";
-    if (k === "revision") newState = "client_review";
-    if (k === "final") newState = "pending_prep";
+    if (k === "first_draft") newState = "working";
+    if (k === "revision") newState = "working";
+    if (k === "final") newState = "working";
 
     await ctx.db.from("art_briefs").update({
       state: newState,

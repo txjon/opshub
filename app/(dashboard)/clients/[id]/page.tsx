@@ -389,8 +389,8 @@ function StudioRail({ briefs, secHead }: any) {
               )}
               <div style={{ padding: "10px 13px 13px" }}>
                 <div style={{ fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", lineHeight: 1.25, overflow: "hidden", display: "-webkit-box", WebkitBoxOrient: "vertical" as any, WebkitLineClamp: 2 }}>{b.title || "Untitled idea"}</div>
-                <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: b.state === "final_approved" ? H.green : H.amber, marginTop: 4 }}>
-                  {b.state === "draft" ? "New idea" : b.state === "final_approved" ? "Greenlit" : b.state === "client_review" ? "With them" : "In motion"}
+                <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: b.state === "approved" ? H.green : H.amber, marginTop: 4 }}>
+                  {b.state === "approved" ? "Greenlit" : b.state === "with_client" ? "With them" : b.state === "shelved" ? "Shelved" : b.state === "killed" ? "Killed" : "In the studio"}
                 </div>
               </div>
             </a>
@@ -1177,7 +1177,7 @@ function ArchiveRail({ archive, briefs, clientId, secHead }: any) {
     try {
       const title = String(file.file_name || "Archive pull").replace(/\.\w+$/, "").slice(0, 140);
       const { data: brief, error } = await supabase.from("art_briefs").insert({
-        client_id: clientId, title, state: "draft", source: "hpd",
+        client_id: clientId, title, state: "working", source: "hpd",
         internal_only: true,   // prep quietly; share from the studio sheet
         concept: `Pulled from the archive: ${file.folder_path || ""}/${file.file_name}`,
       } as never).select("id").single();
@@ -1244,7 +1244,7 @@ function ArchiveRail({ archive, briefs, clientId, secHead }: any) {
               <button key={b.id} onClick={() => sendToBrief(picker, b.id, b.title || "Untitled idea")} disabled={busy}
                 style={{ display: "block", width: "100%", textAlign: "left", background: "transparent", color: H.text, border: `1px solid ${H.line}`, borderRadius: 10, padding: "10px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: H.font, marginBottom: 8, opacity: busy ? 0.5 : 1 }}>
                 {b.title || "Untitled idea"}
-                <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: H.faint, marginLeft: 8 }}>{b.state === "draft" ? "new" : b.state === "final_approved" ? "greenlit" : "in motion"}</span>
+                <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: H.faint, marginLeft: 8 }}>{b.state === "approved" ? "greenlit" : b.state === "with_client" ? "with them" : "in the studio"}</span>
               </button>
             ))}
           </div>

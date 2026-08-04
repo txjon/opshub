@@ -29,7 +29,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     title: title?.trim() || null,
     concept: concept?.trim() || null,
     source: "client",
-    state: "draft",
+    state: "working",
     assigned_designer_id: finalDesignerId,
   }).select("*").single();
 

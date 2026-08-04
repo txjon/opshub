@@ -101,9 +101,9 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
   // WIP path retired 2026-05-17 — designers go straight to first_draft.
   const now = new Date().toISOString();
   let newState = ctx.brief.state;
-  if (kind === "first_draft") newState = "client_review";
-  if (kind === "revision") newState = "client_review";
-  if (kind === "final") newState = "pending_prep";
+  if (kind === "first_draft") newState = "working";
+  if (kind === "revision") newState = "working";
+  if (kind === "final") newState = "working";
 
   await ctx.db.from("art_briefs").update({
     state: newState,

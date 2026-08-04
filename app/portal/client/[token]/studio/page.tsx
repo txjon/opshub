@@ -17,9 +17,9 @@ import { clientStateFor } from "../_shared/state-labels";
 const QUIET_DAYS = 30;
 type StudioBucket = "your_move" | "working" | "ready" | "quiet";
 function studioBucket(b: any): StudioBucket {
-  const done = ["final_approved", "pending_prep", "production_ready", "delivered"].includes(b.state);
+  const done = b.state === "approved";
   if (done) return "ready";
-  if (b.state === "client_review" || b.has_unread_external) return "your_move";
+  if (b.state === "with_client" || b.has_unread_external) return "your_move";
   const last = b.last_activity_at || b.created_at || "";
   const stale = last && (Date.now() - new Date(last).getTime()) > QUIET_DAYS * 86400000;
   return stale ? "quiet" : "working";
@@ -35,16 +35,11 @@ const BUCKETS: { key: StudioBucket; title: string; hint: string }[] = [
 // here, not a sign-off ceremony — most cards are point-of-entry ideas.
 // Looser vocabulary than clientStateFor's; internal states unchanged.
 const STATE_WORDS: Record<string, { label: string; color: string }> = {
-  draft: { label: "On the wall", color: C.muted },
-  sent: { label: "Sketching", color: C.blue },
-  in_progress: { label: "Sketching", color: C.blue },
-  wip_review: { label: "Sketching", color: C.blue },
-  client_review: { label: "Fresh look in", color: C.purple },
-  revisions: { label: "Reworking", color: C.blue },
-  final_approved: { label: "Greenlit", color: C.green },
-  pending_prep: { label: "Greenlit", color: C.green },
-  production_ready: { label: "Greenlit", color: C.green },
-  delivered: { label: "Delivered", color: C.green },
+  working: { label: "In the works", color: C.blue },
+  with_client: { label: "Fresh look in", color: C.purple },
+  approved: { label: "Greenlit", color: C.green },
+  shelved: { label: "On the shelf", color: C.muted },
+  killed: { label: "Closed", color: C.muted },
 };
 const stateWord = (b: any) => STATE_WORDS[b.state] || { label: clientStateFor(b).label, color: C.muted };
 

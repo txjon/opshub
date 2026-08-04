@@ -70,7 +70,7 @@ export async function bridgeOrderRequest(db: Db, args: { requestId: string; byNa
     client_id: realClientId,
     title,
     concept,
-    state: "draft",
+    state: "working",
     source: "hpd",
     internal_only: true,
     product_spec: {
@@ -137,7 +137,7 @@ export async function bridgeOrderRequest(db: Db, args: { requestId: string; byNa
     }
   }
 
-  await db.from("art_briefs").update({ state: "final_approved", updated_at: new Date().toISOString() }).eq("id", briefId);
+  await db.from("art_briefs").update({ state: "approved", updated_at: new Date().toISOString() }).eq("id", briefId);
   await db.from("lab_order_requests").update({ job_id: job.jobId, handled_at: new Date().toISOString() }).eq("id", args.requestId);
   await db.from("lab_messages").insert({
     thread_id: thread.id, sender_role: "hpd", sender_name: args.byName,

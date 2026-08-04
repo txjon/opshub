@@ -56,7 +56,7 @@ export async function GET() {
       supabase.from("art_briefs")
         .select("id, hpd_last_seen_at, state, client_aborted_at")
         .is("client_aborted_at", null)
-        .neq("state", "delivered"),
+        .neq("state", "killed"),
     ]);
 
     let briefUnread = 0;
