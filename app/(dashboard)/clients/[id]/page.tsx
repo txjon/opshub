@@ -419,12 +419,16 @@ function OrdersRail({ model, hist, secHead }: any) {
       : openRecs.length ? { t: `${fmt$(openAmt)} ${overdue ? "overdue" : "due"}`, c: overdue ? H.red : H.amber }
       : null;
     return (
-      <a key={j.id} className="cs-row" href={`/jobs/${j.id}`}>
-        <span style={{ fontSize: 12, fontFamily: H.mono, fontWeight: 700, color: H.blue, minWidth: 74 }}>{ref}</span>
-        <span style={{ fontSize: 13.5, fontWeight: 800, textTransform: "uppercase", flex: 1, minWidth: 160 }}>{j.title}</span>
-        {pay && <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: pay.c }}>{pay.t}</span>}
-        <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: ["complete"].includes(j.phase) ? H.green : H.amber }}>{["complete", "cancelled"].includes(j.phase) ? j.phase : (d?.verb || j.phase)}</span>
-        <span style={{ fontSize: 11, fontFamily: H.mono, color: H.dim }}>{units ? `${units.toLocaleString()} pcs` : ""}{j.costing_summary?.grossRev ? ` · ${fmt$(j.costing_summary.grossRev)}` : ""}{j.target_ship_date ? ` · ship ${fmtShort(j.target_ship_date)}` : ""}</span>
+      // Columnized (Jon, Aug 3): fixed grid so refs / dates / chips align
+      // down the page. ref · created · title · paid · status · meta.
+      <a key={j.id} href={`/jobs/${j.id}`}
+        style={{ display: "grid", gridTemplateColumns: "84px 64px minmax(160px, 1fr) 130px 120px minmax(150px, 220px)", gap: 12, alignItems: "center", padding: "11px 0", borderBottom: `1px solid ${H.line}`, textDecoration: "none", color: H.text }}>
+        <span style={{ fontSize: 12, fontFamily: H.mono, fontWeight: 700, color: H.blue }}>{ref}</span>
+        <span style={{ fontSize: 10.5, fontFamily: H.mono, color: H.faint }}>{fmtShort(j.created_at)}</span>
+        <span style={{ fontSize: 13.5, fontWeight: 800, textTransform: "uppercase", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.title}</span>
+        <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: pay ? pay.c : H.faint, whiteSpace: "nowrap" }}>{pay ? pay.t : ""}</span>
+        <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: ["complete"].includes(j.phase) ? H.green : H.amber, whiteSpace: "nowrap" }}>{["complete", "cancelled"].includes(j.phase) ? j.phase : (d?.verb || j.phase)}</span>
+        <span style={{ fontSize: 11, fontFamily: H.mono, color: H.dim, textAlign: "right", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{units ? `${units.toLocaleString()} pcs` : ""}{j.costing_summary?.grossRev ? ` · ${fmt$(j.costing_summary.grossRev)}` : ""}{j.target_ship_date ? ` · ship ${fmtShort(j.target_ship_date)}` : ""}</span>
       </a>
     );
   };
