@@ -300,7 +300,7 @@ export default function ClientSpacePage() {
             />
           </>
         )}
-        {section === "Catalog" && <CatalogRail products={products} briefs={briefs} model={model} router={router} secHead={secHead} thumbs={itemThumbs} />}
+        {section === "Catalog" && <CatalogRail products={products} briefs={briefs} model={model} router={router} secHead={secHead} thumbs={itemThumbs} clientId={params.id} />}
         {section === "Archive" && <ArchiveRail archive={archive} briefs={briefs} clientId={params.id} secHead={secHead} />}
       </div>
     </div>
@@ -856,12 +856,35 @@ function DocsBlock({ clientId, secHead }: any) {
 // ClientWorkingSheet (moved from classic). Git history holds the old rail.
 
 // ── Catalog: products (the real thing) + produced families (the pre-products era) ──
-function CatalogRail({ products, briefs, model, router, secHead, thumbs }: any) {
+function CatalogRail({ products, briefs, model, router, secHead, thumbs, clientId }: any) {
   const [cat, setCat] = useState<string>("all");
   const [detail, setDetail] = useState<any | null>(null);
   // "View art" gallery — every file on the piece (all runs), view + download.
   const [artFiles, setArtFiles] = useState<any[] | null>(null);   // null = closed
   const [artLoading, setArtLoading] = useState(false);
+  // Reorder cart — the hub's flow, internal door. Prefill = last run's sizes.
+  const [cart, setCart] = useState<Record<string, { name: string; sizes: Record<string, number> }>>({});
+  const [cartOpen, setCartOpen] = useState(false);
+  const [cartNote, setCartNote] = useState("");
+  const [cartBusy, setCartBusy] = useState(false);
+  const [cartErr, setCartErr] = useState<string | null>(null);
+  const addToCart = (pc: any) => {
+    const last = pc.instances[0];
+    const sizes: Record<string, number> = {};
+    for (const l of (last?.sizes || [])) sizes[l.size] = Number(l.qty_ordered) || 0;
+    setCart(c => ({ ...c, [last.itemId]: { name: pc.name, sizes } }));
+  };
+  const cartCount = Object.keys(cart).length;
+  const submitCart = async () => {
+    setCartBusy(true); setCartErr(null);
+    try {
+      const items = Object.entries(cart).map(([itemId, v]) => ({ itemId, sizes: v.sizes }));
+      const res = await fetch(`/api/clients/${clientId}/reorder`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items, note: cartNote }) });
+      const b = await res.json();
+      if (!res.ok) throw new Error(b.error || "Couldn't create the reorder");
+      router.push(`/jobs/${b.jobId}`);
+    } catch (e: any) { setCartErr(e.message); setCartBusy(false); }
+  };
   const supabase = createClient();
   const openArt = async (pc: any) => {
     setArtLoading(true); setArtFiles([]);
@@ -1009,8 +1032,12 @@ function CatalogRail({ products, briefs, model, router, secHead, thumbs }: any) 
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: 8, marginTop: 16, flexWrap: "wrap" }}>
+                  <button onClick={() => { addToCart(pc); setDetail(null); }}
+                    style={{ background: "#fff", color: H.ink, border: "none", borderRadius: 999, padding: "10px 18px", fontSize: 10, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>
+                    {cart[pc.instances[0]?.itemId] ? "✓ In cart" : "+ Add to reorder"}
+                  </button>
                   <a href={`/jobs/${pc.jobId}`}
-                    style={{ background: "#fff", color: H.ink, borderRadius: 999, padding: "10px 18px", fontSize: 10, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", textDecoration: "none", fontFamily: H.font }}>Open latest job →</a>
+                    style={{ background: "transparent", color: H.dim, border: `1px solid ${H.line}`, borderRadius: 999, padding: "10px 18px", fontSize: 10, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", textDecoration: "none", fontFamily: H.font }}>Open latest job →</a>
                   <button onClick={() => openArt(pc)}
                     style={{ background: "transparent", color: H.dim, border: `1px solid ${H.line}`, borderRadius: 999, padding: "10px 18px", fontSize: 10, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>View art</button>
                   <button onClick={() => setDetail(null)}
@@ -1054,6 +1081,53 @@ function CatalogRail({ products, briefs, model, router, secHead, thumbs }: any) 
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+        </div>
+      )}
+      {cartCount > 0 && (
+        <button onClick={() => setCartOpen(true)}
+          style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: 22, zIndex: 380, background: "#fff", color: H.ink, border: "none", borderRadius: 999, padding: "13px 26px", fontSize: 11, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font, boxShadow: "0 8px 30px rgba(0,0,0,0.5)" }}>
+          Reorder cart · {cartCount}
+        </button>
+      )}
+      {cartOpen && (
+        <div onClick={e => { if (e.target === e.currentTarget && !cartBusy) setCartOpen(false); }}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", zIndex: 430, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "clamp(12px,4vh,48px) 16px", overflowY: "auto", fontFamily: H.font }}>
+          <div style={{ background: H.card, border: `1px solid ${H.line}`, borderRadius: 16, width: "min(640px, 100%)", padding: "20px 22px", color: H.text }}>
+            <div style={{ fontSize: 17, fontWeight: 900, textTransform: "uppercase", marginBottom: 4 }}>Run it back.</div>
+            <div style={{ fontSize: 11.5, color: H.dim, marginBottom: 14 }}>Lands as ONE intake job — cost and quote it like any order. Quantities prefilled from each piece&rsquo;s last run.</div>
+            {Object.entries(cart).map(([itemId, v]) => (
+              <div key={itemId} style={{ padding: "10px 0", borderBottom: `1px solid ${H.line}` }}>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+                  <span style={{ fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", flex: 1 }}>{v.name}</span>
+                  <span style={{ fontSize: 10.5, fontFamily: H.mono, color: H.faint }}>{Object.values(v.sizes).reduce((a, n) => a + (Number(n) || 0), 0).toLocaleString()} pcs</span>
+                  <button onClick={() => setCart(c => { const n = { ...c }; delete n[itemId]; return n; })}
+                    style={{ border: "none", background: "transparent", color: H.faint, fontSize: 13, cursor: "pointer" }}>✕</button>
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+                  {Object.entries(v.sizes).map(([sz, q]) => (
+                    <label key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+                      <span style={{ fontSize: 8.5, fontWeight: 800, fontFamily: H.mono, color: H.faint }}>{sz}</span>
+                      <input inputMode="numeric" value={q}
+                        onChange={e => { const n = Math.max(0, Math.round(Number(e.target.value) || 0)); setCart(c => ({ ...c, [itemId]: { ...c[itemId], sizes: { ...c[itemId].sizes, [sz]: n } } })); }}
+                        onFocus={e => e.target.select()}
+                        style={{ width: 52, textAlign: "center", padding: "6px 4px", borderRadius: 7, border: `1px solid ${H.line}`, background: H.surface, color: H.text, fontSize: 12, fontFamily: H.mono, outline: "none" }} />
+                    </label>
+                  ))}
+                </div>
+              </div>
+            ))}
+            <textarea value={cartNote} onChange={e => setCartNote(e.target.value)} placeholder="Note for intake (optional)"
+              style={{ width: "100%", boxSizing: "border-box", marginTop: 12, padding: "10px 12px", borderRadius: 8, border: `1px solid ${H.line}`, background: H.surface, color: H.text, fontSize: 12.5, fontFamily: H.font, outline: "none", minHeight: 54, resize: "vertical" }} />
+            {cartErr && <div style={{ color: H.red, fontSize: 12, marginTop: 8 }}>{cartErr}</div>}
+            <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
+              <button disabled={cartBusy} onClick={submitCart}
+                style={{ background: "#fff", color: H.ink, border: "none", borderRadius: 999, padding: "11px 22px", fontSize: 11, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font, opacity: cartBusy ? 0.6 : 1 }}>
+                {cartBusy ? "Creating…" : `Create intake job · ${cartCount} item${cartCount === 1 ? "" : "s"}`}
+              </button>
+              <button disabled={cartBusy} onClick={() => setCartOpen(false)}
+                style={{ background: "transparent", color: H.dim, border: `1px solid ${H.line}`, borderRadius: 999, padding: "11px 22px", fontSize: 11, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>Keep browsing</button>
             </div>
           </div>
         </div>
