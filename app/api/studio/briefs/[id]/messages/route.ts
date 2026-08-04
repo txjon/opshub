@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { createClient as createAdmin } from "@supabase/supabase-js";
+import { dbNoStore } from "@/lib/db-nostore";
 import { getItemFolderId, uploadFile } from "@/lib/google-drive";
 
 export const runtime = "nodejs";
@@ -13,9 +13,7 @@ export const maxDuration = 60;
 // (state → with_client); internal notes never move it; an approved brief is
 // never disturbed. Files land in Drive + art_brief_files (kind 'wip',
 // shared_with_client_at stamped when client-visible).
-function admin() {
-  return createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-}
+const admin = dbNoStore;
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const supabase = await createClient();

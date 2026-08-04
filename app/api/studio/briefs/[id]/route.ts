@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { createClient as createAdmin } from "@supabase/supabase-js";
+import { dbNoStore } from "@/lib/db-nostore";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,9 +10,7 @@ export const dynamic = "force-dynamic";
 // UI renders unchanged) + the latest order request. DELETE removes the
 // design outright (files/messages cascade; Drive files stay put — history
 // is supersede-shaped, never destroyed).
-function admin() {
-  return createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-}
+const admin = dbNoStore;
 async function requireUser() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();

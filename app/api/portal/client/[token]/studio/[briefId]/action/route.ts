@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient as createAdmin } from "@supabase/supabase-js";
+import { dbNoStore } from "@/lib/db-nostore";
 import { getItemFolderId, uploadFile } from "@/lib/google-drive";
 
 export const runtime = "nodejs";
@@ -16,9 +16,7 @@ export const maxDuration = 60;
 //   reply (multipart body/file)         → client message / upload, ball to us
 // Every verb re-verifies token → client → brief ownership. Only HPD-shared
 // files can be thumbed or banked — never the client's own uploads.
-function admin() {
-  return createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-}
+const admin = dbNoStore;
 
 export async function POST(req: NextRequest, { params }: { params: { token: string; briefId: string } }) {
   const db = admin();

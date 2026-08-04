@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { createClient as createAdmin } from "@supabase/supabase-js";
+import { dbNoStore } from "@/lib/db-nostore";
 import { getActiveCompany } from "@/lib/company";
 
 export const runtime = "nodejs";
@@ -10,9 +10,7 @@ export const dynamic = "force-dynamic";
 // GET  → every active brief: client, five-state, latest client-visible art,
 //        bridged job if the ask became one. Company-scoped, auth-gated.
 // POST → start a design on a REAL client: { clientId, title, concept? }.
-function admin() {
-  return createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-}
+const admin = dbNoStore;
 async function requireUser() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();

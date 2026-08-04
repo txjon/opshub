@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient as createAdmin } from "@supabase/supabase-js";
+import { dbNoStore } from "@/lib/db-nostore";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -7,9 +7,7 @@ export const dynamic = "force-dynamic";
 // One design, client-side: the merged timeline through the WALL — only
 // client-visible messages and shared files exist over here. The order ask
 // rides as a minimal status ("we're pricing it"), never internal machinery.
-function admin() {
-  return createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-}
+const admin = dbNoStore;
 
 export async function GET(_req: NextRequest, { params }: { params: { token: string; briefId: string } }) {
   const db = admin();
