@@ -43,7 +43,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
   ].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
 
   return NextResponse.json({
-    brief: { id: (brief as any).id, title: (brief as any).title, state: (brief as any).state, approved_file_id: (brief as any).approved_file_id },
+    brief: { id: (brief as any).id, title: (brief as any).title, state: (brief as any).state, approved_file_id: (brief as any).approved_file_id, concept: (brief as any).concept || null },
     timeline,
     orderRequest: orderRequest ? { blank: (orderRequest as any).blank, qty: (orderRequest as any).qty, open: !(orderRequest as any).handled_at } : null,
   });

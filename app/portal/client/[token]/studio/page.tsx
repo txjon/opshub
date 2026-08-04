@@ -146,6 +146,8 @@ function Sheet({ detail, token, onClose, onRefresh }: any) {
         <button onClick={onClose} aria-label="Close" style={{ background: "none", border: "none", color: C.dim, fontSize: 26, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>
       </div>
 
+      {b.concept && <div style={{ margin: "6px 20px 0", fontSize: 12.5, color: C.dim, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{b.concept}</div>}
+
       {hero && (
         <div style={{ marginTop: 12 }}>
           <div style={{ background: "#fff", position: "relative" }}>
