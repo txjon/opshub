@@ -58,6 +58,7 @@ export default function ClientSpacePage() {
   const [products, setProducts] = useState<any[]>([]);
   const [archive, setArchive] = useState<any[]>([]);
   const [hist, setHist] = useState<{ gross: number; units: number } | null>(null);
+  const [fulfillReports, setFulfillReports] = useState<any[]>([]);
   const [wire, setWire] = useState<any[]>([]);
   const [loaded, setLoaded] = useState(false);
 
@@ -86,6 +87,10 @@ export default function ClientSpacePage() {
         })(),
       ]);
       setClient(c); setContacts(cts || []); setJobs(js || []); setReleases(rel || []);
+      supabase.from("shipstation_reports")
+        .select("id, period_label, report_type, qb_invoice_number, qb_total_with_tax, paid_at, paid_amount, created_at")
+        .eq("client_id", id).order("created_at", { ascending: false })
+        .then(({ data: fr }) => setFulfillReports(fr || []));
       setProducts(prods || []); setArchive(arc || []);
       // pre-OpsHub history (pure — the era wall keeps live jobs uncounted here)
       if ((c as any)?.name) {
@@ -268,7 +273,7 @@ export default function ClientSpacePage() {
         )}
         {section === "Studio" && <StudioRail briefs={briefs} secHead={secHead} />}
         {section === "Drops" && <DropsRail releases={releases} secHead={secHead} />}
-        {section === "Orders" && <OrdersRail model={model} hist={hist} secHead={secHead} />}
+        {section === "Orders" && <OrdersRail model={model} hist={hist} reports={fulfillReports} secHead={secHead} />}
         {section === "Pipeline" && (
           <>
             {secHead("The pipeline.", "the working sheet — cost, retail, status, promises")}
@@ -402,7 +407,30 @@ function DropsRail({ releases, secHead }: any) {
 }
 
 // ── Orders: the jobs, verbs first ──
-function OrdersRail({ model, hist, secHead }: any) {
+function OrdersRail({ model, hist, reports, secHead }: any) {
+  // Fulfillment/shipping invoices (ShipStation reports) — same list the hub's
+  // orders landing shows. Row links to the internal report page.
+  const reportRow = (r: any) => {
+    const total = Number(r.qb_total_with_tax) || 0;
+    const paidAmt = Number(r.paid_amount) || 0;
+    const pay = total > 0 && paidAmt >= total - 0.01 ? { t: `paid${r.paid_at ? " " + fmtShort(r.paid_at) : ""}`, c: H.green }
+      : paidAmt > 0 ? { t: `partial · ${fmt$(total - paidAmt)} due`, c: H.amber }
+      : { t: `${fmt$(total)} due`, c: H.amber };
+    const label = r.report_type === "combined" ? "Full service" : (r.report_type === "postage" || r.report_type === "fulfillment") ? "Fulfillment" : "Services";
+    return (
+      <a key={`rep-${r.id}`} href={`/reports/shipstation/${r.id}`}
+        style={{ display: "grid", gridTemplateColumns: "84px 64px minmax(160px, 1fr) 130px 120px minmax(150px, 220px)", gap: 12, alignItems: "center", padding: "11px 0", borderBottom: `1px solid ${H.line}`, textDecoration: "none", color: H.text }}>
+        <span style={{ fontSize: 12, fontFamily: H.mono, fontWeight: 700, color: H.blue }}>{r.qb_invoice_number ? `#${r.qb_invoice_number}` : "—"}</span>
+        <span style={{ fontSize: 10.5, fontFamily: H.mono, color: H.faint }}>{fmtShort(r.created_at)}</span>
+        <span style={{ fontSize: 13.5, fontWeight: 800, textTransform: "uppercase", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label} · {r.period_label}</span>
+        <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: pay.c, whiteSpace: "nowrap" }}>{pay.t}</span>
+        <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: H.blue, whiteSpace: "nowrap" }}>fulfillment</span>
+        <span style={{ fontSize: 11, fontFamily: H.mono, color: H.dim, textAlign: "right", whiteSpace: "nowrap" }}>{fmt$(total)}</span>
+      </a>
+    );
+  };
+  const openReports = (reports || []).filter((r: any) => (Number(r.paid_amount) || 0) < (Number(r.qb_total_with_tax) || 0) - 0.01);
+  const paidReports = (reports || []).filter((r: any) => !openReports.includes(r));
   const row = (j: any) => {
     const units = (j.items || []).reduce((a: number, i: any) => a + (i.buy_sheet_lines || []).reduce((s: number, l: any) => s + (Number(l.qty_ordered) || 0), 0), 0);
     const ref = j.type_meta?.qb_invoice_number ? `#${j.type_meta.qb_invoice_number}` : j.job_number;
@@ -414,9 +442,15 @@ function OrdersRail({ model, hist, secHead }: any) {
     const openRecs = recs.filter((p: any) => p.status !== "paid");
     const lastPaid = paidRecs.map((p: any) => p.paid_date).filter(Boolean).sort().pop();
     const overdue = openRecs.some((p: any) => p.status === "overdue" || (p.due_date && p.due_date < new Date().toISOString().slice(0, 10)));
-    const openAmt = openRecs.reduce((a: number, p: any) => a + (Number(p.amount) || 0), 0);
-    const pay = paidRecs.length && !openRecs.length ? { t: `paid${lastPaid ? " " + fmtShort(lastPaid) : ""}`, c: H.green }
-      : openRecs.length ? { t: `${fmt$(openAmt)} ${overdue ? "overdue" : "due"}`, c: overdue ? H.red : H.amber }
+    // Truth = QB invoice total vs Σ(paid). Records alone lied: a $60k deposit
+    // marked paid on a $120k invoice read "paid" (#4365, Aug 3).
+    const invoicedTotal = Number(j.type_meta?.qb_total_with_tax) || 0;
+    const paidAmt = paidRecs.reduce((a: number, p: any) => a + (Number(p.amount) || 0), 0);
+    const openAmt = invoicedTotal > 0 ? Math.max(0, invoicedTotal - paidAmt) : openRecs.reduce((a: number, p: any) => a + (Number(p.amount) || 0), 0);
+    const settled = invoicedTotal > 0 ? paidAmt >= invoicedTotal - 0.01 : (paidRecs.length > 0 && !openRecs.length);
+    const pay = settled && paidRecs.length ? { t: `paid${lastPaid ? " " + fmtShort(lastPaid) : ""}`, c: H.green }
+      : paidAmt > 0 && openAmt > 0 ? { t: `partial · ${fmt$(openAmt)} due`, c: H.amber }
+      : openAmt > 0 ? { t: `${fmt$(openAmt)} ${overdue ? "overdue" : "due"}`, c: overdue ? H.red : H.amber }
       : null;
     return (
       // Columnized (Jon, Aug 3): fixed grid so refs / dates / chips align
@@ -441,12 +475,14 @@ function OrdersRail({ model, hist, secHead }: any) {
         </div>
       )}
       {secHead("Orders in motion.", "verbs first — tap into the job for the full machine")}
-      {model.active.length === 0 && <div style={{ color: H.faint, fontSize: 12.5 }}>Nothing in motion.</div>}
+      {model.active.length === 0 && openReports.length === 0 && <div style={{ color: H.faint, fontSize: 12.5 }}>Nothing in motion.</div>}
       {model.active.map(row)}
+      {openReports.map(reportRow)}
       {model.done.length > 0 && (
         <>
-          {secHead("The record.", `${model.done.length} completed`)}
+          {secHead("The record.", `${model.done.length + paidReports.length} completed`)}
           {model.done.slice(0, 15).map(row)}
+          {paidReports.slice(0, 10).map(reportRow)}
         </>
       )}
     </>
