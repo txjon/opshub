@@ -429,6 +429,9 @@ function EditClientModal({ client, contacts, onClose, onSaved }: any) {
   const [removed, setRemoved] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [delOpen, setDelOpen] = useState(false);
+  const [delName, setDelName] = useState("");
+  const delRouter = useRouter();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     document.addEventListener("keydown", onKey);
@@ -445,6 +448,46 @@ function EditClientModal({ client, contacts, onClose, onSaved }: any) {
   }));
   const setPrimary = (i: number) => setRows(r => r.map((x, j) => ({ ...x, is_primary: j === i })));
   const removeRow = (i: number) => setRows(r => { const x = r[i]; if (x.id) setRemoved(d => [...d, x.id]); return r.filter((_, j) => j !== i); });
+
+  // Delete client — classic's cascade EXTENDED for the ledger era
+  // (movements / shipment_lines / pulls / client_files / history stamps),
+  // gated on typing the client's name. Drive folders are trashed first
+  // (recoverable 30 days); any FK failure surfaces instead of silently dying.
+  async function deleteClient() {
+    if (delName.trim() !== (client.name || "").trim()) { setErr("Type the client name exactly to confirm."); return; }
+    setBusy(true); setErr(null);
+    try {
+      const { data: jobsRows } = await supabase.from("jobs").select("id, items(id)").eq("client_id", client.id);
+      const jobIds = (jobsRows || []).map((j: any) => j.id);
+      const itemIds = (jobsRows || []).flatMap((j: any) => (j.items || []).map((it: any) => it.id));
+      for (const jId of jobIds) {
+        try { await fetch("/api/files/cleanup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "archive-project", jobId: jId }) }); } catch {}
+      }
+      const step = async (label: string, q: any) => { const { error } = await q; if (error) throw new Error(`${label}: ${error.message}`); };
+      if (itemIds.length) {
+        await step("movements", supabase.from("movements").delete().in("item_id", itemIds));
+        await step("shipment lines", supabase.from("shipment_lines").delete().in("item_id", itemIds));
+        await step("pulled inventory", supabase.from("pulled_inventory").delete().in("item_id", itemIds));
+        await step("pull requests", supabase.from("pull_requests").delete().in("item_id", itemIds));
+        await step("buy sheet", supabase.from("buy_sheet_lines").delete().in("item_id", itemIds));
+        await step("item files", supabase.from("item_files").delete().in("item_id", itemIds));
+        await step("assignments", supabase.from("decorator_assignments").delete().in("item_id", itemIds));
+        await step("items", supabase.from("items").delete().in("id", itemIds));
+      }
+      if (jobIds.length) {
+        await step("history stamps", (supabase.from("history_sales") as any).update({ opshub_job_id: null }).in("opshub_job_id", jobIds));
+        await step("job contacts", supabase.from("job_contacts").delete().in("job_id", jobIds));
+        await step("job activity", supabase.from("job_activity").delete().in("job_id", jobIds));
+        await step("payments", supabase.from("payment_records").delete().in("job_id", jobIds));
+        await step("jobs", supabase.from("jobs").delete().in("id", jobIds));
+      }
+      await step("client files", supabase.from("client_files").delete().eq("client_id", client.id));
+      await step("contacts (unassign)", supabase.from("job_contacts").delete().in("contact_id", (contacts || []).map((c: any) => c.id).filter(Boolean)));
+      await step("contacts", supabase.from("contacts").delete().eq("client_id", client.id));
+      await step("client", supabase.from("clients").delete().eq("id", client.id));
+      delRouter.push("/clients");
+    } catch (e: any) { setErr(e.message || "Delete failed — nothing may have been removed."); setBusy(false); }
+  }
 
   async function save() {
     if (!form.name.trim()) { setErr("Name can't be empty."); return; }
@@ -568,11 +611,29 @@ function EditClientModal({ client, contacts, onClose, onSaved }: any) {
           </div>
         </div>
         {err && <div style={{ color: H.red, fontSize: 12.5, marginTop: 12 }}>{err}</div>}
+        {delOpen && (
+          <div style={{ marginTop: 14, padding: "12px 14px", border: `1px solid ${H.red}`, borderRadius: 10 }}>
+            <div style={{ fontSize: 12, color: H.red, fontWeight: 700, marginBottom: 8 }}>
+              This deletes {client.name} with every project, item, shipment record, payment, contact, and document. It cannot be undone. Type the client name to confirm.
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input style={inp} placeholder={client.name} value={delName} onChange={e => setDelName(e.target.value)} />
+              <button disabled={busy || delName.trim() !== (client.name || "").trim()} onClick={deleteClient}
+                style={{ borderRadius: 999, border: "none", background: H.red, color: "#fff", fontSize: 11, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", padding: "10px 18px", cursor: "pointer", fontFamily: H.font, opacity: (busy || delName.trim() !== (client.name || "").trim()) ? 0.5 : 1, whiteSpace: "nowrap" }}>
+                {busy ? "Deleting…" : "Delete forever"}
+              </button>
+            </div>
+          </div>
+        )}
         <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
           <button disabled={busy} onClick={save}
             style={{ borderRadius: 999, border: "none", background: "#fff", color: H.ink, fontSize: 12, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", padding: "11px 22px", cursor: "pointer", fontFamily: H.font, opacity: busy ? 0.6 : 1 }}>{busy ? "Saving…" : "Save"}</button>
           <button disabled={busy} onClick={onClose}
             style={{ borderRadius: 999, border: `1px solid ${H.line}`, background: "transparent", color: H.dim, fontSize: 12, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", padding: "11px 22px", cursor: "pointer", fontFamily: H.font }}>Cancel</button>
+          <button disabled={busy} onClick={() => { setDelOpen(o => !o); setDelName(""); setErr(null); }}
+            style={{ marginLeft: "auto", borderRadius: 999, border: `1px solid ${delOpen ? H.red : H.line}`, background: "transparent", color: delOpen ? H.red : H.faint, fontSize: 11, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", padding: "11px 18px", cursor: "pointer", fontFamily: H.font }}>
+            {delOpen ? "Keep client" : "Delete client"}
+          </button>
         </div>
         <QBCustomerChooser open={qbChooserOpen} mode="link" clientId={client.id} searchedName={form.name || client.name || ""}
           current={qbLinked === "loading" ? undefined : qbLinked} busy={qbBusy} onAction={handleQbAction} onClose={() => setQbChooserOpen(false)} />
