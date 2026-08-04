@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { dbNoStore } from "@/lib/db-nostore";
+import { isClientVisibleFile } from "@/lib/brief-visibility";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -44,7 +45,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       sender_role: f.uploader_role === "client" ? "client" : "hpd",
       sender_name: f.uploader_role === "designer" ? "Designer" : f.uploader_role === "client" ? (brief as any).clients?.name || "Client" : "HPD",
       body: null,
-      visibility: f.shared_with_client_at || f.uploader_role === "client" ? "client" : "internal",
+      visibility: isClientVisibleFile(f) ? "client" : "internal",
       file_url: `/api/files/thumbnail?id=${f.preview_drive_file_id || f.drive_file_id}&thumb=1&size=900`,
       drive_link: f.drive_link, file_id: f.id, file_kind: f.kind,
       drive_file_id: f.drive_file_id, file_name: f.file_name || null,

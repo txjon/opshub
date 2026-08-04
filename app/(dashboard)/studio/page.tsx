@@ -2,7 +2,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import ThumbIcon from "@/components/ThumbIcon";
-import { LEGACY_CLIENT_KINDS } from "@/lib/brief-visibility";
 
 // THE STUDIO (Phase 2 of the replacement, Aug 4 2026) — the Lab's proven UX
 // on the REAL tables: art_briefs + art_brief_messages + art_brief_files.
@@ -287,7 +286,7 @@ function BriefSheet({ detail, onRefresh, onClose }: any) {
                 {banked(hero.id) ? "✓ The banked design" : hero.reaction === "down" ? <><ThumbIcon down size={10} color="#b3455a" strokeWidth={2.5} /> Client passed on this</> : hero.reaction === "up" ? <><ThumbIcon size={10} color="#3c9a2e" strokeWidth={2.5} /> Client liked this</> : hero.sender_role === "client" ? "From client" : hero.visibility === "client" ? "Client sees this" : "Internal only"}
               </span>
               {hero.file_id && hero.visibility === "internal" && <button disabled={busy} onClick={() => shareFile(hero.file_id, true)} style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", background: "#0a0a0a", color: H.blue, border: "none", borderRadius: 999, padding: "4px 10px", cursor: "pointer", fontFamily: H.font, opacity: busy ? 0.5 : 1 }}>Share with client</button>}
-              {hero.file_id && hero.shared && !LEGACY_CLIENT_KINDS.includes(String(hero.file_kind || "")) && <button disabled={busy} onClick={() => shareFile(hero.file_id, false)} style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", background: "#0a0a0a", color: H.amber, border: "none", borderRadius: 999, padding: "4px 10px", cursor: "pointer", fontFamily: H.font, opacity: busy ? 0.5 : 1 }}>Make internal</button>}
+              {hero.file_id && hero.visibility === "client" && hero.sender_role !== "client" && <button disabled={busy} onClick={() => shareFile(hero.file_id, false)} style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", background: "#0a0a0a", color: H.amber, border: "none", borderRadius: 999, padding: "4px 10px", cursor: "pointer", fontFamily: H.font, opacity: busy ? 0.5 : 1 }}>Make internal</button>}
               {hero.drive_file_id && <a href={`/api/files/view/${encodeURIComponent(hero.file_name || "design.png")}?id=${hero.drive_file_id}&download=1`} onClick={e => e.stopPropagation()} style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", background: "#0a0a0a", color: H.green, borderRadius: 999, padding: "4px 10px", textDecoration: "none" }}>↓ Download</a>}
               {hero.drive_link && <a href={hero.drive_link} target="_blank" rel="noreferrer" style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", background: "#0a0a0a", color: "#fff", borderRadius: 999, padding: "4px 10px", textDecoration: "none" }}>Open ↗</a>}
               {hero.file_id && <button disabled={busy} onClick={() => delFile(hero.file_id)} style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", background: "#0a0a0a", color: H.red, border: "none", borderRadius: 999, padding: "4px 10px", cursor: "pointer", fontFamily: H.font, opacity: busy ? 0.5 : 1 }}>Delete</button>}
