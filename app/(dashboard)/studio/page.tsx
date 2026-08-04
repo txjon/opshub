@@ -210,6 +210,19 @@ function BriefSheet({ detail, onRefresh, onClose }: any) {
   const st = STATE(b.state);
   const [note, setNote] = useState(""); const [vis, setVis] = useState<"client" | "internal">("client");
   const [busy, setBusy] = useState(false);
+  // Order on their word — the out-of-band door ("i want this" via text).
+  const [wordForm, setWordForm] = useState(false);
+  const [owBlank, setOwBlank] = useState(""); const [owQty, setOwQty] = useState(""); const [owNote, setOwNote] = useState("");
+  const [owErr, setOwErr] = useState("");
+  async function orderOnWord() {
+    if (!owBlank.trim() || !(parseInt(owQty, 10) > 0)) return; setBusy(true); setOwErr("");
+    try {
+      const r = await fetch(`/api/studio/briefs/${b.id}/order`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ blank: owBlank.trim(), qty: parseInt(owQty, 10), note: owNote.trim() || null }) }).then(x => x.json());
+      if (r.error) { setOwErr(r.error); return; }
+      setWordForm(false); setOwBlank(""); setOwQty(""); setOwNote("");
+      await onRefresh();
+    } finally { setBusy(false); }
+  }
   const [staged, setStaged] = useState<File | null>(null);
   const [stagedUrl, setStagedUrl] = useState<string | null>(null);
   const [heroId, setHeroId] = useState<string | null>(null);
@@ -333,6 +346,24 @@ function BriefSheet({ detail, onRefresh, onClose }: any) {
           )}
           {orderReq?.job_id && (
             <div style={{ marginTop: 7 }}><a href={`/jobs/${orderReq.job_id}`} target="_blank" rel="noreferrer" style={{ color: H.green, fontWeight: 800, fontSize: 12.5, textDecoration: "none" }}>✓ In the pipeline · {orderReq.jobs?.job_number || "open the job"} ↗</a></div>
+          )}
+          {(!orderReq || (orderReq.handled_at && !orderReq.job_id)) && !wordForm && (
+            <div style={{ marginTop: 10 }}><button disabled={busy} onClick={() => setWordForm(true)} style={{ background: H.green, color: "#08210a", border: "none", borderRadius: 999, padding: "10px 18px", fontSize: 10.5, fontWeight: 900, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>+ Order on their word</button></div>
+          )}
+          {wordForm && (
+            <div style={{ marginTop: 12, border: `1px dashed rgba(88,201,60,.4)`, borderRadius: 12, padding: 13 }}>
+              <div style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: H.green, marginBottom: 8 }}>They said the word · capture the ask, it lands on the rail</div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <input value={owBlank} onChange={e => setOwBlank(e.target.value)} autoFocus placeholder="What garment? e.g. black hoodie" style={{ ...inp, flex: 2, minWidth: 160 }} />
+                <input value={owQty} onChange={e => setOwQty(e.target.value.replace(/[^\d]/g, ""))} inputMode="numeric" placeholder="How many" style={{ ...inp, flex: 1, minWidth: 90 }} />
+              </div>
+              <textarea value={owNote} onChange={e => setOwNote(e.target.value)} rows={2} placeholder='Their words, e.g. "texted 8/4: wants these for the drop"' style={{ ...inp, resize: "vertical", marginTop: 8 }} />
+              {owErr && <div style={{ color: H.red, fontSize: 11.5, marginTop: 7 }}>{owErr}</div>}
+              <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                <button disabled={busy} onClick={() => { setWordForm(false); setOwErr(""); }} style={{ ...ghostBtn, border: "none", color: H.faint }}>Cancel</button>
+                <button disabled={busy || !owBlank.trim() || !(parseInt(owQty, 10) > 0)} onClick={orderOnWord} style={{ ...primaryBtn, marginLeft: "auto", background: H.green, color: "#08210a", opacity: busy || !owBlank.trim() || !(parseInt(owQty, 10) > 0) ? 0.5 : 1 }}>Take the order →</button>
+              </div>
+            </div>
           )}
         </div>
       ) : b.state === "killed" ? (
