@@ -281,21 +281,39 @@ function Sheet({ detail, token, onClose, onRefresh }: any) {
 
 function ShareForm({ token, onClose, onDone }: any) {
   const [title, setTitle] = useState(""); const [body, setBody] = useState("");
+  const [file, setFile] = useState<File | null>(null); const [fileUrl, setFileUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const fileIn = useRef<HTMLInputElement | null>(null);
+  function pick(f: File) { setFile(f); setFileUrl(URL.createObjectURL(f)); }
   async function go() {
     if (!title.trim()) return;
     setBusy(true);
     try {
       const r = await fetch(`/api/portal/client/${token}/briefs`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: title.trim(), concept: body.trim() || null }) });
       const j = await r.json(); if (!r.ok) throw new Error(j.error || "Couldn't share that");
-      onDone(j.brief?.id || null);
+      const bid = j.brief?.id || null;
+      // The photo rides in through the same client-upload path as replies.
+      if (bid && file) {
+        const fd = new FormData(); fd.set("file", file);
+        await fetch(`/api/portal/client/${token}/studio/${bid}/action`, { method: "POST", body: fd });
+      }
+      if (fileUrl) URL.revokeObjectURL(fileUrl);
+      onDone(bid);
     } catch (e: any) { alert(e.message); setBusy(false); }
   }
   return (
     <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 16, padding: "16px 18px", maxWidth: 520, margin: "0 auto 26px" }}>
       <input value={title} onChange={e => setTitle(e.target.value)} autoFocus placeholder="Calling it something…" style={{ ...inp, fontSize: 16, fontWeight: 800, border: "none", borderBottom: `1px solid ${C.line}`, borderRadius: 0, padding: "6px 0" }} />
       <textarea value={body} onChange={e => setBody(e.target.value)} rows={2} placeholder="What's the vibe? references, garment, timing — anything." style={{ ...inp, border: "none", padding: "10px 0", resize: "vertical" }} />
+      {fileUrl && (
+        <div style={{ display: "inline-flex", position: "relative", marginBottom: 8 }}>
+          <img src={fileUrl} alt="" style={{ maxHeight: 90, borderRadius: 8, background: "#fff", border: `1px solid ${C.line}` }} />
+          <button onClick={() => { setFile(null); if (fileUrl) URL.revokeObjectURL(fileUrl); setFileUrl(null); }} aria-label="Remove photo" style={{ position: "absolute", top: -7, right: -7, width: 20, height: 20, borderRadius: 999, background: "#fff", color: C.bg, border: "none", fontSize: 12, fontWeight: 800, lineHeight: 1, cursor: "pointer", padding: 0 }}>×</button>
+        </div>
+      )}
+      <input ref={fileIn} type="file" accept="image/*" style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; if (f) pick(f); if (fileIn.current) fileIn.current.value = ""; }} />
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8, flexWrap: "wrap" }}>
+        <button onClick={() => fileIn.current?.click()} style={ghostBtn}>{file ? "✓ Photo added" : "+ Photo"}</button>
         <button onClick={onClose} style={{ ...ghostBtn, border: "none", color: C.faint }}>Not now</button>
         <button disabled={busy || !title.trim()} onClick={go} style={{ ...primaryBtn, marginLeft: "auto", opacity: busy || !title.trim() ? 0.5 : 1 }}>{busy ? "Sending…" : "Send it"}</button>
       </div>
