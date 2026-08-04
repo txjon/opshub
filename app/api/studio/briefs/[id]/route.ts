@@ -48,6 +48,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       file_url: `/api/files/thumbnail?id=${f.preview_drive_file_id || f.drive_file_id}&thumb=1&size=900`,
       drive_link: f.drive_link, file_id: f.id, file_kind: f.kind,
       drive_file_id: f.drive_file_id, file_name: f.file_name || null,
+      shared: !!f.shared_with_client_at,
       reaction: f.reaction || null, created_at: f.created_at,
     })),
   ].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));

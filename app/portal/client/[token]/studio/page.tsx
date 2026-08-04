@@ -257,6 +257,7 @@ function Sheet({ detail, token, onClose, onRefresh }: any) {
         ) : notes.map((m: any) => {
           const you = m.sender_role === "client";
           const sys = String(m.body || "").startsWith("✓") ? C.green : String(m.body || "").startsWith("✕") ? C.red : null;
+          if (sys && b.state === "approved" && /approved|banked/i.test(String(m.body))) return null;
           if (sys) return <div key={m.id} style={{ alignSelf: "center", fontSize: 10, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: sys }}>{m.body}</div>;
           return (
             <div key={m.id} style={{ alignSelf: you ? "flex-end" : "flex-start", maxWidth: "84%", background: you ? "#fff" : C.surface, color: you ? C.bg : C.text, borderRadius: you ? "14px 14px 4px 14px" : "14px 14px 14px 4px", padding: "9px 13px", fontSize: 13, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>

@@ -6,6 +6,23 @@ import { deleteDriveFileIfUnreferenced } from "@/lib/google-drive-refs";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// PATCH { share: boolean } — flip a version across the WALL after the fact:
+// share stamps shared_with_client_at (the client gains it in their filmstrip,
+// no state move — sharing a file is not handing the ball); unshare clears it
+// (no-op for legacy client-facing kinds, which are visible BY KIND).
+export async function PATCH(req: NextRequest, { params }: { params: { fileId: string } }) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Sign in" }, { status: 401 });
+  const db = dbNoStore();
+  const b = await req.json().catch(() => ({}));
+  const { error } = await db.from("art_brief_files")
+    .update({ shared_with_client_at: b.share ? new Date().toISOString() : null } as never)
+    .eq("id", params.fileId);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true });
+}
+
 // Delete one design version from a brief (studio-side). The row goes; the
 // Drive file is trashed ONLY if nothing else references it (the shared-drive
 // ref-count rule — the fork copies brief art onto items BY REFERENCE, so a
