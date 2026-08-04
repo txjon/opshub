@@ -279,8 +279,9 @@ function BriefSheet({ detail, onRefresh, onClose }: any) {
 
       {hero && (
         <div style={{ marginTop: 10 }}>
-          <div style={{ background: "#fff", position: "relative" }}>
-            <img src={hero.file_url} alt="" referrerPolicy="no-referrer" style={{ width: "100%", maxHeight: "36vh", objectFit: "contain", display: "block", margin: "0 auto", filter: hero.reaction === "down" ? "grayscale(55%)" : "none" }} onError={(e: any) => { e.target.style.opacity = 0.2; }} />
+          <div style={{ background: "#fff", position: "relative", minHeight: 150 }}>
+            <span style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", color: "#999", fontSize: 12, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.06em", padding: 20, textAlign: "center" }}>{hero.file_name || "File"}{/\.psd$/i.test(hero.file_name || "") ? " · PSD, preview rendering" : ""}</span>
+            <img src={hero.file_url} alt="" referrerPolicy="no-referrer" style={{ position: "relative", width: "100%", maxHeight: "36vh", objectFit: "contain", display: "block", margin: "0 auto", background: "#fff", filter: hero.reaction === "down" ? "grayscale(55%)" : "none" }} onError={(e: any) => { e.target.style.display = "none"; }} />
             <span style={{ position: "absolute", left: 10, bottom: 8, display: "flex", flexDirection: "column", gap: 5, alignItems: "flex-start" }}>
               <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: hero.reaction === "down" ? "#b3455a" : hero.sender_role === "client" || hero.visibility === "client" || hero.reaction === "up" ? "#3c9a2e" : "#b7791f", background: "rgba(255,255,255,0.9)", borderRadius: 999, padding: "4px 10px" }}>
                 {banked(hero.id) ? "✓ The banked design" : hero.reaction === "down" ? <><ThumbIcon down size={10} color="#b3455a" strokeWidth={2.5} /> Client passed on this</> : hero.reaction === "up" ? <><ThumbIcon size={10} color="#3c9a2e" strokeWidth={2.5} /> Client liked this</> : hero.sender_role === "client" ? "From client" : hero.visibility === "client" ? "Client sees this" : "Internal only"}

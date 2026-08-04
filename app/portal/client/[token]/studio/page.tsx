@@ -150,8 +150,9 @@ function Sheet({ detail, token, onClose, onRefresh }: any) {
 
       {hero && (
         <div style={{ marginTop: 12 }}>
-          <div style={{ background: "#fff", position: "relative" }}>
-            <img src={hero.file_url} alt="" referrerPolicy="no-referrer" style={{ width: "100%", maxHeight: "40vh", objectFit: "contain", display: "block", margin: "0 auto", filter: hero.reaction === "down" ? "grayscale(55%)" : "none" }} onError={(e: any) => { e.target.style.opacity = 0.2; }} />
+          <div style={{ background: "#fff", position: "relative", minHeight: 150 }}>
+            <span style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", color: "#999", fontSize: 12, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.06em", padding: 20, textAlign: "center" }}>Preview coming</span>
+            <img src={hero.file_url} alt="" referrerPolicy="no-referrer" style={{ position: "relative", width: "100%", maxHeight: "40vh", objectFit: "contain", display: "block", margin: "0 auto", background: "#fff", filter: hero.reaction === "down" ? "grayscale(55%)" : "none" }} onError={(e: any) => { e.target.style.display = "none"; }} />
             <span style={{ position: "absolute", right: 10, bottom: 8, display: "flex", gap: 6, alignItems: "center" }}>
               {hero.reaction === "up" && <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 9, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: "#3c9a2e", background: "rgba(255,255,255,0.85)", borderRadius: 999, padding: "3px 9px" }}><ThumbIcon size={10} color="#3c9a2e" strokeWidth={2.5} /> You liked this</span>}
               <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: hero.reaction === "down" ? "#b3455a" : "#999", background: "rgba(255,255,255,0.85)", borderRadius: 999, padding: "3px 9px" }}>{hero.reaction === "down" ? "You passed on this" : hero.id === live[live.length - 1]?.id ? "Latest" : fmt(hero.created_at)}</span>
