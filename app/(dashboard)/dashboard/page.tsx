@@ -599,7 +599,7 @@ export default async function DashboardPage() {
         meta: jobNumber || undefined,
         metaKind: jobNumber ? "job" : undefined,
         urgency: "action",
-        href: `/art-studio?brief=${b.id}`,
+        href: `/studio?brief=${b.id}`,
         read: computeRead(cardId, b.unread_at),
       });
       continue;
@@ -615,7 +615,7 @@ export default async function DashboardPage() {
       meta: jobNumber || undefined,
       metaKind: jobNumber ? "job" : undefined,
       urgency: map.urgency,
-      href: `/art-studio?brief=${b.id}`,
+      href: `/studio?brief=${b.id}`,
       read: computeRead(cardId, b.updated_at),
     };
     // client_review briefs land under Clients (it's a client-side conversation),

@@ -2101,7 +2101,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
             const data = await res.json();
             if (!res.ok) throw new Error(data?.error || "Send back failed");
             // Straight into the studio on the reopened idea to keep working.
-            router.push(data.briefId ? `/studio2?open=${data.briefId}` : "/studio2");
+            router.push(data.briefId ? `/studio?brief=${data.briefId}` : "/studio");
             escapeTo(data.briefId ? `/studio2?open=${data.briefId}` : "/studio2");
           } catch (e: any) {
             setSendingBack(false);

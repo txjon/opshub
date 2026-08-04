@@ -39,7 +39,7 @@ const DEPT_NAV: Record<Department, { href: string; label: string }[]> = {
   labs: [
     { href: "/dashboard", label: "Dashboard" },
     { href: "/jobs", label: "Projects" },
-    { href: "/art-studio", label: "Art Studio" },
+    { href: "/studio", label: "The Studio" },
     { href: "/production", label: "Production" },
   ],
   distro: [

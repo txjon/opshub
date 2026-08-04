@@ -377,7 +377,7 @@ function StudioRail({ briefs, secHead }: any) {
         {briefs.map((b: any) => {
           const src = bThumb(b);
           return (
-            <a key={b.id} className="cs-card" href={`/studio2?open=${b.id}`}>
+            <a key={b.id} className="cs-card" href={`/studio?brief=${b.id}`}>
               {src ? (
                 <div style={{ background: "#fff", aspectRatio: "1" }}>
                   <img src={src} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />
@@ -923,7 +923,7 @@ function CatalogRail({ products, briefs, model, router, secHead, thumbs, clientI
       const res = await fetch(`/api/products/${p.id}/flip`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
       const b = await res.json();
       if (!res.ok) throw new Error(b.error || "Couldn't open the flip");
-      router.push(`/studio2?open=${b.briefId}`);
+      router.push(`/studio?brief=${b.briefId}`);
     } catch (e: any) { setErr(e.message); setBusy(null); }
   }
   return (
@@ -959,7 +959,7 @@ function CatalogRail({ products, briefs, model, router, secHead, thumbs, clientI
                       style={{ background: "transparent", color: PURPLE, border: `1px solid ${PURPLE}`, borderRadius: 999, padding: "8px 14px", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font, opacity: busy === `flip-${p.id}` ? 0.5 : 1 }}>
                       {busy === `flip-${p.id}` ? "Opening…" : "Flip it"}
                     </button>
-                    {p.brief_id && <a href={`/studio2?open=${p.brief_id}`} style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", color: H.dim, textDecoration: "none", padding: "8px 4px" }}>The idea →</a>}
+                    {p.brief_id && <a href={`/studio?brief=${p.brief_id}`} style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", color: H.dim, textDecoration: "none", padding: "8px 4px" }}>The idea →</a>}
                   </div>
                 </div>
               </div>
@@ -1227,7 +1227,7 @@ function ArchiveRail({ archive, briefs, clientId, secHead }: any) {
       {secHead("The archive.", `${archive.length.toLocaleString()} files, indexed in place — nothing moved, everything findable`)}
       {sent && (
         <div style={{ fontSize: 12.5, color: H.green, fontWeight: 700, marginBottom: 14 }}>
-          ✓ Sent to "{sent.title}" — <a href={`/studio2?open=${sent.briefId}`} style={{ color: H.green }}>open it in the Studio →</a>
+          ✓ Sent to "{sent.title}" — <a href={`/studio?brief=${sent.briefId}`} style={{ color: H.green }}>open it in the Studio →</a>
         </div>
       )}
       {picker && (
