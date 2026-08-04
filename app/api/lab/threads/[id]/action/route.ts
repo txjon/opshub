@@ -48,13 +48,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (!isClient) return NextResponse.json({ error: "Only the client reacts" }, { status: 403 });
     const design = await hpdDesign(b.messageId);
     if (!design) return NextResponse.json({ error: "Nothing to react to yet" }, { status: 400 });
-    // Idempotent: a design that's already liked doesn't re-mark the thread.
-    const { data: cur } = await db.from("lab_messages").select("reaction").eq("id", design.id).maybeSingle();
-    if ((cur as any)?.reaction !== "up") {
-      await db.from("lab_messages").update({ reaction: "up" } as never).eq("id", design.id);
-      await marker("✓ Liked this one.", "like");
-      await db.from("lab_threads").update({ updated_at: now } as never).eq("id", params.id);
-    }
+    // The like lives ON the design (reaction='up' → badges in both UIs), never
+    // as a thread line — a marker per like reads as spam once two designs are
+    // liked. Markers are reserved for moves that change the thread.
+    await db.from("lab_messages").update({ reaction: "up" } as never).eq("id", design.id);
+    await db.from("lab_threads").update({ updated_at: now } as never).eq("id", params.id);
     return NextResponse.json({ ok: true, state: (thread as any).state });
   }
 

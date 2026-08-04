@@ -182,15 +182,19 @@ function ClientThreadSheet({ detail, token, onClose, onRefresh }: any) {
           <div style={{ marginTop: 12 }}>
             <div style={{ background: "#fff", position: "relative" }}>
               <img src={hero.file_url} alt="" style={{ width: "100%", maxHeight: "40vh", objectFit: "contain", display: "block", margin: "0 auto", filter: hero.reaction === "down" ? "grayscale(55%)" : "none" }} onError={(e: any) => { e.target.parentElement.style.display = "none"; }} />
-              <span style={{ position: "absolute", right: 10, bottom: 8, fontSize: 9, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: hero.reaction === "down" ? "#b3455a" : "#999", background: "rgba(255,255,255,0.85)", borderRadius: 999, padding: "3px 9px" }}>{hero.reaction === "down" ? "You passed on this" : hero.id === live[live.length - 1]?.id ? "Latest" : fmtDay(hero.created_at)}</span>
+              <span style={{ position: "absolute", right: 10, bottom: 8, display: "flex", gap: 6, alignItems: "center" }}>
+                {hero.reaction === "up" && <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 9, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: "#3c9a2e", background: "rgba(255,255,255,0.85)", borderRadius: 999, padding: "3px 9px" }}><ThumbIcon size={10} color="#3c9a2e" strokeWidth={2.5} /> You liked this</span>}
+                <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: hero.reaction === "down" ? "#b3455a" : "#999", background: "rgba(255,255,255,0.85)", borderRadius: 999, padding: "3px 9px" }}>{hero.reaction === "down" ? "You passed on this" : hero.id === live[live.length - 1]?.id ? "Latest" : fmtDay(hero.created_at)}</span>
+              </span>
             </div>
             {(live.length > 1 || (live.length > 0 && hero.reaction === "down")) && (
               <div style={{ display: "flex", gap: 8, padding: "10px 20px 0", overflowX: "auto", scrollbarWidth: "none" as any }}>
                 {live.map(im => {
                   const active = im.id === hero.id;
                   return (
-                    <button key={im.id} onClick={() => setHeroId(im.id)} style={{ flexShrink: 0, width: 54, height: 54, borderRadius: 9, overflow: "hidden", background: "#fff", border: active ? "2px solid #fff" : `1px solid ${C.line}`, padding: 0, cursor: "pointer", opacity: active ? 1 : 0.65 }}>
+                    <button key={im.id} onClick={() => setHeroId(im.id)} style={{ flexShrink: 0, width: 54, height: 54, borderRadius: 9, overflow: "hidden", background: "#fff", border: active ? "2px solid #fff" : `1px solid ${C.line}`, padding: 0, cursor: "pointer", opacity: active ? 1 : 0.65, position: "relative" }}>
                       <img src={im.file_url} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />
+                      {im.reaction === "up" && <span style={{ position: "absolute", right: 2, bottom: 2, background: "rgba(255,255,255,.92)", borderRadius: 4, padding: 2, display: "grid", placeItems: "center" }}><ThumbIcon size={9} color="#3c9a2e" strokeWidth={2.5} /></span>}
                     </button>
                   );
                 })}
