@@ -57,6 +57,19 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   return NextResponse.json({ brief, timeline, orderRequest: orderRequest || null });
 }
 
+// PATCH { title } — rename a design (the 7 untitled legacy briefs, and
+// anything else that needs a better name).
+export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+  if (!(await requireUser())) return NextResponse.json({ error: "Sign in" }, { status: 401 });
+  const b = await req.json().catch(() => ({}));
+  const title = String(b.title || "").trim().slice(0, 140);
+  if (!title) return NextResponse.json({ error: "Give it a name" }, { status: 400 });
+  const db = admin();
+  const { error } = await db.from("art_briefs").update({ title, updated_at: new Date().toISOString() } as never).eq("id", params.id);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true });
+}
+
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   if (!(await requireUser())) return NextResponse.json({ error: "Sign in" }, { status: 401 });
   const db = admin();

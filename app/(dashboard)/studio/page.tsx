@@ -210,6 +210,16 @@ function BriefSheet({ detail, onRefresh, onClose }: any) {
   const st = STATE(b.state);
   const [note, setNote] = useState(""); const [vis, setVis] = useState<"client" | "internal">("client");
   const [busy, setBusy] = useState(false);
+  // Click-to-edit title (house rule: dotted-underline editables).
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleVal, setTitleVal] = useState("");
+  async function saveTitle() {
+    const t = titleVal.trim();
+    setEditingTitle(false);
+    if (!t || t === b.title) return;
+    await fetch(`/api/studio/briefs/${b.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: t }) });
+    await onRefresh();
+  }
   // Order on their word — the out-of-band door ("i want this" via text).
   const [wordForm, setWordForm] = useState(false);
   const [owBlank, setOwBlank] = useState(""); const [owQty, setOwQty] = useState(""); const [owNote, setOwNote] = useState("");
@@ -259,7 +269,11 @@ function BriefSheet({ detail, onRefresh, onClose }: any) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, padding: "18px 22px 6px" }}>
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: H.faint }}>{b.clients?.name || "—"} · design</div>
-          <div style={{ fontSize: 18, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", lineHeight: 1.2, marginTop: 2 }}>{b.title || "Untitled"}</div>
+          {editingTitle ? (
+            <input autoFocus value={titleVal} onChange={e => setTitleVal(e.target.value)} onBlur={saveTitle} onKeyDown={e => { if (e.key === "Enter") saveTitle(); if (e.key === "Escape") setEditingTitle(false); }} style={{ fontSize: 18, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", lineHeight: 1.2, marginTop: 2, background: H.surface, border: `1px solid ${H.line}`, borderRadius: 6, color: H.text, padding: "2px 8px", outline: "none", fontFamily: H.font, width: "100%", boxSizing: "border-box" }} />
+          ) : (
+            <div onClick={() => { setTitleVal(b.title || ""); setEditingTitle(true); }} title="Click to rename" style={{ fontSize: 18, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", lineHeight: 1.2, marginTop: 2, cursor: "text", display: "inline-block", borderBottom: "1px dotted rgba(255,255,255,.35)" }}>{b.title || "Untitled"}</div>
+          )}
           <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: st.color, marginTop: 4 }}>{st.label}</div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 14, flexShrink: 0 }}>
