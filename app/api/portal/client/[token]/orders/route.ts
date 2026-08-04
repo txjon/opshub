@@ -53,6 +53,13 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
 
     const { data: allJobs } = await jobsQuery;
     const jobs = (allJobs || []).filter((j: any) => {
+      // A job joins THEIR hub only once they've legitimately seen a number for
+      // it — quote sent/approved or invoice sent (the same gate that hides
+      // draft pricing per item). Before that it's internal prep: a bridged or
+      // hand-built intake job is our workspace, not their order (Jon, Aug 4 —
+      // HPD-2608-001 leaked into Forward's hub with "0 pcs").
+      const tm = (j.type_meta || {}) as any;
+      if (!tm.quote_sent_at && !j.quote_approved && !tm.invoice_sent_at) return false;
       if (archive) return true;
       if (j.phase !== "complete") return true;
       return (j.updated_at || "") >= deliveredCutoff;
