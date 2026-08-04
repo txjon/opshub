@@ -191,7 +191,7 @@ async function processPayment(payment: any, supabase: any, paymentId: string) {
     if (!jobs?.length) {
       // Not a job invoice — try matching to a ShipStation sales report
       // (fulfillment fee invoice pushed from /reports/shipstation/...).
-      const handled = await tryMatchShipstationReport(supabase, qbInvoiceId, amount);
+      const handled = await tryMatchShipstationReport(supabase, qbInvoiceId, amount, realmId);
       if (handled) continue;
       console.error("[QB Webhook2] NO JOB OR REPORT FOUND for QB invoice:", qbInvoiceId);
       continue;
@@ -369,7 +369,7 @@ async function processPayment(payment: any, supabase: any, paymentId: string) {
 // Match a QB invoice ID (or doc number) against shipstation_reports and
 // record the payment there. Returns true if handled so the caller can
 // skip the "no job found" error.
-async function tryMatchShipstationReport(supabase: any, qbInvoiceId: string, amount: number): Promise<boolean> {
+async function tryMatchShipstationReport(supabase: any, qbInvoiceId: string, amount: number, realmId?: string): Promise<boolean> {
   let { data: reports } = await supabase
     .from("shipstation_reports")
     .select("id, client_id, period_label, qb_invoice_number, qb_total_with_tax, totals, paid_at, paid_amount, clients(name)")
@@ -388,16 +388,39 @@ async function tryMatchShipstationReport(supabase: any, qbInvoiceId: string, amo
   const report = reports[0];
   console.log("[QB Webhook2] Matched ShipStation report:", report.id, report.period_label);
 
-  // Idempotency — if already marked paid for this amount, skip.
+  // QB is the authority on how much is paid. Big payments arrive in WAVES —
+  // QB caps a single payment at $100K, so invoice 4419's $123,216.81 landed
+  // as $100,000 + $23,216.81 eleven seconds apart — and writing THIS event's
+  // amount over the field lost the first wave (last write wins). Read the
+  // invoice back and store TotalAmt - Balance: wave-proof, re-delivery-proof,
+  // self-healing. The event amount stays the fallback if the readback fails.
+  let paidTotal = amount;
+  try {
+    const token = await getAccessToken();
+    const invRes = await fetch(
+      `${QB_BASE_URL}/v3/company/${realmId || process.env.QB_REALM_ID}/invoice/${qbInvoiceId}`,
+      { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } }
+    );
+    if (invRes.ok) {
+      const inv = (await invRes.json())?.Invoice;
+      const total = Number(inv?.TotalAmt) || 0;
+      const balance = Number(inv?.Balance) || 0;
+      if (total > 0) paidTotal = Math.round((total - balance) * 100) / 100;
+    }
+  } catch (e) {
+    console.error("[QB Webhook2] Invoice readback failed — falling back to event amount:", (e as any)?.message);
+  }
+
+  // Idempotency — nothing new to record.
   const alreadyPaid = Number(report.paid_amount) || 0;
-  if (report.paid_at && Math.abs(alreadyPaid - amount) < 0.01) {
+  if (report.paid_at && Math.abs(alreadyPaid - paidTotal) < 0.01) {
     console.log("[QB Webhook2] Report payment already recorded");
     return true;
   }
 
   const { error: updErr } = await supabase.from("shipstation_reports").update({
     paid_at: new Date().toISOString(),
-    paid_amount: amount,
+    paid_amount: paidTotal,
   }).eq("id", report.id);
 
   if (updErr) {
