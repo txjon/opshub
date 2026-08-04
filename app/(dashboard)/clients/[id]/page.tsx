@@ -22,6 +22,20 @@ const fmt$ = (n: number) => "$" + Math.round(n).toLocaleString();
 const fmtDate = (iso?: string | null) => iso ? new Date(String(iso).includes("T") ? iso : iso + "T00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "";
 const fmtShort = (iso?: string | null) => iso ? new Date(String(iso).includes("T") ? iso : iso + "T00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
 
+// Catalog category chips — IDENTICAL definitions to the client hub's reorder
+// page (Tees / Hoodies / Hats / Patches / Everything else), so the internal
+// catalog filters the same pieces into the same buckets the client sees.
+const CATALOG_CATS: { key: string; label: string; match: (g: string) => boolean }[] = [
+  { key: "tees", label: "Tees", match: g => g.includes("tee") || g === "tank" || g.includes("shirt") },
+  { key: "hoodies", label: "Hoodies", match: g => g.includes("hoodie") || g.includes("crewneck") || g.includes("sweat") },
+  { key: "hats", label: "Hats", match: g => g.includes("hat") || g.includes("beanie") || g.includes("cap") },
+  { key: "patches", label: "Patches", match: g => g.includes("patch") },
+];
+const catOfGarment = (g: string | null) => {
+  const x = (g || "").toLowerCase();
+  return CATALOG_CATS.find(c => c.match(x))?.key || "other";
+};
+
 const SECTIONS = ["Overview", "Studio", "Drops", "Orders", "Pipeline", "Catalog", "Archive", "Money"] as const;
 type Section = typeof SECTIONS[number];
 
@@ -56,7 +70,7 @@ export default function ClientSpacePage() {
         supabase.from("jobs")
           // shipping_route / phase_timestamps / quote_approved_at + the item money
           // and lifecycle fields feed the Working Sheet in the Pipeline section.
-          .select("id, job_number, title, phase, payment_terms, target_ship_date, created_at, quote_approved, quote_approved_at, shipping_route, phase_timestamps, type_meta, costing_summary, items(id, name, created_at, blank_sku, blank_vendor, pipeline_stage, artwork_status, received_at_hpd, forwarded_at, webstore_entered_at, sell_per_unit, client_retail_per_unit, client_eta, notes, archived_at, completed_at, shipping_route, blanks_order_cost, blanks_order_number, product_id, design_id, decorator_assignments(decorators(name, short_code)), buy_sheet_lines(size, qty_ordered)), payment_records(id, amount, status, due_date, invoice_number)")
+          .select("id, job_number, title, phase, payment_terms, target_ship_date, created_at, quote_approved, quote_approved_at, shipping_route, phase_timestamps, type_meta, costing_summary, items(id, name, created_at, blank_sku, blank_vendor, garment_type, pipeline_stage, artwork_status, received_at_hpd, forwarded_at, webstore_entered_at, sell_per_unit, client_retail_per_unit, client_eta, notes, archived_at, completed_at, shipping_route, blanks_order_cost, blanks_order_number, product_id, design_id, decorator_assignments(decorators(name, short_code)), buy_sheet_lines(size, qty_ordered)), payment_records(id, amount, status, due_date, invoice_number)")
           .eq("client_id", id).order("created_at", { ascending: false }),
         supabase.from("releases").select("*").eq("client_id", id).order("created_at", { ascending: false }),
         supabase.from("products").select("*").eq("client_id", id).order("created_at", { ascending: false }),
@@ -168,7 +182,7 @@ export default function ClientSpacePage() {
         const key = `${(it.name || "").trim().toLowerCase()}|${(it.blank_sku || "").trim().toLowerCase()}`;
         const ex = byKey.get(key);
         if (ex) { ex.runs++; continue; }
-        byKey.set(key, { key, itemId: it.id, name: it.name, jobId: it.job.id, runs: 1 });
+        byKey.set(key, { key, itemId: it.id, name: it.name, jobId: it.job.id, runs: 1, cat: catOfGarment(it.garment_type) });
       }
       return Array.from(byKey.values());
     })();
@@ -773,6 +787,7 @@ function DocsBlock({ clientId, secHead }: any) {
 
 // ── Catalog: products (the real thing) + produced families (the pre-products era) ──
 function CatalogRail({ products, briefs, model, router, secHead, thumbs }: any) {
+  const [cat, setCat] = useState<string>("all");
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const artFor = (p: any) => {
@@ -842,8 +857,17 @@ function CatalogRail({ products, briefs, model, router, secHead, thumbs }: any) 
       {model.pieces.length > 0 && (
         <>
           {secHead("Everything produced.", "the client's catalog, exactly as their hub sorts it — newest first")}
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+            {[{ key: "all", label: "All" }, ...CATALOG_CATS, { key: "other", label: "Everything else" }].map((c: any) => {
+              const on = cat === c.key;
+              return (
+                <button key={c.key} onClick={() => setCat(c.key)}
+                  style={{ borderRadius: 999, border: `1px solid ${on ? "#fff" : H.line}`, background: on ? "#fff" : "transparent", color: on ? H.ink : H.dim, fontSize: 10, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", padding: "8px 15px", cursor: "pointer", fontFamily: H.font }}>{c.label}</button>
+              );
+            })}
+          </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 10 }}>
-            {model.pieces.map((pc: any) => (
+            {model.pieces.filter((pc: any) => cat === "all" || pc.cat === cat).map((pc: any) => (
               <a key={pc.key} href={`/jobs/${pc.jobId}`} title={pc.name}
                 style={{ position: "relative", display: "block", aspectRatio: "1", borderRadius: 10, overflow: "hidden", background: thumbs[pc.itemId] ? "#fff" : H.surface, textDecoration: "none" }}>
                 {thumbs[pc.itemId] && (
