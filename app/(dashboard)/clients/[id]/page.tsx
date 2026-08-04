@@ -413,8 +413,13 @@ function OrdersRail({ model, hist, reports, secHead }: any) {
   const reportRow = (r: any) => {
     const total = Number(r.qb_total_with_tax) || 0;
     const paidAmt = Number(r.paid_amount) || 0;
-    const pay = total > 0 && paidAmt >= total - 0.01 ? { t: `paid${r.paid_at ? " " + fmtShort(r.paid_at) : ""}`, c: H.green }
-      : paidAmt > 0 ? { t: `partial · ${fmt$(total - paidAmt)} due`, c: H.amber }
+    // Early-era reports (pre-OpsHub invoice push) have NO QB total on file —
+    // their fee was hand-merged into a combined QB invoice (#3682 class). A
+    // recorded payment there means settled; never compute against a null total.
+    const pay = total <= 0
+      ? (paidAmt > 0 || r.paid_at ? { t: `paid${r.paid_at ? " " + fmtShort(r.paid_at) : ""} · merged inv`, c: H.green } : null)
+      : paidAmt >= total - 0.01 ? { t: `paid${r.paid_at ? " " + fmtShort(r.paid_at) : ""}`, c: H.green }
+      : paidAmt > 0 ? { t: `partial · ${fmt$(Math.max(0, total - paidAmt))} due`, c: H.amber }
       : { t: `${fmt$(total)} due`, c: H.amber };
     const label = r.report_type === "combined" ? "Full service" : (r.report_type === "postage" || r.report_type === "fulfillment") ? "Fulfillment" : "Services";
     return (
@@ -423,9 +428,9 @@ function OrdersRail({ model, hist, reports, secHead }: any) {
         <span style={{ fontSize: 12, fontFamily: H.mono, fontWeight: 700, color: H.blue }}>{r.qb_invoice_number ? `#${r.qb_invoice_number}` : "—"}</span>
         <span style={{ fontSize: 10.5, fontFamily: H.mono, color: H.faint }}>{fmtShort(r.created_at)}</span>
         <span style={{ fontSize: 13.5, fontWeight: 800, textTransform: "uppercase", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label} · {r.period_label}</span>
-        <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: pay.c, whiteSpace: "nowrap" }}>{pay.t}</span>
+        <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: pay ? pay.c : H.faint, whiteSpace: "nowrap" }}>{pay ? pay.t : ""}</span>
         <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: H.blue, whiteSpace: "nowrap" }}>fulfillment</span>
-        <span style={{ fontSize: 11, fontFamily: H.mono, color: H.dim, textAlign: "right", whiteSpace: "nowrap" }}>{fmt$(total)}</span>
+        <span style={{ fontSize: 11, fontFamily: H.mono, color: H.dim, textAlign: "right", whiteSpace: "nowrap" }}>{fmt$(total > 0 ? total : (paidAmt || Number(r.totals?.fee) || 0))}</span>
       </a>
     );
   };
