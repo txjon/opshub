@@ -35,6 +35,7 @@ export default function ClientSpacePage() {
   // status bars here can never disagree with that board.
   const [phaseViews, setPhaseViews] = useState<Map<string, any>>(new Map());
   const [proofStatus, setProofStatus] = useState<Record<string, { allApproved: boolean }> | undefined>(undefined);
+  const [itemThumbs, setItemThumbs] = useState<Record<string, string>>({});
   const [client, setClient] = useState<any | null>(null);
   const [contacts, setContacts] = useState<any[]>([]);
   const [jobs, setJobs] = useState<any[]>([]);
@@ -55,7 +56,7 @@ export default function ClientSpacePage() {
         supabase.from("jobs")
           // shipping_route / phase_timestamps / quote_approved_at + the item money
           // and lifecycle fields feed the Working Sheet in the Pipeline section.
-          .select("id, job_number, title, phase, payment_terms, target_ship_date, created_at, quote_approved, quote_approved_at, shipping_route, phase_timestamps, type_meta, costing_summary, items(id, name, pipeline_stage, artwork_status, received_at_hpd, forwarded_at, webstore_entered_at, sell_per_unit, client_retail_per_unit, client_eta, notes, archived_at, completed_at, shipping_route, blanks_order_cost, blanks_order_number, product_id, design_id, decorator_assignments(decorators(name, short_code)), buy_sheet_lines(size, qty_ordered)), payment_records(id, amount, status, due_date, invoice_number)")
+          .select("id, job_number, title, phase, payment_terms, target_ship_date, created_at, quote_approved, quote_approved_at, shipping_route, phase_timestamps, type_meta, costing_summary, items(id, name, created_at, blank_sku, blank_vendor, pipeline_stage, artwork_status, received_at_hpd, forwarded_at, webstore_entered_at, sell_per_unit, client_retail_per_unit, client_eta, notes, archived_at, completed_at, shipping_route, blanks_order_cost, blanks_order_number, product_id, design_id, decorator_assignments(decorators(name, short_code)), buy_sheet_lines(size, qty_ordered)), payment_records(id, amount, status, due_date, invoice_number)")
           .eq("client_id", id).order("created_at", { ascending: false }),
         supabase.from("releases").select("*").eq("client_id", id).order("created_at", { ascending: false }),
         supabase.from("products").select("*").eq("client_id", id).order("created_at", { ascending: false }),
@@ -97,6 +98,22 @@ export default function ClientSpacePage() {
       // action-feed batches (fire-and-forget; bars render with gates off until they land)
       const activeJs = ((js || []) as any[]).filter(j => !["complete", "cancelled"].includes(j.phase));
       loadJobPhasesBatch(supabase, activeJs.map(j => j.id)).then(setPhaseViews).catch(() => {});
+      // catalog thumbnails (mockup > proof, newest, non-superseded — hub parity)
+      (async () => {
+        const ids = ((js || []) as any[]).flatMap(j => (j.items || []).map((i: any) => i.id));
+        const th: Record<string, string> = {};
+        for (let i = 0; i < ids.length; i += 150) {
+          const { data: files } = await supabase.from("item_files")
+            .select("item_id, stage, drive_file_id, created_at").in("stage", ["mockup", "proof"]).is("superseded_at", null)
+            .not("drive_file_id", "is", null).in("item_id", ids.slice(i, i + 150))
+            .order("created_at", { ascending: false });
+          for (const f of (files || []) as any[]) {
+            if (!th[f.item_id] && f.stage === "mockup") th[f.item_id] = f.drive_file_id;
+          }
+          for (const f of (files || []) as any[]) { if (!th[f.item_id]) th[f.item_id] = f.drive_file_id; }
+        }
+        setItemThumbs(th);
+      })().catch(() => {});
       (async () => {
         const ids = activeJs.flatMap(j => (j.items || []).map((i: any) => i.id));
         const ps: Record<string, { allApproved: boolean }> = {};
@@ -139,9 +156,25 @@ export default function ClientSpacePage() {
       else fam.set(key, { name: i.name, runs: 1, lastJob: j, units, price: i.sell_per_unit ?? null, productId: i.product_id || null });
     }
     const families = Array.from(fam.values()).sort((a, b) => b.units - a.units);
+    // Catalog pieces — SAME shape/order as the client hub's reorder catalog:
+    // dedupe by name|blank_sku, newest instance represents the piece, newest
+    // first (Jon, Aug 3: internal catalog mirrors what the client sees).
+    const pieces = (() => {
+      const byKey = new Map<string, any>();
+      const flat = jobs.flatMap(j => (j.items || []).map((i: any) => ({ ...i, job: j })))
+        .sort((a: any, b: any) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
+      for (const it of flat) {
+        if (!(it.name || "").trim()) continue;
+        const key = `${(it.name || "").trim().toLowerCase()}|${(it.blank_sku || "").trim().toLowerCase()}`;
+        const ex = byKey.get(key);
+        if (ex) { ex.runs++; continue; }
+        byKey.set(key, { key, itemId: it.id, name: it.name, jobId: it.job.id, runs: 1 });
+      }
+      return Array.from(byKey.values());
+    })();
     const payments = jobs.flatMap(j => (j.payment_records || []).map((p: any) => ({ ...p, job: j })));
     const outstanding = payments.filter(p => !["paid", "void", "draft"].includes(p.status)).reduce((a, p) => a + (Number(p.amount) || 0), 0);
-    return { liveGross, liveUnits, active, done, inFlight, stageOf, families, payments, outstanding };
+    return { liveGross, liveUnits, active, done, inFlight, stageOf, families, pieces, payments, outstanding };
   }, [jobs]);
 
   const pill = (active: boolean): React.CSSProperties => ({ borderRadius: 999, border: active ? "1px solid #fff" : `1px solid ${H.line}`, background: active ? "#fff" : "transparent", color: active ? H.ink : H.dim, fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", padding: "9px 15px", cursor: "pointer", fontFamily: H.font });
@@ -240,7 +273,7 @@ export default function ClientSpacePage() {
             />
           </>
         )}
-        {section === "Catalog" && <CatalogRail products={products} briefs={briefs} model={model} router={router} secHead={secHead} />}
+        {section === "Catalog" && <CatalogRail products={products} briefs={briefs} model={model} router={router} secHead={secHead} thumbs={itemThumbs} />}
         {section === "Archive" && <ArchiveRail archive={archive} briefs={briefs} clientId={params.id} secHead={secHead} />}
         {section === "Money" && <MoneyRail model={model} hist={hist} secHead={secHead} />}
       </div>
@@ -739,7 +772,7 @@ function DocsBlock({ clientId, secHead }: any) {
 // ClientWorkingSheet (moved from classic). Git history holds the old rail.
 
 // ── Catalog: products (the real thing) + produced families (the pre-products era) ──
-function CatalogRail({ products, briefs, model, router, secHead }: any) {
+function CatalogRail({ products, briefs, model, router, secHead, thumbs }: any) {
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const artFor = (p: any) => {
@@ -806,19 +839,26 @@ function CatalogRail({ products, briefs, model, router, secHead }: any) {
           })}
         </div>
       )}
-      {model.families.length > 0 && (
+      {model.pieces.length > 0 && (
         <>
-          {secHead("Everything produced.", "every item ever run, grouped — repeats counted")}
-          {model.families.map((f: any) => (
-            <a key={f.name} className="cs-row" href={`/jobs/${f.lastJob.id}`}>
-              <span style={{ fontSize: 13.5, fontWeight: 800, textTransform: "uppercase", flex: 1, minWidth: 180 }}>{f.name}</span>
-              {f.runs > 1 && <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: PURPLE }}>×{f.runs} runs</span>}
-              <span style={{ fontSize: 11, fontFamily: H.mono, color: H.dim }}>{f.units.toLocaleString()} pcs{f.price != null ? ` · last at $${f.price}` : ""}</span>
-            </a>
-          ))}
+          {secHead("Everything produced.", "the client's catalog, exactly as their hub sorts it — newest first")}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 10 }}>
+            {model.pieces.map((pc: any) => (
+              <a key={pc.key} href={`/jobs/${pc.jobId}`} title={pc.name}
+                style={{ position: "relative", display: "block", aspectRatio: "1", borderRadius: 10, overflow: "hidden", background: thumbs[pc.itemId] ? "#fff" : H.surface, textDecoration: "none" }}>
+                {thumbs[pc.itemId] && (
+                  <img src={thumbSrc(thumbs[pc.itemId], 400)} alt="" loading="lazy" referrerPolicy="no-referrer"
+                    style={{ width: "100%", height: "100%", objectFit: "contain" }} onError={(e: any) => { e.target.style.display = "none"; }} />
+                )}
+                <span style={{ position: "absolute", left: 0, right: 0, bottom: 0, padding: "18px 9px 7px", background: "linear-gradient(transparent, rgba(0,0,0,0.75))", color: "#fff", fontSize: 9.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.04em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {pc.name}{pc.runs > 1 ? <span style={{ color: PURPLE }}> ·×{pc.runs}</span> : null}
+                </span>
+              </a>
+            ))}
+          </div>
         </>
       )}
-      {products.length === 0 && model.families.length === 0 && (
+      {products.length === 0 && model.pieces.length === 0 && (
         <div style={{ color: H.faint, fontSize: 12.5 }}>Empty shelf — the greenlight fork fills it.</div>
       )}
     </>
