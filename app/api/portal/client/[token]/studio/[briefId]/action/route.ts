@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { dbNoStore } from "@/lib/db-nostore";
+import { LEGACY_CLIENT_KINDS } from "@/lib/brief-visibility";
 import { getItemFolderId, uploadFile } from "@/lib/google-drive";
 
 export const runtime = "nodejs";
@@ -35,9 +36,11 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
   async function hpdFile(fileId?: string) {
     if (!fileId) return null;
     const { data } = await db.from("art_brief_files")
-      .select("id, drive_file_id, preview_drive_file_id")
+      .select("id, drive_file_id, preview_drive_file_id, shared_with_client_at, kind")
       .eq("id", fileId).eq("brief_id", params.briefId)
-      .neq("uploader_role", "client").not("shared_with_client_at", "is", null).maybeSingle();
+      .neq("uploader_role", "client").maybeSingle();
+    // Shared, or a legacy client-facing kind — same wall as the read side.
+    if (data && !(data as any).shared_with_client_at && !LEGACY_CLIENT_KINDS.includes(String((data as any).kind || ""))) return null;
     return data as any;
   }
 

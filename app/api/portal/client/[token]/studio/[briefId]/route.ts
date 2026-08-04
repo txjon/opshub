@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { dbNoStore } from "@/lib/db-nostore";
+import { isClientVisibleFile } from "@/lib/brief-visibility";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,11 +21,11 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
 
   const [{ data: messages }, { data: files }, { data: orderRequest }] = await Promise.all([
     db.from("art_brief_messages").select("id, sender_role, sender_name, message, created_at").eq("brief_id", params.briefId).eq("visibility", "client").order("created_at"),
-    db.from("art_brief_files").select("id, file_name, drive_file_id, preview_drive_file_id, uploader_role, shared_with_client_at, reaction, created_at").eq("brief_id", params.briefId).order("created_at"),
+    db.from("art_brief_files").select("id, file_name, drive_file_id, preview_drive_file_id, uploader_role, shared_with_client_at, kind, reaction, created_at").eq("brief_id", params.briefId).order("created_at"),
     db.from("lab_order_requests").select("blank, qty, handled_at").eq("brief_id", params.briefId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
   ]);
 
-  const sharedFiles = ((files || []) as any[]).filter(f => (f.shared_with_client_at || f.uploader_role === "client") && f.drive_file_id);
+  const sharedFiles = ((files || []) as any[]).filter(f => isClientVisibleFile(f) && f.drive_file_id);
   const timeline = [
     ...((messages || []) as any[]).map(m => ({
       id: m.id, kind: "note",

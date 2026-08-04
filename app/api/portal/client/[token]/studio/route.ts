@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { dbNoStore } from "@/lib/db-nostore";
+import { isClientVisibleFile } from "@/lib/brief-visibility";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,12 +33,11 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
   const artByBrief: Record<string, string> = {};
   if (ids.length) {
     const { data: files } = await db.from("art_brief_files")
-      .select("brief_id, drive_file_id, preview_drive_file_id, uploader_role, shared_with_client_at, reaction, created_at")
+      .select("brief_id, drive_file_id, preview_drive_file_id, uploader_role, shared_with_client_at, kind, reaction, created_at")
       .in("brief_id", ids).not("drive_file_id", "is", null)
       .order("created_at", { ascending: false });
     for (const f of (files || []) as any[]) {
-      const visible = f.shared_with_client_at || f.uploader_role === "client";
-      if (!visible) continue;
+      if (!isClientVisibleFile(f)) continue;
       hasShared.add(f.brief_id);
       if (!artByBrief[f.brief_id] && f.reaction !== "down") artByBrief[f.brief_id] = f.preview_drive_file_id || f.drive_file_id;
     }
