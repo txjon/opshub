@@ -29,9 +29,28 @@ export default function StudioPage() {
   const [clientFilter, setClientFilter] = useState("");
   const params = useSearchParams();
 
+  const [reqs, setReqs] = useState<any[]>([]);
+  const [bridging, setBridging] = useState<string | null>(null);
+  const [bridged, setBridged] = useState<Record<string, { jobId: string; jobNumber: string }>>({});
+  const [bridgeErr, setBridgeErr] = useState<Record<string, string>>({});
   async function loadList() {
-    const j = await fetch("/api/studio/briefs").then(r => r.json()).catch(() => ({}));
-    setBriefs(j.briefs || []);
+    const [j, r] = await Promise.all([
+      fetch("/api/studio/briefs").then(r => r.json()).catch(() => ({})),
+      fetch("/api/lab/order-requests").then(r => r.json()).catch(() => ({})),
+    ]);
+    setBriefs(j.briefs || []); setReqs(r.requests || []);
+  }
+  async function startJob(id: string) {
+    setBridging(id); setBridgeErr(e => ({ ...e, [id]: "" }));
+    try {
+      const r = await fetch("/api/lab/bridge", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ requestId: id }) }).then(x => x.json());
+      if (r.error) { setBridgeErr(e => ({ ...e, [id]: r.error })); return; }
+      setBridged(m => ({ ...m, [id]: { jobId: r.jobId, jobNumber: r.jobNumber } }));
+    } finally { setBridging(null); }
+  }
+  async function reqDone(id: string) {
+    await fetch("/api/lab/order-requests", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, done: true }) });
+    await loadList();
   }
   async function loadDetail(id: string) { setDetail(await fetch(`/api/studio/briefs/${id}`).then(r => r.json()).catch(() => null)); }
   useEffect(() => { loadList(); }, []);
@@ -46,7 +65,7 @@ export default function StudioPage() {
     { key: "shelved", title: "On the shelf.", hint: "parked by the client, re-pitch whenever", color: H.faint },
   ];
   // Client filter — board convention: a select, scoping every bucket at once.
-  const clientNames = [...new Set(briefs.map(b => b.client_name).filter(Boolean))].sort() as string[];
+  const clientNames = Array.from(new Set(briefs.map(b => b.client_name).filter(Boolean))).sort() as string[];
   const visible = clientFilter ? briefs.filter(b => b.client_name === clientFilter) : briefs;
   const killed = visible.filter(b => b.state === "killed" && !b._job);
   const piped = visible.filter(b => b._job);
@@ -89,6 +108,48 @@ export default function StudioPage() {
           {clientNames.map(n => <option key={n} value={n}>{n}</option>)}
         </select>
       </div>
+
+      {reqs.length > 0 && (
+        <section style={{ marginTop: 30 }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
+            <h2 style={{ margin: 0, fontSize: 19, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", color: H.amber }}>Order requests.</h2>
+            <span style={{ fontSize: 10.5, color: H.faint }}>the ask is in. build the job, quote it there, then clear the card</span>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {reqs.map((r: any) => {
+              const done = bridged[r.id];
+              const who = r.lab_clients?.name || r.art_briefs?.clients?.name || "—";
+              const what = r.lab_threads?.title || r.art_briefs?.title || "design";
+              return (
+                <div key={r.id} onClick={() => { if (r.art_briefs?.id) setOpenId(r.art_briefs.id); }} style={{ background: H.panel, border: `1px solid ${H.line}`, borderLeft: `3px solid ${done ? H.green : H.amber}`, borderRadius: 12, padding: "10px 14px 10px 10px", cursor: r.art_briefs?.id ? "pointer" : "default" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <span style={{ width: 44, height: 44, borderRadius: 8, overflow: "hidden", background: "#fff", flexShrink: 0 }}>
+                      {r.design_file_url && <img src={r.design_file_url} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />}
+                    </span>
+                    <span style={{ minWidth: 0, flex: 1 }}>
+                      <span style={{ display: "block", fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{who} · {what}</span>
+                      <span style={{ display: "block", fontSize: 11, color: H.dim, marginTop: 2 }}>{r.blank || "blank TBD"}{r.qty ? ` × ${r.qty}` : ""}{r.note ? ` · "${r.note}"` : ""}</span>
+                    </span>
+                    <span style={{ fontSize: 9.5, fontFamily: H.mono, color: H.faint, flexShrink: 0 }}>{fmt(r.created_at)}</span>
+                    {done ? (
+                      <>
+                        <a href={`/jobs/${done.jobId}`} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} style={{ ...primaryBtn, flexShrink: 0, background: H.green, color: "#08210a", textDecoration: "none", display: "inline-block" }}>✓ {done.jobNumber} · Open ↗</a>
+                        <button onClick={e => { e.stopPropagation(); loadList(); }} style={{ ...ghostBtn, flexShrink: 0, border: "none", color: H.faint }}>dismiss</button>
+                      </>
+                    ) : (
+                      <>
+                        <button disabled={bridging === r.id} onClick={e => { e.stopPropagation(); startJob(r.id); }} title="Real product + job in intake, art carried" style={{ ...primaryBtn, flexShrink: 0, background: H.green, color: "#08210a", opacity: bridging === r.id ? 0.6 : 1 }}>{bridging === r.id ? "Building…" : "Start the job →"}</button>
+                        <button onClick={e => { e.stopPropagation(); reqDone(r.id); }} title="Clear without the bridge — carried over by hand" style={{ ...ghostBtn, flexShrink: 0, border: "none", color: H.faint }}>clear</button>
+                      </>
+                    )}
+                  </div>
+                  {bridgeErr[r.id] && <div style={{ marginTop: 8, marginLeft: 56, fontSize: 11.5, color: H.red }}>{bridgeErr[r.id]}</div>}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       {visible.length === 0 && <div style={{ color: H.faint, fontSize: 13, padding: "40px 0" }}>{clientFilter ? `Nothing in the studio for ${clientFilter} yet.` : "Nothing here yet. Start something."}</div>}
 
