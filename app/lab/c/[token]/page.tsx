@@ -8,7 +8,7 @@ import ThumbIcon from "@/components/ThumbIcon";
 // Share an idea, watch it come together, and — when it's your move — approve
 // the DESIGN (locks the art) or send it back with a photo. Client-visible only.
 const C = { bg: "#0a0a0a", panel: "#131313", surface: "#1e1e1e", line: "rgba(255,255,255,.13)", line2: "rgba(255,255,255,.07)", text: "#fff", dim: "rgba(255,255,255,.6)", faint: "rgba(255,255,255,.38)", amber: "#f4b22b", green: "#58c93c", blue: "#8fc7d8", red: "#ff5a6e", purple: "#fd3aa3", font: "Inter, -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif", mono: "ui-monospace, 'SF Mono', Menlo, monospace" };
-const STATE = (s: string) => s === "with_client" ? { label: "Your move", color: C.amber } : s === "approved" ? { label: "Approved", color: C.green } : { label: "In the works", color: C.blue };
+const STATE = (s: string) => s === "with_client" ? { label: "Your move", color: C.amber } : s === "approved" ? { label: "In the bank", color: C.green } : s === "shelved" ? { label: "Shelved", color: C.faint } : s === "killed" ? { label: "Closed", color: C.red } : { label: "In the works", color: C.blue };
 const fmt = (iso?: string) => iso ? new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
 const fmtDay = (iso?: string) => iso ? new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
 
@@ -70,7 +70,7 @@ export default function LabClient({ params }: { params: { token: string } }) {
         : <div style={{ textAlign: "center", marginBottom: 30 }}><button onClick={() => setShare(true)} style={{ ...primaryBtn, padding: "13px 26px", fontSize: 12 }}>Share something →</button></div>}
 
       {threads.length === 0 && !share && <div style={{ color: C.dim, fontSize: 13.5, textAlign: "center" }}>Nothing here yet. Share an idea to get started.</div>}
-      {[{ k: "with_client", t: "Your move.", c: C.amber }, { k: "working", t: "In the works.", c: C.blue }, { k: "approved", t: "Approved.", c: C.green }].map(bk => {
+      {[{ k: "with_client", t: "Your move.", c: C.amber }, { k: "working", t: "In the works.", c: C.blue }, { k: "approved", t: "The bank.", c: C.green }].map(bk => {
         const list = threads.filter(t => t.state === bk.k);
         if (!list.length) return null;
         return (
@@ -106,17 +106,21 @@ export default function LabClient({ params }: { params: { token: string } }) {
 function ClientThreadSheet({ detail, token, onClose, onRefresh }: any) {
   const t = detail.thread; const msgs: any[] = detail.messages || [];
   const st = STATE(t.state);
+  const orderReq = detail.orderRequest;
   const [note, setNote] = useState(""); const [busy, setBusy] = useState(false); const [uploading, setUploading] = useState(false);
-  // The reaction bar under the hero: idle thumbs → "lock" (thumbs-up confirm)
-  // or "pass" (thumbs-down, optional note).
-  const [bar, setBar] = useState<"idle" | "lock" | "pass">("idle");
+  // The reaction card under the hero. The thumb acts INSTANTLY (like / pass);
+  // the sheet that opens carries the heavier moves: keep → order|bank,
+  // pass → note + the two quiet idea-level exits (shelve, kill).
+  const [bar, setBar] = useState<"idle" | "keep" | "order" | "pass">("idle");
+  const [killArm, setKillArm] = useState(false);
   const [chNote, setChNote] = useState(""); const [chFile, setChFile] = useState<{ url: string; name: string } | null>(null);
+  const [obBlank, setObBlank] = useState(""); const [obQty, setObQty] = useState(""); const [obNote, setObNote] = useState("");
   const [heroId, setHeroId] = useState<string | null>(null);
   const fileIn = useRef<HTMLInputElement | null>(null); const chIn = useRef<HTMLInputElement | null>(null);
 
   // Live designs carry the filmstrip; passed-on ones (thumbs down) tuck into a
   // dimmed strip of their own. The hero can be either — a thumbs up on a passed
-  // design brings it back and locks it.
+  // design brings it back.
   const images = msgs.filter(m => m.file_url);
   const live = images.filter(m => m.reaction !== "down");
   const passed = images.filter(m => m.reaction === "down");
@@ -125,17 +129,40 @@ function ClientThreadSheet({ detail, token, onClose, onRefresh }: any) {
   // The client only ever sees client-visible messages, so any image here from HPD
   // is a design WE sent — the thing they can react to.
   const hpdDesign = images.some(m => m.sender_role === "hpd");
-  const heroReactable = !!hero && hero.sender_role === "hpd" && t.state !== "approved";
+  const ended = t.state === "approved" || t.state === "shelved" || t.state === "killed";
+  const heroReactable = !!hero && hero.sender_role === "hpd" && !ended;
 
+  function closeBar() { setBar("idle"); setKillArm(false); setChNote(""); setChFile(null); setObBlank(""); setObQty(""); setObNote(""); setHeroId(null); }
+  async function act(body: any) {
+    await fetch(`/api/lab/threads/${t.id}/action`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ clientToken: token, ...body }) });
+  }
   async function reply(fileUrl?: string, fileName?: string) {
     if (!note.trim() && !fileUrl) return; setBusy(true);
     try { await fetch(`/api/lab/threads/${t.id}/messages`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ clientToken: token, body: note.trim() || null, fileUrl, fileName }) }); setNote(""); setHeroId(null); await onRefresh(); } finally { setBusy(false); }
   }
   async function onReplyFile(f: File) { setUploading(true); try { const u = await uploadImage(f); await reply(u.url, u.name); } catch (e: any) { alert(e.message); } finally { setUploading(false); } }
-  // Thumbs up, confirmed — locks THIS design (the one on the hero).
-  async function lockIn() { if (!hero) return; setBusy(true); try { await fetch(`/api/lab/threads/${t.id}/action`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "approve", clientToken: token, messageId: hero.id }) }); setBar("idle"); setHeroId(null); await onRefresh(); } finally { setBusy(false); } }
-  // Thumbs down — passes on THIS design, with whatever they told us.
-  async function passOn() { if (!hero) return; setBusy(true); try { await fetch(`/api/lab/threads/${t.id}/action`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "request_changes", clientToken: token, messageId: hero.id, note: chNote.trim() || null, fileUrl: chFile?.url || null, fileName: chFile?.name || null }) }); setBar("idle"); setChNote(""); setChFile(null); setHeroId(null); await onRefresh(); } finally { setBusy(false); } }
+  // 👍 — the like lands instantly (no ball move), then the sheet offers the doors.
+  async function tapUp() {
+    if (!hero) return; setHeroId(hero.id); setBusy(true);
+    try { if (hero.reaction !== "up") { await act({ action: "like", messageId: hero.id }); await onRefresh(); } setBar("keep"); } finally { setBusy(false); }
+  }
+  // 👎 — the pass lands instantly (version dims, ball back to us), then the sheet.
+  async function tapDown() {
+    if (!hero) return; setHeroId(hero.id); setBusy(true);
+    try { await act({ action: "request_changes", messageId: hero.id }); await onRefresh(); setBar("pass"); } finally { setBusy(false); }
+  }
+  async function bankIt() { if (!hero) return; setBusy(true); try { await act({ action: "approve", messageId: hero.id }); closeBar(); await onRefresh(); } finally { setBusy(false); } }
+  async function sendOrder() {
+    if (!hero || !obBlank.trim() || !(parseInt(obQty, 10) > 0)) return; setBusy(true);
+    try { await act({ action: "order", messageId: hero.id, blank: obBlank.trim(), qty: parseInt(obQty, 10), note: obNote.trim() || null }); closeBar(); await onRefresh(); } finally { setBusy(false); }
+  }
+  // The note after a pass is just a reply — the pass itself already landed.
+  async function sendPassNote() {
+    if (!chNote.trim() && !chFile) { closeBar(); return; } setBusy(true);
+    try { await fetch(`/api/lab/threads/${t.id}/messages`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ clientToken: token, body: chNote.trim() || null, fileUrl: chFile?.url || null, fileName: chFile?.name || null }) }); closeBar(); await onRefresh(); } finally { setBusy(false); }
+  }
+  async function shelveIt() { setBusy(true); try { await act({ action: "shelve" }); closeBar(); await onRefresh(); } finally { setBusy(false); } }
+  async function killIt() { setBusy(true); try { await act({ action: "kill" }); closeBar(); await onRefresh(); } finally { setBusy(false); } }
   async function onChFile(f: File) { setUploading(true); try { setChFile(await uploadImage(f)); } catch (e: any) { alert(e.message); } finally { setUploading(false); } }
 
   return (
@@ -186,44 +213,64 @@ function ClientThreadSheet({ detail, token, onClose, onRefresh }: any) {
           </div>
         )}
 
-        {/* the reaction bar — thumbs on the design you're looking at */}
+        {/* the reaction card — thumbs act instantly; the sheet holds the doors */}
         <div style={{ padding: "16px 20px 0" }}>
-          {heroReactable && (
+          {(heroReactable || bar === "order") && hero && (
             <div style={{ background: hero.reaction === "down" ? "transparent" : "linear-gradient(180deg,rgba(244,178,43,.07),transparent)", border: `1px solid ${C.line}`, borderRadius: 16, padding: "14px 16px", marginBottom: 4 }}>
               {bar === "idle" && (
                 <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <button disabled={busy} onClick={() => setBar("lock")} aria-label="Thumbs up" style={{ flexShrink: 0, width: 52, height: 52, borderRadius: 999, background: "rgba(88,201,60,.14)", border: "1px solid rgba(88,201,60,.45)", display: "grid", placeItems: "center", cursor: "pointer", fontFamily: C.font }}><ThumbIcon size={22} color={C.green} /></button>
+                  <button disabled={busy} onClick={tapUp} aria-label="Thumbs up" style={{ flexShrink: 0, width: 52, height: 52, borderRadius: 999, background: "rgba(88,201,60,.14)", border: "1px solid rgba(88,201,60,.45)", display: "grid", placeItems: "center", cursor: "pointer", fontFamily: C.font }}><ThumbIcon size={22} color={C.green} /></button>
                   {hero.reaction !== "down" && (
-                    <button disabled={busy} onClick={() => setBar("pass")} aria-label="Thumbs down" style={{ flexShrink: 0, width: 52, height: 52, borderRadius: 999, background: C.surface, border: `1px solid ${C.line}`, display: "grid", placeItems: "center", cursor: "pointer", fontFamily: C.font }}><ThumbIcon down size={22} color={C.dim} /></button>
+                    <button disabled={busy} onClick={tapDown} aria-label="Thumbs down" style={{ flexShrink: 0, width: 52, height: 52, borderRadius: 999, background: C.surface, border: `1px solid ${C.line}`, display: "grid", placeItems: "center", cursor: "pointer", fontFamily: C.font }}><ThumbIcon down size={22} color={C.dim} /></button>
                   )}
                   <div style={{ minWidth: 0 }}>
                     {t.state === "with_client" && hero.reaction !== "down" && <div style={{ fontSize: 11, fontWeight: 900, letterSpacing: "0.03em", textTransform: "uppercase", color: C.amber }}>◆ Your move</div>}
                     <div style={{ fontSize: 12, color: C.dim, lineHeight: 1.45, marginTop: t.state === "with_client" && hero.reaction !== "down" ? 3 : 0 }}>
-                      {hero.reaction === "down" ? "You passed on this one. A thumbs up brings it back and locks it in." : "Thumbs up locks the artwork. Thumbs down sends it back to us."}
+                      {hero.reaction === "down" ? "You passed on this one. Thumbs up if it grows on you." : "Thumbs up to keep it. Thumbs down to pass."}
                     </div>
                   </div>
                 </div>
               )}
-              {bar === "lock" && (
+              {bar === "keep" && (
                 <div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, fontWeight: 900, letterSpacing: "0.02em", textTransform: "uppercase", color: C.green }}><ThumbIcon size={14} color={C.green} strokeWidth={2.5} /> Lock this artwork in?</div>
-                  <div style={{ fontSize: 12, color: C.dim, marginTop: 5, lineHeight: 1.45 }}>You&rsquo;re approving the <b style={{ color: C.text }}>artwork</b>, that it&rsquo;s right. Pricing and your order come next, on their own.</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, fontWeight: 900, letterSpacing: "0.02em", textTransform: "uppercase", color: C.green }}><ThumbIcon size={14} color={C.green} strokeWidth={2.5} /> Kept. What&rsquo;s the move?</div>
                   <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
-                    <button disabled={busy} onClick={lockIn} style={{ flex: 1, minWidth: 150, background: C.green, color: "#08210a", border: "none", borderRadius: 999, padding: "13px", fontSize: 11.5, fontWeight: 900, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer", fontFamily: C.font, opacity: busy ? 0.6 : 1 }}>✓ Lock it in</button>
-                    <button disabled={busy} onClick={() => setBar("idle")} style={{ ...ghostBtn, padding: "13px 16px" }}>Not yet</button>
+                    <button disabled={busy} onClick={() => setBar("order")} style={{ flex: 1, minWidth: 140, background: C.green, color: "#08210a", border: "none", borderRadius: 999, padding: "13px", fontSize: 11.5, fontWeight: 900, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer", fontFamily: C.font }}>Order it →</button>
+                    <button disabled={busy} onClick={bankIt} style={{ ...ghostBtn, flex: 1, minWidth: 140, padding: "13px 16px", borderColor: "rgba(88,201,60,.45)", color: C.green }}>Keep it in the bank</button>
+                  </div>
+                  <button disabled={busy} onClick={closeBar} style={{ ...ghostBtn, border: "none", color: C.faint, marginTop: 8, padding: "8px 0" }}>Just the like for now</button>
+                </div>
+              )}
+              {bar === "order" && (
+                <div>
+                  <div style={{ fontSize: 12.5, fontWeight: 900, letterSpacing: "0.02em", textTransform: "uppercase", color: C.green }}>Order it. Two quick things.</div>
+                  <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                    <input value={obBlank} onChange={e => setObBlank(e.target.value)} placeholder="What garment? e.g. black hoodie" style={{ ...inp, flex: 2, minWidth: 160 }} />
+                    <input value={obQty} onChange={e => setObQty(e.target.value.replace(/[^\d]/g, ""))} inputMode="numeric" placeholder="How many" style={{ ...inp, flex: 1, minWidth: 90 }} />
+                  </div>
+                  <textarea value={obNote} onChange={e => setObNote(e.target.value)} rows={2} placeholder="Anything else? Sizes, timing, whatever helps." style={{ ...inp, resize: "vertical", marginTop: 8 }} />
+                  <div style={{ fontSize: 11, color: C.faint, marginTop: 7, lineHeight: 1.5 }}>This sends the ask. We price it and a quote comes back to you before anything is made.</div>
+                  <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                    <button disabled={busy} onClick={() => setBar(heroReactable ? "keep" : "idle")} style={{ ...ghostBtn, border: "none", color: C.faint }}>Back</button>
+                    <button disabled={busy || !obBlank.trim() || !(parseInt(obQty, 10) > 0)} onClick={sendOrder} style={{ ...primaryBtn, marginLeft: "auto", opacity: busy || !obBlank.trim() || !(parseInt(obQty, 10) > 0) ? 0.5 : 1 }}>Send the request →</button>
                   </div>
                 </div>
               )}
               {bar === "pass" && (
                 <div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, fontWeight: 900, letterSpacing: "0.02em", textTransform: "uppercase", color: C.text }}><ThumbIcon down size={14} color={C.text} strokeWidth={2.5} /> Not this one. Anything specific?</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, fontWeight: 900, letterSpacing: "0.02em", textTransform: "uppercase", color: C.text }}><ThumbIcon down size={14} color={C.text} strokeWidth={2.5} /> Passed. Anything specific?</div>
                   <textarea value={chNote} onChange={e => setChNote(e.target.value)} rows={2} placeholder="Totally optional. What would you like different?" style={{ ...inp, resize: "vertical", marginTop: 10 }} />
                   {chFile && <div style={{ marginTop: 8 }}><img src={chFile.url} alt="" style={{ maxHeight: 70, borderRadius: 8, background: "#fff", border: `1px solid ${C.line}` }} /></div>}
                   <input ref={chIn} type="file" accept="image/*" style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; if (f) onChFile(f); if (chIn.current) chIn.current.value = ""; }} />
                   <div style={{ display: "flex", gap: 8, marginTop: 11, flexWrap: "wrap", alignItems: "center" }}>
                     <button disabled={uploading} onClick={() => chIn.current?.click()} style={{ ...ghostBtn, color: C.blue, borderColor: "rgba(143,199,216,.4)" }}>{uploading ? "Uploading…" : "📎 Show us what you mean"}</button>
-                    <button disabled={busy} onClick={() => { setBar("idle"); setChNote(""); setChFile(null); }} style={{ ...ghostBtn, border: "none", color: C.faint }}>Never mind</button>
-                    <button disabled={busy || uploading} onClick={passOn} style={{ ...primaryBtn, marginLeft: "auto", opacity: busy || uploading ? 0.5 : 1 }}>{chNote.trim() || chFile ? "Send it back" : "Pass on it"}</button>
+                    <button disabled={busy} onClick={closeBar} style={{ ...ghostBtn, border: "none", color: C.faint }}>That&rsquo;s all</button>
+                    <button disabled={busy || uploading || (!chNote.trim() && !chFile)} onClick={sendPassNote} style={{ ...primaryBtn, marginLeft: "auto", opacity: busy || uploading || (!chNote.trim() && !chFile) ? 0.5 : 1 }}>Send it back</button>
+                  </div>
+                  <div style={{ display: "flex", gap: 14, alignItems: "center", marginTop: 12, paddingTop: 11, borderTop: `1px dashed ${C.line2}` }}>
+                    <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: C.faint }}>The whole idea</span>
+                    <button disabled={busy} onClick={shelveIt} style={{ background: "none", border: "none", color: C.blue, fontSize: 11, fontWeight: 800, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer", fontFamily: C.font, padding: 0 }}>Shelve for later</button>
+                    <button disabled={busy} onClick={() => (killArm ? killIt() : setKillArm(true))} style={{ background: "none", border: "none", color: C.red, fontSize: 11, fontWeight: 800, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer", fontFamily: C.font, padding: 0 }}>{killArm ? "Tap again to end it" : "Kill it"}</button>
                   </div>
                 </div>
               )}
@@ -231,8 +278,20 @@ function ClientThreadSheet({ detail, token, onClose, onRefresh }: any) {
           )}
 
           {t.state === "with_client" && !hpdDesign && <div style={{ fontSize: 12.5, color: C.amber, textAlign: "center", fontWeight: 700 }}>Your move. Reply below.</div>}
-          {t.state === "approved" && <div style={{ background: "rgba(88,201,60,.08)", border: `1px solid rgba(88,201,60,.35)`, borderRadius: 16, padding: "16px 18px", fontSize: 13, color: C.dim }}><b style={{ color: C.green }}>✓ Design approved.</b> The artwork&rsquo;s locked. The team takes it from here.</div>}
-          {t.state === "working" && <div style={{ fontSize: 12.5, color: C.dim, textAlign: "center" }}>We&rsquo;re on it. You&rsquo;ll get a note here the moment it&rsquo;s ready for you.</div>}
+          {t.state === "approved" && (
+            <div style={{ background: "rgba(88,201,60,.08)", border: `1px solid rgba(88,201,60,.35)`, borderRadius: 16, padding: "16px 18px", fontSize: 13, color: C.dim }}>
+              <b style={{ color: C.green }}>✓ In the bank.</b>{" "}
+              {orderReq && !orderReq.handled_at
+                ? <>Your order request is in{orderReq.blank ? <> ({orderReq.blank}{orderReq.qty ? ` × ${orderReq.qty}` : ""})</> : null}. We&rsquo;re pricing it and a quote is coming back to you.</>
+                : <>The artwork&rsquo;s locked. Order it whenever you&rsquo;re ready.</>}
+              {(!orderReq || orderReq.handled_at) && bar !== "order" && (
+                <div style={{ marginTop: 10 }}><button disabled={busy} onClick={() => setBar("order")} style={{ background: C.green, color: "#08210a", border: "none", borderRadius: 999, padding: "11px 20px", fontSize: 11, fontWeight: 900, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer", fontFamily: C.font }}>Order this</button></div>
+              )}
+            </div>
+          )}
+          {t.state === "shelved" && <div style={{ background: C.panel, border: `1px dashed ${C.line}`, borderRadius: 16, padding: "16px 18px", fontSize: 13, color: C.dim }}><b style={{ color: C.text }}>On the shelf.</b> Not now, not never. Say the word below and we pick it right back up.</div>}
+          {t.state === "killed" && <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 16, padding: "16px 18px", fontSize: 13, color: C.faint }}><b style={{ color: C.red }}>✕ Closed.</b> This one&rsquo;s done. If it ever comes back, it&rsquo;ll be a fresh start.</div>}
+          {t.state === "working" && bar === "idle" && <div style={{ fontSize: 12.5, color: C.dim, textAlign: "center" }}>We&rsquo;re on it. You&rsquo;ll get a note here the moment it&rsquo;s ready for you.</div>}
         </div>
 
         {/* the exchange — notes as chat bubbles; images live in the strip above */}
@@ -241,8 +300,8 @@ function ClientThreadSheet({ detail, token, onClose, onRefresh }: any) {
             <div style={{ color: C.faint, fontSize: 12.5, padding: "6px 0" }}>No notes yet — say the first thing.</div>
           ) : notes.map((m: any) => {
             const you = m.sender_role === "client";
-            const system = String(m.body || "").startsWith("✓");
-            if (system) return <div key={m.id} style={{ alignSelf: "center", fontSize: 10, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: C.green }}>{m.body}</div>;
+            const sys = String(m.body || "").startsWith("✓") ? C.green : String(m.body || "").startsWith("✕") ? C.red : null;
+            if (sys) return <div key={m.id} style={{ alignSelf: "center", fontSize: 10, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: sys }}>{m.body}</div>;
             return (
               <div key={m.id} style={{ alignSelf: you ? "flex-end" : "flex-start", maxWidth: "84%", background: you ? "#fff" : C.surface, color: you ? C.bg : C.text, borderRadius: you ? "14px 14px 4px 14px" : "14px 14px 14px 4px", padding: "9px 13px", fontSize: 13, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>
                 <span style={{ display: "block", fontSize: 8.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: you ? "rgba(10,10,10,0.45)" : C.faint, marginBottom: 3 }}>{you ? "You" : "House Party Distro"} · {fmt(m.created_at)}</span>
@@ -252,8 +311,8 @@ function ClientThreadSheet({ detail, token, onClose, onRefresh }: any) {
           })}
         </div>
 
-        {/* reply */}
-        {t.state !== "approved" && (
+        {/* reply — stays open on the shelf (a reply revives the thread), closed when killed */}
+        {t.state !== "approved" && t.state !== "killed" && (
           <div style={{ padding: "12px 20px 20px", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <input value={note} onChange={e => setNote(e.target.value)} placeholder="Reply…" style={{ ...inp, flex: 1, minWidth: 140 }} />
             <input ref={fileIn} type="file" accept="image/*" style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; if (f) onReplyFile(f); if (fileIn.current) fileIn.current.value = ""; }} />

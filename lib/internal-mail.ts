@@ -28,7 +28,8 @@ export type InternalEvent =
   | { kind: "client_changes"; client: string; jobNumber: string; jobId: string; note?: string | null }
   | { kind: "drop_ready"; client: string; title: string; targetLive?: string | null; newLines: number; pipeLines: number }
   | { kind: "idea_greenlit"; client: string; title: string; door: "order" | "later"; productCount: number; jobId?: string | null; jobNumber?: string | null }
-  | { kind: "product_run"; client: string; title: string; units: number; jobId: string; jobNumber: string };
+  | { kind: "product_run"; client: string; title: string; units: number; jobId: string; jobNumber: string }
+  | { kind: "lab_order_request"; client: string; title: string; blank?: string | null; qty?: number | null; note?: string | null };
 
 function build(e: InternalEvent): { to: string[]; subject: string; text: string } {
   // Directive voice (Jon: "here's what's coming is nice — here's what to do
@@ -119,6 +120,22 @@ DO THIS:
 3. Re-send — their approval re-opens in the hub on its own
 
 DONE WHEN: revised proofs are back in front of them. Their clock is running on us now.`,
+      };
+    case "lab_order_request":
+      return {
+        to: [DEPT.labs],
+        subject: `Lab order request — "${e.title}" (${e.client})${e.blank || e.qty ? ` — ${e.blank || "blank TBD"}${e.qty ? ` × ${e.qty}` : ""}` : ""}`,
+        text: `${e.client} thumbed up "${e.title}" in the Lab and asked to order it.
+
+Blank: ${e.blank || "not given"}
+Qty: ${e.qty ?? "not given"}${e.note ? `\nTheir note: "${e.note}"` : ""}
+
+DO THIS:
+1. Open the studio: ${APP}/lab — it's on the Order requests rail
+2. Price it against their blank + qty and get a quote back to them
+3. Mark the request done on the rail once it's priced
+
+DONE WHEN: they have a price. The request is an ask, not a commitment — the quote is where they say yes.`,
       };
     case "idea_greenlit": {
       const ordered = e.door === "order";

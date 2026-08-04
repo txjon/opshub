@@ -7,12 +7,14 @@ import ThumbIcon from "@/components/ThumbIcon";
 // the team learns the daily UI. Two actions in the sheet: MOVE IT / TALK.
 const H = { ink: "#0a0a0a", panel: "#131313", surface: "#1e1e1e", line: "rgba(255,255,255,.13)", line2: "rgba(255,255,255,.07)", text: "#fff", dim: "rgba(255,255,255,.6)", faint: "rgba(255,255,255,.38)", amber: "#f4b22b", green: "#58c93c", blue: "#8fc7d8", red: "#ff5a6e", purple: "#fd3aa3", font: "Inter, -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif", mono: "ui-monospace, 'SF Mono', Menlo, monospace" };
 const NAMES = ["Jon", "Drake", "Taylor", "Corey"];
-const STATE = (s: string) => s === "with_client" ? { label: "With the client", color: H.blue } : s === "approved" ? { label: "Design approved", color: H.green } : { label: "Your move", color: H.amber };
+const STATE = (s: string) => s === "with_client" ? { label: "With the client", color: H.blue } : s === "approved" ? { label: "In the bank", color: H.green } : s === "shelved" ? { label: "On the shelf", color: H.faint } : s === "killed" ? { label: "Killed", color: H.red } : { label: "Your move", color: H.amber };
 // Readable process guidance per state — the lab teaches the flow, so this stays
 // visible in plain words, not tiny labels (Jon, Jul 23).
 const GUIDE: Record<string, { tint: string; head: string; text: string }> = {
   working: { tint: H.amber, head: "It's your move", text: "This is where you shape the design with the client. Drop a draft, or talk it through — flip a note to Internal to keep it off their screen while you and the designer work. When the artwork is right, send it over for their sign-off." },
-  with_client: { tint: H.blue, head: "It's with the client", text: "The design is in front of the client, social-style: a thumbs up locks the artwork for production; a thumbs down passes on that version (with a note if they add one) and hands it back to you. Passed designs dim into their own strip. Nothing to do but wait, or give them a nudge below." },
+  with_client: { tint: H.blue, head: "It's with the client", text: "The design is in front of the client, social-style. A thumbs up opens their keep sheet: order it (blank + qty land on the requests rail) or bank it. A thumbs down passes on that version, with two quiet exits for the whole idea: shelve or kill. Nothing to do but wait, or give them a nudge below." },
+  shelved: { tint: H.blue, head: "The client shelved it", text: "Not now, not wrong. It's out of their view and parked here. Re-pitch it whenever: send a client-visible note or a fresh take and it lands back in their court." },
+  killed: { tint: H.red, head: "The client killed it", text: "They're done exploring this one. It stays as the record. A new pitch is a new design." },
 };
 const fmt = (iso?: string) => iso ? new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
 // Room 2 — what we can ask a designer for (mockups are internal, never here).
@@ -39,16 +41,23 @@ export default function LabStudio() {
   const [detail, setDetail] = useState<any>(null);
   const [showNew, setShowNew] = useState(false);
   const [showClients, setShowClients] = useState(false);
+  const [reqs, setReqs] = useState<any[]>([]);
+  const [showKilled, setShowKilled] = useState(false);
 
   useEffect(() => { setMe(localStorage.getItem("lab_me") || "Jon"); }, []);
   useEffect(() => { if (me) localStorage.setItem("lab_me", me); }, [me]);
 
   async function loadList() {
-    const [t, c] = await Promise.all([
+    const [t, c, r] = await Promise.all([
       fetch("/api/lab/threads").then(r => r.json()).catch(() => ({})),
       fetch("/api/lab/clients").then(r => r.json()).catch(() => ({})),
+      fetch("/api/lab/order-requests").then(r => r.json()).catch(() => ({})),
     ]);
-    setThreads(t.threads || []); setClients(c.clients || []);
+    setThreads(t.threads || []); setClients(c.clients || []); setReqs(r.requests || []);
+  }
+  async function reqDone(id: string) {
+    await fetch("/api/lab/order-requests", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, done: true }) });
+    await loadList();
   }
   async function loadDetail(id: string) { setDetail(await fetch(`/api/lab/threads/${id}`).then(r => r.json())); }
   useEffect(() => { loadList(); }, []);
@@ -57,10 +66,28 @@ export default function LabStudio() {
 
   const buckets = [
     { key: "working", title: "Your move.", hint: "designs waiting on you", color: H.amber },
-    { key: "with_client", title: "With the client.", hint: "sent — waiting on their sign-off", color: H.blue },
-    { key: "approved", title: "Approved.", hint: "locked, ready for the front of production", color: H.green },
+    { key: "with_client", title: "With the client.", hint: "sent, waiting on their thumbs", color: H.blue },
+    { key: "approved", title: "The bank.", hint: "greenlit designs, order-ready", color: H.green },
+    { key: "shelved", title: "On the shelf.", hint: "parked by the client, re-pitch whenever", color: H.faint },
   ];
   const artOf = (t: any) => t._art || null;
+  const killed = threads.filter(t => t.state === "killed");
+  const card = (t: any) => {
+    const st = STATE(t.state); const art = artOf(t);
+    return (
+      <button key={t.id} className="sv-card" onClick={() => setOpenId(t.id)}>
+        <div style={{ aspectRatio: "1", background: art ? "#fff" : H.surface, display: "flex", alignItems: "flex-end", overflow: "hidden" }}>
+          {art ? <img src={art} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />
+            : <span style={{ padding: 14, fontSize: 15, fontWeight: 900, textTransform: "uppercase", color: H.dim, lineHeight: 1.15 }}>{t.title}</span>}
+        </div>
+        <div style={{ padding: "11px 13px 13px" }}>
+          <div style={{ fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", lineHeight: 1.25, overflow: "hidden", display: "-webkit-box", WebkitBoxOrient: "vertical" as any, WebkitLineClamp: 2 }}>{t.title}</div>
+          <div style={{ fontSize: 9.5, fontFamily: H.mono, color: H.faint, marginTop: 4 }}>{t.lab_clients?.name || "—"}</div>
+          <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: st.color, marginTop: 4 }}>{st.label}{t.initiated_by === "client" ? " · they started it" : ""}</div>
+        </div>
+      </button>
+    );
+  };
 
   return (
     <div style={{ maxWidth: 1240, margin: "0 auto", padding: "26px 20px 90px" }}>
@@ -88,6 +115,31 @@ export default function LabStudio() {
 
       {threads.length === 0 && <div style={{ color: H.faint, fontSize: 13, padding: "40px 0" }}>No designs yet. Start something, or share a client link and let them submit.</div>}
 
+      {/* the Order requests rail — the ask is in; price it, quote them, mark it done */}
+      {reqs.length > 0 && (
+        <section style={{ marginTop: 30 }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
+            <h2 style={{ margin: 0, fontSize: 19, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", color: H.amber }}>Order requests.</h2>
+            <span style={{ fontSize: 10.5, color: H.faint }}>the ask is in. price it, get them a quote, mark it done</span>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {reqs.map((r: any) => (
+              <div key={r.id} onClick={() => setOpenId(r.lab_threads?.id || r.thread_id)} style={{ display: "flex", alignItems: "center", gap: 12, background: H.panel, border: `1px solid ${H.line}`, borderLeft: `3px solid ${H.amber}`, borderRadius: 12, padding: "10px 14px 10px 10px", cursor: "pointer" }}>
+                <span style={{ width: 44, height: 44, borderRadius: 8, overflow: "hidden", background: "#fff", flexShrink: 0 }}>
+                  {r.design_file_url && <img src={r.design_file_url} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />}
+                </span>
+                <span style={{ minWidth: 0, flex: 1 }}>
+                  <span style={{ display: "block", fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.lab_clients?.name || "—"} · {r.lab_threads?.title || "design"}</span>
+                  <span style={{ display: "block", fontSize: 11, color: H.dim, marginTop: 2 }}>{r.blank || "blank TBD"}{r.qty ? ` × ${r.qty}` : ""}{r.note ? ` · "${r.note}"` : ""}</span>
+                </span>
+                <span style={{ fontSize: 9.5, fontFamily: H.mono, color: H.faint, flexShrink: 0 }}>{fmt(r.created_at)}</span>
+                <button onClick={e => { e.stopPropagation(); reqDone(r.id); }} title="Priced and quoted" style={{ ...ghostBtn, flexShrink: 0, color: H.green, borderColor: "rgba(88,201,60,.4)" }}>✓ Done</button>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       {buckets.map(bk => {
         const list = threads.filter(t => t.state === bk.key);
         if (!list.length) return null;
@@ -97,27 +149,22 @@ export default function LabStudio() {
               <h2 style={{ margin: 0, fontSize: 19, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", color: bk.color }}>{bk.title}</h2>
               <span style={{ fontSize: 10.5, color: H.faint }}>{bk.hint}</span>
             </div>
-            <div className="sv-grid">
-              {list.map(t => {
-                const st = STATE(t.state); const art = artOf(t);
-                return (
-                  <button key={t.id} className="sv-card" onClick={() => setOpenId(t.id)}>
-                    <div style={{ aspectRatio: "1", background: art ? "#fff" : H.surface, display: "flex", alignItems: "flex-end", overflow: "hidden" }}>
-                      {art ? <img src={art} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />
-                        : <span style={{ padding: 14, fontSize: 15, fontWeight: 900, textTransform: "uppercase", color: H.dim, lineHeight: 1.15 }}>{t.title}</span>}
-                    </div>
-                    <div style={{ padding: "11px 13px 13px" }}>
-                      <div style={{ fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", lineHeight: 1.25, overflow: "hidden", display: "-webkit-box", WebkitBoxOrient: "vertical" as any, WebkitLineClamp: 2 }}>{t.title}</div>
-                      <div style={{ fontSize: 9.5, fontFamily: H.mono, color: H.faint, marginTop: 4 }}>{t.lab_clients?.name || "—"}</div>
-                      <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: st.color, marginTop: 4 }}>{st.label}{t.initiated_by === "client" ? " · they started it" : ""}</div>
-                    </div>
-                  </button>
-                );
-              })}
+            <div className="sv-grid" style={bk.key === "shelved" ? { opacity: 0.6 } : undefined}>
+              {list.map(card)}
             </div>
           </section>
         );
       })}
+
+      {/* killed — the record, collapsed to a line. No graveyard rail. */}
+      {killed.length > 0 && (
+        <section style={{ marginTop: 34 }}>
+          <button onClick={() => setShowKilled(v => !v)} style={{ background: "none", border: "none", color: H.faint, fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font, padding: 0 }}>
+            <span style={{ color: H.red }}>✕</span> {killed.length} killed · {showKilled ? "hide" : "show"}
+          </button>
+          {showKilled && <div className="sv-grid" style={{ marginTop: 14, opacity: 0.5 }}>{killed.map(card)}</div>}
+        </section>
+      )}
 
       {detail && <div className="sv-back" onClick={e => { if (e.target === e.currentTarget) setOpenId(null); }}>
         <div className="sv-sheet"><ThreadPanel key={detail.thread.id} detail={detail} me={me} onRefresh={refresh} onClose={() => setOpenId(null)} /></div>
@@ -133,6 +180,7 @@ export default function LabStudio() {
 function ThreadPanel({ detail, me, onRefresh, onClose }: any) {
   const t = detail.thread; const msgs = detail.messages || [];
   const st = STATE(t.state);
+  const orderReq = detail.orderRequest;
   const [note, setNote] = useState(""); const [vis, setVis] = useState<"client" | "internal">("client");
   const [busy, setBusy] = useState(false); const [uploading, setUploading] = useState(false);
   const [heroIdx, setHeroIdx] = useState<number | null>(null);
@@ -215,8 +263,8 @@ function ThreadPanel({ detail, me, onRefresh, onClose }: any) {
         ) : notes.map((m: any) => {
           const mine = m.sender_role !== "client";
           const whisper = m.visibility === "internal";
-          const marker = String(m.body || "").startsWith("✓");
-          if (marker) return <div key={m.id} style={{ alignSelf: "center", fontSize: 10, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: H.green }}>{m.body}</div>;
+          const marker = String(m.body || "").startsWith("✓") ? H.green : String(m.body || "").startsWith("✕") ? H.red : null;
+          if (marker) return <div key={m.id} style={{ alignSelf: "center", fontSize: 10, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: marker }}>{m.body}</div>;
           return (
             <div key={m.id} style={{
               alignSelf: mine ? "flex-end" : "flex-start", maxWidth: "84%",
@@ -252,7 +300,14 @@ function ThreadPanel({ detail, me, onRefresh, onClose }: any) {
       </div>
 
       {t.state === "approved" ? (
-        <div style={{ padding: "16px 22px 20px", borderTop: `1px solid ${H.line}`, background: "rgba(88,201,60,.06)", fontSize: 13, color: H.dim }}><b style={{ color: H.green }}>✓ Design approved</b> by {t.approved_by} · {fmt(t.approved_at)}. Locked and ready for the front of production.</div>
+        <div style={{ padding: "16px 22px 20px", borderTop: `1px solid ${H.line}`, background: "rgba(88,201,60,.06)", fontSize: 13, color: H.dim }}>
+          <b style={{ color: H.green }}>✓ In the bank</b> · {t.approved_by} · {fmt(t.approved_at)}. Artwork locked.
+          {orderReq && !orderReq.handled_at && (
+            <div style={{ marginTop: 7, color: H.amber, fontWeight: 700 }}>Order request in: {orderReq.blank || "blank TBD"}{orderReq.qty ? ` × ${orderReq.qty}` : ""}{orderReq.note ? ` · "${orderReq.note}"` : ""}. Price it and get them a quote.</div>
+          )}
+        </div>
+      ) : t.state === "killed" ? (
+        <div style={{ padding: "16px 22px 20px", borderTop: `1px solid ${H.line}`, fontSize: 13, color: H.faint }}><b style={{ color: H.red }}>✕ Killed</b> by the client · kept as the record. A new pitch is a new design.</div>
       ) : (
         <>
           {t.state === "with_client" && (
