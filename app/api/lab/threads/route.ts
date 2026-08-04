@@ -44,7 +44,15 @@ export async function GET(req: NextRequest) {
   const { data: threads } = await db.from("lab_threads").select("*, lab_clients(name, token)").order("updated_at", { ascending: false });
   const hlist = (threads || []) as any[];
   const hArt = await latestArt(db, hlist.map(t => t.id), false);
-  return NextResponse.json({ threads: hlist.map(t => ({ ...t, _art: hArt[t.id] || null })) });
+  // Bridged threads carry their job — the studio sheds them into the
+  // "In the pipeline" line (finished work lives in the client space, not here).
+  const jobByThread: Record<string, any> = {};
+  if (hlist.length) {
+    const { data: bridgedReqs } = await db.from("lab_order_requests")
+      .select("thread_id, job_id, jobs(job_number)").in("thread_id", hlist.map(t => t.id)).not("job_id", "is", null);
+    for (const r of (bridgedReqs || []) as any[]) jobByThread[r.thread_id] = { id: r.job_id, number: r.jobs?.job_number || null };
+  }
+  return NextResponse.json({ threads: hlist.map(t => ({ ...t, _art: hArt[t.id] || null, _job: jobByThread[t.id] || null })) });
 }
 
 // POST — start a thread. Client-initiated (clientToken) OR HPD-initiated

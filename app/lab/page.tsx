@@ -43,6 +43,7 @@ export default function LabStudio() {
   const [showClients, setShowClients] = useState(false);
   const [reqs, setReqs] = useState<any[]>([]);
   const [showKilled, setShowKilled] = useState(false);
+  const [showPiped, setShowPiped] = useState(false);
 
   useEffect(() => { setMe(localStorage.getItem("lab_me") || "Jon"); }, []);
   useEffect(() => { if (me) localStorage.setItem("lab_me", me); }, [me]);
@@ -86,7 +87,10 @@ export default function LabStudio() {
     { key: "shelved", title: "On the shelf.", hint: "parked by the client, re-pitch whenever", color: H.faint },
   ];
   const artOf = (t: any) => t._art || null;
-  const killed = threads.filter(t => t.state === "killed");
+  const killed = threads.filter(t => t.state === "killed" && !t._job);
+  // Bridged work sheds from the studio (Jon, Aug 4: "this should really just
+  // live in the client space now") — the thread stays reachable here, collapsed.
+  const piped = threads.filter(t => t._job);
   const card = (t: any) => {
     const st = STATE(t.state); const art = artOf(t);
     return (
@@ -169,7 +173,7 @@ export default function LabStudio() {
       )}
 
       {buckets.map(bk => {
-        const list = threads.filter(t => t.state === bk.key);
+        const list = threads.filter(t => t.state === bk.key && !t._job);
         if (!list.length) return null;
         return (
           <section key={bk.key} style={{ marginTop: 34 }}>
@@ -183,6 +187,26 @@ export default function LabStudio() {
           </section>
         );
       })}
+
+      {/* in the pipeline — bridged into real jobs; the studio's part is done.
+          The design now lives in the client space (catalog + orders). */}
+      {piped.length > 0 && (
+        <section style={{ marginTop: 34 }}>
+          <button onClick={() => setShowPiped(v => !v)} style={{ background: "none", border: "none", color: H.faint, fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font, padding: 0 }}>
+            <span style={{ color: H.green }}>✓</span> {piped.length} in the pipeline · {showPiped ? "hide" : "show"}
+          </button>
+          {showPiped && (
+            <div className="sv-grid" style={{ marginTop: 14, opacity: 0.75 }}>
+              {piped.map(t => (
+                <div key={t.id} style={{ position: "relative" }}>
+                  {card(t)}
+                  <a href={`/jobs/${t._job.id}`} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} style={{ position: "absolute", top: 8, right: 8, background: "rgba(10,10,10,.85)", color: H.green, borderRadius: 999, padding: "5px 11px", fontSize: 9, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", textDecoration: "none" }}>{t._job.number || "job"} ↗</a>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
       {/* killed — the record, collapsed to a line. No graveyard rail. */}
       {killed.length > 0 && (

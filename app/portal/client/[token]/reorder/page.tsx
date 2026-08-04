@@ -105,6 +105,9 @@ export default function ReorderPage() {
     const sorted = [...(items || [])].sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
     for (const it of sorted) {
       if (it.status === "cancelled") continue;
+      // Only pieces that have actually been RUN belong in the catalog — an
+      // intake/unquoted item is an ask in motion, not produced history.
+      if (it.run === false) continue;
       const key = `${(it.name || "").trim().toLowerCase()}|${(it.blank_sku || "").trim().toLowerCase()}`;
       const existing = byKey.get(key);
       if (existing) { existing.runs++; continue; }

@@ -8,6 +8,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { hasRun } from "@/lib/run-gate";
 import { H } from "@/components/hub/theme";
 import { JOB_DIRECTIVES } from "@/lib/directives";
 import { ClientWorkingSheet } from "@/components/ClientWorkingSheet";
@@ -164,9 +165,11 @@ export default function ClientSpacePage() {
     const stageOf = (i: any) => i.pipeline_stage === "in_production" ? { t: "On press", c: H.blue }
       : i.received_at_hpd ? { t: "Landed", c: H.green } : { t: "In transit", c: PURPLE };
     // catalog families: produced items grouped by name across jobs (the
-    // pre-products era's history — products table rows are the real catalog)
+    // pre-products era's history — products table rows are the real catalog).
+    // Only RUN pieces count — an intake item is an ask, not history (run-gate).
     const fam = new Map<string, { name: string; runs: number; lastJob: any; units: number; price: number | null; productId: string | null }>();
     for (const j of jobs) for (const i of (j.items || [])) {
+      if (!hasRun(j.phase, i.pipeline_stage)) continue;
       const key = (i.name || "").trim().toLowerCase();
       if (!key) continue;
       const units = (i.buy_sheet_lines || []).reduce((s: number, l: any) => s + (Number(l.qty_ordered) || 0), 0);
@@ -181,6 +184,7 @@ export default function ClientSpacePage() {
     const pieces = (() => {
       const byKey = new Map<string, any>();
       const flat = jobs.flatMap(j => (j.items || []).map((i: any) => ({ ...i, job: j })))
+        .filter((i: any) => hasRun(i.job.phase, i.pipeline_stage))
         .sort((a: any, b: any) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
       for (const it of flat) {
         if (!(it.name || "").trim()) continue;
