@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { resolveItemStatus, clientItemStatus } from "@/lib/item-status";
 import { deriveDateChain } from "@/lib/date-chain";
+import { hasRun } from "@/lib/run-gate";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -200,6 +201,9 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
           .map((l: any) => ({ size: l.size, qty: Number(l.qty_ordered) || 0 }))
           .filter((s: any) => s.qty > 0),
         qty: qtyByItem[it.id] || 0,
+        // Has this piece actually been RUN? The reorder catalog gates on this —
+        // an intake item is an ask, not produced history (lib/run-gate.ts).
+        run: hasRun(job.phase, it.pipeline_stage),
         status: (() => {
           const assignment = it.decorator_assignments?.[0];
           const decName = assignment?.decorators?.name || null;

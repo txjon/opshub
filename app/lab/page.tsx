@@ -1,17 +1,20 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import ThumbIcon from "@/components/ThumbIcon";
 
 // THE LAB · STUDIO (HPD) — built to LOOK like the real studio2: a magazine feed
 // of design cards → a sheet modal. Same chrome, same buttons, same composer, so
 // the team learns the daily UI. Two actions in the sheet: MOVE IT / TALK.
 const H = { ink: "#0a0a0a", panel: "#131313", surface: "#1e1e1e", line: "rgba(255,255,255,.13)", line2: "rgba(255,255,255,.07)", text: "#fff", dim: "rgba(255,255,255,.6)", faint: "rgba(255,255,255,.38)", amber: "#f4b22b", green: "#58c93c", blue: "#8fc7d8", red: "#ff5a6e", purple: "#fd3aa3", font: "Inter, -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif", mono: "ui-monospace, 'SF Mono', Menlo, monospace" };
 const NAMES = ["Jon", "Drake", "Taylor", "Corey"];
-const STATE = (s: string) => s === "with_client" ? { label: "With the client", color: H.blue } : s === "approved" ? { label: "Design approved", color: H.green } : { label: "Your move", color: H.amber };
+const STATE = (s: string) => s === "with_client" ? { label: "With the client", color: H.blue } : s === "approved" ? { label: "In the bank", color: H.green } : s === "shelved" ? { label: "On the shelf", color: H.faint } : s === "killed" ? { label: "Killed", color: H.red } : { label: "Your move", color: H.amber };
 // Readable process guidance per state — the lab teaches the flow, so this stays
 // visible in plain words, not tiny labels (Jon, Jul 23).
 const GUIDE: Record<string, { tint: string; head: string; text: string }> = {
   working: { tint: H.amber, head: "It's your move", text: "This is where you shape the design with the client. Drop a draft, or talk it through — flip a note to Internal to keep it off their screen while you and the designer work. When the artwork is right, send it over for their sign-off." },
-  with_client: { tint: H.blue, head: "It's with the client", text: "The design is in front of the client to approve. They'll either lock it in — which hands the artwork straight to production — or send it back with notes and a photo. Nothing to do but wait, or give them a nudge below." },
+  with_client: { tint: H.blue, head: "It's with the client", text: "The design is in front of the client, social-style. A thumbs up opens their keep sheet: order it (blank + qty land on the requests rail) or bank it. A thumbs down passes on that version, with two quiet exits for the whole idea: shelve or kill. Nothing to do but wait, or give them a nudge below." },
+  shelved: { tint: H.blue, head: "The client shelved it", text: "Not now, not wrong. It's out of their view and parked here. Re-pitch it whenever: send a client-visible note or a fresh take and it lands back in their court." },
+  killed: { tint: H.red, head: "The client killed it", text: "They're done exploring this one. It stays as the record. A new pitch is a new design." },
 };
 const fmt = (iso?: string) => iso ? new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
 // Room 2 — what we can ask a designer for (mockups are internal, never here).
@@ -38,16 +41,39 @@ export default function LabStudio() {
   const [detail, setDetail] = useState<any>(null);
   const [showNew, setShowNew] = useState(false);
   const [showClients, setShowClients] = useState(false);
+  const [reqs, setReqs] = useState<any[]>([]);
+  const [showKilled, setShowKilled] = useState(false);
+  const [showPiped, setShowPiped] = useState(false);
 
   useEffect(() => { setMe(localStorage.getItem("lab_me") || "Jon"); }, []);
   useEffect(() => { if (me) localStorage.setItem("lab_me", me); }, [me]);
 
   async function loadList() {
-    const [t, c] = await Promise.all([
+    const [t, c, r] = await Promise.all([
       fetch("/api/lab/threads").then(r => r.json()).catch(() => ({})),
       fetch("/api/lab/clients").then(r => r.json()).catch(() => ({})),
+      fetch("/api/lab/order-requests").then(r => r.json()).catch(() => ({})),
     ]);
-    setThreads(t.threads || []); setClients(c.clients || []);
+    setThreads(t.threads || []); setClients(c.clients || []); setReqs(r.requests || []);
+  }
+  async function reqDone(id: string) {
+    await fetch("/api/lab/order-requests", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, done: true }) });
+    await loadList();
+  }
+  // THE BRIDGE — one tap runs the four hops: real client, brief promotion,
+  // files to Drive, product + job in intake. Success is a LINK, never an
+  // auto-open: window.open after an await has lost the click's trust and
+  // browsers block it as a pop-up (Jon hit exactly that).
+  const [bridging, setBridging] = useState<string | null>(null);
+  const [bridged, setBridged] = useState<Record<string, { jobId: string; jobNumber: string }>>({});
+  const [bridgeErr, setBridgeErr] = useState<Record<string, string>>({});
+  async function startJob(id: string) {
+    setBridging(id); setBridgeErr(e => ({ ...e, [id]: "" }));
+    try {
+      const r = await fetch("/api/lab/bridge", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ requestId: id }) }).then(x => x.json());
+      if (r.error) { setBridgeErr(e => ({ ...e, [id]: r.error })); return; }
+      setBridged(m => ({ ...m, [id]: { jobId: r.jobId, jobNumber: r.jobNumber } }));
+    } finally { setBridging(null); }
   }
   async function loadDetail(id: string) { setDetail(await fetch(`/api/lab/threads/${id}`).then(r => r.json())); }
   useEffect(() => { loadList(); }, []);
@@ -56,10 +82,31 @@ export default function LabStudio() {
 
   const buckets = [
     { key: "working", title: "Your move.", hint: "designs waiting on you", color: H.amber },
-    { key: "with_client", title: "With the client.", hint: "sent — waiting on their sign-off", color: H.blue },
-    { key: "approved", title: "Approved.", hint: "locked, ready for the front of production", color: H.green },
+    { key: "with_client", title: "With the client.", hint: "sent, waiting on their thumbs", color: H.blue },
+    { key: "approved", title: "The bank.", hint: "greenlit designs, order-ready", color: H.green },
+    { key: "shelved", title: "On the shelf.", hint: "parked by the client, re-pitch whenever", color: H.faint },
   ];
   const artOf = (t: any) => t._art || null;
+  const killed = threads.filter(t => t.state === "killed" && !t._job);
+  // Bridged work sheds from the studio (Jon, Aug 4: "this should really just
+  // live in the client space now") — the thread stays reachable here, collapsed.
+  const piped = threads.filter(t => t._job);
+  const card = (t: any) => {
+    const st = STATE(t.state); const art = artOf(t);
+    return (
+      <button key={t.id} className="sv-card" onClick={() => setOpenId(t.id)}>
+        <div style={{ aspectRatio: "1", background: art ? "#fff" : H.surface, display: "flex", alignItems: "flex-end", overflow: "hidden" }}>
+          {art ? <img src={art} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />
+            : <span style={{ padding: 14, fontSize: 15, fontWeight: 900, textTransform: "uppercase", color: H.dim, lineHeight: 1.15 }}>{t.title}</span>}
+        </div>
+        <div style={{ padding: "11px 13px 13px" }}>
+          <div style={{ fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", lineHeight: 1.25, overflow: "hidden", display: "-webkit-box", WebkitBoxOrient: "vertical" as any, WebkitLineClamp: 2 }}>{t.title}</div>
+          <div style={{ fontSize: 9.5, fontFamily: H.mono, color: H.faint, marginTop: 4 }}>{t.lab_clients?.name || "—"}</div>
+          <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: st.color, marginTop: 4 }}>{st.label}{t.initiated_by === "client" ? " · they started it" : ""}</div>
+        </div>
+      </button>
+    );
+  };
 
   return (
     <div style={{ maxWidth: 1240, margin: "0 auto", padding: "26px 20px 90px" }}>
@@ -87,8 +134,46 @@ export default function LabStudio() {
 
       {threads.length === 0 && <div style={{ color: H.faint, fontSize: 13, padding: "40px 0" }}>No designs yet. Start something, or share a client link and let them submit.</div>}
 
+      {/* the Order requests rail — the ask is in; price it, quote them, mark it done */}
+      {reqs.length > 0 && (
+        <section style={{ marginTop: 30 }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
+            <h2 style={{ margin: 0, fontSize: 19, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", color: H.amber }}>Order requests.</h2>
+            <span style={{ fontSize: 10.5, color: H.faint }}>the ask is in. build the job, quote it there, then clear the card</span>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {reqs.map((r: any) => { const done = bridged[r.id]; return (
+              <div key={r.id} onClick={() => setOpenId(r.lab_threads?.id || r.thread_id)} style={{ background: H.panel, border: `1px solid ${H.line}`, borderLeft: `3px solid ${done ? H.green : H.amber}`, borderRadius: 12, padding: "10px 14px 10px 10px", cursor: "pointer" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <span style={{ width: 44, height: 44, borderRadius: 8, overflow: "hidden", background: "#fff", flexShrink: 0 }}>
+                    {r.design_file_url && <img src={r.design_file_url} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />}
+                  </span>
+                  <span style={{ minWidth: 0, flex: 1 }}>
+                    <span style={{ display: "block", fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.lab_clients?.name || "—"} · {r.lab_threads?.title || "design"}</span>
+                    <span style={{ display: "block", fontSize: 11, color: H.dim, marginTop: 2 }}>{r.blank || "blank TBD"}{r.qty ? ` × ${r.qty}` : ""}{r.note ? ` · "${r.note}"` : ""}</span>
+                  </span>
+                  <span style={{ fontSize: 9.5, fontFamily: H.mono, color: H.faint, flexShrink: 0 }}>{fmt(r.created_at)}</span>
+                  {done ? (
+                    <>
+                      <a href={`/jobs/${done.jobId}`} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} style={{ ...primaryBtn, flexShrink: 0, background: H.green, color: "#08210a", textDecoration: "none", display: "inline-block" }}>✓ {done.jobNumber} · Open ↗</a>
+                      <button onClick={e => { e.stopPropagation(); loadList(); }} style={{ ...ghostBtn, flexShrink: 0, border: "none", color: H.faint }}>dismiss</button>
+                    </>
+                  ) : (
+                    <>
+                      <button disabled={bridging === r.id} onClick={e => { e.stopPropagation(); startJob(r.id); }} title="Real client + brief + product + job in intake, art carried" style={{ ...primaryBtn, flexShrink: 0, background: H.green, color: "#08210a", opacity: bridging === r.id ? 0.6 : 1 }}>{bridging === r.id ? "Building…" : "Start the job →"}</button>
+                      <button onClick={e => { e.stopPropagation(); reqDone(r.id); }} title="Clear without the bridge — carried over by hand" style={{ ...ghostBtn, flexShrink: 0, border: "none", color: H.faint }}>clear</button>
+                    </>
+                  )}
+                </div>
+                {bridgeErr[r.id] && <div style={{ marginTop: 8, marginLeft: 56, fontSize: 11.5, color: H.red }}>{bridgeErr[r.id]}</div>}
+              </div>
+            ); })}
+          </div>
+        </section>
+      )}
+
       {buckets.map(bk => {
-        const list = threads.filter(t => t.state === bk.key);
+        const list = threads.filter(t => t.state === bk.key && !t._job);
         if (!list.length) return null;
         return (
           <section key={bk.key} style={{ marginTop: 34 }}>
@@ -96,27 +181,42 @@ export default function LabStudio() {
               <h2 style={{ margin: 0, fontSize: 19, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", color: bk.color }}>{bk.title}</h2>
               <span style={{ fontSize: 10.5, color: H.faint }}>{bk.hint}</span>
             </div>
-            <div className="sv-grid">
-              {list.map(t => {
-                const st = STATE(t.state); const art = artOf(t);
-                return (
-                  <button key={t.id} className="sv-card" onClick={() => setOpenId(t.id)}>
-                    <div style={{ aspectRatio: "1", background: art ? "#fff" : H.surface, display: "flex", alignItems: "flex-end", overflow: "hidden" }}>
-                      {art ? <img src={art} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />
-                        : <span style={{ padding: 14, fontSize: 15, fontWeight: 900, textTransform: "uppercase", color: H.dim, lineHeight: 1.15 }}>{t.title}</span>}
-                    </div>
-                    <div style={{ padding: "11px 13px 13px" }}>
-                      <div style={{ fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", lineHeight: 1.25, overflow: "hidden", display: "-webkit-box", WebkitBoxOrient: "vertical" as any, WebkitLineClamp: 2 }}>{t.title}</div>
-                      <div style={{ fontSize: 9.5, fontFamily: H.mono, color: H.faint, marginTop: 4 }}>{t.lab_clients?.name || "—"}</div>
-                      <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: st.color, marginTop: 4 }}>{st.label}{t.initiated_by === "client" ? " · they started it" : ""}</div>
-                    </div>
-                  </button>
-                );
-              })}
+            <div className="sv-grid" style={bk.key === "shelved" ? { opacity: 0.6 } : undefined}>
+              {list.map(card)}
             </div>
           </section>
         );
       })}
+
+      {/* in the pipeline — bridged into real jobs; the studio's part is done.
+          The design now lives in the client space (catalog + orders). */}
+      {piped.length > 0 && (
+        <section style={{ marginTop: 34 }}>
+          <button onClick={() => setShowPiped(v => !v)} style={{ background: "none", border: "none", color: H.faint, fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font, padding: 0 }}>
+            <span style={{ color: H.green }}>✓</span> {piped.length} in the pipeline · {showPiped ? "hide" : "show"}
+          </button>
+          {showPiped && (
+            <div className="sv-grid" style={{ marginTop: 14, opacity: 0.75 }}>
+              {piped.map(t => (
+                <div key={t.id} style={{ position: "relative" }}>
+                  {card(t)}
+                  <a href={`/jobs/${t._job.id}`} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} style={{ position: "absolute", top: 8, right: 8, background: "rgba(10,10,10,.85)", color: H.green, borderRadius: 999, padding: "5px 11px", fontSize: 9, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", textDecoration: "none" }}>{t._job.number || "job"} ↗</a>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* killed — the record, collapsed to a line. No graveyard rail. */}
+      {killed.length > 0 && (
+        <section style={{ marginTop: 34 }}>
+          <button onClick={() => setShowKilled(v => !v)} style={{ background: "none", border: "none", color: H.faint, fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font, padding: 0 }}>
+            <span style={{ color: H.red }}>✕</span> {killed.length} killed · {showKilled ? "hide" : "show"}
+          </button>
+          {showKilled && <div className="sv-grid" style={{ marginTop: 14, opacity: 0.5 }}>{killed.map(card)}</div>}
+        </section>
+      )}
 
       {detail && <div className="sv-back" onClick={e => { if (e.target === e.currentTarget) setOpenId(null); }}>
         <div className="sv-sheet"><ThreadPanel key={detail.thread.id} detail={detail} me={me} onRefresh={refresh} onClose={() => setOpenId(null)} /></div>
@@ -132,6 +232,7 @@ export default function LabStudio() {
 function ThreadPanel({ detail, me, onRefresh, onClose }: any) {
   const t = detail.thread; const msgs = detail.messages || [];
   const st = STATE(t.state);
+  const orderReq = detail.orderRequest;
   const [note, setNote] = useState(""); const [vis, setVis] = useState<"client" | "internal">("client");
   const [busy, setBusy] = useState(false); const [uploading, setUploading] = useState(false);
   const [heroIdx, setHeroIdx] = useState<number | null>(null);
@@ -185,7 +286,7 @@ function ThreadPanel({ detail, me, onRefresh, onClose }: any) {
           <div style={{ background: "#fff", position: "relative" }}>
             <img src={hero.file_url} alt="" style={{ width: "100%", maxHeight: "36vh", objectFit: "contain", display: "block", margin: "0 auto" }} onError={(e: any) => { e.target.parentElement.style.display = "none"; }} />
             <span style={{ position: "absolute", right: 10, bottom: 8, display: "flex", gap: 6, alignItems: "center" }}>
-              <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: hero.sender_role === "client" || hero.visibility === "client" ? "#3c9a2e" : "#b7791f", background: "rgba(255,255,255,0.9)", borderRadius: 999, padding: "4px 10px" }}>{hero.sender_role === "client" ? "From client" : hero.visibility === "client" ? "Client sees this" : "Internal only"}</span>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: hero.reaction === "down" ? "#b3455a" : hero.sender_role === "client" || hero.visibility === "client" || hero.reaction === "up" ? "#3c9a2e" : "#b7791f", background: "rgba(255,255,255,0.9)", borderRadius: 999, padding: "4px 10px" }}>{hero.reaction === "down" ? <><ThumbIcon down size={10} color="#b3455a" strokeWidth={2.5} /> Client passed on this</> : hero.reaction === "up" ? <><ThumbIcon size={10} color="#3c9a2e" strokeWidth={2.5} /> Client liked this</> : hero.sender_role === "client" ? "From client" : hero.visibility === "client" ? "Client sees this" : "Internal only"}</span>
               <button disabled={busy} onClick={() => delAttachment(hero.id)} title="Delete this attachment" style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", background: "#0a0a0a", color: H.red, border: "none", borderRadius: 999, padding: "4px 10px", cursor: "pointer", fontFamily: H.font, opacity: busy ? 0.5 : 1 }}>Delete</button>
             </span>
           </div>
@@ -194,10 +295,13 @@ function ThreadPanel({ detail, me, onRefresh, onClose }: any) {
               {images.map((f: any, i: number) => {
                 const active = (heroIdx == null ? images.length - 1 : heroIdx) === i;
                 const internal = f.visibility !== "client" && f.sender_role !== "client";
+                const down = f.reaction === "down";
                 return (
-                  <button key={f.id} onClick={() => setHeroIdx(i)} style={{ flexShrink: 0, width: 50, height: 50, borderRadius: 9, overflow: "hidden", background: "#fff", border: active ? "2px solid #fff" : `1px solid ${H.line}`, padding: 0, cursor: "pointer", opacity: active ? 1 : 0.6, position: "relative" }}>
-                    <img src={f.file_url} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />
+                  <button key={f.id} onClick={() => setHeroIdx(i)} style={{ flexShrink: 0, width: 50, height: 50, borderRadius: 9, overflow: "hidden", background: "#fff", border: active ? "2px solid #fff" : `1px solid ${H.line}`, padding: 0, cursor: "pointer", opacity: active ? 1 : down ? 0.35 : 0.6, position: "relative" }}>
+                    <img src={f.file_url} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover", filter: down ? "grayscale(70%)" : "none" }} onError={(e: any) => { e.target.style.display = "none"; }} />
                     {internal && <span style={{ position: "absolute", inset: 0, boxShadow: "inset 0 0 0 2px rgba(244,178,43,.75)", borderRadius: 8, pointerEvents: "none" }} />}
+                    {down && <span style={{ position: "absolute", right: 2, bottom: 2, background: "rgba(255,255,255,.92)", borderRadius: 4, padding: 2, display: "grid", placeItems: "center", pointerEvents: "none" }}><ThumbIcon down size={9} color="#b3455a" strokeWidth={2.5} /></span>}
+                    {f.reaction === "up" && <span style={{ position: "absolute", right: 2, bottom: 2, background: "rgba(255,255,255,.92)", borderRadius: 4, padding: 2, display: "grid", placeItems: "center", pointerEvents: "none" }}><ThumbIcon size={9} color="#3c9a2e" strokeWidth={2.5} /></span>}
                   </button>
                 );
               })}
@@ -212,8 +316,8 @@ function ThreadPanel({ detail, me, onRefresh, onClose }: any) {
         ) : notes.map((m: any) => {
           const mine = m.sender_role !== "client";
           const whisper = m.visibility === "internal";
-          const marker = String(m.body || "").startsWith("✓");
-          if (marker) return <div key={m.id} style={{ alignSelf: "center", fontSize: 10, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: H.green }}>{m.body}</div>;
+          const marker = String(m.body || "").startsWith("✓") ? H.green : String(m.body || "").startsWith("✕") ? H.red : null;
+          if (marker) return <div key={m.id} style={{ alignSelf: "center", fontSize: 10, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: marker }}>{m.body}</div>;
           return (
             <div key={m.id} style={{
               alignSelf: mine ? "flex-end" : "flex-start", maxWidth: "84%",
@@ -249,7 +353,17 @@ function ThreadPanel({ detail, me, onRefresh, onClose }: any) {
       </div>
 
       {t.state === "approved" ? (
-        <div style={{ padding: "16px 22px 20px", borderTop: `1px solid ${H.line}`, background: "rgba(88,201,60,.06)", fontSize: 13, color: H.dim }}><b style={{ color: H.green }}>✓ Design approved</b> by {t.approved_by} · {fmt(t.approved_at)}. Locked and ready for the front of production.</div>
+        <div style={{ padding: "16px 22px 20px", borderTop: `1px solid ${H.line}`, background: "rgba(88,201,60,.06)", fontSize: 13, color: H.dim }}>
+          <b style={{ color: H.green }}>✓ In the bank</b> · {t.approved_by} · {fmt(t.approved_at)}. Artwork locked.
+          {orderReq && !orderReq.handled_at && (
+            <div style={{ marginTop: 7, color: H.amber, fontWeight: 700 }}>Order request in: {orderReq.blank || "blank TBD"}{orderReq.qty ? ` × ${orderReq.qty}` : ""}{orderReq.note ? ` · "${orderReq.note}"` : ""}. Price it and get them a quote.</div>
+          )}
+          {orderReq?.job_id && (
+            <div style={{ marginTop: 7 }}><a href={`/jobs/${orderReq.job_id}`} target="_blank" rel="noreferrer" style={{ color: H.green, fontWeight: 800, fontSize: 12.5, textDecoration: "none" }}>✓ In the pipeline · {orderReq.jobs?.job_number || "open the job"} ↗</a></div>
+          )}
+        </div>
+      ) : t.state === "killed" ? (
+        <div style={{ padding: "16px 22px 20px", borderTop: `1px solid ${H.line}`, fontSize: 13, color: H.faint }}><b style={{ color: H.red }}>✕ Killed</b> by the client · kept as the record. A new pitch is a new design.</div>
       ) : (
         <>
           {t.state === "with_client" && (
@@ -475,21 +589,65 @@ function NewDesign({ clients, me, onClose, onCreated, onNeedClients }: any) {
   );
 }
 
+// Clients ride REAL identity now (decided Aug 4): pick an existing OpsHub
+// client (search-first, company-scoped) or create a LEAD — a real clients row
+// flagged is_lead, hidden from ops lists until their first job flips it.
 function ClientsPanel({ clients, onClose, onChanged }: any) {
-  const [name, setName] = useState(""); const [busy, setBusy] = useState(false);
+  const [q, setQ] = useState(""); const [results, setResults] = useState<any[]>([]);
+  const [leadForm, setLeadForm] = useState(false); const [leadName, setLeadName] = useState(""); const [leadEmail, setLeadEmail] = useState("");
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState("");
   const origin = typeof window !== "undefined" ? window.location.origin : "";
-  async function add() { if (!name.trim()) return; setBusy(true); try { await fetch("/api/lab/clients", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: name.trim() }) }); setName(""); await onChanged(); } finally { setBusy(false); } }
+  useEffect(() => {
+    if (!q.trim()) { setResults([]); return; }
+    const t = setTimeout(async () => {
+      const r = await fetch(`/api/lab/real-clients?q=${encodeURIComponent(q.trim())}`).then(x => x.json()).catch(() => ({}));
+      if (r.error) setErr(r.error); else { setErr(""); setResults(r.clients || []); }
+    }, 250);
+    return () => clearTimeout(t);
+  }, [q]);
+  async function link(clientId: string) {
+    setBusy(true); setErr("");
+    try { const r = await fetch("/api/lab/real-clients", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ clientId }) }).then(x => x.json()); if (r.error) setErr(r.error); else { setQ(""); setResults([]); await onChanged(); } } finally { setBusy(false); }
+  }
+  async function addLead() {
+    setBusy(true); setErr("");
+    try { const r = await fetch("/api/lab/real-clients", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: leadName.trim(), email: leadEmail.trim() }) }).then(x => x.json()); if (r.error) setErr(r.error); else { setLeadForm(false); setLeadName(""); setLeadEmail(""); await onChanged(); } } finally { setBusy(false); }
+  }
   return (
     <Modal onClose={onClose} title="Clients & their links">
-      <div style={{ display: "flex", gap: 8, marginBottom: 14 }}><input value={name} onChange={e => setName(e.target.value)} placeholder="New client name" style={{ ...inp, flex: 1 }} /><button disabled={busy} onClick={add} style={primaryBtn}>Add</button></div>
-      {clients.length === 0 && <div style={{ color: H.faint, fontSize: 13 }}>No clients yet.</div>}
-      {clients.map((c: any) => { const link = `${origin}/lab/c/${c.token}`; return (
+      <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search your real clients…" style={{ ...inp, marginBottom: 8 }} />
+      {results.map((c: any) => (
+        <button key={c.id} disabled={busy || c.in_lab} onClick={() => link(c.id)} style={{ display: "flex", width: "100%", alignItems: "center", gap: 8, background: H.surface, border: `1px solid ${H.line2}`, borderRadius: 9, padding: "9px 12px", marginBottom: 6, cursor: c.in_lab ? "default" : "pointer", fontFamily: H.font, color: H.text, opacity: c.in_lab ? 0.55 : 1 }}>
+          <span style={{ fontSize: 12.5, fontWeight: 800, textTransform: "uppercase" }}>{c.name}</span>
+          {c.is_lead && <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: H.amber }}>Lead</span>}
+          <span style={{ marginLeft: "auto", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: c.in_lab ? H.faint : H.blue }}>{c.in_lab ? "In the studio" : "+ Bring in"}</span>
+        </button>
+      ))}
+      {!leadForm ? (
+        <button onClick={() => setLeadForm(true)} style={{ ...ghostBtn, marginBottom: 12 }}>+ New lead</button>
+      ) : (
+        <div style={{ border: `1px dashed ${H.line}`, borderRadius: 10, padding: 12, marginBottom: 12 }}>
+          <div style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: H.faint, marginBottom: 8 }}>New lead · real client, hidden from ops lists until their first job</div>
+          <input value={leadName} onChange={e => setLeadName(e.target.value)} placeholder="Name" style={{ ...inp, marginBottom: 6 }} />
+          <input value={leadEmail} onChange={e => setLeadEmail(e.target.value)} placeholder="Email — where the quote goes" style={{ ...inp, marginBottom: 8 }} />
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => setLeadForm(false)} style={{ ...ghostBtn, border: "none", color: H.faint }}>Cancel</button>
+            <button disabled={busy || !leadName.trim() || !leadEmail.trim()} onClick={addLead} style={{ ...primaryBtn, marginLeft: "auto", opacity: busy || !leadName.trim() || !leadEmail.trim() ? 0.5 : 1 }}>Create the lead</button>
+          </div>
+        </div>
+      )}
+      {err && <div style={{ color: H.red, fontSize: 12, marginBottom: 10 }}>{err}</div>}
+      {clients.length === 0 && <div style={{ color: H.faint, fontSize: 13 }}>No studio clients yet.</div>}
+      {clients.map((c: any) => { const link2 = `${origin}/lab/c/${c.token}`; return (
         <div key={c.id} style={{ padding: "11px 0", borderTop: `1px solid ${H.line2}` }}>
-          <div style={{ fontSize: 14, fontWeight: 800 }}>{c.name}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 14, fontWeight: 800 }}>{c.name}</span>
+            <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: c.client_id ? H.green : H.amber }}>{c.client_id ? "Linked" : "Sandbox only"}</span>
+          </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 5, flexWrap: "wrap" }}>
-            <input readOnly value={link} style={{ ...inp, flex: 1, fontSize: 11, fontFamily: H.mono, padding: "7px 9px" }} onFocus={e => e.currentTarget.select()} />
-            <button onClick={() => navigator.clipboard.writeText(link)} style={ghostBtn}>Copy</button>
-            <a href={link} target="_blank" rel="noreferrer" style={{ ...ghostBtn, textDecoration: "none", display: "inline-block" }}>Open ↗</a>
+            <input readOnly value={link2} style={{ ...inp, flex: 1, fontSize: 11, fontFamily: H.mono, padding: "7px 9px" }} onFocus={e => e.currentTarget.select()} />
+            <button onClick={() => navigator.clipboard.writeText(link2)} style={ghostBtn}>Copy</button>
+            <a href={link2} target="_blank" rel="noreferrer" style={{ ...ghostBtn, textDecoration: "none", display: "inline-block" }}>Open ↗</a>
           </div>
         </div>); })}
     </Modal>

@@ -21,7 +21,12 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   let q = db.from("lab_messages").select("*").eq("thread_id", params.id).order("created_at", { ascending: true });
   if (clientView) q = q.eq("visibility", "client");
   const { data: messages } = await q;
-  return NextResponse.json({ thread, messages: messages || [], clientView });
+  // The latest order request rides along so both sheets can show "request in,
+  // pricing it" (client) / the ask itself (studio).
+  const { data: orderRequest } = await db.from("lab_order_requests")
+    .select("id, blank, qty, note, handled_at, created_at, job_id, jobs(job_number)")
+    .eq("thread_id", params.id).order("created_at", { ascending: false }).limit(1).maybeSingle();
+  return NextResponse.json({ thread, messages: messages || [], orderRequest: orderRequest || null, clientView });
 }
 
 // DELETE — remove a design (cascades its messages). Studio-side only (the lab is
