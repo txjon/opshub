@@ -106,24 +106,35 @@ function ClientThreadSheet({ detail, token, onClose, onRefresh }: any) {
   const t = detail.thread; const msgs: any[] = detail.messages || [];
   const st = STATE(t.state);
   const [note, setNote] = useState(""); const [busy, setBusy] = useState(false); const [uploading, setUploading] = useState(false);
-  const [changing, setChanging] = useState(false); const [chNote, setChNote] = useState(""); const [chFile, setChFile] = useState<{ url: string; name: string } | null>(null);
-  const [heroIdx, setHeroIdx] = useState<number | null>(null);
+  // The reaction bar under the hero: idle thumbs → "lock" (thumbs-up confirm)
+  // or "pass" (thumbs-down, optional note).
+  const [bar, setBar] = useState<"idle" | "lock" | "pass">("idle");
+  const [chNote, setChNote] = useState(""); const [chFile, setChFile] = useState<{ url: string; name: string } | null>(null);
+  const [heroId, setHeroId] = useState<string | null>(null);
   const fileIn = useRef<HTMLInputElement | null>(null); const chIn = useRef<HTMLInputElement | null>(null);
 
+  // Live designs carry the filmstrip; passed-on ones (thumbs down) tuck into a
+  // dimmed strip of their own. The hero can be either — a thumbs up on a passed
+  // design brings it back and locks it.
   const images = msgs.filter(m => m.file_url);
-  const hero = images.length ? images[heroIdx == null ? images.length - 1 : Math.min(heroIdx, images.length - 1)] : null;
+  const live = images.filter(m => m.reaction !== "down");
+  const passed = images.filter(m => m.reaction === "down");
+  const hero = images.find(m => m.id === heroId) || (live.length ? live[live.length - 1] : images[images.length - 1] || null);
   const notes = msgs.filter(m => m.body && m.body.trim());
   // The client only ever sees client-visible messages, so any image here from HPD
-  // is a design WE sent — the thing they can actually approve.
+  // is a design WE sent — the thing they can react to.
   const hpdDesign = images.some(m => m.sender_role === "hpd");
+  const heroReactable = !!hero && hero.sender_role === "hpd" && t.state !== "approved";
 
   async function reply(fileUrl?: string, fileName?: string) {
     if (!note.trim() && !fileUrl) return; setBusy(true);
-    try { await fetch(`/api/lab/threads/${t.id}/messages`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ clientToken: token, body: note.trim() || null, fileUrl, fileName }) }); setNote(""); setHeroIdx(null); await onRefresh(); } finally { setBusy(false); }
+    try { await fetch(`/api/lab/threads/${t.id}/messages`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ clientToken: token, body: note.trim() || null, fileUrl, fileName }) }); setNote(""); setHeroId(null); await onRefresh(); } finally { setBusy(false); }
   }
   async function onReplyFile(f: File) { setUploading(true); try { const u = await uploadImage(f); await reply(u.url, u.name); } catch (e: any) { alert(e.message); } finally { setUploading(false); } }
-  async function approve() { if (!confirm("Approve this design? It locks the artwork for production. (Pricing and your order come after.)")) return; setBusy(true); try { await fetch(`/api/lab/threads/${t.id}/action`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "approve", clientToken: token }) }); await onRefresh(); } finally { setBusy(false); } }
-  async function sendChange() { setBusy(true); try { await fetch(`/api/lab/threads/${t.id}/action`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "request_changes", clientToken: token, note: chNote.trim() || null, fileUrl: chFile?.url || null, fileName: chFile?.name || null }) }); setChanging(false); setChNote(""); setChFile(null); setHeroIdx(null); await onRefresh(); } finally { setBusy(false); } }
+  // Thumbs up, confirmed — locks THIS design (the one on the hero).
+  async function lockIn() { if (!hero) return; setBusy(true); try { await fetch(`/api/lab/threads/${t.id}/action`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "approve", clientToken: token, messageId: hero.id }) }); setBar("idle"); setHeroId(null); await onRefresh(); } finally { setBusy(false); } }
+  // Thumbs down — passes on THIS design, with whatever they told us.
+  async function passOn() { if (!hero) return; setBusy(true); try { await fetch(`/api/lab/threads/${t.id}/action`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "request_changes", clientToken: token, messageId: hero.id, note: chNote.trim() || null, fileUrl: chFile?.url || null, fileName: chFile?.name || null }) }); setBar("idle"); setChNote(""); setChFile(null); setHeroId(null); await onRefresh(); } finally { setBusy(false); } }
   async function onChFile(f: File) { setUploading(true); try { setChFile(await uploadImage(f)); } catch (e: any) { alert(e.message); } finally { setUploading(false); } }
 
   return (
@@ -138,20 +149,34 @@ function ClientThreadSheet({ detail, token, onClose, onRefresh }: any) {
           <button onClick={onClose} aria-label="Close" style={{ background: "none", border: "none", color: C.dim, fontSize: 26, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>
         </div>
 
-        {/* latest drop big + evolution filmstrip */}
+        {/* latest drop big + evolution filmstrip + the passed-on strip */}
         {hero && (
           <div style={{ marginTop: 12 }}>
             <div style={{ background: "#fff", position: "relative" }}>
-              <img src={hero.file_url} alt="" style={{ width: "100%", maxHeight: "40vh", objectFit: "contain", display: "block", margin: "0 auto" }} onError={(e: any) => { e.target.parentElement.style.display = "none"; }} />
-              <span style={{ position: "absolute", right: 10, bottom: 8, fontSize: 9, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: "#999", background: "rgba(255,255,255,0.85)", borderRadius: 999, padding: "3px 9px" }}>{(heroIdx == null || heroIdx === images.length - 1) ? "Latest" : fmtDay(hero.created_at)}</span>
+              <img src={hero.file_url} alt="" style={{ width: "100%", maxHeight: "40vh", objectFit: "contain", display: "block", margin: "0 auto", filter: hero.reaction === "down" ? "grayscale(55%)" : "none" }} onError={(e: any) => { e.target.parentElement.style.display = "none"; }} />
+              <span style={{ position: "absolute", right: 10, bottom: 8, fontSize: 9, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: hero.reaction === "down" ? "#b3455a" : "#999", background: "rgba(255,255,255,0.85)", borderRadius: 999, padding: "3px 9px" }}>{hero.reaction === "down" ? "You passed on this" : hero.id === live[live.length - 1]?.id ? "Latest" : fmtDay(hero.created_at)}</span>
             </div>
-            {images.length > 1 && (
+            {(live.length > 1 || (live.length > 0 && hero.reaction === "down")) && (
               <div style={{ display: "flex", gap: 8, padding: "10px 20px 0", overflowX: "auto", scrollbarWidth: "none" as any }}>
-                {images.map((im, i) => {
-                  const active = (heroIdx == null ? images.length - 1 : heroIdx) === i;
+                {live.map(im => {
+                  const active = im.id === hero.id;
                   return (
-                    <button key={im.id} onClick={() => setHeroIdx(i)} style={{ flexShrink: 0, width: 54, height: 54, borderRadius: 9, overflow: "hidden", background: "#fff", border: active ? "2px solid #fff" : `1px solid ${C.line}`, padding: 0, cursor: "pointer", opacity: active ? 1 : 0.65 }}>
+                    <button key={im.id} onClick={() => setHeroId(im.id)} style={{ flexShrink: 0, width: 54, height: 54, borderRadius: 9, overflow: "hidden", background: "#fff", border: active ? "2px solid #fff" : `1px solid ${C.line}`, padding: 0, cursor: "pointer", opacity: active ? 1 : 0.65 }}>
                       <img src={im.file_url} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {passed.length > 0 && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 20px 0", overflowX: "auto", scrollbarWidth: "none" as any }}>
+                <span style={{ flexShrink: 0, fontSize: 8.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: C.faint }}>Passed on</span>
+                {passed.map(im => {
+                  const active = im.id === hero.id;
+                  return (
+                    <button key={im.id} onClick={() => setHeroId(im.id)} style={{ flexShrink: 0, width: 40, height: 40, borderRadius: 8, overflow: "hidden", background: "#fff", border: active ? "2px solid #fff" : `1px solid ${C.line2}`, padding: 0, cursor: "pointer", opacity: active ? 0.9 : 0.4, position: "relative" }}>
+                      <img src={im.file_url} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover", filter: "grayscale(70%)" }} onError={(e: any) => { e.target.style.display = "none"; }} />
+                      <span style={{ position: "absolute", right: 2, bottom: 1, fontSize: 10, lineHeight: 1 }}>👎</span>
                     </button>
                   );
                 })}
@@ -160,35 +185,53 @@ function ClientThreadSheet({ detail, token, onClose, onRefresh }: any) {
           </div>
         )}
 
-        {/* your move — approve the design / request a change */}
+        {/* the reaction bar — thumbs on the design you're looking at */}
         <div style={{ padding: "16px 20px 0" }}>
-          {t.state === "with_client" && hpdDesign && (
-            <div style={{ background: "linear-gradient(180deg,rgba(244,178,43,.09),transparent)", border: `1px solid ${C.line}`, borderRadius: 16, padding: "16px 18px", marginBottom: 4 }}>
-              <div style={{ fontSize: 12, fontWeight: 900, letterSpacing: "0.03em", textTransform: "uppercase", color: C.amber }}>◆ Your design&rsquo;s ready to sign off</div>
-              <div style={{ fontSize: 12, color: C.dim, marginTop: 5, lineHeight: 1.45 }}>You&rsquo;re approving the <b style={{ color: C.text }}>artwork</b> — that it&rsquo;s right. Pricing and your order come next, on their own.</div>
-              {!changing ? (
-                <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
-                  <button disabled={busy} onClick={approve} style={{ flex: 1, minWidth: 160, background: C.green, color: "#08210a", border: "none", borderRadius: 999, padding: "14px", fontSize: 11.5, fontWeight: 900, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer", fontFamily: C.font }}>✓ Approve the design</button>
-                  <button onClick={() => setChanging(true)} style={{ ...ghostBtn, padding: "14px 16px" }}>Request a change</button>
+          {heroReactable && (
+            <div style={{ background: hero.reaction === "down" ? "transparent" : "linear-gradient(180deg,rgba(244,178,43,.07),transparent)", border: `1px solid ${C.line}`, borderRadius: 16, padding: "14px 16px", marginBottom: 4 }}>
+              {bar === "idle" && (
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <button disabled={busy} onClick={() => setBar("lock")} aria-label="Thumbs up" style={{ flexShrink: 0, width: 52, height: 52, borderRadius: 999, background: "rgba(88,201,60,.14)", border: "1px solid rgba(88,201,60,.45)", fontSize: 22, cursor: "pointer", fontFamily: C.font }}>👍</button>
+                  {hero.reaction !== "down" && (
+                    <button disabled={busy} onClick={() => setBar("pass")} aria-label="Thumbs down" style={{ flexShrink: 0, width: 52, height: 52, borderRadius: 999, background: C.surface, border: `1px solid ${C.line}`, fontSize: 22, cursor: "pointer", fontFamily: C.font }}>👎</button>
+                  )}
+                  <div style={{ minWidth: 0 }}>
+                    {t.state === "with_client" && hero.reaction !== "down" && <div style={{ fontSize: 11, fontWeight: 900, letterSpacing: "0.03em", textTransform: "uppercase", color: C.amber }}>◆ Your move</div>}
+                    <div style={{ fontSize: 12, color: C.dim, lineHeight: 1.45, marginTop: t.state === "with_client" && hero.reaction !== "down" ? 3 : 0 }}>
+                      {hero.reaction === "down" ? "You passed on this one. A thumbs up brings it back and locks it in." : "Thumbs up locks the artwork. Thumbs down sends it back to us."}
+                    </div>
+                  </div>
                 </div>
-              ) : (
-                <div style={{ marginTop: 12, border: `1px dashed rgba(255,255,255,.22)`, borderRadius: 12, padding: 13 }}>
-                  <div style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: C.faint, marginBottom: 8 }}>Tell us what to change</div>
-                  <textarea value={chNote} onChange={e => setChNote(e.target.value)} rows={2} placeholder="What would you like different?" style={{ ...inp, resize: "vertical" }} />
+              )}
+              {bar === "lock" && (
+                <div>
+                  <div style={{ fontSize: 12.5, fontWeight: 900, letterSpacing: "0.02em", textTransform: "uppercase", color: C.green }}>👍 Lock this artwork in?</div>
+                  <div style={{ fontSize: 12, color: C.dim, marginTop: 5, lineHeight: 1.45 }}>You&rsquo;re approving the <b style={{ color: C.text }}>artwork</b>, that it&rsquo;s right. Pricing and your order come next, on their own.</div>
+                  <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+                    <button disabled={busy} onClick={lockIn} style={{ flex: 1, minWidth: 150, background: C.green, color: "#08210a", border: "none", borderRadius: 999, padding: "13px", fontSize: 11.5, fontWeight: 900, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer", fontFamily: C.font, opacity: busy ? 0.6 : 1 }}>✓ Lock it in</button>
+                    <button disabled={busy} onClick={() => setBar("idle")} style={{ ...ghostBtn, padding: "13px 16px" }}>Not yet</button>
+                  </div>
+                </div>
+              )}
+              {bar === "pass" && (
+                <div>
+                  <div style={{ fontSize: 12.5, fontWeight: 900, letterSpacing: "0.02em", textTransform: "uppercase", color: C.text }}>👎 Not this one. Anything specific?</div>
+                  <textarea value={chNote} onChange={e => setChNote(e.target.value)} rows={2} placeholder="Totally optional. What would you like different?" style={{ ...inp, resize: "vertical", marginTop: 10 }} />
                   {chFile && <div style={{ marginTop: 8 }}><img src={chFile.url} alt="" style={{ maxHeight: 70, borderRadius: 8, background: "#fff", border: `1px solid ${C.line}` }} /></div>}
                   <input ref={chIn} type="file" accept="image/*" style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; if (f) onChFile(f); if (chIn.current) chIn.current.value = ""; }} />
-                  <div style={{ display: "flex", gap: 8, marginTop: 11, flexWrap: "wrap" }}>
-                    <button disabled={uploading} onClick={() => chIn.current?.click()} style={{ ...ghostBtn, color: C.blue, borderColor: "rgba(143,199,216,.4)" }}>{uploading ? "Uploading…" : "📎 Add a photo of what you mean"}</button>
-                    <button disabled={busy || (!chNote.trim() && !chFile)} onClick={sendChange} style={{ ...primaryBtn, marginLeft: "auto", opacity: busy || (!chNote.trim() && !chFile) ? 0.5 : 1 }}>Send it back</button>
+                  <div style={{ display: "flex", gap: 8, marginTop: 11, flexWrap: "wrap", alignItems: "center" }}>
+                    <button disabled={uploading} onClick={() => chIn.current?.click()} style={{ ...ghostBtn, color: C.blue, borderColor: "rgba(143,199,216,.4)" }}>{uploading ? "Uploading…" : "📎 Show us what you mean"}</button>
+                    <button disabled={busy} onClick={() => { setBar("idle"); setChNote(""); setChFile(null); }} style={{ ...ghostBtn, border: "none", color: C.faint }}>Never mind</button>
+                    <button disabled={busy || uploading} onClick={passOn} style={{ ...primaryBtn, marginLeft: "auto", opacity: busy || uploading ? 0.5 : 1 }}>{chNote.trim() || chFile ? "Send it back" : "Pass on it"}</button>
                   </div>
                 </div>
               )}
             </div>
           )}
 
-          {t.state === "with_client" && !hpdDesign && <div style={{ fontSize: 12.5, color: C.amber, textAlign: "center", fontWeight: 700 }}>Your move — reply below.</div>}
-          {t.state === "approved" && <div style={{ background: "rgba(88,201,60,.08)", border: `1px solid rgba(88,201,60,.35)`, borderRadius: 16, padding: "16px 18px", fontSize: 13, color: C.dim }}><b style={{ color: C.green }}>✓ Design approved.</b> The artwork&rsquo;s locked — the team takes it from here.</div>}
-          {t.state === "working" && <div style={{ fontSize: 12.5, color: C.dim, textAlign: "center" }}>We&rsquo;re working on this — you&rsquo;ll get a note here the moment it&rsquo;s ready for you.</div>}
+          {t.state === "with_client" && !hpdDesign && <div style={{ fontSize: 12.5, color: C.amber, textAlign: "center", fontWeight: 700 }}>Your move. Reply below.</div>}
+          {t.state === "approved" && <div style={{ background: "rgba(88,201,60,.08)", border: `1px solid rgba(88,201,60,.35)`, borderRadius: 16, padding: "16px 18px", fontSize: 13, color: C.dim }}><b style={{ color: C.green }}>✓ Design approved.</b> The artwork&rsquo;s locked. The team takes it from here.</div>}
+          {t.state === "working" && <div style={{ fontSize: 12.5, color: C.dim, textAlign: "center" }}>We&rsquo;re on it. You&rsquo;ll get a note here the moment it&rsquo;s ready for you.</div>}
         </div>
 
         {/* the exchange — notes as chat bubbles; images live in the strip above */}

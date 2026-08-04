@@ -11,7 +11,7 @@ const STATE = (s: string) => s === "with_client" ? { label: "With the client", c
 // visible in plain words, not tiny labels (Jon, Jul 23).
 const GUIDE: Record<string, { tint: string; head: string; text: string }> = {
   working: { tint: H.amber, head: "It's your move", text: "This is where you shape the design with the client. Drop a draft, or talk it through — flip a note to Internal to keep it off their screen while you and the designer work. When the artwork is right, send it over for their sign-off." },
-  with_client: { tint: H.blue, head: "It's with the client", text: "The design is in front of the client to approve. They'll either lock it in — which hands the artwork straight to production — or send it back with notes and a photo. Nothing to do but wait, or give them a nudge below." },
+  with_client: { tint: H.blue, head: "It's with the client", text: "The design is in front of the client, social-style: a thumbs up locks the artwork for production; a thumbs down passes on that version (with a note if they add one) and hands it back to you. Passed designs dim into their own strip. Nothing to do but wait, or give them a nudge below." },
 };
 const fmt = (iso?: string) => iso ? new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
 // Room 2 — what we can ask a designer for (mockups are internal, never here).
@@ -185,7 +185,7 @@ function ThreadPanel({ detail, me, onRefresh, onClose }: any) {
           <div style={{ background: "#fff", position: "relative" }}>
             <img src={hero.file_url} alt="" style={{ width: "100%", maxHeight: "36vh", objectFit: "contain", display: "block", margin: "0 auto" }} onError={(e: any) => { e.target.parentElement.style.display = "none"; }} />
             <span style={{ position: "absolute", right: 10, bottom: 8, display: "flex", gap: 6, alignItems: "center" }}>
-              <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: hero.sender_role === "client" || hero.visibility === "client" ? "#3c9a2e" : "#b7791f", background: "rgba(255,255,255,0.9)", borderRadius: 999, padding: "4px 10px" }}>{hero.sender_role === "client" ? "From client" : hero.visibility === "client" ? "Client sees this" : "Internal only"}</span>
+              <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: hero.reaction === "down" ? "#b3455a" : hero.sender_role === "client" || hero.visibility === "client" ? "#3c9a2e" : "#b7791f", background: "rgba(255,255,255,0.9)", borderRadius: 999, padding: "4px 10px" }}>{hero.reaction === "down" ? "👎 Client passed on this" : hero.sender_role === "client" ? "From client" : hero.visibility === "client" ? "Client sees this" : "Internal only"}</span>
               <button disabled={busy} onClick={() => delAttachment(hero.id)} title="Delete this attachment" style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", background: "#0a0a0a", color: H.red, border: "none", borderRadius: 999, padding: "4px 10px", cursor: "pointer", fontFamily: H.font, opacity: busy ? 0.5 : 1 }}>Delete</button>
             </span>
           </div>
@@ -194,10 +194,12 @@ function ThreadPanel({ detail, me, onRefresh, onClose }: any) {
               {images.map((f: any, i: number) => {
                 const active = (heroIdx == null ? images.length - 1 : heroIdx) === i;
                 const internal = f.visibility !== "client" && f.sender_role !== "client";
+                const down = f.reaction === "down";
                 return (
-                  <button key={f.id} onClick={() => setHeroIdx(i)} style={{ flexShrink: 0, width: 50, height: 50, borderRadius: 9, overflow: "hidden", background: "#fff", border: active ? "2px solid #fff" : `1px solid ${H.line}`, padding: 0, cursor: "pointer", opacity: active ? 1 : 0.6, position: "relative" }}>
-                    <img src={f.file_url} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />
+                  <button key={f.id} onClick={() => setHeroIdx(i)} style={{ flexShrink: 0, width: 50, height: 50, borderRadius: 9, overflow: "hidden", background: "#fff", border: active ? "2px solid #fff" : `1px solid ${H.line}`, padding: 0, cursor: "pointer", opacity: active ? 1 : down ? 0.35 : 0.6, position: "relative" }}>
+                    <img src={f.file_url} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover", filter: down ? "grayscale(70%)" : "none" }} onError={(e: any) => { e.target.style.display = "none"; }} />
                     {internal && <span style={{ position: "absolute", inset: 0, boxShadow: "inset 0 0 0 2px rgba(244,178,43,.75)", borderRadius: 8, pointerEvents: "none" }} />}
+                    {down && <span style={{ position: "absolute", right: 2, bottom: 1, fontSize: 11, lineHeight: 1, pointerEvents: "none" }}>👎</span>}
                   </button>
                 );
               })}

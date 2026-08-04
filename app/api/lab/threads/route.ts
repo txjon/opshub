@@ -5,11 +5,12 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // Latest image per thread (for the art-forward cards). clientOnly = the client
-// only ever sees client-visible art.
+// only ever sees client-visible art. Passed-on designs (reaction='down') never
+// front a card — fall back to the newest live image.
 async function latestArt(db: any, ids: string[], clientOnly: boolean): Promise<Record<string, string>> {
   const out: Record<string, string> = {};
   if (!ids.length) return out;
-  let q = db.from("lab_messages").select("thread_id, file_url, created_at").in("thread_id", ids).not("file_url", "is", null).order("created_at", { ascending: false });
+  let q = db.from("lab_messages").select("thread_id, file_url, created_at").in("thread_id", ids).not("file_url", "is", null).or("reaction.is.null,reaction.neq.down").order("created_at", { ascending: false });
   if (clientOnly) q = q.eq("visibility", "client");
   const { data } = await q;
   for (const f of (data || []) as any[]) if (!out[f.thread_id]) out[f.thread_id] = f.file_url;
