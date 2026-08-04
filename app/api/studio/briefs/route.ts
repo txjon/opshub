@@ -29,21 +29,20 @@ export async function GET() {
   const list = (briefs || []) as any[];
   const ids = list.map(b => b.id);
 
-  // Latest client-visible image per brief fronts the card (passed-on versions
-  // never do — the run-gate spirit applied to art).
+  // THE LATEST file fronts the internal card — our side sees everything, so
+  // no client-visibility preference here (that's the portal's rule). Only
+  // passed-on versions defer; if every version is passed, newest shows anyway.
   const artByBrief: Record<string, string> = {};
   if (ids.length) {
     const { data: files } = await db.from("art_brief_files")
-      .select("brief_id, drive_file_id, preview_drive_file_id, shared_with_client_at, uploader_role, reaction, created_at")
+      .select("brief_id, drive_file_id, preview_drive_file_id, reaction, created_at")
       .in("brief_id", ids).not("drive_file_id", "is", null)
-      .or("reaction.is.null,reaction.neq.down")
       .order("created_at", { ascending: false });
     for (const f of (files || []) as any[]) {
       if (artByBrief[f.brief_id]) continue;
-      if (!(f.shared_with_client_at || f.uploader_role === "client")) continue;
+      if (f.reaction === "down") continue;
       artByBrief[f.brief_id] = f.preview_drive_file_id || f.drive_file_id;
     }
-    // Fallback: any image at all (internal-only briefs still get a face).
     for (const f of (files || []) as any[]) {
       if (!artByBrief[f.brief_id]) artByBrief[f.brief_id] = f.preview_drive_file_id || f.drive_file_id;
     }
