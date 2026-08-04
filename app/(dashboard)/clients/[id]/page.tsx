@@ -71,7 +71,7 @@ export default function ClientSpacePage() {
         supabase.from("jobs")
           // shipping_route / phase_timestamps / quote_approved_at + the item money
           // and lifecycle fields feed the Working Sheet in the Pipeline section.
-          .select("id, job_number, title, phase, payment_terms, target_ship_date, created_at, quote_approved, quote_approved_at, shipping_route, phase_timestamps, type_meta, costing_summary, items(id, name, created_at, blank_sku, blank_vendor, garment_type, pipeline_stage, artwork_status, received_at_hpd, forwarded_at, webstore_entered_at, sell_per_unit, client_retail_per_unit, client_eta, notes, archived_at, completed_at, shipping_route, blanks_order_cost, blanks_order_number, product_id, design_id, decorator_assignments(decorators(name, short_code)), buy_sheet_lines(size, qty_ordered)), payment_records(id, amount, status, due_date, paid_date, invoice_number)")
+          .select("id, job_number, title, phase, payment_terms, target_ship_date, created_at, quote_approved, quote_approved_at, shipping_route, phase_timestamps, type_meta, costing_summary, items(id, name, created_at, blank_sku, blank_vendor, garment_type, drive_link, pipeline_stage, artwork_status, received_at_hpd, forwarded_at, webstore_entered_at, sell_per_unit, client_retail_per_unit, client_eta, notes, archived_at, completed_at, shipping_route, blanks_order_cost, blanks_order_number, product_id, design_id, decorator_assignments(decorators(name, short_code)), buy_sheet_lines(size, qty_ordered)), payment_records(id, amount, status, due_date, paid_date, invoice_number)")
           .eq("client_id", id).order("created_at", { ascending: false }),
         supabase.from("releases").select("*").eq("client_id", id).order("created_at", { ascending: false }),
         supabase.from("products").select("*").eq("client_id", id).order("created_at", { ascending: false }),
@@ -186,7 +186,7 @@ export default function ClientSpacePage() {
         if (!(it.name || "").trim()) continue;
         const key = `${(it.name || "").trim().toLowerCase()}|${(it.blank_sku || "").trim().toLowerCase()}`;
         const inst = {
-          itemId: it.id, jobId: it.job.id,
+          itemId: it.id, jobId: it.job.id, driveLink: it.drive_link || null,
           ref: it.job.type_meta?.qb_invoice_number ? `#${it.job.type_meta.qb_invoice_number}` : it.job.job_number,
           date: it.created_at,
           qty: (it.buy_sheet_lines || []).reduce((a: number, l: any) => a + (Number(l.qty_ordered) || 0), 0),
@@ -859,6 +859,21 @@ function DocsBlock({ clientId, secHead }: any) {
 function CatalogRail({ products, briefs, model, router, secHead, thumbs }: any) {
   const [cat, setCat] = useState<string>("all");
   const [detail, setDetail] = useState<any | null>(null);
+  // "View art" gallery — every file on the piece (all runs), view + download.
+  const [artFiles, setArtFiles] = useState<any[] | null>(null);   // null = closed
+  const [artLoading, setArtLoading] = useState(false);
+  const supabase = createClient();
+  const openArt = async (pc: any) => {
+    setArtLoading(true); setArtFiles([]);
+    try {
+      const ids = pc.instances.map((r: any) => r.itemId);
+      const { data } = await supabase.from("item_files")
+        .select("id, item_id, file_name, stage, drive_file_id, drive_link, mime_type, created_at")
+        .in("item_id", ids).is("superseded_at", null).neq("stage", "packing_slip")
+        .order("created_at", { ascending: false });
+      setArtFiles(data || []);
+    } finally { setArtLoading(false); }
+  };
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const artFor = (p: any) => {
@@ -996,10 +1011,8 @@ function CatalogRail({ products, briefs, model, router, secHead, thumbs }: any) 
                 <div style={{ display: "flex", gap: 8, marginTop: 16, flexWrap: "wrap" }}>
                   <a href={`/jobs/${pc.jobId}`}
                     style={{ background: "#fff", color: H.ink, borderRadius: 999, padding: "10px 18px", fontSize: 10, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", textDecoration: "none", fontFamily: H.font }}>Open latest job →</a>
-                  {thumbs[pc.itemId] && (
-                    <a href={`/api/files/thumbnail?id=${thumbs[pc.itemId]}`} target="_blank" rel="noreferrer"
-                      style={{ background: "transparent", color: H.dim, border: `1px solid ${H.line}`, borderRadius: 999, padding: "10px 18px", fontSize: 10, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", textDecoration: "none", fontFamily: H.font }}>View art</a>
-                  )}
+                  <button onClick={() => openArt(pc)}
+                    style={{ background: "transparent", color: H.dim, border: `1px solid ${H.line}`, borderRadius: 999, padding: "10px 18px", fontSize: 10, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>View art</button>
                   <button onClick={() => setDetail(null)}
                     style={{ marginLeft: "auto", background: "transparent", color: H.faint, border: "none", fontSize: 10, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>Close</button>
                 </div>
@@ -1008,6 +1021,43 @@ function CatalogRail({ products, briefs, model, router, secHead, thumbs }: any) 
           </div>
         );
       })()}
+      {artFiles !== null && detail && (
+        <div onClick={e => { if (e.target === e.currentTarget) setArtFiles(null); }}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 420, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "clamp(12px,4vh,48px) 16px", overflowY: "auto", fontFamily: H.font }}>
+          <div style={{ background: H.card, border: `1px solid ${H.line}`, borderRadius: 16, width: "min(880px, 100%)", padding: "20px 22px", color: H.text }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 14 }}>
+              <div style={{ fontSize: 16, fontWeight: 900, textTransform: "uppercase", flex: 1 }}>{detail.name} — art</div>
+              {detail.instances[0]?.driveLink && (
+                <a href={detail.instances[0].driveLink} target="_blank" rel="noreferrer"
+                  style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", color: H.blue, textDecoration: "none" }}>Open Drive folder →</a>
+              )}
+              <button onClick={() => setArtFiles(null)}
+                style={{ background: "none", border: "none", color: H.faint, fontSize: 18, cursor: "pointer", lineHeight: 1 }}>✕</button>
+            </div>
+            {artLoading && <div style={{ color: H.faint, fontSize: 12.5, padding: "20px 0" }}>Loading files…</div>}
+            {!artLoading && artFiles.length === 0 && <div style={{ color: H.faint, fontSize: 12.5, padding: "20px 0" }}>No files on this piece.</div>}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 12 }}>
+              {artFiles.map((f: any) => (
+                <div key={f.id} style={{ borderRadius: 10, overflow: "hidden", border: `1px solid ${H.line}` }}>
+                  <a href={`/api/files/thumbnail?id=${f.drive_file_id}`} target="_blank" rel="noreferrer" title={f.file_name}
+                    style={{ display: "block", aspectRatio: "1", background: "#fff" }}>
+                    <img src={thumbSrc(f.drive_file_id, 400)} alt="" loading="lazy" referrerPolicy="no-referrer"
+                      style={{ width: "100%", height: "100%", objectFit: "contain" }} onError={(e: any) => { e.target.style.display = "none"; }} />
+                  </a>
+                  <div style={{ padding: "8px 10px" }}>
+                    <div style={{ fontSize: 10.5, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.file_name}</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
+                      <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: H.faint, flex: 1 }}>{(f.stage || "").replace(/_/g, " ")}</span>
+                      <a href={`/api/files/thumbnail?id=${f.drive_file_id}&dl=1`} download={f.file_name} title={`Download ${f.file_name}`}
+                        style={{ fontSize: 12, color: H.blue, textDecoration: "none" }}>⬇</a>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
       {products.length === 0 && model.pieces.length === 0 && (
         <div style={{ color: H.faint, fontSize: 12.5 }}>Empty shelf — the greenlight fork fills it.</div>
       )}
