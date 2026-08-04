@@ -84,7 +84,7 @@ export default function ClientSpacePage() {
       const jobIds = ((js || []) as any[]).map(j => j.id);
       if (jobIds.length) {
         const { data: act } = await supabase.from("job_activity")
-          .select("message, created_at, jobs(job_number)").in("job_id", jobIds)
+          .select("message, created_at, jobs(job_number, type_meta)").in("job_id", jobIds)
           .order("created_at", { ascending: false }).limit(14);
         setWire(act || []);
       }
@@ -288,7 +288,8 @@ function Overview({ client, contacts, wire, model, briefs, secHead, onEdit }: an
             <div key={i} style={{ display: "flex", gap: 12, alignItems: "baseline", padding: "9px 0", borderBottom: `1px solid ${H.line}` }}>
               <span style={{ fontSize: 10, fontFamily: H.mono, color: H.faint, whiteSpace: "nowrap", flexShrink: 0 }}>{wt(w.created_at)}</span>
               <span style={{ fontSize: 12.5, lineHeight: 1.5, minWidth: 0 }}>
-                <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.08em", color: H.faint, marginRight: 7 }}>{w.jobs?.job_number || ""}</span>
+                {/* invoice # is the client-facing identity when it exists (Jon, Aug 3) */}
+                <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.08em", color: H.faint, marginRight: 7 }}>{w.jobs?.type_meta?.qb_invoice_number ? `#${w.jobs.type_meta.qb_invoice_number}` : (w.jobs?.job_number || "")}</span>
                 {w.message}
               </span>
             </div>
