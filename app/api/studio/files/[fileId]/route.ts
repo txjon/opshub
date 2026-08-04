@@ -14,7 +14,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: { fileId: 
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Sign in" }, { status: 401 });
-  const db = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+  const db = dbNoStore();
 
   const { data: file } = await db.from("art_brief_files")
     .select("id, brief_id, drive_file_id").eq("id", params.fileId).maybeSingle();
