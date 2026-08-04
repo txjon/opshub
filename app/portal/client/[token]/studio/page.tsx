@@ -130,6 +130,12 @@ function Sheet({ detail, token, onClose, onRefresh }: any) {
     try { const fd = new FormData(); fd.set("body", chNote.trim()); await fetch(`/api/portal/client/${token}/studio/${b.id}/action`, { method: "POST", body: fd }); closeBar(); await onRefresh(); } finally { setBusy(false); }
   }
   async function shelveIt() { setBusy(true); try { await act({ action: "shelve" }); closeBar(); await onRefresh(); } finally { setBusy(false); } }
+  const [reopenForm, setReopenForm] = useState(false);
+  const [roNote, setRoNote] = useState("");
+  async function reopenIt() {
+    if (!roNote.trim()) return; setBusy(true);
+    try { await act({ action: "reopen", note: roNote.trim() }); setReopenForm(false); setRoNote(""); await onRefresh(); } finally { setBusy(false); }
+  }
   async function killIt() { setBusy(true); try { await act({ action: "kill" }); closeBar(); await onRefresh(); } finally { setBusy(false); } }
   async function reply(file?: File) {
     if (!note.trim() && !file) return; setBusy(true);
@@ -244,8 +250,21 @@ function Sheet({ detail, token, onClose, onRefresh }: any) {
             {orderReq?.open
               ? <>Your order request is in{orderReq.blank ? <> ({orderReq.blank}{orderReq.qty ? ` × ${orderReq.qty}` : ""})</> : null}. We&rsquo;re pricing it and a quote is coming back to you.</>
               : <>The artwork&rsquo;s locked. Order it whenever you&rsquo;re ready.</>}
-            {!orderReq?.open && bar !== "order" && (
-              <div style={{ marginTop: 10 }}><button disabled={busy} onClick={() => setBar("order")} style={{ background: C.green, color: "#08210a", border: "none", borderRadius: 999, padding: "11px 20px", fontSize: 11, fontWeight: 900, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer", fontFamily: C.font }}>Order this</button></div>
+            {!orderReq?.open && bar !== "order" && !reopenForm && (
+              <div style={{ marginTop: 10, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+                <button disabled={busy} onClick={() => setBar("order")} style={{ background: C.green, color: "#08210a", border: "none", borderRadius: 999, padding: "11px 20px", fontSize: 11, fontWeight: 900, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer", fontFamily: C.font }}>Order this</button>
+                <button disabled={busy} onClick={() => setReopenForm(true)} style={{ background: "none", border: "none", color: C.faint, fontSize: 11, fontWeight: 800, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer", fontFamily: C.font, padding: 0 }}>Request a change</button>
+              </div>
+            )}
+            {reopenForm && (
+              <div style={{ marginTop: 12, border: `1px dashed rgba(255,255,255,.22)`, borderRadius: 12, padding: 13 }}>
+                <div style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: C.faint, marginBottom: 8 }}>What should change? It comes back to us and we get on it.</div>
+                <textarea value={roNote} onChange={e => setRoNote(e.target.value)} autoFocus rows={2} placeholder="e.g. move the print up, try a darker tan" style={{ ...inp, resize: "vertical" }} />
+                <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                  <button disabled={busy} onClick={() => { setReopenForm(false); setRoNote(""); }} style={{ ...ghostBtn, border: "none", color: C.faint }}>Never mind</button>
+                  <button disabled={busy || !roNote.trim()} onClick={reopenIt} style={{ ...primaryBtn, marginLeft: "auto", opacity: busy || !roNote.trim() ? 0.5 : 1 }}>Send it back</button>
+                </div>
+              </div>
             )}
           </div>
         )}

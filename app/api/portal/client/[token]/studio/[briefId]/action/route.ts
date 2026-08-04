@@ -114,6 +114,18 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     return NextResponse.json({ ok: true, state: "approved" });
   }
 
+  // Re-open from the bank — the client wants a CHANGE to the same design.
+  // Ball back to us, history intact, pin stays until a new bank supersedes.
+  if (b.action === "reopen") {
+    if ((brief as any).state !== "approved") return NextResponse.json({ error: "Only banked designs re-open" }, { status: 409 });
+    const note = String(b.note || "").trim();
+    if (!note) return NextResponse.json({ error: "Tell us what to change" }, { status: 400 });
+    await db.from("art_briefs").update({ state: "working", updated_at: now } as never).eq("id", params.briefId);
+    await marker("✓ Re-opened from the bank for changes.");
+    await db.from("art_brief_messages").insert({ brief_id: params.briefId, sender_role: "client", sender_name: name, message: note, visibility: "client" } as never);
+    return NextResponse.json({ ok: true, state: "working" });
+  }
+
   if (b.action === "shelve" || b.action === "kill") {
     const killed = b.action === "kill";
     await db.from("art_briefs").update({ state: killed ? "killed" : "shelved", updated_at: now } as never).eq("id", params.briefId);
