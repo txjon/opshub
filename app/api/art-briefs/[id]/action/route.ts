@@ -19,53 +19,42 @@ const TRANSITIONS: Record<Exclude<ActionKind, "repurpose" | "recall" | "archive"
   notifyMsg: (title: string, client: string) => string;
   notifyType: "mention" | "approval" | "production";
 }> = {
+  // FIVE-STATE VOCABULARY (mig 159): state = whose court, not which step.
+  // The old designer-ladder steps collapse; sends hand the ball to the client.
   send_to_client: {
-    // WIP goes to client for review. Also allow draft→client_review for cases
-    // where HPD uploaded a first draft directly (rare but possible).
-    from: ["wip_review", "draft", "revisions"],
-    to: "client_review",
+    from: ["working"],
+    to: "with_client",
     notifyMsg: (title, client) => `${client} — ${title || "brief"} sent to client for review`,
     notifyType: "approval",
   },
-  // Forward designer's WIP to the client for a direction check.
-  // Use sparingly — most WIPs should never reach the client. The
-  // canonical path is approve_wip → designer uploads first_draft →
-  // client_review.
   forward_to_client: {
-    from: ["wip_review", "revisions"],
-    to: "client_review",
+    from: ["working"],
+    to: "with_client",
     notifyMsg: (title, client) => `${client} — ${title || "brief"} forwarded to client by HPD`,
     notifyType: "approval",
   },
-  // HPD greenlights the WIP without showing the client. Brief returns
-  // to in_progress so the designer can keep working toward the first
-  // draft — which auto-flips to client_review on upload.
+  // Designer-ladder relics: the ball stays in our court either way.
   approve_wip: {
-    from: ["wip_review"],
-    to: "in_progress",
-    notifyMsg: (title) => `HPD approved WIP on "${title || "brief"}" — designer to continue with first draft`,
+    from: ["working"],
+    to: "working",
+    notifyMsg: (title) => `HPD approved WIP on "${title || "brief"}" — designer to continue`,
     notifyType: "production",
   },
-  // HPD bounces the designer's submission back without going to the
-  // client. Lands the brief in `revisions` so the designer's banner
-  // tells them changes were requested.
   request_revision: {
-    from: ["wip_review"],
-    to: "revisions",
+    from: ["working"],
+    to: "working",
     notifyMsg: (title, client) => `HPD requested changes from designer on "${title || "brief"}"`,
     notifyType: "mention",
   },
   mark_production_ready: {
-    from: ["final_approved", "pending_prep"],
-    to: "production_ready",
+    from: ["approved"],
+    to: "approved",
     notifyMsg: (title, client) => `${client} — ${title || "brief"} marked production-ready`,
     notifyType: "production",
   },
   mark_delivered: {
-    // Delivered can be reached from anywhere as a manual override (one-offs,
-    // promotional art, etc). System also auto-flips on product spawn.
-    from: ["production_ready", "final_approved", "pending_prep", "client_review", "wip_review"],
-    to: "delivered",
+    from: ["working", "with_client", "approved"],
+    to: "approved",
     notifyMsg: (title, client) => `${client} — ${title || "brief"} delivered`,
     notifyType: "production",
   },
@@ -100,11 +89,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       // Guard: recalling a brief the client already APPROVED silently
       // resets it to draft and erases the approval state. Make it a
       // deliberate, confirmed act — not a one-click accident.
-      const APPROVED_STATES = ["final_approved", "pending_prep", "production_ready", "delivered"];
+      const APPROVED_STATES = ["approved"];
       const wasApproved = APPROVED_STATES.includes(brief.state);
       if (wasApproved && !confirmApproved) {
         return NextResponse.json({
-          error: `This brief is "${brief.state.replace(/_/g, " ")}" — the client already approved it. Recalling resets it to draft and removes that approval.`,
+          error: `This brief is "${brief.state.replace(/_/g, " ")}" — the client already approved it. Recalling resets it to working and removes that approval.`,
           needsApprovalConfirm: true,
           approvedState: brief.state,
         }, { status: 409 });
@@ -112,7 +101,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       const { data: updated, error: updErr } = await db
         .from("art_briefs")
         .update({
-          state: "draft",
+          state: "working",
           sent_to_designer_at: null,
           assigned_designer_id: null,
           updated_at: new Date().toISOString(),
@@ -132,7 +121,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           message: wasApproved
             ? `Recalled by HPD from "${brief.state.replace(/_/g, " ")}" — client approval reset`
             : `Recalled by HPD from "${brief.state.replace(/_/g, " ")}"`,
-          visibility: "hpd_designer",
+          visibility: "internal",
         });
       } catch {}
       return NextResponse.json({ brief: updated, action });
@@ -218,7 +207,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     //   2) Send a branded portal-link email to the client's contacts
     //      (renderBrandedEmail + Resend, same pattern as the other
     //      transactional sends in OpsHub).
-    if ((action === "forward_to_client" || action === "send_to_client") && brief.state === "wip_review") {
+    if ((action === "forward_to_client" || action === "send_to_client") && brief.state === "working") {
       try {
         await db.from("art_brief_files")
           .update({ shared_with_client_at: new Date().toISOString() })

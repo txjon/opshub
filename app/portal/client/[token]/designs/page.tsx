@@ -70,11 +70,11 @@ export default function DesignsPage() {
   //   Pending → draft / revision is up for review (client_review)
   //   Working → in design (sent through revisions)
   //   Done    → client approved (final_approved+)
-  const DONE_STATES = ["final_approved", "pending_prep", "production_ready", "delivered"];
+  const DONE_STATES = ["approved"];
   const bucketFor = (b: Brief): "pending" | "working" | "done" => {
     if (DONE_STATES.includes(b.state)) return "done";
     // Client owes a move when a draft/revision is up for review.
-    if (b.state === "client_review") return "pending";
+    if (b.state === "with_client") return "pending";
     return "working";
   };
 
@@ -370,13 +370,10 @@ function clientNextStep(
   state: string,
   ctx?: { hasLatestDraft?: boolean; clientEngaged?: boolean }
 ): { text: string; tone: "info" | "action" | "done" } | null {
-  if (state === "draft") {
-    return { text: "We're getting started. First look coming soon.", tone: "info" };
-  }
-  if (state === "sent" || state === "in_progress" || state === "wip_review") {
+  if (state === "working") {
     return { text: "We're creating. First look coming soon.", tone: "info" };
   }
-  if (state === "client_review") {
+  if (state === "with_client") {
     // Client already posted (comment or upload) since the deliverable
     // landed — soften to status, the ball is back on HPD/designer.
     // For drafts, approval is still the formal next step but the comment

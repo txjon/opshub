@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const db = labDb();
   const { data } = await db.from("lab_order_requests")
-    .select("*, lab_threads(id, title, state), lab_clients(name)")
+    .select("*, lab_threads(id, title, state), lab_clients(name), art_briefs(id, title, clients(name))")
     .is("handled_at", null)
     .order("created_at", { ascending: true });
   return NextResponse.json({ requests: data || [] });

@@ -1,35 +1,30 @@
 import { C } from "./theme";
 import type { Brief, ClientStateMeta } from "./types";
 
-// Collapses internal brief states into client-facing buckets.
-// See also: app/(dashboard)/art-studio for HPD's fuller state vocabulary.
+// Collapses brief states into client-facing buckets. FIVE-STATE model
+// (mig 159): whose court is it, not which step.
 export function clientStateFor(b: Brief): ClientStateMeta {
   const s = b.state;
-  if (s === "draft") {
-    return { label: "Planning", bucket: "progress", color: C.muted, bg: C.surface, border: C.border };
-  }
-  if (s === "sent" || s === "in_progress" || s === "wip_review") {
-    return { label: "In design", bucket: "progress", color: C.blue, bg: C.blueBg, border: C.blueBorder };
-  }
-  if (s === "client_review") {
+  if (s === "with_client") {
     return { label: "Needs your review", bucket: "action", color: C.purple, bg: C.purpleBg, border: C.purpleBorder };
   }
-  if (s === "revisions") {
-    return { label: "In revision", bucket: "progress", color: C.blue, bg: C.blueBg, border: C.blueBorder };
-  }
-  if (s === "final_approved" || s === "pending_prep" || s === "production_ready") {
+  if (s === "approved") {
     return { label: "Approved", bucket: "done", color: C.green, bg: C.greenBg, border: C.greenBorder };
   }
-  if (s === "delivered") {
-    return { label: "Delivered", bucket: "done", color: C.green, bg: C.greenBg, border: C.greenBorder };
+  if (s === "shelved") {
+    return { label: "On hold", bucket: "progress", color: C.muted, bg: C.surface, border: C.border };
   }
-  return { label: s, bucket: "progress", color: C.muted, bg: C.surface, border: C.border };
+  if (s === "killed") {
+    return { label: "Closed", bucket: "done", color: C.muted, bg: C.surface, border: C.border };
+  }
+  // working (and anything unknown): the default hum.
+  return { label: "In design", bucket: "progress", color: C.blue, bg: C.blueBg, border: C.blueBorder };
 }
 
 // "Done from client's POV" = they've already approved the design, no unread
 // external activity. Auto-hides from the active feed; re-surfaces if HPD or
 // designer acts after.
-const DONE_STATES = ["final_approved", "pending_prep", "production_ready", "delivered"];
+const DONE_STATES = ["approved"];
 export const isDoneForClient = (b: Brief) =>
   DONE_STATES.includes(b.state) && !b.has_unread_external;
 

@@ -377,7 +377,7 @@ function StudioRail({ briefs, secHead }: any) {
         {briefs.map((b: any) => {
           const src = bThumb(b);
           return (
-            <a key={b.id} className="cs-card" href={`/studio2?open=${b.id}`}>
+            <a key={b.id} className="cs-card" href={`/studio?brief=${b.id}`}>
               {src ? (
                 <div style={{ background: "#fff", aspectRatio: "1" }}>
                   <img src={src} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />
@@ -389,8 +389,8 @@ function StudioRail({ briefs, secHead }: any) {
               )}
               <div style={{ padding: "10px 13px 13px" }}>
                 <div style={{ fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", lineHeight: 1.25, overflow: "hidden", display: "-webkit-box", WebkitBoxOrient: "vertical" as any, WebkitLineClamp: 2 }}>{b.title || "Untitled idea"}</div>
-                <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: b.state === "final_approved" ? H.green : H.amber, marginTop: 4 }}>
-                  {b.state === "draft" ? "New idea" : b.state === "final_approved" ? "Greenlit" : b.state === "client_review" ? "With them" : "In motion"}
+                <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: b.state === "approved" ? H.green : H.amber, marginTop: 4 }}>
+                  {b.state === "approved" ? "Greenlit" : b.state === "with_client" ? "With them" : b.state === "shelved" ? "Shelved" : b.state === "killed" ? "Killed" : "In the studio"}
                 </div>
               </div>
             </a>
@@ -923,7 +923,7 @@ function CatalogRail({ products, briefs, model, router, secHead, thumbs, clientI
       const res = await fetch(`/api/products/${p.id}/flip`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
       const b = await res.json();
       if (!res.ok) throw new Error(b.error || "Couldn't open the flip");
-      router.push(`/studio2?open=${b.briefId}`);
+      router.push(`/studio?brief=${b.briefId}`);
     } catch (e: any) { setErr(e.message); setBusy(null); }
   }
   return (
@@ -959,7 +959,7 @@ function CatalogRail({ products, briefs, model, router, secHead, thumbs, clientI
                       style={{ background: "transparent", color: PURPLE, border: `1px solid ${PURPLE}`, borderRadius: 999, padding: "8px 14px", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font, opacity: busy === `flip-${p.id}` ? 0.5 : 1 }}>
                       {busy === `flip-${p.id}` ? "Opening…" : "Flip it"}
                     </button>
-                    {p.brief_id && <a href={`/studio2?open=${p.brief_id}`} style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", color: H.dim, textDecoration: "none", padding: "8px 4px" }}>The idea →</a>}
+                    {p.brief_id && <a href={`/studio?brief=${p.brief_id}`} style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", color: H.dim, textDecoration: "none", padding: "8px 4px" }}>The idea →</a>}
                   </div>
                 </div>
               </div>
@@ -1177,7 +1177,7 @@ function ArchiveRail({ archive, briefs, clientId, secHead }: any) {
     try {
       const title = String(file.file_name || "Archive pull").replace(/\.\w+$/, "").slice(0, 140);
       const { data: brief, error } = await supabase.from("art_briefs").insert({
-        client_id: clientId, title, state: "draft", source: "hpd",
+        client_id: clientId, title, state: "working", source: "hpd",
         internal_only: true,   // prep quietly; share from the studio sheet
         concept: `Pulled from the archive: ${file.folder_path || ""}/${file.file_name}`,
       } as never).select("id").single();
@@ -1227,7 +1227,7 @@ function ArchiveRail({ archive, briefs, clientId, secHead }: any) {
       {secHead("The archive.", `${archive.length.toLocaleString()} files, indexed in place — nothing moved, everything findable`)}
       {sent && (
         <div style={{ fontSize: 12.5, color: H.green, fontWeight: 700, marginBottom: 14 }}>
-          ✓ Sent to "{sent.title}" — <a href={`/studio2?open=${sent.briefId}`} style={{ color: H.green }}>open it in the Studio →</a>
+          ✓ Sent to "{sent.title}" — <a href={`/studio?brief=${sent.briefId}`} style={{ color: H.green }}>open it in the Studio →</a>
         </div>
       )}
       {picker && (
@@ -1244,7 +1244,7 @@ function ArchiveRail({ archive, briefs, clientId, secHead }: any) {
               <button key={b.id} onClick={() => sendToBrief(picker, b.id, b.title || "Untitled idea")} disabled={busy}
                 style={{ display: "block", width: "100%", textAlign: "left", background: "transparent", color: H.text, border: `1px solid ${H.line}`, borderRadius: 10, padding: "10px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: H.font, marginBottom: 8, opacity: busy ? 0.5 : 1 }}>
                 {b.title || "Untitled idea"}
-                <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: H.faint, marginLeft: 8 }}>{b.state === "draft" ? "new" : b.state === "final_approved" ? "greenlit" : "in motion"}</span>
+                <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: H.faint, marginLeft: 8 }}>{b.state === "approved" ? "greenlit" : b.state === "with_client" ? "with them" : "in the studio"}</span>
               </button>
             ))}
           </div>

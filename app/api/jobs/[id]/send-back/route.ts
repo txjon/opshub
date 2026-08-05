@@ -84,7 +84,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }
 
     // 3. Reopen the idea in the studio.
-    await db.from("art_briefs").update({ state: "draft", updated_at: new Date().toISOString() } as never).eq("id", briefId);
+    await db.from("art_briefs").update({ state: "working", updated_at: new Date().toISOString() } as never).eq("id", briefId);
 
     // 4. Durable trail on the brief thread — INTERNAL only (the client doesn't
     //    need to see the job mechanics; from their side the idea just reopened).

@@ -56,7 +56,7 @@ export async function POST(_req: NextRequest, { params }: { params: { token: str
         client_id: client.id,
         title: item.name,
         concept,
-        state: "draft",
+        state: "working",
         source: "client",
         item_id: item.id,
       })

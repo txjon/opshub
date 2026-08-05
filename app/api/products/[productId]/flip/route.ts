@@ -36,7 +36,7 @@ export async function POST(req: NextRequest, { params }: { params: { productId: 
       client_id: p.client_id,
       title: `${p.title} — Flip`.slice(0, 140),
       concept: note || `Flip of ${p.title}. Same design, new direction — blank color, ink color, or both. What changes?`,
-      state: "draft",
+      state: "working",
       source: "hpd",
       internal_only: true,   // prep quietly; share from the studio sheet
       product_spec: {

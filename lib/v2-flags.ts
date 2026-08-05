@@ -40,10 +40,10 @@ export function isV2TestClient(clientName?: string | null): boolean {
 // This is NAV-HIDE ONLY — the pages stay reachable by direct URL and the access
 // guard (canAccessPath) is untouched, so contextual deep-links still work.
 export const STUDIO_UNDER_DEV = true;
-// The main-app (team) nav hrefs pulled while STUDIO_UNDER_DEV. Art Studio
-// un-hidden for the team Jul 27 2026 per Jon — clients still don't see the
-// hub Studio tab (flag above). Studio v2 stays hidden while reworked.
-export const STUDIO_HIDDEN_HREFS = ["/studio2"];
+// Team-nav hides: none since Aug 4 2026 — /studio (the replacement) is live
+// for the team; /art-studio + /studio2 are deleted. The flag above still
+// hides the CLIENT-hub studio until the per-client rollout (Phase 3).
+export const STUDIO_HIDDEN_HREFS: string[] = [];
 
 // ── Drops hidden from the client hub (Jon, Jul 23 2026) ──────────────────────
 // Pull the Drops surface from the client hub: the main-nav Drops tab (all three

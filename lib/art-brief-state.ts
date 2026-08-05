@@ -19,6 +19,10 @@ export function recomputeBriefState(
   currentState: string,
   remainingFiles: FileKindRow[],
 ): string | null {
+  // FIVE-STATE model (mig 159): state = whose court, moved by humans (send /
+  // thumbs / shelve / kill), never by file inventory. Deleting a file no
+  // longer demotes anything — the ladder below is retired.
+  return null;
   if (!RECOMPUTABLE_STATES.includes(currentState as any)) return null;
 
   const has = (k: string) => remainingFiles.some(f => f.kind === k);

@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
       job_id: jobId,
       item_id: itemId,
       title,
-      state: "draft",
+      state: "working",
       assigned_designer_id: finalDesignerId,
       created_by: user.id,
     }).select("*").single();

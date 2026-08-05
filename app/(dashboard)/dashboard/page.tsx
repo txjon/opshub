@@ -455,7 +455,7 @@ export default async function DashboardPage() {
     .from("art_briefs")
     .select("id, title, state, source, updated_at, sent_to_designer_at, client_aborted_at, hpd_last_seen_at, job_id, clients(name), jobs(job_number)")
     .is("client_aborted_at", null)
-    .neq("state", "delivered")
+    .not("state", "in", "(killed,shelved)")
     .order("updated_at", { ascending: false });
   const briefsWithUnread = await attachUnreadStatus(briefs || [], supabase);
 
@@ -554,20 +554,10 @@ export default async function DashboardPage() {
 
   // Designer-side cards from art_briefs.
   const briefRows = briefsWithUnread as any[];
-  const stateToSection: Record<string, { section: string; urgency: Urgency; subtitlePrefix: string }> = {
-    wip_review:       { section: "Awaiting HPD review", urgency: "action",  subtitlePrefix: "Designer uploaded WIP" },
-    pending_prep:     { section: "Prep print-ready",   urgency: "action",  subtitlePrefix: "Designer uploaded final · prep print-ready" },
-    production_ready: { section: "Mark delivered",     urgency: "action",  subtitlePrefix: "Print-ready uploaded · ready to close" },
-    final_approved:   { section: "In design",          urgency: "watch",   subtitlePrefix: "Client approved · awaiting designer's final" },
-    revisions:        { section: "In design",          urgency: "watch",   subtitlePrefix: "Revisions · with designer" },
-    in_progress:      { section: "In design",          urgency: "watch",   subtitlePrefix: "With designer" },
-    sent:             { section: "In design",          urgency: "watch",   subtitlePrefix: "Sent to designer" },
-    // client_review briefs intentionally NOT mapped here — designs
-    // sitting with the client for review aren't a team call-to-action,
-    // and one card per brief drowns the column on big jobs (saw 14
-    // FOG cards stacked). Visible in Art Studio if anyone needs to
-    // check; not a Command Center concern.
-  };
+  // FIVE-STATE model (mig 159): a brief state alone is never a team
+  // call-to-action — working is the default hum, with_client is the client's
+  // move, approved is the bank. Only UNREAD activity surfaces cards (below).
+  const stateToSection: Record<string, { section: string; urgency: Urgency; subtitlePrefix: string }> = {};
 
   // "X ago" for unread subtitles. Coarse — minute / hour / day buckets
   // are enough for an at-a-glance command center; longer-form lives
@@ -609,7 +599,7 @@ export default async function DashboardPage() {
         meta: jobNumber || undefined,
         metaKind: jobNumber ? "job" : undefined,
         urgency: "action",
-        href: `/art-studio?brief=${b.id}`,
+        href: `/studio?brief=${b.id}`,
         read: computeRead(cardId, b.unread_at),
       });
       continue;
@@ -625,12 +615,12 @@ export default async function DashboardPage() {
       meta: jobNumber || undefined,
       metaKind: jobNumber ? "job" : undefined,
       urgency: map.urgency,
-      href: `/art-studio?brief=${b.id}`,
+      href: `/studio?brief=${b.id}`,
       read: computeRead(cardId, b.updated_at),
     };
     // client_review briefs land under Clients (it's a client-side conversation),
     // others under Designers.
-    const bucket = b.state === "client_review" ? "clients" : "designers";
+    const bucket = b.state === "with_client" ? "clients" : "designers";
     pushCard(bucket, map.section, card);
   }
 

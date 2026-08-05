@@ -6,7 +6,11 @@
 import { createClient } from "@supabase/supabase-js";
 
 export function labDb() {
-  return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+  // no-store fetch: Next's patched fetch must never serve these reads from
+  // its cache (see lib/db-nostore.ts — the FOG ghost-briefs lesson, Aug 4).
+  return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
+    global: { fetch: (url: any, opts: any = {}) => fetch(url, { ...opts, cache: "no-store" }) },
+  });
 }
 
 export const LAB_BUCKET = "lab-studio";

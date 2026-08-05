@@ -23,23 +23,9 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
   const ctx = await verifyAccess(params.token, params.briefId);
   if (!ctx) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  // First-open read receipt — when the designer opens a brief still in
-  // `sent`, auto-advance to `in_progress` so HPD knows it landed and was
-  // viewed. Fire-and-forget so we don't block the GET.
-  if (ctx.brief.state === "sent") {
-    const designerName = (ctx.designer as any).name || "Designer";
-    const briefTitle = (ctx.brief as any).title || "brief";
-    ctx.db.from("art_briefs")
-      .update({ state: "in_progress", updated_at: new Date().toISOString() })
-      .eq("id", ctx.brief.id)
-      .then(() => {});
-    try {
-      await notifyTeamServer(`${designerName} opened "${briefTitle}"`, "production", ctx.brief.id, "art_brief");
-      if ((ctx.brief as any).job_id) {
-        await logJobActivityServer((ctx.brief as any).job_id, `${designerName} opened ${briefTitle}`);
-      }
-    } catch {}
-  }
+  // (The old first-open 'sent' → 'in_progress' auto-advance is retired with
+  // mig 159 — 'sent' no longer exists; designer_last_seen_at below is the
+  // read receipt.)
 
   // Mark-as-read for designer on every detail open. Listing rollup
   // factors this into designerAt so unread ribbons clear once the
@@ -97,7 +83,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { token: str
   if (!ctx) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const { state } = await req.json();
-  const allowed = ["in_progress", "wip_review", "final_approved", "revisions"];
+  // FIVE-STATE model: designers never move the client-facing state — the
+  // wall. HPD sends, the client verdicts. Kept for API shape; always rejects.
+  const allowed: string[] = [];
   if (!allowed.includes(state)) return NextResponse.json({ error: "Invalid state transition" }, { status: 400 });
 
   const { error } = await ctx.db.from("art_briefs").update({ state, updated_at: new Date().toISOString() }).eq("id", params.briefId);

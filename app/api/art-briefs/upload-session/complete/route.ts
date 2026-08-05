@@ -88,13 +88,13 @@ export async function POST(req: NextRequest) {
     const now = new Date().toISOString();
     if (k === "first_draft" || k === "revision") {
       await supabase.from("art_briefs").update({
-        state: "client_review",
+        state: "with_client",
         version_count: version,
         updated_at: now,
       }).eq("id", brief_id);
     } else if (k === "final") {
       await supabase.from("art_briefs").update({
-        state: "pending_prep",
+        state: "working",
         version_count: version,
         updated_at: now,
       }).eq("id", brief_id);
@@ -140,7 +140,7 @@ export async function POST(req: NextRequest) {
       }
 
       await supabase.from("art_briefs").update({
-        state: "delivered",
+        state: "approved",
         updated_at: now,
       }).eq("id", brief_id);
 

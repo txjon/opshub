@@ -14,7 +14,7 @@ function admin() {
   return createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 }
 
-const APPROVED = ["final_approved", "pending_prep", "production_ready", "delivered"];
+const APPROVED = ["approved"];
 
 async function ctxOf(token: string) {
   const db = admin();

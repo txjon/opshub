@@ -71,16 +71,13 @@ type Message = {
 
 // ── State → display ──
 const STATE_META: Record<string, { label: string; color: string; bg: string; border: string; group: string }> = {
-  sent:             { label: "New request",         color: C.red,    bg: C.redBg,    border: C.redBorder,    group: "action" },
-  in_progress:      { label: "In progress",         color: C.blue,   bg: C.blueBg,   border: C.blueBorder,   group: "progress" },
-  wip_review:       { label: "HPD reviewing WIP",   color: C.amber,  bg: C.amberBg,  border: C.amberBorder,  group: "hold" },
-  client_review:    { label: "Client reviewing",    color: C.purple, bg: C.purpleBg, border: C.purpleBorder, group: "hold" },
-  revisions:        { label: "Revisions needed",    color: C.red,    bg: C.redBg,    border: C.redBorder,    group: "action" },
-  final_approved:   { label: "Client approved",     color: C.green,  bg: C.greenBg,  border: C.greenBorder,  group: "done" },
-  pending_prep:     { label: "Awaiting HPD prep",   color: C.muted,  bg: C.surface,  border: C.border,       group: "done" },
-  production_ready: { label: "Production ready",    color: C.green,  bg: C.greenBg,  border: C.greenBorder,  group: "done" },
-  delivered:        { label: "Delivered",           color: C.green,  bg: C.greenBg,  border: C.greenBorder,  group: "done" },
-  draft:            { label: "Draft",               color: C.faint,  bg: C.surface,  border: C.border,       group: "done" },
+  // FIVE-STATE model (mig 159): the designer sees whose court it's in, never
+  // the client's identity or verdict machinery.
+  working:     { label: "In progress",      color: C.blue,   bg: C.blueBg,   border: C.blueBorder,   group: "progress" },
+  with_client: { label: "Client reviewing", color: C.purple, bg: C.purpleBg, border: C.purpleBorder, group: "hold" },
+  approved:    { label: "Client approved",  color: C.green,  bg: C.greenBg,  border: C.greenBorder,  group: "done" },
+  shelved:     { label: "On hold",          color: C.muted,  bg: C.surface,  border: C.border,       group: "done" },
+  killed:      { label: "Closed",           color: C.muted,  bg: C.surface,  border: C.border,       group: "done" },
 };
 
 // Filters collapsed — state-based pills don't help with the new messaging

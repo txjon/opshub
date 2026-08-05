@@ -66,7 +66,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     }
 
     const now = new Date().toISOString();
-    await db.from("art_briefs").update({ state: "final_approved", updated_at: now }).eq("id", (brief as any).id);
+    await db.from("art_briefs").update({ state: "approved", updated_at: now }).eq("id", (brief as any).id);
     // ✓ markers are load-bearing (approval recovery) — one real event, not autosave noise
     await db.from("art_brief_messages").insert({
       brief_id: (brief as any).id,
