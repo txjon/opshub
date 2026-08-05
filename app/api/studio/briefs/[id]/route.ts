@@ -57,14 +57,30 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   return NextResponse.json({ brief, timeline, orderRequest: orderRequest || null });
 }
 
-// PATCH { title } — rename a design (the 7 untitled legacy briefs, and
-// anything else that needs a better name).
+// PATCH { title } — rename. PATCH { unbank: true } — pull a banked design
+// back into the works (internal curation door; the client's equivalent is
+// Request a change). Pin stays until the next bank supersedes it.
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
-  if (!(await requireUser())) return NextResponse.json({ error: "Sign in" }, { status: 401 });
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Sign in" }, { status: 401 });
   const b = await req.json().catch(() => ({}));
+  const db = admin();
+
+  if (b.unbank) {
+    const { data: brief } = await db.from("art_briefs").select("state").eq("id", params.id).maybeSingle();
+    if (!brief) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    if ((brief as any).state !== "approved") return NextResponse.json({ error: "Only banked designs pull back" }, { status: 409 });
+    const { data: profile } = await supabase.from("profiles").select("full_name").eq("id", user.id).single();
+    const byName = (profile as any)?.full_name || user.email || "HPD";
+    const { error } = await db.from("art_briefs").update({ state: "working", updated_at: new Date().toISOString() } as never).eq("id", params.id);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    await db.from("art_brief_messages").insert({ brief_id: params.id, sender_role: "hpd", sender_name: byName, message: `Pulled back into the works by ${byName}.`, visibility: "internal" } as never);
+    return NextResponse.json({ ok: true, state: "working" });
+  }
+
   const title = String(b.title || "").trim().slice(0, 140);
   if (!title) return NextResponse.json({ error: "Give it a name" }, { status: 400 });
-  const db = admin();
   const { error } = await db.from("art_briefs").update({ title, updated_at: new Date().toISOString() } as never).eq("id", params.id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
