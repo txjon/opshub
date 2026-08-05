@@ -19,6 +19,7 @@
 // operational source of truth until readers cut over.
 
 import { shipmentGroupKey, normalizeTracking, isRealTracking } from "./use-shipments";
+import { ensureTracker } from "./inbound-tracking";
 
 type Sb = any; // Supabase client (browser or service) — same convention as po-actions
 
@@ -79,6 +80,10 @@ export async function upsertShipmentForItem(supabase: Sb, seed: ShipmentSeed): P
       if (existing.status !== "expected") patch.status = "expected";
       if (Object.keys(patch).length > 0) {
         await supabase.from("shipments").update(patch).eq("id", existing.id);
+        // A box that just gained a tracking number needs its live tracker —
+        // server-side, guaranteed (the browser fire-and-forget was the only
+        // caller before; 13 boxes sat "in transit" while delivered. Aug 5).
+        if ((patch as any).tracking) { try { await ensureTracker(supabase, existing.id); } catch {} }
       }
     } else {
       const { data: { user } = { user: null } } = await supabase.auth.getUser();
@@ -95,6 +100,7 @@ export async function upsertShipmentForItem(supabase: Sb, seed: ShipmentSeed): P
         packing_slip_file_id: seed.packing_slip_file_id || null,
         created_by: user?.id || null,
       }).select("id").single();
+      if (created?.id && isRealTracking(trk)) { try { await ensureTracker(supabase, created.id); } catch {} }
       if (error) {
         // Unique-violation race (two batch items creating the same box
         // concurrently): re-read and use the winner.
