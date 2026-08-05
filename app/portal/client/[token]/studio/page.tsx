@@ -32,6 +32,26 @@ export default function ClientStudioPage() {
   useEffect(() => { if (openId) loadDetail(openId); else setDetail(null); /* eslint-disable-next-line */ }, [openId]);
   const refresh = async () => { await loadList(); if (openId) await loadDetail(openId); };
 
+  // Post-to-post navigation (Jon, Aug 5): chevrons walk the DESIGNS in feed
+  // order — versions inside a design stay the filmstrip's job. Each arrival
+  // is a fresh mount (key), so it always lands on the latest version, idle.
+  const ordered = ["with_client", "working", "approved"].flatMap(k => briefs.filter(b => b.state === k));
+  const navIdx = openId ? ordered.findIndex(b => b.id === openId) : -1;
+  const goPrev = () => { if (navIdx > 0) setOpenId(ordered[navIdx - 1].id); };
+  const goNext = () => { if (navIdx >= 0 && navIdx < ordered.length - 1) setOpenId(ordered[navIdx + 1].id); };
+  useEffect(() => {
+    if (!openId) return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement;
+      if (t && ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName)) return;
+      if (e.key === "ArrowLeft") goPrev();
+      if (e.key === "ArrowRight") goNext();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line
+  }, [openId, navIdx, ordered.length]);
+
   return (
     <div style={{ maxWidth: 720, margin: "0 auto", padding: "34px 20px 80px", fontFamily: C.font, color: C.text }}>
       <style dangerouslySetInnerHTML={{ __html: `
@@ -82,13 +102,13 @@ export default function ClientStudioPage() {
       })}
 
       {detail?.brief && <div className="cs2-back" onClick={e => { if (e.target === e.currentTarget) setOpenId(null); }}>
-        <div className="cs2-sheet"><Sheet key={detail.brief.id} detail={detail} token={token} onClose={() => setOpenId(null)} onRefresh={refresh} /></div>
+        <div className="cs2-sheet"><Sheet key={detail.brief.id} detail={detail} token={token} onClose={() => setOpenId(null)} onRefresh={refresh} nav={{ idx: navIdx, total: ordered.length, onPrev: goPrev, onNext: goNext }} /></div>
       </div>}
     </div>
   );
 }
 
-function Sheet({ detail, token, onClose, onRefresh }: any) {
+function Sheet({ detail, token, onClose, onRefresh, nav }: any) {
   const b = detail.brief; const timeline: any[] = detail.timeline || [];
   const orderReq = detail.orderRequest;
   const st = STATE(b.state);
@@ -149,7 +169,16 @@ function Sheet({ detail, token, onClose, onRefresh }: any) {
           <h1 style={{ fontSize: 17, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", lineHeight: 1.2, margin: 0 }}>{b.title}</h1>
           <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: st.color, marginTop: 4 }}>{st.label}</div>
         </div>
-        <button onClick={onClose} aria-label="Close" style={{ background: "none", border: "none", color: C.dim, fontSize: 26, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>
+        <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+          {nav && nav.total > 1 && (
+            <>
+              <button onClick={nav.onPrev} disabled={nav.idx <= 0} aria-label="Previous design" style={{ background: "none", border: `1px solid ${C.line}`, borderRadius: 999, width: 30, height: 30, color: nav.idx <= 0 ? C.faint : C.text, fontSize: 15, cursor: nav.idx <= 0 ? "default" : "pointer", lineHeight: 1, opacity: nav.idx <= 0 ? 0.4 : 1, fontFamily: C.font }}>‹</button>
+              <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.08em", color: C.faint, padding: "0 3px", whiteSpace: "nowrap" }}>{nav.idx + 1} of {nav.total}</span>
+              <button onClick={nav.onNext} disabled={nav.idx >= nav.total - 1} aria-label="Next design" style={{ background: "none", border: `1px solid ${C.line}`, borderRadius: 999, width: 30, height: 30, color: nav.idx >= nav.total - 1 ? C.faint : C.text, fontSize: 15, cursor: nav.idx >= nav.total - 1 ? "default" : "pointer", lineHeight: 1, opacity: nav.idx >= nav.total - 1 ? 0.4 : 1, fontFamily: C.font }}>›</button>
+            </>
+          )}
+          <button onClick={onClose} aria-label="Close" style={{ background: "none", border: "none", color: C.dim, fontSize: 26, cursor: "pointer", lineHeight: 1, marginLeft: 6 }}>×</button>
+        </div>
       </div>
 
       {b.concept && <div style={{ margin: "6px 20px 0", fontSize: 12.5, color: C.dim, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{b.concept}</div>}
