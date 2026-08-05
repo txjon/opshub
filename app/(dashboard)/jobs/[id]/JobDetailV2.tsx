@@ -1233,7 +1233,11 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     const cp = decoState[item.id] || cpFor(item) || {};          // decoState overlays unsaved decoration edits
     const bslQtys = { ...(item.qtys || {}) };                    // items.qtys is built from buy_sheet_lines upstream
     const blankCosts = (item.blank_costs && Object.keys(item.blank_costs).length) ? item.blank_costs : (cp.blankCosts || {});
-    return { ...cp, id: item.id, name: item.name, qtys: bslQtys, totalQty: sumQ(bslQtys), blankCosts, blank_vendor: item.blank_vendor, garment_type: item.garment_type };
+    // items.is_fleece is canonical (saved cp as legacy fallback) — without
+    // this overlay every assemble-based persist rebuilt the costProd
+    // fleece-less and calcCostProduct priced WITHOUT the upcharge whenever
+    // the blob lacked the flag (the Ops Health fleece tripwire, 2608-004).
+    return { ...cp, id: item.id, name: item.name, qtys: bslQtys, totalQty: sumQ(bslQtys), blankCosts, blank_vendor: item.blank_vendor, garment_type: item.garment_type, isFleece: !!(item.is_fleece || cp.isFleece) };
   };
   const allAssembled = items.map(assemble);
 
@@ -1249,7 +1253,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       const cp = ds[item.id] || cpFor(item) || {};
       const q = { ...(item.qtys || {}) };
       const bc = (item.blank_costs && Object.keys(item.blank_costs).length) ? item.blank_costs : (cp.blankCosts || {});
-      return { ...cp, id: item.id, name: item.name, qtys: q, totalQty: sumQ(q), blankCosts: bc, blank_vendor: item.blank_vendor, garment_type: item.garment_type };
+      return { ...cp, id: item.id, name: item.name, qtys: q, totalQty: sumQ(q), blankCosts: bc, blank_vendor: item.blank_vendor, garment_type: item.garment_type, isFleece: !!(item.is_fleece || cp.isFleece) };
     };
     const supabase = createClient();
     try {
