@@ -2285,10 +2285,15 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                         </select>
                       </label>
                       {!locked && (
-                        <button onClick={() => toggleFleece(it)} title="Fleece applies the decorator's per-print fleece upcharge + fleece packaging"
-                          style={{ alignSelf: "flex-end", fontSize: 10, fontWeight: 700, padding: "9px 12px", borderRadius: 8, border: `1px solid ${it.is_fleece ? T.green : T.border}`, background: it.is_fleece ? T.green : T.card, color: it.is_fleece ? "#fff" : T.muted, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase", fontFamily: font }}>
-                          {it.is_fleece ? "Fleece ✓" : "Fleece?"}
-                        </button>
+                        <div style={{ flex: "0 0 auto" }}>
+                          {/* hidden caption keeps the button on the same
+                              baseline as the labeled columns beside it */}
+                          <span style={{ ...lbl, display: "block", marginBottom: 5, visibility: "hidden" }}>Fleece</span>
+                          <button onClick={() => toggleFleece(it)} title="Fleece applies the decorator's per-print fleece upcharge + fleece packaging"
+                            style={{ display: "block", fontSize: 10, fontWeight: 700, padding: "10px 12px", borderRadius: 8, border: `1px solid ${it.is_fleece ? T.green : T.border}`, background: it.is_fleece ? T.green : T.card, color: it.is_fleece ? "#fff" : T.muted, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase", fontFamily: font, lineHeight: "17.5px", boxSizing: "border-box" }}>
+                            {it.is_fleece ? "Fleece ✓" : "Fleece?"}
+                          </button>
+                        </div>
                       )}
                       {/* Blank + color are READ-ONLY here — the picker owns them
                           (Pick/Swap blank), same ownership rule as classic. */}
