@@ -33,13 +33,14 @@ export function isV2TestClient(clientName?: string | null): boolean {
   return !!clientName && V2_TEST_CLIENTS.includes(clientName);
 }
 
-// ── Studio under dev (Jon, Jul 23 2026) ──────────────────────────────────────
-// The Studio flow is being reworked in The Lab. While this is true, the studio
-// is pulled from the CLIENT-FACING entry points: the client-hub Studio tab +
-// the guest-house studio section (portal Shell/page read this flag directly).
-// This is NAV-HIDE ONLY — the pages stay reachable by direct URL and the access
-// guard (canAccessPath) is untouched, so contextual deep-links still work.
-export const STUDIO_UNDER_DEV = true;
+// ── Studio launch (Aug 5 2026) ───────────────────────────────────────────────
+// The curtain is DOWN. The rebuilt studio (the Lab's UX on art_briefs) is live
+// in the client hub, rolled out per-client via the portal_features 'studio'
+// grant — Forward Observations Group is the launch client. Grant a client
+// 'studio' in portal_features and their hub grows the tab; no flag flip
+// needed ever again. (Jul 23–Aug 5 this was true while the Lab proved the
+// rework and the replacement shipped.)
+export const STUDIO_UNDER_DEV = false;
 // Team-nav hides: none since Aug 4 2026 — /studio (the replacement) is live
 // for the team; /art-studio + /studio2 are deleted. The flag above still
 // hides the CLIENT-hub studio until the per-client rollout (Phase 3).
