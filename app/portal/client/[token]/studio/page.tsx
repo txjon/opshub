@@ -32,6 +32,16 @@ export default function ClientStudioPage() {
   useEffect(() => { if (openId) loadDetail(openId); else setDetail(null); /* eslint-disable-next-line */ }, [openId]);
   const refresh = async () => { await loadList(); if (openId) await loadDetail(openId); };
 
+  // Scroll-lock the feed while a sheet is open — without it the underlying
+  // page scrolls behind the fixed sheet when the keyboard opens (the mobile
+  // jump). Restored on close/unmount.
+  useEffect(() => {
+    if (!openId) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, [openId]);
+
   // Post-to-post navigation (Jon, Aug 5): chevrons walk the DESIGNS in feed
   // order — versions inside a design stay the filmstrip's job. Each arrival
   // is a fresh mount (key), so it always lands on the latest version, idle.
@@ -66,6 +76,11 @@ export default function ClientStudioPage() {
           .cs2-sheet{border-radius:18px 18px 0 0;border-bottom:none;max-height:92dvh;overflow-y:auto}
         }
         @media(prefers-reduced-motion:reduce){.cs2-card,.cs2-card:hover{transition:none;transform:none}}
+        /* iOS: inputs under 16px trigger focus auto-zoom — the "page zooms
+           when I tap Reply" bug. Mobile forms get 16px; desktop stays dense. */
+        @media(max-width:640px){
+          .cs2-sheet input,.cs2-sheet textarea,.cs2-sheet select{font-size:16px !important}
+        }
       ` }} />
 
       <div style={{ textAlign: "center" }}>
