@@ -1666,7 +1666,17 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
   });
 
   const [costProds, setCostProds] = useState(initItems.length > 0 ? initItems : [EMPTY_COST_PRODUCT()]);
-  const [savedCostProds, setSavedCostProds] = useState(initItems.length > 0 ? initItems : [EMPTY_COST_PRODUCT()]);
+  // The saved-state snapshot keeps the STORED fleece flag, not the synced one.
+  // Seeding both sides with the synced value made mount-time fleece drift
+  // invisible to costingDirty — the toggle rendered ON while the blob never
+  // learned it, so the autosave never fired and the Ops Health tripwire
+  // nagged forever (HPD-2608-004, Aug 5). With the stored value here, drift
+  // registers as ordinary dirt and the normal debounced autosave heals it.
+  const initSavedItems = initItems.map(p => {
+    const saved = savedData?.costProds?.find((s) => s.id === p.id);
+    return saved ? { ...p, isFleece: !!saved.isFleece } : p;
+  });
+  const [savedCostProds, setSavedCostProds] = useState(initSavedItems.length > 0 ? initSavedItems : [EMPTY_COST_PRODUCT()]);
   const [costMargin, setCostMargin] = useState(savedData?.costMargin || "30%");
   const [inclShip, setInclShip] = useState(savedData?.inclShip !== undefined ? savedData.inclShip : true);
   const [inclCC, setInclCC] = useState(savedData?.inclCC !== undefined ? savedData.inclCC : true);
