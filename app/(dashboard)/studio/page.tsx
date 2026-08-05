@@ -213,6 +213,10 @@ function BriefSheet({ detail, onRefresh, onClose }: any) {
   // Click-to-edit title (house rule: dotted-underline editables).
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleVal, setTitleVal] = useState("");
+  async function unbank() {
+    setBusy(true);
+    try { await fetch(`/api/studio/briefs/${b.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ unbank: true }) }); await onRefresh(); } finally { setBusy(false); }
+  }
   async function saveTitle() {
     const t = titleVal.trim();
     setEditingTitle(false);
@@ -372,7 +376,10 @@ function BriefSheet({ detail, onRefresh, onClose }: any) {
             <div style={{ marginTop: 7 }}><a href={`/jobs/${orderReq.job_id}`} target="_blank" rel="noreferrer" style={{ color: H.green, fontWeight: 800, fontSize: 12.5, textDecoration: "none" }}>✓ In the pipeline · {orderReq.jobs?.job_number || "open the job"} ↗</a></div>
           )}
           {(!orderReq || (orderReq.handled_at && !orderReq.job_id)) && !wordForm && (
-            <div style={{ marginTop: 10 }}><button disabled={busy} onClick={() => setWordForm(true)} style={{ background: H.green, color: "#08210a", border: "none", borderRadius: 999, padding: "10px 18px", fontSize: 10.5, fontWeight: 900, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>+ Order on their word</button></div>
+            <div style={{ marginTop: 10, display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
+              <button disabled={busy} onClick={() => setWordForm(true)} style={{ background: H.green, color: "#08210a", border: "none", borderRadius: 999, padding: "10px 18px", fontSize: 10.5, fontWeight: 900, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>+ Order on their word</button>
+              <button disabled={busy} onClick={unbank} title="Pull it back into the works — pin stays until the next bank" style={{ background: "none", border: "none", color: H.faint, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font, padding: 0 }}>↩ Back to the works</button>
+            </div>
           )}
           {wordForm && (
             <div style={{ marginTop: 12, border: `1px dashed rgba(88,201,60,.4)`, borderRadius: 12, padding: 13 }}>

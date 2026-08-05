@@ -1233,7 +1233,11 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     const cp = decoState[item.id] || cpFor(item) || {};          // decoState overlays unsaved decoration edits
     const bslQtys = { ...(item.qtys || {}) };                    // items.qtys is built from buy_sheet_lines upstream
     const blankCosts = (item.blank_costs && Object.keys(item.blank_costs).length) ? item.blank_costs : (cp.blankCosts || {});
-    return { ...cp, id: item.id, name: item.name, qtys: bslQtys, totalQty: sumQ(bslQtys), blankCosts, blank_vendor: item.blank_vendor, garment_type: item.garment_type };
+    // items.is_fleece is canonical (saved cp as legacy fallback) — without
+    // this overlay every assemble-based persist rebuilt the costProd
+    // fleece-less and calcCostProduct priced WITHOUT the upcharge whenever
+    // the blob lacked the flag (the Ops Health fleece tripwire, 2608-004).
+    return { ...cp, id: item.id, name: item.name, qtys: bslQtys, totalQty: sumQ(bslQtys), blankCosts, blank_vendor: item.blank_vendor, garment_type: item.garment_type, isFleece: !!(item.is_fleece || cp.isFleece) };
   };
   const allAssembled = items.map(assemble);
 
@@ -1249,7 +1253,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       const cp = ds[item.id] || cpFor(item) || {};
       const q = { ...(item.qtys || {}) };
       const bc = (item.blank_costs && Object.keys(item.blank_costs).length) ? item.blank_costs : (cp.blankCosts || {});
-      return { ...cp, id: item.id, name: item.name, qtys: q, totalQty: sumQ(q), blankCosts: bc, blank_vendor: item.blank_vendor, garment_type: item.garment_type };
+      return { ...cp, id: item.id, name: item.name, qtys: q, totalQty: sumQ(q), blankCosts: bc, blank_vendor: item.blank_vendor, garment_type: item.garment_type, isFleece: !!(item.is_fleece || cp.isFleece) };
     };
     const supabase = createClient();
     try {
@@ -2281,10 +2285,15 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                         </select>
                       </label>
                       {!locked && (
-                        <button onClick={() => toggleFleece(it)} title="Fleece applies the decorator's per-print fleece upcharge + fleece packaging"
-                          style={{ alignSelf: "flex-end", fontSize: 10, fontWeight: 700, padding: "9px 12px", borderRadius: 8, border: `1px solid ${it.is_fleece ? T.green : T.border}`, background: it.is_fleece ? T.green : T.card, color: it.is_fleece ? "#fff" : T.muted, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase", fontFamily: font }}>
-                          {it.is_fleece ? "Fleece ✓" : "Fleece?"}
-                        </button>
+                        <div style={{ flex: "0 0 auto" }}>
+                          {/* hidden caption keeps the button on the same
+                              baseline as the labeled columns beside it */}
+                          <span style={{ ...lbl, display: "block", marginBottom: 5, visibility: "hidden" }}>Fleece</span>
+                          <button onClick={() => toggleFleece(it)} title="Fleece applies the decorator's per-print fleece upcharge + fleece packaging"
+                            style={{ display: "block", fontSize: 10, fontWeight: 700, padding: "10px 12px", borderRadius: 8, border: `1px solid ${it.is_fleece ? T.green : T.border}`, background: it.is_fleece ? T.green : T.card, color: it.is_fleece ? "#fff" : T.muted, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase", fontFamily: font, lineHeight: "17.5px", boxSizing: "border-box" }}>
+                            {it.is_fleece ? "Fleece ✓" : "Fleece?"}
+                          </button>
+                        </div>
                       )}
                       {/* Blank + color are READ-ONLY here — the picker owns them
                           (Pick/Swap blank), same ownership rule as classic. */}
