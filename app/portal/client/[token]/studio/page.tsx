@@ -27,10 +27,34 @@ export default function ClientStudioPage() {
     const j = await fetch(`/api/portal/client/${token}/studio`).then(r => r.json()).catch(() => ({}));
     if (!j.error) { setClient(j.client); setBriefs(j.briefs || []); }
   }
-  async function loadDetail(id: string) { setDetail(await fetch(`/api/portal/client/${token}/studio/${id}`).then(r => r.json()).catch(() => null)); }
+  // Chevron speed (Jon, Aug 6): details are cached and neighbors prefetched,
+  // so a ‹ › tap swaps instantly from cache (then silently revalidates). The
+  // inflight map dedupes — a tap that beats the prefetch joins it mid-flight.
+  const detailCache = useRef<Map<string, any>>(new Map());
+  const inflight = useRef<Map<string, Promise<any>>>(new Map());
+  const openRef = useRef<string | null>(null);
+  const fetchDetail = (id: string) => {
+    const running = inflight.current.get(id);
+    if (running) return running;
+    const req = fetch(`/api/portal/client/${token}/studio/${id}`).then(r => r.json())
+      .then(d => { inflight.current.delete(id); if (d?.brief) detailCache.current.set(id, d); return d; })
+      .catch(() => { inflight.current.delete(id); return null; });
+    inflight.current.set(id, req);
+    return req;
+  };
+  async function loadDetail(id: string) {
+    const cached = detailCache.current.get(id);
+    if (cached) {
+      setDetail(cached);
+      fetchDetail(id).then(d => { if (d?.brief && openRef.current === id) setDetail(d); });
+      return;
+    }
+    const d = await fetchDetail(id);
+    if (openRef.current === id) setDetail(d);
+  }
   useEffect(() => { loadList(); /* eslint-disable-next-line */ }, [token]);
-  useEffect(() => { if (openId) loadDetail(openId); else setDetail(null); /* eslint-disable-next-line */ }, [openId]);
-  const refresh = async () => { await loadList(); if (openId) await loadDetail(openId); };
+  useEffect(() => { openRef.current = openId; if (openId) loadDetail(openId); else setDetail(null); /* eslint-disable-next-line */ }, [openId]);
+  const refresh = async () => { detailCache.current.clear(); await loadList(); if (openId) await loadDetail(openId); };
 
   // Scroll-lock the feed while a sheet is open — without it the underlying
   // page scrolls behind the fixed sheet when the keyboard opens (the mobile
@@ -49,6 +73,12 @@ export default function ClientStudioPage() {
   const navIdx = openId ? ordered.findIndex(b => b.id === openId) : -1;
   const goPrev = () => { if (navIdx > 0) setOpenId(ordered[navIdx - 1].id); };
   const goNext = () => { if (navIdx >= 0 && navIdx < ordered.length - 1) setOpenId(ordered[navIdx + 1].id); };
+  useEffect(() => {
+    if (!openId) return;
+    const i = ordered.findIndex(b => b.id === openId);
+    [ordered[i - 1], ordered[i + 1]].forEach(n => { if (n && !detailCache.current.has(n.id)) fetchDetail(n.id); });
+    /* eslint-disable-next-line */
+  }, [openId, briefs]);
   useEffect(() => {
     if (!openId) return;
     const onKey = (e: KeyboardEvent) => {
@@ -101,8 +131,15 @@ export default function ClientStudioPage() {
             <div className="cs2-grid">
               {list.map(b => (
                 <button key={b.id} className="cs2-card" onClick={() => setOpenId(b.id)} style={{ textAlign: "left", padding: 0, background: C.panel, border: `1px solid ${b.state === "with_client" ? "rgba(244,178,43,.5)" : C.line}`, borderRadius: 14, overflow: "hidden", cursor: "pointer", fontFamily: C.font, color: C.text, display: "block", width: "100%" }}>
-                  <div style={{ aspectRatio: "1", background: b._art ? "#fff" : C.surface, display: "flex", alignItems: "flex-end", overflow: "hidden" }}>
-                    {b._art ? <img src={thumb(b._art, 400)} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />
+                  <div style={{ aspectRatio: "1", background: b._art || b._lineup ? "#fff" : C.surface, display: "flex", alignItems: "flex-end", overflow: "hidden", position: "relative" }}>
+                    {b._lineup && b._lineup.thumbs.length >= 2 ? (
+                      <>
+                        <span style={{ position: "absolute", inset: 0, display: "grid", gridTemplateColumns: "1fr 1fr", gridTemplateRows: "1fr 1fr", gap: 2, background: "#fff" }}>
+                          {b._lineup.thumbs.slice(0, 4).map((id: string, i: number) => <img key={i} src={thumb(id, 300)} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.opacity = 0.15; }} />)}
+                        </span>
+                        <span style={{ position: "absolute", right: 6, bottom: 6, background: "rgba(10,10,10,.85)", color: C.amber, borderRadius: 999, padding: "3px 9px", fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase" }}>{b._lineup.count} options</span>
+                      </>
+                    ) : b._art ? <img src={thumb(b._art, 400)} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />
                       : <span style={{ padding: 12, fontSize: 14, fontWeight: 900, textTransform: "uppercase", color: C.dim, lineHeight: 1.15 }}>{b.title}</span>}
                   </div>
                   <div style={{ padding: "10px 12px 12px" }}>
@@ -126,6 +163,18 @@ export default function ClientStudioPage() {
 function Sheet({ detail, token, onClose, onRefresh, nav }: any) {
   const b = detail.brief; const timeline: any[] = detail.timeline || [];
   const orderReq = detail.orderRequest;
+  const lineup = detail.lineup;
+  const ballotLive = !!(lineup && !lineup.picks_at);
+  const [picks, setPicks] = useState<Record<string, boolean>>({});
+  const [pickNote, setPickNote] = useState("");
+  const pickCount = Object.values(picks).filter(Boolean).length;
+  async function sendPicks() {
+    if (!pickCount) return; setBusy(true);
+    try {
+      await fetch(`/api/portal/client/${token}/studio/${b.id}/action`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "picks", optionIds: Object.keys(picks).filter(k => picks[k]), note: pickNote.trim() || null }) });
+      setPicks({}); setPickNote(""); await onRefresh();
+    } finally { setBusy(false); }
+  }
   const st = STATE(b.state);
   const [note, setNote] = useState(""); const [busy, setBusy] = useState(false); const [uploading, setUploading] = useState(false);
   const [bar, setBar] = useState<"idle" | "keep" | "order" | "pass">("idle");
@@ -198,7 +247,45 @@ function Sheet({ detail, token, onClose, onRefresh, nav }: any) {
 
       {b.concept && <div style={{ margin: "6px 20px 0", fontSize: 12.5, color: C.dim, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{b.concept}</div>}
 
-      {hero && (
+      {/* ── THE LINEUP BALLOT — tap the ones you like, send as a batch ── */}
+      {lineup && (
+        <div style={{ padding: "12px 20px 0" }}>
+          {ballotLive ? (
+            <>
+              <div style={{ fontSize: 11, fontWeight: 900, letterSpacing: "0.03em", textTransform: "uppercase", color: C.amber }}>◆ Your move · tap the ones you like</div>
+              <div style={{ fontSize: 12, color: C.dim, marginTop: 3, lineHeight: 1.45 }}>Pick as many as you want, then send them over in one go.</div>
+            </>
+          ) : (
+            <div style={{ background: "rgba(88,201,60,.08)", border: `1px solid rgba(88,201,60,.35)`, borderRadius: 14, padding: "12px 15px", fontSize: 12.5, color: C.dim }}>
+              <b style={{ color: C.green }}>✓ Picks are in</b> — {[...(lineup.options || [])].filter((o: any) => o.picked).sort((a: any, z: any) => a.position - z.position).map((o: any) => String(o.position).padStart(2, "0")).join(", ")}. We&rsquo;re on it.
+            </div>
+          )}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: 10, marginTop: 12 }}>
+            {[...(lineup.options || [])].sort((a: any, z: any) => a.position - z.position).map((o: any) => {
+              const on = ballotLive ? !!picks[o.id] : o.picked;
+              return (
+                <button key={o.id} disabled={!ballotLive} onClick={() => ballotLive && setPicks(m => ({ ...m, [o.id]: !m[o.id] }))}
+                  style={{ position: "relative", padding: 0, background: "#fff", border: on ? `3px solid ${C.green}` : `1px solid ${C.line}`, borderRadius: 12, overflow: "hidden", cursor: ballotLive ? "pointer" : "default", opacity: !ballotLive && !o.picked ? 0.45 : 1, fontFamily: C.font }}>
+                  <img src={o.thumb} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", aspectRatio: "1", objectFit: "cover", display: "block" }} onError={(e: any) => { e.target.style.opacity = 0.2; }} />
+                  <span style={{ position: "absolute", top: 6, left: 6, background: "rgba(10,10,10,.85)", color: "#fff", borderRadius: 6, padding: "2px 8px", fontSize: 11, fontWeight: 900, letterSpacing: "0.06em" }}>{String(o.position).padStart(2, "0")}</span>
+                  {on && <span style={{ position: "absolute", top: 6, right: 6, background: C.green, color: "#08210a", borderRadius: 999, width: 22, height: 22, display: "grid", placeItems: "center", fontSize: 13, fontWeight: 900 }}>✓</span>}
+                  {o.label && <span style={{ display: "block", padding: "6px 8px", fontSize: 10, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.04em", color: "#333", background: "#fff", textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o.label}</span>}
+                </button>
+              );
+            })}
+          </div>
+          {ballotLive && (
+            <div style={{ marginTop: 12 }}>
+              <textarea value={pickNote} onChange={e => setPickNote(e.target.value)} rows={2} placeholder="Anything to add? e.g. 11 but in cream" style={{ ...inp, resize: "vertical" }} />
+              <div style={{ display: "flex", marginTop: 9 }}>
+                <button disabled={busy || !pickCount} onClick={sendPicks} style={{ ...primaryBtn, marginLeft: "auto", background: C.green, color: "#08210a", opacity: busy || !pickCount ? 0.5 : 1 }}>{pickCount ? `Send ${pickCount} pick${pickCount === 1 ? "" : "s"} →` : "Tap to pick"}</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {!ballotLive && hero && (
         <div style={{ marginTop: 12 }}>
           <div style={{ background: "#fff", position: "relative", minHeight: 150 }}>
             <span style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", color: "#999", fontSize: 12, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.06em", padding: 20, textAlign: "center" }}>Preview coming</span>
@@ -229,7 +316,7 @@ function Sheet({ detail, token, onClose, onRefresh, nav }: any) {
       )}
 
       <div style={{ padding: "16px 20px 0" }}>
-        {(heroReactable || bar === "order") && hero && (
+        {!ballotLive && (heroReactable || bar === "order") && hero && (
           <div style={{ background: hero.reaction === "down" ? "transparent" : "linear-gradient(180deg,rgba(244,178,43,.07),transparent)", border: `1px solid ${C.line}`, borderRadius: 16, padding: "14px 16px", marginBottom: 4 }}>
             {bar === "idle" && (
               <div style={{ display: "flex", alignItems: "center", gap: 12 }}>

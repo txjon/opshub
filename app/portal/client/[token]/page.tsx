@@ -40,9 +40,11 @@ export default function HomePage() {
   //    the client's move (or status) is the headline written on it. Amber = your
   //    move; blue = we've got it; green = done/live. Sections run in Jon's order:
   //    Studio · Drops · Orders · Pipeline · Catalog, each hitting what matters. ──
-  const plate = (key: string, art: string | null, eyebrow: string, verb: string, verbColor: string, meta: string, href: string, act = false) => (
+  const plate = (key: string, art: string | null | string[], eyebrow: string, verb: string, verbColor: string, meta: string, href: string, act = false) => (
     <a key={key} href={href} className="gh-plate" style={{ ...(art ? { background: "#fff" } : {}), ...(act ? { boxShadow: `inset 0 0 0 2px ${C.amber}` } : {}) }}>
-      {art && <img src={art} alt="" loading="lazy" referrerPolicy="no-referrer" onError={(e: any) => { e.target.style.display = "none"; }} />}
+      {Array.isArray(art) ? (
+        <span className="lugrid">{art.slice(0, 4).map((u, i) => <img key={i} src={u} alt="" loading="lazy" referrerPolicy="no-referrer" onError={(e: any) => { e.target.style.opacity = 0.15; }} />)}</span>
+      ) : art && <img src={art} alt="" loading="lazy" referrerPolicy="no-referrer" onError={(e: any) => { e.target.style.display = "none"; }} />}
       <span className="veil" />
       <span className="body">
         {act && <span style={{ display: "block", fontSize: 8.5, fontWeight: 800, letterSpacing: "0.15em", textTransform: "uppercase", color: C.amber, marginBottom: 6 }}>◆ Your move</span>}
@@ -61,6 +63,14 @@ export default function HomePage() {
   );
 
   const bThumb = (b: any) => { const t = (b.thumbs || []).find((x: any) => x.preview_drive_file_id || x.drive_file_id); return t ? thumb(t.preview_drive_file_id || t.drive_file_id) : null; };
+  // A live ballot gets the 2×2 collage face — a menu reads differently.
+  const bFace = (b: any): string | null | string[] => {
+    if (b.lineup_open) {
+      const g = (b.thumbs || []).filter((x: any) => x.kind === "lineup").slice(0, 4).map((x: any) => thumb(x.preview_drive_file_id || x.drive_file_id));
+      if (g.length >= 2) return g;
+    }
+    return bThumb(b);
+  };
 
   // Orders — the client's move (or where it stands).
   const orderMove = (o: any): { verb: string; color: string; act: number; works?: boolean } => {
@@ -93,7 +103,7 @@ export default function HomePage() {
   // ── YOUR MOVE (Jon, Jul 22: "1 thing needs you... I don't know which one").
   //    Home IS the spotlight — the only feed on the page (Jon, Jul 28). ──
   const actOrders = orderRows.filter(x => x.act);
-  const actBriefs = (hasStudio ? briefs : []).filter(b => !["killed", "shelved"].includes(b.state) && b.has_unread_external);
+  const actBriefs = (hasStudio ? briefs : []).filter(b => !["killed", "shelved"].includes(b.state) && (b.state === "with_client" || b.has_unread_external));
   const spotlightCount = actOrders.length + actBriefs.length;
 
   const nothing = !loading && spotlightCount === 0 && orderRows.length === 0 && briefs.length === 0;
@@ -109,6 +119,8 @@ export default function HomePage() {
         .gh-plate img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.92}
         .gh-plate .veil{position:absolute;inset:0;background:linear-gradient(178deg,rgba(0,0,0,.08) 20%,rgba(0,0,0,.9) 76%)}
         .gh-plate .body{position:relative;padding:16px}
+        .gh-plate .lugrid{position:absolute;inset:0;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:2px;background:#fff}
+        .gh-plate .lugrid img{position:static;inset:auto;width:100%;height:100%;object-fit:cover;opacity:1}
         @media(prefers-reduced-motion:reduce){.gh-plate,.gh-plate:hover{transition:none;transform:none}}
       ` }} />
 
@@ -133,7 +145,7 @@ export default function HomePage() {
               const art = (o.items || []).map((it: any) => it.thumb_id).find(Boolean);
               return plate(`mv-o-${o.id}`, art ? thumb(art) : null, o.job_number || "Your order", verb, color, o.title || "", `${base}/orders?open=${o.id}`, true);
             })}
-            {actBriefs.map(b => plate(`mv-b-${b.id}`, bThumb(b), b.title || "Your idea", "Take a look", C.amber, b.preview_line || "new from our team", `${base}/studio`, true))}
+            {actBriefs.map(b => plate(`mv-b-${b.id}`, bFace(b), b.title || "Your idea", b.lineup_open ? "Pick your favorites" : "Take a look", C.amber, b.lineup_open ? `${b.lineup_count} options waiting` : (b.preview_line || "new from our team"), `${base}/studio`, true))}
           </div>
           <div style={{ height: 60 }} />
         </>

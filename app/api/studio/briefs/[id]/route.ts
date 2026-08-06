@@ -54,7 +54,15 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     })),
   ].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
 
-  return NextResponse.json({ brief, timeline, orderRequest: orderRequest || null });
+  // The open lineup round (draft, sent, or picked — not yet minted) rides
+  // along so the sheet can render the menu machinery.
+  const { data: lineupRow } = await db.from("lineups").select("*").eq("brief_id", params.id).is("closed_at", null).order("created_at", { ascending: false }).limit(1).maybeSingle();
+  let lineup: any = null;
+  if (lineupRow) {
+    const { data: options } = await db.from("lineup_options").select("id, position, label, drive_file_id, preview_drive_file_id, picked").eq("lineup_id", (lineupRow as any).id).order("position");
+    lineup = { ...(lineupRow as any), options: (options || []).map((o: any) => ({ ...o, thumb: `/api/files/thumbnail?id=${o.preview_drive_file_id || o.drive_file_id}&thumb=1&size=500` })) };
+  }
+  return NextResponse.json({ brief, timeline, orderRequest: orderRequest || null, lineup });
 }
 
 // PATCH { title } — rename. PATCH { unbank: true } — pull a banked design

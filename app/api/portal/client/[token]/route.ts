@@ -121,6 +121,22 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
       }
     }
 
+    // Live ballots (sent, un-minted lineups) front their options — the home
+    // chips grid them so a menu design reads differently at a glance.
+    const lineupByBrief: Record<string, { count: number; thumbs: any[] }> = {};
+    {
+      const bids = briefList.map((b: any) => b.id);
+      if (bids.length) {
+        const { data: lus } = await db.from("lineups").select("id, brief_id").in("brief_id", bids).not("sent_at", "is", null).is("closed_at", null);
+        for (const lu of (lus || []) as any[]) {
+          const { data: opts } = await db.from("lineup_options").select("drive_file_id, preview_drive_file_id, position").eq("lineup_id", lu.id).order("position").limit(8);
+          if ((opts || []).length) lineupByBrief[lu.brief_id] = {
+            count: (opts || []).length,
+            thumbs: (opts || []).map((o: any) => ({ drive_file_id: o.drive_file_id, preview_drive_file_id: o.preview_drive_file_id || null, drive_link: null, kind: "lineup" })),
+          };
+        }
+      }
+    }
     const out = briefList.map(b => {
       const files = filesByBrief[b.id] || [];
       const thumbs = files.slice(0, 8).map(f => ({
@@ -129,6 +145,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         drive_link: f.drive_link,
         kind: f.kind,
       }));
+      if (lineupByBrief[b.id]) thumbs.unshift(...lineupByBrief[b.id].thumbs);
       // Tile-level action-banner needs to know whether this brief has a
       // formal draft to approve (vs a forwarded WIP that's just a
       // direction check). Keeps banner copy honest at client_review.
@@ -199,6 +216,8 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         job_number: b.jobs?.job_number || null,
         sent_to_designer_at: b.sent_to_designer_at,
         thumbs,
+        lineup_open: !!lineupByBrief[b.id],
+        lineup_count: lineupByBrief[b.id]?.count || 0,
         thumb_total: files.length,
         updated_at: b.updated_at,
         last_activity_at: latestAt,
