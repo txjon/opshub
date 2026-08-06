@@ -34,8 +34,10 @@ export const dynamic = "force-dynamic";
 // Not copied:
 //   - decorator_assignments (start clean for the new run)
 //   - pipeline_stage / blanks_order_number / tracking
-//   - QB invoice number, Stripe invoice id, payment links, po_sent_vendors
 //   - quote_approved / quote_approved_at (this job needs its own approval)
+//   - type_meta beyond the explicit allowlist (venue_address,
+//     shipping_notes, payment_method) — QB/Stripe/PO/lock/change-request
+//     state never rides into a fresh order
 
 function admin() {
   return createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
@@ -57,28 +59,20 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       .single();
     if (jobErr || !srcJob) return NextResponse.json({ error: "Job not found" }, { status: 404 });
 
-    // Strip transactional / external-system fields from type_meta so the
-    // duplicate doesn't masquerade as already invoiced / PO'd. Keeps
-    // benign meta like venue addresses, shipping notes, etc.
+    // type_meta: ALLOWLIST, not a strip-list. A delete-list rots — every
+    // new transactional key added anywhere in the app silently rides into
+    // duplicates until someone notices (po_ship_dates did exactly this:
+    // the old run's vendor promise dates made a fresh dupe read "73d
+    // late" on the projects board). Only keys that are still true for
+    // the same client placing a NEW order carry over; everything else —
+    // QB/Stripe state, PO promises/snapshots, lock stamps, change
+    // requests, client PO numbers, invoice extras, studio lineage —
+    // stays behind by default, including keys that don't exist yet.
+    const TYPE_META_CARRY = ["venue_address", "shipping_notes", "payment_method"];
     const clearedTypeMeta = (() => {
-      const m: Record<string, any> = { ...((srcJob as any).type_meta || {}) };
-      delete m.qb_invoice_id;
-      delete m.qb_invoice_number;
-      delete m.qb_payment_link;
-      delete m.qb_tax_amount;
-      delete m.qb_total_with_tax;
-      delete m.stripe_invoice_id;
-      delete m.stripe_invoice_number;
-      delete m.stripe_payment_link;
-      delete m.stripe_invoice_status;
-      delete m.stripe_total_cents;
-      delete m.po_sent_vendors;
-      delete m.po_sent_dates;
-      delete m.quote_sent_at;
-      delete m.invoice_sent_at;
-      delete m.invoice_date_override;
-      delete m.last_reminder_sent_at;
-      delete m.qb_variance_pushed_at;
+      const src: Record<string, any> = ((srcJob as any).type_meta || {});
+      const m: Record<string, any> = {};
+      for (const k of TYPE_META_CARRY) if (src[k] != null) m[k] = src[k];
       return m;
     })();
 
@@ -90,7 +84,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
         title: newTitle,
         job_type: (srcJob as any).job_type,
         phase: "intake",
-        priority: (srcJob as any).priority,
+        priority: "normal", // re-derives when a target ship date is set
         payment_terms: (srcJob as any).payment_terms,
         shipping_route: (srcJob as any).shipping_route,
         target_ship_date: null,
