@@ -223,6 +223,7 @@ function BriefSheet({ detail, onRefresh, onClose }: any) {
   const [uploadingN, setUploadingN] = useState(0);
   const lineupIn = useRef<HTMLInputElement | null>(null);
   const [mintRows, setMintRows] = useState<Record<string, { include: boolean; title: string; mergeUp: boolean }>>({});
+  const [dragOver, setDragOver] = useState(false);
   async function startLineup() {
     setLineupBusy(true);
     try { await fetch(`/api/studio/briefs/${b.id}/lineup`, { method: "POST" }); await onRefresh(); } finally { setLineupBusy(false); }
@@ -464,12 +465,28 @@ function BriefSheet({ detail, onRefresh, onClose }: any) {
           )}
 
           {lineup && !lineup.sent_at && (
-            <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 12, flexWrap: "wrap" }}>
+            <>
               <input ref={lineupIn} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={e => { addOptions(e.target.files); if (lineupIn.current) lineupIn.current.value = ""; }} />
-              <button disabled={uploadingN > 0} onClick={() => lineupIn.current?.click()} style={{ ...ghostBtn, color: H.blue, borderColor: "rgba(143,199,216,.4)" }}>{uploadingN > 0 ? `Uploading ${uploadingN}…` : "+ Drop mockups (multi)"}</button>
-              <button disabled={lineupBusy} onClick={discardLineup} style={{ ...ghostBtn, border: "none", color: H.faint }}>discard</button>
-              <button disabled={lineupBusy || (lineup.options || []).length < 2} onClick={sendLineup} style={{ ...primaryBtn, marginLeft: "auto", opacity: lineupBusy || (lineup.options || []).length < 2 ? 0.5 : 1 }}>Send the lineup →</button>
-            </div>
+              <div
+                onClick={() => uploadingN === 0 && lineupIn.current?.click()}
+                onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={e => {
+                  e.preventDefault(); setDragOver(false);
+                  const files = Array.from(e.dataTransfer.files || []).filter(f => f.type.startsWith("image/"));
+                  if (files.length) { const dt = new DataTransfer(); files.forEach(f => dt.items.add(f)); addOptions(dt.files); }
+                }}
+                style={{ marginTop: 12, border: `2px dashed ${dragOver ? H.blue : H.line}`, background: dragOver ? "rgba(143,199,216,.08)" : "transparent", borderRadius: 12, padding: "22px 16px", textAlign: "center", cursor: "pointer", transition: "border-color .15s ease, background .15s ease" }}>
+                <div style={{ fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.05em", color: dragOver ? H.blue : H.dim }}>
+                  {uploadingN > 0 ? `Uploading ${uploadingN}…` : dragOver ? "Drop them" : "Drag mockups here"}
+                </div>
+                {uploadingN === 0 && <div style={{ fontSize: 10.5, color: H.faint, marginTop: 4 }}>as many as you want, numbered as they land · or click to browse</div>}
+              </div>
+              <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 10, flexWrap: "wrap" }}>
+                <button disabled={lineupBusy} onClick={discardLineup} style={{ ...ghostBtn, border: "none", color: H.faint }}>discard</button>
+                <button disabled={lineupBusy || (lineup.options || []).length < 2} onClick={sendLineup} style={{ ...primaryBtn, marginLeft: "auto", opacity: lineupBusy || (lineup.options || []).length < 2 ? 0.5 : 1 }}>Send the lineup →</button>
+              </div>
+            </>
           )}
 
           {lineup && lineup.picks_at && (
