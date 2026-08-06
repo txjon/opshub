@@ -77,8 +77,8 @@ export default function StudioPage() {
         <div style={{ aspectRatio: "1", background: b._art || b._lineup ? "#fff" : H.surface, display: "flex", alignItems: "flex-end", overflow: "hidden", position: "relative" }}>
           {b._lineup && b._lineup.thumbs.length >= 2 ? (
             <>
-              <span style={{ position: "absolute", inset: 0, display: "grid", gridTemplateColumns: "1fr 1fr", gridTemplateRows: "1fr 1fr", gap: 2, background: "#fff" }}>
-                {b._lineup.thumbs.slice(0, 4).map((id: string, i: number) => <img key={i} src={thumb(id, 300)} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.opacity = 0.15; }} />)}
+              <span style={{ position: "absolute", inset: 0, display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gridTemplateRows: "minmax(0,1fr) minmax(0,1fr)", gap: 2, background: "#fff" }}>
+                {b._lineup.thumbs.slice(0, 4).map((id: string, i: number) => <span key={i} style={{ position: "relative", overflow: "hidden" }}><img src={thumb(id, 300)} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.opacity = 0.15; }} /></span>)}
               </span>
               <span style={{ position: "absolute", right: 6, bottom: 6, background: "rgba(10,10,10,.85)", color: H.amber, borderRadius: 999, padding: "3px 9px", fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase" }}>{b._lineup.count} options</span>
             </>

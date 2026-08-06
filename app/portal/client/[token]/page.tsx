@@ -43,7 +43,7 @@ export default function HomePage() {
   const plate = (key: string, art: string | null | string[], eyebrow: string, verb: string, verbColor: string, meta: string, href: string, act = false) => (
     <a key={key} href={href} className="gh-plate" style={{ ...(art ? { background: "#fff" } : {}), ...(act ? { boxShadow: `inset 0 0 0 2px ${C.amber}` } : {}) }}>
       {Array.isArray(art) ? (
-        <span className="lugrid">{art.slice(0, 4).map((u, i) => <img key={i} src={u} alt="" loading="lazy" referrerPolicy="no-referrer" onError={(e: any) => { e.target.style.opacity = 0.15; }} />)}</span>
+        <span className="lugrid">{art.slice(0, 4).map((u, i) => <span key={i} className="cell"><img src={u} alt="" loading="lazy" referrerPolicy="no-referrer" onError={(e: any) => { e.target.style.opacity = 0.15; }} /></span>)}</span>
       ) : art && <img src={art} alt="" loading="lazy" referrerPolicy="no-referrer" onError={(e: any) => { e.target.style.display = "none"; }} />}
       <span className="veil" />
       <span className="body">
@@ -119,8 +119,9 @@ export default function HomePage() {
         .gh-plate img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.92}
         .gh-plate .veil{position:absolute;inset:0;background:linear-gradient(178deg,rgba(0,0,0,.08) 20%,rgba(0,0,0,.9) 76%)}
         .gh-plate .body{position:relative;padding:16px}
-        .gh-plate .lugrid{position:absolute;inset:0;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:2px;background:#fff}
-        .gh-plate .lugrid img{position:static;inset:auto;width:100%;height:100%;object-fit:cover;opacity:1}
+        .gh-plate .lugrid{position:absolute;inset:0;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-rows:minmax(0,1fr) minmax(0,1fr);gap:2px;background:#fff}
+        .gh-plate .lugrid .cell{position:relative;overflow:hidden}
+        .gh-plate .lugrid img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;opacity:1}
         @media(prefers-reduced-motion:reduce){.gh-plate,.gh-plate:hover{transition:none;transform:none}}
       ` }} />
 
