@@ -48,6 +48,17 @@ export async function GET() {
     }
   }
 
+  // Lineup-only designs: the open round's first option fronts the card.
+  const missingArt = ids.filter(id => !artByBrief[id]);
+  if (missingArt.length) {
+    const { data: lus } = await db.from("lineups").select("id, brief_id").in("brief_id", missingArt).is("closed_at", null);
+    for (const lu of (lus || []) as any[]) {
+      if (artByBrief[lu.brief_id]) continue;
+      const { data: firstOpt } = await db.from("lineup_options").select("preview_drive_file_id, drive_file_id").eq("lineup_id", lu.id).order("position").limit(1).maybeSingle();
+      if (firstOpt) artByBrief[lu.brief_id] = (firstOpt as any).preview_drive_file_id || (firstOpt as any).drive_file_id;
+    }
+  }
+
   // Bridged asks: brief → job via order requests.
   const jobByBrief: Record<string, any> = {};
   if (ids.length) {
