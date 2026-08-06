@@ -101,8 +101,15 @@ export default function ClientStudioPage() {
             <div className="cs2-grid">
               {list.map(b => (
                 <button key={b.id} className="cs2-card" onClick={() => setOpenId(b.id)} style={{ textAlign: "left", padding: 0, background: C.panel, border: `1px solid ${b.state === "with_client" ? "rgba(244,178,43,.5)" : C.line}`, borderRadius: 14, overflow: "hidden", cursor: "pointer", fontFamily: C.font, color: C.text, display: "block", width: "100%" }}>
-                  <div style={{ aspectRatio: "1", background: b._art ? "#fff" : C.surface, display: "flex", alignItems: "flex-end", overflow: "hidden" }}>
-                    {b._art ? <img src={thumb(b._art, 400)} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />
+                  <div style={{ aspectRatio: "1", background: b._art || b._lineup ? "#fff" : C.surface, display: "flex", alignItems: "flex-end", overflow: "hidden", position: "relative" }}>
+                    {b._lineup && b._lineup.thumbs.length >= 2 ? (
+                      <>
+                        <span style={{ position: "absolute", inset: 0, display: "grid", gridTemplateColumns: "1fr 1fr", gridTemplateRows: "1fr 1fr", gap: 2, background: "#fff" }}>
+                          {b._lineup.thumbs.slice(0, 4).map((id: string, i: number) => <img key={i} src={thumb(id, 300)} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.opacity = 0.15; }} />)}
+                        </span>
+                        <span style={{ position: "absolute", right: 6, bottom: 6, background: "rgba(10,10,10,.85)", color: C.amber, borderRadius: 999, padding: "3px 9px", fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase" }}>{b._lineup.count} options</span>
+                      </>
+                    ) : b._art ? <img src={thumb(b._art, 400)} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />
                       : <span style={{ padding: 12, fontSize: 14, fontWeight: 900, textTransform: "uppercase", color: C.dim, lineHeight: 1.15 }}>{b.title}</span>}
                   </div>
                   <div style={{ padding: "10px 12px 12px" }}>

@@ -48,14 +48,15 @@ export async function GET() {
     }
   }
 
-  // Lineup-only designs: the open round's first option fronts the card.
-  const missingArt = ids.filter(id => !artByBrief[id]);
-  if (missingArt.length) {
-    const { data: lus } = await db.from("lineups").select("id, brief_id").in("brief_id", missingArt).is("closed_at", null);
+  // Open rounds get the collage: _lineup carries option thumbs + count.
+  const lineupMeta: Record<string, { count: number; thumbs: string[] }> = {};
+  if (ids.length) {
+    const { data: lus } = await db.from("lineups").select("id, brief_id").in("brief_id", ids).is("closed_at", null);
     for (const lu of (lus || []) as any[]) {
-      if (artByBrief[lu.brief_id]) continue;
-      const { data: firstOpt } = await db.from("lineup_options").select("preview_drive_file_id, drive_file_id").eq("lineup_id", lu.id).order("position").limit(1).maybeSingle();
-      if (firstOpt) artByBrief[lu.brief_id] = (firstOpt as any).preview_drive_file_id || (firstOpt as any).drive_file_id;
+      const { data: opts } = await db.from("lineup_options").select("preview_drive_file_id, drive_file_id, position").eq("lineup_id", lu.id).order("position");
+      if (!(opts || []).length) continue;
+      lineupMeta[lu.brief_id] = { count: (opts || []).length, thumbs: (opts || []).slice(0, 4).map((o: any) => o.preview_drive_file_id || o.drive_file_id) };
+      if (!artByBrief[lu.brief_id]) artByBrief[lu.brief_id] = lineupMeta[lu.brief_id].thumbs[0];
     }
   }
 
@@ -71,7 +72,7 @@ export async function GET() {
     briefs: list.map(b => ({
       id: b.id, title: b.title, state: b.state, source: b.source,
       client_name: b.clients?.name || null, updated_at: b.updated_at,
-      _art: artByBrief[b.id] || null, _job: jobByBrief[b.id] || null,
+      _art: artByBrief[b.id] || null, _job: jobByBrief[b.id] || null, _lineup: lineupMeta[b.id] || null,
     })),
   });
 }

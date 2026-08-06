@@ -45,21 +45,23 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
       .select("brief_id").in("brief_id", ids).eq("visibility", "client");
     for (const m of (cm || []) as any[]) hasShared.add(m.brief_id);
   }
-  // Lineup-only designs have no brief files yet — the ballot's first option
-  // fronts the card (SENT rounds only; drafts stay behind the wall).
-  const missingArt = ids.filter(id => !artByBrief[id]);
-  if (missingArt.length) {
-    const { data: lus } = await db.from("lineups").select("id, brief_id").in("brief_id", missingArt).not("sent_at", "is", null).is("closed_at", null);
+  // Live ballots (sent, un-minted) get the collage treatment: _lineup carries
+  // up to 4 option thumbs + count; the first option also backfills _art.
+  const lineupMeta: Record<string, { count: number; thumbs: string[] }> = {};
+  if (ids.length) {
+    const { data: lus } = await db.from("lineups").select("id, brief_id").in("brief_id", ids).not("sent_at", "is", null).is("closed_at", null);
     for (const lu of (lus || []) as any[]) {
-      if (artByBrief[lu.brief_id]) continue;
-      const { data: firstOpt } = await db.from("lineup_options").select("preview_drive_file_id, drive_file_id").eq("lineup_id", lu.id).order("position").limit(1).maybeSingle();
-      if (firstOpt) { artByBrief[lu.brief_id] = (firstOpt as any).preview_drive_file_id || (firstOpt as any).drive_file_id; hasShared.add(lu.brief_id); }
+      const { data: opts } = await db.from("lineup_options").select("preview_drive_file_id, drive_file_id, position").eq("lineup_id", lu.id).order("position");
+      if (!(opts || []).length) continue;
+      lineupMeta[lu.brief_id] = { count: (opts || []).length, thumbs: (opts || []).slice(0, 4).map((o: any) => o.preview_drive_file_id || o.drive_file_id) };
+      if (!artByBrief[lu.brief_id]) artByBrief[lu.brief_id] = lineupMeta[lu.brief_id].thumbs[0];
+      hasShared.add(lu.brief_id);
     }
   }
   const visible = list.filter(b => b.source === "client" || b.state === "with_client" || b.state === "approved" || hasShared.has(b.id));
 
   return NextResponse.json({
     client: { name: (client as any).name },
-    briefs: visible.map(b => ({ id: b.id, title: b.title, state: b.state, _art: artByBrief[b.id] || null })),
+    briefs: visible.map(b => ({ id: b.id, title: b.title, state: b.state, _art: artByBrief[b.id] || null, _lineup: lineupMeta[b.id] || null })),
   });
 }
