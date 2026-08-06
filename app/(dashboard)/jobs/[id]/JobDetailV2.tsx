@@ -840,6 +840,20 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       recalcPhase();
     } finally { setActBusy(false); }
   };
+  // Quiet QB create — mints the invoice NUMBER only (no pay link, zero
+  // emails, no AR row); Send invoice later makes it real. ⋯ menu item.
+  const doQuietQb = async () => {
+    if (actBusy) return; setActBusy(true); setActErr(""); setClientMenu(false);
+    try {
+      const r = await fetch("/api/qb/invoice", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobId: job.id, quiet: true }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || j.error || j.needsCustomerChoice) {
+        setActErr(j.needsCustomerChoice ? "Multiple QB customers match — run Send invoice once to pick, or resolve in QB." : (j.error || "QB create failed"));
+        return;
+      }
+      await refetchTypeMeta();
+    } catch (e: any) { setActErr(e?.message || "QB create failed"); } finally { setActBusy(false); }
+  };
   const doRevoke = async () => {
     if (actBusy) return; setActBusy(true);
     try {
@@ -1847,10 +1861,17 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                           <a key={label} href={href} target="_blank" rel="noreferrer" onClick={() => setClientMenu(false)}
                             style={{ display: "block", padding: "9px 12px", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.text, borderRadius: 7, textDecoration: "none" }}>{label}</a>
                         ))}
+                        {!invNum && (
+                          <button onClick={doQuietQb} disabled={actBusy}
+                            style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.muted, borderRadius: 7, background: "none", border: "none", cursor: actBusy ? "default" : "pointer" }}>
+                            {actBusy ? "Creating in QB…" : "Create QB invoice · don’t send"}
+                          </button>
+                        )}
                       </div>
                     </>
                   )}
                 </div>
+                {actErr && <div style={{ width: "100%", color: T.red, fontSize: 12 }}>{actErr}</div>}
               </div>
             );
           })()}
