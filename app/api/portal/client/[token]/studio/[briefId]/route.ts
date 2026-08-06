@@ -42,9 +42,19 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     })),
   ].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
 
+  // A SENT, un-minted lineup is the client's ballot — drafts stay invisible
+  // (the wall). Picks state rides so the sheet shows "you picked 03, 07".
+  const { data: lineupRow } = await db.from("lineups").select("id, sent_at, picks_at, client_note").eq("brief_id", params.briefId).not("sent_at", "is", null).is("closed_at", null).order("created_at", { ascending: false }).limit(1).maybeSingle();
+  let lineup: any = null;
+  if (lineupRow) {
+    const { data: options } = await db.from("lineup_options").select("id, position, label, drive_file_id, preview_drive_file_id, picked").eq("lineup_id", (lineupRow as any).id).order("position");
+    lineup = { id: (lineupRow as any).id, picks_at: (lineupRow as any).picks_at, client_note: (lineupRow as any).client_note,
+      options: (options || []).map((o: any) => ({ id: o.id, position: o.position, label: o.label, picked: o.picked, thumb: `/api/files/thumbnail?id=${o.preview_drive_file_id || o.drive_file_id}&thumb=1&size=500` })) };
+  }
   return NextResponse.json({
     brief: { id: (brief as any).id, title: (brief as any).title, state: (brief as any).state, approved_file_id: (brief as any).approved_file_id, concept: (brief as any).concept || null },
     timeline,
     orderRequest: orderRequest ? { blank: (orderRequest as any).blank, qty: (orderRequest as any).qty, open: !(orderRequest as any).handled_at } : null,
+    lineup,
   });
 }

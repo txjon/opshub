@@ -126,6 +126,26 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     return NextResponse.json({ ok: true, state: "working" });
   }
 
+  // The lineup ballot — a BATCH: tap-selected options + one note, committed
+  // together. Ball back to us (working) so the picks land in our Your move.
+  if (b.action === "picks") {
+    const { data: lineupRow } = await db.from("lineups").select("id, sent_at, picks_at, closed_at").eq("brief_id", params.briefId).not("sent_at", "is", null).is("closed_at", null).order("created_at", { ascending: false }).limit(1).maybeSingle();
+    if (!lineupRow) return NextResponse.json({ error: "No lineup to pick from" }, { status: 400 });
+    if ((lineupRow as any).picks_at) return NextResponse.json({ error: "Picks are already in" }, { status: 409 });
+    const ids: string[] = Array.isArray(b.optionIds) ? b.optionIds : [];
+    if (!ids.length) return NextResponse.json({ error: "Tap at least one to pick it" }, { status: 400 });
+    const { data: valid } = await db.from("lineup_options").select("id, position, label").eq("lineup_id", (lineupRow as any).id).in("id", ids);
+    if (!(valid || []).length) return NextResponse.json({ error: "Those options aren't in this lineup" }, { status: 400 });
+    await db.from("lineup_options").update({ picked: true } as never).eq("lineup_id", (lineupRow as any).id).in("id", (valid || []).map((v: any) => v.id));
+    const note = String(b.note || "").trim() || null;
+    await db.from("lineups").update({ picks_at: now, client_note: note } as never).eq("id", (lineupRow as any).id);
+    const nums = (valid || []).sort((a: any, z: any) => a.position - z.position).map((v: any) => String(v.position).padStart(2, "0")).join(", ");
+    await marker(`✓ Picked ${nums}.`);
+    if (note) await db.from("art_brief_messages").insert({ brief_id: params.briefId, sender_role: "client", sender_name: name, message: note, visibility: "client" } as never);
+    await db.from("art_briefs").update({ state: "working", updated_at: now } as never).eq("id", params.briefId);
+    return NextResponse.json({ ok: true });
+  }
+
   if (b.action === "shelve" || b.action === "kill") {
     const killed = b.action === "kill";
     await db.from("art_briefs").update({ state: killed ? "killed" : "shelved", updated_at: now } as never).eq("id", params.briefId);

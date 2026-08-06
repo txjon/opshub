@@ -53,7 +53,8 @@ export async function DELETE(_req: NextRequest, { params }: { params: { fileId: 
     // Two ref surfaces: sibling brief files first, then the helper checks
     // item_files (the fork copies by reference) and trashes only when clean.
     const { count } = await db.from("art_brief_files").select("id", { count: "exact", head: true }).eq("drive_file_id", driveId);
-    if ((count || 0) === 0) { try { await deleteDriveFileIfUnreferenced(driveId); } catch {} }
+    const { count: lineupRefs } = await db.from("lineup_options").select("id", { count: "exact", head: true }).eq("drive_file_id", driveId);
+    if ((count || 0) + (lineupRefs || 0) === 0) { try { await deleteDriveFileIfUnreferenced(driveId); } catch {} }
   }
   return NextResponse.json({ ok: true });
 }
