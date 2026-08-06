@@ -19,10 +19,11 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     .eq("id", params.briefId).eq("client_id", (client as any).id).eq("internal_only", false).maybeSingle();
   if (!brief) return NextResponse.json({ error: "Not your design" }, { status: 404 });
 
-  const [{ data: messages }, { data: files }, { data: orderRequest }] = await Promise.all([
+  const [{ data: messages }, { data: files }, { data: orderRequest }, { data: lineupRow }] = await Promise.all([
     db.from("art_brief_messages").select("id, sender_role, sender_name, message, created_at").eq("brief_id", params.briefId).eq("visibility", "client").order("created_at"),
     db.from("art_brief_files").select("id, file_name, drive_file_id, preview_drive_file_id, uploader_role, shared_with_client_at, kind, reaction, created_at").eq("brief_id", params.briefId).order("created_at"),
     db.from("lab_order_requests").select("blank, qty, handled_at").eq("brief_id", params.briefId).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+    db.from("lineups").select("id, sent_at, picks_at, client_note").eq("brief_id", params.briefId).not("sent_at", "is", null).is("closed_at", null).order("created_at", { ascending: false }).limit(1).maybeSingle(),
   ]);
 
   const sharedFiles = ((files || []) as any[]).filter(f => isClientVisibleFile(f) && f.drive_file_id);
@@ -44,7 +45,6 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
 
   // A SENT, un-minted lineup is the client's ballot — drafts stay invisible
   // (the wall). Picks state rides so the sheet shows "you picked 03, 07".
-  const { data: lineupRow } = await db.from("lineups").select("id, sent_at, picks_at, client_note").eq("brief_id", params.briefId).not("sent_at", "is", null).is("closed_at", null).order("created_at", { ascending: false }).limit(1).maybeSingle();
   let lineup: any = null;
   if (lineupRow) {
     const { data: options } = await db.from("lineup_options").select("id, position, label, drive_file_id, preview_drive_file_id, picked").eq("lineup_id", (lineupRow as any).id).order("position");

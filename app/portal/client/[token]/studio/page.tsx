@@ -27,10 +27,34 @@ export default function ClientStudioPage() {
     const j = await fetch(`/api/portal/client/${token}/studio`).then(r => r.json()).catch(() => ({}));
     if (!j.error) { setClient(j.client); setBriefs(j.briefs || []); }
   }
-  async function loadDetail(id: string) { setDetail(await fetch(`/api/portal/client/${token}/studio/${id}`).then(r => r.json()).catch(() => null)); }
+  // Chevron speed (Jon, Aug 6): details are cached and neighbors prefetched,
+  // so a ‹ › tap swaps instantly from cache (then silently revalidates). The
+  // inflight map dedupes — a tap that beats the prefetch joins it mid-flight.
+  const detailCache = useRef<Map<string, any>>(new Map());
+  const inflight = useRef<Map<string, Promise<any>>>(new Map());
+  const openRef = useRef<string | null>(null);
+  const fetchDetail = (id: string) => {
+    const running = inflight.current.get(id);
+    if (running) return running;
+    const req = fetch(`/api/portal/client/${token}/studio/${id}`).then(r => r.json())
+      .then(d => { inflight.current.delete(id); if (d?.brief) detailCache.current.set(id, d); return d; })
+      .catch(() => { inflight.current.delete(id); return null; });
+    inflight.current.set(id, req);
+    return req;
+  };
+  async function loadDetail(id: string) {
+    const cached = detailCache.current.get(id);
+    if (cached) {
+      setDetail(cached);
+      fetchDetail(id).then(d => { if (d?.brief && openRef.current === id) setDetail(d); });
+      return;
+    }
+    const d = await fetchDetail(id);
+    if (openRef.current === id) setDetail(d);
+  }
   useEffect(() => { loadList(); /* eslint-disable-next-line */ }, [token]);
-  useEffect(() => { if (openId) loadDetail(openId); else setDetail(null); /* eslint-disable-next-line */ }, [openId]);
-  const refresh = async () => { await loadList(); if (openId) await loadDetail(openId); };
+  useEffect(() => { openRef.current = openId; if (openId) loadDetail(openId); else setDetail(null); /* eslint-disable-next-line */ }, [openId]);
+  const refresh = async () => { detailCache.current.clear(); await loadList(); if (openId) await loadDetail(openId); };
 
   // Scroll-lock the feed while a sheet is open — without it the underlying
   // page scrolls behind the fixed sheet when the keyboard opens (the mobile
@@ -49,6 +73,12 @@ export default function ClientStudioPage() {
   const navIdx = openId ? ordered.findIndex(b => b.id === openId) : -1;
   const goPrev = () => { if (navIdx > 0) setOpenId(ordered[navIdx - 1].id); };
   const goNext = () => { if (navIdx >= 0 && navIdx < ordered.length - 1) setOpenId(ordered[navIdx + 1].id); };
+  useEffect(() => {
+    if (!openId) return;
+    const i = ordered.findIndex(b => b.id === openId);
+    [ordered[i - 1], ordered[i + 1]].forEach(n => { if (n && !detailCache.current.has(n.id)) fetchDetail(n.id); });
+    /* eslint-disable-next-line */
+  }, [openId, briefs]);
   useEffect(() => {
     if (!openId) return;
     const onKey = (e: KeyboardEvent) => {
