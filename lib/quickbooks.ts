@@ -381,6 +381,7 @@ export async function createInvoice(
     email?: string;
     allowCC?: boolean;       // defaults true
     allowACH?: boolean;      // defaults true
+    skipPaymentLink?: boolean; // quiet create: no /send at all (no link, zero emails)
   } = {}
 ): Promise<{ invoiceId: string; invoiceNumber: string; paymentLink: string; taxAmount: number; totalWithTax: number }> {
   // Look up QB item IDs for each product/service name
@@ -481,8 +482,10 @@ export async function createInvoice(
   // Delegate to refreshPaymentLink — it already handles: existing valid link,
   // /send via internal hello@, retry-read with backoff for QB's empty-response
   // quirk, and fallback to the customer email when QB refuses internal /send.
-  const paymentLink = await refreshPaymentLink(invoice.Id, options.email);
-  console.log("[QB] Invoice created — InvoiceLink:", paymentLink || "(still empty)");
+  // Quiet create: skip the /send-based link mint entirely — /send is the only
+  // step that can email anyone (its fallback targets the customer address).
+  const paymentLink = options.skipPaymentLink ? "" : await refreshPaymentLink(invoice.Id, options.email);
+  console.log("[QB] Invoice created — InvoiceLink:", paymentLink || (options.skipPaymentLink ? "(quiet — link not minted)" : "(still empty)"));
 
   return {
     invoiceId: invoice.Id,

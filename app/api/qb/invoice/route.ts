@@ -35,7 +35,10 @@ export async function POST(req: NextRequest) {
       userId = user.id;
     }
 
-    const { jobId, useShippedQtys, billableQtys, forceCreate, qbCustomerId } = await req.json();
+    const { jobId, useShippedQtys, billableQtys, forceCreate, qbCustomerId, quiet } = await req.json();
+    // quiet: create the QB invoice for its NUMBER only — no payment link mint
+    // (zero emails), AR row opens as draft with no due date (hub gate ignores
+    // draft, dashboard won't age it). Send invoice later flips it live.
     if (!jobId) return NextResponse.json({ error: "Missing jobId" }, { status: 400 });
     // billableQtys: optional Record<itemId, totalQty> — variance review override (per-line edit/waive)
     // forceCreate: skip the ambiguous-match safety net (chooser "Create new" path)
@@ -297,6 +300,28 @@ export async function POST(req: NextRequest) {
       // revised). Same producer-side review pattern as the portal gate
       // and the Invoice Drafted vs Invoice Sent split.
 
+      // Self-heal the AR row: a quiet-created invoice has none (nothing
+      // owed pre-send) — its first real push lands here, so open it now.
+      const updTotal = Number(updated.totalWithTax) || 0;
+      if (updTotal > 0 && !quiet) {
+        const { data: arRow } = await admin.from("payment_records")
+          .select("id").eq("job_id", jobId).eq("qb_invoice_id", existingInvoiceId).maybeSingle();
+        if (!arRow) {
+          const terms = (job.payment_terms || "") as string;
+          const daysOut = terms === "net_15" ? 15 : terms === "net_30" ? 30 : null;
+          await admin.from("payment_records").insert({
+            job_id: jobId,
+            qb_invoice_id: existingInvoiceId,
+            invoice_number: job.type_meta?.qb_invoice_number || null,
+            type: "full_payment",
+            amount: updTotal,
+            status: "sent",
+            due_date: daysOut !== null ? new Date(Date.now() + daysOut * 86400000).toISOString().split("T")[0] : null,
+            paid_date: null,
+          });
+        }
+      }
+
       // Log activity
       await admin.from("job_activity").insert({
         job_id: jobId, user_id: userId, type: "auto",
@@ -321,6 +346,7 @@ export async function POST(req: NextRequest) {
       shipAddress: shipAddr,
       allowCC,
       allowACH,
+      skipPaymentLink: !!quiet,
     });
 
     // Save QB invoice data to job
@@ -346,8 +372,10 @@ export async function POST(req: NextRequest) {
     // flip this row's status to "paid" when the customer pays
     // (matched by qb_invoice_id, so no dup is created). Skip if a
     // row already exists for this qb_invoice_id (re-push case).
+    // Quiet create opens NO row — nothing is owed until a real send;
+    // the update path self-heals the row when the send happens.
     const totalAmount = Number(result.totalWithTax) || 0;
-    if (totalAmount > 0) {
+    if (totalAmount > 0 && !quiet) {
       const { data: existing } = await admin.from("payment_records")
         .select("id")
         .eq("job_id", jobId)
@@ -379,7 +407,9 @@ export async function POST(req: NextRequest) {
     // Log activity
     await admin.from("job_activity").insert({
       job_id: jobId, user_id: userId, type: "auto",
-      message: `Invoice pushed to QuickBooks — #${result.invoiceNumber} · $${result.totalWithTax?.toFixed(2) || "?"}`,
+      message: quiet
+        ? `Invoice drafted in QuickBooks (not sent) — #${result.invoiceNumber} · $${result.totalWithTax?.toFixed(2) || "?"}`
+        : `Invoice pushed to QuickBooks — #${result.invoiceNumber} · $${result.totalWithTax?.toFixed(2) || "?"}`,
     });
 
     return NextResponse.json({
