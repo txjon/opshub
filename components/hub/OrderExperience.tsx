@@ -94,8 +94,13 @@ export function OrderExperience({ data, token, onAction }: {
         ? "Paid in full. Thank you!"
         : "Paid in full. Thank you!";
     } else if (totalPaid > 0 && balance > 0.005) {
-      note = `Your order total grew since invoice ${invoiceNumber ? `#${invoiceNumber}` : "was sent"}. An updated invoice for the difference is on its way${netTerms && termsLabel ? `, billed on your ${termsLabel} terms` : ""}. Nothing to pay right now.`;
-      if (!netTerms && paymentLink) { note = `Balance remaining on invoice ${invoiceNumber ? `#${invoiceNumber}` : ""}.`; cta = { label: `View Invoice · ${fmtMoney(balance)} due`, href: paymentLink }; }
+      // Partially paid = a deposit in and a remainder open. Never "growth"
+      // copy here — the revisedUp branch above owns real growth (a deposit
+      // on net terms was reading "your order grew", the #4365 case).
+      note = netTerms
+        ? `${fmtMoney(totalPaid)} received — thank you. The remaining ${fmtMoney(balance)} is due on your ${termsLabel || "net"} terms.`
+        : `Balance remaining on invoice ${invoiceNumber ? `#${invoiceNumber}` : ""}.`;
+      if (paymentLink) cta = { label: `View Invoice · ${fmtMoney(balance)} due`, href: paymentLink };
     } else if (netTerms) {
       // Net terms = WHEN it's due, not whether they can pay. Once the
       // invoice is sent with a live link, show it (the old always-no-cta
