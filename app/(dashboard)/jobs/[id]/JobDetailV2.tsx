@@ -265,18 +265,39 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   const [bakeIds, setBakeIds] = useState<string[] | null>(null);
   const bakeRemainRef = React.useRef<Set<string>>(new Set());
   const bakeResolveRef = React.useRef<(() => void) | null>(null);
+  // Bakes run ONE at a time — firing the whole queue at Browserless
+  // concurrently rate-limits (429) and every proof past the first few
+  // silently never lands (the 12-proof Kill Em case, Aug 7).
+  const bakeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const armBakeValve = () => {
+    if (bakeTimerRef.current) clearTimeout(bakeTimerRef.current);
+    // Valve = 60s of NO PROGRESS (re-armed on every finished bake), so a
+    // long queue gets all the time it needs but a wedged render can't
+    // stall the send. Firing is LOUD: the gap lands in job activity.
+    bakeTimerRef.current = setTimeout(() => {
+      if (!bakeResolveRef.current) return;
+      const left = bakeRemainRef.current.size;
+      console.warn(`[JobV2] proof bake stalled — continuing send without ${left} PDF(s)`);
+      try { logJobActivity(job.id, `⚠ ${left} proof PDF${left === 1 ? "" : "s"} failed to bake during send — Drive links may be missing them; use "Bake to Drive" on Approvals & Billing`); } catch {}
+      const r = bakeResolveRef.current; bakeResolveRef.current = null; setBakeIds(null); r();
+    }, 60000);
+  };
   const bakeProofPdfs = (ids: string[]) => new Promise<void>(resolve => {
+    if (!ids.length) return resolve();
     bakeRemainRef.current = new Set(ids);
     bakeResolveRef.current = resolve;
     setBakeIds(ids);
-    // Safety valve: a mockup that never loads or a Browserless stall must not
-    // wedge the send — continue without the missing PDFs after 90s.
-    setTimeout(() => { if (bakeResolveRef.current === resolve) { console.warn("[JobV2] proof bake timeout — continuing send"); bakeResolveRef.current = null; setBakeIds(null); resolve(); } }, 90000);
+    armBakeValve();
   });
   const handleBaked = (id: string) => {
     bakeRemainRef.current.delete(id);
     if (bakeRemainRef.current.size === 0 && bakeResolveRef.current) {
+      if (bakeTimerRef.current) clearTimeout(bakeTimerRef.current);
       const r = bakeResolveRef.current; bakeResolveRef.current = null; setBakeIds(null); r();
+    } else if (bakeResolveRef.current) {
+      armBakeValve();
+      // Advance the serial queue — state change mounts the next renderer.
+      setBakeIds(prev => prev ? prev.filter(x => bakeRemainRef.current.has(x)) : prev);
     }
   };
   // Catalog picker overlay ("src" = source chooser, else picker key) + assign target.
@@ -2895,7 +2916,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       )}
 
       {/* ── send-time proof bake: hidden ProofModals render + bake to Drive ── */}
-      {bakeIds && bakeIds.map(id => {
+      {bakeIds && bakeIds.filter(id => bakeRemainRef.current.has(id)).slice(0, 1).map(id => {
         const pItem = items.find((x: any) => x.id === id); if (!pItem) return null;
         const pFiles = filesByItem[id] || [];
         const mockupFile = pFiles.find((f: any) => f.stage === "mockup") || pFiles.find((f: any) => f.file_name?.toLowerCase().includes("mockup"));
