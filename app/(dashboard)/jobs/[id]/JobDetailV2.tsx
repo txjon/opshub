@@ -289,6 +289,33 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     setBakeIds(ids);
     armBakeValve();
   });
+  // Leaving mid-bake kills the remaining renders SILENTLY (the renderers
+  // live in this tab). Guard both exits while a bake runs: beforeunload
+  // for close/refresh, and a capture-phase click trap for in-app links —
+  // those get a styled confirm instead of a quiet half-done state.
+  const [leaveTarget, setLeaveTarget] = useState<string | null>(null);
+  useEffect(() => {
+    if (!bakeIds) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
+    const onClickCapture = (e: MouseEvent) => {
+      const a = (e.target as HTMLElement)?.closest?.("a[href]") as HTMLAnchorElement | null;
+      if (!a) return;
+      if (a.target === "_blank" || a.hasAttribute("download")) return; // new-tab/downloads don't unload
+      const href = a.getAttribute("href") || "";
+      if (!href || href.startsWith("#")) return;
+      e.preventDefault(); e.stopPropagation();
+      setLeaveTarget(href);
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    document.addEventListener("click", onClickCapture, true);
+    return () => { window.removeEventListener("beforeunload", onBeforeUnload); document.removeEventListener("click", onClickCapture, true); };
+  }, [bakeIds]);
+  const confirmLeave = () => {
+    const left = bakeRemainRef.current.size;
+    try { logJobActivity(job.id, `⚠ Left the page with ${left} proof PDF${left === 1 ? "" : "s"} still baking — Drive is missing them; finish with "Bake to Drive" on Approvals & Billing`); } catch {}
+    const href = leaveTarget; setLeaveTarget(null);
+    if (href) window.location.assign(href);
+  };
   const handleBaked = (id: string) => {
     bakeRemainRef.current.delete(id);
     if (bakeRemainRef.current.size === 0 && bakeResolveRef.current) {
@@ -2928,8 +2955,23 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
         );
       })}
       {bakeIds && (
-        <div style={{ position: "fixed", bottom: 22, left: "50%", transform: "translateX(-50%)", zIndex: 500, background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: "13px 18px", boxShadow: "0 8px 28px rgba(0,0,0,0.45)" }}>
-          <div style={{ fontSize: 12.5, color: T.text, fontWeight: 700 }}>⏳ Preparing proof PDFs… ({bakeIds.length})</div>
+        <div style={{ position: "fixed", bottom: 22, left: "50%", transform: "translateX(-50%)", zIndex: 500, background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: "13px 18px", boxShadow: "0 8px 28px rgba(0,0,0,0.45)", textAlign: "center" }}>
+          <div style={{ fontSize: 12.5, color: T.text, fontWeight: 700 }}>⏳ Preparing proof PDFs… ({bakeIds.length} to go)</div>
+          <div style={{ fontSize: 10.5, color: T.muted, marginTop: 3 }}>Keep this page open — each PDF saves as it finishes</div>
+        </div>
+      )}
+      {leaveTarget && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 600, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={e => { if (e.target === e.currentTarget) setLeaveTarget(null); }}>
+          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 14, padding: "22px 24px", maxWidth: 440, fontFamily: font }}>
+            <div style={{ fontSize: 15, fontWeight: 900, marginBottom: 8 }}>Proofs are still baking</div>
+            <div style={{ fontSize: 13, color: T.muted, lineHeight: 1.5 }}>
+              {bakeRemainRef.current.size} PDF{bakeRemainRef.current.size === 1 ? "" : "s"} left. Leave now and the rest stop — this job&rsquo;s Drive links stay incomplete until someone runs &ldquo;Bake to Drive&rdquo; again. Finished ones are already saved.
+            </div>
+            <div style={{ display: "flex", gap: 9, marginTop: 18, justifyContent: "flex-end" }}>
+              <button onClick={() => setLeaveTarget(null)} style={{ background: T.text, color: T.bg, border: "none", borderRadius: 9, padding: "9px 16px", fontSize: 12.5, fontWeight: 800, cursor: "pointer", fontFamily: font }}>Stay and finish</button>
+              <button onClick={confirmLeave} style={{ background: "none", color: T.muted, border: `1px solid ${T.border}`, borderRadius: 9, padding: "9px 16px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: font }}>Leave anyway</button>
+            </div>
+          </div>
         </div>
       )}
 
