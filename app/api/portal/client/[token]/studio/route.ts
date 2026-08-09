@@ -36,11 +36,16 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
       .select("brief_id, drive_file_id, preview_drive_file_id, uploader_role, shared_with_client_at, kind, reaction, created_at")
       .in("brief_id", ids).not("drive_file_id", "is", null)
       .order("created_at", { ascending: false });
+    const artFallback: Record<string, string> = {};
     for (const f of (files || []) as any[]) {
       if (!isClientVisibleFile(f)) continue;
       hasShared.add(f.brief_id);
       if (!artByBrief[f.brief_id] && f.reaction !== "down") artByBrief[f.brief_id] = f.preview_drive_file_id || f.drive_file_id;
+      if (!artFallback[f.brief_id]) artFallback[f.brief_id] = f.preview_drive_file_id || f.drive_file_id;
     }
+    // A design whose ONLY version was thumbed down still shows its art —
+    // a blank card reads as broken, not as "changes requested".
+    for (const [bid, art] of Object.entries(artFallback)) if (!artByBrief[bid]) artByBrief[bid] = art;
     const { data: cm } = await db.from("art_brief_messages")
       .select("brief_id").in("brief_id", ids).eq("visibility", "client");
     for (const m of (cm || []) as any[]) hasShared.add(m.brief_id);
