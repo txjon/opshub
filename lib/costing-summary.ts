@@ -36,7 +36,7 @@ export function overlayCostProds(costProds: any[], items: any[]): any[] {
     const qtys = lines.length ? bslQtys : (p.qtys || {});
     const totalQty = Object.values(qtys).reduce((a: number, v: any) => a + (Number(v) || 0), 0);
     const blankCosts = (it.blank_costs && Object.keys(it.blank_costs).length) ? it.blank_costs : (p.blankCosts || {});
-    out.push({ sort: Number(it.sort_order) || 0, p: { ...p, qtys, totalQty, blankCosts } });
+    out.push({ sort: Number(it.sort_order) || 0, p: { ...p, qtys, totalQty, blankCosts, sellStored: it.sell_per_unit ?? null } });
   }
   // ITEM sort order — the engine resolves "first item in a share group" (who
   // carries screens) by array position; every surface must agree with the UI.
@@ -45,7 +45,7 @@ export function overlayCostProds(costProds: any[], items: any[]): any[] {
 
 // Fetch the item truth needed by overlayCostProds.
 async function loadItemTruth(sb: Sb, jobId: string): Promise<any[]> {
-  const { data } = await sb.from("items").select("id, name, sort_order, blank_costs, buy_sheet_lines(size, qty_ordered)").eq("job_id", jobId);
+  const { data } = await sb.from("items").select("id, name, sort_order, blank_costs, sell_per_unit, buy_sheet_lines(size, qty_ordered)").eq("job_id", jobId);
   return data || [];
 }
 
@@ -68,8 +68,17 @@ export function computeCostingSummary(costingData: any, invoiceExtraLines: any[]
   const rawResults = costProds
     .map((p: any, idx: number) => { const r = calcCostProduct(p, costMargin, inclShip, inclCC, costProds, printers); return r ? { ...r, _idx: idx } : null; })
     .filter(Boolean) as any[];
-  // Round sellPerUnit to cent first, then derive grossRev — matches items.sell_per_unit
-  const results = rawResults.map(r => ({ ...r, sellPerUnit: Math.round(r.sellPerUnit * 100) / 100, grossRev: Math.round(Math.round(r.sellPerUnit * 100) / 100 * r.qty * 100) / 100 }));
+  // Revenue reads items.sell_per_unit (the pricing SoT — what quotes and
+  // invoices bill) whenever the item has a stored price; the calc engine is
+  // only the fallback for never-costed items. Recomputing sell here silently
+  // repriced locked jobs when quantities changed post-lock (tier rates move)
+  // and drifted the summary off the invoice truth ($17 on 2606-038, Aug 9).
+  // Costs still recompute from the engine — they SHOULD track current qtys.
+  const results = rawResults.map(r => {
+    const stored = Number((costProds[r._idx] || {}).sellStored);
+    const sell = stored > 0 ? Math.round(stored * 100) / 100 : Math.round(r.sellPerUnit * 100) / 100;
+    return { ...r, sellPerUnit: sell, grossRev: Math.round(sell * r.qty * 100) / 100 };
+  });
   const isPT = (r: any) => !!costProds[r._idx]?.passthrough;
   const realResults = results.filter(r => !isPT(r));
   const grossRev = Math.round(realResults.reduce((a, r) => a + r.grossRev, 0) * 100) / 100;
