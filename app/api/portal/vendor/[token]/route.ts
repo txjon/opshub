@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sendClientNotification } from "@/lib/auto-email";
 import { buildPrintersMap, calcDecorationLines } from "@/lib/pricing";
+import { overlayCostProds } from "@/lib/costing-summary";
 import { Resend } from "resend";
 import { renderBrandedEmail } from "@/lib/email-template";
 import { shipFromProduction } from "@/lib/production2-ship";
@@ -156,7 +157,9 @@ export async function GET(
       const costingData = job.costing_data as any;
       if (!costingData?.costProds?.length) continue;
 
-      const allCostProds = orderProdsByItemSort(costingData.costProds, pre.itemsById);
+      // Live-truth overlay before pricing — share-group partners must carry
+      // buy-sheet totalQty, not the stored copy (see PO route note).
+      const allCostProds = orderProdsByItemSort(overlayCostProds(costingData.costProds || [], Object.values(pre.itemsById || {})), pre.itemsById);
 
       // Find items in this job assigned to this decorator
       const decItems = allCostProds.filter((cp: any) =>
@@ -339,7 +342,7 @@ export async function GET(
     for (const job of (completedJobs || [])) {
       const costingData = job.costing_data as any;
       if (!costingData?.costProds?.length) continue;
-      const allCostProds = orderProdsByItemSort(costingData.costProds, cPre.itemsById);
+      const allCostProds = orderProdsByItemSort(overlayCostProds(costingData.costProds || [], Object.values(cPre.itemsById || {})), cPre.itemsById);
       const decItems = allCostProds.filter((cp: any) =>
         cp.printVendor === decorator.short_code || cp.printVendor === decorator.name
       );
