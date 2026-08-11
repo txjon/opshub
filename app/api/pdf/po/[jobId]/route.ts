@@ -22,6 +22,7 @@ const fmtD = (n: number) => "$" + Number(n || 0).toLocaleString("en-US", { minim
 
 // ── Pricing — uses shared lib/pricing.ts (single source of truth) ────────────
 import { buildPrintersMap, lookupPrintPrice as sharedPrintPrice, lookupTagPrice as sharedTagPrice } from "@/lib/pricing";
+import { overlayCostProds } from "@/lib/costing-summary";
 
 let PRINTERS: Record<string, any> = {};
 
@@ -516,9 +517,17 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     // UI, which walks items in sort order. The raw stored array can be in
     // creation order and disagree (screens showed on the wrong item / not at
     // all). Unmatched costProds keep their relative order at the end.
+    // Overlay EVERY costProd with live item truth (buy-sheet qtys +
+    // totalQty) BEFORE any pricing math. Share-group tier lookups sum the
+    // PARTNER products' totalQty from this array — with raw stored values,
+    // a post-save quantity edit priced groups at stale combined qtys (4437:
+    // D+E+F combined at the old 83 units → under ICON's 96 floor → $1.81
+    // minimum rate instead of the real 113 → $1.10 tier). overlayCostProds
+    // is the same helper the costing engine/summary uses — one truth.
+    const overlaid = overlayCostProds(rawCostProds, (items || []) as any[]);
     const costProds: any[] = [
-      ...sortedItems.map((it: any) => rawCostProds.find((p: any) => p.id === it.id)).filter(Boolean),
-      ...rawCostProds.filter((p: any) => !sortedItems.some((it: any) => it.id === p.id)),
+      ...overlaid,
+      ...rawCostProds.filter((p: any) => !overlaid.some((m: any) => m.id === p.id)),
     ];
 
     const allMapped = sortedItems.map((it: any, sortedIdx: number) => {
