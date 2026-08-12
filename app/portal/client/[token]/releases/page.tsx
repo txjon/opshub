@@ -437,9 +437,7 @@ function DropSheet({ drop, token, briefs, committed, pipeItems, catalogItems, it
           <div style={{ padding: "14px 20px 4px" }}>
             {!adding ? (
               <button onClick={() => setAdding(true)}
-                style={{ borderRadius: 999, border: `1px solid ${C.border}`, background: "transparent", color: C.muted, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", padding: "10px 18px", cursor: "pointer", fontFamily: C.font }}>
-                + Pull designs onto the release
-              </button>
+                style={{ borderRadius: 999, border: `1px solid ${C.border}`, background: "transparent", color: C.muted, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", padding: "10px 18px", cursor: "pointer", fontFamily: C.font }}>+ Add to release</button>
             ) : candidates.length === 0 && itemCands.length === 0 && rerunCands.length === 0 ? (
               <div style={{ fontSize: 12, color: C.faint }}>
                 {drop.slots.length > 0
