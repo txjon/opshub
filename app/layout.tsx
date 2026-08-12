@@ -10,9 +10,11 @@ const inter = Inter({ subsets: ["latin"] });
 // visually distinguishable when both are open. Slug resolution
 // mirrors lib/company.ts — Host header → slug map. Falls back to
 // HPD when nothing matches.
-const TENANT_TAB_META: Record<string, { title: string; icon: string }> = {
-  hpd: { title: "OpsHub · HPD", icon: "/favicon-hpd.svg" },
-  dmd: { title: "OpsHub · DMD", icon: "/favicon-dmd.png" },
+// appleIcon must be a PNG — iOS ignores SVG touch icons, which left
+// home-screen shortcuts with the generic screenshot tile.
+const TENANT_TAB_META: Record<string, { title: string; icon: string; appleIcon: string }> = {
+  hpd: { title: "OpsHub · HPD", icon: "/favicon-hpd.svg", appleIcon: "/apple-touch-hpd.png" },
+  dmd: { title: "OpsHub · DMD", icon: "/favicon-dmd.png", appleIcon: "/favicon-dmd.png" },
 };
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -30,7 +32,7 @@ export async function generateMetadata(): Promise<Metadata> {
     icons: {
       icon: [{ url: meta.icon, type: "image/svg+xml" }],
       shortcut: meta.icon,
-      apple: meta.icon,
+      apple: meta.appleIcon,
     },
   };
 }
