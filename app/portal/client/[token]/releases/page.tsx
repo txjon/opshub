@@ -421,7 +421,7 @@ function DropSheet({ drop, token, briefs, committed, pipeItems, catalogItems, it
                 <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: (s.briefState === "killed" || s.briefState === "shelved") && !s.itemId ? C.red : s.ideaApproved ? C.green : C.amber, whiteSpace: "nowrap" }}>
                   {(s.briefState === "killed" || s.briefState === "shelved") && !s.itemId ? "Removed in studio" : s.rerun ? "Run it back" : s.itemId ? "In the pipeline" : s.ideaApproved ? "Ready" : "Design pending"}
                 </span>
-                {building && !s.itemId && <SlotSpecEdit slot={s} onSave={async (patch) => { if (await call("PATCH", "/slots", { slotId: s.id, ...patch })) onChanged(drop.id); }} />}
+                {building && (!s.itemId || s.rerun) && <SlotSpecEdit slot={s} onSave={async (patch) => { if (await call("PATCH", "/slots", { slotId: s.id, ...patch })) onChanged(drop.id); }} />}
                 {building && (
                   <button onClick={async () => { setBusy(s.id); if (await call("DELETE", `/slots?slotId=${s.id}`)) onChanged(drop.id); setBusy(null); }}
                     style={{ background: "none", border: "none", color: C.faint, fontSize: 16, cursor: "pointer", lineHeight: 1 }} aria-label="Remove">×</button>
