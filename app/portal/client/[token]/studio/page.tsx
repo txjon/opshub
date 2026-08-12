@@ -71,8 +71,11 @@ export default function ClientStudioPage() {
   // is a fresh mount (key), so it always lands on the latest version, idle.
   const ordered = ["with_client", "working", "approved"].flatMap(k => briefs.filter(b => b.state === k));
   const navIdx = openId ? ordered.findIndex(b => b.id === openId) : -1;
-  const goPrev = () => { if (navIdx > 0) setOpenId(ordered[navIdx - 1].id); };
-  const goNext = () => { if (navIdx >= 0 && navIdx < ordered.length - 1) setOpenId(ordered[navIdx + 1].id); };
+  // While the sheet is uploading, every exit path holds: backdrop tap,
+  // chevrons, arrow keys. The Sheet flips this via onLock.
+  const [sheetLock, setSheetLock] = useState(false);
+  const goPrev = () => { if (!sheetLock && navIdx > 0) setOpenId(ordered[navIdx - 1].id); };
+  const goNext = () => { if (!sheetLock && navIdx >= 0 && navIdx < ordered.length - 1) setOpenId(ordered[navIdx + 1].id); };
   useEffect(() => {
     if (!openId) return;
     const i = ordered.findIndex(b => b.id === openId);
@@ -154,14 +157,14 @@ export default function ClientStudioPage() {
         );
       })}
 
-      {detail?.brief && <div className="cs2-back" onClick={e => { if (e.target === e.currentTarget) setOpenId(null); }}>
-        <div className="cs2-sheet"><Sheet key={detail.brief.id} detail={detail} token={token} onClose={() => setOpenId(null)} onRefresh={refresh} nav={{ idx: navIdx, total: ordered.length, onPrev: goPrev, onNext: goNext }} /></div>
+      {detail?.brief && <div className="cs2-back" onClick={e => { if (sheetLock) return; if (e.target === e.currentTarget) setOpenId(null); }}>
+        <div className="cs2-sheet"><Sheet key={detail.brief.id} detail={detail} token={token} onClose={() => { if (!sheetLock) setOpenId(null); }} onLock={setSheetLock} onRefresh={refresh} nav={{ idx: navIdx, total: ordered.length, onPrev: goPrev, onNext: goNext }} /></div>
       </div>}
     </div>
   );
 }
 
-function Sheet({ detail, token, onClose, onRefresh, nav }: any) {
+function Sheet({ detail, token, onClose, onRefresh, nav, onLock }: any) {
   const b = detail.brief; const timeline: any[] = detail.timeline || [];
   const orderReq = detail.orderRequest;
   const lineup = detail.lineup;
@@ -177,7 +180,7 @@ function Sheet({ detail, token, onClose, onRefresh, nav }: any) {
     } finally { setBusy(false); }
   }
   const st = STATE(b.state);
-  const [note, setNote] = useState(""); const [busy, setBusy] = useState(false); const [uploading, setUploading] = useState(false);
+  const [note, setNote] = useState(""); const [busy, setBusy] = useState(false);
   const [bar, setBar] = useState<"idle" | "keep" | "order" | "pass">("idle");
   const [killArm, setKillArm] = useState(false);
   const [chNote, setChNote] = useState("");
@@ -226,12 +229,39 @@ function Sheet({ detail, token, onClose, onRefresh, nav }: any) {
     if (!note.trim() && !file) return; setBusy(true);
     try { const fd = new FormData(); if (note.trim()) fd.set("body", note.trim()); if (file) fd.set("file", file); await fetch(`/api/portal/client/${token}/studio/${b.id}/action`, { method: "POST", body: fd }); setNote(""); setHeroId(null); await onRefresh(); } finally { setBusy(false); }
   }
-  // Multi-attach: each image posts as its own upload (small requests, each
-  // its own timeline entry). The typed note rides with the FIRST one only —
-  // reply() clears it after the first send.
-  async function replyMany(files: FileList | null) {
-    if (!files || !files.length) return;
-    for (const f of Array.from(files)) await reply(f);
+  // Staged attachments: 📎 only STAGES (typing is never interrupted); Send
+  // ships note + files together — one request per file so each stays small,
+  // the note riding the first. Progress shows on the button and every exit
+  // path locks until the batch lands (onLock → backdrop/chevrons/keys hold).
+  const [pending, setPending] = useState<{ f: File; url: string }[]>([]);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  function stage(list: FileList | null) {
+    if (!list) return;
+    setPending(prev => [...prev, ...Array.from(list).map(f => ({ f, url: URL.createObjectURL(f) }))]);
+  }
+  async function sendAll() {
+    if (!note.trim() && !pending.length) return;
+    setBusy(true); onLock?.(true);
+    const guard = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", guard);
+    try {
+      const total = Math.max(1, pending.length);
+      setProgress({ done: 0, total: pending.length });
+      if (!pending.length) { await postOne(note.trim(), null); }
+      else for (let i = 0; i < pending.length; i++) {
+        await postOne(i === 0 ? note.trim() : "", pending[i].f);
+        setProgress({ done: i + 1, total });
+      }
+      for (const x of pending) URL.revokeObjectURL(x.url);
+      setPending([]); setNote(""); setHeroId(null);
+      await onRefresh();
+    } finally { window.removeEventListener("beforeunload", guard); setProgress(null); setBusy(false); onLock?.(false); }
+  }
+  async function postOne(body: string, file: File | null) {
+    const fd = new FormData();
+    if (body) fd.set("body", body);
+    if (file) fd.set("file", file);
+    await fetch(`/api/portal/client/${token}/studio/${b.id}/action`, { method: "POST", body: fd });
   }
 
   return (
@@ -428,11 +458,29 @@ function Sheet({ detail, token, onClose, onRefresh, nav }: any) {
       </div>
 
       {b.state !== "approved" && b.state !== "killed" && (
-        <div style={{ padding: "12px 20px 20px", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <input value={note} onChange={e => setNote(e.target.value)} placeholder="Reply…" style={{ ...inp, flex: 1, minWidth: 140 }} />
-          <input ref={fileIn} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={e => { const fl = e.target.files; if (fl?.length) { setUploading(true); replyMany(fl).finally(() => setUploading(false)); } if (fileIn.current) fileIn.current.value = ""; }} />
-          <button disabled={uploading} onClick={() => fileIn.current?.click()} style={ghostBtn}>{uploading ? "…" : "📎"}</button>
-          <button disabled={busy || !note.trim()} onClick={() => reply()} style={{ ...primaryBtn, opacity: busy || !note.trim() ? 0.5 : 1 }}>Send</button>
+        <div style={{ padding: "12px 20px 20px" }}>
+          {pending.length > 0 && (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+              {pending.map((x, i) => (
+                <span key={i} style={{ display: "inline-flex", position: "relative", opacity: busy && progress && i < progress.done ? 0.35 : 1 }}>
+                  <img src={x.url} alt="" style={{ height: 52, borderRadius: 8, background: "#fff" }} />
+                  {!busy && <button onClick={() => { URL.revokeObjectURL(x.url); setPending(prev => prev.filter((_, j) => j !== i)); }} aria-label="Remove photo" style={{ position: "absolute", top: -7, right: -7, width: 20, height: 20, borderRadius: 999, background: "#fff", color: C.bg, border: "none", fontSize: 12, fontWeight: 800, lineHeight: 1, cursor: "pointer", padding: 0 }}>×</button>}
+                </span>
+              ))}
+            </div>
+          )}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            {/* Multi-line like any messenger: Enter = newline, send is the
+                button only (deliberate). Grows with content, caps + scrolls. */}
+            <textarea value={note} onChange={e => setNote(e.target.value)} disabled={busy} placeholder="Reply…" rows={1}
+              onInput={e => { const t = e.target as HTMLTextAreaElement; t.style.height = "auto"; t.style.height = Math.min(t.scrollHeight, 132) + "px"; }}
+              style={{ ...inp, flex: 1, minWidth: 140, opacity: busy ? 0.6 : 1, resize: "none", overflowY: "auto", maxHeight: 132, lineHeight: 1.45 }} />
+            <input ref={fileIn} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={e => { stage(e.target.files); if (fileIn.current) fileIn.current.value = ""; }} />
+            <button disabled={busy} onClick={() => fileIn.current?.click()} style={{ ...ghostBtn, opacity: busy ? 0.5 : 1 }}>{pending.length ? `📎 ${pending.length}` : "📎"}</button>
+            <button disabled={busy || (!note.trim() && !pending.length)} onClick={sendAll} style={{ ...primaryBtn, opacity: busy || (!note.trim() && !pending.length) ? 0.5 : 1, minWidth: 92 }}>
+              {busy && progress && progress.total > 0 ? `Sending ${Math.min(progress.done + 1, progress.total)}/${progress.total}…` : busy ? "Sending…" : "Send"}
+            </button>
+          </div>
         </div>
       )}
     </>
