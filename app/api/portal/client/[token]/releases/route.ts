@@ -1,121 +1,122 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const revalidate = 0;
+
+// Client Hub — RELEASES (mig 134). The client-side release builder:
+// gather product lines from ACROSS their ideas into one dated release.
+// GET → their releases with slots + per-slot readiness (contributing idea
+// approved?). POST → start a release. 'releases' grant required.
+// (Renamed from /drops Aug 11 2026; the legacy staging board API moved
+// to /staging-releases to free this namespace.)
 
 function admin() {
   return createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 }
 
-async function resolveClient(token: string) {
+const APPROVED = ["approved"];
+
+async function ctxOf(token: string) {
   const db = admin();
-  const { data: client } = await db
-    .from("clients")
-    .select("id, name")
-    .eq("portal_token", token)
-    .single();
-  return client;
+  const { data: client } = await db.from("clients")
+    .select("id, name, portal_features, company_id").eq("portal_token", token).single();
+  if (!client) return null;
+  const denied = !Array.isArray((client as any).portal_features) || !(client as any).portal_features.includes("releases");
+  return { db, client, denied };
 }
 
-// GET /api/portal/client/[token]/releases
-//
-// Returns every release bucket for this client plus the items in each.
-// One call powers the whole Staging board.
 export async function GET(_req: NextRequest, { params }: { params: { token: string } }) {
   try {
-    const client = await resolveClient(params.token);
-    if (!client) return NextResponse.json({ error: "Invalid link" }, { status: 404 });
+    const ctx = await ctxOf(params.token);
+    if (!ctx) return NextResponse.json({ error: "Invalid link" }, { status: 404 });
+    if (ctx.denied) return NextResponse.json({ drops: [] });
+    const { db, client } = ctx;
 
-    const db = admin();
-    const { data: releases } = await db
-      .from("client_releases")
-      .select("id, title, target_date, sort_order, created_at")
+    const { data: releases } = await db.from("releases")
+      .select("id, title, status, model, target_live_date, window_close_date, job_id, created_at")
       .eq("client_id", client.id)
-      .order("sort_order", { ascending: true });
+      .order("created_at", { ascending: false });
 
     const ids = (releases || []).map((r: any) => r.id);
-    let itemsByRelease: Record<string, string[]> = {};
-    let proposalsByRelease: Record<string, string[]> = {};
-    // rows: per-release 2D array — outer = row_index, inner = tiles in
-    // sort_order. Drives the staging Brand Planner layout. Empty rows
-    // are dropped client-side so the array stays dense.
-    let rowsByRelease: Record<string, Array<Array<{ kind: "item" | "proposal"; id: string }>>> = {};
-    if (ids.length > 0) {
-      const { data: ri } = await db
-        .from("release_items")
-        .select("release_id, item_id, proposal_id, sort_order, row_index")
+    const slotsByRelease: Record<string, any[]> = {};
+    if (ids.length) {
+      const { data: slots } = await db.from("release_slots")
+        .select("id, release_id, brief_id, line_id, format, retail, model, line_notes, sold_units, qtys, qtys_confirmed_at, item_id, sort_order, art_briefs(title, state)")
         .in("release_id", ids)
-        .order("row_index", { ascending: true })
         .order("sort_order", { ascending: true });
-      for (const r of (ri || [])) {
-        const rid = (r as any).release_id;
-        if ((r as any).item_id) (itemsByRelease[rid] ||= []).push((r as any).item_id);
-        if ((r as any).proposal_id) (proposalsByRelease[rid] ||= []).push((r as any).proposal_id);
-        const rowIdx = (r as any).row_index ?? 0;
-        const buckets = rowsByRelease[rid] ||= [];
-        // Pad sparse rows so row_index 5 lands at index 5 even when
-        // 0..4 are empty. Empty rows get filtered out below.
-        while (buckets.length <= rowIdx) buckets.push([]);
-        const kind: "item" | "proposal" = (r as any).item_id ? "item" : "proposal";
-        const id = (r as any).item_id || (r as any).proposal_id;
-        if (id) buckets[rowIdx].push({ kind, id });
-      }
-      // Drop fully-empty rows and re-index so the client never sees gaps.
-      for (const k of Object.keys(rowsByRelease)) {
-        rowsByRelease[k] = rowsByRelease[k].filter(row => row.length > 0);
+      for (const s of (slots || []) as any[]) {
+        (slotsByRelease[s.release_id] = slotsByRelease[s.release_id] || []).push({
+          id: s.id, briefId: s.brief_id, lineId: s.line_id,
+          format: s.format, retail: s.retail != null ? Number(s.retail) : null,
+          model: s.model, notes: s.line_notes,
+          soldUnits: s.sold_units, qtys: s.qtys || {}, qtysConfirmedAt: s.qtys_confirmed_at,
+          itemId: s.item_id || null,
+          ideaTitle: s.art_briefs?.title || null,
+          // an in-production item is real by definition — always ready
+          ideaApproved: s.item_id ? true : APPROVED.includes(s.art_briefs?.state),
+        });
       }
     }
-
+    // Payable for cut drops — read the born job's invoice state (same
+    // gating as the order surfaces: nothing shows until the invoice is
+    // actually sent or a non-draft payment record exists).
+    const cutJobIds = (releases || []).filter((r: any) => r.status === "cut" && r.job_id).map((r: any) => r.job_id);
+    const payableByJob: Record<string, any> = {};
+    if (cutJobIds.length) {
+      const { data: jobs } = await db.from("jobs").select("id, type_meta").in("id", cutJobIds);
+      const { data: pays } = await db.from("payment_records").select("job_id, amount, status").in("job_id", cutJobIds);
+      for (const j of (jobs || []) as any[]) {
+        const tm = j.type_meta || {};
+        const jp = (pays || []).filter((p: any) => p.job_id === j.id);
+        const sent = !!tm.invoice_sent_at || jp.some((p: any) => p.status && !["draft", "void"].includes(p.status));
+        const paid = jp.filter((p: any) => p.status === "paid").reduce((a: number, p: any) => a + Number(p.amount || 0), 0);
+        const total = Number(tm.qb_total_with_tax || 0);
+        payableByJob[j.id] = {
+          invoiceNumber: sent ? (tm.qb_invoice_number || null) : null,
+          paymentLink: sent ? (tm.qb_payment_link || null) : null,
+          total: sent ? total : null,
+          paid,
+          state: !sent ? "pending" : (total > 0 && paid >= total - 0.005) ? "paid" : "ready",
+        };
+      }
+    }
     return NextResponse.json({
-      releases: (releases || []).map((r: any) => ({
+      drops: (releases || []).map((r: any) => ({
         ...r,
-        item_ids: itemsByRelease[r.id] || [],
-        proposal_ids: proposalsByRelease[r.id] || [],
-        rows: rowsByRelease[r.id] || [],
+        slots: slotsByRelease[r.id] || [],
+        payable: r.status === "cut" && r.job_id ? (payableByJob[r.job_id] || null) : null,
       })),
     });
   } catch (e: any) {
-    return NextResponse.json({ error: e.message || "Failed" }, { status: 500 });
+    return NextResponse.json({ error: e?.message || "Failed" }, { status: 500 });
   }
 }
 
-// POST /api/portal/client/[token]/releases
-// Body: { title: string, target_date?: string }
-// Create a new release bucket.
 export async function POST(req: NextRequest, { params }: { params: { token: string } }) {
   try {
-    const client = await resolveClient(params.token);
-    if (!client) return NextResponse.json({ error: "Invalid link" }, { status: 404 });
+    const ctx = await ctxOf(params.token);
+    if (!ctx) return NextResponse.json({ error: "Invalid link" }, { status: 404 });
+    if (ctx.denied) return NextResponse.json({ error: "Not available" }, { status: 403 });
+    const { db, client } = ctx;
 
-    const body = await req.json();
-    const title = (body.title || "").toString().trim();
-    if (!title) return NextResponse.json({ error: "Title required" }, { status: 400 });
+    const body = await req.json().catch(() => ({}));
+    const title = String(body.title || "").trim().slice(0, 120);
+    if (!title) return NextResponse.json({ error: "Name the drop" }, { status: 400 });
+    const model = ["preorder", "stock"].includes(body.model) ? body.model : "preorder";
+    const target = /^\d{4}-\d{2}-\d{2}$/.test(String(body.target_live_date || "")) ? body.target_live_date : null;
 
-    const db = admin();
-    // Next sort_order = max + 10
-    const { data: existing } = await db
-      .from("client_releases")
-      .select("sort_order")
-      .eq("client_id", client.id)
-      .order("sort_order", { ascending: false })
-      .limit(1);
-    const nextSort = (existing?.[0]?.sort_order || 0) + 10;
-
-    const { data, error } = await db
-      .from("client_releases")
-      .insert({
-        client_id: client.id,
-        title,
-        target_date: body.target_date || null,
-        sort_order: nextSort,
-      })
-      .select("id, title, target_date, sort_order, created_at")
-      .single();
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-    return NextResponse.json({ release: { ...data, item_ids: [] } });
+    const { data, error } = await db.from("releases").insert({
+      company_id: (client as any).company_id || null,
+      client_id: client.id,
+      title, model,
+      target_live_date: target,
+      status: "building",
+      status_timestamps: { building: new Date().toISOString() },
+    }).select("id").single();
+    if (error || !data) return NextResponse.json({ error: error?.message || "Couldn't create" }, { status: 500 });
+    return NextResponse.json({ success: true, dropId: (data as any).id });
   } catch (e: any) {
-    return NextResponse.json({ error: e.message || "Failed" }, { status: 500 });
+    return NextResponse.json({ error: e?.message || "Failed" }, { status: 500 });
   }
 }

@@ -92,7 +92,7 @@ export default function StagingPage() {
       const [itemsRes, proposalsRes, relsRes] = await Promise.all([
         fetch(`/api/portal/client/${token}/items`).then(r => r.json()),
         fetch(`/api/portal/client/${token}/proposals`).then(r => r.json()),
-        fetch(`/api/portal/client/${token}/releases`).then(r => r.json()),
+        fetch(`/api/portal/client/${token}/staging-releases`).then(r => r.json()),
       ]);
       setItems(((itemsRes.items || []) as any[]).map(i => ({ ...i, kind: "item" as const })));
       setProposals(((proposalsRes.proposals || []) as any[])
@@ -129,7 +129,7 @@ export default function StagingPage() {
 
   async function createRelease() {
     if (!newTitle.trim()) return;
-    const res = await fetch(`/api/portal/client/${token}/releases`, {
+    const res = await fetch(`/api/portal/client/${token}/staging-releases`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title: newTitle.trim(), target_date: newDate || null }),
@@ -155,7 +155,7 @@ export default function StagingPage() {
     setAssigning(null);
     const body = tile.kind === "item" ? { item_id: tile.id } : { proposal_id: tile.id };
     try {
-      const r = await fetch(`/api/portal/client/${token}/releases/${releaseId}/items`, {
+      const r = await fetch(`/api/portal/client/${token}/staging-releases/${releaseId}/items`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -182,7 +182,7 @@ export default function StagingPage() {
     ));
     const param = tile.kind === "item" ? `item_id=${tile.id}` : `proposal_id=${tile.id}`;
     try {
-      const r = await fetch(`/api/portal/client/${token}/releases/${releaseId}/items?${param}`, { method: "DELETE" });
+      const r = await fetch(`/api/portal/client/${token}/staging-releases/${releaseId}/items?${param}`, { method: "DELETE" });
       if (!r.ok) {
         const err = await r.json().catch(() => ({}));
         console.error("[staging] removeTile failed", r.status, err);
@@ -255,7 +255,7 @@ export default function StagingPage() {
       const { proposal } = await propRes.json();
 
       if (releaseId && proposal?.id) {
-        const r = await fetch(`/api/portal/client/${token}/releases/${releaseId}/items`, {
+        const r = await fetch(`/api/portal/client/${token}/staging-releases/${releaseId}/items`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -323,7 +323,7 @@ export default function StagingPage() {
       };
     }));
     try {
-      const r = await fetch(`/api/portal/client/${token}/releases/${releaseId}/items/reorder`, {
+      const r = await fetch(`/api/portal/client/${token}/staging-releases/${releaseId}/items/reorder`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ rows }),
@@ -402,7 +402,7 @@ export default function StagingPage() {
     try {
       // Step 1: assign to destination (server clears any prior assignment)
       const body: any = tile.kind === "item" ? { item_id: tile.id } : { proposal_id: tile.id };
-      const r = await fetch(`/api/portal/client/${token}/releases/${releaseId}/items`, {
+      const r = await fetch(`/api/portal/client/${token}/staging-releases/${releaseId}/items`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -415,7 +415,7 @@ export default function StagingPage() {
         return;
       }
       // Step 2: rewrite the destination's row layout
-      await fetch(`/api/portal/client/${token}/releases/${releaseId}/items/reorder`, {
+      await fetch(`/api/portal/client/${token}/staging-releases/${releaseId}/items/reorder`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ rows: newRows }),
@@ -445,7 +445,7 @@ export default function StagingPage() {
     const next = window.prompt("Release name", release.title);
     if (!next || next === release.title) return;
     setReleases(prev => prev.map(r => r.id === release.id ? { ...r, title: next } : r));
-    await fetch(`/api/portal/client/${token}/releases/${release.id}`, {
+    await fetch(`/api/portal/client/${token}/staging-releases/${release.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title: next }),
@@ -458,7 +458,7 @@ export default function StagingPage() {
     if (next === null) return;
     const clean = next.trim() || null;
     setReleases(prev => prev.map(r => r.id === release.id ? { ...r, target_date: clean } : r));
-    await fetch(`/api/portal/client/${token}/releases/${release.id}`, {
+    await fetch(`/api/portal/client/${token}/staging-releases/${release.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ target_date: clean }),
@@ -468,7 +468,7 @@ export default function StagingPage() {
   async function deleteRelease(release: Release) {
     if (!window.confirm(`Delete "${release.title}"? Items in it will return to the pool.`)) return;
     setReleases(prev => prev.filter(r => r.id !== release.id));
-    await fetch(`/api/portal/client/${token}/releases/${release.id}`, { method: "DELETE" });
+    await fetch(`/api/portal/client/${token}/staging-releases/${release.id}`, { method: "DELETE" });
   }
 
   if (loading) {
