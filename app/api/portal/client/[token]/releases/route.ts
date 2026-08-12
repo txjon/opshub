@@ -55,6 +55,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
           itemId: s.item_id || null,
           rerun: isRerunLineId(s.line_id),
           ideaTitle: s.art_briefs?.title || null,
+          briefState: s.art_briefs?.state || null,
           // item-sourced lines are real by definition — always ready
           // (pipeline: the run exists; re-run: the design + proofs exist)
           ideaApproved: s.item_id ? true : APPROVED.includes(s.art_briefs?.state),
@@ -84,7 +85,23 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         };
       }
     }
+    // Committed designs — already planned/ordered/produced. The picker
+    // excludes them (the server guard on slot POST enforces the same).
+    const committed = new Set<string>();
+    for (const r of (releases || []) as any[]) {
+      if (r.status === "cut") continue;
+      for (const sl of slotsByRelease[r.id] || []) if (sl.briefId) committed.add(sl.briefId);
+    }
+    const { data: clientBriefs } = await db.from("art_briefs").select("id").eq("client_id", client.id);
+    const bids = (clientBriefs || []).map((b: any) => b.id);
+    if (bids.length) {
+      const { data: reqs } = await db.from("lab_order_requests").select("brief_id").in("brief_id", bids).is("handled_at", null);
+      for (const r of (reqs || []) as any[]) if (r.brief_id) committed.add(r.brief_id);
+      const { data: borns } = await db.from("items").select("design_id").in("design_id", bids);
+      for (const b of (borns || []) as any[]) if (b.design_id) committed.add(b.design_id);
+    }
     return NextResponse.json({
+      committedBriefIds: Array.from(committed),
       drops: (releases || []).map((r: any) => ({
         ...r,
         slots: slotsByRelease[r.id] || [],

@@ -43,6 +43,7 @@ export default function ReleasesPage() {
     try {
       const res = await fetch(`/api/portal/client/${token}/releases`);
       const body = await res.json();
+      setCommitted(new Set((body.committedBriefIds || []) as string[]));
       setDrops(body.drops || []);
       if (openId) setOpen((body.drops || []).find((d: any) => d.id === openId) || null);
       else if (open) setOpen((body.drops || []).find((d: any) => d.id === open.id) || null);
@@ -57,6 +58,7 @@ export default function ReleasesPage() {
     // eslint-disable-next-line
   }, [token]);
 
+  const [committed, setCommitted] = useState<Set<string>>(new Set());
   const pipeItems = useMemo(() =>
     (allItems || []).filter((it: any) => !["complete", "archived", "cancelled", "on_hold"].includes(it.status)),
     [allItems]);
@@ -119,10 +121,9 @@ export default function ReleasesPage() {
   }
   if (!data) return null;
 
-  // A brand-new client has no idea lines and no pipeline yet — the empty
+  // A brand-new client has no designs and no pipeline yet — the empty
   // state below routes them to the Studio instead of a dead end.
-  const briefLineCount = (((data as any)?.briefs as any[]) || [])
-    .reduce((n, b) => n + (Array.isArray(b.product_spec?.products) ? b.product_spec.products.length : 0), 0);
+  const briefLineCount = (((data as any)?.briefs as any[]) || []).length;
   const noSources = briefLineCount === 0 && pipeItems.length === 0 && catalogItems.length === 0;
 
   // One tap creates it — auto-named ("Release 03"), rename anytime in the
@@ -250,13 +251,34 @@ export default function ReleasesPage() {
         </div>
       )}
 
-      {open && <DropSheet drop={open} token={token} briefs={(data?.briefs as any[]) || []} pipeItems={pipeItems} catalogItems={catalogItems} itemsById={itemsById} onChanged={(id?: string) => load(id)} onClose={() => setOpen(null)} />}
+      {open && <DropSheet drop={open} token={token} briefs={(data?.briefs as any[]) || []} committed={committed} pipeItems={pipeItems} catalogItems={catalogItems} itemsById={itemsById} onChanged={(id?: string) => load(id)} onClose={() => setOpen(null)} />}
     </div>
   );
 }
 
-function DropSheet({ drop, token, briefs, pipeItems, catalogItems, itemsById, onChanged, onClose }: {
-  drop: any; token: string; briefs: any[]; pipeItems: any[]; catalogItems: any[]; itemsById: Record<string, any>; onChanged: (id?: string) => void; onClose: () => void;
+// Inline slot spec — format + retail live ON the slot, edited in place
+// while the release is building (dotted-underline convention).
+function SlotSpecEdit({ slot, onSave }: { slot: any; onSave: (patch: { format?: string; retail?: number | null }) => Promise<void> }) {
+  const [format, setFormat] = useState<string>(slot.format || "");
+  const [retail, setRetail] = useState<string>(slot.retail != null ? String(slot.retail) : "");
+  const dotted: any = { background: "transparent", border: "none", borderBottom: `1px dashed ${C.faint}`, color: C.text, fontFamily: C.mono, fontSize: 11, outline: "none", padding: "2px 1px" };
+  return (
+    <span style={{ display: "inline-flex", gap: 10, alignItems: "baseline", width: "100%", paddingLeft: 52 }}>
+      <input value={format} onChange={e => setFormat(e.target.value)} placeholder="Tee, Hoodie…"
+        onBlur={() => { if ((format.trim() || null) !== (slot.format || null)) onSave({ format: format.trim() }); }}
+        style={{ ...dotted, width: 110 }} />
+      <span style={{ display: "inline-flex", alignItems: "baseline", gap: 2 }}>
+        <span style={{ fontSize: 11, color: C.faint, fontFamily: C.mono }}>$</span>
+        <input value={retail} onChange={e => setRetail(e.target.value.replace(/[^0-9.]/g, ""))} placeholder="retail" inputMode="decimal"
+          onBlur={() => { const v = retail === "" ? null : Math.round(Number(retail) * 100) / 100; if (v !== (slot.retail ?? null)) onSave({ retail: v }); }}
+          style={{ ...dotted, width: 64 }} />
+      </span>
+    </span>
+  );
+}
+
+function DropSheet({ drop, token, briefs, committed, pipeItems, catalogItems, itemsById, onChanged, onClose }: {
+  drop: any; token: string; briefs: any[]; committed: Set<string>; pipeItems: any[]; catalogItems: any[]; itemsById: Record<string, any>; onChanged: (id?: string) => void; onClose: () => void;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState("");
@@ -292,18 +314,14 @@ function DropSheet({ drop, token, briefs, pipeItems, catalogItems, itemsById, on
   const suggested = slotEtas.length
     ? new Date(new Date(slotEtas.sort().slice(-1)[0] + "T00:00").getTime() + CHAIN_DEFAULTS.webPrepDays * 86400000).toISOString().slice(0, 10)
     : null;
-  const candidates = useMemo(() => {
-    const out: any[] = [];
-    for (const b of briefs) {
-      const lines = Array.isArray(b.product_spec?.products) ? b.product_spec.products : [];
-      for (const ln of lines) {
-        if (slotted.has(`${b.id}|${ln.id}`)) continue;
-        out.push({ brief: b, line: ln });
-      }
-    }
-    return out;
+  // Studio designs pull on DIRECTLY — no product-spec prerequisite. The
+  // committed set (open release slots anywhere, open studio orders, born
+  // items) keeps one design on one lane; format/retail get set on the slot.
+  const slottedBriefs = new Set(drop.slots.map((s: any) => s.briefId).filter(Boolean));
+  const candidates = useMemo(() =>
+    briefs.filter((b: any) => !slottedBriefs.has(b.id) && !committed.has(b.id)),
     // eslint-disable-next-line
-  }, [briefs, drop.slots]);
+    [briefs, committed, drop.slots]);
 
   const briefThumb = (b: any): string | null => {
     const t = (b.thumbs || []).find((x: any) => x.preview_drive_file_id || x.drive_file_id);
@@ -400,9 +418,10 @@ function DropSheet({ drop, token, briefs, pipeItems, catalogItems, itemsById, on
                         : `${s.retail != null ? `$${s.retail} retail` : "retail TBD"}${s.model ? ` · ${s.model === "preorder" ? "pre-order" : s.model === "not_sure" ? "model TBD" : "fixed run"}` : ""}`}
                   </span>
                 </span>
-                <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: s.ideaApproved ? C.green : C.amber, whiteSpace: "nowrap" }}>
-                  {s.rerun ? "Run it back" : s.itemId ? "In the pipeline" : s.ideaApproved ? "Ready" : "Design pending"}
+                <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: (s.briefState === "killed" || s.briefState === "shelved") && !s.itemId ? C.red : s.ideaApproved ? C.green : C.amber, whiteSpace: "nowrap" }}>
+                  {(s.briefState === "killed" || s.briefState === "shelved") && !s.itemId ? "Removed in studio" : s.rerun ? "Run it back" : s.itemId ? "In the pipeline" : s.ideaApproved ? "Ready" : "Design pending"}
                 </span>
+                {building && !s.itemId && <SlotSpecEdit slot={s} onSave={async (patch) => { if (await call("PATCH", "/slots", { slotId: s.id, ...patch })) onChanged(drop.id); }} />}
                 {building && (
                   <button onClick={async () => { setBusy(s.id); if (await call("DELETE", `/slots?slotId=${s.id}`)) onChanged(drop.id); setBusy(null); }}
                     style={{ background: "none", border: "none", color: C.faint, fontSize: 16, cursor: "pointer", lineHeight: 1 }} aria-label="Remove">×</button>
@@ -458,19 +477,18 @@ function DropSheet({ drop, token, briefs, pipeItems, catalogItems, itemsById, on
                   </button>
                 ))}
                 {candidates.length > 0 && <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: C.faint, padding: "8px 0 2px" }}>From the studio · not yet ordered</div>}
-                {candidates.map(({ brief, line }: any) => {
+                {candidates.map((brief: any) => {
                   const src = briefThumb(brief);
                   return (
-                    <button key={`${brief.id}|${line.id}`}
-                      onClick={async () => { setBusy(line.id); if (await call("POST", "/slots", { briefId: brief.id, lineId: line.id })) onChanged(drop.id); setBusy(null); }}
+                    <button key={brief.id}
+                      onClick={async () => { setBusy(brief.id); if (await call("POST", "/slots", { briefId: brief.id })) onChanged(drop.id); setBusy(null); }}
                       style={{ display: "flex", gap: 10, alignItems: "center", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: "8px 10px", cursor: "pointer", textAlign: "left", fontFamily: C.font, color: C.text }}>
                       <span style={{ width: 32, height: 32, background: "#fff", borderRadius: 6, overflow: "hidden", flexShrink: 0 }}>
                         {src && <img src={src} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />}
                       </span>
                       <span style={{ minWidth: 0, flex: 1, fontSize: 12, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {line.format || "Item"} <span style={{ color: C.faint, fontWeight: 500 }}>· {brief.title || "Untitled"}</span>
+                        {brief.title || "Untitled"}
                       </span>
-                      <span style={{ fontSize: 10, fontFamily: C.mono, color: C.muted, whiteSpace: "nowrap" }}>{line.retail != null ? `$${line.retail}` : ""}</span>
                       <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", color: C.text }}>+ Add</span>
                     </button>
                   );

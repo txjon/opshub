@@ -51,6 +51,17 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
       .select("brief_id").in("brief_id", ids).eq("visibility", "client");
     for (const m of (cm || []) as any[]) hasShared.add(m.brief_id);
   }
+  const releaseByBrief: Record<string, { title: string; status: string }> = {};
+  if (ids.length) {
+    const { data: rslots } = await db.from("release_slots").select("brief_id, releases!inner(title, status)").in("brief_id", ids);
+    for (const r of (rslots || []) as any[]) {
+      if (!r.brief_id) continue;
+      const rel = { title: (r as any).releases?.title || "Release", status: (r as any).releases?.status || "" };
+      const cur = releaseByBrief[r.brief_id];
+      if (!cur || (cur.status === "cut" && rel.status !== "cut")) releaseByBrief[r.brief_id] = rel;
+    }
+  }
+
   // Live ballots (sent, un-minted) get the collage treatment: _lineup carries
   // up to 4 option thumbs + count; the first option also backfills _art.
   const lineupMeta: Record<string, { count: number; thumbs: string[] }> = {};
@@ -68,6 +79,6 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
 
   return NextResponse.json({
     client: { name: (client as any).name },
-    briefs: visible.map(b => ({ id: b.id, title: b.title, state: b.state, _art: artByBrief[b.id] || null, _lineup: lineupMeta[b.id] || null })),
+    briefs: visible.map(b => ({ id: b.id, title: b.title, state: b.state, _art: artByBrief[b.id] || null, _lineup: lineupMeta[b.id] || null, _release: releaseByBrief[b.id] || null })),
   });
 }
