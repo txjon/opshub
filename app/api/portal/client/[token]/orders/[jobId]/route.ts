@@ -21,7 +21,7 @@ async function authAndLoadJob(token: string, jobId: string) {
   const { data: client } = await sb
     .from("clients")
     .select("id, name, companies:company_id(slug, default_payment_provider)")
-    .eq("portal_token", token)
+    .eq("portal_token", token).eq("client_hub_enabled", true)
     .single();
   if (!client) return { error: "Invalid link", status: 404 as const };
 

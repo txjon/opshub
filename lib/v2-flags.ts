@@ -46,9 +46,6 @@ export const STUDIO_UNDER_DEV = false;
 // hides the CLIENT-hub studio until the per-client rollout (Phase 3).
 export const STUDIO_HIDDEN_HREFS: string[] = [];
 
-// ── Drops hidden from the client hub (Jon, Jul 23 2026) ──────────────────────
-// Pull the Drops surface from the client hub: the main-nav Drops tab (all three
-// nav renders) + the home "The drops." section. NAV-HIDE ONLY — the /drops route
-// still resolves by direct URL (its own hasStudio guard is untouched), so the
-// team can keep using it and deep-links work. Flip to false to bring it back.
-export const DROPS_UNDER_DEV = true;
+// (DROPS_UNDER_DEV removed Aug 11 2026 — the client-hub Releases tab, renamed
+// from Drops, now rolls out per-client via the portal_features 'releases'
+// grant. Sike Ops is the launch client.)

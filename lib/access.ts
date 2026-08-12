@@ -37,7 +37,7 @@ export const PAGE_CATALOG: CatalogPage[] = [
   { key: "/jobs", href: "/jobs", label: "Projects", group: "labs" },
   { key: "/projects", href: "/projects", label: "Projects V2", group: "labs" },
   { key: "/studio", href: "/studio", label: "The Studio", group: "labs" },
-  { key: "/drops", href: "/drops", label: "Drops", group: "labs" },
+  { key: "/drops", href: "/drops", label: "Releases", group: "labs" },
   { key: "/production", href: "/production", label: "Production", group: "labs" },
   { key: "/production2", href: "/production2", label: "Production v2", group: "labs" },
   // Distro / warehouse

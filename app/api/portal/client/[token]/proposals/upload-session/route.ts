@@ -23,7 +23,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     const { data: client } = await db
       .from("clients")
       .select("id, name")
-      .eq("portal_token", params.token)
+      .eq("portal_token", params.token).eq("client_hub_enabled", true)
       .single();
     if (!client) return NextResponse.json({ error: "Invalid link" }, { status: 404 });
 

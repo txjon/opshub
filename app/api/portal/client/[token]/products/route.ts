@@ -19,7 +19,7 @@ function admin() {
 async function gate(token: string) {
   const db = admin();
   const { data: client } = await db.from("clients")
-    .select("id, name").eq("portal_token", token).single();
+    .select("id, name").eq("portal_token", token).eq("client_hub_enabled", true).single();
   return client ? { db, client } : null;
 }
 

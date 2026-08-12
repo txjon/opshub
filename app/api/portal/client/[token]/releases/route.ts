@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
+import { isRerunLineId } from "@/lib/release-lanes";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,7 +21,7 @@ const APPROVED = ["approved"];
 async function ctxOf(token: string) {
   const db = admin();
   const { data: client } = await db.from("clients")
-    .select("id, name, portal_features, company_id").eq("portal_token", token).single();
+    .select("id, name, portal_features, company_id").eq("portal_token", token).eq("client_hub_enabled", true).single();
   if (!client) return null;
   const denied = !Array.isArray((client as any).portal_features) || !(client as any).portal_features.includes("releases");
   return { db, client, denied };
@@ -52,8 +53,10 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
           model: s.model, notes: s.line_notes,
           soldUnits: s.sold_units, qtys: s.qtys || {}, qtysConfirmedAt: s.qtys_confirmed_at,
           itemId: s.item_id || null,
+          rerun: isRerunLineId(s.line_id),
           ideaTitle: s.art_briefs?.title || null,
-          // an in-production item is real by definition — always ready
+          // item-sourced lines are real by definition — always ready
+          // (pipeline: the run exists; re-run: the design + proofs exist)
           ideaApproved: s.item_id ? true : APPROVED.includes(s.art_briefs?.state),
         });
       }
@@ -102,14 +105,16 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
 
     const body = await req.json().catch(() => ({}));
     const title = String(body.title || "").trim().slice(0, 120);
-    if (!title) return NextResponse.json({ error: "Name the drop" }, { status: 400 });
-    const model = ["preorder", "stock"].includes(body.model) ? body.model : "preorder";
+    if (!title) return NextResponse.json({ error: "Name the release" }, { status: 400 });
+    // No model at the door (Aug 12 2026): the lineup decides what a release
+    // is — pipeline-only launches, anything else sells/cuts. Column kept for
+    // legacy rows; new releases are born model-null.
     const target = /^\d{4}-\d{2}-\d{2}$/.test(String(body.target_live_date || "")) ? body.target_live_date : null;
 
     const { data, error } = await db.from("releases").insert({
       company_id: (client as any).company_id || null,
       client_id: client.id,
-      title, model,
+      title, model: null,
       target_live_date: target,
       status: "building",
       status_timestamps: { building: new Date().toISOString() },

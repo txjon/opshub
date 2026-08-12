@@ -1,11 +1,13 @@
 "use client";
-// RELEASES — the client release builder (Jul 21 2026, renamed from Drops
-// Aug 11 2026). A release gathers product lines from ACROSS their ideas
-// into one dated drop: name it, pull lines on, watch the readiness gate
-// (every contributing design approved), then send it to us. Post-sale,
-// this is also where per-line production numbers get entered (slots PATCH
-// opens when the release closes). 'releases' grant.
-import { useEffect, useMemo, useState } from "react";
+// RELEASES — the client release planner (Jul 21 2026; renamed from Drops
+// Aug 11; lineup-decides model Aug 12). A release gathers lines from THREE
+// sources — studio ideas, pipeline items, catalog re-runs — into one dated
+// drop. No stock/pre-order choice at the door: an all-pipeline lineup
+// launches, anything else sells/cuts (lib/release-lanes). Post-sale this is
+// also where per-line production numbers get entered. 'releases' grant.
+// Accepts ?add=<itemId> from the Catalog tab: the item lands on the one
+// building release (created if none; chooser if several).
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useClientPortal } from "../_shared/context";
 import { C, fmtDate } from "../_shared/theme";
 import { backwardChain, CHAIN_DEFAULTS } from "@/lib/portal/drop-chain";
@@ -26,14 +28,16 @@ export default function ReleasesPage() {
   const feats: string[] = (data as any)?.features || [];
   const hasReleases = feats.includes("releases");
   const hasStudio = feats.includes("studio");
-  const hasPipeline = feats.includes("pipeline");
   const [drops, setDrops] = useState<any[] | null>(null);
-  // Pipeline items — the in-stock lane's slot source + the date engine
-  // (target suggested from the latest landing). Needs the pipeline grant.
-  const [pipeItems, setPipeItems] = useState<any[]>([]);
+  // Every item they own, one fetch — split below into the pipeline lane
+  // (active runs: slot rides along) and the catalog lane (produced history:
+  // slot = re-run). Also the date engine's landing source.
+  const [allItems, setAllItems] = useState<any[] | null>(null);
   const [open, setOpen] = useState<any>(null);
-  const [naming, setNaming] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [pageErr, setPageErr] = useState("");
+  const [chooser, setChooser] = useState<{ itemId: string } | null>(null);
+  const addHandled = useRef(false);
 
   async function load(openId?: string) {
     try {
@@ -42,17 +46,73 @@ export default function ReleasesPage() {
       setDrops(body.drops || []);
       if (openId) setOpen((body.drops || []).find((d: any) => d.id === openId) || null);
       else if (open) setOpen((body.drops || []).find((d: any) => d.id === open.id) || null);
-    } catch { setDrops([]); }
+      return (body.drops || []) as any[];
+    } catch { setDrops([]); return [] as any[]; }
   }
   useEffect(() => {
     load();
-    if (hasPipeline) {
-      fetch(`/api/portal/client/${token}/items`).then(r => r.json())
-        .then(b => setPipeItems((b.items || []).filter((it: any) => !["complete", "archived", "cancelled", "on_hold"].includes(it.status))))
-        .catch(() => {});
-    }
+    fetch(`/api/portal/client/${token}/items`).then(r => r.json())
+      .then(b => setAllItems(b.items || []))
+      .catch(() => setAllItems([]));
     // eslint-disable-next-line
   }, [token]);
+
+  const pipeItems = useMemo(() =>
+    (allItems || []).filter((it: any) => !["complete", "archived", "cancelled", "on_hold"].includes(it.status)),
+    [allItems]);
+  // Catalog lane: produced pieces not currently in flight, one card per
+  // piece (same name|sku dedupe as the Catalog tab, newest instance wins).
+  const catalogItems = useMemo(() => {
+    const activeIds = new Set(pipeItems.map((it: any) => it.id));
+    const byKey = new Map<string, any>();
+    const sorted = [...(allItems || [])].sort((a: any, b: any) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
+    for (const it of sorted) {
+      if (it.run === false || it.status === "cancelled" || activeIds.has(it.id)) continue;
+      const key = `${(it.name || "").trim().toLowerCase()}|${(it.blank_sku || "").trim().toLowerCase()}`;
+      if (!byKey.has(key)) byKey.set(key, it);
+    }
+    return Array.from(byKey.values());
+  }, [allItems, pipeItems]);
+  const itemsById = useMemo(() => {
+    const m: Record<string, any> = {};
+    for (const it of (allItems || [])) m[it.id] = it;
+    return m;
+  }, [allItems]);
+
+  // Add an item to a release — pipeline items ride along, produced history
+  // goes on as a RE-RUN (server re-validates the lane).
+  async function addItemToRelease(releaseId: string, itemId: string): Promise<boolean> {
+    const target = (drops || []).find((d: any) => d.id === releaseId);
+    if (target && (target.slots || []).some((s: any) => s.itemId === itemId)) { await load(releaseId); return true; }
+    const isActive = pipeItems.some((it: any) => it.id === itemId);
+    const res = await fetch(`/api/portal/client/${token}/releases/${releaseId}/slots`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(isActive ? { itemId } : { itemId, rerun: true }),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) { setPageErr(out.error || "Couldn't add that to the release."); return false; }
+    await load(releaseId);
+    return true;
+  }
+
+  // ?add=<itemId> — the Catalog tab's "Add to a release" hand-off.
+  useEffect(() => {
+    if (addHandled.current || drops === null || allItems === null) return;
+    const params = new URLSearchParams(window.location.search);
+    const addId = params.get("add");
+    addHandled.current = true;
+    if (!addId) return;
+    window.history.replaceState(null, "", window.location.pathname);
+    if (!itemsById[addId]) { setPageErr("Couldn't find that piece."); return; }
+    (async () => {
+      const building = drops.filter((d: any) => d.status === "building");
+      if (building.length > 1) { setChooser({ itemId: addId }); return; }
+      let target: string | undefined = building[0]?.id;
+      if (!target) target = (await createDrop()) || undefined;
+      if (target) await addItemToRelease(target, addId);
+    })();
+    // eslint-disable-next-line
+  }, [drops, allItems]);
 
   if (data && !hasReleases) {
     return <div style={{ padding: "60px 0", textAlign: "center", color: C.muted, fontSize: 13 }}>This page isn&rsquo;t enabled for your account. Reach out to your rep if you&rsquo;d like release planning here.</div>;
@@ -63,21 +123,22 @@ export default function ReleasesPage() {
   // state below routes them to the Studio instead of a dead end.
   const briefLineCount = (((data as any)?.briefs as any[]) || [])
     .reduce((n, b) => n + (Array.isArray(b.product_spec?.products) ? b.product_spec.products.length : 0), 0);
-  const noSources = briefLineCount === 0 && pipeItems.length === 0;
+  const noSources = briefLineCount === 0 && pipeItems.length === 0 && catalogItems.length === 0;
 
-  // One tap creates it — auto-named per model ("In-Stock Release 03"),
-  // rename anytime in the sheet. No decisions at the door.
-  async function createDrop(model: "stock" | "preorder") {
+  // One tap creates it — auto-named ("Release 03"), rename anytime in the
+  // sheet. No decisions at the door: the lineup decides what it becomes.
+  async function createDrop(): Promise<string | null> {
     setBusy(true);
     try {
-      const n = (drops || []).filter((d: any) => d.model === model).length + 1;
-      const title = `${model === "stock" ? "In-Stock Release" : "Pre-Order"} ${String(n).padStart(2, "0")}`;
+      const n = (drops || []).length + 1;
+      const title = `Release ${String(n).padStart(2, "0")}`;
       const res = await fetch(`/api/portal/client/${token}/releases`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, model }),
+        body: JSON.stringify({ title }),
       });
       const body = await res.json();
-      if (res.ok) { setNaming(false); await load(body.dropId); }
+      if (res.ok) { await load(body.dropId); return body.dropId as string; }
+      return null;
     } finally { setBusy(false); }
   }
 
@@ -105,27 +166,13 @@ export default function ReleasesPage() {
       </div>
 
       <div style={{ display: "flex", justifyContent: "center", marginBottom: 34 }}>
-        {!naming ? (
-          <button onClick={() => setNaming(true)}
-            style={{ background: "#fff", color: C.bg, border: "none", borderRadius: 999, padding: "13px 26px", fontSize: 11.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: C.font }}>
-            + Build your next release
-          </button>
-        ) : (
-          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", justifyContent: "center" }}>
-            <button onClick={() => createDrop("stock")} disabled={busy}
-              style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: "18px 22px", cursor: "pointer", textAlign: "left", fontFamily: C.font, color: C.text, maxWidth: 250, opacity: busy ? 0.6 : 1 }}>
-              <span style={{ display: "block", fontSize: 15, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em" }}>In-stock</span>
-              <span style={{ display: "block", fontSize: 11.5, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>Built from goods in your pipeline. Launches when they land.</span>
-            </button>
-            <button onClick={() => createDrop("preorder")} disabled={busy}
-              style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: "18px 22px", cursor: "pointer", textAlign: "left", fontFamily: C.font, color: C.text, maxWidth: 250, opacity: busy ? 0.6 : 1 }}>
-              <span style={{ display: "block", fontSize: 15, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em" }}>Pre-order</span>
-              <span style={{ display: "block", fontSize: 11.5, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>Sell first. Demand sets the run, production follows.</span>
-            </button>
-            <button onClick={() => setNaming(false)} style={{ background: "none", border: "none", color: C.faint, fontSize: 12, cursor: "pointer", fontFamily: C.font, alignSelf: "center" }}>cancel</button>
-          </div>
-        )}
+        <button onClick={() => createDrop()} disabled={busy}
+          style={{ background: "#fff", color: C.bg, border: "none", borderRadius: 999, padding: "13px 26px", fontSize: 11.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", opacity: busy ? 0.6 : 1, fontFamily: C.font }}>
+          + Build your next release
+        </button>
       </div>
+
+      {pageErr && <div style={{ color: C.red, fontSize: 12.5, fontWeight: 700, textAlign: "center", marginBottom: 16 }}>{pageErr}</div>}
 
       {drops === null ? (
         <div style={{ color: C.faint, fontSize: 13, textAlign: "center", padding: "30px 0" }}>Loading your releases…</div>
@@ -174,13 +221,42 @@ export default function ReleasesPage() {
         </div>
       )}
 
-      {open && <DropSheet drop={open} token={token} briefs={(data?.briefs as any[]) || []} pipeItems={pipeItems} onChanged={(id?: string) => load(id)} onClose={() => setOpen(null)} />}
+      {/* Which release? — only when several are building and an item arrives from the Catalog */}
+      {chooser && (
+        <div className="dx-back">
+          <div className="dx-sheet">
+            <div className="dx-handle" />
+            <div style={{ padding: "18px 20px 20px" }}>
+              <div style={{ fontSize: 15, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em" }}>Add it to which release?</div>
+              <div style={{ fontSize: 12, color: C.muted, marginTop: 4, lineHeight: 1.5 }}>{itemsById[chooser.itemId]?.name || "This piece"} is ready to go on.</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 14 }}>
+                {(drops || []).filter((d: any) => d.status === "building").map((d: any) => (
+                  <button key={d.id} disabled={busy}
+                    onClick={async () => { setChooser(null); await addItemToRelease(d.id, chooser.itemId); }}
+                    style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: "13px 16px", cursor: "pointer", textAlign: "left", fontFamily: C.font, color: C.text, fontSize: 13, fontWeight: 800, textTransform: "uppercase" }}>
+                    {d.title} <span style={{ color: C.faint, fontWeight: 600, textTransform: "none", fontSize: 11 }}>· {d.slots.length} line{d.slots.length === 1 ? "" : "s"}</span>
+                  </button>
+                ))}
+                <button disabled={busy}
+                  onClick={async () => { const c = chooser; setChooser(null); const id = await createDrop(); if (id && c) await addItemToRelease(id, c.itemId); }}
+                  style={{ background: "transparent", border: `1px solid ${C.border}`, borderRadius: 12, padding: "13px 16px", cursor: "pointer", textAlign: "left", fontFamily: C.font, color: C.muted, fontSize: 12, fontWeight: 800, textTransform: "uppercase" }}>
+                  + Start a new release with it
+                </button>
+                <button onClick={() => setChooser(null)}
+                  style={{ background: "none", border: "none", color: C.faint, fontSize: 12, cursor: "pointer", fontFamily: C.font, padding: "6px 0" }}>cancel</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {open && <DropSheet drop={open} token={token} briefs={(data?.briefs as any[]) || []} pipeItems={pipeItems} catalogItems={catalogItems} itemsById={itemsById} onChanged={(id?: string) => load(id)} onClose={() => setOpen(null)} />}
     </div>
   );
 }
 
-function DropSheet({ drop, token, briefs, pipeItems, onChanged, onClose }: {
-  drop: any; token: string; briefs: any[]; pipeItems: any[]; onChanged: (id?: string) => void; onClose: () => void;
+function DropSheet({ drop, token, briefs, pipeItems, catalogItems, itemsById, onChanged, onClose }: {
+  drop: any; token: string; briefs: any[]; pipeItems: any[]; catalogItems: any[]; itemsById: Record<string, any>; onChanged: (id?: string) => void; onClose: () => void;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState("");
@@ -188,12 +264,15 @@ function DropSheet({ drop, token, briefs, pipeItems, onChanged, onClose }: {
   // In-sheet confirm strip (no browser confirm() on the storefront skin).
   const [confirming, setConfirming] = useState<"submit" | "remove" | null>(null);
   const building = drop.status === "building";
-  const numbersOpen = drop.status === "closed" && drop.model !== "stock";
+  // Lineup decides: numbers only matter for lines that need a run (ideas +
+  // re-runs); an all-pipeline lineup is a launch, not a sale.
+  const needsRun = (s: any) => !s.itemId || s.rerun;
+  const pipelineOnly = drop.slots.length > 0 && !drop.slots.some(needsRun);
+  const numbersOpen = drop.status === "closed" && drop.slots.some(needsRun);
   const w = STATUS_WORDS[drop.status] || { label: drop.status, color: C.faint, hint: "" };
   const ready = drop.slots.filter((s: any) => s.ideaApproved).length;
   const allReady = drop.slots.length > 0 && ready === drop.slots.length;
 
-  const isStock = drop.model === "stock";
   // Candidate lines: every product line across their ideas not already slotted.
   const slotted = new Set(drop.slots.map((s: any) => `${s.briefId}|${s.lineId}`));
   const slottedItems = new Set(drop.slots.map((s: any) => s.itemId).filter(Boolean));
@@ -205,9 +284,11 @@ function DropSheet({ drop, token, briefs, pipeItems, onChanged, onClose }: {
     if (a.eta && b.eta) return a.eta.localeCompare(b.eta);
     return (a.name || "").localeCompare(b.name || "");
   });
-  const itemById = (id: string) => pipeItems.find((it: any) => it.id === id);
-  // Suggested live date = latest landing across item-sourced slots + prep.
-  const slotEtas = drop.slots.map((s: any) => s.itemId && itemById(s.itemId)?.eta).filter(Boolean) as string[];
+  const rerunCands = catalogItems.filter((it: any) => !slottedItems.has(it.id));
+  const itemById = (id: string) => itemsById[id];
+  // Suggested live date = latest landing across PIPELINE slots + prep
+  // (re-run sources are past runs — their dates say nothing about this one).
+  const slotEtas = drop.slots.map((s: any) => s.itemId && !s.rerun && itemById(s.itemId)?.eta).filter(Boolean) as string[];
   const suggested = slotEtas.length
     ? new Date(new Date(slotEtas.sort().slice(-1)[0] + "T00:00").getTime() + CHAIN_DEFAULTS.webPrepDays * 86400000).toISOString().slice(0, 10)
     : null;
@@ -303,6 +384,7 @@ function DropSheet({ drop, token, briefs, pipeItems, onChanged, onClose }: {
             const pit = s.itemId ? itemById(s.itemId) : null;
             const b = s.briefId ? briefById(s.briefId) : null;
             const src = pit?.thumb_id ? thumbSrc(pit.thumb_id) : (b ? briefThumb(b) : null);
+            const lastRun = Object.values(s.qtys || {}).reduce((a: number, x: any) => a + Number(x), 0);
             return (
               <div key={s.id} style={{ display: "flex", gap: 12, alignItems: "center", padding: "9px 0", borderBottom: `1px solid ${C.border}`, flexWrap: "wrap" }}>
                 <span style={{ width: 40, height: 40, background: "#fff", borderRadius: 8, overflow: "hidden", flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
@@ -311,19 +393,21 @@ function DropSheet({ drop, token, briefs, pipeItems, onChanged, onClose }: {
                 <span style={{ minWidth: 0, flex: 1 }}>
                   <span style={{ display: "block", fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.format || "Item"}{s.ideaTitle ? <span style={{ color: C.faint, fontWeight: 600, textTransform: "none" }}> · {s.ideaTitle}</span> : null}</span>
                   <span style={{ display: "block", fontSize: 10, fontFamily: C.mono, color: C.muted, marginTop: 2 }}>
-                    {s.itemId
-                      ? `${(pit?.qty || Object.values(s.qtys || {}).reduce((a: number, b: any) => a + Number(b), 0)).toLocaleString()} pcs${pit?.eta ? ` · lands ${fmtDate(pit.eta)}` : ""}`
-                      : `${s.retail != null ? `$${s.retail} retail` : "retail TBD"}${s.model ? ` · ${s.model === "preorder" ? "pre-order" : s.model === "not_sure" ? "model TBD" : "fixed run"}` : ""}`}
+                    {s.rerun
+                      ? `new run${lastRun > 0 ? ` · last run ${lastRun.toLocaleString()} pcs` : ""}${s.retail != null ? ` · $${s.retail} retail` : ""}`
+                      : s.itemId
+                        ? `${(pit?.qty || lastRun).toLocaleString()} pcs${pit?.eta ? ` · lands ${fmtDate(pit.eta)}` : ""}`
+                        : `${s.retail != null ? `$${s.retail} retail` : "retail TBD"}${s.model ? ` · ${s.model === "preorder" ? "pre-order" : s.model === "not_sure" ? "model TBD" : "fixed run"}` : ""}`}
                   </span>
                 </span>
                 <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: s.ideaApproved ? C.green : C.amber, whiteSpace: "nowrap" }}>
-                  {s.itemId ? "In the pipeline" : s.ideaApproved ? "Ready" : "Design pending"}
+                  {s.rerun ? "Run it back" : s.itemId ? "In the pipeline" : s.ideaApproved ? "Ready" : "Design pending"}
                 </span>
                 {building && (
                   <button onClick={async () => { setBusy(s.id); if (await call("DELETE", `/slots?slotId=${s.id}`)) onChanged(drop.id); setBusy(null); }}
                     style={{ background: "none", border: "none", color: C.faint, fontSize: 16, cursor: "pointer", lineHeight: 1 }} aria-label="Remove">×</button>
                 )}
-                {numbersOpen && <NumbersEntry slot={s} onSave={async (qtys) => { setBusy(s.id); if (await call("PATCH", "/slots", { slotId: s.id, qtys })) onChanged(drop.id); setBusy(null); }} />}
+                {numbersOpen && needsRun(s) && <NumbersEntry slot={s} onSave={async (qtys) => { setBusy(s.id); if (await call("PATCH", "/slots", { slotId: s.id, qtys })) onChanged(drop.id); setBusy(null); }} />}
               </div>
             );
           })}
@@ -337,10 +421,10 @@ function DropSheet({ drop, token, briefs, pipeItems, onChanged, onClose }: {
                 style={{ borderRadius: 999, border: `1px solid ${C.border}`, background: "transparent", color: C.muted, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", padding: "10px 18px", cursor: "pointer", fontFamily: C.font }}>
                 + Pull designs onto the release
               </button>
-            ) : candidates.length === 0 && itemCands.length === 0 ? (
+            ) : candidates.length === 0 && itemCands.length === 0 && rerunCands.length === 0 ? (
               <div style={{ fontSize: 12, color: C.faint }}>
                 {drop.slots.length > 0
-                  ? "Everything from your pipeline and studio is already on it."
+                  ? "Everything from your pipeline, catalog, and studio is already on it."
                   : "Nothing to pull yet. Designs you approve in the Studio land here."}
               </div>
             ) : (
@@ -357,6 +441,19 @@ function DropSheet({ drop, token, briefs, pipeItems, onChanged, onClose }: {
                     <span style={{ fontSize: 10, fontFamily: C.mono, whiteSpace: "nowrap", color: it.status === "in_stock" ? C.green : it.eta ? C.muted : C.faint, fontWeight: it.status === "in_stock" ? 800 : 500 }}>
                       {it.qty ? `${it.qty.toLocaleString()} pcs · ` : ""}{it.status === "in_stock" ? "ready now" : it.eta ? `lands ${fmtDate(it.eta)}` : "date TBD"}
                     </span>
+                    <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", color: C.text }}>+ Add</span>
+                  </button>
+                ))}
+                {rerunCands.length > 0 && <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: C.faint, padding: "8px 0 2px" }}>From your catalog · run it back</div>}
+                {rerunCands.map((it: any) => (
+                  <button key={it.id}
+                    onClick={async () => { setBusy(it.id); if (await call("POST", "/slots", { itemId: it.id, rerun: true })) onChanged(drop.id); setBusy(null); }}
+                    style={{ display: "flex", gap: 10, alignItems: "center", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: "8px 10px", cursor: "pointer", textAlign: "left", fontFamily: C.font, color: C.text }}>
+                    <span style={{ width: 32, height: 32, background: "#fff", borderRadius: 6, overflow: "hidden", flexShrink: 0 }}>
+                      {it.thumb_id && <img src={thumbSrc(it.thumb_id)} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />}
+                    </span>
+                    <span style={{ minWidth: 0, flex: 1, fontSize: 12, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.name}</span>
+                    <span style={{ fontSize: 10, fontFamily: C.mono, color: C.muted, whiteSpace: "nowrap" }}>{it.qty ? `last run ${it.qty.toLocaleString()} pcs` : "past run"}</span>
                     <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", color: C.text }}>+ Add</span>
                   </button>
                 ))}
@@ -438,7 +535,7 @@ function DropSheet({ drop, token, briefs, pipeItems, onChanged, onClose }: {
                 </button>
               </div>
               <span style={{ fontSize: 11, color: C.faint, lineHeight: 1.5, maxWidth: "58ch" }}>
-                Everything saves as you go. Close anytime and keep planning later. When the lineup&rsquo;s final, <b style={{ color: C.muted }}>Hand it off</b> sends it to our team {isStock ? "to schedule the launch" : "to cost it and open the sale"}; the lineup locks from there.{!allReady && drop.slots.length > 0 ? " (Unlocks once every design on it is approved.)" : ""}
+                Everything saves as you go. Close anytime and keep planning later. When the lineup&rsquo;s final, <b style={{ color: C.muted }}>Hand it off</b> sends it to our team {pipelineOnly ? "to schedule the launch" : "to cost it and open the sale"}; the lineup locks from there.{!allReady && drop.slots.length > 0 ? " (Unlocks once every design on it is approved.)" : ""}
               </span>
             </div>
           )}

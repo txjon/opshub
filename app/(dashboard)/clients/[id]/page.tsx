@@ -405,7 +405,7 @@ function StudioRail({ briefs, secHead }: any) {
 function DropsRail({ releases, secHead }: any) {
   return (
     <>
-      {secHead("The drops.", "their releases — building, live, and cut")}
+      {secHead("The releases.", "building, live, and cut")}
       {releases.length === 0 && <div style={{ color: H.faint, fontSize: 12.5 }}>No releases yet.</div>}
       {releases.map((r: any) => (
         <a key={r.id} className="cs-row" href="/drops">

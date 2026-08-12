@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { C } from "./theme";
 import { useClientPortal } from "./context";
 import { getLogoSvgForSlug } from "@/lib/branding-client";
-import { STUDIO_UNDER_DEV, DROPS_UNDER_DEV } from "@/lib/v2-flags";
+import { STUDIO_UNDER_DEV } from "@/lib/v2-flags";
 
 // The real wordmark, recolored for the dark ground (the branding SVG is
 // black-filled for PDFs) and sized for chrome.
@@ -82,7 +82,7 @@ const ICONS: Record<string, TabIcon> = {
       <path d="M19 15l.9 2.6L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.4L19 15Z" />
     </svg>
   ),
-  Drops: (active) => (
+  Releases: (active) => (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
       stroke="currentColor" strokeWidth={active ? 2 : 1.6}
       strokeLinecap="round" strokeLinejoin="round">
@@ -108,7 +108,7 @@ const TABS: { label: keyof typeof ICONS; path: string; display: string; unreadKe
   // Product Development (the old /designs surface) stays unlisted; the
   // Studio (grant 'studio') is its stripped-down replacement.
   { label: "Studio", display: "Studio", path: "/studio" },
-  { label: "Drops", display: "Drops", path: "/drops" },
+  { label: "Releases", display: "Releases", path: "/releases" },
   { label: "Orders", display: "Orders", path: "/orders" },
   { label: "Items", display: "Pipeline", path: "/items" },
   // "Catalog" (Jon, Jul 22): one vocabulary on both sides of the glass — the
@@ -137,12 +137,12 @@ export default function Shell({ children }: { children: ReactNode }) {
   // Feature grants (mig 132): Pipeline is a granted surface — standard-tier
   // clients see Home / Orders / Reorder only.
   const features: string[] = (data as any).features || [];
-  // Studio + Drops under dev: pull those tabs from the client's nav (nav-hide only
-  // — the routes still resolve by direct URL).
+  // Releases rolls out per-client via its own grant (Sike Ops first, Aug 11
+  // 2026) — no global under-dev flag anymore.
   const visibleTabs = TABS.filter(t =>
     (t.path !== "/items" || features.includes("pipeline")) &&
     (t.path !== "/studio" || (features.includes("studio") && !STUDIO_UNDER_DEV)) &&
-    (t.path !== "/drops" || (features.includes("studio") && !DROPS_UNDER_DEV)));
+    (t.path !== "/releases" || features.includes("releases")));
 
   const isActive = (path: string) =>
     path === "" ? pathname === base || pathname === base + "/" : !!pathname?.startsWith(base + path);

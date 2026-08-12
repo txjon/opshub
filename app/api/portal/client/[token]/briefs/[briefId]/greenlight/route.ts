@@ -24,7 +24,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
   try {
     const db = admin();
     const { data: client } = await db.from("clients")
-      .select("id, name, portal_features").eq("portal_token", params.token).single();
+      .select("id, name, portal_features").eq("portal_token", params.token).eq("client_hub_enabled", true).single();
     if (!client) return NextResponse.json({ error: "Invalid link" }, { status: 404 });
     if (!Array.isArray((client as any).portal_features) || !(client as any).portal_features.includes("studio")) {
       return NextResponse.json({ error: "Not available" }, { status: 403 });

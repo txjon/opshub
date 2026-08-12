@@ -7,6 +7,44 @@
 type Db = any;
 export type CartLine = { itemId: string; sizes?: Record<string, number> };
 
+// THE copy shape for "run this item again" — identity + costs carried,
+// lifecycle reset, buy_sheet_lines = requested qtys, files re-referenced by
+// drive_file_id (deletion is reference-counted). Shared by the reorder cart
+// and the release cut's re-run lane; change it in one place only.
+export async function copyItemIntoJob(db: Db, src: any, jobId: string, opts: {
+  sizes: { size: string; qty: number }[]; sortOrder: number;
+}): Promise<string | null> {
+  const { data: ni, error: itemErr } = await db.from("items").insert({
+    job_id: jobId, name: src.name, blank_vendor: src.blank_vendor, blank_sku: src.blank_sku,
+    cost_per_unit: src.cost_per_unit, sell_per_unit: src.sell_per_unit, blank_costs: src.blank_costs || null,
+    garment_type: src.garment_type || null, drive_link: src.drive_link || null, is_fleece: !!src.is_fleece,
+    status: "tbd", artwork_status: src.artwork_status === "approved" ? "approved" : "not_started",
+    sort_order: opts.sortOrder, pipeline_stage: null, blanks_order_number: null, ship_tracking: null,
+    design_id: src.design_id || null,
+  }).select("id").single();
+  if (itemErr || !ni) return null;
+
+  if (opts.sizes.length) {
+    await db.from("buy_sheet_lines").insert(opts.sizes.map(s => ({
+      item_id: ni.id, size: s.size, qty_ordered: s.qty,
+      qty_shipped_from_vendor: 0, qty_received_at_hpd: 0, qty_shipped_to_customer: 0,
+    })));
+  }
+
+  const { data: srcFiles } = await db.from("item_files")
+    .select("file_name, stage, drive_file_id, drive_link, mime_type, file_size, approval, approved_at, notes")
+    .eq("item_id", src.id).is("superseded_at", null);
+  if ((srcFiles || []).length) {
+    await db.from("item_files").insert((srcFiles || []).map((f: any) => ({
+      item_id: ni.id, file_name: f.file_name, stage: f.stage, drive_file_id: f.drive_file_id,
+      drive_link: f.drive_link || `https://drive.google.com/file/d/${f.drive_file_id}/view`,
+      mime_type: f.mime_type || null, file_size: f.file_size || null,
+      approval: f.approval || "none", approved_at: f.approved_at || null, notes: f.notes || null,
+    })));
+  }
+  return ni.id as string;
+}
+
 export async function createReorderJob(db: Db, opts: {
   clientId: string; cart: CartLine[]; note?: string; source: "client_portal_cart" | "internal_cart";
 }): Promise<{ jobId: string; jobNumber: string | null; itemCount: number }> {
@@ -57,33 +95,9 @@ export async function createReorderJob(db: Db, opts: {
       .filter(s => s.qty > 0);
     if (!sizes.length) continue;
 
-    const { data: ni, error: itemErr } = await db.from("items").insert({
-      job_id: newJobId, name: src.name, blank_vendor: src.blank_vendor, blank_sku: src.blank_sku,
-      cost_per_unit: src.cost_per_unit, sell_per_unit: src.sell_per_unit, blank_costs: src.blank_costs || null,
-      garment_type: src.garment_type || null, drive_link: src.drive_link || null, is_fleece: !!src.is_fleece,
-      status: "tbd", artwork_status: src.artwork_status === "approved" ? "approved" : "not_started",
-      sort_order: i, pipeline_stage: null, blanks_order_number: null, ship_tracking: null,
-      design_id: src.design_id || null,
-    }).select("id").single();
-    if (itemErr || !ni) continue;
+    const newId = await copyItemIntoJob(db, src, newJobId, { sizes, sortOrder: i });
+    if (!newId) continue;
     itemCount++;
-
-    await db.from("buy_sheet_lines").insert(sizes.map(s => ({
-      item_id: ni.id, size: s.size, qty_ordered: s.qty,
-      qty_shipped_from_vendor: 0, qty_received_at_hpd: 0, qty_shipped_to_customer: 0,
-    })));
-
-    const { data: srcFiles } = await db.from("item_files")
-      .select("file_name, stage, drive_file_id, drive_link, mime_type, file_size, approval, approved_at, notes")
-      .eq("item_id", src.id).is("superseded_at", null);
-    if ((srcFiles || []).length) {
-      await db.from("item_files").insert((srcFiles || []).map((f: any) => ({
-        item_id: ni.id, file_name: f.file_name, stage: f.stage, drive_file_id: f.drive_file_id,
-        drive_link: f.drive_link || `https://drive.google.com/file/d/${f.drive_file_id}/view`,
-        mime_type: f.mime_type || null, file_size: f.file_size || null,
-        approval: f.approval || "none", approved_at: f.approved_at || null, notes: f.notes || null,
-      })));
-    }
   }
 
   if (!itemCount) { await db.from("jobs").delete().eq("id", newJobId); throw new Error("No valid items in cart"); }
