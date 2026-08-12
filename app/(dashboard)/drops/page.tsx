@@ -111,16 +111,16 @@ export default function DropsBoard() {
       ` }} />
       <div style={{ maxWidth: 1000, margin: "0 auto", padding: "26px 0 80px" }}>
         <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase", color: H.faint }}>Releases · internal</div>
-        <h1 style={{ fontSize: "clamp(34px,5vw,64px)", fontWeight: 900, lineHeight: 0.98, letterSpacing: "-0.02em", textTransform: "uppercase", margin: "6px 0 8px" }}>Drops.</h1>
+        <h1 style={{ fontSize: "clamp(34px,5vw,64px)", fontWeight: 900, lineHeight: 0.98, letterSpacing: "-0.02em", textTransform: "uppercase", margin: "6px 0 8px" }}>Releases.</h1>
         <div style={{ fontSize: 13.5, color: H.dim, maxWidth: "58ch", lineHeight: 1.6 }}>
           Client-built releases land here. Cost it, take it live, close the sale, and CUT — the drop becomes the job, quantities straight from their numbers.
         </div>
         {err && <div style={{ marginTop: 12, color: H.red, fontSize: 12.5, fontWeight: 700 }}>{err}</div>}
 
         {rows === null ? (
-          <div style={{ color: H.faint, fontSize: 13, padding: "40px 0" }}>Loading drops…</div>
+          <div style={{ color: H.faint, fontSize: 13, padding: "40px 0" }}>Loading releases…</div>
         ) : rows.length === 0 ? (
-          <div style={{ color: H.dim, fontSize: 13, padding: "40px 0" }}>No drops yet. When a client builds one in their hub, it lands here.</div>
+          <div style={{ color: H.dim, fontSize: 13, padding: "40px 0" }}>No releases yet. When a client builds one in their hub, it lands here.</div>
         ) : buckets.map(b => b.list.length ? (
           <section key={b.key} style={{ marginTop: 40 }}>
             <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>

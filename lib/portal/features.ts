@@ -11,8 +11,10 @@
 //   studio   — Product Development (design briefs). Currently hidden
 //              globally pending rethink; grant pre-positions clients for
 //              its return.
+//   releases — the Releases tab (release builder, mig 134; renamed from
+//              Drops Aug 11 2026). Per-client rollout — Sike Ops first.
 
-export type PortalFeature = "pipeline" | "studio";
+export type PortalFeature = "pipeline" | "studio" | "releases";
 
 export function hasFeature(features: string[] | null | undefined, f: PortalFeature): boolean {
   return Array.isArray(features) && features.includes(f);

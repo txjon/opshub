@@ -185,7 +185,7 @@ DONE WHEN: the quote is sent. They committed with quantities — treat it same-d
         ? `All ${e.pipeLines} lines are ALREADY IN THE PIPELINE — no new production. This is a launch.
 
 ECOMM — DO THIS:
-1. Open the drops board: ${APP}/drops — the sheet shows every line with art, retail, and landing state
+1. Open the releases board: ${APP}/drops — the sheet shows every line with art, retail, and landing state
 2. Build the Shopify listings from the lineup (art + retail are on each line)
 3. Watch the landed counter on the sheet — launch prep finishes when it reads all-landed
 4. Launch day: flip the products live, then hit "Mark launched" on the board
@@ -198,7 +198,7 @@ DONE WHEN: products are live and the board says Launched.`
         ? `All ${e.newLines} lines are NEW — this drop brings in production.
 
 DO THIS:
-1. Open the drops board: ${APP}/drops — the lineup shows every line with the client's retail + notes
+1. Open the releases board: ${APP}/drops — the lineup shows every line with the client's retail + notes
 2. Cost each line and get the quote back to them
 3. When production numbers are in: ✂ Cut the drop — it births the job with their quantities
 

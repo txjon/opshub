@@ -314,7 +314,7 @@ export default function HousePage() {
                     : launchOnly ? DROP_DIRECTIVES.ready_launch : DROP_DIRECTIVES.ready_cost;
                   return card(`drop-${r.id}`, null, r.clients?.name || "Drop", r.title,
                     r.target_live_date ? `target live ${fmtDate(r.target_live_date)}` : "release",
-                    d.verb, ended ? H.red : H.amber, "/drops", ended ? "Close it here" : "Drops board", d,
+                    d.verb, ended ? H.red : H.amber, "/drops", ended ? "Close it here" : "Releases board", d,
                     ended ? () => setSheet({ kind: "drop_close", release: r }) : undefined);
                 })}
               </div>
@@ -874,7 +874,7 @@ function ActionSheet({ sheet, onClose, onShipByLogged, onSaleClosed, onVarianceR
               {busy === "close" ? "Closing…" : "Close the sale"}
             </button>
             {divider}
-            <a href="/drops" style={linkCss}>Open the drops board →</a>
+            <a href="/drops" style={linkCss}>Open the releases board →</a>
           </>
         )}
         {err && <div style={{ marginTop: 14, fontSize: 12, color: H.red, fontWeight: 700 }}>{err}</div>}
