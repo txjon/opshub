@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { logJobActivityServer } from "@/lib/notify-server";
+import { isPipelineSlot, isRerunSlot } from "@/lib/release-lanes";
+import { copyItemIntoJob } from "@/lib/reorder-cart";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,14 +12,16 @@ export const dynamic = "force-dynamic";
 // mirrors /api/jobs/[id]/duplicate).
 //
 // POST /api/drops/[releaseId]/cut
-// Gate: status ready|closed AND every slot has production qtys (> 0 units).
-// Births ONE job (intake) + one item per slot:
-//   - item name = "{idea title} {format}", design_id = brief id,
-//     artwork_status approved (the gate guaranteed the design was)
-//   - buy_sheet_lines from slot.qtys (the client's numbers)
-//   - newest client-visible image on the idea copied to item_files as the
-//     mockup (same drive id — files are shared, ref-counted deletion)
-// Stamps slots.item_id + qtys_confirmed_at, release.job_id/status cut.
+// Gate: status ready|closed AND every cuttable slot has qtys (> 0 units).
+// Births ONE job (intake) + one item per non-pipeline slot, by lane:
+//   - brief lines: item name = "{idea title} {format}", design_id = brief id,
+//     artwork_status approved, newest client-visible idea image → mockup
+//   - RE-RUNS (line_id "rerun:…"): the past item copied whole via
+//     copyItemIntoJob (blanks, costs, art files by reference) — born
+//     press-ready with the client's numbers
+//   - pipeline slots: never re-made; they ride for launch timing only
+// Stamps slots.item_id (re-runs restamp to the BORN item; the source stays
+// in line_id) + qtys_confirmed_at, release.job_id/status cut.
 
 function admin() {
   return createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
@@ -40,9 +44,9 @@ export async function POST(_req: NextRequest, { params }: { params: { releaseId:
     const { data: slots } = await db.from("release_slots")
       .select("*, art_briefs(id, title, state)").eq("release_id", (release as any).id).order("sort_order");
     if (!(slots || []).length) return NextResponse.json({ error: "Nothing on the lineup" }, { status: 400 });
-    // Item-sourced slots are ALREADY in production on their own jobs — the
-    // cut never re-creates them. It births only the pre-item lines.
-    const toCreate = (slots || []).filter((s: any) => !s.item_id);
+    // Pipeline slots are ALREADY in production on their own jobs — the cut
+    // never re-creates them. It births brief lines AND catalog re-runs.
+    const toCreate = (slots || []).filter((s: any) => !isPipelineSlot(s));
     if (!toCreate.length) {
       return NextResponse.json({ error: "Every line is already in production — nothing to cut. This release just launches when it launches." }, { status: 400 });
     }
@@ -78,11 +82,35 @@ export async function POST(_req: NextRequest, { params }: { params: { releaseId:
     if (jobErr || !newJob) return NextResponse.json({ error: jobErr?.message || "Couldn't create job" }, { status: 500 });
     const jobId = (newJob as any).id;
 
+    // Re-run sources fetched up front — copyItemIntoJob wants the full row.
+    const rerunSrcIds = toCreate.filter(isRerunSlot).map((s: any) => s.item_id).filter(Boolean);
+    const srcById: Record<string, any> = {};
+    if (rerunSrcIds.length) {
+      const { data: srcs } = await db.from("items").select("*").in("id", rerunSrcIds);
+      for (const it of (srcs || []) as any[]) srcById[it.id] = it;
+    }
+
     const now = new Date().toISOString();
     let itemCount = 0;
     for (let i = 0; i < (slots || []).length; i++) {
       const s: any = (slots || [])[i];
-      if (s.item_id) { await db.from("release_slots").update({ qtys_confirmed_at: now }).eq("id", s.id); continue; }
+      if (isPipelineSlot(s)) { await db.from("release_slots").update({ qtys_confirmed_at: now }).eq("id", s.id); continue; }
+
+      if (isRerunSlot(s)) {
+        // Catalog re-run: copy the past item whole — art rides along, and
+        // since its proofs copy as approved it's born press-ready.
+        const src = srcById[s.item_id];
+        if (!src) continue;
+        const sizes = Object.entries(s.qtys || {})
+          .map(([size, qty]) => ({ size: String(size), qty: Math.round(Number(qty) || 0) }))
+          .filter(x => x.qty > 0);
+        const newId = await copyItemIntoJob(db, src, jobId, { sizes, sortOrder: i });
+        if (!newId) continue;
+        itemCount++;
+        await db.from("release_slots").update({ item_id: newId, qtys_confirmed_at: now }).eq("id", s.id);
+        continue;
+      }
+
       const ideaTitle = s.art_briefs?.title || "Design";
       const name = `${ideaTitle} ${s.format || "Item"}`.trim().slice(0, 120);
       const { data: item, error: itemErr } = await db.from("items").insert({

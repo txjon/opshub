@@ -53,7 +53,11 @@ const sortSizes = (arr: { size: string; qty: number }[]) =>
   });
 
 export default function ReorderPage() {
-  const { token } = useClientPortal();
+  const { token, data } = useClientPortal();
+  // Releases-granted clients get a second door on each piece: "Add to a
+  // release" hands the item to the Releases planner (?add=) instead of the
+  // cart. Cart = order it again now; release = put it in the next drop.
+  const hasReleases = (((data as any)?.features || []) as string[]).includes("releases");
   const [items, setItems] = useState<any[] | null>(null);
   const [detail, setDetail] = useState<CatalogEntry | null>(null);
   const [cat, setCat] = useState<string>("all");
@@ -296,6 +300,7 @@ export default function ReorderPage() {
         <ItemSheet
           entry={detail}
           line={cart[detail.itemId] || null}
+          onAddToRelease={hasReleases ? () => { window.location.href = `/portal/client/${token}/releases?add=${detail.itemId}`; } : undefined}
           onClose={() => { setDetail(null); if (returnToReview) { setReturnToReview(false); setReviewing(true); } }}
           onSave={(sizes) => {
             const total = Object.values(sizes).reduce((a, q) => a + (Number(q) || 0), 0);
@@ -357,11 +362,12 @@ export default function ReorderPage() {
   );
 }
 
-function ItemSheet({ entry, line, onClose, onSave }: {
+function ItemSheet({ entry, line, onClose, onSave, onAddToRelease }: {
   entry: CatalogEntry;
   line: CartLine | null;
   onClose: () => void;
   onSave: (sizes: Record<string, number>) => void;
+  onAddToRelease?: () => void;
 }) {
   // Local string state per size so typing isn't fought by parsing —
   // prefill from the cart line if editing, else from the last run.
@@ -455,7 +461,18 @@ function ItemSheet({ entry, line, onClose, onSave }: {
                 Remove
               </button>
             )}
+            {onAddToRelease && !line && (
+              <button onClick={onAddToRelease}
+                style={{ background: "transparent", color: H.text, border: `1px solid ${H.line}`, borderRadius: 999, padding: "13px 20px", fontSize: 11.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>
+                Add to a release
+              </button>
+            )}
           </div>
+          {onAddToRelease && !line && (
+            <div style={{ fontSize: 11, color: H.faint, lineHeight: 1.5 }}>
+              Cart orders it again on its own. A release plans it into your next drop.
+            </div>
+          )}
         </div>
       </div>
     </div>

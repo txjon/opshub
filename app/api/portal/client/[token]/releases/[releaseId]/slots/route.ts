@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
+import { hasRun } from "@/lib/run-gate";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// POST   → add a line from one of their ideas { briefId, lineId } — snapshots
-//          format/retail/model/notes from the brief's product_spec at slot time.
+// POST   → add a line. Three lanes (lib/release-lanes):
+//            { briefId, lineId }        — studio idea line (spec snapshot)
+//            { itemId }                 — pipeline item (in flight/in stock)
+//            { itemId, rerun: true }    — catalog re-run (past piece, fresh
+//              run at cut; requires the item to have actually RUN — run-gate)
 // DELETE → ?slotId= remove while the release is building.
 // PATCH  → { slotId, qtys } client-entered per-size production numbers
 //          (allowed while status is 'closed' — Corey's step 5).
@@ -32,17 +36,21 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     const { db, client, release } = ctx;
     if ((release as any).status !== "building") return NextResponse.json({ error: "This release is locked" }, { status: 409 });
 
-    const { briefId, lineId, itemId } = await req.json().catch(() => ({}));
+    const { briefId, lineId, itemId, rerun } = await req.json().catch(() => ({}));
     const { count } = await db.from("release_slots").select("id", { count: "exact", head: true }).eq("release_id", (release as any).id);
 
     let insert: Record<string, any>;
     if (itemId) {
-      // In-production item joining the release — the run already exists.
+      // Item-sourced line — either a pipeline item riding along (the run
+      // already exists) or a catalog RE-RUN (past piece, cut births a new run).
       const { data: item } = await db.from("items")
-        .select("id, name, client_retail_per_unit, jobs!inner(client_id), buy_sheet_lines(size, qty_ordered)")
+        .select("id, name, client_retail_per_unit, pipeline_stage, jobs!inner(client_id, phase), buy_sheet_lines(size, qty_ordered)")
         .eq("id", String(itemId)).single();
       if (!item || (item as any).jobs?.client_id !== (client as any).id) {
         return NextResponse.json({ error: "Item not found" }, { status: 404 });
+      }
+      if (rerun && !hasRun((item as any).jobs?.phase, (item as any).pipeline_stage)) {
+        return NextResponse.json({ error: "That piece hasn't been produced yet" }, { status: 400 });
       }
       const qtys: Record<string, number> = {};
       for (const l of ((item as any).buy_sheet_lines || [])) {
@@ -53,12 +61,14 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
         company_id: (release as any).company_id || null,
         release_id: (release as any).id,
         brief_id: null,
-        line_id: `item:${(item as any).id}`,
+        line_id: rerun ? `rerun:${(item as any).id}` : `item:${(item as any).id}`,
         item_id: (item as any).id,
         format: (item as any).name,
         retail: (item as any).client_retail_per_unit ?? null,
         model: null,
-        qtys, // the run's real numbers ride along
+        // pipeline: the run's real numbers ride along; re-run: last run
+        // prefills, the client's closing numbers overwrite
+        qtys,
         sort_order: (count || 0),
       };
     } else {

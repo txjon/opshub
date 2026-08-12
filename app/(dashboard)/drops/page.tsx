@@ -9,6 +9,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { H } from "@/components/hub/theme";
 import { backwardChain } from "@/lib/portal/drop-chain";
+import { isPipelineSlot, isRerunSlot, lineupIsPipelineOnly } from "@/lib/release-lanes";
 
 const thumbSrc = (id: string, size = 300) => `/api/files/thumbnail?id=${id}&thumb=1&size=${size}`;
 const fmtDate = (iso?: string | null) => iso ? new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
@@ -87,8 +88,13 @@ export default function DropsBoard() {
 
   const buckets = useMemo(() => {
     const list = rows || [];
-    const numbersDone = (r: any) => r.slots.length > 0 && r.slots.every((s: any) =>
-      Object.values(s.qtys || {}).reduce((a: number, b: any) => a + (Number(b) || 0), 0) > 0);
+    // Numbers gate = every line the cut will BIRTH has qtys (pipeline slots
+    // ride along and never block; mirrors the cut route's own gate).
+    const numbersDone = (r: any) => {
+      const cuttable = r.slots.filter((s: any) => !isPipelineSlot(s));
+      return cuttable.length > 0 && cuttable.every((s: any) =>
+        Object.values(s.qtys || {}).reduce((a: number, b: any) => a + (Number(b) || 0), 0) > 0);
+    };
     return [
       // Live drops whose window has ENDED are a call, not a status — they
       // jump the queue into Your move ("close the sale").
@@ -153,7 +159,7 @@ export default function DropsBoard() {
                         })(), whiteSpace: "nowrap" }}>
                         {(() => {
                           if (r.status === "closed") return nd ? "Numbers in — cut it" : "Awaiting numbers";
-                          if (r.status === "live" && r.model === "stock") return "Launched";
+                          if (r.status === "live" && lineupIsPipelineOnly(r.slots)) return "Launched";
                           if (r.status === "live") {
                             const dd = daysTo(r.window_close_date);
                             if (dd != null && dd < 0) return `Window ended ${fmtDate(r.window_close_date)} — close it`;
@@ -190,7 +196,7 @@ export default function DropsBoard() {
                     {r.target_live_date && <span style={{ fontSize: 10.5, fontFamily: H.mono, color: H.faint }}>target live {fmtDate(r.target_live_date)}</span>}
                     {totalUnits > 0 && <span style={{ fontSize: 10.5, fontFamily: H.mono, color: H.dim }}>{totalUnits.toLocaleString()} pcs</span>}
                     {(() => {
-                      const pipe = r.slots.filter((s: any) => s.item_id);
+                      const pipe = r.slots.filter(isPipelineSlot);
                       if (!pipe.length) return null;
                       const landed = pipe.filter((s: any) => s.items?.webstore_entered_at || s.items?.received_at_hpd || s.items?.forwarded_at).length;
                       return <span style={{ fontSize: 10.5, fontFamily: H.mono, color: landed === pipe.length ? H.green : H.amber, fontWeight: 700 }}>{landed}/{pipe.length} landed</span>;
@@ -233,7 +239,7 @@ export default function DropsBoard() {
                       </span>
                       <span style={{ minWidth: 0, flex: 1 }}>
                         <span style={{ display: "block", fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {s.format || s.items?.name || "Item"}{s.art_briefs?.title ? <span style={{ color: H.faint, fontWeight: 600, textTransform: "none" }}> · {s.art_briefs.title}</span> : s.item_id ? <span style={{ color: H.faint, fontWeight: 600, textTransform: "none" }}> · from the pipeline</span> : null}
+                          {s.format || s.items?.name || "Item"}{s.art_briefs?.title ? <span style={{ color: H.faint, fontWeight: 600, textTransform: "none" }}> · {s.art_briefs.title}</span> : isRerunSlot(s) ? <span style={{ color: H.faint, fontWeight: 600, textTransform: "none" }}> · catalog re-run</span> : s.item_id ? <span style={{ color: H.faint, fontWeight: 600, textTransform: "none" }}> · from the pipeline</span> : null}
                         </span>
                         <span style={{ display: "block", fontSize: 10, fontFamily: H.mono, color: H.dim, marginTop: 2 }}>
                           {s.retail != null ? `$${Number(s.retail)} retail` : "retail TBD"}{s.model ? ` · ${s.model === "preorder" ? "pre-order" : s.model === "not_sure" ? "model TBD" : "fixed run"}` : ""}
@@ -242,12 +248,16 @@ export default function DropsBoard() {
                         {s.line_notes && <span style={{ display: "block", fontSize: 11, color: H.dim, marginTop: 3, lineHeight: 1.45 }}>{s.line_notes}</span>}
                       </span>
                       <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: (() => {
+                          // Pre-cut, a re-run's item_id points at the PAST
+                          // run — its shipped/landed state says nothing here.
+                          if (isRerunSlot(s) && r.status !== "cut") return H.green;
                           if (!s.item_id) return approved ? H.green : H.amber;
                           const it = s.items || {};
                           if (it.webstore_entered_at || it.received_at_hpd || it.forwarded_at) return H.green;
                           if (it.pipeline_stage === "shipped") return PURPLE;
                           return H.blue;
                         })(), whiteSpace: "nowrap" }}>{(() => {
+                          if (isRerunSlot(s) && r.status !== "cut") return "Run it back ✓";
                           if (!s.item_id) return approved ? "Design ✓" : "Design pending";
                           const it = s.items || {};
                           if (it.webstore_entered_at) return "In store";
@@ -265,9 +275,9 @@ export default function DropsBoard() {
                   <>
                     <button disabled={busy === r.id} onClick={() => act(r, "", "PATCH", { action: "live" })}
                       style={{ background: "#fff", color: H.ink, border: "none", borderRadius: 999, padding: "12px 22px", fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>
-                      {r.model === "stock" ? "Mark launched" : "Take it live"}
+                      {lineupIsPipelineOnly(r.slots) ? "Mark launched" : "Take it live"}
                     </button>
-                    {r.model !== "stock" && <button disabled={busy === r.id || !numbersDone} title={numbersDone ? "" : "Every line needs quantities first (client enters after close, or you can cut a fixed-run drop once numbers exist)"}
+                    {!lineupIsPipelineOnly(r.slots) && <button disabled={busy === r.id || !numbersDone} title={numbersDone ? "" : "Every line needs quantities first (client enters after close, or you can cut a fixed-run drop once numbers exist)"}
                       onClick={async () => { if (confirm(`Cut "${r.title}" into a job now? Items + quantities come from the lineup.`)) { const out = await act(r, "/cut", "POST"); if (out?.jobId) window.location.href = `/jobs/${out.jobId}`; } }}
                       style={{ background: "transparent", color: H.text, border: `1px solid rgba(255,255,255,0.35)`, borderRadius: 999, padding: "12px 20px", fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: numbersDone ? "pointer" : "default", opacity: numbersDone ? 1 : 0.4, fontFamily: H.font }}>
                       Cut now (skip sale)
@@ -282,7 +292,7 @@ export default function DropsBoard() {
                       style={{ padding: "8px 10px", background: H.surface, border: `1px solid ${H.line}`, borderRadius: 9, outline: "none", color: H.text, fontFamily: H.font, fontSize: 12, colorScheme: "dark" }} />
                   </label>
                 )}
-                {r.status === "live" && r.model !== "stock" && (
+                {r.status === "live" && !lineupIsPipelineOnly(r.slots) && (
                   <button disabled={busy === r.id} onClick={() => act(r, "", "PATCH", { action: "closed" })}
                     style={{ background: "#fff", color: H.ink, border: "none", borderRadius: 999, padding: "12px 22px", fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>
                     Close the sale
@@ -290,7 +300,7 @@ export default function DropsBoard() {
                 )}
                 {r.status === "closed" && (
                   <button disabled={busy === r.id || !numbersDone} title={numbersDone ? "" : "Waiting on the client's production numbers"}
-                    onClick={async () => { if (confirm(`CUT "${r.title}"? One job, ${r.slots.length} items, quantities from the entered numbers.`)) { const out = await act(r, "/cut", "POST"); if (out?.jobId) window.location.href = `/jobs/${out.jobId}`; } }}
+                    onClick={async () => { const n = r.slots.filter((s: any) => !isPipelineSlot(s)).length; if (confirm(`CUT "${r.title}"? One job, ${n} item${n === 1 ? "" : "s"}, quantities from the entered numbers.`)) { const out = await act(r, "/cut", "POST"); if (out?.jobId) window.location.href = `/jobs/${out.jobId}`; } }}
                     style={{ background: numbersDone ? H.green : "transparent", color: numbersDone ? "#0a0a0a" : H.text, border: numbersDone ? "none" : `1px solid ${H.line}`, borderRadius: 999, padding: "13px 26px", fontSize: 11.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: numbersDone ? "pointer" : "default", opacity: numbersDone ? 1 : 0.4, fontFamily: H.font }}>
                     ✂ Cut the drop
                   </button>

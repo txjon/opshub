@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
+import { isPipelineSlot } from "@/lib/release-lanes";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,10 +42,12 @@ export async function PATCH(req: NextRequest, { params }: { params: { token: str
     if (body.submit === true) {
       if ((release as any).status !== "building") return NextResponse.json({ error: "Already submitted" }, { status: 409 });
       const { data: slots } = await db.from("release_slots")
-        .select("id, item_id, art_briefs(state)").eq("release_id", (release as any).id);
+        .select("id, item_id, line_id, art_briefs(state)").eq("release_id", (release as any).id);
       if (!(slots || []).length) return NextResponse.json({ error: "Add at least one item first" }, { status: 400 });
-      (release as any)._newLines = (slots || []).filter((s: any) => !s.item_id).length;
-      (release as any)._pipeLines = (slots || []).filter((s: any) => !!s.item_id).length;
+      // re-runs count as NEW lines (they need a fresh run) — only true
+      // pipeline slots are "already in flight"
+      (release as any)._newLines = (slots || []).filter((s: any) => !isPipelineSlot(s)).length;
+      (release as any)._pipeLines = (slots || []).filter((s: any) => isPipelineSlot(s)).length;
       const unready = (slots || []).filter((s: any) => !s.item_id && !APPROVED.includes(s.art_briefs?.state)).length;
       if (unready > 0) return NextResponse.json({ error: `${unready} line${unready === 1 ? "" : "s"} still need${unready === 1 ? "s" : ""} an approved design first` }, { status: 400 });
       updates.status = "ready";
