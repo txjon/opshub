@@ -226,6 +226,13 @@ function Sheet({ detail, token, onClose, onRefresh, nav }: any) {
     if (!note.trim() && !file) return; setBusy(true);
     try { const fd = new FormData(); if (note.trim()) fd.set("body", note.trim()); if (file) fd.set("file", file); await fetch(`/api/portal/client/${token}/studio/${b.id}/action`, { method: "POST", body: fd }); setNote(""); setHeroId(null); await onRefresh(); } finally { setBusy(false); }
   }
+  // Multi-attach: each image posts as its own upload (small requests, each
+  // its own timeline entry). The typed note rides with the FIRST one only —
+  // reply() clears it after the first send.
+  async function replyMany(files: FileList | null) {
+    if (!files || !files.length) return;
+    for (const f of Array.from(files)) await reply(f);
+  }
 
   return (
     <>
@@ -423,7 +430,7 @@ function Sheet({ detail, token, onClose, onRefresh, nav }: any) {
       {b.state !== "approved" && b.state !== "killed" && (
         <div style={{ padding: "12px 20px 20px", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <input value={note} onChange={e => setNote(e.target.value)} placeholder="Reply…" style={{ ...inp, flex: 1, minWidth: 140 }} />
-          <input ref={fileIn} type="file" accept="image/*" style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; if (f) { setUploading(true); reply(f).finally(() => setUploading(false)); } if (fileIn.current) fileIn.current.value = ""; }} />
+          <input ref={fileIn} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={e => { const fl = e.target.files; if (fl?.length) { setUploading(true); replyMany(fl).finally(() => setUploading(false)); } if (fileIn.current) fileIn.current.value = ""; }} />
           <button disabled={uploading} onClick={() => fileIn.current?.click()} style={ghostBtn}>{uploading ? "…" : "📎"}</button>
           <button disabled={busy || !note.trim()} onClick={() => reply()} style={{ ...primaryBtn, opacity: busy || !note.trim() ? 0.5 : 1 }}>Send</button>
         </div>
@@ -434,10 +441,13 @@ function Sheet({ detail, token, onClose, onRefresh, nav }: any) {
 
 function ShareForm({ token, onClose, onDone }: any) {
   const [title, setTitle] = useState(""); const [body, setBody] = useState("");
-  const [file, setFile] = useState<File | null>(null); const [fileUrl, setFileUrl] = useState<string | null>(null);
+  const [files, setFiles] = useState<{ f: File; url: string }[]>([]);
   const [busy, setBusy] = useState(false);
   const fileIn = useRef<HTMLInputElement | null>(null);
-  function pick(f: File) { setFile(f); setFileUrl(URL.createObjectURL(f)); }
+  function pick(list: FileList | null) {
+    if (!list) return;
+    setFiles(prev => [...prev, ...Array.from(list).map(f => ({ f, url: URL.createObjectURL(f) }))]);
+  }
   async function go() {
     if (!title.trim()) return;
     setBusy(true);
@@ -445,12 +455,13 @@ function ShareForm({ token, onClose, onDone }: any) {
       const r = await fetch(`/api/portal/client/${token}/briefs`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: title.trim(), concept: body.trim() || null }) });
       const j = await r.json(); if (!r.ok) throw new Error(j.error || "Couldn't share that");
       const bid = j.brief?.id || null;
-      // The photo rides in through the same client-upload path as replies.
-      if (bid && file) {
-        const fd = new FormData(); fd.set("file", file);
+      // Photos ride in one-per-request through the same client-upload path
+      // as replies — each becomes its own entry on the new design.
+      if (bid) for (const { f } of files) {
+        const fd = new FormData(); fd.set("file", f);
         await fetch(`/api/portal/client/${token}/studio/${bid}/action`, { method: "POST", body: fd });
       }
-      if (fileUrl) URL.revokeObjectURL(fileUrl);
+      for (const { url } of files) URL.revokeObjectURL(url);
       onDone(bid);
     } catch (e: any) { alert(e.message); setBusy(false); }
   }
@@ -458,15 +469,19 @@ function ShareForm({ token, onClose, onDone }: any) {
     <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 16, padding: "16px 18px", maxWidth: 520, margin: "0 auto 26px" }}>
       <input value={title} onChange={e => setTitle(e.target.value)} autoFocus placeholder="Calling it something…" style={{ ...inp, fontSize: 16, fontWeight: 800, border: "none", borderBottom: `1px solid ${C.line}`, borderRadius: 0, padding: "6px 0" }} />
       <textarea value={body} onChange={e => setBody(e.target.value)} rows={2} placeholder="What's the vibe? references, garment, timing — anything." style={{ ...inp, border: "none", padding: "10px 0", resize: "vertical" }} />
-      {fileUrl && (
-        <div style={{ display: "inline-flex", position: "relative", marginBottom: 8 }}>
-          <img src={fileUrl} alt="" style={{ maxHeight: 90, borderRadius: 8, background: "#fff", border: `1px solid ${C.line}` }} />
-          <button onClick={() => { setFile(null); if (fileUrl) URL.revokeObjectURL(fileUrl); setFileUrl(null); }} aria-label="Remove photo" style={{ position: "absolute", top: -7, right: -7, width: 20, height: 20, borderRadius: 999, background: "#fff", color: C.bg, border: "none", fontSize: 12, fontWeight: 800, lineHeight: 1, cursor: "pointer", padding: 0 }}>×</button>
+      {files.length > 0 && (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+          {files.map((x, i) => (
+            <span key={i} style={{ display: "inline-flex", position: "relative" }}>
+              <img src={x.url} alt="" style={{ height: 56, borderRadius: 8, background: "#fff" }} />
+              <button onClick={() => { URL.revokeObjectURL(x.url); setFiles(prev => prev.filter((_, j) => j !== i)); }} aria-label="Remove photo" style={{ position: "absolute", top: -7, right: -7, width: 20, height: 20, borderRadius: 999, background: "#fff", color: C.bg, border: "none", fontSize: 12, fontWeight: 800, lineHeight: 1, cursor: "pointer", padding: 0 }}>×</button>
+            </span>
+          ))}
         </div>
       )}
-      <input ref={fileIn} type="file" accept="image/*" style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; if (f) pick(f); if (fileIn.current) fileIn.current.value = ""; }} />
+      <input ref={fileIn} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={e => { pick(e.target.files); if (fileIn.current) fileIn.current.value = ""; }} />
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8, flexWrap: "wrap" }}>
-        <button onClick={() => fileIn.current?.click()} style={ghostBtn}>{file ? "✓ Photo added" : "+ Photo"}</button>
+        <button onClick={() => fileIn.current?.click()} style={ghostBtn}>{files.length ? `✓ ${files.length} photo${files.length === 1 ? "" : "s"}` : "+ Photos"}</button>
         <button onClick={onClose} style={{ ...ghostBtn, border: "none", color: C.faint }}>Not now</button>
         <button disabled={busy || !title.trim()} onClick={go} style={{ ...primaryBtn, marginLeft: "auto", opacity: busy || !title.trim() ? 0.5 : 1 }}>{busy ? "Sending…" : "Send it"}</button>
       </div>
