@@ -21,7 +21,7 @@ const APPROVED = ["approved"];
 async function ctxOf(token: string) {
   const db = admin();
   const { data: client } = await db.from("clients")
-    .select("id, name, portal_features, company_id").eq("portal_token", token).single();
+    .select("id, name, portal_features, company_id").eq("portal_token", token).eq("client_hub_enabled", true).single();
   if (!client) return null;
   const denied = !Array.isArray((client as any).portal_features) || !(client as any).portal_features.includes("releases");
   return { db, client, denied };

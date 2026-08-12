@@ -13,7 +13,7 @@ async function resolveClient(token: string) {
   const { data: client } = await db
     .from("clients")
     .select("id, name")
-    .eq("portal_token", token)
+    .eq("portal_token", token).eq("client_hub_enabled", true)
     .single();
   return client;
 }

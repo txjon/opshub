@@ -23,7 +23,7 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
     const { data: client } = await db
       .from("clients")
       .select("id, name, companies:company_id(slug, default_payment_provider)")
-      .eq("portal_token", params.token)
+      .eq("portal_token", params.token).eq("client_hub_enabled", true)
       .single();
     if (!client) return NextResponse.json({ error: "Invalid link" }, { status: 404 });
     const tenantProvider = ((client as any).companies?.default_payment_provider || "quickbooks") as string;

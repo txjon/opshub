@@ -10,7 +10,7 @@ function admin() {
 async function resolveOwnership(token: string, proposalId: string) {
   const db = admin();
   const { data: client } = await db
-    .from("clients").select("id").eq("portal_token", token).single();
+    .from("clients").select("id").eq("portal_token", token).eq("client_hub_enabled", true).single();
   if (!client) return { error: "Invalid link", status: 404 as const };
   const { data: proposal } = await db
     .from("client_proposal_items")

@@ -13,7 +13,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
   try {
     const db = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
     const body = await req.json().catch(() => ({}));
-    const { data: client } = await db.from("clients").select("id, name").eq("portal_token", params.token).single();
+    const { data: client } = await db.from("clients").select("id, name").eq("portal_token", params.token).eq("client_hub_enabled", true).single();
     if (!client) return NextResponse.json({ error: "Invalid link" }, { status: 404 });
 
     const note: string = typeof body.note === "string" ? body.note.trim().slice(0, 2000) : "";

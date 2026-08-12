@@ -14,7 +14,7 @@ const admin = dbNoStore;
 
 export async function GET(_req: NextRequest, { params }: { params: { token: string } }) {
   const db = admin();
-  const { data: client } = await db.from("clients").select("id, name").eq("portal_token", params.token).single();
+  const { data: client } = await db.from("clients").select("id, name").eq("portal_token", params.token).eq("client_hub_enabled", true).single();
   if (!client) return NextResponse.json({ error: "Invalid link" }, { status: 404 });
 
   const { data: briefs } = await db.from("art_briefs")

@@ -21,7 +21,7 @@ function admin() {
 async function owned(token: string, releaseId: string) {
   const db = admin();
   const { data: client } = await db.from("clients")
-    .select("id, portal_features").eq("portal_token", token).single();
+    .select("id, portal_features").eq("portal_token", token).eq("client_hub_enabled", true).single();
   if (!client) return null;
   if (!Array.isArray((client as any).portal_features) || !(client as any).portal_features.includes("releases")) return null;
   const { data: release } = await db.from("releases").select("id, client_id, status, company_id").eq("id", releaseId).single();

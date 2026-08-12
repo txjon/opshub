@@ -23,7 +23,7 @@ function admin() {
 export async function GET(_req: NextRequest, { params }: { params: { token: string } }) {
   try {
     const db = admin();
-    const { data: client } = await db.from("clients").select("id, portal_features").eq("portal_token", params.token).single();
+    const { data: client } = await db.from("clients").select("id, portal_features").eq("portal_token", params.token).eq("client_hub_enabled", true).single();
     if (!client) return NextResponse.json({ error: "Invalid link" }, { status: 404 });
     if (!Array.isArray((client as any).portal_features) || !(client as any).portal_features.includes("pipeline")) {
       return NextResponse.json({ pulls: [] });
@@ -71,7 +71,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     if (!destination) return NextResponse.json({ error: "Where should it go?" }, { status: 400 });
 
     const { data: client } = await db
-      .from("clients").select("id, name, portal_features").eq("portal_token", params.token).single();
+      .from("clients").select("id, name, portal_features").eq("portal_token", params.token).eq("client_hub_enabled", true).single();
     if (!client) return NextResponse.json({ error: "Invalid link" }, { status: 404 });
     if (!Array.isArray((client as any).portal_features) || !(client as any).portal_features.includes("pipeline")) {
       return NextResponse.json({ error: "Not available" }, { status: 403 });
