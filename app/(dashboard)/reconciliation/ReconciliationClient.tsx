@@ -109,6 +109,7 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
   const [expanded, setExpanded] = useState<Set<string>>(new Set()); // expanded job / job×vendor rows
   const toggle = (k: string) => setExpanded(prev => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n; });
   const [qFilter, setQFilter] = useState<"open" | "complete" | "all">("open");
+  const [vendorFilter, setVendorFilter] = useState<string>(""); // "" = all vendors
   const [showForm, setShowForm] = useState(false);
   const [showByVendor, setShowByVendor] = useState(false);
   const [search, setSearch] = useState("");
@@ -340,7 +341,9 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
     jobs: Object.values(jobsRaw), printers, apVendors: vendors as any, entries: entries as any, marks, itemsByJob,
   }), [jobsRaw, printers, vendors, entries, marks, itemsByJob]);
   const sq = search.trim().toLowerCase();
+  const vendorOptions = useMemo(() => Array.from(new Set(queue.jobs.flatMap(j => j.vendors.map(v => v.name)))).sort(), [queue]);
   const filteredQueue = queue.jobs
+    .filter(j => !vendorFilter || j.vendors.some(v => v.name === vendorFilter))
     .filter(j => qFilter === "all" ? true : qFilter === "complete" ? j.costComplete : !j.costComplete)
     .filter(j => !sq || (j.qb_invoice_number || "").toLowerCase().includes(sq) || (j.job_number || "").toLowerCase().includes(sq) || (j.client_name || "").toLowerCase().includes(sq) || j.vendors.some(v => v.name.toLowerCase().includes(sq)));
   // PO ref → line detail, for the New Bill lookup (type a PO #, get job/client/projected)
@@ -866,7 +869,8 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
               {openByVendor.map(v => {
                 const pct = Math.round((100 * v.outstanding) / (openByVendor[0].outstanding || 1));
                 return (
-                  <div key={v.name} style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 12 }}>
+                  <div key={v.name} onClick={() => setVendorFilter(f => f === v.name ? "" : v.name)} title={vendorFilter === v.name ? "Clear vendor filter" : `Filter queue to ${v.name}`}
+                    style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 12, cursor: "pointer", borderRadius: 6, padding: "2px 6px", margin: "-2px -6px", background: vendorFilter === v.name ? T.amber + "1f" : "transparent" }}>
                     <span style={{ width: 170, color: T.text, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{v.name}</span>
                     <div style={{ flex: 1, height: 8, background: T.surface, borderRadius: 4, overflow: "hidden" }}>
                       <div style={{ width: `${pct}%`, height: "100%", background: T.amber }} />
@@ -977,6 +981,11 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
             style={{ width: "100%", padding: "7px 30px 7px 11px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.card, color: T.text, fontSize: 13, fontFamily: font, outline: "none" }} />
           {search && <button onClick={() => setSearch("")} style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: T.faint, fontSize: 14, cursor: "pointer", padding: 0 }}>×</button>}
         </div>
+        <select value={vendorFilter} onChange={e => setVendorFilter(e.target.value)}
+          style={{ padding: "7px 10px", border: `1px solid ${vendorFilter ? T.amber : T.border}`, borderRadius: 6, background: T.card, color: vendorFilter ? T.text : T.muted, fontSize: 12.5, fontFamily: font, outline: "none", maxWidth: 190, cursor: "pointer" }}>
+          <option value="">All vendors</option>
+          {vendorOptions.map(n => <option key={n} value={n}>{n}</option>)}
+        </select>
         <div style={{ display: "flex", gap: 6 }}>
           {([["open", "Open", queue.stats.openJobs], ["complete", "Cost-complete", queue.stats.costComplete], ["all", "All", queue.stats.jobs]] as const).map(([k, label, n]) => (
             <button key={k} onClick={() => setQFilter(k)} style={{ background: qFilter === k ? T.accent : T.card, color: qFilter === k ? "#0a0a0a" : T.muted, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: font }}>{label} · {n}</button>
@@ -985,24 +994,31 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {filteredQueue.length === 0 ? <div style={{ border: `1px solid ${T.border}`, borderRadius: 10, padding: "16px 14px", color: T.faint, fontSize: 12 }}>No jobs in this view.</div> : filteredQueue.map(j => {
+          // Vendor-filtered rows show THAT vendor’s slice, not whole-job totals.
+          const vs = vendorFilter ? j.vendors.find((v: any) => v.name === vendorFilter) : null;
+          const rBilled = vs ? vs.billed : j.billed;
+          const rExpected = vs ? vs.expected : j.expected;
+          const rOutstanding = vs ? vs.outstanding : j.outstanding;
+          const rComplete = vs ? vs.outstanding <= 0 : j.costComplete;
+          const rPct = rExpected > 0 ? Math.min(100, Math.round(100 * rBilled / rExpected)) : 0;
           return (
             <div key={j.id} style={{ border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
               <div onClick={() => setQueueJobId(j.id)} style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 16px", cursor: "pointer", background: T.card }}>
                 <span style={{ color: T.faint, fontSize: 12, width: 10 }}>›</span>
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{j.qb_invoice_number ? <span style={{ fontFamily: mono }}>{j.qb_invoice_number}</span> : j.job_number} <span style={{ color: T.muted, fontWeight: 400 }}>· {j.client_name || "—"}</span></div>
-                  <div style={{ fontSize: 11, color: T.faint, textTransform: "capitalize" }}>{j.vendors.length} vendor{j.vendors.length !== 1 ? "s" : ""} · {(j.phase || "—").replace(/_/g, " ")}{j.qb_invoice_number ? <span style={{ textTransform: "none" }}> · {j.job_number}</span> : ""}</div>
+                  <div style={{ fontSize: 11, color: T.faint, textTransform: "capitalize" }}>{vs ? <span style={{ textTransform: "none", color: T.amber, fontWeight: 700 }}>{vs.name}</span> : `${j.vendors.length} vendor${j.vendors.length !== 1 ? "s" : ""}`} · {(j.phase || "—").replace(/_/g, " ")}{j.qb_invoice_number ? <span style={{ textTransform: "none" }}> · {j.job_number}</span> : ""}</div>
                 </div>
-                <div style={{ width: 80, height: 6, background: T.surface, borderRadius: 3, overflow: "hidden" }} title={`${j.billedPct}% billed`}>
-                  <div style={{ width: `${j.billedPct}%`, height: "100%", background: j.costComplete ? T.green : T.amber }} />
+                <div style={{ width: 80, height: 6, background: T.surface, borderRadius: 3, overflow: "hidden" }} title={`${rPct}% billed`}>
+                  <div style={{ width: `${rPct}%`, height: "100%", background: rComplete ? T.green : T.amber }} />
                 </div>
                 <div style={{ textAlign: "right", fontFamily: mono, fontSize: 12.5, color: T.text, width: 150 }}>
-                  {money0(j.billed)} <span style={{ color: T.faint }}>of {money0(j.expected)}</span>
+                  {money0(rBilled)} <span style={{ color: T.faint }}>of {money0(rExpected)}</span>
                 </div>
                 <div style={{ width: 120, display: "flex", justifyContent: "flex-end" }}>
-                  {j.costComplete
-                    ? <span style={{ fontSize: 11, fontWeight: 700, color: T.green, background: T.green + "1f", padding: "3px 11px", borderRadius: 20, whiteSpace: "nowrap" }}>Cost-complete</span>
-                    : <span style={{ fontSize: 11, fontWeight: 700, color: T.amber, background: T.amber + "1f", padding: "3px 11px", borderRadius: 20, whiteSpace: "nowrap" }}>{money0(j.outstanding)} open</span>}
+                  {rComplete
+                    ? <span style={{ fontSize: 11, fontWeight: 700, color: T.green, background: T.green + "1f", padding: "3px 11px", borderRadius: 20, whiteSpace: "nowrap" }}>{vs ? "Billed" : "Cost-complete"}</span>
+                    : <span style={{ fontSize: 11, fontWeight: 700, color: T.amber, background: T.amber + "1f", padding: "3px 11px", borderRadius: 20, whiteSpace: "nowrap" }}>{money0(rOutstanding)} open</span>}
                 </div>
               </div>
             </div>

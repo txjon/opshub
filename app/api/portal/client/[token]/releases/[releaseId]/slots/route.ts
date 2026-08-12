@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 // POST   → add a line from one of their ideas { briefId, lineId } — snapshots
 //          format/retail/model/notes from the brief's product_spec at slot time.
-// DELETE → ?slotId= remove while the drop is building.
+// DELETE → ?slotId= remove while the release is building.
 // PATCH  → { slotId, qtys } client-entered per-size production numbers
 //          (allowed while status is 'closed' — Corey's step 5).
 
@@ -19,7 +19,7 @@ async function owned(token: string, releaseId: string) {
   const { data: client } = await db.from("clients")
     .select("id, portal_features").eq("portal_token", token).single();
   if (!client) return null;
-  if (!Array.isArray((client as any).portal_features) || !(client as any).portal_features.includes("studio")) return null;
+  if (!Array.isArray((client as any).portal_features) || !(client as any).portal_features.includes("releases")) return null;
   const { data: release } = await db.from("releases").select("id, client_id, status, company_id").eq("id", releaseId).single();
   if (!release || (release as any).client_id !== client.id) return null;
   return { db, client, release };
@@ -30,7 +30,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     const ctx = await owned(params.token, params.releaseId);
     if (!ctx) return NextResponse.json({ error: "Not found" }, { status: 404 });
     const { db, client, release } = ctx;
-    if ((release as any).status !== "building") return NextResponse.json({ error: "Drop is locked" }, { status: 409 });
+    if ((release as any).status !== "building") return NextResponse.json({ error: "This release is locked" }, { status: 409 });
 
     const { briefId, lineId, itemId } = await req.json().catch(() => ({}));
     const { count } = await db.from("release_slots").select("id", { count: "exact", head: true }).eq("release_id", (release as any).id);
@@ -81,7 +81,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     }
     const { data, error } = await db.from("release_slots").insert(insert).select("id").single();
     if (error) {
-      if (/duplicate|unique/i.test(error.message)) return NextResponse.json({ error: "Already on this drop" }, { status: 409 });
+      if (/duplicate|unique/i.test(error.message)) return NextResponse.json({ error: "Already on this release" }, { status: 409 });
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
     return NextResponse.json({ success: true, slotId: (data as any).id });
@@ -94,7 +94,7 @@ export async function DELETE(req: NextRequest, { params }: { params: { token: st
   try {
     const ctx = await owned(params.token, params.releaseId);
     if (!ctx) return NextResponse.json({ error: "Not found" }, { status: 404 });
-    if ((ctx.release as any).status !== "building") return NextResponse.json({ error: "Drop is locked" }, { status: 409 });
+    if ((ctx.release as any).status !== "building") return NextResponse.json({ error: "This release is locked" }, { status: 409 });
     const slotId = req.nextUrl.searchParams.get("slotId") || "";
     await ctx.db.from("release_slots").delete().eq("id", slotId).eq("release_id", (ctx.release as any).id);
     return NextResponse.json({ success: true });
