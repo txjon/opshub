@@ -306,8 +306,7 @@ function BriefSheet({ detail, onRefresh, onClose }: any) {
       await onRefresh();
     } finally { setBusy(false); }
   }
-  const [staged, setStaged] = useState<File | null>(null);
-  const [stagedUrl, setStagedUrl] = useState<string | null>(null);
+  const [stagedList, setStagedList] = useState<{ f: File; url: string }[]>([]);
   const [heroId, setHeroId] = useState<string | null>(null);
   const fileIn = useRef<HTMLInputElement | null>(null);
 
@@ -319,18 +318,23 @@ function BriefSheet({ detail, onRefresh, onClose }: any) {
   const banked = (fid: string | null) => fid && b.approved_file_id && `file-${b.approved_file_id}` === fid;
 
   async function send() {
-    if (!note.trim() && !staged) return; setBusy(true);
+    if (!note.trim() && !stagedList.length) return; setBusy(true);
     try {
-      const fd = new FormData();
-      if (note.trim()) fd.set("body", note.trim());
-      fd.set("visibility", vis);
-      if (staged) fd.set("file", staged);
-      await fetch(`/api/studio/briefs/${b.id}/messages`, { method: "POST", body: fd });
-      setNote(""); setStaged(null); if (stagedUrl) URL.revokeObjectURL(stagedUrl); setStagedUrl(null); setHeroId(null);
+      // One request per attachment (keeps each under body limits); the note
+      // rides with the first, the rest post file-only at the same visibility.
+      const list = stagedList.length ? stagedList : [null];
+      for (let i = 0; i < list.length; i++) {
+        const fd = new FormData();
+        if (i === 0 && note.trim()) fd.set("body", note.trim());
+        fd.set("visibility", vis);
+        if (list[i]) fd.set("file", (list[i] as any).f);
+        if (i === 0 || list[i]) await fetch(`/api/studio/briefs/${b.id}/messages`, { method: "POST", body: fd });
+      }
+      setNote(""); for (const x of stagedList) URL.revokeObjectURL(x.url); setStagedList([]); setHeroId(null);
       await onRefresh();
     } finally { setBusy(false); }
   }
-  function onFile(f: File) { setStaged(f); setStagedUrl(URL.createObjectURL(f)); }
+  function onFile(list: FileList | null) { if (!list) return; setStagedList(prev => [...prev, ...Array.from(list).map(f => ({ f, url: URL.createObjectURL(f) }))]); }
   async function delBrief() { if (!confirm(`Delete "${b.title}"? This removes the design and its whole thread. Can't be undone.`)) return; await fetch(`/api/studio/briefs/${b.id}`, { method: "DELETE" }); onClose(); await onRefresh(); }
   async function delFile(fileId: string) { if (!confirm("Delete this version? It comes out of the thread. Can't be undone.")) return; setBusy(true); try { await fetch(`/api/studio/files/${fileId}`, { method: "DELETE" }); setHeroId(null); await onRefresh(); } finally { setBusy(false); } }
   // Flip a version across the wall after the fact (Jon: "make an internal
@@ -561,10 +565,14 @@ function BriefSheet({ detail, onRefresh, onClose }: any) {
           )}
           <div style={{ padding: "12px 22px 8px", borderTop: `1px solid ${H.line2}` }}>
             <textarea value={note} onChange={e => setNote(e.target.value)} rows={2} placeholder={vis === "client" ? "Message the client…" : "Internal note — team only…"} style={{ width: "100%", boxSizing: "border-box", background: H.surface, border: vis === "client" ? `1px solid ${H.line}` : "1px dashed rgba(244,178,43,.6)", borderRadius: 10, color: H.text, fontSize: 13, padding: "11px 13px", outline: "none", resize: "vertical", fontFamily: H.font }} />
-            {stagedUrl && (
-              <div style={{ display: "inline-flex", position: "relative", marginTop: 10 }}>
-                <img src={stagedUrl} alt="" style={{ maxHeight: 72, borderRadius: 8, background: "#fff", border: `1px solid ${H.line}` }} />
-                <button onClick={() => { setStaged(null); if (stagedUrl) URL.revokeObjectURL(stagedUrl); setStagedUrl(null); }} aria-label="Remove attachment" style={{ position: "absolute", top: -7, right: -7, width: 20, height: 20, borderRadius: 999, background: "#fff", color: H.ink, border: "none", fontSize: 12, fontWeight: 800, lineHeight: 1, cursor: "pointer", padding: 0 }}>×</button>
+            {stagedList.length > 0 && (
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+                {stagedList.map((x, i) => (
+                  <span key={i} style={{ display: "inline-flex", position: "relative" }}>
+                    <img src={x.url} alt="" style={{ maxHeight: 72, borderRadius: 8, background: "#fff", border: `1px solid ${H.line}` }} onError={(e: any) => { e.target.style.minWidth = "56px"; e.target.style.minHeight = "56px"; }} />
+                    <button onClick={() => { URL.revokeObjectURL(x.url); setStagedList(prev => prev.filter((_, j) => j !== i)); }} aria-label="Remove attachment" style={{ position: "absolute", top: -7, right: -7, width: 20, height: 20, borderRadius: 999, background: "#fff", color: H.ink, border: "none", fontSize: 12, fontWeight: 800, lineHeight: 1, cursor: "pointer", padding: 0 }}>×</button>
+                  </span>
+                ))}
               </div>
             )}
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 10, flexWrap: "wrap" }}>
@@ -574,9 +582,9 @@ function BriefSheet({ detail, onRefresh, onClose }: any) {
                   {(["client", "internal"] as const).map((k, i) => { const on = vis === k; return <button key={k} onClick={() => setVis(k)} style={{ border: "none", borderLeft: i ? `1px solid ${H.line}` : "none", background: on ? (k === "client" ? "rgba(143,199,216,.2)" : "rgba(244,178,43,.2)") : "transparent", color: on ? (k === "client" ? H.blue : H.amber) : H.faint, fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", padding: "9px 14px", cursor: "pointer", fontFamily: H.font }}>{k === "client" ? "Client-visible" : "Internal"}</button>; })}
                 </span>
               </span>
-              <input ref={fileIn} type="file" accept="image/*,.pdf,.ai,.psd,.eps,.svg" style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; if (f) onFile(f); if (fileIn.current) fileIn.current.value = ""; }} />
-              <button disabled={!!staged} onClick={() => fileIn.current?.click()} style={{ ...ghostBtn, opacity: staged ? 0.5 : 1 }}>{staged ? "✓ Attached" : "+ Attach"}</button>
-              <button disabled={busy || (!note.trim() && !staged)} onClick={send} style={{ ...primaryBtn, marginLeft: "auto", padding: "12px 24px", fontSize: 11.5, opacity: busy || (!note.trim() && !staged) ? 0.5 : 1 }}>{busy ? "Sending…" : vis === "client" ? "Send to client" : "Post internal"}</button>
+              <input ref={fileIn} type="file" accept="image/*,.pdf,.ai,.psd,.eps,.svg" multiple style={{ display: "none" }} onChange={e => { onFile(e.target.files); if (fileIn.current) fileIn.current.value = ""; }} />
+              <button onClick={() => fileIn.current?.click()} style={ghostBtn}>{stagedList.length ? `✓ ${stagedList.length} attached` : "+ Attach"}</button>
+              <button disabled={busy || (!note.trim() && !stagedList.length)} onClick={send} style={{ ...primaryBtn, marginLeft: "auto", padding: "12px 24px", fontSize: 11.5, opacity: busy || (!note.trim() && !stagedList.length) ? 0.5 : 1 }}>{busy ? "Sending…" : vis === "client" ? "Send to client" : "Post internal"}</button>
             </div>
           </div>
           <div style={{ padding: "0 22px 16px", fontSize: 10.5, color: H.faint, textAlign: "center", lineHeight: 1.5 }}>Send a <b style={{ color: H.dim }}>Client-visible</b> design and it&rsquo;s the client&rsquo;s move.</div>
