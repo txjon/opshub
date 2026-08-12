@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { logJobActivityServer } from "@/lib/notify-server";
+import { hubClientLookup } from "@/lib/hub-client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,7 +24,7 @@ function admin() {
 export async function GET(_req: NextRequest, { params }: { params: { token: string } }) {
   try {
     const db = admin();
-    const { data: client } = await db.from("clients").select("id, portal_features").eq("portal_token", params.token).eq("client_hub_enabled", true).single();
+    const { data: client } = await hubClientLookup(db, params.token, "id, portal_features");
     if (!client) return NextResponse.json({ error: "Invalid link" }, { status: 404 });
     if (!Array.isArray((client as any).portal_features) || !(client as any).portal_features.includes("pipeline")) {
       return NextResponse.json({ pulls: [] });
@@ -70,8 +71,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     if (units === 0) return NextResponse.json({ error: "Enter at least one quantity" }, { status: 400 });
     if (!destination) return NextResponse.json({ error: "Where should it go?" }, { status: 400 });
 
-    const { data: client } = await db
-      .from("clients").select("id, name, portal_features").eq("portal_token", params.token).eq("client_hub_enabled", true).single();
+    const { data: client } = await hubClientLookup(db, params.token, "id, name, portal_features");
     if (!client) return NextResponse.json({ error: "Invalid link" }, { status: 404 });
     if (!Array.isArray((client as any).portal_features) || !(client as any).portal_features.includes("pipeline")) {
       return NextResponse.json({ error: "Not available" }, { status: 403 });

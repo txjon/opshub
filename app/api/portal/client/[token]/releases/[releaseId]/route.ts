@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { isPipelineSlot } from "@/lib/release-lanes";
+import { hubClientLookup } from "@/lib/hub-client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,8 +17,7 @@ const APPROVED = ["approved"];
 
 async function owned(token: string, releaseId: string) {
   const db = admin();
-  const { data: client } = await db.from("clients")
-    .select("id, name, portal_features").eq("portal_token", token).eq("client_hub_enabled", true).single();
+  const { data: client } = await hubClientLookup(db, token, "id, name, portal_features");
   if (!client) return null;
   if (!Array.isArray((client as any).portal_features) || !(client as any).portal_features.includes("releases")) return null;
   const { data: release } = await db.from("releases").select("*").eq("id", releaseId).single();

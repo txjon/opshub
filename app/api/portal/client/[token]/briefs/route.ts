@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { notifyTeamServer } from "@/lib/notify-server";
+import { hubClientLookup } from "@/lib/hub-client";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +14,7 @@ function admin() {
 // source='client', state='draft' — HPD reviews + sends to designer explicitly.
 export async function POST(req: NextRequest, { params }: { params: { token: string } }) {
   const db = admin();
-  const { data: client } = await db.from("clients").select("id, name").eq("portal_token", params.token).eq("client_hub_enabled", true).single();
+  const { data: client } = await hubClientLookup(db, params.token, "id, name");
   if (!client) return NextResponse.json({ error: "Invalid link" }, { status: 404 });
 
   const { title, concept } = await req.json();

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { notifyTeamServer, logJobActivityServer } from "@/lib/notify-server";
+import { hubClientLookup } from "@/lib/hub-client";
 
 function admin() {
   return createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
@@ -8,7 +9,7 @@ function admin() {
 
 async function verifyAccess(token: string, briefId: string) {
   const db = admin();
-  const { data: client } = await db.from("clients").select("id, name").eq("portal_token", token).eq("client_hub_enabled", true).single();
+  const { data: client } = await hubClientLookup(db, token, "id, name");
   if (!client) return null;
   const { data: brief } = await db.from("art_briefs").select("id, title, client_id, job_id").eq("id", briefId).single();
   if (!brief || brief.client_id !== client.id) return null;

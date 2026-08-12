@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { assignProductsToJob } from "@/lib/products-server";
+import { hubClientLookup } from "@/lib/hub-client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,8 +19,7 @@ function admin() {
 
 async function gate(token: string) {
   const db = admin();
-  const { data: client } = await db.from("clients")
-    .select("id, name").eq("portal_token", token).eq("client_hub_enabled", true).single();
+  const { data: client } = await hubClientLookup(db, token, "id, name");
   return client ? { db, client } : null;
 }
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { dbNoStore } from "@/lib/db-nostore";
 import { isClientVisibleFile } from "@/lib/brief-visibility";
+import { hubClientLookup } from "@/lib/hub-client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,7 +15,7 @@ const admin = dbNoStore;
 
 export async function GET(_req: NextRequest, { params }: { params: { token: string } }) {
   const db = admin();
-  const { data: client } = await db.from("clients").select("id, name").eq("portal_token", params.token).eq("client_hub_enabled", true).single();
+  const { data: client } = await hubClientLookup(db, params.token, "id, name");
   if (!client) return NextResponse.json({ error: "Invalid link" }, { status: 404 });
 
   const { data: briefs } = await db.from("art_briefs")

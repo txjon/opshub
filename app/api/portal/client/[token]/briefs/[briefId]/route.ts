@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { computeFileOrdinals } from "@/lib/art-activity-text";
+import { hubClientLookup } from "@/lib/hub-client";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -12,7 +13,7 @@ function admin() {
 // Verify the portal token belongs to a client, AND the brief belongs to that client.
 async function verifyAccess(token: string, briefId: string) {
   const db = admin();
-  const { data: client } = await db.from("clients").select("id, name").eq("portal_token", token).eq("client_hub_enabled", true).single();
+  const { data: client } = await hubClientLookup(db, token, "id, name");
   if (!client) return null;
   const { data: brief } = await db
     .from("art_briefs")
