@@ -58,7 +58,6 @@ export default function ReorderPage() {
   // release" hands the item to the Releases planner (?add=) instead of the
   // cart. Cart = order it again now; release = put it in the next drop.
   const hasReleases = (((data as any)?.features || []) as string[]).includes("releases");
-  const hasStudio = (((data as any)?.features || []) as string[]).includes("studio");
   const [items, setItems] = useState<any[] | null>(null);
   const [detail, setDetail] = useState<CatalogEntry | null>(null);
   const [cat, setCat] = useState<string>("all");
@@ -218,9 +217,7 @@ export default function ReorderPage() {
               Run it back.
             </h1>
             <div style={{ fontSize: 14, color: H.dim, maxWidth: "52ch", lineHeight: 1.6, margin: "0 auto 28px", textAlign: "center" }}>
-              Every piece from your past runs, ready to go again. Tap one, set your quantities, and send it through.
-              We reprice it for today, confirm timing with you, and nothing runs until you give the final go.
-              {hasStudio && <> Cooking up something new instead? That starts in <Link href={`/portal/client/${token}/studio`} style={{ color: H.text, fontWeight: 700, textDecoration: "underline", textUnderlineOffset: 3 }}>the Studio</Link>.</>}
+              Every piece from your past runs. Request a re-order{hasReleases ? " or plan it into an upcoming release" : ""}.
             </div>
 
             <ShelfRail token={token} />
