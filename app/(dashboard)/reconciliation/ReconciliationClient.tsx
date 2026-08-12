@@ -142,7 +142,7 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
       supabase.from("cost_entries").select("*").order("created_at", { ascending: false }),
       supabase.from("decorators").select("id, name, short_code, pricing_data, capabilities, contacts_list"),
       supabase.from("cost_vendor_status").select("job_id, vendor_id, reason"),
-      supabase.from("items").select("job_id, blanks_order_cost, blanks_order_number"),
+      supabase.from("items").select("id, job_id, name, sort_order, blank_costs, blanks_order_cost, blanks_order_number, buy_sheet_lines(size, qty_ordered)"),
     ]);
     setMarks((m.data as any) || []);
     setVendors((v.data as any) || []);
@@ -330,9 +330,15 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
   // BILLING QUEUE — the spine. Driven by costing + PO-sent (not by logged
   // invoices): every job × PO-sent vendor → expected (costing) vs billed (entries),
   // gap = outstanding; summed = OPEN PO COMMITMENT. See lib/billing-queue.ts.
+  const itemsByJob = useMemo(() => {
+    const m: Record<string, any[]> = {};
+    for (const it of jobItems as any[]) (m[it.job_id] = m[it.job_id] || []).push(it);
+    for (const list of Object.values(m)) list.sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0));
+    return m;
+  }, [jobItems]);
   const queue = useMemo(() => computeBillingQueue({
-    jobs: Object.values(jobsRaw), printers, apVendors: vendors as any, entries: entries as any, marks,
-  }), [jobsRaw, printers, vendors, entries, marks]);
+    jobs: Object.values(jobsRaw), printers, apVendors: vendors as any, entries: entries as any, marks, itemsByJob,
+  }), [jobsRaw, printers, vendors, entries, marks, itemsByJob]);
   const sq = search.trim().toLowerCase();
   const filteredQueue = queue.jobs
     .filter(j => qFilter === "all" ? true : qFilter === "complete" ? j.costComplete : !j.costComplete)

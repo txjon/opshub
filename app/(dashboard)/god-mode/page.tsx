@@ -41,7 +41,7 @@ export default async function GodModePage() {
       .select("id, job_number, title, phase, client_id, clients(name), company_id, payment_terms, target_ship_date, costing_summary, costing_data, type_meta, phase_timestamps, created_at, quote_approved, quote_approved_at, is_inventory, is_test")
       .order("created_at", { ascending: false }),
     supabase.from("items")
-      .select("id, job_id, name, pipeline_stage, pipeline_timestamps, sell_per_unit, cost_per_unit, cost_per_unit_all_in, garment_type, ship_qtys, blanks_order_cost, blanks_order_number, buy_sheet_lines(qty_ordered), decorator_assignments(decorator_id)")
+      .select("id, job_id, name, sort_order, blank_costs, pipeline_stage, pipeline_timestamps, sell_per_unit, cost_per_unit, cost_per_unit_all_in, garment_type, ship_qtys, blanks_order_cost, blanks_order_number, buy_sheet_lines(size, qty_ordered), decorator_assignments(decorator_id)")
       .order("sort_order"),
     supabase.from("payment_records")
       .select("id, job_id, type, amount, status, due_date, paid_date, created_at"),
@@ -75,7 +75,9 @@ export default async function GodModePage() {
   // UPS inbound freight lives in its own pipeline — exclude it from the PO-bill
   // queue, then add the freight variance to the total below.
   const vxFreight = ((costEntriesRes.data as any) || []).filter((e: any) => isFreightSource(e.source));
-  const vxQueue = computeBillingQueue({ jobs, printers: vxPrinters, apVendors: (apVendorsRes.data as any) || [], entries: ((costEntriesRes.data as any) || []).filter((e: any) => !isFreightSource(e.source)), marks: (costMarksRes.data as any) || [] });
+  const vxItemsByJob: Record<string, any[]> = {};
+  for (const it of ((itemsRes.data as any) || []) as any[]) (vxItemsByJob[it.job_id] = vxItemsByJob[it.job_id] || []).push(it);
+  const vxQueue = computeBillingQueue({ jobs, printers: vxPrinters, apVendors: (apVendorsRes.data as any) || [], entries: ((costEntriesRes.data as any) || []).filter((e: any) => !isFreightSource(e.source)), marks: (costMarksRes.data as any) || [], itemsByJob: vxItemsByJob });
   const vxJobsRaw = Object.fromEntries(jobs.map((j: any) => [j.id, j]));
   // Total cost-vs-plan = decorator-bill variance + inbound-freight variance.
   const costVariance = computeVarianceSummary({ queue: vxQueue, jobsRaw: vxJobsRaw, items, printers: vxPrinters }).netVar + shippingVarianceNet(vxFreight, vxJobsRaw as any);

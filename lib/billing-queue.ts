@@ -5,6 +5,7 @@
 // OPEN PO COMMITMENT — committed cash still going out. See memory:
 // opshub-cost-reconciliation.
 import { calcCostProduct } from "./pricing";
+import { overlayCostProds } from "./costing-summary";
 
 const IN_HOUSE = new Set(["HP LABS"]); // in-house decoration → no external bill
 
@@ -53,6 +54,12 @@ export function computeBillingQueue(opts: {
   apVendors: { id: string; name: string; match_keys?: string[] | null; decorator_id?: string | null }[];
   entries: { job_id: string | null; vendor_id: string | null; amount: number }[];
   marks?: { job_id: string; vendor_id: string; reason: string | null }[]; // manually marked cost-complete
+  // Per-job live items (id, name, sort_order, blank_costs, buy_sheet_lines).
+  // When present, lines letter over the item-sorted OVERLAID list — final
+  // form, matching the PO PDF. Without it, falls back to the raw stored
+  // array (creation-ordered on rearranged jobs — 4345 lettered its recon
+  // differently than Icon's paper until this).
+  itemsByJob?: Record<string, any[]>;
 }): BillingQueue {
   const { jobs, printers, apVendors, entries } = opts;
   const markBy: Record<string, string | null> = {};
@@ -86,12 +93,16 @@ export function computeBillingQueue(opts: {
     const cps = job.costing_data?.costProds || [];
     const margin = String(job.costing_data?.margin ?? 0);
     const qbRef = job.type_meta?.qb_invoice_number || job.job_number;
-    // letter = item position (A,B,C…) over the full sorted costProds list, matching
-    // the PO PDF (String.fromCharCode(65 + sortedIdx)). costProds array order ==
-    // item sort_order (verified). 0-qty items still consume a letter but drop out.
-    const lines = cps.map((c: any, i: number) => {
-      const calc = calcCostProduct(c, margin, false, false, cps, printers);
-      return { letter: String.fromCharCode(65 + i), pv: (c.printVendor || "").toUpperCase(), name: c.name || "", expected: calc ? r2(calc.poTotal || 0) : 0, ok: !!calc };
+    // letter = item position (A,B,C…) matching the PO PDF: the item-sorted
+    // OVERLAID list when live items are supplied (final form — the stored
+    // array is creation-ordered on rearranged jobs and lies), else the raw
+    // stored array as before. Overlay also fixes projections to live qtys.
+    const jobItems = opts.itemsByJob?.[job.id];
+    const base: any[] = jobItems?.length ? overlayCostProds(cps, jobItems) : cps;
+    const nameById = new Map((jobItems || []).map((it: any) => [it.id, it.name]));
+    const lines = base.map((c: any, i: number) => {
+      const calc = calcCostProduct(c, margin, false, false, base, printers);
+      return { letter: String.fromCharCode(65 + i), pv: (c.printVendor || "").toUpperCase(), name: nameById.get(c.id) || c.name || "", expected: calc ? r2(calc.poTotal || 0) : 0, ok: !!calc };
     });
 
     // ap_vendors that have a PO sent on this job
