@@ -3,6 +3,7 @@ import { createClient as createAdmin } from "@supabase/supabase-js";
 import { resolveItemStatus, clientItemStatus } from "@/lib/item-status";
 import { deriveDateChain } from "@/lib/date-chain";
 import { hasRun } from "@/lib/run-gate";
+import { hubClientLookup } from "@/lib/hub-client";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -28,11 +29,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     const db = admin();
 
     // 1. Resolve client from token.
-    const { data: client } = await db
-      .from("clients")
-      .select("id, name, portal_features")
-      .eq("portal_token", params.token).eq("client_hub_enabled", true)
-      .single();
+    const { data: client } = await hubClientLookup(db, params.token, "id, name, portal_features");
     if (!client) return NextResponse.json({ error: "Invalid link" }, { status: 404 });
 
     // 2. Fetch every job for this client (we include cancelled here — the

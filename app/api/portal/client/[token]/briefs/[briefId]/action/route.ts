@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { notifyTeamServer, logJobActivityServer } from "@/lib/notify-server";
+import { hubClientLookup } from "@/lib/hub-client";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +22,7 @@ function admin() {
 
 async function verifyAccess(token: string, briefId: string) {
   const db = admin();
-  const { data: client } = await db.from("clients").select("id, name").eq("portal_token", token).eq("client_hub_enabled", true).single();
+  const { data: client } = await hubClientLookup(db, token, "id, name");
   if (!client) return null;
   const { data: brief } = await db.from("art_briefs")
     .select("id, title, state, client_id, job_id")

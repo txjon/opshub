@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
+import { hubClientLookup } from "@/lib/hub-client";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +19,7 @@ function admin() {
 export async function POST(req: NextRequest, { params }: { params: { token: string; releaseId: string } }) {
   try {
     const db = admin();
-    const { data: client } = await db.from("clients").select("id").eq("portal_token", params.token).eq("client_hub_enabled", true).single();
+    const { data: client } = await hubClientLookup(db, params.token, "id");
     if (!client) return NextResponse.json({ error: "Invalid link" }, { status: 404 });
 
     const { data: release } = await db
@@ -100,7 +101,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
 export async function DELETE(req: NextRequest, { params }: { params: { token: string; releaseId: string } }) {
   try {
     const db = admin();
-    const { data: client } = await db.from("clients").select("id").eq("portal_token", params.token).eq("client_hub_enabled", true).single();
+    const { data: client } = await hubClientLookup(db, params.token, "id");
     if (!client) return NextResponse.json({ error: "Invalid link" }, { status: 404 });
 
     const { data: release } = await db

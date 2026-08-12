@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { logJobActivityServer } from "@/lib/notify-server";
+import { hubClientLookup } from "@/lib/hub-client";
 
 export const dynamic = "force-dynamic";
 
@@ -23,11 +24,7 @@ export async function POST(_req: NextRequest, { params }: { params: { token: str
     // Auth: resolve client from portal token + confirm the item belongs
     // to one of this client's jobs. Prevents a client from re-ordering
     // someone else's items via a guessed itemId.
-    const { data: client } = await db
-      .from("clients")
-      .select("id, name")
-      .eq("portal_token", params.token).eq("client_hub_enabled", true)
-      .single();
+    const { data: client } = await hubClientLookup(db, params.token, "id, name");
     if (!client) return NextResponse.json({ error: "Invalid link" }, { status: 404 });
 
     const { data: item } = await db

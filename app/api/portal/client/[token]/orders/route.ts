@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { resolveItemStatus, clientItemStatus } from "@/lib/item-status";
+import { hubClientLookup } from "@/lib/hub-client";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -20,11 +21,7 @@ function admin() {
 export async function GET(req: NextRequest, { params }: { params: { token: string } }) {
   try {
     const db = admin();
-    const { data: client } = await db
-      .from("clients")
-      .select("id, name, companies:company_id(slug, default_payment_provider)")
-      .eq("portal_token", params.token).eq("client_hub_enabled", true)
-      .single();
+    const { data: client } = await hubClientLookup(db, params.token, "id, name, companies:company_id(slug, default_payment_provider)");
     if (!client) return NextResponse.json({ error: "Invalid link" }, { status: 404 });
     const tenantProvider = ((client as any).companies?.default_payment_provider || "quickbooks") as string;
     // Resolve the tenant's public origin so Stripe-tenant pay links

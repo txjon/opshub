@@ -4,6 +4,7 @@ import { sortSizes } from "@/lib/theme";
 import { resolveItemStatus, clientItemStatus, type ItemState } from "@/lib/item-status";
 import { deriveDateChain } from "@/lib/date-chain";
 import { approvePackage, requestChanges } from "@/lib/portal/approval-actions";
+import { hubClientLookup } from "@/lib/hub-client";
 // Client Hub per-order detail.
 // Mirrors /api/portal/[token] (the old per-job portal) but auth'd via the
 // client's portal_token + verifies the jobId belongs to that client.
@@ -18,11 +19,7 @@ const admin = () =>
 
 async function authAndLoadJob(token: string, jobId: string) {
   const sb = admin();
-  const { data: client } = await sb
-    .from("clients")
-    .select("id, name, companies:company_id(slug, default_payment_provider)")
-    .eq("portal_token", token).eq("client_hub_enabled", true)
-    .single();
+  const { data: client } = await hubClientLookup(sb, token, "id, name, companies:company_id(slug, default_payment_provider)");
   if (!client) return { error: "Invalid link", status: 404 as const };
 
   const { data: job, error: jobErr } = await sb

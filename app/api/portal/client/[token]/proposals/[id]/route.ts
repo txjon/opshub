@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
+import { hubClientLookup } from "@/lib/hub-client";
 
 export const dynamic = "force-dynamic";
 
@@ -9,8 +10,7 @@ function admin() {
 
 async function resolveOwnership(token: string, proposalId: string) {
   const db = admin();
-  const { data: client } = await db
-    .from("clients").select("id").eq("portal_token", token).eq("client_hub_enabled", true).single();
+  const { data: client } = await hubClientLookup(db, token, "id");
   if (!client) return { error: "Invalid link", status: 404 as const };
   const { data: proposal } = await db
     .from("client_proposal_items")

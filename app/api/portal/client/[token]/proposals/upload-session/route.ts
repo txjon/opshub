@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { createResumableUploadSession } from "@/lib/drive-resumable";
+import { hubClientLookup } from "@/lib/hub-client";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -20,11 +21,7 @@ function admin() {
 export async function POST(req: NextRequest, { params }: { params: { token: string } }) {
   try {
     const db = admin();
-    const { data: client } = await db
-      .from("clients")
-      .select("id, name")
-      .eq("portal_token", params.token).eq("client_hub_enabled", true)
-      .single();
+    const { data: client } = await hubClientLookup(db, params.token, "id, name");
     if (!client) return NextResponse.json({ error: "Invalid link" }, { status: 404 });
 
     const { file_name, mime_type } = await req.json();

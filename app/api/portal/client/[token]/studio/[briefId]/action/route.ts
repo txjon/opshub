@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { dbNoStore } from "@/lib/db-nostore";
 import { LEGACY_CLIENT_KINDS } from "@/lib/brief-visibility";
 import { getItemFolderId, uploadFile } from "@/lib/google-drive";
+import { hubClientLookup } from "@/lib/hub-client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,7 +22,7 @@ const admin = dbNoStore;
 
 export async function POST(req: NextRequest, { params }: { params: { token: string; briefId: string } }) {
   const db = admin();
-  const { data: client } = await db.from("clients").select("id, name").eq("portal_token", params.token).eq("client_hub_enabled", true).single();
+  const { data: client } = await hubClientLookup(db, params.token, "id, name");
   if (!client) return NextResponse.json({ error: "Invalid link" }, { status: 404 });
   const clientId = (client as any).id;
   const name = (client as any).name || "Client";

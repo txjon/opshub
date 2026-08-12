@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { isRerunLineId } from "@/lib/release-lanes";
+import { hubClientLookup } from "@/lib/hub-client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,8 +21,7 @@ const APPROVED = ["approved"];
 
 async function ctxOf(token: string) {
   const db = admin();
-  const { data: client } = await db.from("clients")
-    .select("id, name, portal_features, company_id").eq("portal_token", token).eq("client_hub_enabled", true).single();
+  const { data: client } = await hubClientLookup(db, token, "id, name, portal_features, company_id");
   if (!client) return null;
   const denied = !Array.isArray((client as any).portal_features) || !(client as any).portal_features.includes("releases");
   return { db, client, denied };
