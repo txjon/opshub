@@ -2353,6 +2353,21 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                           {it.garment_type && !ADD_GARMENTS.some(([v]) => v === it.garment_type) && <option value={it.garment_type}>{it.garment_type.replace(/_/g, " ")}</option>}
                         </select>
                       </label>
+                      <label style={{ flex: "0 1 120px" }}>
+                        {/* Client retail = what THEIR shop charges. Powers release
+                            planning + re-run prefills; not part of costing math,
+                            so no financial refresh and never locked. */}
+                        <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Client retail</span>
+                        <input key={it.id + ":retail:" + (it.client_retail_per_unit ?? "")} defaultValue={it.client_retail_per_unit ?? ""}
+                          inputMode="decimal" placeholder="$"
+                          onBlur={async e => {
+                            const raw = e.target.value.replace(/[^0-9.]/g, "");
+                            const v = raw === "" ? null : Math.round(Number(raw) * 100) / 100;
+                            if (v === (it.client_retail_per_unit ?? null)) return;
+                            await (createClient().from("items") as any).update({ client_retail_per_unit: v }).eq("id", it.id);
+                            setItems(prev => prev.map((x: any) => x.id === it.id ? { ...x, client_retail_per_unit: v } : x));
+                          }} style={field} />
+                      </label>
                       {!locked && (
                         <div style={{ flex: "0 0 auto" }}>
                           {/* hidden caption keeps the button on the same
