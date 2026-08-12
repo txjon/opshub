@@ -89,6 +89,7 @@ export default function StudioPage() {
           <div style={{ fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", lineHeight: 1.25, overflow: "hidden", display: "-webkit-box", WebkitBoxOrient: "vertical" as any, WebkitLineClamp: 2 }}>{b.title || "Untitled"}</div>
           <div style={{ fontSize: 9.5, fontFamily: H.mono, color: H.faint, marginTop: 4 }}>{b.client_name || "—"}</div>
           <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: st.color, marginTop: 4 }}>{st.label}{b.source === "client" ? " · they started it" : ""}</div>
+          {b._release && <div style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", color: b._release.status === "cut" ? H.green : H.blue, marginTop: 3 }}>{b._release.status === "cut" ? "In production" : "On release"} · <span style={{ fontWeight: 600 }}>{b._release.title}</span></div>}
         </div>
       </button>
     );

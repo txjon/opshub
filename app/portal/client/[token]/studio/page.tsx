@@ -145,6 +145,7 @@ export default function ClientStudioPage() {
                   <div style={{ padding: "10px 12px 12px" }}>
                     <div style={{ fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", lineHeight: 1.2 }}>{b.title}</div>
                     <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: STATE(b.state).color, marginTop: 4 }}>{STATE(b.state).label}</div>
+                    {b._release && <div style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", color: b._release.status === "cut" ? C.green : C.blue, marginTop: 3 }}>{b._release.status === "cut" ? "In production" : "On release"} · <span style={{ fontWeight: 600 }}>{b._release.title}</span></div>}
                   </div>
                 </button>
               ))}

@@ -48,6 +48,19 @@ export async function GET() {
     }
   }
 
+  // Release linkage — a slotted design reads as committed in the studio
+  // (non-cut release wins the label; a cut release means it's in production).
+  const releaseByBrief: Record<string, { title: string; status: string }> = {};
+  if (ids.length) {
+    const { data: rslots } = await db.from("release_slots").select("brief_id, releases!inner(title, status)").in("brief_id", ids);
+    for (const r of (rslots || []) as any[]) {
+      if (!r.brief_id) continue;
+      const rel = { title: (r as any).releases?.title || "Release", status: (r as any).releases?.status || "" };
+      const cur = releaseByBrief[r.brief_id];
+      if (!cur || (cur.status === "cut" && rel.status !== "cut")) releaseByBrief[r.brief_id] = rel;
+    }
+  }
+
   // Open rounds get the collage: _lineup carries option thumbs + count.
   const lineupMeta: Record<string, { count: number; thumbs: string[] }> = {};
   if (ids.length) {
@@ -72,7 +85,7 @@ export async function GET() {
     briefs: list.map(b => ({
       id: b.id, title: b.title, state: b.state, source: b.source,
       client_name: b.clients?.name || null, updated_at: b.updated_at,
-      _art: artByBrief[b.id] || null, _job: jobByBrief[b.id] || null, _lineup: lineupMeta[b.id] || null,
+      _art: artByBrief[b.id] || null, _job: jobByBrief[b.id] || null, _lineup: lineupMeta[b.id] || null, _release: releaseByBrief[b.id] || null,
     })),
   });
 }
