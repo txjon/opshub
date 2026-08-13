@@ -234,9 +234,15 @@ export default function EcommPage() {
 
   return (
     <div style={{ fontFamily: font, color: T.text, display: "flex", flexDirection: "column", gap: 14 }}>
-      <div>
-        <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>E-Commerce</h1>
-        <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>Storefronts, pre-orders, drops, and always-on inventory across Shopify · BigCommerce · BigCartel</div>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        <div>
+          <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>E-Commerce</h1>
+          <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>Storefronts, pre-orders, drops, and always-on inventory across Shopify · BigCommerce · BigCartel</div>
+        </div>
+        <a href="/ecomm/cs" style={{ fontSize: 12, fontWeight: 700, color: T.blue, textDecoration: "none", marginTop: 4 }}
+          onMouseEnter={e => { e.currentTarget.style.textDecoration = "underline"; }}
+          onMouseLeave={e => { e.currentTarget.style.textDecoration = "none"; }}
+        >CS Desk →</a>
       </div>
 
       {/* KPI strip — placeholders that fill in once polling/velocity lands (Phase B) */}

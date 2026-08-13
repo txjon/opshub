@@ -53,6 +53,7 @@ export const PAGE_CATALOG: CatalogPage[] = [
   // Ecomm
   { key: "/ecomm", href: "/ecomm", label: "The Shop", group: "ecomm" },
   { key: "/ecomm/staging", href: "/ecomm/staging", label: "Staging", group: "ecomm" },
+  { key: "/ecomm/cs", href: "/ecomm/cs", label: "CS Desk", group: "ecomm" },
   // Contacts
   { key: "/intake", href: "/intake", label: "Intake", group: "contacts" },
   { key: "/clients", href: "/clients", label: "Clients", group: "contacts" },
