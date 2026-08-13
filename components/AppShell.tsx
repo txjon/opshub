@@ -2,8 +2,8 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LogOut, FlaskConical, Truck, Store, Users, Cog, ChartColumn, Lightbulb, Receipt } from "lucide-react";
-import { GlobalSearch } from "@/components/GlobalSearch";
+import { LogOut } from "lucide-react";
+import { GlobalSearch, type SearchPage } from "@/components/GlobalSearch";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { grantedPages, pathToGroup } from "@/lib/access";
 import { V2_WRITES_LIVE, STUDIO_UNDER_DEV, STUDIO_HIDDEN_HREFS } from "@/lib/v2-flags";
@@ -69,16 +69,6 @@ const DEPT_NAV: Record<Department, { href: string; label: string }[]> = {
 const SIDE_QUESTS = [
   { href: "/toolkit", label: "Toolkit" },
 ];
-
-const DEPT_ICONS: Record<Department, { Icon: any; label: string }> = {
-  owner: { Icon: ChartColumn, label: "Owner" },
-  labs: { Icon: FlaskConical, label: "Labs" },
-  distro: { Icon: Truck, label: "Distro" },
-  ecomm: { Icon: Store, label: "Ecomm" },
-  contacts: { Icon: Users, label: "Contacts" },
-  settings: { Icon: Cog, label: "Settings" },
-  billing: { Icon: Receipt, label: "Billing" },
-};
 
 // Cross-links between departments
 const DEPT_CROSSLINKS: Partial<Record<Department, { href: string; label: string; dept: Department }>> = {
@@ -194,8 +184,6 @@ export function AppShell({
     ? navItemsSwapped.filter((i: any) => !STUDIO_HIDDEN_HREFS.includes(i.href))
     : navItemsSwapped)
     .filter((i: any) => i.href !== "/dashboard"); // tucked — House is the daily surface
-  const deptIcons: Record<Department, { Icon: any; label: string }> = DEPT_ICONS;
-
   // ── Hub sidebar (desktop) — ONE nav, grouped by workflow, every granted
   // destination visible and one click away (Jon, Jul 27: "we're in
   // production, need receiving → click Distro → land on Distro home → click
@@ -239,6 +227,20 @@ export function AppShell({
   // and Toolkit — quiet flat rows, not a nav group.
   const utilityItems = filterNavItems(usePerUser ? (navByGroup["settings"] || []) : (departments.includes("settings") ? DEPT_NAV.settings : []));
 
+  // Every granted destination, flat, for the search-as-nav quick list —
+  // built from the SAME filtered/swapped groups the sidebar renders, so
+  // search never offers a page the sidebar wouldn't.
+  const searchPages: SearchPage[] = [
+    ...sidebarGroups.flatMap(g => {
+      const homeHref = GROUP_HOMES[g.key as Department];
+      const title = (homeHref && g.items.find(i => i.href === homeHref)?.label) || g.label;
+      return g.items.map(i => ({ href: i.href, label: i.label, group: title }));
+    }),
+    ...utilityItems.map(u => ({ href: u.href, label: u.label, group: "Utilities" })),
+    ...(showRefs ? [{ href: "/references", label: "References", group: "Utilities" }] : []),
+    ...sideQuestItems.map(sq => ({ href: sq.href, label: sq.label, group: "Utilities" })),
+  ];
+
   // Recent projects — written by the job page on visit; the fastest answer to
   // "get back to the job I was just on" after a board side-trip.
   const [recentJobs, setRecentJobs] = useState<{ id: string; label: string; num: string }[]>([]);
@@ -274,7 +276,7 @@ export function AppShell({
 
         {/* search — the fastest nav in the app, up top where it's found */}
         <div style={{ padding: "0 10px 10px" }}>
-          <GlobalSearch />
+          <GlobalSearch pages={searchPages} />
         </div>
 
         {/* nav groups */}
@@ -456,7 +458,7 @@ export function AppShell({
           {/* Right: search + user. Compact icon button on mobile, full
               search field on desktop. */}
           <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 0 : 12, flexShrink: 0 }}>
-            <GlobalSearch compact={isMobile} />
+            <GlobalSearch compact={isMobile} pages={searchPages} />
             {!isMobile && <span style={{ fontSize: 11, color: "#a0a0ad" }}>{email?.split("@")[0]}</span>}
           </div>
         </div>
@@ -474,70 +476,28 @@ export function AppShell({
         </div>
       </div>
 
-      {/* ── Mobile bottom nav (department switcher) ── */}
+      {/* ── Mobile bottom bar — master search-as-nav (replaced the dept icon
+          rail, Aug 13). One search finds pages, projects, clients, vendors,
+          and items; the empty state IS the full grouped nav, so every child
+          page is one tap away instead of hidden behind icons. ── */}
       {isMobile && (
         <div style={{
           position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 50,
-          background: "#000", color: "#fff",
-          display: "flex", alignItems: "center", justifyContent: "space-around",
-          padding: "6px 4px",
-          borderTop: "1px solid #222",
+          background: "#000", borderTop: "1px solid #222",
+          display: "flex", alignItems: "center", gap: 8,
+          padding: "8px 10px calc(8px + env(safe-area-inset-bottom))",
         }}>
-          {(Object.entries(deptIcons) as [Department, { Icon: any; label: string }][]).map(([dept, { Icon, label }]) => {
-            if (!hasDept(dept)) return null;
-            const isActive = activeDept === dept;
-            return (
-              <Link
-                key={dept}
-                href={DEPT_NAV[dept][0].href}
-                onClick={() => setActiveDept(dept)}
-                style={{
-                  flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                  gap: 2, padding: "6px 4px", borderRadius: 8,
-                  textDecoration: "none",
-                  background: isActive ? "#73b6c9" : "transparent",
-                  color: isActive ? "#000" : "#fff",
-                  minHeight: 44,
-                }}
-              >
-                <Icon size={18} />
-                <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: "0.03em", textTransform: "uppercase" }}>{label}</span>
-              </Link>
-            );
-          })}
-          {/* References — always visible to every authenticated user. */}
-          {(() => {
-            const isActive = pathname === "/references" || pathname?.startsWith("/references/");
-            return (
-              <Link
-                href="/references"
-                style={{
-                  flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                  gap: 2, padding: "6px 4px", borderRadius: 8,
-                  textDecoration: "none",
-                  background: isActive ? "#73b6c9" : "transparent",
-                  color: isActive ? "#000" : "#fff",
-                  minHeight: 44,
-                }}
-              >
-                <Lightbulb size={18} />
-                <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: "0.03em", textTransform: "uppercase" }}>Refs</span>
-              </Link>
-            );
-          })()}
-          <form action="/api/auth/signout" method="post" style={{ flex: 1, display: "flex", justifyContent: "center" }}>
-            <button
-              type="submit"
-              title="Sign out"
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <GlobalSearch bar pages={searchPages} />
+          </div>
+          <form action="/api/auth/signout" method="post" style={{ display: "flex", flexShrink: 0 }}>
+            <button type="submit" title="Sign out"
               style={{
-                display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                gap: 2, padding: "6px 4px", borderRadius: 8,
+                width: 44, height: 44, borderRadius: 10,
                 background: "transparent", border: "none", color: "#888", cursor: "pointer",
-                minHeight: 44, minWidth: 44,
-              }}
-            >
-              <LogOut size={16} />
-              <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: "0.03em", textTransform: "uppercase" }}>Out</span>
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}>
+              <LogOut size={17} />
             </button>
           </form>
         </div>
