@@ -55,6 +55,11 @@ const SECTIONS: Section[] = [
         description: "End-to-end workflow for pre-orders — roles, lifecycle phases, who does what at each stage.",
         href: "/preorder-sop.html",
       },
+      {
+        title: "FOG Shipping — Operator Reference",
+        description: "New checkout options, the ship-exactly-what-they-paid-for rule, duties guardrails, countries, and what to watch. Goose's desk doc.",
+        href: "/references/fog-shipping",
+      },
     ],
   },
   {
