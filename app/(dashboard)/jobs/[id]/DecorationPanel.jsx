@@ -679,7 +679,7 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
                         return sum + (l.screens||0);
                       }, 0);
                     } else if (isTagScreens) {
-                      autoVal = (p.tagPrint && !p.tagRepeat) ? (p.sizes||[]).length : 0;
+                      autoVal = (p.tagPrint && !p.tagRepeat) ? ((p.sizes&&p.sizes.length?p.sizes:Object.keys(p.qtys||{})).filter(sz=>(p.qtys?.[sz]||0)>0).length) : 0; // match lib/pricing: sizes fall back to qtys keys
                     } else if (specialtyMatch) {
                       const isPuffScreen = key.toLowerCase().includes("puff") && key.toLowerCase().includes("screen");
                       if (isPuffScreen && p.specialtyQtys?.[specialtyMatch+"_on"]) {

@@ -176,7 +176,8 @@ function calcDecorationLines(p: any, allProds: any[] = []): { label: string; qty
     const isScreensKey = (k: string) => k === "Screens" || k.toLowerCase() === "screens";
     const isTagScreensKey = (k: string) => k === "TagScreens" || k === "Tag Screens" || k.toLowerCase().replace(/\s/g, "") === "tagscreens";
     const autoScreens = Math.max(0, [1,2,3,4,5,6].reduce((a: number, loc: number) => a + (parseFloat(p.printLocations?.[loc]?.screens) || 0), 0) - sharedScreensToSkip);
-    const activeSizes = (p.sizes || []).filter((sz: string) => (p.qtys?.[sz] || 0) > 0).length;
+    // Sizes fallback to qtys keys — V2 products have qtys but no sizes array.
+    const activeSizes = ((p.sizes && p.sizes.length ? p.sizes : Object.keys(p.qtys || {})) as string[]).filter((sz: string) => (p.qtys?.[sz] || 0) > 0).length;
 
     // Check if a setup key links to an active specialty
     const getSpecCount = (setupKey: string): number | null => {

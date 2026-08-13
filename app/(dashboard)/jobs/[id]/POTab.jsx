@@ -114,7 +114,7 @@ function buildLineItems(cp, allProds) {
     if (autoScreens > 0 && (pr.setup?.Screens||0) > 0) {
       setupLines.push({desc:`${autoScreens} screen${autoScreens!==1?"s":""}`, total:(pr.setup.Screens||0)*autoScreens});
     }
-    const activeSizes = (cp.sizes||[]).filter((sz)=>(cp.qtys?.[sz]||0)>0).length;
+    const activeSizes = ((cp.sizes&&cp.sizes.length?cp.sizes:Object.keys(cp.qtys||{}))).filter((sz)=>(cp.qtys?.[sz]||0)>0).length; // V2 cps: qtys yes, sizes no
     if (!cp.tagRepeat && cp.tagPrint && (pr.setup?.TagScreens||0) > 0) {
       setupLines.push({desc:`Tag screens (${activeSizes} sizes)`, total:(pr.setup.TagScreens||0)*activeSizes});
     }
