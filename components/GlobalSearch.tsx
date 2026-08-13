@@ -1,21 +1,32 @@
 "use client";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { T, font, mono } from "@/lib/theme";
 import { Search } from "lucide-react";
+import { useIsMobile } from "@/lib/useIsMobile";
 
 type Result = {
-  type: "project" | "client" | "item" | "decorator";
+  type: "page" | "project" | "client" | "item" | "decorator";
   id: string;
   href: string;
   title: string;
   subtitle: string;
 };
 
-export function GlobalSearch({ compact = false }: { compact?: boolean } = {}) {
+// Pages the current user may navigate to — passed in by AppShell (already
+// v2-swapped, retired-filtered, and grant-scoped, so search never offers a
+// page the sidebar wouldn't). group = the sidebar group title.
+export type SearchPage = { href: string; label: string; group: string };
+
+export function GlobalSearch({ compact = false, bar = false, pages = [] }: {
+  compact?: boolean;
+  bar?: boolean;          // full-width pill trigger (the mobile bottom bar)
+  pages?: SearchPage[];
+} = {}) {
   const supabase = createClient();
   const router = useRouter();
+  const isMobile = useIsMobile();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Result[]>([]);
@@ -65,10 +76,24 @@ export function GlobalSearch({ compact = false }: { compact?: boolean } = {}) {
       searchSeq.current++; // invalidate any in-flight search
       setResults([]);
       setLoading(false);
+      setSelectedIdx(0);
       return;
     }
     searchTimer.current = setTimeout(() => search(query.trim()), 200);
   }, [query]);
+
+  // Page matches are synchronous — they appear the instant you type, ahead
+  // of the async entity results. Navigation should never wait on the DB.
+  const pageMatches: Result[] = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    return pages
+      .filter(p => p.label.toLowerCase().includes(q) || p.group.toLowerCase().includes(q))
+      .slice(0, 6)
+      .map(p => ({ type: "page" as const, id: p.href, href: p.href, title: p.label, subtitle: p.group }));
+  }, [query, pages]);
+
+  const combined: Result[] = useMemo(() => [...pageMatches, ...results], [pageMatches, results]);
 
   async function search(q: string) {
     const seq = ++searchSeq.current;
@@ -173,39 +198,59 @@ export function GlobalSearch({ compact = false }: { compact?: boolean } = {}) {
     setLoading(false);
   }
 
-  function navigate(result: Result) {
-    router.push(result.href);
+  function navigate(href: string) {
+    router.push(href);
     setOpen(false);
     setQuery("");
     setResults([]);
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "ArrowDown") { e.preventDefault(); setSelectedIdx(i => Math.min(i + 1, results.length - 1)); }
+    if (e.key === "ArrowDown") { e.preventDefault(); setSelectedIdx(i => Math.min(i + 1, combined.length - 1)); }
     if (e.key === "ArrowUp") { e.preventDefault(); setSelectedIdx(i => Math.max(i - 1, 0)); }
-    if (e.key === "Enter" && results[selectedIdx]) { navigate(results[selectedIdx]); }
+    if (e.key === "Enter" && combined[selectedIdx]) { navigate(combined[selectedIdx].href); }
   }
 
   const typeIcon: Record<string, { label: string; color: string }> = {
+    page: { label: "Page", color: T.blue },
     project: { label: "Project", color: T.accent },
     client: { label: "Client", color: T.green },
     item: { label: "Item", color: T.amber },
     decorator: { label: "Decorator", color: T.purple },
   };
 
+  // Empty-state quick nav — every granted page, grouped like the sidebar.
+  // On mobile this IS the nav (the bottom bar replaced the icon rail).
+  const navGroups = useMemo(() => {
+    const by: Record<string, SearchPage[]> = {};
+    for (const p of pages) (by[p.group] ||= []).push(p);
+    return Object.entries(by);
+  }, [pages]);
+
   const openSearch = () => { setOpen(true); setTimeout(() => inputRef.current?.focus(), 50); };
 
   return (
     <>
-      {/* Trigger — compact icon button on mobile, full search field on
-          desktop. Same modal either way. */}
-      {compact ? (
+      {/* Trigger — bar pill (mobile bottom bar), compact icon, or desktop field. */}
+      {bar ? (
+        <button onClick={openSearch}
+          aria-label="Search and navigate"
+          style={{
+            width: "100%", minHeight: 48, display: "flex", alignItems: "center", gap: 10,
+            padding: "0 16px", borderRadius: 999,
+            background: T.surface, border: `1px solid ${T.border}`,
+            color: T.muted, fontSize: 14, fontFamily: font, cursor: "pointer", textAlign: "left",
+          }}>
+          <Search size={17} />
+          <span style={{ flex: 1 }}>Search or go to…</span>
+        </button>
+      ) : compact ? (
         <button onClick={openSearch}
           aria-label="Search"
           style={{
             width: 44, height: 44, borderRadius: 10,
             background: "transparent", border: "none",
-            color: "#1a1a1a", cursor: "pointer",
+            color: "rgba(255,255,255,0.8)", cursor: "pointer",
             display: "flex", alignItems: "center", justifyContent: "center",
             flexShrink: 0,
           }}>
@@ -226,62 +271,87 @@ export function GlobalSearch({ compact = false }: { compact?: boolean } = {}) {
         </button>
       )}
 
-      {/* Modal overlay */}
+      {/* Overlay — centered modal on desktop, full-screen sheet on mobile
+          (input at top so the keyboard doesn't cover it). */}
       {open && (
         <div style={{
           position: "fixed", inset: 0, zIndex: 9998,
           background: "rgba(0,0,0,0.5)", backdropFilter: "blur(2px)",
           display: "flex", alignItems: "flex-start", justifyContent: "center",
-          paddingTop: "15vh",
+          paddingTop: isMobile ? 0 : "15vh",
         }}>
-          <div ref={containerRef} style={{
+          <div ref={containerRef} style={isMobile ? {
+            width: "100%", height: "100dvh",
+            background: T.card, display: "flex", flexDirection: "column",
+            fontFamily: font, overflow: "hidden",
+          } : {
             width: 520, maxWidth: "90vw",
             background: T.card, border: `1px solid ${T.border}`, borderRadius: 12,
             boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
             fontFamily: font, overflow: "hidden",
           }}>
             {/* Input */}
-            <div style={{ padding: "12px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 8 }}>
-              <Search size={16} style={{ color: T.muted }} />
+            <div style={{ padding: isMobile ? "14px 16px" : "12px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+              <Search size={16} style={{ color: T.muted, flexShrink: 0 }} />
               <input
                 ref={inputRef}
                 value={query}
                 onChange={e => setQuery(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Search projects, clients, items, decorators..."
+                placeholder={pages.length ? "Search, or go to a page…" : "Search projects, clients, items, decorators..."}
                 style={{
                   flex: 1, background: "transparent", border: "none", outline: "none",
-                  color: T.text, fontSize: 14, fontFamily: font,
+                  color: T.text, fontSize: isMobile ? 16 : 14, fontFamily: font, minWidth: 0,
                 }}
               />
               {query && (
                 <button onClick={() => { setQuery(""); setResults([]); inputRef.current?.focus(); }}
-                  style={{ background: "none", border: "none", color: T.faint, cursor: "pointer", fontSize: 14 }}>✕</button>
+                  style={{ background: "none", border: "none", color: T.faint, cursor: "pointer", fontSize: 14, flexShrink: 0 }}>✕</button>
+              )}
+              {isMobile && (
+                <button onClick={() => { setOpen(false); setQuery(""); setResults([]); }}
+                  style={{ background: "none", border: "none", color: T.muted, cursor: "pointer", fontSize: 13, fontWeight: 700, fontFamily: font, padding: "8px 2px 8px 8px", flexShrink: 0 }}>
+                  Cancel
+                </button>
               )}
             </div>
 
-            {/* Results */}
-            <div style={{ maxHeight: 400, overflowY: "auto" }}>
+            {/* Results / quick nav */}
+            <div style={{ maxHeight: isMobile ? undefined : 400, flex: isMobile ? 1 : undefined, overflowY: "auto", minHeight: 0 }}>
+              {/* Empty query → the full granted nav, grouped like the sidebar. */}
+              {!query && navGroups.length > 0 && navGroups.map(([group, items]) => (
+                <div key={group}>
+                  <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: T.faint, padding: "12px 16px 4px" }}>{group}</div>
+                  {items.map(p => (
+                    <div key={p.href}
+                      onMouseDown={e => { if (e.button === 0) { e.preventDefault(); navigate(p.href); } }}
+                      style={{ padding: isMobile ? "12px 16px" : "8px 16px", fontSize: isMobile ? 14 : 13, fontWeight: 600, color: T.text, cursor: "pointer" }}>
+                      {p.label}
+                    </div>
+                  ))}
+                </div>
+              ))}
+
               {/* Only show the banner when there are no rows yet — if it
                   rendered above existing results, toggling it would shift
                   the rows under the user's cursor mid-click. */}
-              {loading && results.length === 0 && <div style={{ padding: "16px", textAlign: "center", fontSize: 12, color: T.muted }}>Searching...</div>}
+              {loading && combined.length === 0 && <div style={{ padding: "16px", textAlign: "center", fontSize: 12, color: T.muted }}>Searching...</div>}
 
-              {!loading && query && results.length === 0 && (
+              {!loading && query && combined.length === 0 && (
                 <div style={{ padding: "24px 16px", textAlign: "center", fontSize: 12, color: T.faint }}>No results for "{query}"</div>
               )}
 
-              {results.map((r, i) => {
+              {combined.map((r, i) => {
                 const t = typeIcon[r.type];
                 return (
                   <div key={r.type + r.id + i}
                     // Commit on mousedown (not click) so a results
                     // re-render between mousedown and mouseup can't
                     // swallow the selection.
-                    onMouseDown={e => { if (e.button === 0) { e.preventDefault(); navigate(r); } }}
+                    onMouseDown={e => { if (e.button === 0) { e.preventDefault(); navigate(r.href); } }}
                     style={{
                       display: "flex", alignItems: "center", gap: 10,
-                      padding: "10px 16px", cursor: "pointer",
+                      padding: isMobile ? "12px 16px" : "10px 16px", cursor: "pointer",
                       background: i === selectedIdx ? T.surface : "transparent",
                       borderBottom: `1px solid ${T.border}`,
                     }}
@@ -295,14 +365,14 @@ export function GlobalSearch({ compact = false }: { compact?: boolean } = {}) {
                       <div style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.title}</div>
                       <div style={{ fontSize: 10, color: T.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.subtitle}</div>
                     </div>
-                    {i === selectedIdx && <span style={{ fontSize: 10, color: T.faint }}>↵</span>}
+                    {!isMobile && i === selectedIdx && <span style={{ fontSize: 10, color: T.faint }}>↵</span>}
                   </div>
                 );
               })}
             </div>
 
-            {/* Footer hint */}
-            {!query && (
+            {/* Footer hint — desktop only */}
+            {!isMobile && !query && (
               <div style={{ padding: "10px 16px", borderTop: `1px solid ${T.border}`, display: "flex", gap: 12, justifyContent: "center" }}>
                 {[["↑↓", "Navigate"], ["↵", "Open"], ["esc", "Close"]].map(([k, l]) => (
                   <div key={k} style={{ display: "flex", alignItems: "center", gap: 4 }}>

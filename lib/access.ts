@@ -24,12 +24,11 @@ export type CatalogPage = {
 // The grantable pages. Add a row here to make a new page grantable.
 // NOTE: order doesn't matter; pathToPageKey sorts by href length for prefix matching.
 export const PAGE_CATALOG: CatalogPage[] = [
-  // Owner / financial
-  { key: "/god-mode", href: "/god-mode", label: "Overview", group: "owner", sensitive: true },
+  // The Office — owner / financial (Billing folded in 2026-08-13 nav cleanup)
+  { key: "/god-mode", href: "/god-mode", label: "God Mode", group: "owner", sensitive: true },
   { key: "/god-mode-v2", href: "/god-mode-v2", label: "God Mode V2", group: "owner", sensitive: true },
   { key: "/reports", href: "/reports", label: "Reports", group: "owner", sensitive: true },
   { key: "/reconciliation", href: "/reconciliation", label: "Reconciliation", group: "owner", sensitive: true },
-  { key: "/integrations", href: "/integrations", label: "Integrations", group: "owner", sensitive: true },
   // Labs / production
   { key: "/dashboard", href: "/dashboard", label: "Dashboard", group: "labs" },
   { key: "/house", href: "/house", label: "The House", group: "labs" },
@@ -37,7 +36,6 @@ export const PAGE_CATALOG: CatalogPage[] = [
   { key: "/jobs", href: "/jobs", label: "Projects", group: "labs" },
   { key: "/projects", href: "/projects", label: "Projects V2", group: "labs" },
   { key: "/studio", href: "/studio", label: "The Studio", group: "labs" },
-  { key: "/drops", href: "/drops", label: "Releases", group: "labs" },
   { key: "/production", href: "/production", label: "Production", group: "labs" },
   { key: "/production2", href: "/production2", label: "Production v2", group: "labs" },
   // Distro / warehouse
@@ -50,18 +48,22 @@ export const PAGE_CATALOG: CatalogPage[] = [
   { key: "/staging2", href: "/staging2", label: "Staging v2", group: "distro" },
   { key: "/warehouse", href: "/warehouse", label: "Warehouse (retired → Receiving)", group: "distro" },
   { key: "/hours", href: "/hours", label: "Log Hours", group: "distro" },
-  // Ecomm
+  // Ecomm — The Shop (Releases moved here from labs, 2026-08-13 nav cleanup)
   { key: "/ecomm", href: "/ecomm", label: "The Shop", group: "ecomm" },
-  { key: "/ecomm/staging", href: "/ecomm/staging", label: "Staging", group: "ecomm" },
+  { key: "/drops", href: "/drops", label: "Releases", group: "ecomm" },
+  { key: "/ecomm/staging", href: "/ecomm/staging", label: "Shop Staging", group: "ecomm" },
+  { key: "/ecomm/cs", href: "/ecomm/cs", label: "CS Desk", group: "ecomm" },
   // Contacts
   { key: "/intake", href: "/intake", label: "Intake", group: "contacts" },
   { key: "/clients", href: "/clients", label: "Clients", group: "contacts" },
   { key: "/decorators", href: "/decorators", label: "Decorators", group: "contacts" },
   { key: "/settings/designers", href: "/settings/designers", label: "Designers", group: "contacts" },
-  // Billing (bookkeeper surface — bill entry + inline variance + QB push)
-  { key: "/billing", href: "/billing", label: "Billing", group: "billing", sensitive: true },
-  // Admin
+  // Billing (bookkeeper surface) — lives in The Office group; kept as its own
+  // grantable key so billing-only users (Abigail) see just it.
+  { key: "/billing", href: "/billing", label: "Billing", group: "owner", sensitive: true },
+  // Admin utilities (bottom of sidebar)
   { key: "/settings", href: "/settings", label: "Team", group: "settings", sensitive: true },
+  { key: "/integrations", href: "/integrations", label: "Integrations", group: "settings", sensitive: true },
   // Parked/mockup pages — catalogued so they can't fail open (uncatalogued
   // paths are allowed by canAccessPath). Owner-sensitive: god/grant only.
   // (/templates deleted 2026-07-17 per Jon — superseded by the planned team
@@ -105,6 +107,9 @@ const V2_TWIN_PAIRS: [string, string][] = [
   // Projects board v2 replaces the /jobs list (cutover 2026-07-20). /jobs stays
   // catalogued — job DETAIL pages (/jobs/[id]) resolve access through it.
   ["/projects", "/jobs"],
+  // The Distro absorbed the /distro arrival radar (2026-08-13); /distro
+  // redirects there, so a /distro grant must reach /the-distro (and vice versa).
+  ["/the-distro", "/distro"],
 ];
 const V2_TWIN_OF: Record<string, string> = {};
 for (const [v2, legacy] of V2_TWIN_PAIRS) { V2_TWIN_OF[v2] = legacy; V2_TWIN_OF[legacy] = v2; }

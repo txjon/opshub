@@ -225,7 +225,10 @@ export function calcCostProduct(p: any, margin: string, inclShip: boolean, inclC
     const pr = printers[p.printVendor || p.setupFees?.printer];
     if (pr) {
       const autoScreens = Math.max(0, [1, 2, 3, 4, 5, 6].reduce((a: number, loc: number) => a + (parseFloat(p.printLocations?.[loc]?.screens) || 0), 0) - sharedScreensToSkip);
-      const activeSizes = (p.sizes || []).filter((sz: string) => (p.qtys?.[sz] || 0) > 0).length;
+      // V2-assembled products carry qtys (from buy_sheet_lines) but never a sizes
+      // array — fall back to qtys keys or tag screens count 0 and the fee is
+      // silently dropped from quotes (Drake's Icon Screening bug, 2026-08-13).
+      const activeSizes = ((p.sizes && p.sizes.length ? p.sizes : Object.keys(p.qtys || {})) as string[]).filter((sz: string) => (p.qtys?.[sz] || 0) > 0).length;
       const sg2: Record<string, boolean> = {};
       const activeLocsDeduped2 = [1, 2, 3, 4, 5, 6].filter(loc => { const ld = p.printLocations?.[loc]; if (!ld?.location && !ld?.screens) return false; if (ld.shared && ld.shareGroup) { const gk = ld.shareGroup.trim().toLowerCase(); if (sg2[gk]) return false; sg2[gk] = true; } return true; }).length || 0;
 
@@ -417,7 +420,10 @@ export function calcDecorationLines(
     const isScreensKey = (k: string) => k === "Screens" || k.toLowerCase() === "screens";
     const isTagScreensKey = (k: string) => k === "TagScreens" || k === "Tag Screens" || k.toLowerCase().replace(/\s/g, "") === "tagscreens";
     const autoScreens = Math.max(0, [1,2,3,4,5,6].reduce((a: number, loc: number) => a + (parseFloat(p.printLocations?.[loc]?.screens) || 0), 0) - sharedScreensToSkip);
-    const activeSizes = (p.sizes || []).filter((sz: string) => (p.qtys?.[sz] || 0) > 0).length;
+    // V2-assembled products carry qtys (from buy_sheet_lines) but never a sizes
+      // array — fall back to qtys keys or tag screens count 0 and the fee is
+      // silently dropped from quotes (Drake's Icon Screening bug, 2026-08-13).
+      const activeSizes = ((p.sizes && p.sizes.length ? p.sizes : Object.keys(p.qtys || {})) as string[]).filter((sz: string) => (p.qtys?.[sz] || 0) > 0).length;
 
     const getSpecCount = (setupKey: string): number | null => {
       const skLower = setupKey.toLowerCase();

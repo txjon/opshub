@@ -2,8 +2,8 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LogOut, FlaskConical, Truck, Store, Users, Cog, ChartColumn, Lightbulb, Receipt } from "lucide-react";
-import { GlobalSearch } from "@/components/GlobalSearch";
+import { LogOut } from "lucide-react";
+import { GlobalSearch, type SearchPage } from "@/components/GlobalSearch";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { grantedPages, pathToGroup } from "@/lib/access";
 import { V2_WRITES_LIVE, STUDIO_UNDER_DEV, STUDIO_HIDDEN_HREFS } from "@/lib/v2-flags";
@@ -14,7 +14,7 @@ type Department = "owner" | "labs" | "distro" | "ecomm" | "contacts" | "settings
 // department names and drop the legacy twins if they're also present. For the
 // legacy-only fallback nav (DEPT_NAV), redirect the legacy href to its v2 page.
 const V2_RELABEL: Record<string, string> = { "/production2": "Production", "/receiving2": "Receiving", "/shipping2": "Shipping", "/staging2": "Staging", "/projects": "Projects" };
-const V2_REDIRECT: Record<string, string> = { "/production": "/production2", "/receiving": "/receiving2", "/shipping": "/shipping2", "/fulfillment": "/staging2", "/jobs": "/projects" };
+const V2_REDIRECT: Record<string, string> = { "/production": "/production2", "/receiving": "/receiving2", "/shipping": "/shipping2", "/fulfillment": "/staging2", "/jobs": "/projects", "/distro": "/the-distro" };
 function swapV2Nav(items: { href: string; label: string }[]): { href: string; label: string }[] {
   if (!V2_WRITES_LIVE) return items;
   const hrefs = new Set(items.map(i => i.href));
@@ -69,16 +69,6 @@ const DEPT_NAV: Record<Department, { href: string; label: string }[]> = {
 const SIDE_QUESTS = [
   { href: "/toolkit", label: "Toolkit" },
 ];
-
-const DEPT_ICONS: Record<Department, { Icon: any; label: string }> = {
-  owner: { Icon: ChartColumn, label: "Owner" },
-  labs: { Icon: FlaskConical, label: "Labs" },
-  distro: { Icon: Truck, label: "Distro" },
-  ecomm: { Icon: Store, label: "Ecomm" },
-  contacts: { Icon: Users, label: "Contacts" },
-  settings: { Icon: Cog, label: "Settings" },
-  billing: { Icon: Receipt, label: "Billing" },
-};
 
 // Cross-links between departments
 const DEPT_CROSSLINKS: Partial<Record<Department, { href: string; label: string; dept: Department }>> = {
@@ -194,21 +184,26 @@ export function AppShell({
     ? navItemsSwapped.filter((i: any) => !STUDIO_HIDDEN_HREFS.includes(i.href))
     : navItemsSwapped)
     .filter((i: any) => i.href !== "/dashboard"); // tucked — House is the daily surface
-  const deptIcons: Record<Department, { Icon: any; label: string }> = DEPT_ICONS;
-
   // ── Hub sidebar (desktop) — ONE nav, grouped by workflow, every granted
   // destination visible and one click away (Jon, Jul 27: "we're in
   // production, need receiving → click Distro → land on Distro home → click
   // Receiving" — adjacent pipeline steps were two hops + a mode switch).
-  const GROUP_ORDER: Department[] = ["labs", "distro", "ecomm", "contacts", "owner", "billing", "settings"];
-  const GROUP_LABELS: Record<string, string> = { labs: "Labs", distro: "Distro", ecomm: "Ecomm", contacts: "People", owner: "Owner", billing: "Billing", settings: "Admin" };
+  // Nav cleanup (Jon, Aug 13): three branded pillars + People + The Office in
+  // the main list; Team/Integrations join References/Toolkit as bottom
+  // utilities. Billing folded into The Office; Releases moved to The Shop.
+  const GROUP_ORDER: Department[] = ["labs", "distro", "ecomm", "contacts", "owner"];
+  const GROUP_LABELS: Record<string, string> = { labs: "Labs", distro: "Distro", ecomm: "Ecomm", contacts: "People", owner: "The Office", billing: "Billing", settings: "Admin" };
+  // Groups whose header IS their home page (big clickable pillar). Groups
+  // without one (People, The Office) get a plain label header — no more
+  // "first page accidentally becomes the header" (Intake, Overview).
+  const GROUP_HOMES: Partial<Record<Department, string>> = { labs: "/house", distro: "/the-distro", ecomm: "/ecomm" };
   const filterNavItems = (items: { href: string; label: string }[]) => {
     const swapped = swapV2Nav(items);
     const studioFiltered = STUDIO_UNDER_DEV ? swapped.filter((i: any) => !STUDIO_HIDDEN_HREFS.includes(i.href)) : swapped;
     // Dashboard tucked away (Jon, Jul 28: "we really don't use it, it's
     // noisy") — the House is the daily surface. URL stays reachable.
-    // Retired pages (label says so) don't earn nav rows either.
-    return studioFiltered.filter((i: any) => i.href !== "/dashboard" && !/retired/i.test(i.label));
+    // Retired pages and parked mockups don't earn nav rows either.
+    return studioFiltered.filter((i: any) => i.href !== "/dashboard" && !/retired/i.test(i.label) && !/mockup/i.test(i.label));
   };
   // The House leads Labs — the team's daily driver comes first.
   const NAV_FIRST: Record<string, string> = { labs: "/house" };
@@ -228,6 +223,23 @@ export function AppShell({
     .filter(g => g.items.length > 0);
   const sideQuestItems = SIDE_QUESTS.filter(sq => usePerUser ? grantedHrefs.has(sq.href) : hasExtra(sq.label.toLowerCase()));
   const showRefs = !usePerUser || grantedHrefs.has("/references");
+  // Admin utilities (Team, Integrations) render at the bottom with References
+  // and Toolkit — quiet flat rows, not a nav group.
+  const utilityItems = filterNavItems(usePerUser ? (navByGroup["settings"] || []) : (departments.includes("settings") ? DEPT_NAV.settings : []));
+
+  // Every granted destination, flat, for the search-as-nav quick list —
+  // built from the SAME filtered/swapped groups the sidebar renders, so
+  // search never offers a page the sidebar wouldn't.
+  const searchPages: SearchPage[] = [
+    ...sidebarGroups.flatMap(g => {
+      const homeHref = GROUP_HOMES[g.key as Department];
+      const title = (homeHref && g.items.find(i => i.href === homeHref)?.label) || g.label;
+      return g.items.map(i => ({ href: i.href, label: i.label, group: title }));
+    }),
+    ...utilityItems.map(u => ({ href: u.href, label: u.label, group: "Utilities" })),
+    ...(showRefs ? [{ href: "/references", label: "References", group: "Utilities" }] : []),
+    ...sideQuestItems.map(sq => ({ href: sq.href, label: sq.label, group: "Utilities" })),
+  ];
 
   // Recent projects — written by the job page on visit; the fastest answer to
   // "get back to the job I was just on" after a board side-trip.
@@ -264,7 +276,7 @@ export function AppShell({
 
         {/* search — the fastest nav in the app, up top where it's found */}
         <div style={{ padding: "0 10px 10px" }}>
-          <GlobalSearch />
+          <GlobalSearch pages={searchPages} />
         </div>
 
         {/* nav groups */}
@@ -285,20 +297,29 @@ export function AppShell({
             </div>
           )}
           {sidebarGroups.map(g => {
-            // The group's HOME page IS the header — big, clickable ("The
-            // House", "The Distro"); children indent under it. No tiny
-            // uppercase labels (Jon, Jul 28).
-            const head = g.items.find((i: any) => i.label.startsWith("The ")) || g.items[0];
-            const children = g.items.filter((i: any) => i !== head);
-            const headActive = pathname === head.href || pathname?.startsWith(head.href + "/");
-            const headBadge = head.href === "/house" && dashboardUnread > 0;
+            // Pillar groups (GROUP_HOMES) get their home page as a big
+            // clickable header ("The House", "The Distro", "The Shop");
+            // label-only groups (People, The Office) get a plain header and
+            // every page indents under it.
+            const homeHref = GROUP_HOMES[g.key as Department];
+            const head = homeHref ? g.items.find((i: any) => i.href === homeHref) : undefined;
+            const children = head ? g.items.filter((i: any) => i !== head) : g.items;
+            const headActive = !!head && (pathname === head.href || pathname?.startsWith(head.href + "/"));
+            const headBadge = head?.href === "/house" && dashboardUnread > 0;
+            const headStyle = { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "7px 8px", borderRadius: 8, fontSize: 15, fontWeight: 800, letterSpacing: "-0.01em" } as const;
             return (
               <div key={g.key} style={{ marginBottom: 14 }}>
-                <Link href={head.href}
-                  style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "7px 8px", borderRadius: 8, fontSize: 15, fontWeight: 800, letterSpacing: "-0.01em", textDecoration: "none", color: headActive ? "#fff" : "rgba(255,255,255,0.88)", background: headActive ? "rgba(255,255,255,0.10)" : "transparent" }}>
-                  <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{head.label}</span>
-                  {headBadge && <span style={{ background: "#e8569b", color: "#fff", fontSize: 9.5, fontWeight: 800, padding: "1px 6px", borderRadius: 99, lineHeight: 1.4, minWidth: 16, textAlign: "center" }}>{dashboardUnread}</span>}
-                </Link>
+                {head ? (
+                  <Link href={head.href}
+                    style={{ ...headStyle, textDecoration: "none", color: headActive ? "#fff" : "rgba(255,255,255,0.88)", background: headActive ? "rgba(255,255,255,0.10)" : "transparent" }}>
+                    <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{head.label}</span>
+                    {headBadge && <span style={{ background: "#e8569b", color: "#fff", fontSize: 9.5, fontWeight: 800, padding: "1px 6px", borderRadius: 99, lineHeight: 1.4, minWidth: 16, textAlign: "center" }}>{dashboardUnread}</span>}
+                  </Link>
+                ) : (
+                  <div style={{ ...headStyle, color: "rgba(255,255,255,0.88)" }}>
+                    <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{g.label}</span>
+                  </div>
+                )}
                 {children.map((item: any) => {
                   const isActive = pathname === item.href || pathname?.startsWith(item.href + "/");
                   const showBadge = item.href === "/house" && dashboardUnread > 0;
@@ -313,8 +334,11 @@ export function AppShell({
               </div>
             );
           })}
-          {(showRefs || sideQuestItems.length > 0) && (
+          {(showRefs || sideQuestItems.length > 0 || utilityItems.length > 0) && (
             <div style={{ marginBottom: 10, borderTop: "1px solid rgba(255,255,255,0.07)", paddingTop: 8 }}>
+              {utilityItems.map(u => (
+                <Link key={u.href} href={u.href} style={{ display: "block", padding: "6px 8px", borderRadius: 7, fontSize: 12.5, fontWeight: pathname === u.href || pathname?.startsWith(u.href + "/") ? 700 : 500, textDecoration: "none", color: pathname === u.href || pathname?.startsWith(u.href + "/") ? "#fff" : "rgba(255,255,255,0.6)", background: pathname === u.href || pathname?.startsWith(u.href + "/") ? "rgba(255,255,255,0.10)" : "transparent" }}>{u.label}</Link>
+              ))}
               {showRefs && (
                 <Link href="/references" style={{ display: "block", padding: "6px 8px", borderRadius: 7, fontSize: 12.5, fontWeight: pathname?.startsWith("/references") ? 700 : 500, textDecoration: "none", color: pathname?.startsWith("/references") ? "#fff" : "rgba(255,255,255,0.6)", background: pathname?.startsWith("/references") ? "rgba(255,255,255,0.10)" : "transparent" }}>References</Link>
               )}
@@ -434,7 +458,7 @@ export function AppShell({
           {/* Right: search + user. Compact icon button on mobile, full
               search field on desktop. */}
           <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 0 : 12, flexShrink: 0 }}>
-            <GlobalSearch compact={isMobile} />
+            <GlobalSearch compact={isMobile} pages={searchPages} />
             {!isMobile && <span style={{ fontSize: 11, color: "#a0a0ad" }}>{email?.split("@")[0]}</span>}
           </div>
         </div>
@@ -452,70 +476,28 @@ export function AppShell({
         </div>
       </div>
 
-      {/* ── Mobile bottom nav (department switcher) ── */}
+      {/* ── Mobile bottom bar — master search-as-nav (replaced the dept icon
+          rail, Aug 13). One search finds pages, projects, clients, vendors,
+          and items; the empty state IS the full grouped nav, so every child
+          page is one tap away instead of hidden behind icons. ── */}
       {isMobile && (
         <div style={{
           position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 50,
-          background: "#000", color: "#fff",
-          display: "flex", alignItems: "center", justifyContent: "space-around",
-          padding: "6px 4px",
-          borderTop: "1px solid #222",
+          background: "#000", borderTop: "1px solid #222",
+          display: "flex", alignItems: "center", gap: 8,
+          padding: "8px 10px calc(8px + env(safe-area-inset-bottom))",
         }}>
-          {(Object.entries(deptIcons) as [Department, { Icon: any; label: string }][]).map(([dept, { Icon, label }]) => {
-            if (!hasDept(dept)) return null;
-            const isActive = activeDept === dept;
-            return (
-              <Link
-                key={dept}
-                href={DEPT_NAV[dept][0].href}
-                onClick={() => setActiveDept(dept)}
-                style={{
-                  flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                  gap: 2, padding: "6px 4px", borderRadius: 8,
-                  textDecoration: "none",
-                  background: isActive ? "#73b6c9" : "transparent",
-                  color: isActive ? "#000" : "#fff",
-                  minHeight: 44,
-                }}
-              >
-                <Icon size={18} />
-                <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: "0.03em", textTransform: "uppercase" }}>{label}</span>
-              </Link>
-            );
-          })}
-          {/* References — always visible to every authenticated user. */}
-          {(() => {
-            const isActive = pathname === "/references" || pathname?.startsWith("/references/");
-            return (
-              <Link
-                href="/references"
-                style={{
-                  flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                  gap: 2, padding: "6px 4px", borderRadius: 8,
-                  textDecoration: "none",
-                  background: isActive ? "#73b6c9" : "transparent",
-                  color: isActive ? "#000" : "#fff",
-                  minHeight: 44,
-                }}
-              >
-                <Lightbulb size={18} />
-                <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: "0.03em", textTransform: "uppercase" }}>Refs</span>
-              </Link>
-            );
-          })()}
-          <form action="/api/auth/signout" method="post" style={{ flex: 1, display: "flex", justifyContent: "center" }}>
-            <button
-              type="submit"
-              title="Sign out"
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <GlobalSearch bar pages={searchPages} />
+          </div>
+          <form action="/api/auth/signout" method="post" style={{ display: "flex", flexShrink: 0 }}>
+            <button type="submit" title="Sign out"
               style={{
-                display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                gap: 2, padding: "6px 4px", borderRadius: 8,
+                width: 44, height: 44, borderRadius: 10,
                 background: "transparent", border: "none", color: "#888", cursor: "pointer",
-                minHeight: 44, minWidth: 44,
-              }}
-            >
-              <LogOut size={16} />
-              <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: "0.03em", textTransform: "uppercase" }}>Out</span>
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}>
+              <LogOut size={17} />
             </button>
           </form>
         </div>
