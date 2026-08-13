@@ -200,15 +200,22 @@ export function AppShell({
   // destination visible and one click away (Jon, Jul 27: "we're in
   // production, need receiving → click Distro → land on Distro home → click
   // Receiving" — adjacent pipeline steps were two hops + a mode switch).
-  const GROUP_ORDER: Department[] = ["labs", "distro", "ecomm", "contacts", "owner", "billing", "settings"];
-  const GROUP_LABELS: Record<string, string> = { labs: "Labs", distro: "Distro", ecomm: "Ecomm", contacts: "People", owner: "Owner", billing: "Billing", settings: "Admin" };
+  // Nav cleanup (Jon, Aug 13): three branded pillars + People + The Office in
+  // the main list; Team/Integrations join References/Toolkit as bottom
+  // utilities. Billing folded into The Office; Releases moved to The Shop.
+  const GROUP_ORDER: Department[] = ["labs", "distro", "ecomm", "contacts", "owner"];
+  const GROUP_LABELS: Record<string, string> = { labs: "Labs", distro: "Distro", ecomm: "Ecomm", contacts: "People", owner: "The Office", billing: "Billing", settings: "Admin" };
+  // Groups whose header IS their home page (big clickable pillar). Groups
+  // without one (People, The Office) get a plain label header — no more
+  // "first page accidentally becomes the header" (Intake, Overview).
+  const GROUP_HOMES: Partial<Record<Department, string>> = { labs: "/house", distro: "/the-distro", ecomm: "/ecomm" };
   const filterNavItems = (items: { href: string; label: string }[]) => {
     const swapped = swapV2Nav(items);
     const studioFiltered = STUDIO_UNDER_DEV ? swapped.filter((i: any) => !STUDIO_HIDDEN_HREFS.includes(i.href)) : swapped;
     // Dashboard tucked away (Jon, Jul 28: "we really don't use it, it's
     // noisy") — the House is the daily surface. URL stays reachable.
-    // Retired pages (label says so) don't earn nav rows either.
-    return studioFiltered.filter((i: any) => i.href !== "/dashboard" && !/retired/i.test(i.label));
+    // Retired pages and parked mockups don't earn nav rows either.
+    return studioFiltered.filter((i: any) => i.href !== "/dashboard" && !/retired/i.test(i.label) && !/mockup/i.test(i.label));
   };
   // The House leads Labs — the team's daily driver comes first.
   const NAV_FIRST: Record<string, string> = { labs: "/house" };
@@ -228,6 +235,9 @@ export function AppShell({
     .filter(g => g.items.length > 0);
   const sideQuestItems = SIDE_QUESTS.filter(sq => usePerUser ? grantedHrefs.has(sq.href) : hasExtra(sq.label.toLowerCase()));
   const showRefs = !usePerUser || grantedHrefs.has("/references");
+  // Admin utilities (Team, Integrations) render at the bottom with References
+  // and Toolkit — quiet flat rows, not a nav group.
+  const utilityItems = filterNavItems(usePerUser ? (navByGroup["settings"] || []) : (departments.includes("settings") ? DEPT_NAV.settings : []));
 
   // Recent projects — written by the job page on visit; the fastest answer to
   // "get back to the job I was just on" after a board side-trip.
@@ -285,20 +295,29 @@ export function AppShell({
             </div>
           )}
           {sidebarGroups.map(g => {
-            // The group's HOME page IS the header — big, clickable ("The
-            // House", "The Distro"); children indent under it. No tiny
-            // uppercase labels (Jon, Jul 28).
-            const head = g.items.find((i: any) => i.label.startsWith("The ")) || g.items[0];
-            const children = g.items.filter((i: any) => i !== head);
-            const headActive = pathname === head.href || pathname?.startsWith(head.href + "/");
-            const headBadge = head.href === "/house" && dashboardUnread > 0;
+            // Pillar groups (GROUP_HOMES) get their home page as a big
+            // clickable header ("The House", "The Distro", "The Shop");
+            // label-only groups (People, The Office) get a plain header and
+            // every page indents under it.
+            const homeHref = GROUP_HOMES[g.key as Department];
+            const head = homeHref ? g.items.find((i: any) => i.href === homeHref) : undefined;
+            const children = head ? g.items.filter((i: any) => i !== head) : g.items;
+            const headActive = !!head && (pathname === head.href || pathname?.startsWith(head.href + "/"));
+            const headBadge = head?.href === "/house" && dashboardUnread > 0;
+            const headStyle = { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "7px 8px", borderRadius: 8, fontSize: 15, fontWeight: 800, letterSpacing: "-0.01em" } as const;
             return (
               <div key={g.key} style={{ marginBottom: 14 }}>
-                <Link href={head.href}
-                  style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "7px 8px", borderRadius: 8, fontSize: 15, fontWeight: 800, letterSpacing: "-0.01em", textDecoration: "none", color: headActive ? "#fff" : "rgba(255,255,255,0.88)", background: headActive ? "rgba(255,255,255,0.10)" : "transparent" }}>
-                  <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{head.label}</span>
-                  {headBadge && <span style={{ background: "#e8569b", color: "#fff", fontSize: 9.5, fontWeight: 800, padding: "1px 6px", borderRadius: 99, lineHeight: 1.4, minWidth: 16, textAlign: "center" }}>{dashboardUnread}</span>}
-                </Link>
+                {head ? (
+                  <Link href={head.href}
+                    style={{ ...headStyle, textDecoration: "none", color: headActive ? "#fff" : "rgba(255,255,255,0.88)", background: headActive ? "rgba(255,255,255,0.10)" : "transparent" }}>
+                    <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{head.label}</span>
+                    {headBadge && <span style={{ background: "#e8569b", color: "#fff", fontSize: 9.5, fontWeight: 800, padding: "1px 6px", borderRadius: 99, lineHeight: 1.4, minWidth: 16, textAlign: "center" }}>{dashboardUnread}</span>}
+                  </Link>
+                ) : (
+                  <div style={{ ...headStyle, color: "rgba(255,255,255,0.88)" }}>
+                    <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{g.label}</span>
+                  </div>
+                )}
                 {children.map((item: any) => {
                   const isActive = pathname === item.href || pathname?.startsWith(item.href + "/");
                   const showBadge = item.href === "/house" && dashboardUnread > 0;
@@ -313,8 +332,11 @@ export function AppShell({
               </div>
             );
           })}
-          {(showRefs || sideQuestItems.length > 0) && (
+          {(showRefs || sideQuestItems.length > 0 || utilityItems.length > 0) && (
             <div style={{ marginBottom: 10, borderTop: "1px solid rgba(255,255,255,0.07)", paddingTop: 8 }}>
+              {utilityItems.map(u => (
+                <Link key={u.href} href={u.href} style={{ display: "block", padding: "6px 8px", borderRadius: 7, fontSize: 12.5, fontWeight: pathname === u.href || pathname?.startsWith(u.href + "/") ? 700 : 500, textDecoration: "none", color: pathname === u.href || pathname?.startsWith(u.href + "/") ? "#fff" : "rgba(255,255,255,0.6)", background: pathname === u.href || pathname?.startsWith(u.href + "/") ? "rgba(255,255,255,0.10)" : "transparent" }}>{u.label}</Link>
+              ))}
               {showRefs && (
                 <Link href="/references" style={{ display: "block", padding: "6px 8px", borderRadius: 7, fontSize: 12.5, fontWeight: pathname?.startsWith("/references") ? 700 : 500, textDecoration: "none", color: pathname?.startsWith("/references") ? "#fff" : "rgba(255,255,255,0.6)", background: pathname?.startsWith("/references") ? "rgba(255,255,255,0.10)" : "transparent" }}>References</Link>
               )}
