@@ -107,6 +107,9 @@ const V2_TWIN_PAIRS: [string, string][] = [
   // Projects board v2 replaces the /jobs list (cutover 2026-07-20). /jobs stays
   // catalogued — job DETAIL pages (/jobs/[id]) resolve access through it.
   ["/projects", "/jobs"],
+  // The Distro absorbed the /distro arrival radar (2026-08-13); /distro
+  // redirects there, so a /distro grant must reach /the-distro (and vice versa).
+  ["/the-distro", "/distro"],
 ];
 const V2_TWIN_OF: Record<string, string> = {};
 for (const [v2, legacy] of V2_TWIN_PAIRS) { V2_TWIN_OF[v2] = legacy; V2_TWIN_OF[legacy] = v2; }

@@ -14,7 +14,7 @@ type Department = "owner" | "labs" | "distro" | "ecomm" | "contacts" | "settings
 // department names and drop the legacy twins if they're also present. For the
 // legacy-only fallback nav (DEPT_NAV), redirect the legacy href to its v2 page.
 const V2_RELABEL: Record<string, string> = { "/production2": "Production", "/receiving2": "Receiving", "/shipping2": "Shipping", "/staging2": "Staging", "/projects": "Projects" };
-const V2_REDIRECT: Record<string, string> = { "/production": "/production2", "/receiving": "/receiving2", "/shipping": "/shipping2", "/fulfillment": "/staging2", "/jobs": "/projects" };
+const V2_REDIRECT: Record<string, string> = { "/production": "/production2", "/receiving": "/receiving2", "/shipping": "/shipping2", "/fulfillment": "/staging2", "/jobs": "/projects", "/distro": "/the-distro" };
 function swapV2Nav(items: { href: string; label: string }[]): { href: string; label: string }[] {
   if (!V2_WRITES_LIVE) return items;
   const hrefs = new Set(items.map(i => i.href));
