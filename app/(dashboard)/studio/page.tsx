@@ -334,7 +334,14 @@ function BriefSheet({ detail, onRefresh, onClose }: any) {
       await onRefresh();
     } finally { setBusy(false); }
   }
-  function onFile(list: FileList | null) { if (!list) return; setStagedList(prev => [...prev, ...Array.from(list).map(f => ({ f, url: URL.createObjectURL(f) }))]); }
+  // Snapshot the FileList BEFORE setState — the onChange handler resets the
+  // input right after this call, and input.files is live: by the time the
+  // deferred updater ran, the list was already empty (nothing ever staged).
+  function onFile(list: FileList | null) {
+    if (!list || !list.length) return;
+    const picked = Array.from(list).map(f => ({ f, url: URL.createObjectURL(f) }));
+    setStagedList(prev => [...prev, ...picked]);
+  }
   async function delBrief() { if (!confirm(`Delete "${b.title}"? This removes the design and its whole thread. Can't be undone.`)) return; await fetch(`/api/studio/briefs/${b.id}`, { method: "DELETE" }); onClose(); await onRefresh(); }
   async function delFile(fileId: string) { if (!confirm("Delete this version? It comes out of the thread. Can't be undone.")) return; setBusy(true); try { await fetch(`/api/studio/files/${fileId}`, { method: "DELETE" }); setHeroId(null); await onRefresh(); } finally { setBusy(false); } }
   // Flip a version across the wall after the fact (Jon: "make an internal

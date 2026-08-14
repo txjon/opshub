@@ -236,8 +236,11 @@ function Sheet({ detail, token, onClose, onRefresh, nav, onLock }: any) {
   const [pending, setPending] = useState<{ f: File; url: string }[]>([]);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   function stage(list: FileList | null) {
-    if (!list) return;
-    setPending(prev => [...prev, ...Array.from(list).map(f => ({ f, url: URL.createObjectURL(f) }))]);
+    if (!list || !list.length) return;
+    // Snapshot before setState — the input resets right after this call and
+    // input.files is live, so a deferred Array.from saw an empty list.
+    const picked = Array.from(list).map(f => ({ f, url: URL.createObjectURL(f) }));
+    setPending(prev => [...prev, ...picked]);
   }
   async function sendAll() {
     if (!note.trim() && !pending.length) return;
@@ -493,8 +496,10 @@ function ShareForm({ token, onClose, onDone }: any) {
   const [busy, setBusy] = useState(false);
   const fileIn = useRef<HTMLInputElement | null>(null);
   function pick(list: FileList | null) {
-    if (!list) return;
-    setFiles(prev => [...prev, ...Array.from(list).map(f => ({ f, url: URL.createObjectURL(f) }))]);
+    if (!list || !list.length) return;
+    // Snapshot before setState — see stage() above.
+    const picked = Array.from(list).map(f => ({ f, url: URL.createObjectURL(f) }));
+    setFiles(prev => [...prev, ...picked]);
   }
   async function go() {
     if (!title.trim()) return;
