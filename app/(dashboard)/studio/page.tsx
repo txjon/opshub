@@ -2,6 +2,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import ThumbIcon from "@/components/ThumbIcon";
+// @ts-ignore — plain-JS lib, no declarations
+import { uploadToDrive } from "@/lib/drive-upload-client";
 
 // THE STUDIO (Phase 2 of the replacement, Aug 4 2026) — the Lab's proven UX
 // on the REAL tables: art_briefs + art_brief_messages + art_brief_files.
@@ -317,26 +319,55 @@ function BriefSheet({ detail, onRefresh, onClose }: any) {
   const notes = timeline.filter(t => t.kind === "note" && t.body && t.body.trim());
   const banked = (fid: string | null) => fid && b.approved_file_id && `file-${b.approved_file_id}` === fid;
 
+  const [sendErr, setSendErr] = useState("");
+  const [sendPct, setSendPct] = useState("");
   async function send() {
-    if (!note.trim() && !stagedList.length) return; setBusy(true);
+    if (!note.trim() && !stagedList.length) return; setBusy(true); setSendErr("");
+    // Working files are big (PSDs 50MB+) — warn on tab-close mid-send.
+    const unloadGuard = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", unloadGuard);
     try {
-      // One request per attachment (keeps each under body limits); the note
-      // rides with the first, the rest post file-only at the same visibility.
-      const list = stagedList.length ? stagedList : [null];
-      for (let i = 0; i < list.length; i++) {
-        const fd = new FormData();
-        if (i === 0 && note.trim()) fd.set("body", note.trim());
-        fd.set("visibility", vis);
-        if (list[i]) fd.set("file", (list[i] as any).f);
-        if (i === 0 || list[i]) await fetch(`/api/studio/briefs/${b.id}/messages`, { method: "POST", body: fd });
+      // Files go browser → Drive directly (the Product Builder path — no
+      // request-body size/duration walls), then a tiny register call writes
+      // the row. Each sent file leaves the staged strip as it lands, so a
+      // mid-batch failure keeps only the un-sent ones.
+      const queue = [...stagedList];
+      for (let i = 0; i < queue.length; i++) {
+        const { f, url } = queue[i];
+        const tag = queue.length > 1 ? `${i + 1}/${queue.length}` : "";
+        try {
+          const up = await uploadToDrive({
+            blob: f, fileName: f.name, mimeType: f.type || "application/octet-stream", itemId: null,
+            clientName: (b as any).clients?.name || "Studio", projectTitle: "Studio", itemName: b.title || "Design",
+            onProgress: (pct: number) => setSendPct(tag ? `${tag} · ${pct}%` : `${pct}%`),
+          });
+          const res = await fetch(`/api/studio/briefs/${b.id}/files`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ fileId: up.fileId, webViewLink: up.webViewLink, fileName: f.name, mimeType: f.type || null, fileSize: f.size, visibility: vis }),
+          });
+          if (!res.ok) { const j = await res.json().catch(() => null); throw new Error((j as any)?.error || "couldn't save it"); }
+        } catch (e: any) {
+          throw new Error(`${f.name} didn't send${e?.message ? ` — ${e.message}` : ""}. It's still attached — try again.`);
+        }
+        URL.revokeObjectURL(url);
+        setStagedList(prev => prev.filter(x => x !== queue[i]));
       }
-      setNote(""); for (const x of stagedList) URL.revokeObjectURL(x.url); setStagedList([]); setHeroId(null);
+      if (note.trim()) {
+        const fd = new FormData(); fd.set("body", note.trim()); fd.set("visibility", vis);
+        const res = await fetch(`/api/studio/briefs/${b.id}/messages`, { method: "POST", body: fd });
+        if (!res.ok) { const j = await res.json().catch(() => null); throw new Error((j as any)?.error || "The note didn't send — try again."); }
+      }
+      setNote(""); setHeroId(null);
       await onRefresh();
-    } finally { setBusy(false); }
+    } catch (e: any) {
+      // Note + un-sent files stay staged so nothing is lost.
+      setSendErr(e?.message || "Send failed — try again.");
+    } finally { window.removeEventListener("beforeunload", unloadGuard); setBusy(false); setSendPct(""); }
   }
   // Snapshot the FileList BEFORE setState — the onChange handler resets the
   // input right after this call, and input.files is live: by the time the
   // deferred updater ran, the list was already empty (nothing ever staged).
+  // No size cap: files go browser → Drive directly (see send()).
   function onFile(list: FileList | null) {
     if (!list || !list.length) return;
     const picked = Array.from(list).map(f => ({ f, url: URL.createObjectURL(f) }));
@@ -582,6 +613,7 @@ function BriefSheet({ detail, onRefresh, onClose }: any) {
                 ))}
               </div>
             )}
+            {sendErr && <div style={{ marginTop: 8, fontSize: 12, color: H.red, lineHeight: 1.45 }}>{sendErr}</div>}
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 10, flexWrap: "wrap" }}>
               <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
                 <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: H.faint }}>Shows</span>
@@ -591,7 +623,7 @@ function BriefSheet({ detail, onRefresh, onClose }: any) {
               </span>
               <input ref={fileIn} type="file" accept="image/*,.pdf,.ai,.psd,.eps,.svg" multiple style={{ display: "none" }} onChange={e => { onFile(e.target.files); if (fileIn.current) fileIn.current.value = ""; }} />
               <button onClick={() => fileIn.current?.click()} style={ghostBtn}>{stagedList.length ? `✓ ${stagedList.length} attached` : "+ Attach"}</button>
-              <button disabled={busy || (!note.trim() && !stagedList.length)} onClick={send} style={{ ...primaryBtn, marginLeft: "auto", padding: "12px 24px", fontSize: 11.5, opacity: busy || (!note.trim() && !stagedList.length) ? 0.5 : 1 }}>{busy ? "Sending…" : vis === "client" ? "Send to client" : "Post internal"}</button>
+              <button disabled={busy || (!note.trim() && !stagedList.length)} onClick={send} style={{ ...primaryBtn, marginLeft: "auto", padding: "12px 24px", fontSize: 11.5, opacity: busy || (!note.trim() && !stagedList.length) ? 0.5 : 1 }}>{busy ? (sendPct ? `Sending… ${sendPct}` : "Sending…") : vis === "client" ? "Send to client" : "Post internal"}</button>
             </div>
           </div>
           <div style={{ padding: "0 22px 16px", fontSize: 10.5, color: H.faint, textAlign: "center", lineHeight: 1.5 }}>Send a <b style={{ color: H.dim }}>Client-visible</b> design and it&rsquo;s the client&rsquo;s move.</div>

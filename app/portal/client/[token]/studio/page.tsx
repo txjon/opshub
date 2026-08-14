@@ -13,6 +13,14 @@ import ThumbIcon from "@/components/ThumbIcon";
 const C = { bg: "#0a0a0a", panel: "#131313", surface: "#1e1e1e", line: "rgba(255,255,255,.13)", line2: "rgba(255,255,255,.07)", text: "#fff", dim: "rgba(255,255,255,.6)", faint: "rgba(255,255,255,.38)", amber: "#f4b22b", green: "#58c93c", blue: "#8fc7d8", red: "#ff5a6e", font: "Inter, -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif" };
 const STATE = (s: string) => s === "with_client" ? { label: "Your move", color: C.amber } : s === "approved" ? { label: "In the bank", color: C.green } : { label: "In the works", color: C.blue };
 const fmt = (iso?: string) => iso ? new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
+// Uploads ride through the API; the platform caps request bodies at ~4.5MB —
+// bigger files hang then die silently, so refuse them at pick time.
+const MAX_UPLOAD_BYTES = 4.4 * 1024 * 1024;
+const sizeGate = (list: File[]): File[] => {
+  const big = list.filter(f => f.size > MAX_UPLOAD_BYTES);
+  if (big.length) alert(`Too big to send (4MB max per photo): ${big.map(f => f.name).join(", ")}`);
+  return list.filter(f => f.size <= MAX_UPLOAD_BYTES);
+};
 
 export default function ClientStudioPage() {
   const { token } = useClientPortal();
@@ -239,8 +247,8 @@ function Sheet({ detail, token, onClose, onRefresh, nav, onLock }: any) {
     if (!list || !list.length) return;
     // Snapshot before setState — the input resets right after this call and
     // input.files is live, so a deferred Array.from saw an empty list.
-    const picked = Array.from(list).map(f => ({ f, url: URL.createObjectURL(f) }));
-    setPending(prev => [...prev, ...picked]);
+    const picked = sizeGate(Array.from(list)).map(f => ({ f, url: URL.createObjectURL(f) }));
+    if (picked.length) setPending(prev => [...prev, ...picked]);
   }
   async function sendAll() {
     if (!note.trim() && !pending.length) return;
@@ -258,13 +266,20 @@ function Sheet({ detail, token, onClose, onRefresh, nav, onLock }: any) {
       for (const x of pending) URL.revokeObjectURL(x.url);
       setPending([]); setNote(""); setHeroId(null);
       await onRefresh();
+    } catch (e: any) {
+      // Note + un-sent photos stay staged so nothing is lost.
+      alert(e?.message || "That didn't send — try again.");
     } finally { window.removeEventListener("beforeunload", guard); setProgress(null); setBusy(false); onLock?.(false); }
   }
   async function postOne(body: string, file: File | null) {
     const fd = new FormData();
     if (body) fd.set("body", body);
     if (file) fd.set("file", file);
-    await fetch(`/api/portal/client/${token}/studio/${b.id}/action`, { method: "POST", body: fd });
+    const res = await fetch(`/api/portal/client/${token}/studio/${b.id}/action`, { method: "POST", body: fd });
+    if (!res.ok) {
+      const j = await res.json().catch(() => null);
+      throw new Error((j as any)?.error || (res.status === 413 ? `That photo is too big to send${file ? ` (${file.name})` : ""} — 4MB max.` : "That didn't send — try again."));
+    }
   }
 
   return (
@@ -498,8 +513,8 @@ function ShareForm({ token, onClose, onDone }: any) {
   function pick(list: FileList | null) {
     if (!list || !list.length) return;
     // Snapshot before setState — see stage() above.
-    const picked = Array.from(list).map(f => ({ f, url: URL.createObjectURL(f) }));
-    setFiles(prev => [...prev, ...picked]);
+    const picked = sizeGate(Array.from(list)).map(f => ({ f, url: URL.createObjectURL(f) }));
+    if (picked.length) setFiles(prev => [...prev, ...picked]);
   }
   async function go() {
     if (!title.trim()) return;
