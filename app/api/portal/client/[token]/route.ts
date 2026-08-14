@@ -55,8 +55,12 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
           // Scope to this client's briefs + client-visible messages only.
           // Was unscoped + unfiltered, so internal hpd_designer/hpd_only
           // markers bumped the client's "new" feed and showed their text.
+          // "all" = legacy hub messages; "client" = the studio flow (both
+          // client replies and HPD's client-visible notes). Excluding
+          // "client" made client replies invisible to the unread math, so
+          // a responded-to brief stayed spotlighted on home.
           .in("brief_id", ids)
-          .eq("visibility", "all"),
+          .in("visibility", ["all", "client"]),
         db.from("art_brief_file_comments")
           .select("brief_id, file_id, sender_role, created_at, body")
           .in("brief_id", ids),

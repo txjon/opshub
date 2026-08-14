@@ -19,7 +19,7 @@ const DRY = process.argv.includes('--dry');
 // /warehouse + /templates are retired; /billing arrives in Phase 1.5.
 const CATALOG = new Set([
   '/god-mode','/reports','/reconciliation','/integrations',
-  '/dashboard','/jobs','/art-studio','/production',
+  '/dashboard','/jobs','/studio','/production',
   '/distro','/receiving','/shipping','/fulfillment','/hours',
   '/ecomm','/intake','/clients','/decorators','/settings/designers',
   '/settings','/billing','/toolkit','/references',
