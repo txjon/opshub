@@ -11,6 +11,11 @@ import ThumbIcon from "@/components/ThumbIcon";
 // The old /art-studio + /studio2 died with this page's arrival.
 const H = { ink: "#0a0a0a", panel: "#131313", surface: "#1e1e1e", line: "rgba(255,255,255,.13)", line2: "rgba(255,255,255,.07)", text: "#fff", dim: "rgba(255,255,255,.6)", faint: "rgba(255,255,255,.38)", amber: "#f4b22b", green: "#58c93c", blue: "#8fc7d8", red: "#ff5a6e", font: "Inter, -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif", mono: "ui-monospace, 'SF Mono', Menlo, monospace" };
 const STATE = (s: string) => s === "with_client" ? { label: "With the client", color: H.blue } : s === "approved" ? { label: "In the bank", color: H.green } : s === "shelved" ? { label: "On the shelf", color: H.faint } : s === "killed" ? { label: "Killed", color: H.red } : { label: "Your move", color: H.amber };
+// Uploads go through the API route; the platform caps request bodies at
+// ~4.5MB. Guard a hair under it so oversize files fail fast at stage time
+// instead of hanging on "Sending…".
+const MAX_UPLOAD_BYTES = 4.4 * 1024 * 1024;
+const MAX_UPLOAD_LABEL = "4MB";
 const GUIDE: Record<string, { tint: string; head: string; text: string }> = {
   working: { tint: H.amber, head: "It's your move", text: "Shape the design with the client. Drop a draft, or talk it through — flip a note to Internal to keep it off their screen. Send a client-visible design and it's their move." },
   with_client: { tint: H.blue, head: "It's with the client", text: "The design is in front of the client. A thumbs up opens their keep sheet (order it or bank it); a thumbs down passes on that version, with quiet exits to shelve or kill the idea. Wait, or nudge them below." },
@@ -317,8 +322,9 @@ function BriefSheet({ detail, onRefresh, onClose }: any) {
   const notes = timeline.filter(t => t.kind === "note" && t.body && t.body.trim());
   const banked = (fid: string | null) => fid && b.approved_file_id && `file-${b.approved_file_id}` === fid;
 
+  const [sendErr, setSendErr] = useState("");
   async function send() {
-    if (!note.trim() && !stagedList.length) return; setBusy(true);
+    if (!note.trim() && !stagedList.length) return; setBusy(true); setSendErr("");
     try {
       // One request per attachment (keeps each under body limits); the note
       // rides with the first, the rest post file-only at the same visibility.
@@ -328,18 +334,36 @@ function BriefSheet({ detail, onRefresh, onClose }: any) {
         if (i === 0 && note.trim()) fd.set("body", note.trim());
         fd.set("visibility", vis);
         if (list[i]) fd.set("file", (list[i] as any).f);
-        if (i === 0 || list[i]) await fetch(`/api/studio/briefs/${b.id}/messages`, { method: "POST", body: fd });
+        if (i === 0 || list[i]) {
+          const res = await fetch(`/api/studio/briefs/${b.id}/messages`, { method: "POST", body: fd });
+          if (!res.ok) {
+            const j = await res.json().catch(() => null);
+            const name = list[i] ? ` (${(list[i] as any).f.name})` : "";
+            throw new Error((j as any)?.error || (res.status === 413 ? `That file is too big to send${name} — ${MAX_UPLOAD_LABEL} max.` : `Send failed${name} — try again.`));
+          }
+        }
       }
       setNote(""); for (const x of stagedList) URL.revokeObjectURL(x.url); setStagedList([]); setHeroId(null);
       await onRefresh();
+    } catch (e: any) {
+      // Keep the note + staged files so nothing is lost on a failed send.
+      setSendErr(e?.message || "Send failed — try again.");
     } finally { setBusy(false); }
   }
   // Snapshot the FileList BEFORE setState — the onChange handler resets the
   // input right after this call, and input.files is live: by the time the
   // deferred updater ran, the list was already empty (nothing ever staged).
+  // Oversize files are refused at stage time: uploads ride through the API
+  // route, and the platform hard-caps request bodies (~4.5MB) — a bigger
+  // file sits on "Sending…" then dies with nothing landing.
   function onFile(list: FileList | null) {
     if (!list || !list.length) return;
-    const picked = Array.from(list).map(f => ({ f, url: URL.createObjectURL(f) }));
+    const all = Array.from(list);
+    const good = all.filter(f => f.size <= MAX_UPLOAD_BYTES);
+    const big = all.filter(f => f.size > MAX_UPLOAD_BYTES);
+    setSendErr(big.length ? `Too big to send here (${MAX_UPLOAD_LABEL} max): ${big.map(f => f.name).join(", ")}` : "");
+    if (!good.length) return;
+    const picked = good.map(f => ({ f, url: URL.createObjectURL(f) }));
     setStagedList(prev => [...prev, ...picked]);
   }
   async function delBrief() { if (!confirm(`Delete "${b.title}"? This removes the design and its whole thread. Can't be undone.`)) return; await fetch(`/api/studio/briefs/${b.id}`, { method: "DELETE" }); onClose(); await onRefresh(); }
@@ -582,6 +606,7 @@ function BriefSheet({ detail, onRefresh, onClose }: any) {
                 ))}
               </div>
             )}
+            {sendErr && <div style={{ marginTop: 8, fontSize: 12, color: H.red, lineHeight: 1.45 }}>{sendErr}</div>}
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 10, flexWrap: "wrap" }}>
               <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
                 <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: H.faint }}>Shows</span>
