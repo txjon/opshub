@@ -2,6 +2,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import ThumbIcon from "@/components/ThumbIcon";
+// @ts-ignore — plain-JS lib, no declarations
+import { uploadToDrive } from "@/lib/drive-upload-client";
 
 // THE STUDIO (Phase 2 of the replacement, Aug 4 2026) — the Lab's proven UX
 // on the REAL tables: art_briefs + art_brief_messages + art_brief_files.
@@ -11,11 +13,6 @@ import ThumbIcon from "@/components/ThumbIcon";
 // The old /art-studio + /studio2 died with this page's arrival.
 const H = { ink: "#0a0a0a", panel: "#131313", surface: "#1e1e1e", line: "rgba(255,255,255,.13)", line2: "rgba(255,255,255,.07)", text: "#fff", dim: "rgba(255,255,255,.6)", faint: "rgba(255,255,255,.38)", amber: "#f4b22b", green: "#58c93c", blue: "#8fc7d8", red: "#ff5a6e", font: "Inter, -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif", mono: "ui-monospace, 'SF Mono', Menlo, monospace" };
 const STATE = (s: string) => s === "with_client" ? { label: "With the client", color: H.blue } : s === "approved" ? { label: "In the bank", color: H.green } : s === "shelved" ? { label: "On the shelf", color: H.faint } : s === "killed" ? { label: "Killed", color: H.red } : { label: "Your move", color: H.amber };
-// Uploads go through the API route; the platform caps request bodies at
-// ~4.5MB. Guard a hair under it so oversize files fail fast at stage time
-// instead of hanging on "Sending…".
-const MAX_UPLOAD_BYTES = 4.4 * 1024 * 1024;
-const MAX_UPLOAD_LABEL = "4MB";
 const GUIDE: Record<string, { tint: string; head: string; text: string }> = {
   working: { tint: H.amber, head: "It's your move", text: "Shape the design with the client. Drop a draft, or talk it through — flip a note to Internal to keep it off their screen. Send a client-visible design and it's their move." },
   with_client: { tint: H.blue, head: "It's with the client", text: "The design is in front of the client. A thumbs up opens their keep sheet (order it or bank it); a thumbs down passes on that version, with quiet exits to shelve or kill the idea. Wait, or nudge them below." },
@@ -323,47 +320,57 @@ function BriefSheet({ detail, onRefresh, onClose }: any) {
   const banked = (fid: string | null) => fid && b.approved_file_id && `file-${b.approved_file_id}` === fid;
 
   const [sendErr, setSendErr] = useState("");
+  const [sendPct, setSendPct] = useState("");
   async function send() {
     if (!note.trim() && !stagedList.length) return; setBusy(true); setSendErr("");
+    // Working files are big (PSDs 50MB+) — warn on tab-close mid-send.
+    const unloadGuard = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", unloadGuard);
     try {
-      // One request per attachment (keeps each under body limits); the note
-      // rides with the first, the rest post file-only at the same visibility.
-      const list = stagedList.length ? stagedList : [null];
-      for (let i = 0; i < list.length; i++) {
-        const fd = new FormData();
-        if (i === 0 && note.trim()) fd.set("body", note.trim());
-        fd.set("visibility", vis);
-        if (list[i]) fd.set("file", (list[i] as any).f);
-        if (i === 0 || list[i]) {
-          const res = await fetch(`/api/studio/briefs/${b.id}/messages`, { method: "POST", body: fd });
-          if (!res.ok) {
-            const j = await res.json().catch(() => null);
-            const name = list[i] ? ` (${(list[i] as any).f.name})` : "";
-            throw new Error((j as any)?.error || (res.status === 413 ? `That file is too big to send${name} — ${MAX_UPLOAD_LABEL} max.` : `Send failed${name} — try again.`));
-          }
+      // Files go browser → Drive directly (the Product Builder path — no
+      // request-body size/duration walls), then a tiny register call writes
+      // the row. Each sent file leaves the staged strip as it lands, so a
+      // mid-batch failure keeps only the un-sent ones.
+      const queue = [...stagedList];
+      for (let i = 0; i < queue.length; i++) {
+        const { f, url } = queue[i];
+        const tag = queue.length > 1 ? `${i + 1}/${queue.length}` : "";
+        try {
+          const up = await uploadToDrive({
+            blob: f, fileName: f.name, mimeType: f.type || "application/octet-stream", itemId: null,
+            clientName: (b as any).clients?.name || "Studio", projectTitle: "Studio", itemName: b.title || "Design",
+            onProgress: (pct: number) => setSendPct(tag ? `${tag} · ${pct}%` : `${pct}%`),
+          });
+          const res = await fetch(`/api/studio/briefs/${b.id}/files`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ fileId: up.fileId, webViewLink: up.webViewLink, fileName: f.name, mimeType: f.type || null, fileSize: f.size, visibility: vis }),
+          });
+          if (!res.ok) { const j = await res.json().catch(() => null); throw new Error((j as any)?.error || "couldn't save it"); }
+        } catch (e: any) {
+          throw new Error(`${f.name} didn't send${e?.message ? ` — ${e.message}` : ""}. It's still attached — try again.`);
         }
+        URL.revokeObjectURL(url);
+        setStagedList(prev => prev.filter(x => x !== queue[i]));
       }
-      setNote(""); for (const x of stagedList) URL.revokeObjectURL(x.url); setStagedList([]); setHeroId(null);
+      if (note.trim()) {
+        const fd = new FormData(); fd.set("body", note.trim()); fd.set("visibility", vis);
+        const res = await fetch(`/api/studio/briefs/${b.id}/messages`, { method: "POST", body: fd });
+        if (!res.ok) { const j = await res.json().catch(() => null); throw new Error((j as any)?.error || "The note didn't send — try again."); }
+      }
+      setNote(""); setHeroId(null);
       await onRefresh();
     } catch (e: any) {
-      // Keep the note + staged files so nothing is lost on a failed send.
+      // Note + un-sent files stay staged so nothing is lost.
       setSendErr(e?.message || "Send failed — try again.");
-    } finally { setBusy(false); }
+    } finally { window.removeEventListener("beforeunload", unloadGuard); setBusy(false); setSendPct(""); }
   }
   // Snapshot the FileList BEFORE setState — the onChange handler resets the
   // input right after this call, and input.files is live: by the time the
   // deferred updater ran, the list was already empty (nothing ever staged).
-  // Oversize files are refused at stage time: uploads ride through the API
-  // route, and the platform hard-caps request bodies (~4.5MB) — a bigger
-  // file sits on "Sending…" then dies with nothing landing.
+  // No size cap: files go browser → Drive directly (see send()).
   function onFile(list: FileList | null) {
     if (!list || !list.length) return;
-    const all = Array.from(list);
-    const good = all.filter(f => f.size <= MAX_UPLOAD_BYTES);
-    const big = all.filter(f => f.size > MAX_UPLOAD_BYTES);
-    setSendErr(big.length ? `Too big to send here (${MAX_UPLOAD_LABEL} max): ${big.map(f => f.name).join(", ")}` : "");
-    if (!good.length) return;
-    const picked = good.map(f => ({ f, url: URL.createObjectURL(f) }));
+    const picked = Array.from(list).map(f => ({ f, url: URL.createObjectURL(f) }));
     setStagedList(prev => [...prev, ...picked]);
   }
   async function delBrief() { if (!confirm(`Delete "${b.title}"? This removes the design and its whole thread. Can't be undone.`)) return; await fetch(`/api/studio/briefs/${b.id}`, { method: "DELETE" }); onClose(); await onRefresh(); }
@@ -616,7 +623,7 @@ function BriefSheet({ detail, onRefresh, onClose }: any) {
               </span>
               <input ref={fileIn} type="file" accept="image/*,.pdf,.ai,.psd,.eps,.svg" multiple style={{ display: "none" }} onChange={e => { onFile(e.target.files); if (fileIn.current) fileIn.current.value = ""; }} />
               <button onClick={() => fileIn.current?.click()} style={ghostBtn}>{stagedList.length ? `✓ ${stagedList.length} attached` : "+ Attach"}</button>
-              <button disabled={busy || (!note.trim() && !stagedList.length)} onClick={send} style={{ ...primaryBtn, marginLeft: "auto", padding: "12px 24px", fontSize: 11.5, opacity: busy || (!note.trim() && !stagedList.length) ? 0.5 : 1 }}>{busy ? "Sending…" : vis === "client" ? "Send to client" : "Post internal"}</button>
+              <button disabled={busy || (!note.trim() && !stagedList.length)} onClick={send} style={{ ...primaryBtn, marginLeft: "auto", padding: "12px 24px", fontSize: 11.5, opacity: busy || (!note.trim() && !stagedList.length) ? 0.5 : 1 }}>{busy ? (sendPct ? `Sending… ${sendPct}` : "Sending…") : vis === "client" ? "Send to client" : "Post internal"}</button>
             </div>
           </div>
           <div style={{ padding: "0 22px 16px", fontSize: 10.5, color: H.faint, textAlign: "center", lineHeight: 1.5 }}>Send a <b style={{ color: H.dim }}>Client-visible</b> design and it&rsquo;s the client&rsquo;s move.</div>
