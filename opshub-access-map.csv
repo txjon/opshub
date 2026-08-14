@@ -1,25 +1,25 @@
 Group,Page,Route,What it does,Sensitive,Jon,Adrien,Drake,Taylor,Abigail,Corey,Dante,Goose
-Owner,Owner Overview (God Mode),/god-mode,"Revenue, AR aging, margins, cash — the owner cockpit",$$ OWNER,X,,,,,X,,
-Owner,Reports,/reports,Revenue / margin / turnaround reports + CSV exports,$$ OWNER,X,,,,,X,,
-Owner,Reconciliation,/reconciliation,"Vendor bills -> QuickBooks, remittance, cost variances (+ future hours->bill)",$$ OWNER,X,,,,,X,,
-Owner,Integrations,/integrations,QuickBooks + external connections / API tokens,$$ OWNER,X,,,,,X,,
-Labs,Labs Dashboard,/dashboard,"Production KPIs, stalled items, shipping this week",,X,,X,X,,X,,
-Labs,Projects,/jobs,"The job hub — every project: costing, POs, items, quotes",,X,,X,X,,X,,
-Labs,Art Studio,/art-studio,Art + proof workflow and approvals,,X,,X,X,,X,,
-Labs,Production,/production,"Production board — ship items, build shipments, pickups",,X,,X,X,,X,,
-Distro,Distro Dashboard,/distro,Warehouse overview,,X,,X,X,,X,X,X
-Distro,Receiving,/receiving,Incoming shipments — receive + confirm quantities,,X,,X,X,,X,X,X
-Distro,Shipping,/shipping,Outbound shipping,,X,,X,X,,X,X,X
-Distro,Fulfillment,/fulfillment,Staged-order fulfillment (pack + ship),,X,,X,X,,X,X,X
+Owner,Owner Overview (God Mode),/god-mode,"Revenue, AR aging, margins, cash — the owner cockpit",$$ OWNER,X,,,,,,,
+Owner,Reports,/reports,Revenue / margin / turnaround reports + CSV exports,$$ OWNER,X,,,,,,,
+Owner,Reconciliation,/reconciliation,"Vendor bills -> QuickBooks, remittance, cost variances (+ future hours->bill)",$$ OWNER,X,,,,,,,
+Owner,Integrations,/integrations,QuickBooks + external connections / API tokens,$$ OWNER,X,,,,,,,
+Labs,Labs Dashboard,/dashboard,"Production KPIs, stalled items, shipping this week",,X,,X,X,,,,
+Labs,Projects,/jobs,"The job hub — every project: costing, POs, items, quotes",,X,,X,X,,,,
+Labs,The Studio,/studio,Art + proof workflow and approvals,,X,,X,X,,X,,
+Labs,Production,/production,"Production board — ship items, build shipments, pickups",,X,,X,X,,,,
+Distro,Distro Dashboard,/distro,Warehouse overview,,X,,X,X,,,X,X
+Distro,Receiving,/receiving,Incoming shipments — receive + confirm quantities,,X,,X,X,,,X,X
+Distro,Shipping,/shipping,Outbound shipping,,X,,X,X,,,X,X
+Distro,Fulfillment,/fulfillment,Staged-order fulfillment (pack + ship),,X,,X,X,,,X,X
 Distro,Log Hours (NEW),/hours,Time clock — punch contractors in / out - nowhere in the nav for dante currently,,X,,,,,,X,
-Ecomm,Ecomm Dashboard,/ecomm,Webstore / ecomm,,X,,X,X,,X,X,X
-Contacts,Intake,/intake,New project / lead intake,,X,,X,X,,X,,
-Contacts,Clients,/clients,Client records + project history,,X,,X,X,,X,,
-Contacts,Decorators,/decorators,Vendor / decorator records + pricing,,X,,X,X,,X,,
-Contacts,Designers,/settings/designers,Designer roster,,X,,X,X,,X,,
+Ecomm,Ecomm Dashboard,/ecomm,Webstore / ecomm,,X,,X,X,,,X,X
+Contacts,Intake,/intake,New project / lead intake,,X,,X,X,,,,
+Contacts,Clients,/clients,Client records + project history,,X,,X,X,,,,
+Contacts,Decorators,/decorators,Vendor / decorator records + pricing,,X,,X,X,,,,
+Contacts,Designers,/settings/designers,Designer roster,,X,,X,X,,,,
 Admin,Team & Access,/settings,Manage users + who-sees-what — admin only,$$ ADMIN,X,,,,,,,
-All,Toolkit,/toolkit,Shared utilities (available from anywhere),,X,,X,X,,X,,
+All,Toolkit,/toolkit,Shared utilities (available from anywhere),,X,,X,X,,,,
 Other?,Warehouse (legacy),/warehouse,Old receiving page — superseded by Distro. Confirm if still used / retire,OLD,?,,,,,,,
 Other?,Templates,/templates,Project templates — confirm usage,OLD,?,,,,,,,
-Other?,References,/references,Confirm what this is / who needs it,,X,,X,X,X,X,X,X
+Other?,References,/references,Confirm what this is / who needs it,,X,,X,X,X,,X,X
 ,,/billing,"Where Abigail will add bills, currently lives in reconciliation",,X,,,,X,,,
