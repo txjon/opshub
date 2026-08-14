@@ -20,6 +20,14 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     .eq("id", params.briefId).eq("client_id", (client as any).id).eq("internal_only", false).maybeSingle();
   if (!brief) return NextResponse.json({ error: "Not your design" }, { status: 404 });
 
+  // Mark-as-read on every detail open — same stamp as the legacy
+  // briefs/[briefId] route. The home "Your move" feed keys unread off
+  // client_last_seen_at; without this, a brief the client opened (or even
+  // liked — reactions leave no client message) stays spotlighted forever.
+  await db.from("art_briefs")
+    .update({ client_last_seen_at: new Date().toISOString() } as never)
+    .eq("id", params.briefId);
+
   const [{ data: messages }, { data: files }, { data: orderRequest }, { data: lineupRow }] = await Promise.all([
     db.from("art_brief_messages").select("id, sender_role, sender_name, message, created_at").eq("brief_id", params.briefId).eq("visibility", "client").order("created_at"),
     db.from("art_brief_files").select("id, file_name, drive_file_id, preview_drive_file_id, uploader_role, shared_with_client_at, kind, reaction, created_at").eq("brief_id", params.briefId).order("created_at"),
