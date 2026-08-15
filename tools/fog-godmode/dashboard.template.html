@@ -1,0 +1,1118 @@
+<title>FOG God Mode</title>
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #f4f2ea;            /* page plane: field paper */
+    --surface: #fbfaf5;       /* card / chart surface */
+    --surface-2: #efede3;
+    --ink: #16170f;
+    --ink-2: #52534a;
+    --muted: #8b8a7e;
+    --grid: #e3e1d4;
+    --baseline: #c6c4b4;
+    --ring: rgba(22,23,15,.12);
+    --accent: #5a6134;        /* olive drab */
+    --accent-ink: #454b26;
+    --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100;
+    --s5: #e87ba4; --s6: #008300; --s7: #4a3aa7; --s8: #e34948;
+    --sother: #a3a193;
+    --good: #006300;
+    --wash: rgba(42,120,214,.10);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --bg: #101109;
+      --surface: #191a16;
+      --surface-2: #21221c;
+      --ink: #f2f1e6;
+      --ink-2: #b9b8a8;
+      --muted: #8b8a7e;
+      --grid: #2a2b24;
+      --baseline: #3a3b32;
+      --ring: rgba(242,241,230,.12);
+      --accent: #a8b06a;
+      --accent-ink: #c4cb8b;
+      --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+      --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
+      --sother: #6c6d60;
+      --good: #0ca30c;
+      --wash: rgba(57,135,229,.12);
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #101109;
+    --surface: #191a16;
+    --surface-2: #21221c;
+    --ink: #f2f1e6;
+    --ink-2: #b9b8a8;
+    --muted: #8b8a7e;
+    --grid: #2a2b24;
+    --baseline: #3a3b32;
+    --ring: rgba(242,241,230,.12);
+    --accent: #a8b06a;
+    --accent-ink: #c4cb8b;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+    --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
+    --sother: #6c6d60;
+    --good: #0ca30c;
+    --wash: rgba(57,135,229,.12);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    margin: 0;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+  }
+  .mono { font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 32px 24px 80px; }
+
+  header.top { margin-bottom: 28px; }
+  .eyebrow {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 11px; letter-spacing: .18em; text-transform: uppercase;
+    color: var(--accent-ink); margin-bottom: 6px;
+  }
+  h1 { font-size: 34px; font-weight: 800; letter-spacing: -.01em; margin: 0 0 4px; text-wrap: balance; }
+  .sub { color: var(--ink-2); font-size: 14px; }
+  .sub .mono { font-size: 12.5px; color: var(--muted); }
+
+  h2 { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -.005em; }
+  .sec { margin-top: 44px; }
+  .sechead { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+  .sechead .note { color: var(--muted); font-size: 12.5px; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--ring);
+    border-radius: 10px;
+    padding: 18px 20px;
+  }
+
+  /* KPI tiles */
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+  .kpi { background: var(--surface); border: 1px solid var(--ring); border-radius: 10px; padding: 14px 16px; }
+  .kpi .lab { font-size: 12px; color: var(--ink-2); margin-bottom: 4px; }
+  .kpi .val { font-size: 25px; font-weight: 650; }
+  .kpi.hero { grid-column: span 2; }
+  .kpi.hero .val { font-size: 48px; font-weight: 700; letter-spacing: -.01em; line-height: 1.1; }
+  .kpi .sub2 { font-size: 12px; color: var(--muted); margin-top: 3px; }
+
+  /* segmented control + chips */
+  .seg { display: inline-flex; border: 1px solid var(--ring); border-radius: 8px; overflow: hidden; }
+  .seg button {
+    background: none; border: 0; padding: 5px 12px; font: inherit; font-size: 12.5px;
+    color: var(--ink-2); cursor: pointer; border-left: 1px solid var(--ring);
+  }
+  .seg button:first-child { border-left: 0; }
+  .seg button[aria-pressed="true"] { background: var(--surface-2); color: var(--ink); font-weight: 600; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chips button {
+    background: var(--surface); border: 1px solid var(--ring); border-radius: 8px;
+    font: inherit; font-size: 12.5px; color: var(--ink-2); padding: 4px 11px; cursor: pointer;
+  }
+  .chips button[aria-pressed="true"] { border-color: var(--accent); color: var(--ink); font-weight: 600; background: var(--surface-2); }
+  button:focus-visible, a:focus-visible, summary:focus-visible, tr[tabindex]:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px;
+  }
+
+  svg text { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11px; fill: var(--muted); }
+  svg .axis { stroke: var(--baseline); stroke-width: 1; }
+  svg .grid { stroke: var(--grid); stroke-width: 1; }
+  svg .dlabel { fill: var(--ink-2); font-size: 11px; }
+
+  /* tooltip */
+  #tip {
+    position: fixed; z-index: 50; pointer-events: none; display: none;
+    background: var(--surface); border: 1px solid var(--ring); border-radius: 8px;
+    box-shadow: 0 6px 24px rgba(0,0,0,.18);
+    padding: 8px 11px; font-size: 12.5px; max-width: 300px;
+  }
+  #tip .t { color: var(--muted); font-size: 11.5px; margin-bottom: 3px; }
+  #tip .row { display: flex; align-items: center; gap: 7px; }
+  #tip .key { width: 12px; height: 3px; border-radius: 2px; flex: none; }
+  #tip .v { font-weight: 650; }
+  #tip .l { color: var(--ink-2); }
+
+  /* legend */
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 12px; font-size: 12.5px; color: var(--ink-2); }
+  .legend .it { display: inline-flex; align-items: center; gap: 6px; }
+  .legend .sw { width: 11px; height: 11px; border-radius: 3px; }
+
+  /* tables */
+  .tblwrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: right; padding: 7px 10px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+  th:first-child, td:first-child, th.l, td.l { text-align: left; }
+  th {
+    color: var(--muted); font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em;
+    cursor: pointer; user-select: none; position: sticky; top: 0; background: var(--surface);
+  }
+  th.nosort { cursor: default; }
+  td { font-variant-numeric: tabular-nums; }
+  td.name { max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
+  tr.clickable { cursor: pointer; }
+  tr.clickable:hover td { background: var(--surface-2); }
+  .typetag { font-family: ui-monospace, Menlo, monospace; font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; }
+
+  details.twin { margin-top: 12px; }
+  details.twin summary { cursor: pointer; font-size: 12.5px; color: var(--ink-2); }
+  details.twin .tblwrap { max-height: 340px; overflow-y: auto; margin-top: 10px; }
+
+  /* drop detail overlay */
+  #ddwrap {
+    position: fixed; inset: 0; z-index: 60; display: none;
+    background: rgba(10,10,6,.45); overflow-y: auto; padding: 4vh 16px;
+  }
+  #ddwrap.open { display: block; }
+  #dd {
+    max-width: 860px; margin: 0 auto; background: var(--surface);
+    border: 1px solid var(--ring); border-radius: 12px; padding: 24px 26px 26px;
+  }
+  #dd .close { float: right; background: none; border: 1px solid var(--ring); border-radius: 8px; color: var(--ink-2); font: inherit; font-size: 13px; padding: 4px 12px; cursor: pointer; }
+  #dd h3 { margin: 0 0 2px; font-size: 22px; }
+  #dd .ddmeta { color: var(--muted); font-size: 12.5px; margin-bottom: 16px; }
+  .ddstats { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin-bottom: 18px; }
+  .ddstats .s { background: var(--surface-2); border-radius: 8px; padding: 9px 11px; }
+  .ddstats .s .lab { font-size: 11px; color: var(--muted); }
+  .ddstats .s .val { font-size: 17px; font-weight: 650; }
+  .ddcols { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+  @media (max-width: 720px) { .ddcols { grid-template-columns: 1fr; } }
+  .mixrow { display: grid; grid-template-columns: 92px 1fr 60px; gap: 8px; align-items: center; font-size: 12.5px; margin-bottom: 6px; }
+  .mixrow .bar { height: 12px; border-radius: 0 4px 4px 0; min-width: 2px; }
+  .mixrow .n { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mixrow .v { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+
+  /* launch clock */
+  .lcontrols { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; margin-bottom: 14px; font-size: 12.5px; color: var(--ink-2); }
+  .lcontrols .grp { display: flex; align-items: center; gap: 8px; }
+  .lcontrols input[type="range"] { width: 200px; accent-color: var(--accent); }
+  .lcontrols input[type="number"] {
+    width: 110px; background: var(--surface); border: 1px solid var(--ring); border-radius: 8px;
+    color: var(--ink); font: inherit; padding: 4px 8px;
+  }
+  #lctlabel { font-weight: 650; color: var(--ink); min-width: 62px; display: inline-block; }
+  #lcread { font-size: 14px; margin-bottom: 12px; color: var(--ink-2); }
+  #lcread strong { color: var(--ink); font-size: 16px; }
+  #lcread .live { color: var(--accent-ink); font-weight: 650; }
+  tr.liverow td { background: var(--wash); font-weight: 650; }
+
+  /* year strip */
+  .years { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+  .yr { background: var(--surface); border: 1px solid var(--ring); border-radius: 10px; padding: 13px 15px; }
+  .yr .y { font-family: ui-monospace, Menlo, monospace; font-size: 12px; letter-spacing: .12em; color: var(--accent-ink); }
+  .yr .g { font-size: 21px; font-weight: 700; margin: 2px 0; }
+  .yr .d { font-size: 12px; color: var(--ink-2); }
+  .yr .delta { font-size: 12px; font-weight: 600; }
+  .yr .delta.up { color: var(--good); }
+  .yr .delta.dn { color: var(--s8); }
+
+  footer { margin-top: 56px; color: var(--muted); font-size: 12.5px; border-top: 1px solid var(--grid); padding-top: 16px; }
+  footer p { margin: 4px 0; }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .kpi, .card, .yr { transition: border-color .15s ease; }
+  }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="eyebrow">Forward Observations Group · Internal · Eyes Only</div>
+    <h1>God Mode</h1>
+    <div class="sub" id="headsub"></div>
+  </header>
+
+  <div class="kpis" id="kpis"></div>
+
+  <section class="sec">
+    <div class="sechead">
+      <h2>The whole run, month by month</h2>
+      <div class="seg" id="mseg" role="group" aria-label="Monthly metric">
+        <button aria-pressed="true" data-m="gross">Revenue</button>
+        <button aria-pressed="false" data-m="orders">Orders</button>
+        <button aria-pressed="false" data-m="aov">AOV</button>
+      </div>
+      <span class="note" id="mnote"></span>
+    </div>
+    <div class="card">
+      <div id="monthly"></div>
+      <details class="twin"><summary>Table view</summary><div class="tblwrap" id="monthlytbl"></div></details>
+    </div>
+  </section>
+
+  <section class="sec">
+    <div class="sechead">
+      <h2>Drops</h2>
+      <div class="chips" id="ychips" role="group" aria-label="Filter drops by year"></div>
+      <span class="note">Detected from order-volume spikes. Click any drop for the full debrief.</span>
+    </div>
+    <div class="card" style="margin-bottom:14px">
+      <div id="dropscatter"></div>
+    </div>
+    <div class="card" style="margin-bottom:14px">
+      <div class="sechead" style="margin-bottom:10px"><h2 style="font-size:15px" id="lbtitle">Biggest drops</h2></div>
+      <div id="leaderboard"></div>
+    </div>
+    <div class="card">
+      <div class="tblwrap" style="max-height: 480px; overflow-y: auto;" id="droptbl"></div>
+    </div>
+  </section>
+
+  <section class="sec">
+    <div class="sechead">
+      <h2>Launch clock</h2>
+      <span class="note">Line up any elapsed time against past launches. Clocks start at each drop's real launch spike, not its first stray order.</span>
+    </div>
+    <div class="lcontrols">
+      <div class="chips" id="lcset" role="group" aria-label="Comparison set"></div>
+      <div class="chips" id="lcera" role="group" aria-label="Era"></div>
+      <div class="grp">
+        <span id="lctlabel" class="mono"></span>
+        <input type="range" id="lcslider" min="5" max="2880" step="5" value="180" aria-label="Elapsed time in minutes">
+      </div>
+      <div class="chips" id="lcpre" role="group" aria-label="Elapsed presets"></div>
+      <label class="grp">Live merch $ so far <input type="number" id="lclive" min="0" placeholder="250000"></label>
+    </div>
+    <div class="card" style="margin-bottom:14px">
+      <div id="lcread"></div>
+      <div id="lcchart"></div>
+      <div class="legend" id="lclegend"></div>
+    </div>
+    <div class="card"><div class="tblwrap" style="max-height:420px;overflow-y:auto" id="lctbl"></div></div>
+  </section>
+
+  <section class="sec">
+    <div class="sechead">
+      <h2>What sells, by quarter</h2>
+      <span class="note">Merch revenue by product type. Smaller types fold into Other.</span>
+    </div>
+    <div class="card">
+      <div id="typechart"></div>
+      <div class="legend" id="typelegend"></div>
+      <details class="twin"><summary>Table view</summary><div class="tblwrap" id="typetbl"></div></details>
+    </div>
+  </section>
+
+  <section class="sec">
+    <div class="sechead">
+      <h2>All-time product leaderboard</h2>
+      <span class="note">Top 20 by merch revenue, colored by type. Sizes and colorways merged.</span>
+    </div>
+    <div class="card">
+      <div id="prodchart"></div>
+      <div class="legend" id="prodlegend"></div>
+      <details class="twin"><summary>Full top 60</summary><div class="tblwrap" id="prodtbl"></div></details>
+    </div>
+  </section>
+
+  <section class="sec">
+    <div class="sechead">
+      <h2>Where it ships</h2>
+      <span class="note">Gross revenue by ship-to state, all time.</span>
+    </div>
+    <div class="card">
+      <div id="statechart"></div>
+      <details class="twin"><summary>All states</summary><div class="tblwrap" id="statetbl"></div></details>
+    </div>
+  </section>
+
+  <section class="sec">
+    <div class="sechead"><h2>Year over year</h2></div>
+    <div class="years" id="yearstrip"></div>
+  </section>
+
+  <footer id="foot"></footer>
+</div>
+
+<div id="tip" role="status"></div>
+<div id="ddwrap"><div id="dd" role="dialog" aria-modal="true" aria-label="Drop detail"></div></div>
+
+<script id="fog-data" type="application/json">__DATA__</script>
+<script>
+const DATA = JSON.parse(document.getElementById('fog-data').textContent);
+const $ = (s, el) => (el || document).querySelector(s);
+const el = (tag, cls) => { const e = document.createElement(tag); if (cls) e.className = cls; return e; };
+
+const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const TYPE_SLOT = { 'Tee':'--s1','Hat':'--s2','Hoodie':'--s3','Gear':'--s4','Book/Media':'--s5','Patch':'--s6','Shorts':'--s7','Flag':'--s8' };
+const typeColor = t => `var(${TYPE_SLOT[t] || '--sother'})`;
+
+const fmt$ = n => '$' + Math.round(n).toLocaleString('en-US');
+const fmtI = n => Math.round(n).toLocaleString('en-US');
+const compact = n => {
+  const a = Math.abs(n);
+  if (a >= 1e6) return (n/1e6).toFixed(a >= 1e7 ? 1 : 2) + 'M';
+  if (a >= 1e3) return (n/1e3).toFixed(a >= 1e5 ? 0 : 1) + 'K';
+  return '' + Math.round(n);
+};
+const compact$ = n => '$' + compact(n);
+const pct = n => Math.round(n * 100) + '%';
+const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const fmtMonth = m => { const [y, mo] = m.split('-'); return MON[+mo-1] + ' ' + y; };
+const fmtDate = s => { const [y, m, d] = s.slice(0,10).split('-'); return MON[+m-1] + ' ' + (+d) + ', ' + y; };
+const shortDate = s => { const [y, m] = s.slice(0,10).split('-'); return MON[+m-1] + ' ’' + y.slice(2); };
+function dropName(d) {
+  const [y1, m1, d1] = d.start.slice(0,10).split('-').map(Number);
+  const [y2, m2, d2] = d.endDay.split('-').map(Number);
+  if (y1 === y2 && m1 === m2 && d1 === d2) return MON[m1-1] + ' ' + d1 + ', ' + y1;
+  if (y1 === y2 && m1 === m2) return MON[m1-1] + ' ' + d1 + '-' + d2 + ', ' + y1;
+  if (y1 === y2) return MON[m1-1] + ' ' + d1 + ' - ' + MON[m2-1] + ' ' + d2 + ', ' + y1;
+  return MON[m1-1] + ' ' + d1 + ', ' + y1 + ' - ' + MON[m2-1] + ' ' + d2 + ', ' + y2;
+}
+const dayCount = d => d.days + (d.days > 1 ? ' days' : ' day');
+
+// ---------- tooltip ----------
+const tip = $('#tip');
+function showTip(evt, rows, title) {
+  tip.textContent = '';
+  if (title) { const t = el('div','t'); t.textContent = title; tip.appendChild(t); }
+  for (const r of rows) {
+    const row = el('div','row');
+    if (r.color) { const k = el('span','key'); k.style.background = r.color; row.appendChild(k); }
+    const v = el('span','v'); v.textContent = r.v; row.appendChild(v);
+    const l = el('span','l'); l.textContent = r.l || ''; row.appendChild(l);
+    tip.appendChild(row);
+  }
+  tip.style.display = 'block';
+  moveTip(evt);
+}
+function moveTip(evt) {
+  const pad = 14, r = tip.getBoundingClientRect();
+  let x = evt.clientX + pad, y = evt.clientY + pad;
+  if (x + r.width > innerWidth - 8) x = evt.clientX - r.width - pad;
+  if (y + r.height > innerHeight - 8) y = evt.clientY - r.height - pad;
+  tip.style.left = x + 'px'; tip.style.top = y + 'px';
+}
+const hideTip = () => { tip.style.display = 'none'; };
+
+// ---------- svg helpers ----------
+const NS = 'http://www.w3.org/2000/svg';
+function svgEl(tag, attrs) { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; }
+function makeSvg(w, h) {
+  const s = svgEl('svg', { viewBox: `0 0 ${w} ${h}`, role: 'img' });
+  s.style.width = '100%'; s.style.height = 'auto'; s.style.display = 'block';
+  return s;
+}
+function niceTicks(max, n) {
+  const raw = max / n, mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const step = [1,2,2.5,5,10].map(m => m*mag).find(s => s >= raw) || 10*mag;
+  const out = []; for (let v = 0; v <= max + 1e-9; v += step) out.push(v);
+  return out;
+}
+
+// ---------- header + KPIs ----------
+const M = DATA.meta;
+$('#headsub').innerHTML = `Every order, every drop, ${fmtDate(M.from)} through ${fmtDate(M.to)}. ` +
+  `<span class="mono">${fmtI(M.rows)} line items · cancelled orders excluded · refreshed ${M.generated}</span>`;
+
+const kpis = [
+  { lab: 'Gross revenue, all time', val: compact$(M.gross), sub: fmt$(M.gross), hero: true },
+  { lab: 'Orders', val: compact(M.orders), sub: fmtI(M.orders) },
+  { lab: 'Units shipped', val: compact(M.units), sub: fmtI(M.units) },
+  { lab: 'Average order', val: '$' + M.aov.toFixed(2) },
+  { lab: 'Drops detected', val: DATA.drops.length },
+  { lab: 'Revenue inside drop windows', val: pct(M.dropRevShare), sub: 'The drop model is the business' },
+];
+for (const k of kpis) {
+  const d = el('div', 'kpi' + (k.hero ? ' hero' : ''));
+  const l = el('div','lab'); l.textContent = k.lab; d.appendChild(l);
+  const v = el('div','val'); v.textContent = k.val; d.appendChild(v);
+  if (k.sub) { const s = el('div','sub2'); s.textContent = k.sub; d.appendChild(s); }
+  $('#kpis').appendChild(d);
+}
+
+// ---------- monthly chart ----------
+let mMetric = 'gross';
+const MLBL = { gross: 'Gross revenue per month', orders: 'Orders per month', aov: 'Average order value per month' };
+const MFMT = { gross: compact$, orders: compact, aov: v => '$' + Math.round(v) };
+const MFULL = { gross: fmt$, orders: fmtI, aov: v => '$' + v.toFixed(2) };
+
+function renderMonthly() {
+  $('#mnote').textContent = MLBL[mMetric];
+  const box = $('#monthly'); box.textContent = '';
+  const data = DATA.monthly, W = 1060, H = 300, L = 52, R = 8, T = 14, B = 30;
+  const svg = makeSvg(W, H);
+  const max = Math.max(...data.map(d => d[mMetric])) * 1.05;
+  const y = v => T + (H - T - B) * (1 - v / max);
+  const bw = (W - L - R) / data.length;
+  for (const t of niceTicks(max, 4)) {
+    svg.appendChild(svgEl('line', { x1: L, x2: W - R, y1: y(t), y2: y(t), class: t === 0 ? 'axis' : 'grid' }));
+    const tx = svgEl('text', { x: L - 8, y: y(t) + 4, 'text-anchor': 'end' });
+    tx.textContent = mMetric === 'orders' ? compact(t) : compact$(t);
+    svg.appendChild(tx);
+  }
+  data.forEach((d, i) => {
+    const x = L + i * bw, h = y(0) - y(d[mMetric]);
+    if (h > 0.4) {
+      const bar = svgEl('rect', { x: x + 1, y: y(d[mMetric]), width: Math.max(bw - 2, 2), height: h, fill: 'var(--s1)' });
+      bar.setAttribute('rx', Math.min(3, bw/3)); // rounded cap reads at this width
+      svg.appendChild(svgEl('rect', { x: x + 1, y: y(0) - Math.min(h, 3), width: Math.max(bw - 2, 2), height: Math.min(h, 3), fill: 'var(--s1)' }));
+      svg.appendChild(bar);
+    }
+    const hit = svgEl('rect', { x, y: T, width: bw, height: H - T - B, fill: 'transparent' });
+    hit.addEventListener('pointermove', e => showTip(e, [
+      { v: MFULL.gross(d.gross), l: 'gross', color: css('--s1') },
+      { v: fmtI(d.orders), l: 'orders' },
+      { v: MFULL.aov(d.aov), l: 'AOV' },
+    ], fmtMonth(d.m)));
+    hit.addEventListener('pointerleave', hideTip);
+    svg.appendChild(hit);
+    if (d.m.endsWith('-01')) {
+      const tx = svgEl('text', { x: x + bw/2, y: H - 10, 'text-anchor': 'middle' });
+      tx.textContent = d.m.slice(0, 4);
+      svg.appendChild(tx);
+      svg.appendChild(svgEl('line', { x1: x, x2: x, y1: y(0), y2: y(0) + 4, class: 'axis' }));
+    }
+  });
+  box.appendChild(svg);
+}
+$('#mseg').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  for (const x of $('#mseg').children) x.setAttribute('aria-pressed', x === b);
+  mMetric = b.dataset.m; renderMonthly();
+});
+
+(function monthlyTable() {
+  const t = el('table');
+  t.innerHTML = '<thead><tr><th class="l nosort">Month</th><th class="nosort">Orders</th><th class="nosort">Units</th><th class="nosort">Gross</th><th class="nosort">AOV</th></tr></thead>';
+  const tb = el('tbody');
+  for (const d of [...DATA.monthly].reverse()) {
+    const tr = el('tr');
+    [fmtMonth(d.m), fmtI(d.orders), fmtI(d.units), fmt$(d.gross), '$' + d.aov.toFixed(2)].forEach((v, i) => {
+      const td = el('td', i === 0 ? 'l' : ''); td.textContent = v; tr.appendChild(td);
+    });
+    tb.appendChild(tr);
+  }
+  t.appendChild(tb); $('#monthlytbl').appendChild(t);
+})();
+
+// ---------- drops ----------
+let yearFilter = 'All';
+const dropYears = ['All', ...Object.keys(DATA.years)];
+for (const yv of dropYears) {
+  const b = el('button'); b.textContent = yv; b.setAttribute('aria-pressed', yv === 'All');
+  b.addEventListener('click', () => {
+    yearFilter = yv;
+    for (const x of $('#ychips').children) x.setAttribute('aria-pressed', x === b);
+    renderDrops();
+  });
+  $('#ychips').appendChild(b);
+}
+const dropsIn = () => DATA.drops.filter(d => yearFilter === 'All' || d.start.startsWith(yearFilter));
+const dropDate = d => new Date(d.start.replace(' ', 'T'));
+
+function renderScatter(drops) {
+  const box = $('#dropscatter'); box.textContent = '';
+  const W = 1060, H = 320, L = 56, R = 16, T = 16, B = 34;
+  const svg = makeSvg(W, H);
+  const t0 = Math.min(...drops.map(d => +dropDate(d))), t1 = Math.max(...drops.map(d => +dropDate(d)));
+  const span = Math.max(t1 - t0, 1);
+  const x = d => L + (W - L - R - 20) * ((+dropDate(d)) - t0) / span + 10;
+  const max = Math.max(...drops.map(d => d.gross)) * 1.08;
+  const y = v => T + (H - T - B) * (1 - v / max);
+  for (const t of niceTicks(max, 4)) {
+    svg.appendChild(svgEl('line', { x1: L, x2: W - R, y1: y(t), y2: y(t), class: t === 0 ? 'axis' : 'grid' }));
+    const tx = svgEl('text', { x: L - 8, y: y(t) + 4, 'text-anchor': 'end' }); tx.textContent = compact$(t); svg.appendChild(tx);
+  }
+  const y0 = new Date(t0).getFullYear(), y1 = new Date(t1).getFullYear();
+  if (y1 > y0) for (let yy = y0; yy <= y1; yy++) {
+    const tt = +new Date(yy, 0, 1);
+    if (tt < t0 || tt > t1) continue;
+    const xx = L + (W - L - R - 20) * (tt - t0) / span + 10;
+    const tx = svgEl('text', { x: xx, y: H - 10, 'text-anchor': 'middle' }); tx.textContent = yy; svg.appendChild(tx);
+  } else {
+    for (let mm = 0; mm < 12; mm++) {
+      const tt = +new Date(y0, mm, 1);
+      if (tt < t0 - 26e8 || tt > t1 + 26e8) continue;
+      const xx = L + (W - L - R - 20) * (Math.min(Math.max(tt, t0), t1) - t0) / span + 10;
+      const tx = svgEl('text', { x: xx, y: H - 10, 'text-anchor': 'middle' }); tx.textContent = MON[mm]; svg.appendChild(tx);
+    }
+  }
+  const maxOrders = Math.max(...drops.map(d => d.orders));
+  for (const d of drops) {
+    const r = 3.5 + 9 * Math.sqrt(d.orders / maxOrders);
+    const cx = x(d), cy = y(d.gross);
+    svg.appendChild(svgEl('circle', { cx, cy, r: r + 2, fill: 'var(--surface)' }));
+    svg.appendChild(svgEl('circle', { cx, cy, r, fill: 'var(--s1)', opacity: .88 }));
+    const hit = svgEl('circle', { cx, cy, r: Math.max(r + 8, 13), fill: 'transparent', tabindex: 0, role: 'button' });
+    hit.style.cursor = 'pointer';
+    hit.addEventListener('pointermove', e => showTip(e, [
+      { v: fmt$(d.gross), l: 'gross', color: css('--s1') },
+      { v: fmtI(d.orders), l: 'orders' },
+      { v: dayCount(d), l: 'window' },
+      { v: pct(d.first24Share), l: 'sold in first 24h' },
+    ], dropName(d)));
+    hit.addEventListener('pointerleave', hideTip);
+    hit.addEventListener('click', () => { hideTip(); openDrop(d); });
+    hit.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDrop(d); } });
+    svg.appendChild(hit);
+  }
+  const top = [...drops].sort((a, b) => b.gross - a.gross).slice(0, yearFilter === 'All' ? 3 : 2);
+  for (const d of top) {
+    const tx = svgEl('text', { x: Math.min(Math.max(x(d), L + 70), W - R - 70), y: Math.max(y(d.gross) - 16 - (3.5 + 9*Math.sqrt(d.orders/maxOrders)), 12), 'text-anchor': 'middle', class: 'dlabel' });
+    tx.textContent = dropName(d);
+    svg.appendChild(tx);
+  }
+  box.appendChild(svg);
+}
+
+function renderLeaderboard(drops) {
+  const box = $('#leaderboard'); box.textContent = '';
+  const top = [...drops].sort((a, b) => b.gross - a.gross).slice(0, 10);
+  $('#lbtitle').textContent = 'Biggest drops' + (yearFilter === 'All' ? ', all time' : ' of ' + yearFilter);
+  const W = 1060, rowH = 30, L = 260, R = 150, H = top.length * rowH + 6;
+  const svg = makeSvg(W, H);
+  const max = Math.max(...top.map(d => d.gross));
+  top.forEach((d, i) => {
+    const yy = i * rowH + 4, bw = (W - L - R) * (d.gross / max);
+    const name = svgEl('text', { x: L - 12, y: yy + 15, 'text-anchor': 'end', class: 'dlabel' });
+    name.textContent = dropName(d);
+    svg.appendChild(name);
+    svg.appendChild(svgEl('rect', { x: L, y: yy, width: Math.max(bw, 3), height: 18, fill: 'var(--s1)', rx: 4 }));
+    svg.appendChild(svgEl('rect', { x: L, y: yy, width: Math.min(4, bw), height: 18, fill: 'var(--s1)' }));
+    const val = svgEl('text', { x: L + bw + 8, y: yy + 14, class: 'dlabel' });
+    val.textContent = compact$(d.gross);
+    svg.appendChild(val);
+    const hit = svgEl('rect', { x: 0, y: yy - 2, width: W, height: rowH - 2, fill: 'transparent' });
+    hit.style.cursor = 'pointer';
+    hit.addEventListener('pointermove', e => showTip(e, [
+      { v: fmt$(d.gross), l: 'gross', color: css('--s1') },
+      { v: fmtI(d.orders), l: 'orders' }, { v: fmtI(d.units), l: 'units' },
+      { v: dayCount(d), l: 'window' },
+    ], dropName(d)));
+    hit.addEventListener('pointerleave', hideTip);
+    hit.addEventListener('click', () => { hideTip(); openDrop(d); });
+    svg.appendChild(hit);
+  });
+  box.appendChild(svg);
+}
+
+let dropSort = { key: 'start', dir: -1 };
+function renderDropTable(drops) {
+  const box = $('#droptbl'); box.textContent = '';
+  const cols = [
+    { k: 'start', l: 'Drop', left: true },
+    { k: 'label', l: 'Top seller', left: true },
+    { k: 'days', l: 'Days' },
+    { k: 'orders', l: 'Orders' },
+    { k: 'units', l: 'Units' },
+    { k: 'gross', l: 'Gross' },
+    { k: 'aov', l: 'AOV' },
+    { k: 'first24Share', l: 'First 24h' },
+    { k: 'preorderShare', l: 'Pre-order' },
+  ];
+  const rows = [...drops].sort((a, b) => {
+    const va = a[dropSort.key], vb = b[dropSort.key];
+    return (typeof va === 'string' ? va.localeCompare(vb) : va - vb) * dropSort.dir;
+  });
+  const t = el('table');
+  const thr = el('tr');
+  for (const c of cols) {
+    const th = el('th', c.left ? 'l' : '');
+    th.textContent = c.l + (dropSort.key === c.k ? (dropSort.dir === 1 ? ' ▴' : ' ▾') : '');
+    th.addEventListener('click', () => {
+      dropSort = { key: c.k, dir: dropSort.key === c.k ? -dropSort.dir : -1 };
+      renderDropTable(dropsIn());
+    });
+    thr.appendChild(th);
+  }
+  const thead = el('thead'); thead.appendChild(thr); t.appendChild(thead);
+  const tb = el('tbody');
+  for (const d of rows) {
+    const tr = el('tr', 'clickable'); tr.tabIndex = 0;
+    const cells = [dropName(d), d.label, d.days, fmtI(d.orders), fmtI(d.units), fmt$(d.gross), '$' + d.aov.toFixed(0), pct(d.first24Share), pct(d.preorderShare)];
+    cells.forEach((v, i) => { const td = el('td', i < 2 ? 'l name' : ''); td.textContent = v; tr.appendChild(td); });
+    tr.addEventListener('click', () => openDrop(d));
+    tr.addEventListener('keydown', e => { if (e.key === 'Enter') openDrop(d); });
+    tb.appendChild(tr);
+  }
+  t.appendChild(tb); box.appendChild(t);
+}
+
+function renderDrops() {
+  const d = dropsIn();
+  renderScatter(d); renderLeaderboard(d); renderDropTable(d);
+}
+
+// ---------- drop detail ----------
+function openDrop(d) {
+  const dd = $('#dd'); dd.textContent = '';
+  const close = el('button', 'close'); close.textContent = 'Close'; close.addEventListener('click', closeDrop);
+  dd.appendChild(close);
+  const h = el('h3'); h.textContent = 'Drop of ' + dropName(d); dd.appendChild(h);
+  const meta = el('div', 'ddmeta');
+  meta.textContent = `Launched ${fmtDate(d.launch)} at ${d.launch.slice(11)} · ${dayCount(d)} · top seller: ${d.label}`;
+  dd.appendChild(meta);
+  const stats = el('div', 'ddstats');
+  for (const [lab, val] of [
+    ['Gross', compact$(d.gross)], ['Merch', compact$(d.merch)], ['Orders', fmtI(d.orders)],
+    ['Units', fmtI(d.units)], ['AOV', '$' + d.aov.toFixed(0)], ['Units per order', d.upo.toFixed(1)],
+    ['Sold in first 24h', pct(d.first24Share)], ['Pre-order share', pct(d.preorderShare)],
+  ]) {
+    const s = el('div', 's');
+    const a = el('div', 'lab'); a.textContent = lab; s.appendChild(a);
+    const b = el('div', 'val'); b.textContent = val; s.appendChild(b);
+    stats.appendChild(s);
+  }
+  dd.appendChild(stats);
+
+  const cols = el('div', 'ddcols');
+  const left = el('div');
+  const lt = el('div'); lt.style.cssText = 'font-size:13px;font-weight:600;margin-bottom:8px';
+  lt.textContent = 'First 48 hours from launch, cumulative merch revenue'; left.appendChild(lt);
+  left.appendChild(velocityChart(d)); cols.appendChild(left);
+
+  const right = el('div');
+  const rt = el('div'); rt.style.cssText = 'font-size:13px;font-weight:600;margin-bottom:8px';
+  rt.textContent = 'Units by type'; right.appendChild(rt);
+  const mixMax = Math.max(...Object.values(d.typeMix));
+  for (const [ty, u] of Object.entries(d.typeMix)) {
+    const r = el('div', 'mixrow');
+    const n = el('div', 'n'); n.textContent = ty; r.appendChild(n);
+    const bwrap = el('div');
+    const bar = el('div', 'bar'); bar.style.width = Math.max(100 * u / mixMax, 1.5) + '%'; bar.style.background = typeColor(ty);
+    bwrap.appendChild(bar); r.appendChild(bwrap);
+    const v = el('div', 'v'); v.textContent = fmtI(u); r.appendChild(v);
+    right.appendChild(r);
+  }
+  const rt2 = el('div'); rt2.style.cssText = 'font-size:13px;font-weight:600;margin:16px 0 6px';
+  rt2.textContent = 'Top sellers in this drop'; right.appendChild(rt2);
+  const tw = el('div', 'tblwrap');
+  const t = el('table');
+  t.innerHTML = '<thead><tr><th class="l nosort">Product</th><th class="nosort">Units</th><th class="nosort">Revenue</th></tr></thead>';
+  const tb = el('tbody');
+  for (const p of d.top) {
+    const tr = el('tr');
+    const a = el('td', 'l name'); a.textContent = p.name; tr.appendChild(a);
+    const b = el('td'); b.textContent = fmtI(p.units); tr.appendChild(b);
+    const c = el('td'); c.textContent = fmt$(p.rev); tr.appendChild(c);
+    tb.appendChild(tr);
+  }
+  t.appendChild(tb); tw.appendChild(t); right.appendChild(tw);
+  cols.appendChild(right); dd.appendChild(cols);
+
+  $('#ddwrap').classList.add('open');
+  document.body.style.overflow = 'hidden';
+  close.focus();
+}
+function closeDrop() { $('#ddwrap').classList.remove('open'); document.body.style.overflow = ''; }
+$('#ddwrap').addEventListener('click', e => { if (e.target.id === 'ddwrap') closeDrop(); });
+addEventListener('keydown', e => { if (e.key === 'Escape') closeDrop(); });
+
+function velocityChart(d) {
+  const W = 480, H = 240, L = 54, R = 14, T = 12, B = 28;
+  const svg = makeSvg(W, H);
+  const max = Math.max(d.curve48[47], 1) * 1.06;
+  const x = h => L + (W - L - R) * (h / 47);
+  const y = v => T + (H - T - B) * (1 - v / max);
+  for (const t of niceTicks(max, 3)) {
+    svg.appendChild(svgEl('line', { x1: L, x2: W - R, y1: y(t), y2: y(t), class: t === 0 ? 'axis' : 'grid' }));
+    const tx = svgEl('text', { x: L - 7, y: y(t) + 4, 'text-anchor': 'end' }); tx.textContent = compact$(t); svg.appendChild(tx);
+  }
+  for (const hh of [0, 12, 24, 36, 47]) {
+    const tx = svgEl('text', { x: x(hh), y: H - 8, 'text-anchor': 'middle' }); tx.textContent = hh === 47 ? '48h' : hh + 'h'; svg.appendChild(tx);
+  }
+  svg.appendChild(svgEl('line', { x1: x(24), x2: x(24), y1: T, y2: y(0), class: 'grid', 'stroke-dasharray': '' }));
+  const pts = d.curve48.map((v, h) => `${x(h)},${y(v)}`);
+  svg.appendChild(svgEl('polygon', { points: `${x(0)},${y(0)} ${pts.join(' ')} ${x(47)},${y(0)}`, fill: 'var(--wash)' }));
+  svg.appendChild(svgEl('polyline', { points: pts.join(' '), fill: 'none', stroke: 'var(--s1)', 'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }));
+  const endV = d.curve48[47];
+  svg.appendChild(svgEl('circle', { cx: x(47), cy: y(endV), r: 4.5, fill: 'var(--s1)', stroke: 'var(--surface)', 'stroke-width': 2 }));
+  const lbl = svgEl('text', { x: x(46), y: y(endV) - 10, 'text-anchor': 'end', class: 'dlabel' });
+  lbl.textContent = compact$(endV) + ' by 48h';
+  svg.appendChild(lbl);
+  const h24 = svgEl('text', { x: x(24) + 5, y: T + 12, class: 'dlabel' });
+  h24.textContent = pct(d.first24Share) + ' by 24h';
+  svg.appendChild(h24);
+  const hover = svgEl('rect', { x: L, y: T, width: W - L - R, height: H - T - B, fill: 'transparent' });
+  const cross = svgEl('line', { x1: 0, x2: 0, y1: T, y2: y(0), class: 'axis', opacity: 0 });
+  svg.appendChild(cross);
+  hover.addEventListener('pointermove', e => {
+    const r = svg.getBoundingClientRect();
+    const hx = Math.round(((e.clientX - r.left) / r.width * W - L) / (W - L - R) * 47);
+    const hh = Math.max(0, Math.min(47, hx));
+    cross.setAttribute('x1', x(hh)); cross.setAttribute('x2', x(hh)); cross.setAttribute('opacity', .8);
+    showTip(e, [{ v: fmt$(d.curve48[hh]), l: 'cumulative merch', color: css('--s1') }], 'Hour ' + hh);
+  });
+  hover.addEventListener('pointerleave', () => { cross.setAttribute('opacity', 0); hideTip(); });
+  svg.appendChild(hover);
+  return svg;
+}
+
+// ---------- launch clock ----------
+const lc = { set: 'pre', era: '2024', t: 180, live: null };
+const fmtElapsed = m => Math.floor(m / 60) + 'h ' + String(m % 60).padStart(2, '0') + 'm';
+const lcDrops = () => DATA.drops.filter(d =>
+  (lc.era === 'all' || d.start >= '2024') &&
+  (lc.set === 'all' || (lc.set === 'pre' ? d.preorderShare >= .5 : d.preorderShare < .5)));
+function lcVal(d, m) {
+  if (m <= 0) return 0;
+  if (m <= 360) return d.curve6h[Math.min(Math.max(Math.round(m / 5) - 1, 0), 71)];
+  return d.curve48[Math.min(Math.max(Math.round(m / 60) - 1, 0), 47)];
+}
+const quant = (sorted, p) => sorted[Math.min(Math.floor(p * sorted.length), sorted.length - 1)];
+
+function chipGroup(id, opts, cur, fn) {
+  const box = $(id); box.textContent = '';
+  for (const [val, lab] of opts) {
+    const b = el('button'); b.textContent = lab; b.setAttribute('aria-pressed', val === cur);
+    b.addEventListener('click', () => {
+      fn(val);
+      for (const x of box.children) x.setAttribute('aria-pressed', x === b);
+      renderLC();
+    });
+    box.appendChild(b);
+  }
+}
+chipGroup('#lcset', [['pre', 'Pre-order drops'], ['stock', 'In-stock drops'], ['all', 'All drops']], lc.set, v => lc.set = v);
+chipGroup('#lcera', [['2024', '2024 and later'], ['all', 'All time']], lc.era, v => lc.era = v);
+(function presets() {
+  const box = $('#lcpre');
+  for (const h of [1, 2, 3, 4, 6, 12, 24, 48]) {
+    const b = el('button'); b.textContent = h + 'h';
+    b.addEventListener('click', () => { lc.t = h * 60; $('#lcslider').value = lc.t; renderLC(); });
+    box.appendChild(b);
+  }
+})();
+$('#lcslider').addEventListener('input', e => { lc.t = +e.target.value; renderLC(); });
+$('#lclive').addEventListener('input', e => { lc.live = e.target.value === '' ? null : +e.target.value; renderLC(); });
+
+function renderLC() {
+  $('#lctlabel').textContent = fmtElapsed(lc.t);
+  const set = lcDrops();
+  const read = $('#lcread'); read.textContent = '';
+  const chartBox = $('#lcchart'); chartBox.textContent = '';
+  const leg = $('#lclegend'); leg.textContent = '';
+  const tblBox = $('#lctbl'); tblBox.textContent = '';
+  if (!set.length) { read.textContent = 'No drops match this filter.'; return; }
+
+  const vals = set.map(d => lcVal(d, lc.t)).sort((a, b) => a - b);
+  const med = quant(vals, .5), p25 = quant(vals, .25), p75 = quant(vals, .75);
+  const s1 = el('span');
+  s1.innerHTML = `At <strong>${fmtElapsed(lc.t)}</strong> the median of ${set.length} past drops had <strong>${compact$(med)}</strong> merch revenue, with the middle half between ${compact$(p25)} and ${compact$(p75)}.`;
+  read.appendChild(s1);
+  if (lc.live != null) {
+    const behind = vals.filter(v => v < lc.live).length;
+    const pctile = Math.round(100 * behind / vals.length);
+    const s2 = el('span', 'live');
+    s2.textContent = ` Your live ${compact$(lc.live)} is ahead of ${behind} of ${vals.length} (${pctile}th percentile).`;
+    read.appendChild(s2);
+  }
+
+  // spaghetti chart: 6h horizon at 5-min steps, or 48h hourly once past 6h
+  const six = lc.t <= 360;
+  const horizon = six ? 360 : 2880;
+  const grid = [];
+  for (let m = six ? 5 : 60; m <= horizon; m += six ? 5 : 60) grid.push(m);
+  const W = 1060, H = 320, L = 56, R = 16, T = 14, B = 30;
+  const svg = makeSvg(W, H);
+  const maxV = Math.max(...set.map(d => lcVal(d, horizon)), lc.live || 0) * 1.06;
+  const x = m => L + (W - L - R) * (m / horizon);
+  const y = v => T + (H - T - B) * (1 - v / maxV);
+  for (const tk of niceTicks(maxV, 4)) {
+    svg.appendChild(svgEl('line', { x1: L, x2: W - R, y1: y(tk), y2: y(tk), class: tk === 0 ? 'axis' : 'grid' }));
+    const tx = svgEl('text', { x: L - 8, y: y(tk) + 4, 'text-anchor': 'end' }); tx.textContent = compact$(tk); svg.appendChild(tx);
+  }
+  for (const hh of six ? [1, 2, 3, 4, 5, 6] : [6, 12, 18, 24, 30, 36, 42, 48]) {
+    const tx = svgEl('text', { x: x(hh * 60), y: H - 10, 'text-anchor': 'middle' }); tx.textContent = hh + 'h'; svg.appendChild(tx);
+  }
+  const medPts = grid.map(m => {
+    const vs = set.map(d => lcVal(d, m)).sort((a, b) => a - b);
+    return { m, med: quant(vs, .5), p25: quant(vs, .25), p75: quant(vs, .75) };
+  });
+  svg.appendChild(svgEl('polygon', {
+    points: medPts.map(p => `${x(p.m)},${y(p.p75)}`).join(' ') + ' ' + [...medPts].reverse().map(p => `${x(p.m)},${y(p.p25)}`).join(' '),
+    fill: 'var(--wash)',
+  }));
+  const lineEls = new Map();
+  for (const d of set) {
+    const pl = svgEl('polyline', {
+      points: grid.map(m => `${x(m)},${y(lcVal(d, m))}`).join(' '),
+      fill: 'none', stroke: 'var(--sother)', 'stroke-width': 1.25, opacity: .45,
+      'stroke-linejoin': 'round',
+    });
+    lineEls.set(d.id, pl);
+    svg.appendChild(pl);
+  }
+  svg.appendChild(svgEl('polyline', {
+    points: medPts.map(p => `${x(p.m)},${y(p.med)}`).join(' '),
+    fill: 'none', stroke: 'var(--s1)', 'stroke-width': 2.5, 'stroke-linejoin': 'round', 'stroke-linecap': 'round',
+  }));
+  svg.appendChild(svgEl('line', { x1: x(lc.t), x2: x(lc.t), y1: T, y2: y(0), class: 'axis' }));
+  if (lc.live != null) {
+    svg.appendChild(svgEl('circle', { cx: x(lc.t), cy: y(lc.live), r: 6, fill: 'var(--s2)', stroke: 'var(--surface)', 'stroke-width': 2 }));
+    const lb = svgEl('text', { x: x(lc.t) + 10, y: y(lc.live) + 4, class: 'dlabel' });
+    lb.textContent = 'live · ' + compact$(lc.live);
+    if (lc.t > horizon * .8) { lb.setAttribute('x', x(lc.t) - 10); lb.setAttribute('text-anchor', 'end'); }
+    svg.appendChild(lb);
+  }
+  const hover = svgEl('rect', { x: L, y: T, width: W - L - R, height: H - T - B, fill: 'transparent' });
+  hover.addEventListener('pointermove', e => {
+    const r = svg.getBoundingClientRect();
+    const mm = Math.round(((e.clientX - r.left) / r.width * W - L) / (W - L - R) * horizon / (six ? 5 : 60)) * (six ? 5 : 60);
+    const m = Math.max(six ? 5 : 60, Math.min(horizon, mm));
+    const vs = set.map(d => lcVal(d, m)).sort((a, b) => a - b);
+    showTip(e, [
+      { v: compact$(quant(vs, .5)), l: 'median', color: css('--s1') },
+      { v: compact$(quant(vs, .25)) + ' - ' + compact$(quant(vs, .75)), l: 'middle half' },
+      { v: compact$(vs[vs.length - 1]), l: 'best drop' },
+    ], fmtElapsed(m) + ' after launch');
+  });
+  hover.addEventListener('pointerleave', hideTip);
+  svg.appendChild(hover);
+  // per-line hit strokes on top of the median hover layer, so any gray line
+  // identifies itself on hover and opens its drop on click
+  const snapM = e => {
+    const r = svg.getBoundingClientRect();
+    const raw = ((e.clientX - r.left) / r.width * W - L) / (W - L - R) * horizon;
+    const step = six ? 5 : 60;
+    return Math.max(step, Math.min(horizon, Math.round(raw / step) * step));
+  };
+  for (const d of set) {
+    const hit = svgEl('polyline', {
+      points: grid.map(m => `${x(m)},${y(lcVal(d, m))}`).join(' '),
+      fill: 'none', stroke: 'transparent', 'stroke-width': 9,
+    });
+    hit.style.cursor = 'pointer';
+    hit.addEventListener('pointermove', e => {
+      const pl = lineEls.get(d.id);
+      pl.setAttribute('opacity', 1); pl.setAttribute('stroke-width', 2.25); pl.setAttribute('stroke', 'var(--ink-2)');
+      const m = snapM(e);
+      showTip(e, [
+        { v: compact$(lcVal(d, m)), l: 'at ' + fmtElapsed(m), color: css('--sother') },
+        { v: compact$(lcVal(d, 1440)), l: 'its 24h total' },
+        { v: pct(d.preorderShare), l: 'pre-order share' },
+      ], dropName(d));
+    });
+    hit.addEventListener('pointerleave', () => {
+      const pl = lineEls.get(d.id);
+      pl.setAttribute('opacity', .45); pl.setAttribute('stroke-width', 1.25); pl.setAttribute('stroke', 'var(--sother)');
+      hideTip();
+    });
+    hit.addEventListener('click', () => { hideTip(); openDrop(d); });
+    svg.appendChild(hit);
+  }
+  chartBox.appendChild(svg);
+
+  for (const [swColor, lab, isLine] of [['var(--s1)', 'Median', 1], ['var(--sother)', 'Each past drop', 1], ['var(--wash)', 'Middle half (p25 to p75)', 0]]) {
+    const it = el('span', 'it');
+    const sw = el('span', 'sw'); sw.style.background = swColor;
+    if (isLine) sw.style.height = '3px';
+    it.appendChild(sw); it.appendChild(document.createTextNode(lab));
+    leg.appendChild(it);
+  }
+
+  // ranked table at T, live row inserted at its rank
+  const rows = set.map(d => ({ d, v: lcVal(d, lc.t) })).sort((a, b) => b.v - a.v);
+  const t = el('table');
+  t.innerHTML = `<thead><tr><th class="nosort">#</th><th class="l nosort">Drop</th><th class="l nosort">Launched</th><th class="nosort">At ${fmtElapsed(lc.t)}</th><th class="nosort">% of its 24h</th><th class="nosort">Its 24h total</th></tr></thead>`;
+  const tb = el('tbody');
+  let rank = 0, liveDone = lc.live == null;
+  const addLive = () => {
+    const tr = el('tr', 'liverow');
+    [String(rank + 1), 'Your live drop', 'today', fmt$(lc.live), '', ''].forEach((v, i) => {
+      const td = el('td', i < 3 ? 'l' : ''); td.textContent = v; tr.appendChild(td);
+    });
+    tb.appendChild(tr); liveDone = true; rank++;
+  };
+  for (const r of rows) {
+    if (!liveDone && lc.live >= r.v) addLive();
+    rank++;
+    const v24 = lcVal(r.d, 1440);
+    const tr = el('tr', 'clickable'); tr.tabIndex = 0;
+    [String(rank), dropName(r.d), r.d.launch.slice(11), fmt$(r.v), v24 ? pct(r.v / v24) : '', fmt$(v24)].forEach((v, i) => {
+      const td = el('td', i > 0 && i < 3 ? 'l' : ''); td.textContent = v; tr.appendChild(td);
+    });
+    tr.addEventListener('click', () => openDrop(r.d));
+    tr.addEventListener('keydown', e => { if (e.key === 'Enter') openDrop(r.d); });
+    tb.appendChild(tr);
+  }
+  if (!liveDone) addLive();
+  t.appendChild(tb); tblBox.appendChild(t);
+}
+
+// ---------- type evolution ----------
+(function typeChart() {
+  const TOP = Object.keys(TYPE_SLOT);
+  const qs = DATA.quarters;
+  const series = TOP.map(t => ({ t, vals: DATA.typeRev[t] || qs.map(() => 0) }));
+  const other = qs.map((_, i) =>
+    Object.keys(DATA.typeRev).filter(t => !TOP.includes(t))
+      .reduce((s, t) => s + (DATA.typeRev[t][i] || 0), 0));
+  series.push({ t: 'Other', vals: other });
+  const totals = qs.map((_, i) => series.reduce((s, sr) => s + sr.vals[i], 0));
+  const W = 1060, H = 330, L = 56, R = 8, T = 14, B = 30;
+  const svg = makeSvg(W, H);
+  const max = Math.max(...totals) * 1.05;
+  const y = v => T + (H - T - B) * (1 - v / max);
+  const bw = (W - L - R) / qs.length;
+  for (const t of niceTicks(max, 4)) {
+    svg.appendChild(svgEl('line', { x1: L, x2: W - R, y1: y(t), y2: y(t), class: t === 0 ? 'axis' : 'grid' }));
+    const tx = svgEl('text', { x: L - 8, y: y(t) + 4, 'text-anchor': 'end' }); tx.textContent = compact$(t); svg.appendChild(tx);
+  }
+  qs.forEach((q, i) => {
+    let acc = 0;
+    for (const sr of series) {
+      const v = sr.vals[i]; if (!v) continue;
+      const yTop = y(acc + v), hgt = y(acc) - yTop - 2; // 2px surface gap between segments
+      if (hgt > 0.5) svg.appendChild(svgEl('rect', {
+        x: L + i * bw + 2, y: yTop, width: Math.max(bw - 4, 3), height: hgt,
+        fill: sr.t === 'Other' ? 'var(--sother)' : typeColor(sr.t),
+      }));
+      acc += v;
+    }
+    if (q.endsWith('Q1')) {
+      const tx = svgEl('text', { x: L + i * bw + bw/2, y: H - 10, 'text-anchor': 'middle' }); tx.textContent = q.slice(0, 4); svg.appendChild(tx);
+    }
+    const hit = svgEl('rect', { x: L + i * bw, y: T, width: bw, height: H - T - B, fill: 'transparent' });
+    hit.addEventListener('pointermove', e => showTip(e,
+      series.filter(sr => sr.vals[i] > 0).sort((a, b) => b.vals[i] - a.vals[i])
+        .map(sr => ({ v: compact$(sr.vals[i]), l: sr.t, color: sr.t === 'Other' ? css('--sother') : css(TYPE_SLOT[sr.t]) })),
+      q.slice(0,4) + ' ' + q.slice(4) + ' · ' + compact$(totals[i]) + ' total'));
+    hit.addEventListener('pointerleave', hideTip);
+    svg.appendChild(hit);
+  });
+  $('#typechart').appendChild(svg);
+  for (const sr of series) {
+    const it = el('span', 'it');
+    const sw = el('span', 'sw'); sw.style.background = sr.t === 'Other' ? 'var(--sother)' : typeColor(sr.t); it.appendChild(sw);
+    it.appendChild(document.createTextNode(sr.t));
+    $('#typelegend').appendChild(it);
+  }
+  const t = el('table');
+  const hr = el('tr'); const th0 = el('th', 'l nosort'); th0.textContent = 'Type'; hr.appendChild(th0);
+  for (const lab of ['Units', 'Merch revenue', 'Share']) { const th = el('th', 'nosort'); th.textContent = lab; hr.appendChild(th); }
+  const thead = el('thead'); thead.appendChild(hr); t.appendChild(thead);
+  const tb = el('tbody');
+  const totRev = Object.values(DATA.typeTotals).reduce((s, v) => s + v.rev, 0);
+  for (const [ty, v] of Object.entries(DATA.typeTotals)) {
+    const tr = el('tr');
+    const a = el('td', 'l'); a.textContent = ty; tr.appendChild(a);
+    for (const val of [fmtI(v.units), fmt$(v.rev), (100 * v.rev / totRev).toFixed(1) + '%']) {
+      const td = el('td'); td.textContent = val; tr.appendChild(td);
+    }
+    tb.appendChild(tr);
+  }
+  t.appendChild(tb); $('#typetbl').appendChild(t);
+})();
+
+// ---------- top products ----------
+(function products() {
+  const top = DATA.topProducts.slice(0, 20);
+  const W = 1060, rowH = 30, L = 300, R = 80, H = top.length * rowH + 6;
+  const svg = makeSvg(W, H);
+  const max = Math.max(...top.map(p => p.rev));
+  top.forEach((p, i) => {
+    const yy = i * rowH + 4, bw = (W - L - R) * (p.rev / max);
+    const name = svgEl('text', { x: L - 12, y: yy + 15, 'text-anchor': 'end', class: 'dlabel' });
+    name.textContent = p.name.length > 36 ? p.name.slice(0, 35) + '…' : p.name;
+    svg.appendChild(name);
+    svg.appendChild(svgEl('rect', { x: L, y: yy, width: Math.max(bw, 3), height: 18, fill: typeColor(p.type), rx: 4 }));
+    svg.appendChild(svgEl('rect', { x: L, y: yy, width: Math.min(4, bw), height: 18, fill: typeColor(p.type) }));
+    const val = svgEl('text', { x: L + bw + 8, y: yy + 14, class: 'dlabel' }); val.textContent = compact$(p.rev); svg.appendChild(val);
+    const hit = svgEl('rect', { x: 0, y: yy - 2, width: W, height: rowH - 2, fill: 'transparent' });
+    hit.addEventListener('pointermove', e => showTip(e, [
+      { v: fmt$(p.rev), l: 'merch revenue', color: css(TYPE_SLOT[p.type] || '--sother') },
+      { v: fmtI(p.units), l: 'units' }, { v: p.type, l: 'type' }, { v: p.first, l: 'first sold' },
+    ], p.name));
+    hit.addEventListener('pointerleave', hideTip);
+    svg.appendChild(hit);
+  });
+  $('#prodchart').appendChild(svg);
+  const seen = [...new Set(top.map(p => TYPE_SLOT[p.type] ? p.type : 'Other'))];
+  for (const ty of seen) {
+    const it = el('span', 'it');
+    const sw = el('span', 'sw'); sw.style.background = ty === 'Other' ? 'var(--sother)' : typeColor(ty); it.appendChild(sw);
+    it.appendChild(document.createTextNode(ty));
+    $('#prodlegend').appendChild(it);
+  }
+  const t = el('table');
+  t.innerHTML = '<thead><tr><th class="nosort">#</th><th class="l nosort">Product</th><th class="l nosort">Type</th><th class="nosort">First sold</th><th class="nosort">Units</th><th class="nosort">Revenue</th></tr></thead>';
+  const tb = el('tbody');
+  DATA.topProducts.forEach((p, i) => {
+    const tr = el('tr');
+    const cells = [i + 1, p.name, p.type, p.first, fmtI(p.units), fmt$(p.rev)];
+    cells.forEach((v, j) => {
+      const td = el('td', j === 1 ? 'l name' : (j === 2 ? 'l typetag' : '')); td.textContent = v; tr.appendChild(td);
+    });
+    tb.appendChild(tr);
+  });
+  t.appendChild(tb); $('#prodtbl').appendChild(t);
+})();
+
+// ---------- states ----------
+(function states() {
+  const entries = Object.entries(DATA.states).sort((a, b) => b[1].rev - a[1].rev);
+  const top = entries.slice(0, 15);
+  const W = 1060, rowH = 28, L = 70, R = 185, H = top.length * rowH + 6;
+  const svg = makeSvg(W, H);
+  const max = top[0][1].rev;
+  top.forEach(([st, v], i) => {
+    const yy = i * rowH + 4, bw = (W - L - R) * (v.rev / max);
+    const name = svgEl('text', { x: L - 12, y: yy + 14, 'text-anchor': 'end', class: 'dlabel' });
+    name.textContent = st; svg.appendChild(name);
+    svg.appendChild(svgEl('rect', { x: L, y: yy, width: Math.max(bw, 3), height: 17, fill: 'var(--s1)', rx: 4 }));
+    svg.appendChild(svgEl('rect', { x: L, y: yy, width: Math.min(4, bw), height: 17, fill: 'var(--s1)' }));
+    const val = svgEl('text', { x: L + bw + 8, y: yy + 13, class: 'dlabel' });
+    val.textContent = compact$(v.rev) + ' · ' + compact(v.orders) + ' orders';
+    svg.appendChild(val);
+    const hit = svgEl('rect', { x: 0, y: yy - 2, width: W, height: rowH - 2, fill: 'transparent' });
+    hit.addEventListener('pointermove', e => showTip(e, [
+      { v: fmt$(v.rev), l: 'gross', color: css('--s1') }, { v: fmtI(v.orders), l: 'orders' },
+    ], st));
+    hit.addEventListener('pointerleave', hideTip);
+    svg.appendChild(hit);
+  });
+  $('#statechart').appendChild(svg);
+  const t = el('table');
+  t.innerHTML = '<thead><tr><th class="l nosort">State</th><th class="nosort">Orders</th><th class="nosort">Gross</th></tr></thead>';
+  const tb = el('tbody');
+  for (const [st, v] of entries) {
+    const tr = el('tr');
+    [st, fmtI(v.orders), fmt$(v.rev)].forEach((val, i) => { const td = el('td', i === 0 ? 'l' : ''); td.textContent = val; tr.appendChild(td); });
+    tb.appendChild(tr);
+  }
+  t.appendChild(tb); $('#statetbl').appendChild(t);
+})();
+
+// ---------- years ----------
+(function years() {
+  const ys = Object.entries(DATA.years);
+  ys.forEach(([yy, v], i) => {
+    const d = el('div', 'yr');
+    const a = el('div', 'y'); a.textContent = yy + (i === ys.length - 1 ? ' · YTD' : ''); d.appendChild(a);
+    const g = el('div', 'g'); g.textContent = compact$(v.gross); d.appendChild(g);
+    if (i === ys.length - 1 && DATA.prevYtd && DATA.prevYtd.gross) {
+      const p = DATA.prevYtd, ch = (v.gross - p.gross) / p.gross;
+      const dl = el('div', 'delta ' + (ch >= 0 ? 'up' : 'dn'));
+      dl.textContent = (ch >= 0 ? '▴ ' : '▾ ') + Math.abs(Math.round(ch * 100)) + '% vs ' + p.year + ' YTD';
+      d.appendChild(dl);
+      const ps = el('div', 'd');
+      ps.textContent = p.year + ' YTD was ' + compact$(p.gross) + ' · ' + compact(p.orders) + ' orders';
+      d.appendChild(ps);
+    } else if (i > 0 && i < ys.length - 1) {
+      const prev = ys[i-1][1].gross, ch = (v.gross - prev) / prev;
+      const dl = el('div', 'delta ' + (ch >= 0 ? 'up' : 'dn'));
+      dl.textContent = (ch >= 0 ? '▴ ' : '▾ ') + Math.abs(Math.round(ch * 100)) + '% vs ' + ys[i-1][0];
+      d.appendChild(dl);
+    }
+    const dd = el('div', 'd'); dd.textContent = `${compact(v.orders)} orders · ${v.drops} drops · $${v.aov.toFixed(0)} AOV`;
+    d.appendChild(dd);
+    $('#yearstrip').appendChild(d);
+  });
+})();
+
+$('#foot').innerHTML = `
+  <p>Built from the full order export: ${fmtI(M.rows)} line items across ${fmtI(M.orders)} orders. Cancelled orders excluded; split shipments merged back into their original order and date. Gross includes shipping and tax collected; merch strips those out and nets discounts. Product and type revenue use item prices before order-level discounts.</p>
+  <p>A drop is any stretch of days at 150+ orders per day, with nearby spike days merged into one window. ${pct(M.dropRevShare)} of all revenue lands inside these windows.</p>
+  <p class="mono">FOG God Mode · internal use only</p>`;
+
+renderMonthly();
+renderDrops();
+renderLC();
+</script>

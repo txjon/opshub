@@ -18,6 +18,9 @@ import { deriveProjectStage } from "@/lib/project-stage";
 import { loadJobPhasesBatch } from "@/lib/item-state";
 
 const PURPLE = "#fd3aa3";
+// Forward Observations Group — their space carries a link to the internal
+// FOG God Mode drop-analytics page (/fog-analytics, owner-gated).
+const FOG_CLIENT_ID = "df6df73a-dd64-4c8f-86e9-7ea4e6af1ff1";
 const thumbSrc = (id: string, size = 300) => `/api/files/thumbnail?id=${id}&thumb=1&size=${size}`;
 const fmt$ = (n: number) => "$" + Math.round(n).toLocaleString();
 const fmtDate = (iso?: string | null) => iso ? new Date(String(iso).includes("T") ? iso : iso + "T00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "";
@@ -322,6 +325,9 @@ function Overview({ client, contacts, wire, model, briefs, secHead, onEdit }: an
             <div style={{ flex: 1 }}>{secHead("People.", "who picks up when you call")}</div>
             {/* Deliberate edit (Jul-24 spec): explicit action -> modal, never
                 casual inline — client info shouldn't be fat-fingered. */}
+            {client.id === FOG_CLIENT_ID && (
+              <a href="/fog-analytics" style={{ borderRadius: 999, border: `1px solid ${H.line}`, background: "transparent", color: H.dim, fontSize: 10, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", padding: "8px 14px", cursor: "pointer", fontFamily: H.font, alignSelf: "center", textDecoration: "none" }}>God Mode</a>
+            )}
             <button onClick={onEdit} style={{ borderRadius: 999, border: `1px solid ${H.line}`, background: "transparent", color: H.dim, fontSize: 10, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", padding: "8px 14px", cursor: "pointer", fontFamily: H.font, alignSelf: "center" }}>✎ Edit client</button>
           </div>
           {contacts.length === 0 && <div style={{ color: H.faint, fontSize: 12.5 }}>No contacts on file.</div>}
