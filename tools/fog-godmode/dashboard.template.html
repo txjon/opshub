@@ -747,9 +747,12 @@ function velocityChart(d) {
 // ---------- launch clock ----------
 const lc = { set: 'pre', era: '2024', t: 180, live: null };
 const fmtElapsed = m => Math.floor(m / 60) + 'h ' + String(m % 60).padStart(2, '0') + 'm';
+// kind carries manual overrides from aggregate.py (e.g. hybrid launches whose
+// titles skipped the PRE-ORDER marker); preorderShare stays the measured value.
+const dropKind = d => d.kind || (d.preorderShare >= .5 ? 'pre' : 'stock');
 const lcDrops = () => DATA.drops.filter(d =>
   (lc.era === 'all' || d.start >= '2024') &&
-  (lc.set === 'all' || (lc.set === 'pre' ? d.preorderShare >= .5 : d.preorderShare < .5)));
+  (lc.set === 'all' || dropKind(d) === (lc.set === 'pre' ? 'pre' : 'stock')));
 function lcVal(d, m) {
   if (m <= 0) return 0;
   if (m <= 360) return d.curve6h[Math.min(Math.max(Math.round(m / 5) - 1, 0), 71)];

@@ -32,6 +32,16 @@ if not paths:
 DROP_DAY_MIN_ORDERS = 150
 GAP_DAYS = 3
 
+# Pre-order/in-stock classification comes from the item titles at order time
+# (FOG practice: pre-order items say PRE-ORDER at launch). When a launch
+# skipped the marker, pin its kind here by window start date - the measured
+# preorderShare still reports what the titles said.
+# 2026-02-13: Jon 2026-08-15 - hybrid drop (pre-order apparel + capped-qty
+# in-stock items), titles carried no marker; counts as pre-order.
+DROP_KIND_OVERRIDES = {
+    "2026-02-13": "pre",
+}
+
 SIZE = re.compile(
     r'^(XXS|XS|S|M|L|XL|XXL|2XL|3XL|4XL|5XL|OSFA|O/S|One Size|Small|Medium|Large|'
     r'\d{2}(\s*/\s*\d{2})?.*|Relaxed.*|Regular( \(.*\))?|Slim.*)$', re.I)
@@ -191,6 +201,10 @@ for i, (a, b) in enumerate(windows):
         "aov": round(float(w_orders["OrderTotal"].mean()), 2),
         "upo": round(float(w_orders["units"].mean()), 2),
         "preorderShare": round(float(w_items[w_items["preorder"]]["qty"].sum() / max(w_items["qty"].sum(), 1)), 3),
+        "kind": DROP_KIND_OVERRIDES.get(
+            pd.Timestamp(a).strftime("%Y-%m-%d"),
+            "pre" if w_items[w_items["preorder"]]["qty"].sum() / max(w_items["qty"].sum(), 1) >= 0.5 else "stock",
+        ),
         "first24Share": round(first24 / total_merch, 3) if total_merch else 0,
         "curve48": curve,
         "curve6h": curve6,

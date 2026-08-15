@@ -51,3 +51,8 @@ because Vercel serves the page from it.
 - A drop = consecutive days at 150+ orders/day (gaps up to 3 days merge).
 - Launch clock t0 = first 15-minute bin with real volume, not the first stray
   order of the window.
+- Pre-order vs in-stock: from item titles at order time (FOG practice: titles
+  say PRE-ORDER at launch; renames later drop it when buffers sell in stock).
+  Launches that skipped the marker get pinned in `DROP_KIND_OVERRIDES` in
+  aggregate.py (e.g. the 2026-02-13 hybrid drop). The measured share is still
+  shown; only comparison-set membership uses the override.
