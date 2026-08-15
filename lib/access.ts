@@ -28,6 +28,7 @@ export const PAGE_CATALOG: CatalogPage[] = [
   { key: "/god-mode", href: "/god-mode", label: "God Mode", group: "owner", sensitive: true },
   { key: "/god-mode-v2", href: "/god-mode-v2", label: "God Mode V2", group: "owner", sensitive: true },
   { key: "/reports", href: "/reports", label: "Reports", group: "owner", sensitive: true },
+  { key: "/fog-analytics", href: "/fog-analytics", label: "FOG God Mode", group: "owner", sensitive: true },
   { key: "/reconciliation", href: "/reconciliation", label: "Reconciliation", group: "owner", sensitive: true },
   // Labs / production
   { key: "/dashboard", href: "/dashboard", label: "Dashboard", group: "labs" },
