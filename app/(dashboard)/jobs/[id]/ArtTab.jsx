@@ -458,6 +458,13 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
   const [psdNewer, setPsdNewer] = useState(false);
   const seededFromRef = useRef(null);
   const lastSavedSpecRef = useRef(null);
+  // Reorder/copied items carry a proof_spec but the new job has NO costing yet —
+  // costProd is undefined, so buildSpec's costing-derived baked fields (finishing,
+  // addOns, isFleece) would silently rebuild as EMPTY on the first autosave and
+  // strip those chips off an approved proof. When there's no costProd, hydration
+  // stashes the saved spec's baked values here and buildSpec reads them instead.
+  // Costing still wins the moment this job has a costProd for the item.
+  const carriedBakedRef = useRef(null);
 
   // Best-effort name → hex resolution so typed color names get colored
   // swatches without touching the picker. Unrecognized names fall
@@ -519,6 +526,17 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
       if (saved.colorCountOverride != null) setColorCountOverride(String(saved.colorCountOverride));
       if (saved.locationCountOverride != null) setLocationCountOverride(String(saved.locationCountOverride));
       seededFromRef.current = saved.seededFrom || null;
+      if (!costProd) {
+        // saved.finishing was baked as [costing finishing... , ...instructions];
+        // subtract the saved instructions (and any migrated ink Type) to recover
+        // the costing portion — buildSpec re-appends the live selInstructions.
+        const savedInstr = Array.isArray(saved.instructions) ? saved.instructions : [];
+        carriedBakedRef.current = {
+          finishing: (Array.isArray(saved.finishing) ? saved.finishing : []).filter(x => !savedInstr.includes(x) && !TYPE_OPTIONS.includes(x)),
+          addOns: Array.isArray(saved.addOns) ? saved.addOns : [],
+          isFleece: !!saved.isFleece,
+        };
+      }
       // Any PSD uploaded since this spec was seeded → surface a re-pull hint.
       if (saved.seededFrom?.at && psdFiles.some(f => f.created_at && new Date(f.created_at) > new Date(saved.seededFrom.at))) {
         setPsdNewer(true);
@@ -577,9 +595,9 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
     seededFrom: seededFromRef.current,
     // Baked display values — so the read-only renderer (proofs tab + client
     // portal) needs NO costing access. proof_spec is self-contained.
-    finishing: [...(spec?.finishing || []), ...selInstructions],
-    addOns: untaggedAddOns,
-    isFleece: !!spec?.isFleece,
+    finishing: [...(costProd ? (spec?.finishing || []) : (carriedBakedRef.current?.finishing || [])), ...selInstructions],
+    addOns: costProd ? untaggedAddOns : (carriedBakedRef.current?.addOns || []).filter(a => !taggedAddOns.has(a)),
+    isFleece: costProd ? !!spec?.isFleece : (carriedBakedRef.current ? carriedBakedRef.current.isFleece : !!item.is_fleece),
     colorCount: kpiColors,
     locationCount: kpiLocations,
     disclaimer,

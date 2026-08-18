@@ -21,6 +21,9 @@ export async function copyItemIntoJob(db: Db, src: any, jobId: string, opts: {
     status: "tbd", artwork_status: src.artwork_status === "approved" ? "approved" : "not_started",
     sort_order: opts.sortOrder, pipeline_stage: null, blanks_order_number: null, ship_tracking: null,
     design_id: src.design_id || null,
+    // Proof document carries whole (spec is job/qty-free by design); proof_sent_at
+    // stays null — the new item reads "Draft, ready, not sent" until someone sends.
+    proof_spec: src.proof_spec || null,
   }).select("id").single();
   if (itemErr || !ni) return null;
 
