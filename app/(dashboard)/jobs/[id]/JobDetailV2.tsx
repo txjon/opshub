@@ -2630,13 +2630,18 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                     {(() => {
                       const mockupFile = files.find((f: any) => f.stage === "mockup") || files.find((f: any) => f.file_name?.toLowerCase().includes("mockup"));
                       const hasProof = !!it.proof_spec;
+                      // No spec but a baked proof PDF exists (older copied items) —
+                      // offer the PDF itself, and don't push "Generate": a fresh
+                      // draft here won't match the already-approved document.
+                      const proofPdf = !hasProof ? files.find((f: any) => f.stage === "proof") : null;
                       const revisedPend = files.some((f: any) => f.stage === "proof" && f.revision_pending_send);
                       return (
                         <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 14, paddingTop: 14, borderTop: `1px solid ${T.border}44`, flexWrap: "wrap" }}>
                           <span style={lbl}>Proof</span>
                           {hasProof && <button onClick={() => { setProofMode("preview"); setProofItemId(it.id); }} style={ghostBtn}>View</button>}
+                          {proofPdf && proofPdf.drive_link && <button onClick={() => window.open(proofPdf.drive_link, "_blank")} style={ghostBtn}>View proof PDF</button>}
                           {mockupFile && <button onClick={() => { setProofMode("edit"); setProofItemId(it.id); }}
-                            style={hasProof ? ghostBtn : { ...actBtn, background: T.amber, color: "#fff" }}>{hasProof ? "Edit proof" : "Generate proof"}</button>}
+                            style={hasProof || proofPdf ? ghostBtn : { ...actBtn, background: T.amber, color: "#fff" }}>{hasProof ? "Edit proof" : "Generate proof"}</button>}
                           {!mockupFile && <span style={{ fontSize: 12, color: T.faint }}>Upload a mockup first — the proof is built on it.</span>}
                           {hasProof && !it.proof_sent_at && !revisedPend && <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", color: T.muted }}>Ready · not sent</span>}
                           {revisedPend && <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", color: T.amber }}>Revised · send</span>}
@@ -2748,8 +2753,11 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
               {(() => {
                 // Proof-less warning (HPD-2607-032: PO went out with only PSD +
                 // mockup in the folders). Soft nudge, not a gate — some runs
-                // legitimately skip proofs, but never silently.
-                const noProof = (vendorGroups[poVendor] || []).filter((it: any) => !it.proof_spec);
+                // legitimately skip proofs, but never silently. An item with no
+                // spec but a baked proof PDF (reorder copies) is NOT proof-less:
+                // the folder the vendor gets already holds that PDF.
+                const noProof = (vendorGroups[poVendor] || []).filter((it: any) =>
+                  !it.proof_spec && !(filesByItem[it.id] || []).some((f: any) => f.stage === "proof"));
                 return noProof.length > 0 ? (
                   <div style={{ fontSize: 12.5, color: T.amber, marginTop: 10 }}>
                     No proofs drafted for {noProof.length === (vendorGroups[poVendor] || []).length ? "these items" : noProof.map((x: any) => x.name).join(", ")} — the vendor folder will only have art files.
