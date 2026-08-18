@@ -104,7 +104,10 @@ export async function POST(_req: NextRequest, { params }: { params: { releaseId:
         const sizes = Object.entries(s.qtys || {})
           .map(([size, qty]) => ({ size: String(size), qty: Math.round(Number(qty) || 0) }))
           .filter(x => x.qty > 0);
-        const newId = await copyItemIntoJob(db, src, jobId, { sizes, sortOrder: i });
+        const newId = await copyItemIntoJob(db, src, jobId, {
+          sizes, sortOrder: i,
+          drive: { clientName: (release as any).clients?.name || "", projectTitle: (release as any).title || "" },
+        });
         if (!newId) continue;
         itemCount++;
         await db.from("release_slots").update({ item_id: newId, qtys_confirmed_at: now }).eq("id", s.id);

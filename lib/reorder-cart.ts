@@ -4,6 +4,8 @@
 // lifecycle reset, buy_sheet_lines = REQUESTED qtys, item_files same
 // drive_file_id (deletion is reference-counted), contacts from the latest
 // source job. Nothing priced or committed — lands in intake for Drake.
+import { getItemFolderId, createShortcut } from "@/lib/google-drive";
+
 type Db = any;
 export type CartLine = { itemId: string; sizes?: Record<string, number> };
 
@@ -13,6 +15,13 @@ export type CartLine = { itemId: string; sizes?: Record<string, number> };
 // and the release cut's re-run lane; change it in one place only.
 export async function copyItemIntoJob(db: Db, src: any, jobId: string, opts: {
   sizes: { size: string; qty: number }[]; sortOrder: number;
+  // When set, best-effort pre-create the NEW project's Drive item folder with a
+  // shortcut per carried file (mirrors /api/jobs/[id]/duplicate). Without this,
+  // the first upload to a copied item creates a near-EMPTY folder and
+  // /api/drive/register repoints items.drive_link at it — the vendor then sees
+  // one lone file instead of the art. projectTitle must equal the new job's
+  // title EXACTLY (uploads resolve their folder from the job title).
+  drive?: { clientName: string; projectTitle: string };
 }): Promise<string | null> {
   const { data: ni, error: itemErr } = await db.from("items").insert({
     job_id: jobId, name: src.name, blank_vendor: src.blank_vendor, blank_sku: src.blank_sku,
@@ -44,6 +53,18 @@ export async function copyItemIntoJob(db: Db, src: any, jobId: string, opts: {
       mime_type: f.mime_type || null, file_size: f.file_size || null,
       approval: f.approval || "none", approved_at: f.approved_at || null, notes: f.notes || null,
     })));
+    // Best-effort Drive shortcuts — DB rows above are the source of truth; a
+    // Drive failure (network blip, permission edge) logs and moves on.
+    if (opts.drive?.clientName && opts.drive?.projectTitle) {
+      try {
+        const folderId = await getItemFolderId(opts.drive.clientName, opts.drive.projectTitle, src.name || "Item");
+        for (const f of (srcFiles || []) as any[]) {
+          if (!f.drive_file_id) continue;
+          try { await createShortcut(f.drive_file_id, f.file_name || "file", folderId); }
+          catch (e: any) { console.error("[reorder copy] shortcut failed:", e?.message || e); }
+        }
+      } catch (e: any) { console.error("[reorder copy] folder ensure failed:", e?.message || e); }
+    }
   }
   return ni.id as string;
 }
@@ -71,10 +92,11 @@ export async function createReorderJob(db: Db, opts: {
     .sort((a: any, b: any) => String(b.created_at || "").localeCompare(String(a.created_at || "")))[0];
 
   const firstName = (owned.find((it: any) => it.id === cart[0].itemId) as any)?.name || (owned[0] as any).name || "Reorder";
-  const title = owned.length === 1 ? `Reorder: ${firstName}` : `Reorder: ${firstName} + ${owned.length - 1} more`;
+  const rawTitle = owned.length === 1 ? `Reorder: ${firstName}` : `Reorder: ${firstName} + ${owned.length - 1} more`;
+  const title = rawTitle.slice(0, 120); // job title AND the Drive folder name — keep identical
 
   const { data: newJob, error: newJobErr } = await db.from("jobs").insert({
-    title: title.slice(0, 120),
+    title,
     job_type: latestJob?.job_type || null,
     phase: "intake",
     payment_terms: latestJob?.payment_terms || client.default_terms || null,
@@ -98,7 +120,7 @@ export async function createReorderJob(db: Db, opts: {
       .filter(s => s.qty > 0);
     if (!sizes.length) continue;
 
-    const newId = await copyItemIntoJob(db, src, newJobId, { sizes, sortOrder: i });
+    const newId = await copyItemIntoJob(db, src, newJobId, { sizes, sortOrder: i, drive: { clientName: client.name, projectTitle: title } });
     if (!newId) continue;
     itemCount++;
   }
