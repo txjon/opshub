@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { logJobActivityServer } from "@/lib/notify-server";
-import { isPipelineSlot, isRerunSlot } from "@/lib/release-lanes";
+import { isPipelineSlot, isRerunSlot, sumQtys, enteredSizes } from "@/lib/release-lanes";
 import { copyItemIntoJob } from "@/lib/reorder-cart";
 
 export const runtime = "nodejs";
@@ -50,10 +50,7 @@ export async function POST(_req: NextRequest, { params }: { params: { releaseId:
     if (!toCreate.length) {
       return NextResponse.json({ error: "Every line is already in production — nothing to cut. This release just launches when it launches." }, { status: 400 });
     }
-    const missing = toCreate.filter((s: any) => {
-      const total = Object.values(s.qtys || {}).reduce((a: number, b: any) => a + (Number(b) || 0), 0);
-      return total <= 0;
-    });
+    const missing = toCreate.filter((s: any) => sumQtys(s.qtys) <= 0);
     if (missing.length) {
       return NextResponse.json({ error: `${missing.length} line${missing.length === 1 ? "" : "s"} still need${missing.length === 1 ? "s" : ""} production numbers` }, { status: 400 });
     }
@@ -101,9 +98,7 @@ export async function POST(_req: NextRequest, { params }: { params: { releaseId:
         // since its proofs copy as approved it's born press-ready.
         const src = srcById[s.item_id];
         if (!src) continue;
-        const sizes = Object.entries(s.qtys || {})
-          .map(([size, qty]) => ({ size: String(size), qty: Math.round(Number(qty) || 0) }))
-          .filter(x => x.qty > 0);
+        const sizes = enteredSizes(s.qtys);
         const newId = await copyItemIntoJob(db, src, jobId, {
           sizes, sortOrder: i,
           drive: { clientName: (release as any).clients?.name || "", projectTitle: (release as any).title || "" },
@@ -129,9 +124,7 @@ export async function POST(_req: NextRequest, { params }: { params: { releaseId:
       if (itemErr || !item) continue;
       itemCount++;
 
-      const sizes = Object.entries(s.qtys || {})
-        .map(([size, qty]) => ({ size: String(size), qty: Math.round(Number(qty) || 0) }))
-        .filter(x => x.qty > 0);
+      const sizes = enteredSizes(s.qtys);
       if (sizes.length) {
         await db.from("buy_sheet_lines").insert(sizes.map(x => ({
           item_id: (item as any).id, size: x.size, qty_ordered: x.qty,

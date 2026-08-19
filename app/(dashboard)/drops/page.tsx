@@ -9,17 +9,12 @@ import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { H } from "@/components/hub/theme";
 import { backwardChain } from "@/lib/portal/drop-chain";
-import { isPipelineSlot, isRerunSlot, lineupIsPipelineOnly } from "@/lib/release-lanes";
+import { isPipelineSlot, isRerunSlot, lineupIsPipelineOnly, lineUnits, lineState, lineLanded, LINE_LABELS, releaseNumbersDone, type LineTone } from "@/lib/release-lanes";
+import { fmtDay as fmtDate, daysUntilDay as daysTo } from "@/lib/dates";
 
 const thumbSrc = (id: string, size = 300) => `/api/files/thumbnail?id=${id}&thumb=1&size=${size}`;
-const fmtDate = (iso?: string | null) => iso ? new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
-const APPROVED = ["final_approved", "pending_prep", "production_ready", "delivered"];
 const PURPLE = "#fd3aa3";
-
-const daysTo = (iso?: string | null) => {
-  if (!iso) return null;
-  return Math.round((new Date(iso + "T00:00").getTime() - new Date(new Date().toISOString().slice(0, 10) + "T00:00").getTime()) / 86400000);
-};
+const TONE: Record<LineTone, string> = { green: H.green, amber: H.amber, blue: H.blue, purple: PURPLE };
 
 const STATUS_META: Record<string, { label: string; color: string }> = {
   building: { label: "Building", color: H.faint },
@@ -47,7 +42,7 @@ export default function DropsBoard() {
     const briefIds: string[] = [];
     if (ids.length) {
       const { data: slots } = await supabase.from("release_slots")
-        .select("*, art_briefs(id, title, state), items(name, pipeline_stage, received_at_hpd, webstore_entered_at, forwarded_at)")
+        .select("*, art_briefs(id, title, state), items(name, pipeline_stage, received_at_hpd, webstore_entered_at, forwarded_at, buy_sheet_lines(size, qty_ordered))")
         .in("release_id", ids).order("sort_order");
       for (const s of (slots || []) as any[]) {
         (slotsByRelease[s.release_id] = slotsByRelease[s.release_id] || []).push(s);
@@ -72,6 +67,14 @@ export default function DropsBoard() {
     setRows((releases || []).map((r: any) => ({ ...r, slots: slotsByRelease[r.id] || [] })));
   }
   useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
+  // Stale-panel guard: refetch when the tab regains focus so an open board
+  // never shows yesterday's statuses.
+  useEffect(() => {
+    const onFocus = () => load();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+    /* eslint-disable-next-line */
+  }, []);
 
   async function act(release: any, path: string, method: string, body?: any) {
     setErr(""); setBusy(release.id);
@@ -89,12 +92,8 @@ export default function DropsBoard() {
   const buckets = useMemo(() => {
     const list = rows || [];
     // Numbers gate = every line the cut will BIRTH has qtys (pipeline slots
-    // ride along and never block; mirrors the cut route's own gate).
-    const numbersDone = (r: any) => {
-      const cuttable = r.slots.filter((s: any) => !isPipelineSlot(s));
-      return cuttable.length > 0 && cuttable.every((s: any) =>
-        Object.values(s.qtys || {}).reduce((a: number, b: any) => a + (Number(b) || 0), 0) > 0);
-    };
+    // ride along and never block; shared with the cut route's own gate).
+    const numbersDone = (r: any) => releaseNumbersDone(r.slots);
     return [
       // Live drops whose window has ENDED are a call, not a status — they
       // jump the queue into Your move ("close the sale").
@@ -139,7 +138,7 @@ export default function DropsBoard() {
                 const m = STATUS_META[r.status] || { label: r.status, color: H.faint };
                 const nd = b.numbersDone(r);
                 return (
-                  <button key={r.id} className="dr-card" onClick={() => setOpen(r)}>
+                  <button key={r.id} className="dr-card" onClick={() => { setOpen(r); load(); }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
                       <span style={{ display: "flex" }}>
                         {r.slots.slice(0, 4).map((s: any, i: number) => (
@@ -182,8 +181,9 @@ export default function DropsBoard() {
 
       {open && (() => {
         const r = (rows || []).find((x: any) => x.id === open.id) || open;
-        const numbersDone = r.slots.length > 0 && r.slots.every((s: any) => Object.values(s.qtys || {}).reduce((a: number, x: any) => a + (Number(x) || 0), 0) > 0);
-        const totalUnits = r.slots.reduce((a: number, s: any) => a + Object.values(s.qtys || {}).reduce((x: number, y: any) => x + (Number(y) || 0), 0), 0);
+        const cut = r.status === "cut";
+        const numbersDone = releaseNumbersDone(r.slots);
+        const totalUnits = r.slots.reduce((a: number, s: any) => a + lineUnits(s, s.items, cut).total, 0);
         return (
           <div className="dr-back">
             <div className="dr-sheet">
@@ -198,7 +198,7 @@ export default function DropsBoard() {
                     {(() => {
                       const pipe = r.slots.filter(isPipelineSlot);
                       if (!pipe.length) return null;
-                      const landed = pipe.filter((s: any) => s.items?.webstore_entered_at || s.items?.received_at_hpd || s.items?.forwarded_at).length;
+                      const landed = pipe.filter((s: any) => lineLanded(lineState(s, s.items, { releaseCut: cut, briefState: s.art_briefs?.state }))).length;
                       return <span style={{ fontSize: 10.5, fontFamily: H.mono, color: landed === pipe.length ? H.green : H.amber, fontWeight: 700 }}>{landed}/{pipe.length} landed</span>;
                     })()}
                   </div>
@@ -230,8 +230,9 @@ export default function DropsBoard() {
               })()}
               <div style={{ padding: "12px 22px 4px" }}>
                 {r.slots.map((s: any) => {
-                  const units = Object.values(s.qtys || {}).reduce((a: number, x: any) => a + (Number(x) || 0), 0);
-                  const approved = APPROVED.includes(s.art_briefs?.state);
+                  const lu = lineUnits(s, s.items, cut);
+                  const st = lineState(s, s.items, { releaseCut: cut, briefState: s.art_briefs?.state });
+                  const meta = LINE_LABELS.internal[st];
                   return (
                     <div key={s.id} style={{ display: "flex", gap: 12, alignItems: "center", padding: "9px 0", borderBottom: `1px solid ${H.line}`, flexWrap: "wrap" }}>
                       <span style={{ width: 40, height: 40, background: "#fff", borderRadius: 8, overflow: "hidden", flexShrink: 0, display: "inline-flex" }}>
@@ -243,28 +244,11 @@ export default function DropsBoard() {
                         </span>
                         <span style={{ display: "block", fontSize: 10, fontFamily: H.mono, color: H.dim, marginTop: 2 }}>
                           {s.retail != null ? `$${Number(s.retail)} retail` : "retail TBD"}{s.model ? ` · ${s.model === "preorder" ? "pre-order" : s.model === "not_sure" ? "model TBD" : "fixed run"}` : ""}
-                          {units > 0 ? ` · ${units.toLocaleString()} pcs: ${Object.entries(s.qtys).map(([k, v]) => `${k} ${v}`).join("  ")}` : " · no numbers yet"}
+                          {lu.total > 0 ? ` · ${lu.total.toLocaleString()} pcs: ${lu.sizes.map(x => `${x.size} ${x.qty}`).join("  ")}` : " · no numbers yet"}
                         </span>
                         {s.line_notes && <span style={{ display: "block", fontSize: 11, color: H.dim, marginTop: 3, lineHeight: 1.45 }}>{s.line_notes}</span>}
                       </span>
-                      <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: (() => {
-                          // Pre-cut, a re-run's item_id points at the PAST
-                          // run — its shipped/landed state says nothing here.
-                          if (isRerunSlot(s) && r.status !== "cut") return H.green;
-                          if (!s.item_id) return approved ? H.green : H.amber;
-                          const it = s.items || {};
-                          if (it.webstore_entered_at || it.received_at_hpd || it.forwarded_at) return H.green;
-                          if (it.pipeline_stage === "shipped") return PURPLE;
-                          return H.blue;
-                        })(), whiteSpace: "nowrap" }}>{(() => {
-                          if (isRerunSlot(s) && r.status !== "cut") return "Run it back ✓";
-                          if (!s.item_id) return approved ? "Design ✓" : "Design pending";
-                          const it = s.items || {};
-                          if (it.webstore_entered_at) return "In store";
-                          if (it.received_at_hpd || it.forwarded_at) return "Landed";
-                          if (it.pipeline_stage === "shipped") return "In transit";
-                          return "On press";
-                        })()}</span>
+                      <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: TONE[meta.tone], whiteSpace: "nowrap" }}>{meta.label}</span>
                     </div>
                   );
                 })}

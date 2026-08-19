@@ -29,9 +29,10 @@ function LogoMark({ width = 170 }: { width?: number }) {
 //     sizes — switching is a media-query swap, no JS viewport detect,
 //     so SSR + first paint match.
 //
-// Staging tab shelved 2026-05-17 — release planner is on hold while we
-// rework the fulfillment flow. The /staging route still exists so any
-// bookmarked URLs don't 404, but it's no longer linked from the shell.
+// Staging tab retired for good 2026-08-18 (Continuum Phase 1) — the legacy
+// staging board + its routes are deleted; Releases (mig 134) is the one
+// release system. Legacy client_releases/release_items/client_proposal_items
+// tables stay dormant in the DB for history.
 
 type TabIcon = (active: boolean) => ReactNode;
 

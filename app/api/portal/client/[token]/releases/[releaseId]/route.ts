@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
-import { isPipelineSlot } from "@/lib/release-lanes";
+import { isPipelineSlot, briefApproved } from "@/lib/release-lanes";
 import { hubClientLookup } from "@/lib/hub-client";
 
 export const runtime = "nodejs";
@@ -13,8 +13,6 @@ export const dynamic = "force-dynamic";
 function admin() {
   return createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 }
-const APPROVED = ["approved"];
-
 async function owned(token: string, releaseId: string) {
   const db = admin();
   const { data: client } = await hubClientLookup(db, token, "id, name, portal_features");
@@ -48,7 +46,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { token: str
       // pipeline slots are "already in flight"
       (release as any)._newLines = (slots || []).filter((s: any) => !isPipelineSlot(s)).length;
       (release as any)._pipeLines = (slots || []).filter((s: any) => isPipelineSlot(s)).length;
-      const unready = (slots || []).filter((s: any) => !s.item_id && !APPROVED.includes(s.art_briefs?.state)).length;
+      const unready = (slots || []).filter((s: any) => !s.item_id && !briefApproved(s.art_briefs?.state)).length;
       if (unready > 0) return NextResponse.json({ error: `${unready} line${unready === 1 ? "" : "s"} still need${unready === 1 ? "s" : ""} an approved design first` }, { status: 400 });
       updates.status = "ready";
       updates.status_timestamps = { ...((release as any).status_timestamps || {}), ready: new Date().toISOString() };
