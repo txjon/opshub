@@ -21,6 +21,9 @@ function admin() {
 }
 
 const ALLOWED: Record<string, string[]> = {
+  // ready from building = the ops-side submit (full parity — the hub's
+  // "hand it off" verb was client-only, stranding phone-call releases).
+  ready: ["building"],
   live: ["ready"],
   closed: ["live"],
   shelved: ["building", "ready", "live", "closed"],

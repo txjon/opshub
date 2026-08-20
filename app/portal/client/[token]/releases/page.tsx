@@ -14,6 +14,8 @@ import { backwardChain, CHAIN_DEFAULTS } from "@/lib/portal/drop-chain";
 import { lineUnits, lineState, LINE_LABELS, type LineTone } from "@/lib/release-lanes";
 
 const thumbSrc = (id: string, size = 300) => `/api/files/thumbnail?id=${id}&thumb=1&size=${size}`;
+// Honest landing copy: a past ETA reads "was due", never a confident future.
+const landsWord = (eta: string) => `${eta < new Date().toISOString().slice(0, 10) ? "was due" : "lands"} ${fmtDate(eta)}`;
 const TONE: Record<LineTone, string> = { green: C.green, amber: C.amber, blue: C.blue, purple: C.purple };
 
 const STATUS_WORDS: Record<string, { label: string; color: string; hint: string }> = {
@@ -441,7 +443,7 @@ function DropSheet({ drop, token, briefs, committed, pipeItems, catalogItems, it
                     {s.rerun && !cut
                       ? `new run${lu.total > 0 ? ` · this run ${lu.total.toLocaleString()} pcs` : lastRunPcs > 0 ? ` · last run ${lastRunPcs.toLocaleString()} pcs` : ""}${s.retail != null ? ` · $${s.retail} retail` : ""}`
                       : s.itemId
-                        ? `${lu.total.toLocaleString()} pcs${pit?.eta ? ` · lands ${fmtDate(pit.eta)}` : ""}`
+                        ? `${lu.total.toLocaleString()} pcs${pit?.eta ? ` · ${landsWord(pit.eta)}` : ""}`
                         : `${s.retail != null ? `$${s.retail} retail` : "retail TBD"}${s.model ? ` · ${s.model === "preorder" ? "pre-order" : s.model === "not_sure" ? "model TBD" : "fixed run"}` : ""}`}
                   </span>
                 </span>
@@ -483,7 +485,7 @@ function DropSheet({ drop, token, briefs, committed, pipeItems, catalogItems, it
                     </span>
                     <span style={{ minWidth: 0, flex: 1, fontSize: 12, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.name}</span>
                     <span style={{ fontSize: 10, fontFamily: C.mono, whiteSpace: "nowrap", color: it.status === "in_stock" ? C.green : it.eta ? C.muted : C.faint, fontWeight: it.status === "in_stock" ? 800 : 500 }}>
-                      {it.qty ? `${it.qty.toLocaleString()} pcs · ` : ""}{it.status === "in_stock" ? "ready now" : it.eta ? `lands ${fmtDate(it.eta)}` : "date TBD"}
+                      {it.qty ? `${it.qty.toLocaleString()} pcs · ` : ""}{it.status === "in_stock" ? "ready now" : it.eta ? landsWord(it.eta) : "date TBD"}
                     </span>
                     <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", color: C.text }}>+ Add</span>
                   </button>

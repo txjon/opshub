@@ -136,8 +136,54 @@ export async function PATCH(req: NextRequest, { params }: { params: { releaseId:
   try {
     const ctx = await ctxOf(params.releaseId);
     if (!ctx) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    const { db, release } = ctx;
     const body = await req.json().catch(() => ({}));
-    const out = await patchSlot(ctx.db, ctx.release, body, "ops");
+
+    // ── Ledger ops (Phase 4, ops-only — sold counts, overage policy, and
+    //    attaching/detaching existing runs to a line) ────────────────────
+    if (body.soldQtys !== undefined || body.overagePct !== undefined) {
+      if (!body.slotId) return NextResponse.json({ error: "Missing slot" }, { status: 400 });
+      if (release.status === "cut") return NextResponse.json({ error: "This release is already cut" }, { status: 409 });
+      const patch: Record<string, any> = {};
+      if (body.soldQtys !== undefined) {
+        const clean = Object.fromEntries(Object.entries(body.soldQtys || {})
+          .map(([s, v]: [string, any]) => [String(s).slice(0, 20), Math.max(0, Math.min(1000000, Math.round(Number(v) || 0)))])
+          .filter(([, v]) => (v as number) > 0));
+        patch.sold_qtys = clean;
+        patch.sold_units = Object.values(clean).reduce((a: number, b: any) => a + b, 0);
+        patch.sold_updated_at = new Date().toISOString();
+      }
+      if (body.overagePct !== undefined) {
+        patch.overage_pct = Math.max(0, Math.min(100, Number(body.overagePct) || 0));
+      }
+      const { error } = await db.from("release_slots").update(patch)
+        .eq("id", String(body.slotId)).eq("release_id", release.id);
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ success: true });
+    }
+    if (body.attachItemId !== undefined || body.detachItemId !== undefined) {
+      if (release.status === "cut") return NextResponse.json({ error: "This release is already cut" }, { status: 409 });
+      if (body.detachItemId) {
+        await db.from("items").update({ release_slot_id: null }).eq("id", String(body.detachItemId)).eq("release_slot_id", String(body.slotId || ""));
+        return NextResponse.json({ success: true });
+      }
+      if (!body.slotId) return NextResponse.json({ error: "Missing slot" }, { status: 400 });
+      const { data: item } = await db.from("items")
+        .select("id, release_slot_id, job_id, jobs!inner(client_id, release_id)")
+        .eq("id", String(body.attachItemId)).single();
+      if (!item || (item as any).jobs?.client_id !== release.client_id) return NextResponse.json({ error: "Item not found" }, { status: 404 });
+      if ((item as any).release_slot_id && (item as any).release_slot_id !== body.slotId) {
+        return NextResponse.json({ error: "That run is already attached to another line" }, { status: 409 });
+      }
+      const { error } = await db.from("items").update({ release_slot_id: String(body.slotId) }).eq("id", (item as any).id);
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      if (!(item as any).jobs?.release_id) {
+        await db.from("jobs").update({ release_id: release.id }).eq("id", (item as any).job_id).is("release_id", null);
+      }
+      return NextResponse.json({ success: true });
+    }
+
+    const out = await patchSlot(db, release, body, "ops");
     if (isSlotOpFail(out)) return NextResponse.json({ error: out.error }, { status: out.status });
     return NextResponse.json({ success: true });
   } catch (e: any) {

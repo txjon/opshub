@@ -9,8 +9,22 @@ import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { H } from "@/components/hub/theme";
 import { backwardChain } from "@/lib/portal/drop-chain";
-import { isPipelineSlot, isRerunSlot, lineupIsPipelineOnly, lineUnits, lineState, lineLanded, LINE_LABELS, releaseNumbersDone, type LineTone } from "@/lib/release-lanes";
+import { isPipelineSlot, isRerunSlot, lineupIsPipelineOnly, lineUnits, lineState, lineLanded, LINE_LABELS, releaseNumbersDone, buildLedger, suggestNextBuy, lineCovered, sumQtys, type LineTone, type Ledger } from "@/lib/release-lanes";
 import { fmtDay as fmtDate, daysUntilDay as daysTo } from "@/lib/dates";
+import { sortSizes } from "@/lib/theme";
+
+// A line's runs for the ledger: attached buys, plus the slot's own linked
+// run for TRUE pipeline lines (that item IS a run of the product — a
+// re-run's pre-cut item is the PAST campaign and never counts).
+const runsOf = (s: any): any[] => {
+  const runs = [...(s._buys || [])];
+  if (isPipelineSlot(s) && s.items && !runs.some((b: any) => b.id === s.item_id)) {
+    runs.push({ id: s.item_id, name: s.items.name, received_qtys: s.items.received_qtys, buy_sheet_lines: s.items.buy_sheet_lines, jobs: null });
+  }
+  return runs;
+};
+const ledgerOf = (s: any): Ledger => buildLedger(s.sold_qtys, runsOf(s));
+const hasLedger = (s: any): boolean => runsOf(s).length > 0 || sumQtys(s.sold_qtys) > 0;
 
 const thumbSrc = (id: string, size = 300) => `/api/files/thumbnail?id=${id}&thumb=1&size=${size}`;
 const PURPLE = "#fd3aa3";
@@ -42,11 +56,22 @@ export default function DropsBoard() {
     const briefIds: string[] = [];
     if (ids.length) {
       const { data: slots } = await supabase.from("release_slots")
-        .select("*, art_briefs(id, title, state), items(name, pipeline_stage, received_at_hpd, webstore_entered_at, forwarded_at, buy_sheet_lines(size, qty_ordered))")
+        .select("*, art_briefs(id, title, state), items(id, name, pipeline_stage, received_at_hpd, webstore_entered_at, forwarded_at, received_qtys, buy_sheet_lines(size, qty_ordered))")
         .in("release_id", ids).order("sort_order");
       for (const s of (slots || []) as any[]) {
         (slotsByRelease[s.release_id] = slotsByRelease[s.release_id] || []).push(s);
         if (s.brief_id) briefIds.push(s.brief_id);
+      }
+      // Buy runs per line (Phase 4): every item pointing home via
+      // release_slot_id — bought/delivered aggregate from these.
+      const slotIds = (slots || []).map((s: any) => s.id);
+      if (slotIds.length) {
+        const { data: buys } = await supabase.from("items")
+          .select("id, name, release_slot_id, received_qtys, buy_sheet_lines(size, qty_ordered), jobs!inner(id, job_number, phase)")
+          .in("release_slot_id", slotIds);
+        const bySlot: Record<string, any[]> = {};
+        for (const b of (buys || []) as any[]) (bySlot[b.release_slot_id] ||= []).push(b);
+        for (const list of Object.values(slotsByRelease)) for (const s of list) s._buys = bySlot[s.id] || [];
       }
     }
     // one representative image per brief for lineup strips
@@ -219,6 +244,7 @@ export default function DropsBoard() {
                     ) : r.target_live_date ? (
                       <span style={{ fontSize: 10.5, fontFamily: H.mono, color: H.faint }}>target live {fmtDate(r.target_live_date)}</span>
                     ) : null}
+                    {r.window_close_date && <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.09em", textTransform: "uppercase", color: H.amber }}>◆ Pre-order · closes {fmtDate(r.window_close_date)}</span>}
                     {totalUnits > 0 && <span style={{ fontSize: 10.5, fontFamily: H.mono, color: H.dim }}>{totalUnits.toLocaleString()} pcs</span>}
                     {(() => {
                       const pipe = r.slots.filter(isPipelineSlot);
@@ -271,6 +297,16 @@ export default function DropsBoard() {
                           {s.retail != null ? `$${Number(s.retail)} retail` : "retail TBD"}{s.model ? ` · ${s.model === "preorder" ? "pre-order" : s.model === "not_sure" ? "model TBD" : "fixed run"}` : ""}
                           {lu.total > 0 ? ` · ${lu.total.toLocaleString()} pcs: ${lu.sizes.map(x => `${x.size} ${x.qty}`).join("  ")}` : " · no numbers yet"}
                         </span>
+                        {hasLedger(s) && (() => {
+                          const led = ledgerOf(s);
+                          const delta = led.totals.delivered - led.totals.sold;
+                          const ok = led.totals.sold > 0 && lineCovered(led);
+                          return (
+                            <span style={{ display: "block", fontSize: 10, fontFamily: H.mono, marginTop: 3, color: ok ? H.green : H.amber }}>
+                              sold {led.totals.sold.toLocaleString()} · bought {led.totals.bought.toLocaleString()} · landed {led.totals.delivered.toLocaleString()}{led.totals.sold > 0 ? ` · ${delta >= 0 ? "+" : ""}${delta.toLocaleString()}` : ""}
+                            </span>
+                          );
+                        })()}
                         {s.line_notes && <span style={{ display: "block", fontSize: 11, color: H.dim, marginTop: 3, lineHeight: 1.45 }}>{s.line_notes}</span>}
                       </span>
                       <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: TONE[meta.tone], whiteSpace: "nowrap" }}>{meta.label}</span>
@@ -291,6 +327,11 @@ export default function DropsBoard() {
                 })}
                 {!cut && <AddLines releaseId={r.id} onAdd={(body) => slotAct(r, "POST", body)} />}
               </div>
+              {!cut && (r.window_close_date || r.slots.some(hasLedger)) && (
+                <PreorderLedger key={`led-${r.id}-${r.updated_at}`} r={r}
+                  onSlotPatch={(body: any) => slotAct(r, "PATCH", body)}
+                  onRefresh={load} setTopErr={setErr} />
+              )}
 
               <div style={{ padding: "16px 22px 20px", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
                 {r.status === "ready" && (
@@ -306,7 +347,13 @@ export default function DropsBoard() {
                     </button>}
                   </>
                 )}
-                {["ready", "live"].includes(r.status) && (
+                {r.status === "building" && (
+                  <button disabled={busy === r.id} onClick={() => act(r, "", "PATCH", { action: "ready" })}
+                    style={{ background: "#fff", color: H.ink, border: "none", borderRadius: 999, padding: "12px 22px", fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>
+                    Mark ready →
+                  </button>
+                )}
+                {!cut && (
                   <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: H.faint }}>Window closes</span>
                     <input type="date" defaultValue={r.window_close_date || ""}
@@ -479,6 +526,284 @@ function AddLines({ releaseId, onAdd }: { releaseId: string; onAdd: (body: any) 
         </>
       )}
       <button onClick={() => setOpenAdd(false)} style={{ alignSelf: "flex-start", background: "none", border: "none", color: H.faint, fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font, padding: "4px 0" }}>Done</button>
+    </div>
+  );
+}
+
+// ── THE PRE-ORDER LEDGER (Phase 4, Aug 20 2026) — per line: sold (the one
+//    human number) · bought (Σ run curves) · landed (Σ receiving). Suggest-
+//    next-buy = round(sold×(1+overage%))−bought, verified against the
+//    Pre-Order Master sheet. One buy job carries every included line
+//    through the hard naming gate. ─────────────────────────────────────
+
+function PreorderLedger({ r, onSlotPatch, onRefresh, setTopErr }: {
+  r: any; onSlotPatch: (body: any) => Promise<boolean>; onRefresh: () => Promise<void>; setTopErr: (e: string) => void;
+}) {
+  const lines = r.slots.filter((s: any) => !isRerunSlot(s) || hasLedger(s) || true); // every line can carry a ledger
+  const [openLine, setOpenLine] = useState<string | null>(null);
+  const [buyOpen, setBuyOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const label = { fontSize: 8.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase" as const, color: H.faint };
+  return (
+    <div style={{ margin: "14px 22px 4px", border: `1px solid ${H.line}`, borderRadius: 14, padding: "13px 15px", background: "rgba(244,178,43,.04)" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <span style={{ ...label, color: H.amber }}>◆ Pre-order ledger</span>
+        <span style={{ fontSize: 10, fontFamily: H.mono, color: H.faint }}>sold is the only number you type — bought + landed track the runs</span>
+        <span style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+          <button onClick={() => { setImportOpen(v => !v); setBuyOpen(false); }}
+            style={{ background: "none", border: `1px solid ${H.line}`, borderRadius: 999, padding: "8px 14px", fontSize: 9, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", color: H.dim, cursor: "pointer", fontFamily: H.font }}>Import sold counts</button>
+          <button onClick={() => { setBuyOpen(v => !v); setImportOpen(false); }}
+            style={{ background: H.green, border: "none", borderRadius: 999, padding: "8px 16px", fontSize: 9, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", color: "#08210a", cursor: "pointer", fontFamily: H.font }}>Next buy →</button>
+        </span>
+      </div>
+
+      {importOpen && <SoldImport releaseId={r.id} onDone={async () => { setImportOpen(false); await onRefresh(); }} />}
+      {buyOpen && <BuyPanel r={r} onDone={async () => { setBuyOpen(false); await onRefresh(); }} setTopErr={setTopErr} />}
+
+      <div style={{ marginTop: 10 }}>
+        {lines.map((s: any) => {
+          const led = ledgerOf(s);
+          const name = s.format || s.items?.name || "Line";
+          const openMe = openLine === s.id;
+          const suggest = suggestNextBuy(led, Number(s.overage_pct) || 0);
+          const needTotal = Object.values(suggest).reduce((a, b) => a + b, 0);
+          return (
+            <div key={s.id} style={{ borderTop: `1px solid ${H.line}`, padding: "8px 0" }}>
+              <button onClick={() => setOpenLine(openMe ? null : s.id)}
+                style={{ display: "flex", gap: 10, alignItems: "baseline", width: "100%", background: "none", border: "none", cursor: "pointer", textAlign: "left", fontFamily: H.font, color: H.text, padding: 0 }}>
+                <span style={{ fontSize: 11.5, fontWeight: 800, textTransform: "uppercase", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</span>
+                <span style={{ marginLeft: "auto", fontSize: 10, fontFamily: H.mono, whiteSpace: "nowrap", color: led.totals.sold > 0 && lineCovered(led) ? H.green : H.amber }}>
+                  sold {led.totals.sold.toLocaleString()} · bought {led.totals.bought.toLocaleString()} · landed {led.totals.delivered.toLocaleString()}{needTotal > 0 ? ` · buy ${needTotal.toLocaleString()}` : ""}
+                </span>
+                <span style={{ fontSize: 10, color: H.faint }}>{openMe ? "▾" : "▸"}</span>
+              </button>
+              {openMe && <LedgerLine slot={s} led={led} onSlotPatch={onSlotPatch} clientId={r.client_id} onRefresh={onRefresh} />}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function LedgerLine({ slot, led, onSlotPatch, clientId, onRefresh }: {
+  slot: any; led: Ledger; onSlotPatch: (body: any) => Promise<boolean>; clientId: string; onRefresh: () => Promise<void>;
+}) {
+  const sizes = sortSizes(Array.from(new Set([...led.sizes, ...OPS_SIZES])));
+  const [sold, setSold] = useState<Record<string, string>>(() => {
+    const out: Record<string, string> = {};
+    for (const s of sizes) out[s] = led.sold[s] != null ? String(led.sold[s]) : "";
+    return out;
+  });
+  const [ov, setOv] = useState<string>(String(Number(slot.overage_pct) || 0));
+  const [attachOpen, setAttachOpen] = useState(false);
+  const [cands, setCands] = useState<any[] | null>(null);
+  const supabase = createClient();
+  const cell = { fontSize: 11.5, fontFamily: H.mono, textAlign: "center" as const, padding: "5px 2px" };
+  async function loadAttach() {
+    const { data } = await supabase.from("items")
+      .select("id, name, jobs!inner(job_number, client_id)")
+      .eq("jobs.client_id", clientId).is("release_slot_id", null)
+      .order("created_at", { ascending: false }).limit(40);
+    setCands((data || []) as any[]);
+  }
+  return (
+    <div style={{ padding: "8px 0 4px" }}>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ borderCollapse: "collapse", minWidth: 320 }}>
+          <thead><tr>
+            <th style={{ ...cell, color: H.faint, fontSize: 9, textAlign: "left", paddingRight: 10 }}></th>
+            {sizes.map(sz => <th key={sz} style={{ ...cell, color: H.faint, fontSize: 9.5 }}>{sz}</th>)}
+            <th style={{ ...cell, color: H.faint, fontSize: 9.5 }}>TOTAL</th>
+          </tr></thead>
+          <tbody>
+            <tr>
+              <td style={{ ...cell, textAlign: "left", color: H.dim, fontSize: 10 }}>SOLD</td>
+              {sizes.map(sz => (
+                <td key={sz} style={cell}>
+                  <input value={sold[sz] || ""} placeholder="·" inputMode="numeric"
+                    onFocus={e => e.currentTarget.select()}
+                    onChange={e => setSold(p => ({ ...p, [sz]: e.target.value.replace(/[^0-9]/g, "") }))}
+                    style={{ width: 44, padding: "6px 0", textAlign: "center", background: H.surface, border: `1px solid ${H.line}`, borderRadius: 7, color: H.text, fontFamily: H.mono, fontSize: 11.5, outline: "none" }} />
+                </td>
+              ))}
+              <td style={{ ...cell, color: H.text, fontWeight: 700 }}>{Object.values(sold).reduce((a, v) => a + (Math.round(Number(v)) || 0), 0).toLocaleString()}</td>
+            </tr>
+            <tr>
+              <td style={{ ...cell, textAlign: "left", color: H.dim, fontSize: 10 }}>BOUGHT</td>
+              {sizes.map(sz => <td key={sz} style={{ ...cell, color: H.dim }}>{led.bought[sz] || "·"}</td>)}
+              <td style={{ ...cell, color: H.dim, fontWeight: 700 }}>{led.totals.bought.toLocaleString()}</td>
+            </tr>
+            <tr>
+              <td style={{ ...cell, textAlign: "left", color: H.dim, fontSize: 10 }}>LANDED</td>
+              {sizes.map(sz => <td key={sz} style={{ ...cell, color: H.dim }}>{led.delivered[sz] || "·"}</td>)}
+              <td style={{ ...cell, color: H.dim, fontWeight: 700 }}>{led.totals.delivered.toLocaleString()}</td>
+            </tr>
+            <tr>
+              <td style={{ ...cell, textAlign: "left", color: H.faint, fontSize: 10 }}>+/−</td>
+              {sizes.map(sz => { const d = (led.delivered[sz] || 0) - (led.sold[sz] || 0); return <td key={sz} style={{ ...cell, color: !led.sold[sz] ? H.faint : d >= 0 ? H.green : H.red }}>{led.sold[sz] || led.delivered[sz] ? d : "·"}</td>; })}
+              {(() => { const d = led.totals.delivered - led.totals.sold; return <td style={{ ...cell, fontWeight: 700, color: led.totals.sold ? (d >= 0 ? H.green : H.red) : H.faint }}>{led.totals.sold ? d : "·"}</td>; })()}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 8 }}>
+        <button onClick={() => { const out: Record<string, number> = {}; for (const [k, v] of Object.entries(sold)) { const n = Math.round(Number(v) || 0); if (n > 0) out[k] = n; } onSlotPatch({ slotId: slot.id, soldQtys: out }); }}
+          style={{ background: "#fff", color: H.ink, border: "none", borderRadius: 999, padding: "8px 16px", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>Save sold</button>
+        <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 10, fontFamily: H.mono, color: H.dim }}>
+          overage
+          <input value={ov} inputMode="decimal" onChange={e => setOv(e.target.value.replace(/[^0-9.]/g, ""))}
+            onBlur={() => { if (Number(ov) !== Number(slot.overage_pct)) onSlotPatch({ slotId: slot.id, overagePct: Number(ov) || 0 }); }}
+            style={{ width: 44, padding: "6px 0", textAlign: "center", background: H.surface, border: `1px solid ${H.line}`, borderRadius: 7, color: H.text, fontFamily: H.mono, fontSize: 11, outline: "none" }} />%
+        </label>
+        {slot.sold_updated_at && <span style={{ fontSize: 9.5, fontFamily: H.mono, color: H.faint }}>sold updated {fmtDate(slot.sold_updated_at)}</span>}
+        <button onClick={() => { setAttachOpen(v => !v); if (!cands) loadAttach(); }}
+          style={{ marginLeft: "auto", background: "none", border: "none", color: H.blue, fontSize: 9.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>+ Attach a run</button>
+      </div>
+      {(slot._buys || []).length > 0 && (
+        <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
+          {(slot._buys || []).map((b: any) => (
+            <div key={b.id} style={{ display: "flex", gap: 10, alignItems: "center", fontSize: 10.5, fontFamily: H.mono, color: H.dim }}>
+              <span style={{ color: H.text, fontWeight: 700 }}>{b.jobs?.job_number || "—"}</span>
+              <span>{b.jobs?.phase || ""}</span>
+              <span>ordered {(b.buy_sheet_lines || []).reduce((a: number, l: any) => a + (Number(l.qty_ordered) || 0), 0).toLocaleString()}</span>
+              <span>landed {Object.values(b.received_qtys || {}).reduce((a: number, v: any) => a + (Number(v) || 0), 0).toLocaleString()}</span>
+              {b.jobs?.id && <a href={`/jobs/${b.jobs.id}`} target="_blank" rel="noreferrer" style={{ color: H.blue, textDecoration: "none" }}>open ↗</a>}
+              <button onClick={() => onSlotPatch({ slotId: slot.id, detachItemId: b.id })} aria-label="Detach run"
+                style={{ background: "none", border: "none", color: H.faint, fontSize: 13, cursor: "pointer", lineHeight: 1, marginLeft: "auto" }}>×</button>
+            </div>
+          ))}
+        </div>
+      )}
+      {attachOpen && (
+        <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4, maxHeight: 180, overflowY: "auto" }}>
+          {cands === null ? <span style={{ fontSize: 10.5, color: H.faint }}>Loading unattached runs…</span> :
+            !cands.length ? <span style={{ fontSize: 10.5, color: H.faint }}>No unattached runs for this client.</span> :
+            cands.map((it: any) => (
+              <button key={it.id} onClick={async () => { if (await onSlotPatch({ slotId: slot.id, attachItemId: it.id })) { setAttachOpen(false); setCands(null); } }}
+                style={{ display: "flex", gap: 10, alignItems: "center", background: H.surface, border: `1px solid ${H.line}`, borderRadius: 8, padding: "6px 10px", cursor: "pointer", textAlign: "left", fontFamily: H.font, color: H.text, fontSize: 11 }}>
+                <span style={{ fontFamily: H.mono, color: H.faint }}>{it.jobs?.job_number}</span>
+                <span style={{ fontWeight: 700, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.name}</span>
+                <span style={{ marginLeft: "auto", fontSize: 9, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase" }}>Attach</span>
+              </button>
+            ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BuyPanel({ r, onDone, setTopErr }: { r: any; onDone: () => Promise<void>; setTopErr: (e: string) => void }) {
+  // Every line with a positive suggestion, prefilled — names must be
+  // confirmed (the naming gate); qtys editable per size.
+  const initial = r.slots
+    .map((s: any) => ({ s, led: ledgerOf(s), suggest: suggestNextBuy(ledgerOf(s), Number(s.overage_pct) || 0) }))
+    .filter((x: any) => Object.values(x.suggest).reduce((a: number, b: any) => a + b, 0) > 0);
+  type BuyRow = { slotId: string; include: boolean; finalName: string; qtys: Record<string, string> };
+  const [rows, setRows] = useState<BuyRow[]>(() => initial.map((x: any): BuyRow => ({
+    slotId: x.s.id, include: true,
+    finalName: String(x.s.format || x.s.items?.name || "").trim(),
+    qtys: Object.fromEntries(Object.entries(x.suggest).map(([k, v]) => [k, String(v)])) as Record<string, string>,
+  })));
+  const [busyBuy, setBusyBuy] = useState(false);
+  const [jobLink, setJobLink] = useState<{ id: string; number: string } | null>(null);
+  if (jobLink) {
+    return (
+      <div style={{ marginTop: 10, fontSize: 12, color: H.green, fontWeight: 700 }}>
+        ✓ Buy cut — <a href={`/jobs/${jobLink.id}`} target="_blank" rel="noreferrer" style={{ color: H.green }}>{jobLink.number} ↗</a> is in intake with the curves loaded.
+      </div>
+    );
+  }
+  if (!rows.length) return <div style={{ marginTop: 10, fontSize: 11.5, color: H.faint }}>Nothing to buy — every sold size is covered at the current overage. Refresh sold counts first if the store has moved.</div>;
+  async function cutBuy() {
+    setBusyBuy(true); setTopErr("");
+    try {
+      const buys = rows.filter(x => x.include).map(x => ({
+        slotId: x.slotId, finalName: x.finalName.trim(),
+        qtys: Object.fromEntries(Object.entries(x.qtys).map(([k, v]) => [k, Math.round(Number(v) || 0)]).filter(([, v]) => (v as number) > 0)),
+      }));
+      if (!buys.length) return;
+      const res = await fetch(`/api/drops/${r.id}/buy`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ buys }) });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok) { setTopErr(out.error || "Couldn't cut the buy."); return; }
+      setJobLink({ id: out.jobId, number: out.jobNumber });
+      await onDone();
+    } finally { setBusyBuy(false); }
+  }
+  const missingName = rows.some(x => x.include && !x.finalName.trim());
+  return (
+    <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ fontSize: 10.5, color: H.dim, lineHeight: 1.5 }}>
+        One job, every included line. <b style={{ color: H.text }}>Final product name is required</b> — it must match the Shopify listing exactly (it's the join key for sold imports and fulfillment).
+      </div>
+      {rows.map((x, i) => (
+        <div key={x.slotId} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <input type="checkbox" checked={x.include} onChange={e => setRows(p => p.map((y, j) => j === i ? { ...y, include: e.target.checked } : y))} />
+          <input value={x.finalName} placeholder="Final Shopify product name"
+            onChange={e => setRows(p => p.map((y, j) => j === i ? { ...y, finalName: e.target.value } : y))}
+            style={{ flex: 1, minWidth: 180, padding: "8px 10px", background: H.surface, border: `1px solid ${x.include && !x.finalName.trim() ? H.red : H.line}`, borderRadius: 8, color: H.text, fontSize: 12, outline: "none", fontFamily: H.font }} />
+          {sortSizes(Object.keys(x.qtys)).map(sz => (
+            <label key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+              <span style={{ fontSize: 8.5, fontWeight: 800, color: H.faint, fontFamily: H.mono }}>{sz}</span>
+              <input value={x.qtys[sz]} inputMode="numeric" onFocus={e => e.currentTarget.select()}
+                onChange={e => setRows(p => p.map((y, j) => j === i ? { ...y, qtys: { ...y.qtys, [sz]: e.target.value.replace(/[^0-9]/g, "") } } : y))}
+                style={{ width: 42, padding: "6px 0", textAlign: "center", background: H.surface, border: `1px solid ${H.line}`, borderRadius: 7, color: H.text, fontFamily: H.mono, fontSize: 11.5, outline: "none" }} />
+            </label>
+          ))}
+        </div>
+      ))}
+      <div>
+        <button disabled={busyBuy || missingName} onClick={cutBuy} title={missingName ? "Every included line needs its final Shopify name" : ""}
+          style={{ background: H.green, color: "#08210a", border: "none", borderRadius: 999, padding: "11px 22px", fontSize: 10.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", cursor: missingName ? "default" : "pointer", opacity: busyBuy || missingName ? 0.5 : 1, fontFamily: H.font }}>
+          {busyBuy ? "Cutting…" : "Cut the buy job →"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SoldImport({ releaseId, onDone }: { releaseId: string; onDone: () => Promise<void> }) {
+  const [csv, setCsv] = useState("");
+  const [busyImp, setBusyImp] = useState(false);
+  const [result, setResult] = useState<{ applied: any[]; unmatched: any[] } | null>(null);
+  const [impErr, setImpErr] = useState("");
+  async function run() {
+    setBusyImp(true); setImpErr("");
+    try {
+      const res = await fetch(`/api/drops/${releaseId}/sold-import`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ csv }) });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok) { setImpErr(out.error || "Import failed."); return; }
+      setResult(out);
+      await onDone();
+    } finally { setBusyImp(false); }
+  }
+  if (result) {
+    return (
+      <div style={{ marginTop: 10, fontSize: 11.5, color: H.dim, lineHeight: 1.6 }}>
+        <span style={{ color: H.green, fontWeight: 700 }}>✓ Applied to {result.applied.length} line{result.applied.length === 1 ? "" : "s"}</span>
+        {result.applied.map((a: any) => ` · ${a.name} ${a.total.toLocaleString()}`).join("")}
+        {result.unmatched.length > 0 && (
+          <div style={{ color: H.amber, marginTop: 4 }}>
+            {result.unmatched.length} row{result.unmatched.length === 1 ? "" : "s"} didn't match a line (name mismatch): {result.unmatched.slice(0, 6).map((u: any) => u.product).join(", ")}{result.unmatched.length > 6 ? "…" : ""}
+          </div>
+        )}
+      </div>
+    );
+  }
+  return (
+    <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ fontSize: 10.5, color: H.dim, lineHeight: 1.5 }}>
+        Paste Shopify&rsquo;s <b style={{ color: H.text }}>Sales by product variant</b> CSV, exported for the sell window&rsquo;s date range. Matches lines by final product name + size; replaces each matched line&rsquo;s sold counts. Never use an inventory report — stock loads poison it.
+      </div>
+      <textarea value={csv} onChange={e => setCsv(e.target.value)} rows={5} placeholder="Product title,Product variant title,Net quantity…"
+        style={{ width: "100%", boxSizing: "border-box", background: H.surface, border: `1px solid ${H.line}`, borderRadius: 10, color: H.text, fontSize: 11.5, fontFamily: H.mono, padding: "10px 12px", outline: "none", resize: "vertical" }} />
+      {impErr && <div style={{ fontSize: 11.5, color: H.red, fontWeight: 700 }}>{impErr}</div>}
+      <div>
+        <button disabled={busyImp || !csv.trim()} onClick={run}
+          style={{ background: "#fff", color: H.ink, border: "none", borderRadius: 999, padding: "10px 20px", fontSize: 10, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", cursor: "pointer", opacity: busyImp || !csv.trim() ? 0.5 : 1, fontFamily: H.font }}>
+          {busyImp ? "Importing…" : "Apply sold counts"}
+        </button>
+      </div>
     </div>
   );
 }
