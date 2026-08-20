@@ -420,7 +420,7 @@ function DropSheet({ drop, token, briefs, committed, pipeItems, catalogItems, it
         {/* ── The lineup ── */}
         <div style={{ padding: "12px 20px 0" }}>
           <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: C.faint, marginBottom: 8 }}>
-            The lineup {drop.slots.length > 0 && <span style={{ color: allReady ? C.green : C.amber }}>· {ready}/{drop.slots.length} approved</span>}
+            The lineup {building && drop.slots.length > 0 && <span style={{ color: allReady ? C.green : C.amber }}>· {ready}/{drop.slots.length} approved</span>}
           </div>
           {drop.slots.length === 0 && <div style={{ fontSize: 12.5, color: C.faint, paddingBottom: 8 }}>Nothing on it yet. Pull designs on below.</div>}
           {drop.slots.map((s: any) => {

@@ -55,9 +55,14 @@ export default function DropsBoard() {
     let slotsByRelease: Record<string, any[]> = {};
     const briefIds: string[] = [];
     if (ids.length) {
-      const { data: slots } = await supabase.from("release_slots")
-        .select("*, art_briefs(id, title, state), items(id, name, pipeline_stage, received_at_hpd, webstore_entered_at, forwarded_at, received_qtys, buy_sheet_lines(size, qty_ordered))")
+      // items!release_slots_item_id_fkey — mig 162 added a SECOND items↔
+      // release_slots relationship (items.release_slot_id, the buy-run
+      // pointer), so the embed must name the slot→item FK explicitly or
+      // PostgREST refuses the whole query.
+      const { data: slots, error: slotsErr } = await supabase.from("release_slots")
+        .select("*, art_briefs(id, title, state), items!release_slots_item_id_fkey(id, name, pipeline_stage, received_at_hpd, webstore_entered_at, forwarded_at, received_qtys, buy_sheet_lines(size, qty_ordered))")
         .in("release_id", ids).order("sort_order");
+      if (slotsErr) setErr(`Couldn't load release lines: ${slotsErr.message}`);
       for (const s of (slots || []) as any[]) {
         (slotsByRelease[s.release_id] = slotsByRelease[s.release_id] || []).push(s);
         if (s.brief_id) briefIds.push(s.brief_id);

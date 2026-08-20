@@ -35,8 +35,9 @@ export async function POST(req: NextRequest, { params }: { params: { releaseId: 
     const parsed = parseSalesCsv(String(body.csv || ""));
     if (parsed.error) return NextResponse.json({ error: parsed.error }, { status: 400 });
 
+    // FK hint required — items↔release_slots has two relationships (mig 162).
     const { data: slots } = await db.from("release_slots")
-      .select("id, line_id, item_id, format, items(name)").eq("release_id", (release as any).id);
+      .select("id, line_id, item_id, format, items!release_slots_item_id_fkey(name)").eq("release_id", (release as any).id);
     // A line's join name = final name (format, stamped at the naming gate),
     // falling back to the linked item's name for pipeline lines.
     const named = (slots || []).map((s: any) => ({
