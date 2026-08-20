@@ -88,6 +88,18 @@ export default function DropsBoard() {
       return out;
     } finally { setBusy(null); }
   }
+  // Slot ops — full parity with the client's hub verbs (add/remove/spec/
+  // numbers), via /api/drops/[id]/slots. Every save persists then reloads.
+  async function slotAct(release: any, method: string, body?: any, qs = "") {
+    setErr("");
+    const res = await fetch(`/api/drops/${release.id}/slots${qs}`, {
+      method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined,
+    });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) { setErr(out.error || "Couldn't do that."); return false; }
+    await load();
+    return true;
+  }
 
   const buckets = useMemo(() => {
     const list = rows || [];
@@ -99,7 +111,7 @@ export default function DropsBoard() {
       // jump the queue into Your move ("close the sale").
       { key: "your_move", title: "Your move.", color: H.amber, hint: "submitted drops, ended sale windows, and closed sales ready to cut", list: list.filter((r: any) => r.status === "ready" || r.status === "closed" || (r.status === "live" && daysTo(r.window_close_date) != null && (daysTo(r.window_close_date) as number) <= 0)) },
       { key: "live", title: "Live now.", color: PURPLE, hint: "selling — close the sale when the window ends", list: list.filter((r: any) => r.status === "live" && !(daysTo(r.window_close_date) != null && (daysTo(r.window_close_date) as number) <= 0)) },
-      { key: "building", title: "Building.", hint: "clients assembling — watch it take shape", list: list.filter((r: any) => r.status === "building") },
+      { key: "building", title: "Building.", hint: "being assembled — by the client or by us, same powers", list: list.filter((r: any) => r.status === "building") },
       { key: "cut", title: "Cut.", color: H.green, hint: "born as jobs — the floor has them", list: list.filter((r: any) => r.status === "cut") },
       { key: "shelved", title: "On ice.", hint: "", list: list.filter((r: any) => r.status === "shelved") },
     ].map(b => ({ ...b, numbersDone }));
@@ -188,12 +200,25 @@ export default function DropsBoard() {
           <div className="dr-back">
             <div className="dr-sheet">
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, padding: "18px 22px 6px" }}>
-                <div style={{ minWidth: 0 }}>
+                <div style={{ minWidth: 0, flex: 1 }}>
                   <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: H.faint }}>{r.clients?.name}</div>
-                  <div style={{ fontSize: 18, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", marginTop: 2 }}>{r.title}</div>
-                  <div style={{ display: "flex", gap: 10, alignItems: "baseline", marginTop: 4, flexWrap: "wrap" }}>
+                  {!cut ? (
+                    <TitleEdit key={`t-${r.id}-${r.title}`} value={r.title} onSave={(t) => act(r, "", "PATCH", { title: t })} />
+                  ) : (
+                    <div style={{ fontSize: 18, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", marginTop: 2 }}>{r.title}</div>
+                  )}
+                  <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 4, flexWrap: "wrap" }}>
                     <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.09em", textTransform: "uppercase", color: (STATUS_META[r.status] || {}).color }}>{(STATUS_META[r.status] || {}).label}</span>
-                    {r.target_live_date && <span style={{ fontSize: 10.5, fontFamily: H.mono, color: H.faint }}>target live {fmtDate(r.target_live_date)}</span>}
+                    {!cut ? (
+                      <label style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
+                        <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: H.faint }}>Target live</span>
+                        <input type="date" defaultValue={r.target_live_date || ""}
+                          onBlur={e => { if (e.target.value !== (r.target_live_date || "")) act(r, "", "PATCH", { target_live_date: e.target.value || null }); }}
+                          style={{ padding: "6px 8px", background: H.surface, border: `1px solid ${H.line}`, borderRadius: 8, outline: "none", color: H.text, fontFamily: H.font, fontSize: 11.5, colorScheme: "dark" }} />
+                      </label>
+                    ) : r.target_live_date ? (
+                      <span style={{ fontSize: 10.5, fontFamily: H.mono, color: H.faint }}>target live {fmtDate(r.target_live_date)}</span>
+                    ) : null}
                     {totalUnits > 0 && <span style={{ fontSize: 10.5, fontFamily: H.mono, color: H.dim }}>{totalUnits.toLocaleString()} pcs</span>}
                     {(() => {
                       const pipe = r.slots.filter(isPipelineSlot);
@@ -249,9 +274,22 @@ export default function DropsBoard() {
                         {s.line_notes && <span style={{ display: "block", fontSize: 11, color: H.dim, marginTop: 3, lineHeight: 1.45 }}>{s.line_notes}</span>}
                       </span>
                       <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: TONE[meta.tone], whiteSpace: "nowrap" }}>{meta.label}</span>
+                      {!cut && !isPipelineSlot(s) && (
+                        <OpsSpec key={`sp-${s.id}-${s.format}-${s.retail}`} slot={s}
+                          onSave={(patch) => slotAct(r, "PATCH", { slotId: s.id, ...patch })} />
+                      )}
+                      {!cut && !isPipelineSlot(s) && (
+                        <OpsNumbers key={`nu-${s.id}-${JSON.stringify(s.qtys || {})}`} slot={s}
+                          onSave={(q) => slotAct(r, "PATCH", { slotId: s.id, qtys: q })} />
+                      )}
+                      {!cut && (
+                        <button onClick={() => slotAct(r, "DELETE", undefined, `?slotId=${s.id}`)} aria-label="Remove line"
+                          style={{ background: "none", border: "none", color: H.faint, fontSize: 16, cursor: "pointer", lineHeight: 1, padding: "0 2px" }}>×</button>
+                      )}
                     </div>
                   );
                 })}
+                {!cut && <AddLines releaseId={r.id} onAdd={(body) => slotAct(r, "POST", body)} />}
               </div>
 
               <div style={{ padding: "16px 22px 20px", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
@@ -312,6 +350,135 @@ export default function DropsBoard() {
           </div>
         );
       })()}
+    </div>
+  );
+}
+
+// ── Ops parity widgets (Aug 20 2026) — mirror the hub's client verbs with
+//    the board's palette. Every save persists server-side then reloads; no
+//    input survives only in component state. ─────────────────────────────
+
+function TitleEdit({ value, onSave }: { value: string; onSave: (v: string) => void }) {
+  const [v, setV] = useState(value);
+  return (
+    <input value={v} onChange={e => setV(e.target.value)} title="Click to rename"
+      onBlur={() => { const t = v.trim(); if (t && t !== value) onSave(t); }}
+      onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); if (e.key === "Escape") setV(value); }}
+      style={{ fontSize: 18, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", marginTop: 2, background: "transparent", border: "none", borderBottom: "1px dotted rgba(255,255,255,.3)", outline: "none", color: H.text, width: "100%", fontFamily: H.font, padding: 0 }} />
+  );
+}
+
+function OpsSpec({ slot, onSave }: { slot: any; onSave: (patch: { format?: string; retail?: string | null }) => void }) {
+  const [openSpec, setOpenSpec] = useState(false);
+  const [format, setFormat] = useState<string>(slot.format || "");
+  const [retail, setRetail] = useState<string>(slot.retail != null ? String(slot.retail) : "");
+  if (!openSpec) {
+    return (
+      <button onClick={() => setOpenSpec(true)}
+        style={{ background: "none", border: `1px solid ${H.line}`, borderRadius: 999, padding: "7px 12px", fontSize: 9, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", color: H.dim, cursor: "pointer", fontFamily: H.font }}>✎ Spec</button>
+    );
+  }
+  return (
+    <span style={{ flexBasis: "100%", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", paddingTop: 8 }}>
+      <input value={format} onChange={e => setFormat(e.target.value)} placeholder="Tee, Hoodie…"
+        style={{ flex: 2, minWidth: 140, padding: "8px 10px", background: H.surface, border: `1px solid ${H.line}`, borderRadius: 8, color: H.text, fontSize: 12, outline: "none", fontFamily: H.font }} />
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontFamily: H.mono, color: H.dim, fontSize: 12 }}>$
+        <input value={retail} onChange={e => setRetail(e.target.value.replace(/[^0-9.]/g, ""))} placeholder="retail" inputMode="decimal"
+          style={{ width: 76, padding: "8px 10px", background: H.surface, border: `1px solid ${H.line}`, borderRadius: 8, color: H.text, fontSize: 12, outline: "none", fontFamily: H.mono }} />
+      </span>
+      <button onClick={() => { onSave({ format: format.trim(), retail: retail.trim() === "" ? null : retail.trim() }); setOpenSpec(false); }}
+        style={{ background: "#fff", color: H.ink, border: "none", borderRadius: 999, padding: "8px 16px", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>Save</button>
+      <button onClick={() => setOpenSpec(false)} style={{ background: "none", border: "none", color: H.faint, fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>Cancel</button>
+    </span>
+  );
+}
+
+const OPS_SIZES = ["S", "M", "L", "XL", "2XL", "3XL"];
+function OpsNumbers({ slot, onSave }: { slot: any; onSave: (q: Record<string, number>) => void }) {
+  const [openEntry, setOpenEntry] = useState(false);
+  const [q, setQ] = useState<Record<string, string>>(() => {
+    const out: Record<string, string> = {};
+    for (const s of Array.from(new Set([...OPS_SIZES, ...Object.keys(slot.qtys || {})]))) out[s] = slot.qtys?.[s] != null ? String(slot.qtys[s]) : "";
+    return out;
+  });
+  if (!openEntry) {
+    const has = Object.keys(slot.qtys || {}).length > 0;
+    return (
+      <button onClick={() => setOpenEntry(true)}
+        style={{ background: has ? "none" : "#fff", color: has ? H.dim : H.ink, border: has ? `1px solid ${H.line}` : "none", borderRadius: 999, padding: "7px 12px", fontSize: 9, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>
+        {has ? "Edit numbers" : "Enter numbers"}
+      </button>
+    );
+  }
+  return (
+    <span style={{ flexBasis: "100%", display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end", paddingTop: 8 }}>
+      {Object.keys(q).map(sz => (
+        <label key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+          <span style={{ fontSize: 9, fontWeight: 800, color: H.faint, fontFamily: H.mono }}>{sz}</span>
+          <input type="text" inputMode="numeric" value={q[sz]} placeholder="0"
+            onFocus={e => e.currentTarget.select()}
+            onChange={e => setQ(p => ({ ...p, [sz]: e.target.value.replace(/[^0-9]/g, "") }))}
+            style={{ width: 48, padding: "8px 0", textAlign: "center", background: H.surface, border: `1px solid ${H.line}`, borderRadius: 8, color: H.text, fontFamily: H.mono, fontSize: 12.5, fontWeight: 700, outline: "none" }} />
+        </label>
+      ))}
+      <button onClick={() => { const out: Record<string, number> = {}; for (const [k, v] of Object.entries(q)) { const n = Math.round(Number(v) || 0); if (n > 0) out[k] = n; } onSave(out); setOpenEntry(false); }}
+        style={{ background: "#fff", color: H.ink, border: "none", borderRadius: 999, padding: "9px 16px", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>Save</button>
+      <button onClick={() => setOpenEntry(false)} style={{ background: "none", border: "none", color: H.faint, fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>Cancel</button>
+    </span>
+  );
+}
+
+function AddLines({ releaseId, onAdd }: { releaseId: string; onAdd: (body: any) => Promise<boolean> }) {
+  const [openAdd, setOpenAdd] = useState(false);
+  const [cands, setCands] = useState<{ briefs: any[]; pipeItems: any[]; rerunItems: any[] } | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  async function loadCands() {
+    try { setCands(await fetch(`/api/drops/${releaseId}/slots`).then(r => r.json())); }
+    catch { setCands({ briefs: [], pipeItems: [], rerunItems: [] }); }
+  }
+  async function add(id: string, body: any) {
+    setBusyId(id);
+    try { if (await onAdd(body)) await loadCands(); } finally { setBusyId(null); }
+  }
+  if (!openAdd) {
+    return (
+      <div style={{ padding: "12px 0 4px" }}>
+        <button onClick={() => { setOpenAdd(true); loadCands(); }}
+          style={{ borderRadius: 999, border: `1px solid ${H.line}`, background: "transparent", color: H.dim, fontSize: 10, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", padding: "9px 16px", cursor: "pointer", fontFamily: H.font }}>+ Add lines</button>
+      </div>
+    );
+  }
+  const group = (label: string) => (
+    <div style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: H.faint, padding: "8px 0 2px" }}>{label}</div>
+  );
+  const row = (id: string, body: any, thumbId: string | null, name: string, hint: string) => (
+    <button key={id} disabled={busyId === id} onClick={() => add(id, body)}
+      style={{ display: "flex", gap: 10, alignItems: "center", background: H.surface, border: `1px solid ${H.line}`, borderRadius: 10, padding: "8px 10px", cursor: "pointer", textAlign: "left", fontFamily: H.font, color: H.text, width: "100%", opacity: busyId === id ? 0.5 : 1 }}>
+      <span style={{ width: 30, height: 30, background: "#fff", borderRadius: 6, overflow: "hidden", flexShrink: 0 }}>
+        {thumbId && <img src={thumbSrc(thumbId, 100)} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />}
+      </span>
+      <span style={{ minWidth: 0, flex: 1, fontSize: 12, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</span>
+      <span style={{ fontSize: 9.5, fontFamily: H.mono, color: H.faint, whiteSpace: "nowrap" }}>{hint}</span>
+      <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", color: H.text }}>+ Add</span>
+    </button>
+  );
+  return (
+    <div style={{ padding: "12px 0 4px", display: "flex", flexDirection: "column", gap: 6, maxHeight: 300, overflowY: "auto" }}>
+      {cands === null ? (
+        <div style={{ fontSize: 11.5, color: H.faint }}>Loading their studio + pipeline…</div>
+      ) : !cands.briefs.length && !cands.pipeItems.length && !cands.rerunItems.length ? (
+        <div style={{ fontSize: 11.5, color: H.faint }}>Nothing left to pull — everything is on a release, ordered, or in production.</div>
+      ) : (
+        <>
+          {cands.pipeItems.length > 0 && group("From their pipeline")}
+          {cands.pipeItems.map((it: any) => row(it.id, { itemId: it.id }, null, it.name, it.qty ? `${it.qty.toLocaleString()} pcs` : ""))}
+          {cands.rerunItems.length > 0 && group("From their catalog · run it back")}
+          {cands.rerunItems.map((it: any) => row(it.id, { itemId: it.id, rerun: true }, null, it.name, it.qty ? `last run ${it.qty.toLocaleString()} pcs` : "past run"))}
+          {cands.briefs.length > 0 && group("From the studio · not yet ordered")}
+          {cands.briefs.map((b: any) => row(b.id, { briefId: b.id }, b.thumbId, b.title || "Untitled", b.state === "approved" ? "approved" : "in the works"))}
+        </>
+      )}
+      <button onClick={() => setOpenAdd(false)} style={{ alignSelf: "flex-start", background: "none", border: "none", color: H.faint, fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font, padding: "4px 0" }}>Done</button>
     </div>
   );
 }

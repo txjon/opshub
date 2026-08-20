@@ -363,9 +363,18 @@ function DropSheet({ drop, token, briefs, committed, pipeItems, catalogItems, it
             <input defaultValue={drop.title}
               onBlur={e => { const v = e.target.value.trim(); if (v && v !== drop.title) call("PATCH", "", { title: v }).then(ok => ok && onChanged(drop.id)); }}
               style={{ fontSize: 18, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", lineHeight: 1.2, background: "transparent", border: "none", outline: "none", color: C.text, width: "100%", fontFamily: C.font, padding: 0 }} />
-            <div style={{ display: "flex", gap: 10, alignItems: "baseline", marginTop: 4, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 4, flexWrap: "wrap" }}>
               <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.09em", textTransform: "uppercase", color: w.color }}>{w.label}</span>
-              {drop.target_live_date && <span style={{ fontSize: 10.5, fontFamily: C.mono, color: C.faint }}>target live {fmtDate(drop.target_live_date)}</span>}
+              {building ? (
+                <label style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
+                  <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: C.faint }}>Target live</span>
+                  <input type="date" defaultValue={drop.target_live_date || ""}
+                    onBlur={e => { if (e.target.value !== (drop.target_live_date || "")) call("PATCH", "", { target_live_date: e.target.value || null }).then(ok => ok && onChanged(drop.id)); }}
+                    style={{ padding: "7px 9px", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, outline: "none", color: C.text, fontFamily: C.font, fontSize: 11.5, colorScheme: "dark" }} />
+                </label>
+              ) : drop.target_live_date ? (
+                <span style={{ fontSize: 10.5, fontFamily: C.mono, color: C.faint }}>target live {fmtDate(drop.target_live_date)}</span>
+              ) : null}
             </div>
           </div>
           <button onClick={onClose} aria-label="Close" style={{ background: "none", border: "none", color: C.muted, fontSize: 26, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>
