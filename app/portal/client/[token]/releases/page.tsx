@@ -440,16 +440,23 @@ function DropSheet({ drop, token, briefs, committed, pipeItems, catalogItems, it
                 <span style={{ minWidth: 0, flex: 1 }}>
                   <span style={{ display: "block", fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.format || "Item"}{s.ideaTitle ? <span style={{ color: C.faint, fontWeight: 600, textTransform: "none" }}> · {s.ideaTitle}</span> : null}</span>
                   <span style={{ display: "block", fontSize: 10, fontFamily: C.mono, color: C.muted, marginTop: 2 }}>
-                    {s.rerun && !cut
-                      ? `new run${lu.total > 0 ? ` · this run ${lu.total.toLocaleString()} pcs` : lastRunPcs > 0 ? ` · last run ${lastRunPcs.toLocaleString()} pcs` : ""}${s.retail != null ? ` · $${s.retail} retail` : ""}`
-                      : s.itemId
-                        ? `${lu.total.toLocaleString()} pcs${pit?.eta ? ` · ${landsWord(pit.eta)}` : ""}`
-                        : `${s.retail != null ? `$${s.retail} retail` : "retail TBD"}${s.model ? ` · ${s.model === "preorder" ? "pre-order" : s.model === "not_sure" ? "model TBD" : "fixed run"}` : ""}`}
+                    {/* Post-handoff the lineup is just the lineup — no run
+                        statuses, no ETAs (Jon, Aug 20: production logistics
+                        are our altitude, not the client's). */}
+                    {!building
+                      ? (s.retail != null ? `$${s.retail} retail` : "")
+                      : s.rerun
+                        ? `new run${lu.total > 0 ? ` · this run ${lu.total.toLocaleString()} pcs` : lastRunPcs > 0 ? ` · last run ${lastRunPcs.toLocaleString()} pcs` : ""}${s.retail != null ? ` · $${s.retail} retail` : ""}`
+                        : s.itemId
+                          ? `${lu.total.toLocaleString()} pcs${pit?.eta ? ` · ${landsWord(pit.eta)}` : ""}`
+                          : `${s.retail != null ? `$${s.retail} retail` : "retail TBD"}${s.model ? ` · ${s.model === "preorder" ? "pre-order" : s.model === "not_sure" ? "model TBD" : "fixed run"}` : ""}`}
                   </span>
                 </span>
-                <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: (s.briefState === "killed" || s.briefState === "shelved") && !s.itemId ? C.red : TONE[meta.tone], whiteSpace: "nowrap" }}>
-                  {(s.briefState === "killed" || s.briefState === "shelved") && !s.itemId ? "Removed in studio" : meta.label}
-                </span>
+                {((s.briefState === "killed" || s.briefState === "shelved") && !s.itemId) ? (
+                  <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: C.red, whiteSpace: "nowrap" }}>Removed in studio</span>
+                ) : building ? (
+                  <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: TONE[meta.tone], whiteSpace: "nowrap" }}>{meta.label}</span>
+                ) : null}
                 {building && (!s.itemId || s.rerun) && <SlotSpecEdit slot={s} onSave={async (patch) => { if (await call("PATCH", "/slots", { slotId: s.id, ...patch })) onChanged(drop.id); }} />}
                 {building && (
                   <button onClick={async () => { setBusy(s.id); if (await call("DELETE", `/slots?slotId=${s.id}`)) onChanged(drop.id); setBusy(null); }}

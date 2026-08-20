@@ -43,6 +43,7 @@ export default function DropsBoard() {
   const supabase = createClient();
   const [rows, setRows] = useState<any[] | null>(null);
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
+  const [itemThumbs, setItemThumbs] = useState<Record<string, string>>({});
   const [open, setOpen] = useState<any>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState("");
@@ -66,6 +67,26 @@ export default function DropsBoard() {
       for (const s of (slots || []) as any[]) {
         (slotsByRelease[s.release_id] = slotsByRelease[s.release_id] || []).push(s);
         if (s.brief_id) briefIds.push(s.brief_id);
+      }
+      // Item-sourced lines (pipeline/re-run) have no brief — their face is
+      // the item's newest mockup/proof/print-ready (the hub items rule).
+      const itemIds = Array.from(new Set((slots || []).map((s: any) => s.item_id).filter(Boolean)));
+      if (itemIds.length) {
+        const { data: ifiles } = await supabase.from("item_files")
+          .select("item_id, stage, drive_file_id, created_at")
+          .in("item_id", itemIds)
+          .in("stage", ["mockup", "proof", "print_ready"])
+          .is("superseded_at", null)
+          .not("drive_file_id", "is", null)
+          .order("created_at", { ascending: false });
+        const rank: Record<string, number> = { mockup: 3, proof: 2, print_ready: 1 };
+        const bestRank: Record<string, number> = {};
+        const t: Record<string, string> = {};
+        for (const f of (ifiles || []) as any[]) {
+          const rk = rank[f.stage] || 0;
+          if (rk > (bestRank[f.item_id] || 0)) { bestRank[f.item_id] = rk; t[f.item_id] = f.drive_file_id; }
+        }
+        setItemThumbs(t);
       }
       // Buy runs per line (Phase 4): every item pointing home via
       // release_slot_id — bought/delivered aggregate from these.
@@ -185,7 +206,7 @@ export default function DropsBoard() {
                       <span style={{ display: "flex" }}>
                         {r.slots.slice(0, 4).map((s: any, i: number) => (
                           <span key={s.id} style={{ width: 38, height: 38, borderRadius: 8, overflow: "hidden", background: "#fff", border: `2px solid ${H.panel}`, marginLeft: i ? -10 : 0, display: "inline-flex" }}>
-                            {thumbs[s.brief_id] && <img src={thumbSrc(thumbs[s.brief_id], 100)} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />}
+                            {(thumbs[s.brief_id] || itemThumbs[s.item_id]) && <img src={thumbSrc(thumbs[s.brief_id] || itemThumbs[s.item_id], 100)} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />}
                           </span>
                         ))}
                       </span>
@@ -292,7 +313,7 @@ export default function DropsBoard() {
                   return (
                     <div key={s.id} style={{ display: "flex", gap: 12, alignItems: "center", padding: "9px 0", borderBottom: `1px solid ${H.line}`, flexWrap: "wrap" }}>
                       <span style={{ width: 40, height: 40, background: "#fff", borderRadius: 8, overflow: "hidden", flexShrink: 0, display: "inline-flex" }}>
-                        {thumbs[s.brief_id] && <img src={thumbSrc(thumbs[s.brief_id], 100)} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />}
+                        {(thumbs[s.brief_id] || itemThumbs[s.item_id]) && <img src={thumbSrc(thumbs[s.brief_id] || itemThumbs[s.item_id], 100)} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />}
                       </span>
                       <span style={{ minWidth: 0, flex: 1 }}>
                         <span style={{ display: "block", fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
