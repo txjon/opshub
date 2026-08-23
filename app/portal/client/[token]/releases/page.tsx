@@ -11,8 +11,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useClientPortal } from "../_shared/context";
 import { C, fmtDate } from "../_shared/theme";
 import { backwardChain, CHAIN_DEFAULTS } from "@/lib/portal/drop-chain";
+import { lineUnits, lineState, LINE_LABELS, type LineTone } from "@/lib/release-lanes";
 
 const thumbSrc = (id: string, size = 300) => `/api/files/thumbnail?id=${id}&thumb=1&size=${size}`;
+// Honest landing copy: a past ETA reads "was due", never a confident future.
+const landsWord = (eta: string) => `${eta < new Date().toISOString().slice(0, 10) ? "was due" : "lands"} ${fmtDate(eta)}`;
+const TONE: Record<LineTone, string> = { green: C.green, amber: C.amber, blue: C.blue, purple: C.purple };
 
 const STATUS_WORDS: Record<string, { label: string; color: string; hint: string }> = {
   building: { label: "Building", color: C.amber, hint: "pull designs on, then send it to us" },
@@ -50,11 +54,23 @@ export default function ReleasesPage() {
       return (body.drops || []) as any[];
     } catch { setDrops([]); return [] as any[]; }
   }
+  async function loadItems() {
+    try {
+      const b = await fetch(`/api/portal/client/${token}/items`).then(r => r.json());
+      setAllItems(b.items || []);
+    } catch { setAllItems(prev => prev || []); }
+  }
   useEffect(() => {
     load();
-    fetch(`/api/portal/client/${token}/items`).then(r => r.json())
-      .then(b => setAllItems(b.items || []))
-      .catch(() => setAllItems([]));
+    loadItems();
+    // eslint-disable-next-line
+  }, [token]);
+  // Stale-panel guard: refetch when the tab regains focus so an open sheet
+  // never shows yesterday's statuses or numbers.
+  useEffect(() => {
+    const onFocus = () => { load(); loadItems(); };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
     // eslint-disable-next-line
   }, [token]);
 
@@ -203,13 +219,13 @@ export default function ReleasesPage() {
             const w = STATUS_WORDS[d.status] || { label: d.status, color: C.faint, hint: "" };
             const ready = d.slots.filter((s: any) => s.ideaApproved).length;
             return (
-              <button key={d.id} onClick={() => setOpen(d)}
+              <button key={d.id} onClick={() => { setOpen(d); load(d.id); }}
                 style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: "16px 18px", cursor: "pointer", textAlign: "left", fontFamily: C.font, color: C.text }}>
                 <div style={{ display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap" }}>
                   <span style={{ fontSize: 17, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em" }}>{d.title}</span>
                   <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.09em", textTransform: "uppercase", color: w.color }}>{w.label}</span>
                   {d.target_live_date && <span style={{ fontSize: 10.5, fontFamily: C.mono, color: C.faint }}>live {fmtDate(d.target_live_date)}</span>}
-                  <span style={{ marginLeft: "auto", fontSize: 10.5, fontFamily: C.mono, color: C.muted }}>{d.slots.length} line{d.slots.length === 1 ? "" : "s"}{d.status === "building" && d.slots.length ? ` · ${ready}/${d.slots.length} ready` : ""}</span>
+                  <span style={{ marginLeft: "auto", fontSize: 10.5, fontFamily: C.mono, color: C.muted }}>{d.slots.length} line{d.slots.length === 1 ? "" : "s"}{d.status === "building" && d.slots.length ? ` · ${ready}/${d.slots.length} approved` : ""}</span>
                 </div>
                 {d.status === "cut" && d.payable?.state === "ready" ? (
                   <div style={{ fontSize: 11, color: C.amber, fontWeight: 800, marginTop: 4, letterSpacing: "0.04em" }}>Invoice {d.payable.invoiceNumber ? `#${d.payable.invoiceNumber}` : ""} ready to pay</div>
@@ -349,16 +365,28 @@ function DropSheet({ drop, token, briefs, committed, pipeItems, catalogItems, it
             <input defaultValue={drop.title}
               onBlur={e => { const v = e.target.value.trim(); if (v && v !== drop.title) call("PATCH", "", { title: v }).then(ok => ok && onChanged(drop.id)); }}
               style={{ fontSize: 18, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", lineHeight: 1.2, background: "transparent", border: "none", outline: "none", color: C.text, width: "100%", fontFamily: C.font, padding: 0 }} />
-            <div style={{ display: "flex", gap: 10, alignItems: "baseline", marginTop: 4, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 4, flexWrap: "wrap" }}>
               <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.09em", textTransform: "uppercase", color: w.color }}>{w.label}</span>
-              {drop.target_live_date && <span style={{ fontSize: 10.5, fontFamily: C.mono, color: C.faint }}>target live {fmtDate(drop.target_live_date)}</span>}
+              {building ? (
+                <label style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
+                  <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: C.faint }}>Target live</span>
+                  <input type="date" defaultValue={drop.target_live_date || ""}
+                    onBlur={e => { if (e.target.value !== (drop.target_live_date || "")) call("PATCH", "", { target_live_date: e.target.value || null }).then(ok => ok && onChanged(drop.id)); }}
+                    style={{ padding: "7px 9px", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, outline: "none", color: C.text, fontFamily: C.font, fontSize: 11.5, colorScheme: "dark" }} />
+                </label>
+              ) : drop.target_live_date ? (
+                <span style={{ fontSize: 10.5, fontFamily: C.mono, color: C.faint }}>target live {fmtDate(drop.target_live_date)}</span>
+              ) : null}
             </div>
           </div>
           <button onClick={onClose} aria-label="Close" style={{ background: "none", border: "none", color: C.muted, fontSize: 26, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>
         </div>
 
         {/* ── The countdown — the date chain run backward from web-live ── */}
-        {drop.target_live_date && ["building", "ready"].includes(drop.status) && (() => {
+        {/* Backward chain = OUR production schedule. While building it's the
+            "pick a realistic date" nudge; after handoff it's internal
+            machinery (all-passed red rows meant nothing to the client). */}
+        {drop.target_live_date && drop.status === "building" && (() => {
           const steps = backwardChain(drop.target_live_date);
           const today = new Date().toISOString().slice(0, 10);
           const nextIdx = steps.findIndex(s => s.date >= today);
@@ -395,14 +423,18 @@ function DropSheet({ drop, token, briefs, committed, pipeItems, catalogItems, it
         {/* ── The lineup ── */}
         <div style={{ padding: "12px 20px 0" }}>
           <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: C.faint, marginBottom: 8 }}>
-            The lineup {drop.slots.length > 0 && <span style={{ color: allReady ? C.green : C.amber }}>· {ready}/{drop.slots.length} ready</span>}
+            The lineup {building && drop.slots.length > 0 && <span style={{ color: allReady ? C.green : C.amber }}>· {ready}/{drop.slots.length} approved</span>}
           </div>
           {drop.slots.length === 0 && <div style={{ fontSize: 12.5, color: C.faint, paddingBottom: 8 }}>Nothing on it yet. Pull designs on below.</div>}
           {drop.slots.map((s: any) => {
             const pit = s.itemId ? itemById(s.itemId) : null;
             const b = s.briefId ? briefById(s.briefId) : null;
             const src = pit?.thumb_id ? thumbSrc(pit.thumb_id) : (b ? briefThumb(b) : null);
-            const lastRun = Object.values(s.qtys || {}).reduce((a: number, x: any) => a + Number(x), 0);
+            const cut = drop.status === "cut";
+            const lu = lineUnits(s, pit, cut);
+            const lastRunPcs = s.rerun && !cut ? (pit?.qty || 0) : 0;
+            const st = lineState(s, pit, { releaseCut: cut, briefState: s.briefState });
+            const meta = LINE_LABELS.client[st];
             return (
               <div key={s.id} style={{ display: "flex", gap: 12, alignItems: "center", padding: "9px 0", borderBottom: `1px solid ${C.border}`, flexWrap: "wrap" }}>
                 <span style={{ width: 40, height: 40, background: "#fff", borderRadius: 8, overflow: "hidden", flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
@@ -411,16 +443,23 @@ function DropSheet({ drop, token, briefs, committed, pipeItems, catalogItems, it
                 <span style={{ minWidth: 0, flex: 1 }}>
                   <span style={{ display: "block", fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.format || "Item"}{s.ideaTitle ? <span style={{ color: C.faint, fontWeight: 600, textTransform: "none" }}> · {s.ideaTitle}</span> : null}</span>
                   <span style={{ display: "block", fontSize: 10, fontFamily: C.mono, color: C.muted, marginTop: 2 }}>
-                    {s.rerun
-                      ? `new run${lastRun > 0 ? ` · last run ${lastRun.toLocaleString()} pcs` : ""}${s.retail != null ? ` · $${s.retail} retail` : ""}`
-                      : s.itemId
-                        ? `${(pit?.qty || lastRun).toLocaleString()} pcs${pit?.eta ? ` · lands ${fmtDate(pit.eta)}` : ""}`
-                        : `${s.retail != null ? `$${s.retail} retail` : "retail TBD"}${s.model ? ` · ${s.model === "preorder" ? "pre-order" : s.model === "not_sure" ? "model TBD" : "fixed run"}` : ""}`}
+                    {/* Post-handoff the lineup is just the lineup — no run
+                        statuses, no ETAs (Jon, Aug 20: production logistics
+                        are our altitude, not the client's). */}
+                    {!building
+                      ? (s.retail != null ? `$${s.retail} retail` : "")
+                      : s.rerun
+                        ? `new run${lu.total > 0 ? ` · this run ${lu.total.toLocaleString()} pcs` : lastRunPcs > 0 ? ` · last run ${lastRunPcs.toLocaleString()} pcs` : ""}${s.retail != null ? ` · $${s.retail} retail` : ""}`
+                        : s.itemId
+                          ? `${lu.total.toLocaleString()} pcs${pit?.eta ? ` · ${landsWord(pit.eta)}` : ""}`
+                          : `${s.retail != null ? `$${s.retail} retail` : "retail TBD"}${s.model ? ` · ${s.model === "preorder" ? "pre-order" : s.model === "not_sure" ? "model TBD" : "fixed run"}` : ""}`}
                   </span>
                 </span>
-                <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: (s.briefState === "killed" || s.briefState === "shelved") && !s.itemId ? C.red : s.ideaApproved ? C.green : C.amber, whiteSpace: "nowrap" }}>
-                  {(s.briefState === "killed" || s.briefState === "shelved") && !s.itemId ? "Removed in studio" : s.rerun ? "Run it back" : s.itemId ? "In the pipeline" : s.ideaApproved ? "Ready" : "Design pending"}
-                </span>
+                {((s.briefState === "killed" || s.briefState === "shelved") && !s.itemId) ? (
+                  <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: C.red, whiteSpace: "nowrap" }}>Removed in studio</span>
+                ) : building ? (
+                  <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: TONE[meta.tone], whiteSpace: "nowrap" }}>{meta.label}</span>
+                ) : null}
                 {building && (!s.itemId || s.rerun) && <SlotSpecEdit slot={s} onSave={async (patch) => { if (await call("PATCH", "/slots", { slotId: s.id, ...patch })) onChanged(drop.id); }} />}
                 {building && (
                   <button onClick={async () => { setBusy(s.id); if (await call("DELETE", `/slots?slotId=${s.id}`)) onChanged(drop.id); setBusy(null); }}
@@ -456,7 +495,7 @@ function DropSheet({ drop, token, briefs, committed, pipeItems, catalogItems, it
                     </span>
                     <span style={{ minWidth: 0, flex: 1, fontSize: 12, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.name}</span>
                     <span style={{ fontSize: 10, fontFamily: C.mono, whiteSpace: "nowrap", color: it.status === "in_stock" ? C.green : it.eta ? C.muted : C.faint, fontWeight: it.status === "in_stock" ? 800 : 500 }}>
-                      {it.qty ? `${it.qty.toLocaleString()} pcs · ` : ""}{it.status === "in_stock" ? "ready now" : it.eta ? `lands ${fmtDate(it.eta)}` : "date TBD"}
+                      {it.qty ? `${it.qty.toLocaleString()} pcs · ` : ""}{it.status === "in_stock" ? "ready now" : it.eta ? landsWord(it.eta) : "date TBD"}
                     </span>
                     <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", color: C.text }}>+ Add</span>
                   </button>

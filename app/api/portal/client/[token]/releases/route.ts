@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
-import { isRerunLineId } from "@/lib/release-lanes";
+import { isRerunLineId, briefApproved } from "@/lib/release-lanes";
 import { hubClientLookup } from "@/lib/hub-client";
 
 export const runtime = "nodejs";
@@ -16,8 +16,6 @@ export const dynamic = "force-dynamic";
 function admin() {
   return createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 }
-
-const APPROVED = ["approved"];
 
 async function ctxOf(token: string) {
   const db = admin();
@@ -58,7 +56,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
           briefState: s.art_briefs?.state || null,
           // item-sourced lines are real by definition — always ready
           // (pipeline: the run exists; re-run: the design + proofs exist)
-          ideaApproved: s.item_id ? true : APPROVED.includes(s.art_briefs?.state),
+          ideaApproved: s.item_id ? true : briefApproved(s.art_briefs?.state),
         });
       }
     }

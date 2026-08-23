@@ -5,8 +5,12 @@ import { createClient as createAdmin } from "@supabase/supabase-js";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Internal drops board — status transitions + sale-window edits.
+// Internal drops board — status transitions + release edits (full ops
+// parity, Aug 20 2026: title + target_live_date editable on any PRE-CUT
+// release, so ops can set target dates while a release is still building
+// and fill the lineup in over time).
 // PATCH { action?: 'live' | 'closed' | 'shelved' | 'building',
+//         title?: string, target_live_date?: 'YYYY-MM-DD' | null,
 //         window_close_date?: 'YYYY-MM-DD' | null }
 //   ready → live → closed (the sale lifecycle); shelved from anywhere
 //   pre-cut; building reopens a shelved/ready drop for the client.
@@ -17,6 +21,9 @@ function admin() {
 }
 
 const ALLOWED: Record<string, string[]> = {
+  // ready from building = the ops-side submit (full parity — the hub's
+  // "hand it off" verb was client-only, stranding phone-call releases).
+  ready: ["building"],
   live: ["ready"],
   closed: ["live"],
   shelved: ["building", "ready", "live", "closed"],
@@ -47,6 +54,13 @@ export async function PATCH(req: NextRequest, { params }: { params: { releaseId:
     }
     if (body.window_close_date !== undefined) {
       updates.window_close_date = /^\d{4}-\d{2}-\d{2}$/.test(String(body.window_close_date || "")) ? body.window_close_date : null;
+    }
+    if (body.title !== undefined || body.target_live_date !== undefined) {
+      if ((release as any).status === "cut") return NextResponse.json({ error: "This release is already cut" }, { status: 409 });
+      if (typeof body.title === "string" && body.title.trim()) updates.title = body.title.trim().slice(0, 120);
+      if (body.target_live_date !== undefined) {
+        updates.target_live_date = /^\d{4}-\d{2}-\d{2}$/.test(String(body.target_live_date || "")) ? body.target_live_date : null;
+      }
     }
     if (Object.keys(updates).length === 1) return NextResponse.json({ error: "Nothing to do" }, { status: 400 });
     const { error } = await db.from("releases").update(updates).eq("id", params.releaseId);
