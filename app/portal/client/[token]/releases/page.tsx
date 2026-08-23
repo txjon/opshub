@@ -383,7 +383,10 @@ function DropSheet({ drop, token, briefs, committed, pipeItems, catalogItems, it
         </div>
 
         {/* ── The countdown — the date chain run backward from web-live ── */}
-        {drop.target_live_date && ["building", "ready"].includes(drop.status) && (() => {
+        {/* Backward chain = OUR production schedule. While building it's the
+            "pick a realistic date" nudge; after handoff it's internal
+            machinery (all-passed red rows meant nothing to the client). */}
+        {drop.target_live_date && drop.status === "building" && (() => {
           const steps = backwardChain(drop.target_live_date);
           const today = new Date().toISOString().slice(0, 10);
           const nextIdx = steps.findIndex(s => s.date >= today);
