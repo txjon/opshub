@@ -580,6 +580,8 @@ function PreorderLedger({ r, onSlotPatch, onRefresh, setTopErr }: {
         <span style={{ ...label, color: H.amber }}>◆ Pre-order ledger</span>
         <span style={{ fontSize: 10, fontFamily: H.mono, color: H.faint }}>sold is the only number you type — bought + landed track the runs</span>
         <span style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+          <a href={`/api/pdf/release-ledger/${r.id}?download=1`}
+            style={{ display: "inline-block", background: "none", border: `1px solid ${H.line}`, borderRadius: 999, padding: "8px 14px", fontSize: 9, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", color: H.dim, textDecoration: "none", fontFamily: H.font }}>Export PDF</a>
           <button onClick={() => { setImportOpen(v => !v); setBuyOpen(false); }}
             style={{ background: "none", border: `1px solid ${H.line}`, borderRadius: 999, padding: "8px 14px", fontSize: 9, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", color: H.dim, cursor: "pointer", fontFamily: H.font }}>Import sold counts</button>
           <button onClick={() => { setBuyOpen(v => !v); setImportOpen(false); }}
