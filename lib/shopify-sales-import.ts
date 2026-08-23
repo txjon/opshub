@@ -67,6 +67,11 @@ const sizeOf = (variant: string): string => {
   return v.toUpperCase();
 };
 
+// Listings for a pre-order window carry a " - Pre-Order" suffix the base
+// product doesn't (FOG's real store, 2026-08-23). Exact match first; then
+// retry with that one suffix stripped — deterministic, never fuzzy.
+const stripPreorder = (s: string) => s.replace(/\s*[-–—·:(]?\s*pre[- ]?order\)?\s*$/i, "").trim();
+
 export function matchSalesToSlots(
   rows: SalesRow[],
   slots: { id: string; name: string }[],
@@ -77,7 +82,7 @@ export function matchSalesToSlots(
   const matched: SalesRow[] = [];
   const unmatched: SalesRow[] = [];
   for (const r of rows) {
-    const slotId = byName.get(norm(r.product));
+    const slotId = byName.get(norm(r.product)) ?? byName.get(norm(stripPreorder(r.product)));
     if (!slotId) { unmatched.push(r); continue; }
     const size = sizeOf(r.variant);
     (bySlot[slotId] ||= {})[size] = ((bySlot[slotId] || {})[size] || 0) + Math.max(0, r.qty);
