@@ -336,7 +336,10 @@ export default function DropsBoard() {
                         {s.line_notes && <span style={{ display: "block", fontSize: 11, color: H.dim, marginTop: 3, lineHeight: 1.45 }}>{s.line_notes}</span>}
                       </span>
                       <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: TONE[meta.tone], whiteSpace: "nowrap" }}>{meta.label}</span>
-                      {!cut && !isPipelineSlot(s) && (
+                      {/* Spec (format/retail) is release-level pricing — every
+                          line gets it. Numbers stays non-pipeline only: a
+                          pipeline line's quantities ARE its run's curve. */}
+                      {!cut && (
                         <OpsSpec key={`sp-${s.id}-${s.format}-${s.retail}`} slot={s}
                           onSave={(patch) => slotAct(r, "PATCH", { slotId: s.id, ...patch })} />
                       )}
