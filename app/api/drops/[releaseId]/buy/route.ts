@@ -60,7 +60,7 @@ export async function POST(req: NextRequest, { params }: { params: { releaseId: 
     }
 
     const { data: lastJob } = await db.from("jobs")
-      .select("job_type, payment_terms, shipping_route")
+      .select("id, job_type, payment_terms, shipping_route")
       .eq("client_id", (release as any).client_id)
       .order("created_at", { ascending: false }).limit(1);
     const { count: priorBuys } = await db.from("jobs")
@@ -80,6 +80,18 @@ export async function POST(req: NextRequest, { params }: { params: { releaseId: 
     }).select("id, job_number").single();
     if (jobErr || !newJob) return NextResponse.json({ error: jobErr?.message || "Couldn't create job" }, { status: 500 });
     const jobId = (newJob as any).id;
+
+    // Contacts ride along (Jon, Aug 23: cut job had no invoice recipients) —
+    // same rule as the reorder cart: copy from the client's latest job.
+    const srcJobId = (lastJob as any)?.[0]?.id;
+    if (srcJobId) {
+      const { data: srcContacts } = await db.from("job_contacts").select("contact_id, role_on_job").eq("job_id", srcJobId);
+      if ((srcContacts || []).length) {
+        await db.from("job_contacts").insert((srcContacts || []).map((c: any) => ({
+          job_id: jobId, contact_id: c.contact_id, role_on_job: c.role_on_job,
+        })));
+      }
+    }
 
     let itemCount = 0;
     for (let i = 0; i < buys.length; i++) {
