@@ -62,7 +62,7 @@ export default function DropsBoard() {
       // pointer), so the embed must name the slot→item FK explicitly or
       // PostgREST refuses the whole query.
       const { data: slots, error: slotsErr } = await supabase.from("release_slots")
-        .select("*, art_briefs(id, title, state), items!release_slots_item_id_fkey(id, name, pipeline_stage, received_at_hpd, webstore_entered_at, forwarded_at, received_qtys, buy_sheet_lines(size, qty_ordered))")
+        .select("*, art_briefs(id, title, state), items!release_slots_item_id_fkey(id, name, pipeline_stage, received_at_hpd, webstore_entered_at, forwarded_at, received_qtys, buy_sheet_lines(size, qty_ordered), jobs(id, job_number, phase))")
         .in("release_id", ids).order("sort_order");
       if (slotsErr) setErr(`Couldn't load release lines: ${slotsErr.message}`);
       for (const s of (slots || []) as any[]) {
@@ -690,21 +690,33 @@ function LedgerLine({ slot, led, onSlotPatch, clientId, onRefresh }: {
         <button onClick={() => { setAttachOpen(v => !v); if (!cands) loadAttach(); }}
           style={{ marginLeft: "auto", background: "none", border: "none", color: H.blue, fontSize: 9.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>+ Attach a run</button>
       </div>
-      {(slot._buys || []).length > 0 && (
+      {(() => {
+        // The line's runs = the slot's own linked item (pipeline lines — in
+        // the ledger via runsOf but linked by slot.item_id, not the buy
+        // pointer) + every attached buy. The linked run can't detach.
+        const linked = isPipelineSlot(slot) && slot.items
+          ? [{ id: slot.item_id, name: slot.items.name, received_qtys: slot.items.received_qtys, buy_sheet_lines: slot.items.buy_sheet_lines, jobs: slot.items.jobs, _linked: true }]
+          : [];
+        const runList = [...linked, ...(slot._buys || []).filter((b: any) => !linked.some(l => l.id === b.id))];
+        return runList.length > 0 && (
         <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
-          {(slot._buys || []).map((b: any) => (
+          {runList.map((b: any) => (
             <div key={b.id} style={{ display: "flex", gap: 10, alignItems: "center", fontSize: 10.5, fontFamily: H.mono, color: H.dim }}>
               <span style={{ color: H.text, fontWeight: 700 }}>{b.jobs?.job_number || "—"}</span>
               <span>{b.jobs?.phase || ""}</span>
               <span>ordered {(b.buy_sheet_lines || []).reduce((a: number, l: any) => a + (Number(l.qty_ordered) || 0), 0).toLocaleString()}</span>
               <span>landed {Object.values(b.received_qtys || {}).reduce((a: number, v: any) => a + (Number(v) || 0), 0).toLocaleString()}</span>
               {b.jobs?.id && <a href={`/jobs/${b.jobs.id}`} target="_blank" rel="noreferrer" style={{ color: H.blue, textDecoration: "none" }}>open ↗</a>}
-              <button onClick={() => onSlotPatch({ slotId: slot.id, detachItemId: b.id })} aria-label="Detach run"
-                style={{ background: "none", border: "none", color: H.faint, fontSize: 13, cursor: "pointer", lineHeight: 1, marginLeft: "auto" }}>×</button>
+              {b._linked ? (
+                <span style={{ marginLeft: "auto", fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: H.faint }}>On the release</span>
+              ) : (
+                <button onClick={() => onSlotPatch({ slotId: slot.id, detachItemId: b.id })} aria-label="Detach run"
+                  style={{ background: "none", border: "none", color: H.faint, fontSize: 13, cursor: "pointer", lineHeight: 1, marginLeft: "auto" }}>×</button>
+              )}
             </div>
           ))}
         </div>
-      )}
+      ); })()}
       {attachOpen && (
         <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4, maxHeight: 180, overflowY: "auto" }}>
           {cands === null ? <span style={{ fontSize: 10.5, color: H.faint }}>Loading unattached runs…</span> :
