@@ -729,12 +729,27 @@ function BuyPanel({ r, onDone, setTopErr }: { r: any; onDone: () => Promise<void
   const initial = r.slots
     .map((s: any) => ({ s, led: ledgerOf(s), suggest: suggestNextBuy(ledgerOf(s), Number(s.overage_pct) || 0) }))
     .filter((x: any) => Object.values(x.suggest).reduce((a: number, b: any) => a + b, 0) > 0);
-  type BuyRow = { slotId: string; include: boolean; finalName: string; qtys: Record<string, string> };
+  type BuyRow = { slotId: string; include: boolean; finalName: string; pct: string; qtys: Record<string, string> };
   const [rows, setRows] = useState<BuyRow[]>(() => initial.map((x: any): BuyRow => ({
     slotId: x.s.id, include: true,
     finalName: String(x.s.format || x.s.items?.name || "").trim(),
+    pct: String(Number(x.s.overage_pct) || 0),
     qtys: Object.fromEntries(Object.entries(x.suggest).map(([k, v]) => [k, String(v)])) as Record<string, string>,
   })));
+  // Buffer control lives here, where the buy decision happens (Jon, Aug 23:
+  // "didn't see anywhere to add a buffer"). Changing it re-suggests that
+  // row's sizes from the ledger and persists the per-line policy.
+  function setPct(i: number, pct: string) {
+    setRows(p => p.map((y, j) => {
+      if (j !== i) return y;
+      const led = initial.find((x: any) => x.s.id === y.slotId)?.led;
+      const suggest = led ? suggestNextBuy(led, Number(pct) || 0) : {};
+      return { ...y, pct, qtys: Object.fromEntries(Object.entries(suggest).map(([k, v]) => [k, String(v)])) };
+    }));
+  }
+  async function persistPct(row: BuyRow) {
+    await fetch(`/api/drops/${r.id}/slots`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ slotId: row.slotId, overagePct: Number(row.pct) || 0 }) }).catch(() => {});
+  }
   const [busyBuy, setBusyBuy] = useState(false);
   const [jobLink, setJobLink] = useState<{ id: string; number: string } | null>(null);
   if (jobLink) {
@@ -772,6 +787,12 @@ function BuyPanel({ r, onDone, setTopErr }: { r: any; onDone: () => Promise<void
           <input value={x.finalName} placeholder="Final Shopify product name"
             onChange={e => setRows(p => p.map((y, j) => j === i ? { ...y, finalName: e.target.value } : y))}
             style={{ flex: 1, minWidth: 180, padding: "8px 10px", background: H.surface, border: `1px solid ${x.include && !x.finalName.trim() ? H.red : H.line}`, borderRadius: 8, color: H.text, fontSize: 12, outline: "none", fontFamily: H.font }} />
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 9.5, fontFamily: H.mono, color: H.dim }} title="Buffer: buy = sold × (1 + overage%) − bought. Changing it re-suggests the sizes.">
+            +<input value={x.pct} inputMode="decimal"
+              onChange={e => setPct(i, e.target.value.replace(/[^0-9.]/g, ""))}
+              onBlur={() => persistPct(x)}
+              style={{ width: 36, padding: "7px 0", textAlign: "center", background: H.surface, border: `1px solid ${H.line}`, borderRadius: 7, color: H.amber, fontFamily: H.mono, fontSize: 11, fontWeight: 700, outline: "none" }} />%
+          </label>
           {sortSizes(Object.keys(x.qtys)).map(sz => (
             <label key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
               <span style={{ fontSize: 8.5, fontWeight: 800, color: H.faint, fontFamily: H.mono }}>{sz}</span>
