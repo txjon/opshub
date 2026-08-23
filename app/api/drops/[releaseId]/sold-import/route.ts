@@ -7,14 +7,18 @@ import { isPipelineSlot } from "@/lib/release-lanes";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Sold import (Continuum Phase 4) — paste Shopify's "Sales by product
-// variant" CSV, date-scoped by the operator to the sell window. Matches
-// rows to release lines by FINAL PRODUCT NAME + size (the naming gate's
-// join key) and REPLACES each matched line's sold_qtys — the report is
-// authoritative for the window. Unmatched rows are returned, never
-// silently dropped. Never inventory-derived.
+// Sold import (Continuum Phase 4) — Shopify's "Sales by product variant"
+// CSV, date-scoped by the operator to the sell window. Matches rows to
+// release lines by FINAL PRODUCT NAME + size (the naming gate's join key)
+// and REPLACES each matched line's sold_qtys — the report is authoritative
+// for the window. Unmatched rows are returned, never silently dropped.
+// Never inventory-derived.
 //
-// POST { csv } → { applied: [{ slotId, name, total }], unmatched: [...] }
+// Two modes (the board previews client-side with the same lib, then sends
+// only the operator-confirmed lines):
+//   POST { csv }                              → parse+match+apply all
+//   POST { apply: { [slotId]: { size: n } } } → apply the confirmed subset
+// Both → { applied: [{ slotId, name, total }], unmatched: [...] }
 
 function admin() {
   return createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
@@ -32,8 +36,6 @@ export async function POST(req: NextRequest, { params }: { params: { releaseId: 
     if ((release as any).status === "cut") return NextResponse.json({ error: "This release is already cut" }, { status: 409 });
 
     const body = await req.json().catch(() => ({}));
-    const parsed = parseSalesCsv(String(body.csv || ""));
-    if (parsed.error) return NextResponse.json({ error: parsed.error }, { status: 400 });
 
     // FK hint required — items↔release_slots has two relationships (mig 162).
     const { data: slots } = await db.from("release_slots")
@@ -46,7 +48,27 @@ export async function POST(req: NextRequest, { params }: { params: { releaseId: 
       pipeline: isPipelineSlot(s),
     })).filter(s => s.name);
 
-    const { bySlot, unmatched } = matchSalesToSlots(parsed.rows, named);
+    let bySlot: Record<string, Record<string, number>>;
+    let unmatched: unknown[] = [];
+    if (body.apply && typeof body.apply === "object") {
+      // Confirmed subset from the board's preview — clean, restrict to
+      // this release's slots.
+      const slotIds = new Set(named.map(s => s.id));
+      bySlot = {};
+      for (const [slotId, qtys] of Object.entries(body.apply as Record<string, Record<string, unknown>>)) {
+        if (!slotIds.has(slotId)) continue;
+        const clean = Object.fromEntries(Object.entries(qtys || {})
+          .map(([s, v]) => [String(s).slice(0, 20), Math.max(0, Math.min(1000000, Math.round(Number(v) || 0)))])
+          .filter(([, v]) => (v as number) > 0));
+        if (Object.keys(clean).length) bySlot[slotId] = clean as Record<string, number>;
+      }
+    } else {
+      const parsed = parseSalesCsv(String(body.csv || ""));
+      if (parsed.error) return NextResponse.json({ error: parsed.error }, { status: 400 });
+      const m = matchSalesToSlots(parsed.rows, named);
+      bySlot = m.bySlot;
+      unmatched = m.unmatched;
+    }
     const now = new Date().toISOString();
     const applied: { slotId: string; name: string; total: number }[] = [];
     for (const [slotId, qtys] of Object.entries(bySlot)) {

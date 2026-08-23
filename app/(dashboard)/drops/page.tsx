@@ -5,12 +5,13 @@
 // (clients assembling — read-only peek), Cut (→ job), Shelved.
 // THE CUT lives here: closed/ready + all numbers → one job, items born
 // from slots, quantities from the client's numbers.
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { H } from "@/components/hub/theme";
 import { backwardChain } from "@/lib/portal/drop-chain";
 import { isPipelineSlot, isRerunSlot, lineupIsPipelineOnly, lineUnits, lineState, lineLanded, LINE_LABELS, releaseNumbersDone, buildLedger, suggestNextBuy, lineCovered, sumQtys, type LineTone, type Ledger } from "@/lib/release-lanes";
 import { fmtDay as fmtDate, daysUntilDay as daysTo } from "@/lib/dates";
+import { parseSalesCsv, matchSalesToSlots } from "@/lib/shopify-sales-import";
 import { sortSizes } from "@/lib/theme";
 
 // A line's runs for the ledger: attached buys, plus the slot's own linked
@@ -586,7 +587,7 @@ function PreorderLedger({ r, onSlotPatch, onRefresh, setTopErr }: {
         </span>
       </div>
 
-      {importOpen && <SoldImport releaseId={r.id} onDone={async () => { setImportOpen(false); await onRefresh(); }} />}
+      {importOpen && <SoldImport releaseId={r.id} slots={r.slots} onDone={async () => { setImportOpen(false); await onRefresh(); }} />}
       {buyOpen && <BuyPanel r={r} onDone={async () => { setBuyOpen(false); await onRefresh(); }} setTopErr={setTopErr} />}
 
       <div style={{ marginTop: 10 }}>
@@ -790,49 +791,125 @@ function BuyPanel({ r, onDone, setTopErr }: { r: any; onDone: () => Promise<void
     </div>
   );
 }
-
-function SoldImport({ releaseId, onDone }: { releaseId: string; onDone: () => Promise<void> }) {
-  const [csv, setCsv] = useState("");
+function SoldImport({ releaseId, slots, onDone }: { releaseId: string; slots: any[]; onDone: () => Promise<void> }) {
+  // File-first (the CsvPdfTool pattern Jon knows): pick or drop the Shopify
+  // export → instant client-side preview via the SAME lib the server uses →
+  // confirm per line → apply only the checked subset. Paste stays as the
+  // fallback door.
+  const [fileName, setFileName] = useState("");
+  const [dragOver, setDragOver] = useState(false);
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [csvText, setCsvText] = useState("");
+  const [preview, setPreview] = useState<null | {
+    lines: { slotId: string; name: string; include: boolean; qtys: Record<string, number>; total: number; prevTotal: number }[];
+    unmatched: { product: string; variant: string; qty: number }[];
+  }>(null);
   const [busyImp, setBusyImp] = useState(false);
-  const [result, setResult] = useState<{ applied: any[]; unmatched: any[] } | null>(null);
   const [impErr, setImpErr] = useState("");
-  async function run() {
+  const [done, setDone] = useState<{ applied: number } | null>(null);
+  const fileIn = useRef<HTMLInputElement | null>(null);
+
+  function buildPreview(text: string) {
+    setImpErr(""); setDone(null);
+    const parsed = parseSalesCsv(text);
+    if (parsed.error) { setPreview(null); setImpErr(parsed.error); return; }
+    const named = slots.map((s: any) => ({ id: s.id, name: String(s.format || s.items?.name || "").trim(), slot: s }))
+      .filter((s: any) => s.name);
+    const { bySlot, unmatched } = matchSalesToSlots(parsed.rows, named);
+    const lines = named.filter((s: any) => bySlot[s.id]).map((s: any) => ({
+      slotId: s.id, name: s.name, include: true,
+      qtys: bySlot[s.id],
+      total: Object.values(bySlot[s.id]).reduce((a: number, b: any) => a + b, 0),
+      prevTotal: sumQtys(s.slot.sold_qtys),
+    }));
+    if (!lines.length) { setPreview(null); setImpErr("No rows matched this release's lines — check the product names match the lineup."); return; }
+    setPreview({ lines, unmatched: unmatched as any[] });
+  }
+  function onFile(f: File | null) {
+    if (!f) return;
+    setFileName(f.name);
+    const rd = new FileReader();
+    rd.onload = () => buildPreview(String(rd.result || ""));
+    rd.onerror = () => setImpErr("Couldn't read that file.");
+    rd.readAsText(f);
+  }
+  async function apply() {
+    if (!preview) return;
     setBusyImp(true); setImpErr("");
     try {
-      const res = await fetch(`/api/drops/${releaseId}/sold-import`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ csv }) });
+      const applyMap: Record<string, Record<string, number>> = {};
+      for (const l of preview.lines) if (l.include) applyMap[l.slotId] = l.qtys;
+      if (!Object.keys(applyMap).length) return;
+      const res = await fetch(`/api/drops/${releaseId}/sold-import`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ apply: applyMap }),
+      });
       const out = await res.json().catch(() => ({}));
       if (!res.ok) { setImpErr(out.error || "Import failed."); return; }
-      setResult(out);
+      setDone({ applied: (out.applied || []).length });
+      setPreview(null);
       await onDone();
     } finally { setBusyImp(false); }
   }
-  if (result) {
-    return (
-      <div style={{ marginTop: 10, fontSize: 11.5, color: H.dim, lineHeight: 1.6 }}>
-        <span style={{ color: H.green, fontWeight: 700 }}>✓ Applied to {result.applied.length} line{result.applied.length === 1 ? "" : "s"}</span>
-        {result.applied.map((a: any) => ` · ${a.name} ${a.total.toLocaleString()}`).join("")}
-        {result.unmatched.length > 0 && (
-          <div style={{ color: H.amber, marginTop: 4 }}>
-            {result.unmatched.length} row{result.unmatched.length === 1 ? "" : "s"} didn't match a line (name mismatch): {result.unmatched.slice(0, 6).map((u: any) => u.product).join(", ")}{result.unmatched.length > 6 ? "…" : ""}
-          </div>
-        )}
-      </div>
-    );
-  }
+
+  if (done) return <div style={{ marginTop: 10, fontSize: 12, color: H.green, fontWeight: 700 }}>✓ Sold counts applied to {done.applied} line{done.applied === 1 ? "" : "s"}.</div>;
+
   return (
-    <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
-      <div style={{ fontSize: 10.5, color: H.dim, lineHeight: 1.5 }}>
-        Paste Shopify&rsquo;s <b style={{ color: H.text }}>Sales by product variant</b> CSV, exported for the sell window&rsquo;s date range. Matches lines by final product name + size; replaces each matched line&rsquo;s sold counts. Never use an inventory report — stock loads poison it.
-      </div>
-      <textarea value={csv} onChange={e => setCsv(e.target.value)} rows={5} placeholder="Product title,Product variant title,Net quantity…"
-        style={{ width: "100%", boxSizing: "border-box", background: H.surface, border: `1px solid ${H.line}`, borderRadius: 10, color: H.text, fontSize: 11.5, fontFamily: H.mono, padding: "10px 12px", outline: "none", resize: "vertical" }} />
+    <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 10 }}>
+      {!preview && (
+        <>
+          <div
+            onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={e => { e.preventDefault(); setDragOver(false); onFile(e.dataTransfer.files?.[0] || null); }}
+            onClick={() => fileIn.current?.click()}
+            style={{ border: `1.5px dashed ${dragOver ? H.amber : H.line}`, borderRadius: 12, padding: "22px 16px", textAlign: "center", cursor: "pointer", background: dragOver ? "rgba(244,178,43,.06)" : "transparent" }}>
+            <div style={{ fontSize: 12.5, fontWeight: 800, color: H.text }}>{fileName || "Drop the Shopify CSV here — or click to choose"}</div>
+            <div style={{ fontSize: 10.5, color: H.faint, marginTop: 4, lineHeight: 1.5 }}>
+              Sales by product variant, exported for the sell window's dates. Sales report only — never an inventory export.
+            </div>
+            <input ref={fileIn} type="file" accept=".csv,text/csv" style={{ display: "none" }}
+              onChange={e => { onFile(e.target.files?.[0] || null); if (fileIn.current) fileIn.current.value = ""; }} />
+          </div>
+          <button onClick={() => setPasteOpen(v => !v)} style={{ alignSelf: "flex-start", background: "none", border: "none", color: H.faint, fontSize: 9.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font, padding: 0 }}>or paste the CSV</button>
+          {pasteOpen && (
+            <>
+              <textarea value={csvText} onChange={e => setCsvText(e.target.value)} rows={4} placeholder="Product title,Product variant title,Net quantity…"
+                style={{ width: "100%", boxSizing: "border-box", background: H.surface, border: `1px solid ${H.line}`, borderRadius: 10, color: H.text, fontSize: 11.5, fontFamily: H.mono, padding: "10px 12px", outline: "none", resize: "vertical" }} />
+              <button disabled={!csvText.trim()} onClick={() => buildPreview(csvText)}
+                style={{ alignSelf: "flex-start", background: "#fff", color: H.ink, border: "none", borderRadius: 999, padding: "9px 18px", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", cursor: "pointer", opacity: csvText.trim() ? 1 : 0.5, fontFamily: H.font }}>Preview</button>
+            </>
+          )}
+        </>
+      )}
       {impErr && <div style={{ fontSize: 11.5, color: H.red, fontWeight: 700 }}>{impErr}</div>}
-      <div>
-        <button disabled={busyImp || !csv.trim()} onClick={run}
-          style={{ background: "#fff", color: H.ink, border: "none", borderRadius: 999, padding: "10px 20px", fontSize: 10, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", cursor: "pointer", opacity: busyImp || !csv.trim() ? 0.5 : 1, fontFamily: H.font }}>
-          {busyImp ? "Importing…" : "Apply sold counts"}
-        </button>
-      </div>
+      {preview && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ fontSize: 10.5, color: H.dim }}>Check the lines to import — sold counts REPLACE what's on each line.</div>
+          {preview.lines.map((l, i) => (
+            <label key={l.slotId} style={{ display: "flex", gap: 10, alignItems: "baseline", cursor: "pointer", padding: "7px 0", borderBottom: `1px solid ${H.line}` }}>
+              <input type="checkbox" checked={l.include}
+                onChange={e => setPreview(p => p && ({ ...p, lines: p.lines.map((y, j) => j === i ? { ...y, include: e.target.checked } : y) }))} />
+              <span style={{ fontSize: 12, fontWeight: 800, textTransform: "uppercase", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.name}</span>
+              <span style={{ fontSize: 10.5, fontFamily: H.mono, color: H.dim, whiteSpace: "nowrap" }}>{sortSizes(Object.keys(l.qtys)).map(sz => `${sz} ${l.qtys[sz]}`).join("  ")}</span>
+              <span style={{ marginLeft: "auto", fontSize: 10.5, fontFamily: H.mono, whiteSpace: "nowrap", color: H.text }}>
+                {l.prevTotal > 0 && <span style={{ color: H.faint }}>{l.prevTotal.toLocaleString()} → </span>}<b>{l.total.toLocaleString()}</b> sold
+              </span>
+            </label>
+          ))}
+          {preview.unmatched.length > 0 && (
+            <div style={{ fontSize: 10.5, color: H.faint, lineHeight: 1.55 }}>
+              {preview.unmatched.length} row{preview.unmatched.length === 1 ? "" : "s"} not on this release (skipped): {preview.unmatched.slice(0, 5).map(u => u.product).join(", ")}{preview.unmatched.length > 5 ? ` +${preview.unmatched.length - 5} more` : ""}
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <button disabled={busyImp || !preview.lines.some(l => l.include)} onClick={apply}
+              style={{ background: H.green, color: "#08210a", border: "none", borderRadius: 999, padding: "11px 22px", fontSize: 10.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", cursor: "pointer", opacity: busyImp ? 0.6 : 1, fontFamily: H.font }}>
+              {busyImp ? "Applying…" : `Import ${preview.lines.filter(l => l.include).length} line${preview.lines.filter(l => l.include).length === 1 ? "" : "s"} →`}
+            </button>
+            <button onClick={() => { setPreview(null); setFileName(""); }} style={{ background: "none", border: "none", color: H.faint, fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>Start over</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
