@@ -14,7 +14,9 @@ import { SIZE_ORDER } from "@/lib/theme";
 
 type CatalogEntry = {
   key: string;
-  itemId: string;          // most recent instance — the one we clone from
+  kind: "produced" | "mockup";
+  productId?: string;      // mockup flavor — un-produced catalog product
+  itemId: string;          // most recent instance — the one we clone from ("" for mockups)
   name: string;
   vendor: string | null;
   cat: string;
@@ -61,6 +63,7 @@ export default function ReorderPage() {
   // cart. Cart = order it again now; release = put it in the next drop.
   const hasReleases = (((data as any)?.features || []) as string[]).includes("releases");
   const [items, setItems] = useState<any[] | null>(null);
+  const [mockups, setMockups] = useState<any[]>([]);
   const [detail, setDetail] = useState<CatalogEntry | null>(null);
   const [cat, setCat] = useState<string>("all");
   const [cart, setCart] = useState<Record<string, CartLine>>({});
@@ -106,7 +109,7 @@ export default function ReorderPage() {
       try {
         const res = await fetch(`/api/portal/client/${token}/items`);
         const body = await res.json();
-        if (res.ok) setItems(body.items || []);
+        if (res.ok) { setItems(body.items || []); setMockups(body.mockups || []); }
         else setItems([]);
       } catch { setItems([]); }
     })();
@@ -128,6 +131,7 @@ export default function ReorderPage() {
       if (existing) { existing.runs++; continue; }
       byKey.set(key, {
         key,
+        kind: "produced" as const,
         itemId: it.id,
         name: it.name,
         vendor: it.blank_vendor || null,
@@ -141,12 +145,28 @@ export default function ReorderPage() {
         lastDate: it.created_at,
       });
     }
-    return Array.from(byKey.values());
-  }, [items]);
+    const mockEntries: CatalogEntry[] = (mockups || []).map((m: any) => ({
+      key: `p:${m.productId}`,
+      kind: "mockup" as const,
+      productId: m.productId,
+      itemId: "",
+      name: m.name,
+      vendor: m.format || null,
+      cat: "all" === "all" ? catOf(m.format) : "other",
+      sku: null,
+      thumbId: m.thumb_id || null,
+      lastQty: 0,
+      lastSizes: [],
+      lastUnit: null,
+      runs: 0,
+      lastDate: m.created_at,
+    }));
+    return [...mockEntries, ...Array.from(byKey.values())];
+  }, [items, mockups]);
 
   const cartCount = Object.keys(cart).length;
   const cartUnits = Object.values(cart).reduce((a, l) => a + (Number(l.total) || 0), 0);
-  const entryFor = (itemId: string) => catalog.find(c => c.itemId === itemId) || null;
+  const entryFor = (k: string) => catalog.find(c => (c.kind === "mockup" ? c.key === k : c.itemId === k)) || null;
 
   async function submit() {
     setSubmitting(true);
@@ -157,7 +177,9 @@ export default function ReorderPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           note: note.trim() || undefined,
-          items: Object.entries(cart).map(([itemId, line]) => ({ itemId, total: line.total, note: line.note || undefined })),
+          items: Object.entries(cart).map(([k, line]) => k.startsWith("p:")
+            ? ({ productId: k.slice(2), total: line.total, note: line.note || undefined })
+            : ({ itemId: k, total: line.total, note: line.note || undefined })),
         }),
       });
       const body = await res.json();
@@ -254,7 +276,8 @@ export default function ReorderPage() {
             ) : (
               <div className="rx-grid">
                 {catalog.filter(c => cat === "all" || c.cat === cat).map(c => {
-                  const inCart = !!cart[c.itemId];
+                  const cartKey = c.kind === "mockup" ? c.key : c.itemId;
+                  const inCart = !!cart[cartKey];
                   return (
                     <button key={c.key} className="rx-card" onClick={() => setDetail(c)}
                       style={{
@@ -274,8 +297,8 @@ export default function ReorderPage() {
                         {(c.vendor || c.sku) && (
                           <div style={{ fontSize: 10.5, color: H.faint, marginTop: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{[c.vendor, c.sku].filter(Boolean).join(" · ")}</div>
                         )}
-                        <div style={{ fontSize: 10, color: H.dim, fontFamily: H.mono, marginTop: 7, letterSpacing: "0.04em" }}>
-                          {c.runs > 1 ? `${c.runs} runs` : "1 run"}{c.lastQty ? ` · last ${c.lastQty.toLocaleString()} pcs` : ""}
+                        <div style={{ fontSize: 10, color: c.kind === "mockup" ? H.amber : H.dim, fontFamily: H.mono, marginTop: 7, letterSpacing: "0.04em", fontWeight: c.kind === "mockup" ? 800 : 400 }}>
+                          {c.kind === "mockup" ? "NEW \u00b7 never run" : `${c.runs > 1 ? `${c.runs} runs` : "1 run"}${c.lastQty ? ` \u00b7 last ${c.lastQty.toLocaleString()} pcs` : ""}`}
                         </div>
                       </div>
                     </button>
@@ -309,13 +332,14 @@ export default function ReorderPage() {
       {detail && (
         <ItemSheet
           entry={detail}
-          line={cart[detail.itemId] || null}
-          onAddToRelease={hasReleases ? () => { window.location.href = `/portal/client/${token}/releases?add=${detail.itemId}`; } : undefined}
+          line={cart[detail.kind === "mockup" ? detail.key : detail.itemId] || null}
+          onAddToRelease={hasReleases && detail.kind !== "mockup" ? () => { window.location.href = `/portal/client/${token}/releases?add=${detail.itemId}`; } : undefined}
           onClose={() => { setDetail(null); if (returnToReview) { setReturnToReview(false); setReviewing(true); } }}
           onSave={(l) => {
+            const k = detail.kind === "mockup" ? detail.key : detail.itemId;
             const next = { ...cart };
-            if (l && l.total > 0) next[detail.itemId] = l;
-            else delete next[detail.itemId];
+            if (l && l.total > 0) next[k] = l;
+            else delete next[k];
             persistCart(next);
             setDetail(null);
             if (returnToReview) { setReturnToReview(false); setReviewing(true); }

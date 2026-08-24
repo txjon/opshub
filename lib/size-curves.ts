@@ -64,3 +64,17 @@ export async function groupCurve(db: any, clientId: string, group: string):
   const allCurve = aggregateCurve((all || []).flatMap((it: any) => it.buy_sheet_lines || []));
   return allCurve.length ? { curve: allCurve, source: "house curve" } : { curve: [], source: null };
 }
+
+/** Free-text product format ("Black Hoodie", "heavyweight tee") → curve group. */
+export function formatGroup(format?: string | null): string | null {
+  const f = String(format || "").toLowerCase();
+  if (!f) return null;
+  if (/hood/.test(f)) return "Hoodies";
+  if (/crew/.test(f)) return "Crewneck";
+  if (/jacket|windbreaker|coach/.test(f)) return "Jacket";
+  if (/jersey/.test(f)) return "Jersey";
+  if (/pant|jean|jogger/.test(f)) return "Pants";
+  if (/short(?!s? ?sleeve)/.test(f)) return "Shorts";
+  if (/tee|t-?shirt|long ?sleeve|\bls\b/.test(f)) return "Tees";
+  return null;
+}
