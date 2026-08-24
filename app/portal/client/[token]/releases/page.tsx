@@ -319,6 +319,22 @@ function DropSheet({ drop, token, briefs, committed, pipeItems, catalogItems, mo
   const building = drop.status === "building";
   // Lineup decides: numbers only matter for lines that need a run (ideas +
   // re-runs); an all-pipeline lineup is a launch, not a sale.
+  // Drop value (Jon, Aug 24 — hybrid pipeline + pre-order drops): retail ×
+  // run qty per line, summed. Lines missing a retail or quantities are
+  // counted out loud, never silently.
+  const dropValue = useMemo(() => {
+    let total = 0, gaps = 0;
+    for (const sl of (drop.slots || [])) {
+      const pit = sl.itemId ? itemsById[sl.itemId] : null;
+      const qty = lineUnits(sl, pit, drop.status === "cut").total;
+      const retail = sl.retail != null ? Number(sl.retail) : null;
+      if (qty > 0 && retail != null) total += qty * retail;
+      else gaps++;
+    }
+    return { total, gaps };
+    // eslint-disable-next-line
+  }, [drop.slots, drop.status, itemsById]);
+
   const needsRun = (s: any) => !s.itemId || s.rerun;
   const pipelineOnly = drop.slots.length > 0 && !drop.slots.some(needsRun);
   // Numbers are OURS now (Jon, Aug 24): sold counts land via the sales-report
@@ -385,6 +401,11 @@ function DropSheet({ drop, token, briefs, committed, pipeItems, catalogItems, mo
               style={{ fontSize: 18, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", lineHeight: 1.2, background: "transparent", border: "none", outline: "none", color: C.text, width: "100%", fontFamily: C.font, padding: 0 }} />
             <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 4, flexWrap: "wrap" }}>
               <span style={{ fontSize: 12, fontWeight: 700, color: h.color }}>{h.text}</span>
+              {dropValue.total > 0 && (
+                <span style={{ fontSize: 10.5, fontFamily: C.mono, color: C.muted }}>
+                  ~${Math.round(dropValue.total).toLocaleString()} at retail{dropValue.gaps > 0 ? ` \u00b7 ${dropValue.gaps} line${dropValue.gaps === 1 ? "" : "s"} not counted` : ""}
+                </span>
+              )}
               {building ? (
                 <label style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
                   <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: C.faint }}>Target live</span>
