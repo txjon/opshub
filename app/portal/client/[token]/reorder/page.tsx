@@ -453,9 +453,6 @@ function ItemSheet({ entry, line, onClose, onSave, onAddToRelease }: {
                 Last run {entry.lastQty.toLocaleString()} pcs · {entry.lastSizes.map(x => `${x.size} ${x.qty}`).join("  ")}
               </div>
             )}
-            <div style={{ fontSize: 11, color: H.dim, marginTop: 8, lineHeight: 1.5 }}>
-              We apply your size curve when we quote it — sizes are our job. Anything specific, say it below.
-            </div>
             <input value={lineNote} onChange={e => setLineNote(e.target.value)}
               placeholder="Optional — e.g. no smalls this time"
               style={{ marginTop: 10, width: "100%", boxSizing: "border-box", background: H.surface, border: `1px solid ${H.line}`, borderRadius: 10, color: H.text, fontSize: 12.5, padding: "11px 13px", outline: "none", fontFamily: H.font }} />
