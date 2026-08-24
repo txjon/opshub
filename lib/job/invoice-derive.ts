@@ -13,6 +13,7 @@ export type InvoiceState = {
   isManualInvoice: boolean;      // number set by hand, no QB invoice to update
   variancePushedAt: string | null;
   extraLines: any[];
+  waivedAmount: number;          // closed-short residual (invoice_waived_amount)
   currentSubtotal: number;
   invoiceStale: boolean;         // current pricing drifted from the QB total
   aggInvoiceTotal: number;
@@ -47,9 +48,14 @@ export function deriveInvoice(job: any, items: any[] = [], payments: any[] = [])
   const aggPaidSum = (payments || [])
     .filter((p: any) => p.status === "paid" || p.status === "partial")
     .reduce((a: number, p: any) => a + (Number(p.amount) || 0), 0);
-  const aggBalance = Math.max(0, aggInvoiceTotal - aggPaidSum);
+  // Closed-short waiver (Aug 24 2026): an owner can settle a residual we
+  // won't collect (client shorted / chose not to bill actuals). The waived
+  // amount reduces the balance — never recorded as a payment, so revenue
+  // reports stay honest.
+  const waivedAmount = Number(tm.invoice_waived_amount) || 0;
+  const aggBalance = Math.max(0, aggInvoiceTotal - aggPaidSum - waivedAmount);
   const aggIsPartial = aggPaidSum > 0.01 && aggBalance > 0.01;
-  const isPaid = aggPaidSum > 0.01 && aggBalance <= 0.01;
+  const isPaid = aggBalance <= 0.01 && (aggPaidSum > 0.01 || waivedAmount > 0.01);
 
   const isDropShip = job?.shipping_route === "drop_ship";
   const isShipThrough = job?.shipping_route === "ship_through";
@@ -75,7 +81,7 @@ export function deriveInvoice(job: any, items: any[] = [], payments: any[] = [])
 
   return {
     qbInvoiceNumber, qbPaymentLink, qbInvoiceId, isManualInvoice, variancePushedAt,
-    extraLines, currentSubtotal, invoiceStale,
+    extraLines, waivedAmount, currentSubtotal, invoiceStale,
     aggInvoiceTotal, aggPaidSum, aggBalance, aggIsPartial, isPaid,
     isDropShip, isShipThrough, isFullyShipped, sentAt, step,
   };
