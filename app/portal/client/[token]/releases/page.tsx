@@ -10,7 +10,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useClientPortal } from "../_shared/context";
 import { C, fmtDate } from "../_shared/theme";
-import { backwardChain, CHAIN_DEFAULTS } from "@/lib/portal/drop-chain";
+import { CHAIN_DEFAULTS } from "@/lib/portal/drop-chain";
 import { lineUnits, lineState, LINE_LABELS, type LineTone } from "@/lib/release-lanes";
 
 const thumbSrc = (id: string, size = 300) => `/api/files/thumbnail?id=${id}&thumb=1&size=${size}`;
@@ -400,32 +400,9 @@ function DropSheet({ drop, token, briefs, committed, pipeItems, catalogItems, mo
           <button onClick={onClose} aria-label="Close" style={{ background: "none", border: "none", color: C.muted, fontSize: 26, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>
         </div>
 
-        {/* ── The countdown — the date chain run backward from web-live ── */}
-        {/* Backward chain = OUR production schedule. While building it's the
-            "pick a realistic date" nudge; after handoff it's internal
-            machinery (all-passed red rows meant nothing to the client). */}
-        {drop.target_live_date && drop.status === "building" && (() => {
-          const steps = backwardChain(drop.target_live_date);
-          const today = new Date().toISOString().slice(0, 10);
-          const nextIdx = steps.findIndex(s => s.date >= today);
-          return (
-            <div style={{ padding: "12px 20px 0" }}>
-              <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: C.faint, marginBottom: 8 }}>To hit {fmtDate(drop.target_live_date)}</div>
-              <div style={{ display: "flex", overflowX: "auto", scrollbarWidth: "none" as any }}>
-                {steps.map((s, i) => {
-                  const past = s.date < today;
-                  const next = i === nextIdx;
-                  return (
-                    <div key={s.key} style={{ flexShrink: 0, padding: "8px 16px 8px 12px", borderLeft: `2px solid ${next ? C.amber : C.border}` }}>
-                      <div style={{ fontSize: 12, fontWeight: 900, fontFamily: C.mono, color: past ? C.red : next ? C.amber : C.text }}>{fmtDate(s.date)}</div>
-                      <div style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: C.faint, marginTop: 3, whiteSpace: "nowrap" }}>{s.label}{past ? " · passed" : ""}</div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          );
-        })()}
+        {/* Backward chain removed from the client side entirely (Jon,
+            Aug 24) — production scheduling is our altitude. The chain lives
+            on the internal board only. */}
 
         {/* ── Suggested date from the lineup's landings ── */}
         {building && suggested && suggested !== drop.target_live_date && (
