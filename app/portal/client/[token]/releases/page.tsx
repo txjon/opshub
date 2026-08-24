@@ -334,6 +334,18 @@ function DropSheet({ drop, token, briefs, committed, pipeItems, catalogItems, mo
     return { total, gaps };
     // eslint-disable-next-line
   }, [drop.slots, drop.status, itemsById]);
+  // Sold value at closed/cut: retail × sold per line (sold lands from our
+  // sales-report import).
+  const soldValue = useMemo(() => {
+    let total = 0, gaps = 0;
+    for (const sl of (drop.slots || [])) {
+      const sold = Number(sl.soldUnits) || 0;
+      const retail = sl.retail != null ? Number(sl.retail) : null;
+      if (sold > 0 && retail != null) total += sold * retail;
+      else if (sold > 0) gaps++;
+    }
+    return { total, gaps };
+  }, [drop.slots]);
 
   const needsRun = (s: any) => !s.itemId || s.rerun;
   const pipelineOnly = drop.slots.length > 0 && !drop.slots.some(needsRun);
@@ -401,7 +413,11 @@ function DropSheet({ drop, token, briefs, committed, pipeItems, catalogItems, mo
               style={{ fontSize: 18, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", lineHeight: 1.2, background: "transparent", border: "none", outline: "none", color: C.text, width: "100%", fontFamily: C.font, padding: 0 }} />
             <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 4, flexWrap: "wrap" }}>
               <span style={{ fontSize: 12, fontWeight: 700, color: h.color }}>{h.text}</span>
-              {dropValue.total > 0 && (
+              {["closed", "cut"].includes(drop.status) && soldValue.total > 0 ? (
+                <span style={{ fontSize: 10.5, fontFamily: C.mono, color: C.green, fontWeight: 700 }}>
+                  ${Math.round(soldValue.total).toLocaleString()} sold{soldValue.gaps > 0 ? ` \u00b7 ${soldValue.gaps} line${soldValue.gaps === 1 ? "" : "s"} unpriced` : ""}
+                </span>
+              ) : dropValue.total > 0 && (
                 <span style={{ fontSize: 10.5, fontFamily: C.mono, color: C.muted }}>
                   ~${Math.round(dropValue.total).toLocaleString()} at retail{dropValue.gaps > 0 ? ` \u00b7 ${dropValue.gaps} line${dropValue.gaps === 1 ? "" : "s"} not counted` : ""}
                 </span>
