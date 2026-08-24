@@ -74,6 +74,22 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
 
   const b = await req.json().catch(() => ({}));
 
+  // ── THE ONE POSITIVE VERB (Continuum Phase 2, Aug 24 2026) ──
+  // "Mock it up on ___" = design approval + garment direction + ball to us,
+  // in one sentence. Replaces the like/bank/order verb matrix on the hub
+  // (legacy verbs stay callable below for older sessions). State → approved:
+  // the design is done and enters product comping; release gates read it.
+  if (b.action === "mockup") {
+    const f = await hpdFile(b.fileId);
+    if (!f) return NextResponse.json({ error: "Nothing to approve yet" }, { status: 400 });
+    const direction = String(b.direction || "").trim().slice(0, 200);
+    if (!direction) return NextResponse.json({ error: "Tell us what to mock it up on" }, { status: 400 });
+    await db.from("art_brief_files").update({ reaction: "up" } as never).eq("id", f.id);
+    await marker(`✓ Mock it up on: ${direction}`);
+    await db.from("art_briefs").update({ state: "approved", approved_file_id: f.id, updated_at: now } as never).eq("id", params.briefId);
+    return NextResponse.json({ ok: true, state: "approved" });
+  }
+
   if (b.action === "like") {
     const f = await hpdFile(b.fileId);
     if (!f) return NextResponse.json({ error: "Nothing to react to" }, { status: 400 });
