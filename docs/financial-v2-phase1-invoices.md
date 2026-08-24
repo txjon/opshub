@@ -1,9 +1,14 @@
 # Financial V2 · Phase 1 — Invoices (AR index + close-out)
 
 Specced 2026-08-13 (Jon + Claude Code session).
-Status: **1a + 1b SHIPPED 2026-08-24 (4a147b78)** — lib/ar.ts + /invoices live, Abigail granted.
-Remaining: 1c close-out queue (+ migration), 1d route moves, 1e riders (dashboard AR alerts
-section, God Mode lib/ar swap with number-diff, reconcile-flow fixes).
+Status: **PHASE 1 COMPLETE 2026-08-24 (c2c47516)** — 1a–1e all shipped. lib/ar.ts +
+/invoices (index + close-out, mig 163), fulfillment routes home (/invoices/fulfillment/*,
+redirects at old paths), dashboard AR alerts render (Clients → Invoices), God Mode aging
+on lib/ar (diffed: total identical to the dollar; buckets reclassified terms-aware),
+reconcile fixes: shared billable-qtys (forwarded > received for warehouse routes; modal +
+QB push identical), per-item mixed-route isFullyShipped, two-tap Reopen on Final.
+DEFERRED: God Mode cash-forecast block still carries its own (identical) expected-date
+chain copy — dedup when next touching that page.
 Prereq reading: this doc, then `lib/job/invoice-derive.ts`, `lib/billing-queue.ts`,
 `lib/analytics.ts`, the AR sections of `app/(dashboard)/god-mode/page.tsx` (lines ~320–420
 cash forecast, ~530–560 AR aging), and memory `opshub-invoice-reconcile-pull-gap`.
