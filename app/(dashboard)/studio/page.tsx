@@ -275,8 +275,20 @@ function BriefSheet({ detail, onRefresh, onClose }: any) {
     await fetch(`/api/studio/lineups/${lineup.id}`, { method: "DELETE" });
     await onRefresh();
   }
+  // Comp lineup on a LOCKED design (Continuum Phase 3): picks are product
+  // mockups — they FILE INTO THE CATALOG, not into child designs.
+  const compLineup = b.state === "approved";
   async function mintChildren() {
     const opts = [...(lineup.options || [])].filter((o: any) => o.picked).sort((a: any, z: any) => a.position - z.position);
+    if (compLineup) {
+      const products = opts
+        .filter((o: any) => (mintRows[o.id] || { include: true }).include !== false)
+        .map((o: any) => ({ optionId: o.id, title: (mintRows[o.id]?.title || "").trim() || undefined }));
+      if (!products.length) { alert("Include at least one pick."); return; }
+      setLineupBusy(true);
+      try { const r = await fetch(`/api/studio/lineups/${lineup.id}/mint`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ products }) }).then(x => x.json()); if (r.error) alert(r.error); await onRefresh(); } finally { setLineupBusy(false); }
+      return;
+    }
     const groups: { title: string; optionIds: string[] }[] = [];
     for (const o of opts) {
       const row = mintRows[o.id] || { include: true, title: "", mergeUp: false };
@@ -542,7 +554,7 @@ function BriefSheet({ detail, onRefresh, onClose }: any) {
           {lineup && lineup.picks_at && (
             <div style={{ marginTop: 12, border: `1px dashed rgba(88,201,60,.4)`, borderRadius: 12, padding: 13 }}>
               {lineup.client_note && <div style={{ fontSize: 12.5, color: H.text, marginBottom: 10, lineHeight: 1.5 }}>Their note: &ldquo;{lineup.client_note}&rdquo;</div>}
-              <div style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: H.green, marginBottom: 8 }}>Make these real · each becomes its own design under this one</div>
+              <div style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: H.green, marginBottom: 8 }}>{compLineup ? "File picks into the catalog \u00b7 each becomes an orderable product" : "Make these real \u00b7 each becomes its own design under this one"}</div>
               {[...(lineup.options || [])].filter((o: any) => o.picked).sort((a: any, z: any) => a.position - z.position).map((o: any, i: number) => {
                 const row = mintRows[o.id] || { include: true, title: `${b.title || "Design"} — ${String(o.position).padStart(2, "0")}${o.label ? ` ${o.label}` : ""}`, mergeUp: false };
                 const set = (patch: any) => setMintRows(m => ({ ...m, [o.id]: { ...row, ...patch } }));
@@ -556,7 +568,7 @@ function BriefSheet({ detail, onRefresh, onClose }: any) {
                 );
               })}
               <div style={{ display: "flex", marginTop: 10 }}>
-                <button disabled={lineupBusy} onClick={mintChildren} style={{ ...primaryBtn, marginLeft: "auto", background: H.green, color: "#08210a", opacity: lineupBusy ? 0.5 : 1 }}>{lineupBusy ? "Minting…" : "Make these real →"}</button>
+                <button disabled={lineupBusy} onClick={mintChildren} style={{ ...primaryBtn, marginLeft: "auto", background: H.green, color: "#08210a", opacity: lineupBusy ? 0.5 : 1 }}>{lineupBusy ? (compLineup ? "Filing…" : "Minting…") : (compLineup ? "File → catalog" : "Make these real →")}</button>
               </div>
             </div>
           )}

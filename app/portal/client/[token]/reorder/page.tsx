@@ -14,7 +14,9 @@ import { SIZE_ORDER } from "@/lib/theme";
 
 type CatalogEntry = {
   key: string;
-  itemId: string;          // most recent instance — the one we clone from
+  kind: "produced" | "mockup";
+  productId?: string;      // mockup flavor — un-produced catalog product
+  itemId: string;          // most recent instance — the one we clone from ("" for mockups)
   name: string;
   vendor: string | null;
   cat: string;
@@ -27,7 +29,9 @@ type CatalogEntry = {
   lastDate: string;
 };
 
-type CartLine = { sizes: Record<string, number> };
+// Phase 3 (Aug 24): one total, one optional note — the curve is ours to
+// apply at quoting (seeded server-side from their history).
+type CartLine = { total: number; note?: string };
 
 // Product category buckets from garment_type (the QB category each item
 // gets in Product Builder). Substring match keeps the 30+ types manageable.
@@ -59,6 +63,7 @@ export default function ReorderPage() {
   // cart. Cart = order it again now; release = put it in the next drop.
   const hasReleases = (((data as any)?.features || []) as string[]).includes("releases");
   const [items, setItems] = useState<any[] | null>(null);
+  const [mockups, setMockups] = useState<any[]>([]);
   const [detail, setDetail] = useState<CatalogEntry | null>(null);
   const [cat, setCat] = useState<string>("all");
   const [cart, setCart] = useState<Record<string, CartLine>>({});
@@ -78,7 +83,16 @@ export default function ReorderPage() {
   useEffect(() => {
     try {
       const raw = localStorage.getItem(`hx-cart-${token}`);
-      if (raw) setCart(JSON.parse(raw));
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        // Legacy per-size carts in flight → collapse to totals.
+        const conv: Record<string, CartLine> = {};
+        for (const [id, l] of Object.entries<any>(parsed || {})) {
+          if (l && typeof l.total === "number") conv[id] = l;
+          else if (l?.sizes) conv[id] = { total: Object.values(l.sizes as Record<string, number>).reduce((a: number, q: any) => a + (Number(q) || 0), 0) };
+        }
+        setCart(conv);
+      }
     } catch {}
     // eslint-disable-next-line
   }, [token]);
@@ -95,7 +109,7 @@ export default function ReorderPage() {
       try {
         const res = await fetch(`/api/portal/client/${token}/items`);
         const body = await res.json();
-        if (res.ok) setItems(body.items || []);
+        if (res.ok) { setItems(body.items || []); setMockups(body.mockups || []); }
         else setItems([]);
       } catch { setItems([]); }
     })();
@@ -117,6 +131,7 @@ export default function ReorderPage() {
       if (existing) { existing.runs++; continue; }
       byKey.set(key, {
         key,
+        kind: "produced" as const,
         itemId: it.id,
         name: it.name,
         vendor: it.blank_vendor || null,
@@ -130,12 +145,28 @@ export default function ReorderPage() {
         lastDate: it.created_at,
       });
     }
-    return Array.from(byKey.values());
-  }, [items]);
+    const mockEntries: CatalogEntry[] = (mockups || []).map((m: any) => ({
+      key: `p:${m.productId}`,
+      kind: "mockup" as const,
+      productId: m.productId,
+      itemId: "",
+      name: m.name,
+      vendor: m.format || null,
+      cat: "all" === "all" ? catOf(m.format) : "other",
+      sku: null,
+      thumbId: m.thumb_id || null,
+      lastQty: 0,
+      lastSizes: [],
+      lastUnit: null,
+      runs: 0,
+      lastDate: m.created_at,
+    }));
+    return [...mockEntries, ...Array.from(byKey.values())];
+  }, [items, mockups]);
 
   const cartCount = Object.keys(cart).length;
-  const cartUnits = Object.values(cart).reduce((a, l) => a + Object.values(l.sizes).reduce((s, q) => s + (Number(q) || 0), 0), 0);
-  const entryFor = (itemId: string) => catalog.find(c => c.itemId === itemId) || null;
+  const cartUnits = Object.values(cart).reduce((a, l) => a + (Number(l.total) || 0), 0);
+  const entryFor = (k: string) => catalog.find(c => (c.kind === "mockup" ? c.key === k : c.itemId === k)) || null;
 
   async function submit() {
     setSubmitting(true);
@@ -146,7 +177,9 @@ export default function ReorderPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           note: note.trim() || undefined,
-          items: Object.entries(cart).map(([itemId, line]) => ({ itemId, sizes: line.sizes })),
+          items: Object.entries(cart).map(([k, line]) => k.startsWith("p:")
+            ? ({ productId: k.slice(2), total: line.total, note: line.note || undefined })
+            : ({ itemId: k, total: line.total, note: line.note || undefined })),
         }),
       });
       const body = await res.json();
@@ -243,7 +276,8 @@ export default function ReorderPage() {
             ) : (
               <div className="rx-grid">
                 {catalog.filter(c => cat === "all" || c.cat === cat).map(c => {
-                  const inCart = !!cart[c.itemId];
+                  const cartKey = c.kind === "mockup" ? c.key : c.itemId;
+                  const inCart = !!cart[cartKey];
                   return (
                     <button key={c.key} className="rx-card" onClick={() => setDetail(c)}
                       style={{
@@ -263,8 +297,8 @@ export default function ReorderPage() {
                         {(c.vendor || c.sku) && (
                           <div style={{ fontSize: 10.5, color: H.faint, marginTop: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{[c.vendor, c.sku].filter(Boolean).join(" · ")}</div>
                         )}
-                        <div style={{ fontSize: 10, color: H.dim, fontFamily: H.mono, marginTop: 7, letterSpacing: "0.04em" }}>
-                          {c.runs > 1 ? `${c.runs} runs` : "1 run"}{c.lastQty ? ` · last ${c.lastQty.toLocaleString()} pcs` : ""}
+                        <div style={{ fontSize: 10, color: c.kind === "mockup" ? H.amber : H.dim, fontFamily: H.mono, marginTop: 7, letterSpacing: "0.04em", fontWeight: c.kind === "mockup" ? 800 : 400 }}>
+                          {c.kind === "mockup" ? "NEW \u00b7 never run" : `${c.runs > 1 ? `${c.runs} runs` : "1 run"}${c.lastQty ? ` \u00b7 last ${c.lastQty.toLocaleString()} pcs` : ""}`}
                         </div>
                       </div>
                     </button>
@@ -298,14 +332,14 @@ export default function ReorderPage() {
       {detail && (
         <ItemSheet
           entry={detail}
-          line={cart[detail.itemId] || null}
-          onAddToRelease={hasReleases ? () => { window.location.href = `/portal/client/${token}/releases?add=${detail.itemId}`; } : undefined}
+          line={cart[detail.kind === "mockup" ? detail.key : detail.itemId] || null}
+          onAddToRelease={hasReleases && detail.kind !== "mockup" ? () => { window.location.href = `/portal/client/${token}/releases?add=${detail.itemId}`; } : undefined}
           onClose={() => { setDetail(null); if (returnToReview) { setReturnToReview(false); setReviewing(true); } }}
-          onSave={(sizes) => {
-            const total = Object.values(sizes).reduce((a, q) => a + (Number(q) || 0), 0);
+          onSave={(l) => {
+            const k = detail.kind === "mockup" ? detail.key : detail.itemId;
             const next = { ...cart };
-            if (total > 0) next[detail.itemId] = { sizes };
-            else delete next[detail.itemId];
+            if (l && l.total > 0) next[k] = l;
+            else delete next[k];
             persistCart(next);
             setDetail(null);
             if (returnToReview) { setReturnToReview(false); setReviewing(true); }
@@ -326,9 +360,8 @@ export default function ReorderPage() {
               {Object.entries(cart).map(([itemId, line]) => {
                 const c = entryFor(itemId);
                 if (!c) return null;
-                const units = Object.values(line.sizes).reduce((a, q) => a + (Number(q) || 0), 0);
-                const sizeText = sortSizes(Object.entries(line.sizes).filter(([, q]) => Number(q) > 0).map(([size, qty]) => ({ size, qty: Number(qty) })))
-                  .map(s => `${s.size} ${s.qty}`).join(" · ");
+                const units = Number(line.total) || 0;
+                const sizeText = line.note ? `\u201C${line.note}\u201D` : "sizes: we\u2019ll apply your usual curve";
                 return (
                   <div key={itemId} style={{ display: "flex", gap: 12, alignItems: "center", background: H.card, border: `1px solid ${H.line}`, borderRadius: 12, padding: "10px 12px" }}>
                     <div style={{ width: 52, height: 52, background: "#fff", borderRadius: 8, overflow: "hidden", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -365,32 +398,17 @@ function ItemSheet({ entry, line, onClose, onSave, onAddToRelease }: {
   entry: CatalogEntry;
   line: CartLine | null;
   onClose: () => void;
-  onSave: (sizes: Record<string, number>) => void;
+  onSave: (line: CartLine | null) => void;
   onAddToRelease?: () => void;
 }) {
-  // Local string state per size so typing isn't fought by parsing —
-  // prefill from the cart line if editing, else from the last run.
-  const [qtys, setQtys] = useState<Record<string, string>>(() => {
-    const out: Record<string, string> = {};
-    if (line) {
-      for (const [size, q] of Object.entries(line.sizes)) out[size] = String(q);
-      for (const s of entry.lastSizes) if (!(s.size in out)) out[s.size] = "0";
-    } else {
-      for (const s of entry.lastSizes) out[s.size] = String(s.qty);
-    }
-    if (Object.keys(out).length === 0) out["OSFA"] = String(entry.lastQty || 0);
-    return out;
-  });
-  const total = Object.values(qtys).reduce((a, v) => a + (Math.max(0, Math.round(Number(v) || 0))), 0);
-  const orderedSizes = sortSizes(Object.keys(qtys).map(size => ({ size, qty: 0 }))).map(s => s.size);
+  // ONE number (Phase 3): the client types a total; we apply their curve at
+  // quoting. Last run rides as reference — total + breakdown, read-only.
+  const [totalStr, setTotalStr] = useState<string>(() => line ? String(line.total || "") : "");
+  const [lineNote, setLineNote] = useState<string>(line?.note || "");
+  const total = Math.max(0, Math.round(Number(totalStr) || 0));
 
   function commit() {
-    const sizes: Record<string, number> = {};
-    for (const [size, v] of Object.entries(qtys)) {
-      const q = Math.max(0, Math.round(Number(v) || 0));
-      if (q > 0) sizes[size] = q;
-    }
-    onSave(sizes);
+    onSave(total > 0 ? { total, note: lineNote.trim() || undefined } : null);
   }
 
   return (
@@ -416,33 +434,31 @@ function ItemSheet({ entry, line, onClose, onSave, onAddToRelease }: {
         <div style={{ padding: "16px 20px 20px", display: "flex", flexDirection: "column", gap: 14 }}>
           <div>
             <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: H.faint, marginBottom: 8 }}>
-              Quantities <span style={{ color: H.dim, fontWeight: 600, textTransform: "none", letterSpacing: 0 }}>· prefilled from your last run</span>
+              How many total?
             </div>
-            {orderedSizes.length <= 8 ? (
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                {orderedSizes.map(size => (
-                  <label key={size} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 5 }}>
-                    <span style={{ fontSize: 10, fontWeight: 800, color: H.dim, fontFamily: H.mono, letterSpacing: "0.05em" }}>{size}</span>
-                    <input className="rx-qty" type="text" inputMode="numeric" value={qtys[size] ?? "0"}
-                      onFocus={e => e.currentTarget.select()}
-                      onChange={e => setQtys(p => ({ ...p, [size]: e.target.value.replace(/[^0-9]/g, "") }))} />
-                  </label>
-                ))}
-              </div>
-            ) : (
-              /* Dimensional runs (waist/inseam pants etc.) — aligned rows,
-                 label left / qty right, wrapping into columns on wide screens. */
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: "4px 18px", maxHeight: 320, overflowY: "auto", paddingRight: 4 }}>
-                {orderedSizes.map(size => (
-                  <label key={size} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, borderBottom: `1px solid ${H.line}`, padding: "5px 0" }}>
-                    <span style={{ fontSize: 10.5, fontWeight: 700, color: H.dim, fontFamily: H.mono, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{size}</span>
-                    <input className="rx-qty" style={{ width: 58, flexShrink: 0 }} type="text" inputMode="numeric" value={qtys[size] ?? "0"}
-                      onFocus={e => e.currentTarget.select()}
-                      onChange={e => setQtys(p => ({ ...p, [size]: e.target.value.replace(/[^0-9]/g, "") }))} />
-                  </label>
-                ))}
+            <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+              <input className="rx-qty" style={{ width: 110, fontSize: 20, padding: "12px 0" }} type="text" inputMode="numeric" autoFocus
+                value={totalStr} placeholder={entry.lastQty ? String(entry.lastQty) : "0"}
+                onFocus={e => e.currentTarget.select()}
+                onChange={e => setTotalStr(e.target.value.replace(/[^0-9]/g, ""))} />
+              {entry.lastQty > 0 && (
+                <button onClick={() => setTotalStr(String(entry.lastQty))}
+                  style={{ background: "transparent", border: `1px solid ${H.line}`, color: H.dim, borderRadius: 999, padding: "9px 15px", fontSize: 10.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>
+                  Same as last run · {entry.lastQty.toLocaleString()}
+                </button>
+              )}
+            </div>
+            {entry.lastSizes.length > 0 && (
+              <div style={{ fontSize: 10.5, color: H.faint, fontFamily: H.mono, marginTop: 10, lineHeight: 1.6 }}>
+                Last run {entry.lastQty.toLocaleString()} pcs · {entry.lastSizes.map(x => `${x.size} ${x.qty}`).join("  ")}
               </div>
             )}
+            <div style={{ fontSize: 11, color: H.dim, marginTop: 8, lineHeight: 1.5 }}>
+              We apply your size curve when we quote it — sizes are our job. Anything specific, say it below.
+            </div>
+            <input value={lineNote} onChange={e => setLineNote(e.target.value)}
+              placeholder="Optional — e.g. no smalls this time"
+              style={{ marginTop: 10, width: "100%", boxSizing: "border-box", background: H.surface, border: `1px solid ${H.line}`, borderRadius: 10, color: H.text, fontSize: 12.5, padding: "11px 13px", outline: "none", fontFamily: H.font }} />
           </div>
           {entry.lastUnit != null && (
             <div style={{ fontSize: 11.5, color: H.faint, lineHeight: 1.5 }}>
@@ -455,7 +471,7 @@ function ItemSheet({ entry, line, onClose, onSave, onAddToRelease }: {
               {line ? (total > 0 ? `Update · ${total.toLocaleString()} pcs` : "Remove from cart") : `Add to cart · ${total.toLocaleString()} pcs`}
             </button>
             {line && total > 0 && (
-              <button onClick={() => onSave({})}
+              <button onClick={() => onSave(null)}
                 style={{ background: "transparent", color: H.dim, border: `1px solid ${H.line}`, borderRadius: 999, padding: "13px 20px", fontSize: 11.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>
                 Remove
               </button>

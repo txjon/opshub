@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient as createAdmin } from "@supabase/supabase-js";
+import { dbNoStore } from "@/lib/db-nostore";
 import { resolveItemStatus, clientItemStatus } from "@/lib/item-status";
 import { deriveDateChain } from "@/lib/date-chain";
 import { hasRun } from "@/lib/run-gate";
@@ -8,9 +8,9 @@ import { hubClientLookup } from "@/lib/hub-client";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-function admin() {
-  return createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-}
+// dbNoStore, not a raw client — Next's fetch cache served stale Supabase
+// GETs from this route (fresh products invisible on the shelf, Aug 24).
+const admin = dbNoStore;
 
 // GET /api/portal/client/[token]/items
 //
@@ -306,9 +306,31 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
       };
     });
 
+    // Un-produced catalog products (Continuum Phase 3): mockups filed from
+    // comp-lineup picks that haven't had a first run yet — the catalog's
+    // second flavor. Once an item carries product_id, the product's story
+    // continues as produced history and the mockup card retires.
+    const { data: prods } = await db.from("products")
+      .select("id, title, format, spec, created_at").eq("client_id", (client as any).id).eq("state", "ready")
+      .order("created_at", { ascending: false }).limit(100);
+    let mockups: any[] = [];
+    if ((prods || []).length) {
+      const { data: bornRows } = await db.from("items")
+        .select("product_id").in("product_id", (prods || []).map((p: any) => p.id));
+      const bornSet = new Set((bornRows || []).map((r: any) => r.product_id));
+      mockups = (prods || []).filter((p: any) => !bornSet.has(p.id)).map((p: any) => ({
+        productId: p.id,
+        name: p.title,
+        format: p.format || null,
+        thumb_id: p.spec?.mockup_drive_file_id || null,
+        created_at: p.created_at,
+      }));
+    }
+
     return NextResponse.json({
       client: { name: client.name },
       items: out,
+      mockups,
     });
   } catch (e: any) {
     return NextResponse.json({ error: e.message || "Failed" }, { status: 500 });
