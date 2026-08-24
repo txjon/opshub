@@ -37,6 +37,7 @@ export default function ReleasesPage() {
   // (active runs: slot rides along) and the catalog lane (produced history:
   // slot = re-run). Also the date engine's landing source.
   const [allItems, setAllItems] = useState<any[] | null>(null);
+  const [mockups, setMockups] = useState<any[]>([]);
   const [open, setOpen] = useState<any>(null);
   const [busy, setBusy] = useState(false);
   const [pageErr, setPageErr] = useState("");
@@ -58,6 +59,7 @@ export default function ReleasesPage() {
     try {
       const b = await fetch(`/api/portal/client/${token}/items`).then(r => r.json());
       setAllItems(b.items || []);
+      setMockups(b.mockups || []);
     } catch { setAllItems(prev => prev || []); }
   }
   useEffect(() => {
@@ -91,6 +93,15 @@ export default function ReleasesPage() {
     }
     return Array.from(byKey.values());
   }, [allItems, pipeItems]);
+  // Catalog mockups not already on an open release (product lane, Phase 5).
+  const mockupCands = useMemo(() => {
+    const slotted = new Set<string>();
+    for (const d of (drops || [])) {
+      if (d.status === "cut") continue;
+      for (const s of (d.slots || [])) if (s.product && s.lineId) slotted.add(String(s.lineId).slice(8));
+    }
+    return (mockups || []).filter((m: any) => !slotted.has(m.productId));
+  }, [mockups, drops]);
   const itemsById = useMemo(() => {
     const m: Record<string, any> = {};
     for (const it of (allItems || [])) m[it.id] = it;
@@ -101,11 +112,12 @@ export default function ReleasesPage() {
   // goes on as a RE-RUN (server re-validates the lane).
   async function addItemToRelease(releaseId: string, itemId: string): Promise<boolean> {
     const target = (drops || []).find((d: any) => d.id === releaseId);
-    if (target && (target.slots || []).some((s: any) => s.itemId === itemId)) { await load(releaseId); return true; }
-    const isActive = pipeItems.some((it: any) => it.id === itemId);
+    const isProduct = itemId.startsWith("p:");
+    if (target && !isProduct && (target.slots || []).some((s: any) => s.itemId === itemId)) { await load(releaseId); return true; }
+    const isActive = !isProduct && pipeItems.some((it: any) => it.id === itemId);
     const res = await fetch(`/api/portal/client/${token}/releases/${releaseId}/slots`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(isActive ? { itemId } : { itemId, rerun: true }),
+      body: JSON.stringify(isProduct ? { productId: itemId.slice(2) } : isActive ? { itemId } : { itemId, rerun: true }),
     });
     const out = await res.json().catch(() => ({}));
     if (!res.ok) { setPageErr(out.error || "Couldn't add that to the release."); return false; }
@@ -121,7 +133,7 @@ export default function ReleasesPage() {
     addHandled.current = true;
     if (!addId) return;
     window.history.replaceState(null, "", window.location.pathname);
-    if (!itemsById[addId]) { setPageErr("Couldn't find that piece."); return; }
+    if (!addId.startsWith("p:") && !itemsById[addId]) { setPageErr("Couldn't find that piece."); return; }
     (async () => {
       const building = drops.filter((d: any) => d.status === "building");
       if (building.length > 1) { setChooser({ itemId: addId }); return; }
@@ -267,7 +279,7 @@ export default function ReleasesPage() {
         </div>
       )}
 
-      {open && <DropSheet drop={open} token={token} briefs={(data?.briefs as any[]) || []} committed={committed} pipeItems={pipeItems} catalogItems={catalogItems} itemsById={itemsById} onChanged={(id?: string) => load(id)} onClose={() => setOpen(null)} />}
+      {open && <DropSheet drop={open} token={token} briefs={(data?.briefs as any[]) || []} committed={committed} pipeItems={pipeItems} catalogItems={catalogItems} mockupCands={mockupCands} itemsById={itemsById} onChanged={(id?: string) => load(id)} onClose={() => setOpen(null)} />}
     </div>
   );
 }
@@ -293,8 +305,8 @@ function SlotSpecEdit({ slot, onSave }: { slot: any; onSave: (patch: { format?: 
   );
 }
 
-function DropSheet({ drop, token, briefs, committed, pipeItems, catalogItems, itemsById, onChanged, onClose }: {
-  drop: any; token: string; briefs: any[]; committed: Set<string>; pipeItems: any[]; catalogItems: any[]; itemsById: Record<string, any>; onChanged: (id?: string) => void; onClose: () => void;
+function DropSheet({ drop, token, briefs, committed, pipeItems, catalogItems, mockupCands, itemsById, onChanged, onClose }: {
+  drop: any; token: string; briefs: any[]; committed: Set<string>; pipeItems: any[]; catalogItems: any[]; mockupCands: any[]; itemsById: Record<string, any>; onChanged: (id?: string) => void; onClose: () => void;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState("");
@@ -510,6 +522,19 @@ function DropSheet({ drop, token, briefs, committed, pipeItems, catalogItems, it
                     </span>
                     <span style={{ minWidth: 0, flex: 1, fontSize: 12, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.name}</span>
                     <span style={{ fontSize: 10, fontFamily: C.mono, color: C.muted, whiteSpace: "nowrap" }}>{it.qty ? `last run ${it.qty.toLocaleString()} pcs` : "past run"}</span>
+                    <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", color: C.text }}>+ Add</span>
+                  </button>
+                ))}
+                {mockupCands.length > 0 && <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: C.faint, padding: "8px 0 2px" }}>From your catalog · never run</div>}
+                {mockupCands.map((m: any) => (
+                  <button key={m.productId}
+                    onClick={async () => { setBusy(m.productId); if (await call("POST", "/slots", { productId: m.productId })) onChanged(drop.id); setBusy(null); }}
+                    style={{ display: "flex", gap: 10, alignItems: "center", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: "8px 10px", cursor: "pointer", textAlign: "left", fontFamily: C.font, color: C.text }}>
+                    <span style={{ width: 32, height: 32, background: "#fff", borderRadius: 6, overflow: "hidden", flexShrink: 0 }}>
+                      {m.thumb_id && <img src={thumbSrc(m.thumb_id)} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />}
+                    </span>
+                    <span style={{ minWidth: 0, flex: 1, fontSize: 12, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.name}</span>
+                    <span style={{ fontSize: 10, fontFamily: C.mono, color: C.amber, whiteSpace: "nowrap", fontWeight: 700 }}>never run</span>
                     <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", color: C.text }}>+ Add</span>
                   </button>
                 ))}

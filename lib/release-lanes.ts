@@ -21,6 +21,18 @@ type SlotLike = { line_id?: string | null; lineId?: string | null; item_id?: str
 
 export const isRerunSlot = (s: SlotLike): boolean => isRerunLineId(s.line_id ?? s.lineId);
 
+// Product lane (Continuum Phase 5, Aug 24 2026): an un-produced catalog
+// product on the lineup — design approved by construction (products are
+// born from comp-lineup picks on locked designs), no run yet. The cut/buy
+// births its first run, stamping items.product_id.
+export const isProductLineId = (lineId?: string | null): boolean =>
+  typeof lineId === "string" && lineId.startsWith("product:");
+export const productIdOfSlot = (s: SlotLike): string | null => {
+  const l = s.line_id ?? s.lineId;
+  return isProductLineId(l) ? String(l).slice(8) : null;
+};
+export const isProductSlot = (s: SlotLike): boolean => isProductLineId(s.line_id ?? s.lineId);
+
 export const isPipelineSlot = (s: SlotLike): boolean =>
   !!(s.item_id ?? s.itemId) && !isRerunSlot(s);
 
