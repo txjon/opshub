@@ -664,6 +664,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         shipping_route: (it as any).shipping_route || null,
         webstore_entered_at: (it as any).webstore_entered_at || null,
         forwarded_at: (it as any).forwarded_at || null,
+        archived_at: (it as any).archived_at || null,
       })),
       payments: payments.map(p => ({ amount: p.amount, status: p.status })),
       proofStatus,

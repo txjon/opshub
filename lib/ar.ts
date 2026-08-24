@@ -35,6 +35,8 @@ export type InvoiceRow = {
   jobNumber?: string | null;
   fullyShipped?: boolean;
   financialClosedAt?: string | null;
+  payLink?: string | null;      // QB hosted pay page (reminder/copy actions)
+  waived?: number;              // closed-short residual
 };
 
 export type ArSummary = {
@@ -123,6 +125,8 @@ export function buildAr(opts: {
       jobNumber: j.job_number || null,
       fullyShipped: d.isFullyShipped,
       financialClosedAt: j.financial_closed_at || null,
+      payLink: tm.qb_payment_link || null,
+      waived: d.waivedAmount,
     });
   }
 

@@ -47,6 +47,10 @@ export type LifecycleInput = {
     // every physical branch and the job wrongly drops to a gate phase
     // (Eagle Patch bug, 2026-07-16).
     ledger_open?: boolean;
+    // Item closed out of the job (worksheet archive after Shopify entry, or
+    // moved to another job). Archived items never gate a phase; a job whose
+    // every item is archived is complete, not intake (HPD-2606-047, 2026-08-24).
+    archived_at?: string | null;
   }[];
   payments: {
     amount: number;
@@ -63,11 +67,18 @@ export type LifecycleResult = {
 };
 
 export function calculatePhase(input: LifecycleInput): LifecycleResult {
-  const { job, items, payments, proofStatus, poSentVendors, costingVendors } = input;
+  const { job, items: allItems, payments, proofStatus, poSentVendors, costingVendors } = input;
 
   // Manual locks
   if (job.phase === "on_hold" || job.phase === "cancelled") {
     return { phase: job.phase, itemProgress: "" };
+  }
+
+  // Archived items are closed out — they never hold a job in an earlier phase.
+  // Every item archived = the job is done (11 historic jobs sit exactly here).
+  const items = allItems.filter(it => !it.archived_at);
+  if (allItems.length > 0 && items.length === 0) {
+    return { phase: "complete", itemProgress: `${allItems.length}/${allItems.length} complete` };
   }
 
   if (items.length === 0) {

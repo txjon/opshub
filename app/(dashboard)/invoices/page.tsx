@@ -20,6 +20,8 @@ const fmtDay = (iso: string | null) => {
 };
 
 // Flat uppercase color text — DESIGN.md, no pills.
+const menuBtn: any = { display: "block", width: "100%", textAlign: "left", background: "none", border: "none", color: "#e6e9f2", fontSize: 12.5, fontWeight: 600, padding: "8px 12px", cursor: "pointer", borderRadius: 6, fontFamily: "inherit" };
+
 const STATE_META: Record<string, { label: string; color: string }> = {
   draft: { label: "Drafted", color: T.faint },
   sent: { label: "Sent", color: T.accent },
@@ -51,6 +53,10 @@ export default function InvoicesPage() {
   const [tab, setTab] = useState<"index" | "close">("index");
   const [costCompleteByJob, setCostCompleteByJob] = useState<Record<string, boolean>>({});
   const [closing, setClosing] = useState<string | null>(null);
+  const [menuFor, setMenuFor] = useState<string | null>(null);   // row key with ⋯ open
+  const [actBusy, setActBusy] = useState(false);
+  const [actMsg, setActMsg] = useState("");                       // last action outcome
+  const [waiveArm, setWaiveArm] = useState(false);                // two-tap close-short
   const [q, setQ] = useState("");
 
   async function load() {
@@ -95,6 +101,54 @@ export default function InvoicesPage() {
     } catch (e: any) { setErr(e?.message || "Load failed"); }
   }
   useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
+
+  // ── Row actions (⋯ menu). Reminder + close-short live HERE because they
+  //    are AR-index verbs, not job-surface verbs; everything else deep-links.
+  async function sendReminder(row: InvoiceRow) {
+    setActBusy(true); setActMsg("");
+    try {
+      // billing contact → primary → first with an email (house-page rule)
+      const { data: jcs } = await supabase.from("job_contacts")
+        .select("role_on_job, contacts(name, email)").eq("job_id", row.id);
+      const flat = (jcs || []).map((r: any) => ({ role: r.role_on_job, ...(r.contacts || {}) })).filter((c: any) => c.email);
+      const to = flat.find((c: any) => c.role === "billing") || flat.find((c: any) => c.role === "primary") || flat[0];
+      if (!to) { setActMsg(`No contact with an email on ${row.clientName} — open the job to add one.`); return; }
+      const res = await fetch("/api/email/send", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "reminder", jobId: row.id, recipientEmail: to.email, recipientName: to.name || undefined }),
+      });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok) { setActMsg(out.error || "Reminder didn't send."); return; }
+      setActMsg(`Reminder sent to ${to.email} — ${money(row.balance)} outstanding on #${row.invoiceNumber || row.jobNumber}.`);
+      setMenuFor(null);
+    } finally { setActBusy(false); }
+  }
+  async function closeShort(row: InvoiceRow) {
+    setActBusy(true); setActMsg("");
+    try {
+      const { data: job } = await supabase.from("jobs").select("type_meta").eq("id", row.id).single();
+      const tm = { ...((job as any)?.type_meta || {}) };
+      tm.invoice_waived_amount = Math.round(((Number(tm.invoice_waived_amount) || 0) + row.balance) * 100) / 100;
+      tm.invoice_waived_at = new Date().toISOString();
+      tm.invoice_waived_note = "closed short from the invoices index";
+      const { error } = await (supabase.from("jobs") as any).update({ type_meta: tm }).eq("id", row.id);
+      if (error) { setActMsg(error.message); return; }
+      setActMsg(`Closed short — ${money(row.balance)} waived on #${row.invoiceNumber || row.jobNumber}. Revenue reports keep the real paid figure.`);
+      setMenuFor(null); load();
+    } finally { setActBusy(false); }
+  }
+  async function unWaive(row: InvoiceRow) {
+    setActBusy(true); setActMsg("");
+    try {
+      const { data: job } = await supabase.from("jobs").select("type_meta").eq("id", row.id).single();
+      const tm = { ...((job as any)?.type_meta || {}) };
+      delete tm.invoice_waived_amount; delete tm.invoice_waived_at; delete tm.invoice_waived_note;
+      const { error } = await (supabase.from("jobs") as any).update({ type_meta: tm }).eq("id", row.id);
+      if (error) { setActMsg(error.message); return; }
+      setActMsg(`Waiver removed on #${row.invoiceNumber || row.jobNumber} — balance is live again.`);
+      setMenuFor(null); load();
+    } finally { setActBusy(false); }
+  }
 
   const shown: InvoiceRow[] = useMemo(() => {
     if (!ar) return [];
@@ -193,16 +247,17 @@ export default function InvoicesPage() {
               style={{ marginLeft: "auto", minWidth: 220, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, fontSize: 12.5, padding: "9px 12px", outline: "none", fontFamily: font }} />
           </div>
 
-          <div style={{ border: `1px solid ${T.border}`, borderRadius: 10, overflowX: "auto", background: T.card }}>
+          {actMsg && <div style={{ fontSize: 12, fontWeight: 700, color: actMsg.includes("didn") || actMsg.includes("No contact") ? T.red : T.green, marginBottom: 10 }}>{actMsg}</div>}
+          <div style={{ border: `1px solid ${T.border}`, borderRadius: 10, overflowX: "auto", background: T.card }} onClick={() => menuFor && setMenuFor(null)}>
             <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 860, fontSize: 12.5 }}>
               <thead><tr>
-                {["Date", "Client", "Inv #", "", "State", "Billed", "Paid", "Balance", "Due / aging"].map((h, i) => (
+                {["Date", "Client", "Inv #", "", "State", "Billed", "Paid", "Balance", "Due / aging", ""].map((h, i) => (
                   <th key={i} style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.09em", textTransform: "uppercase", color: T.faint, textAlign: i >= 5 && i <= 7 ? "right" : "left", padding: "11px 14px", borderBottom: `1px solid ${T.border}` }}>{h}</th>
                 ))}
               </tr></thead>
               <tbody>
                 {shown.length === 0 && (
-                  <tr><td colSpan={9} style={{ padding: "26px 14px", color: T.faint, fontSize: 12.5 }}>
+                  <tr><td colSpan={10} style={{ padding: "26px 14px", color: T.faint, fontSize: 12.5 }}>
                     {q || agingFilter || stream !== "all" ? "Nothing matches those filters." : openOnly ? "No open balances — everything's collected." : "No invoices yet."}
                   </td></tr>
                 )}
@@ -229,9 +284,38 @@ export default function InvoicesPage() {
                       <td style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}33`, whiteSpace: "nowrap" }}>
                         {r.financialClosedAt
                           ? <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: T.green }}>Closed</span>
+                          : (r.waived || 0) > 0.01 && r.balance <= 0.01
+                          ? <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: T.amber }}>Closed short · {money(r.waived || 0)} waived</span>
                           : r.balance > 0.01
                           ? <span><span style={{ fontFamily: mono, color: T.muted }}>{fmtDay(r.dueDate || r.expectedDate)}</span> <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: am.color, marginLeft: 6 }}>{am.label}</span></span>
                           : <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: T.green }}>Settled</span>}
+                      </td>
+                      <td style={{ padding: "6px 8px", borderBottom: `1px solid ${T.border}33`, position: "relative", width: 36 }} onClick={e => e.stopPropagation()}>
+                        {r.stream === "job" && (r.balance > 0.01 || (r.waived || 0) > 0.01) && (
+                          <>
+                            <button onClick={() => { setMenuFor(menuFor === `${r.stream}-${r.id}` ? null : `${r.stream}-${r.id}`); setWaiveArm(false); }}
+                              style={{ background: "none", border: "none", color: T.muted, fontSize: 16, cursor: "pointer", fontFamily: font, padding: "2px 8px" }}>⋯</button>
+                            {menuFor === `${r.stream}-${r.id}` && (
+                              <div style={{ position: "absolute", right: 8, top: 30, zIndex: 40, background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 6, minWidth: 210, boxShadow: "0 8px 30px rgba(0,0,0,0.45)" }}>
+                                {r.balance > 0.01 && (
+                                  <button disabled={actBusy} onClick={() => sendReminder(r)} style={menuBtn}>Send payment reminder</button>
+                                )}
+                                {r.payLink && (
+                                  <button onClick={() => { navigator.clipboard?.writeText(r.payLink!); setActMsg("Pay link copied."); setMenuFor(null); }} style={menuBtn}>Copy pay link</button>
+                                )}
+                                {r.balance > 0.01 && (
+                                  <button disabled={actBusy} onClick={() => { if (!waiveArm) { setWaiveArm(true); return; } closeShort(r); }}
+                                    style={{ ...menuBtn, color: waiveArm ? T.red : T.amber }}>
+                                    {waiveArm ? `Tap again — waive ${money(r.balance)}` : `Close short · waive ${money(r.balance)}`}
+                                  </button>
+                                )}
+                                {(r.waived || 0) > 0.01 && (
+                                  <button disabled={actBusy} onClick={() => unWaive(r)} style={{ ...menuBtn, color: T.muted }}>Remove waiver · {money(r.waived || 0)}</button>
+                                )}
+                              </div>
+                            )}
+                          </>
+                        )}
                       </td>
                     </tr>
                   );

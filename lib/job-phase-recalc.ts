@@ -21,7 +21,7 @@ export async function recalcJobPhase(sb: any, jobId: string, opts?: { commit?: b
   const { data: jobData } = await sb.from("jobs").select("*, clients(name)").eq("id", jobId).single();
   if (!jobData || jobData.phase === "on_hold" || jobData.phase === "cancelled") return null;
   const { data: jobItems } = await sb.from("items")
-    .select("id, pipeline_stage, blanks_order_number, blanks_order_cost, ship_tracking, received_at_hpd, artwork_status, garment_type, shipping_route, webstore_entered_at, forwarded_at, decorator_assignments(decorators(name, short_code))")
+    .select("id, pipeline_stage, blanks_order_number, blanks_order_cost, ship_tracking, received_at_hpd, artwork_status, garment_type, shipping_route, webstore_entered_at, forwarded_at, archived_at, decorator_assignments(decorators(name, short_code))")
     .eq("job_id", jobId);
   const { data: payments } = await sb.from("payment_records").select("amount, status").eq("job_id", jobId);
   // Ledger-derived open-wave signal per item (see lifecycle.ts ledger_open):
@@ -78,6 +78,7 @@ export async function recalcJobPhase(sb: any, jobId: string, opts?: { commit?: b
       webstore_entered_at: it.webstore_entered_at || null,
       forwarded_at: it.forwarded_at || null,
       ledger_open: ledgerOpen[it.id] || false,
+      archived_at: it.archived_at || null,
     })),
     payments: (payments || []).map((p: any) => ({ amount: p.amount, status: p.status })),
     proofStatus,
