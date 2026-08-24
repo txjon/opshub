@@ -274,9 +274,12 @@ export async function GET(_req: NextRequest, { params }: { params: { jobId: stri
           if (grossRev === 0 && !deliberateFree) return null;
 
           return {
-            name: p.name || dbItem?.name || "Item",
-            style: p.style || dbItem?.blank_vendor || "",
-            color: p.color || dbItem?.blank_sku || "",
+            // Buy Sheet owns name/style/color — the LIVE item wins; the costing
+            // snapshot is the fallback (stale "(Copy)" names on 2606-038's
+            // revised invoice were the snapshot outliving Aug-7 renames).
+            name: dbItem?.name || p.name || "Item",
+            style: dbItem?.blank_vendor || p.style || "",
+            color: dbItem?.blank_sku || p.color || "",
             sizes: sortSizes(Object.keys(savedQtys).filter(sz => (savedQtys[sz] || 0) > 0)),
             qtys: savedQtys,
             totalQty,
