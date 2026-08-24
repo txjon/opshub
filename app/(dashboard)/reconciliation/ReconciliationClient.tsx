@@ -1183,10 +1183,11 @@ function ConfirmCardCharge({ vendor, jobId, onDone }: { vendor: any; jobId: stri
   const [amt, setAmt] = useState<string>(String(vendor.outstanding ?? ""));
   const [ref, setRef] = useState("");
   const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
   async function confirm() {
     const amount = Math.round((parseFloat(amt) || 0) * 100) / 100;
     if (amount <= 0) return;
-    setBusy(true);
+    setBusy(true); setErr("");
     const poRef = (vendor.items || []).map((it: any) => it.poRef).join(", ").slice(0, 120) || null;
     const { error } = await supabase.from("cost_entries").insert({
       source: "decorator_invoice",
@@ -1194,12 +1195,16 @@ function ConfirmCardCharge({ vendor, jobId, onDone }: { vendor: any; jobId: stri
       vendor_invoice_number: ref.trim() || null,
       po_ref: poRef, job_id: jobId,
       amount, expected_amount: vendor.expected ?? null,
-      charge_type: "decoration", status: "matched",
+      // charge_type check constraint (mig 098): production/setup_mold/
+      // sample/freight/other — "decoration" bounced, silently. Never again:
+      // errors surface inline.
+      charge_type: "production", status: "matched",
       bill_method: "credit_card",
       notes: "Card charge confirmed at reconciliation",
     } as any);
     setBusy(false);
-    if (!error) { setOpenC(false); onDone(); }
+    if (error) { setErr(error.message); return; }
+    setOpenC(false); onDone();
   }
   if (!openC) {
     return (
@@ -1221,6 +1226,7 @@ function ConfirmCardCharge({ vendor, jobId, onDone }: { vendor: any; jobId: stri
       <button disabled={busy} onClick={confirm}
         style={{ background: T.green, color: "#0a0a0a", border: "none", borderRadius: 6, padding: "5px 11px", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: font, opacity: busy ? 0.6 : 1 }}>✓</button>
       <button onClick={() => setOpenC(false)} style={{ background: "none", border: "none", color: T.faint, fontSize: 12, cursor: "pointer", fontFamily: font }}>✕</button>
+      {err && <span style={{ fontSize: 10.5, color: T.red, fontWeight: 700 }}>{err}</span>}
     </span>
   );
 }
