@@ -100,9 +100,23 @@ export function computeBillingQueue(opts: {
     const jobItems = opts.itemsByJob?.[job.id];
     const base: any[] = jobItems?.length ? overlayCostProds(cps, jobItems) : cps;
     const nameById = new Map((jobItems || []).map((it: any) => [it.id, it.name]));
+    // THE SENT PO WINS (Aug 24 2026 — wiring the Tier-2 capture's consumer).
+    // type_meta.po_cost_snapshots[vendor] froze each item's poTotal at PO
+    // send; expected reads the snapshot so later rate-card edits stop
+    // re-pricing history (Elevate 4358: sent at $1.00/unit, list dropped to
+    // $0.75 → queue claimed $165 against a real $215 PO). Per-item by id;
+    // items added after the send (revised-PO adds) fall back to live calc.
+    const snapPoTotalById = new Map<string, number>();
+    for (const snap of Object.values((job.type_meta?.po_cost_snapshots || {}) as Record<string, any>)) {
+      for (const si of (snap?.items || [])) {
+        if (si?.id != null && si?.poTotal != null) snapPoTotalById.set(String(si.id), r2(Number(si.poTotal) || 0));
+      }
+    }
     const lines = base.map((c: any, i: number) => {
-      const calc = calcCostProduct(c, margin, false, false, base, printers);
-      return { letter: String.fromCharCode(65 + i), pv: (c.printVendor || "").toUpperCase(), name: nameById.get(c.id) || c.name || "", expected: calc ? r2(calc.poTotal || 0) : 0, ok: !!calc };
+      const snapped = snapPoTotalById.get(String(c.id));
+      const calc = snapped === undefined ? calcCostProduct(c, margin, false, false, base, printers) : null;
+      const expected = snapped !== undefined ? snapped : (calc ? r2(calc.poTotal || 0) : 0);
+      return { letter: String.fromCharCode(65 + i), pv: (c.printVendor || "").toUpperCase(), name: nameById.get(c.id) || c.name || "", expected, ok: snapped !== undefined || !!calc };
     });
 
     // ap_vendors that have a PO sent on this job
