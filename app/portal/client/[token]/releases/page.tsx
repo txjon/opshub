@@ -494,73 +494,12 @@ function DropSheet({ drop, token, briefs, committed, pipeItems, catalogItems, mo
             {!adding ? (
               <button onClick={() => setAdding(true)}
                 style={{ borderRadius: 999, border: `1px solid ${C.border}`, background: "transparent", color: C.muted, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", padding: "10px 18px", cursor: "pointer", fontFamily: C.font }}>+ Add to release</button>
-            ) : candidates.length === 0 && itemCands.length === 0 && rerunCands.length === 0 ? (
-              <div style={{ fontSize: 12, color: C.faint }}>
-                {drop.slots.length > 0
-                  ? "Everything from your pipeline, catalog, and studio is already on it."
-                  : "Nothing to pull yet. Designs you approve in the Studio land here."}
-              </div>
             ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 300, overflowY: "auto" }}>
-                {itemCands.length > 0 && <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: C.faint, padding: "4px 0 2px" }}>From your pipeline</div>}
-                {itemCands.map((it: any) => (
-                  <button key={it.id}
-                    onClick={async () => { setBusy(it.id); if (await call("POST", "/slots", { itemId: it.id })) onChanged(drop.id); setBusy(null); }}
-                    style={{ display: "flex", gap: 10, alignItems: "center", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: "8px 10px", cursor: "pointer", textAlign: "left", fontFamily: C.font, color: C.text }}>
-                    <span style={{ width: 32, height: 32, background: "#fff", borderRadius: 6, overflow: "hidden", flexShrink: 0 }}>
-                      {it.thumb_id && <img src={thumbSrc(it.thumb_id)} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />}
-                    </span>
-                    <span style={{ minWidth: 0, flex: 1, fontSize: 12, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.name}</span>
-                    <span style={{ fontSize: 10, fontFamily: C.mono, whiteSpace: "nowrap", color: it.status === "in_stock" ? C.green : it.eta ? C.muted : C.faint, fontWeight: it.status === "in_stock" ? 800 : 500 }}>
-                      {it.qty ? `${it.qty.toLocaleString()} pcs · ` : ""}{it.status === "in_stock" ? "ready now" : it.eta ? landsWord(it.eta) : "date TBD"}
-                    </span>
-                    <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", color: C.text }}>+ Add</span>
-                  </button>
-                ))}
-                {rerunCands.length > 0 && <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: C.faint, padding: "8px 0 2px" }}>From your catalog · run it back</div>}
-                {rerunCands.map((it: any) => (
-                  <button key={it.id}
-                    onClick={async () => { setBusy(it.id); if (await call("POST", "/slots", { itemId: it.id, rerun: true })) onChanged(drop.id); setBusy(null); }}
-                    style={{ display: "flex", gap: 10, alignItems: "center", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: "8px 10px", cursor: "pointer", textAlign: "left", fontFamily: C.font, color: C.text }}>
-                    <span style={{ width: 32, height: 32, background: "#fff", borderRadius: 6, overflow: "hidden", flexShrink: 0 }}>
-                      {it.thumb_id && <img src={thumbSrc(it.thumb_id)} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />}
-                    </span>
-                    <span style={{ minWidth: 0, flex: 1, fontSize: 12, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.name}</span>
-                    <span style={{ fontSize: 10, fontFamily: C.mono, color: C.muted, whiteSpace: "nowrap" }}>{it.qty ? `last run ${it.qty.toLocaleString()} pcs` : "past run"}</span>
-                    <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", color: C.text }}>+ Add</span>
-                  </button>
-                ))}
-                {mockupCands.length > 0 && <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: C.faint, padding: "8px 0 2px" }}>From your catalog · never run</div>}
-                {mockupCands.map((m: any) => (
-                  <button key={m.productId}
-                    onClick={async () => { setBusy(m.productId); if (await call("POST", "/slots", { productId: m.productId })) onChanged(drop.id); setBusy(null); }}
-                    style={{ display: "flex", gap: 10, alignItems: "center", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: "8px 10px", cursor: "pointer", textAlign: "left", fontFamily: C.font, color: C.text }}>
-                    <span style={{ width: 32, height: 32, background: "#fff", borderRadius: 6, overflow: "hidden", flexShrink: 0 }}>
-                      {m.thumb_id && <img src={thumbSrc(m.thumb_id)} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />}
-                    </span>
-                    <span style={{ minWidth: 0, flex: 1, fontSize: 12, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.name}</span>
-                    <span style={{ fontSize: 10, fontFamily: C.mono, color: C.amber, whiteSpace: "nowrap", fontWeight: 700 }}>never run</span>
-                    <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", color: C.text }}>+ Add</span>
-                  </button>
-                ))}
-                {candidates.length > 0 && <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: C.faint, padding: "8px 0 2px" }}>From the studio · not yet ordered</div>}
-                {candidates.map((brief: any) => {
-                  const src = briefThumb(brief);
-                  return (
-                    <button key={brief.id}
-                      onClick={async () => { setBusy(brief.id); if (await call("POST", "/slots", { briefId: brief.id })) onChanged(drop.id); setBusy(null); }}
-                      style={{ display: "flex", gap: 10, alignItems: "center", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: "8px 10px", cursor: "pointer", textAlign: "left", fontFamily: C.font, color: C.text }}>
-                      <span style={{ width: 32, height: 32, background: "#fff", borderRadius: 6, overflow: "hidden", flexShrink: 0 }}>
-                        {src && <img src={src} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />}
-                      </span>
-                      <span style={{ minWidth: 0, flex: 1, fontSize: 12, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {brief.title || "Untitled"}
-                      </span>
-                      <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", color: C.text }}>+ Add</span>
-                    </button>
-                  );
-                })}
-              </div>
+              <ReleasePicker
+                mockups={mockupCands} reruns={rerunCands} pipeline={itemCands} studio={candidates}
+                briefThumb={briefThumb} hasSlots={drop.slots.length > 0} busy={busy}
+                onAdd={async (body: any, id: string) => { setBusy(id); if (await call("POST", "/slots", body)) onChanged(drop.id); setBusy(null); }}
+                onDone={() => setAdding(false)} />
             )}
           </div>
         )}
@@ -646,3 +585,76 @@ function DropSheet({ drop, token, briefs, committed, pipeItems, catalogItems, mo
 }
 
 const DEFAULT_SIZES = ["S", "M", "L", "XL", "2XL", "3XL"];
+
+// ── The add-lines browser (Aug 24 2026 — Jon: "this catalog list is
+//    painful… needs to feel like the catalog"). Shop-style: search, source
+//    tabs (catalog / pipeline / studio), image-first grid, newest-first
+//    with A–Z toggle. Tap a card to add it. ────────────────────────────
+function ReleasePicker({ mockups, reruns, pipeline, studio, briefThumb, hasSlots, busy, onAdd, onDone }: {
+  mockups: any[]; reruns: any[]; pipeline: any[]; studio: any[];
+  briefThumb: (b: any) => string | null; hasSlots: boolean; busy: string | null;
+  onAdd: (body: any, id: string) => Promise<void>; onDone: () => void;
+}) {
+  const [tab, setTab] = useState<"catalog" | "pipeline" | "studio">("catalog");
+  const [q, setQ] = useState("");
+  const [sort, setSort] = useState<"recent" | "az">("recent");
+
+  const all = useMemo(() => {
+    const rows: { id: string; name: string; thumb: string | null; meta: string; metaColor: string; date: string; tab: string; body: any }[] = [];
+    for (const m of mockups) rows.push({ id: m.productId, name: m.name, thumb: m.thumb_id ? thumbSrc(m.thumb_id) : null, meta: "never run", metaColor: C.amber, date: m.created_at || "", tab: "catalog", body: { productId: m.productId } });
+    for (const it of reruns) rows.push({ id: it.id, name: it.name, thumb: it.thumb_id ? thumbSrc(it.thumb_id) : null, meta: it.qty ? `last run ${it.qty.toLocaleString()}` : "past run", metaColor: C.muted, date: it.created_at || "", tab: "catalog", body: { itemId: it.id, rerun: true } });
+    for (const it of pipeline) rows.push({ id: it.id, name: it.name, thumb: it.thumb_id ? thumbSrc(it.thumb_id) : null, meta: it.status === "in_stock" ? "ready now" : it.eta ? landsWord(it.eta) : "in flight", metaColor: it.status === "in_stock" ? C.green : C.muted, date: it.created_at || "", tab: "pipeline", body: { itemId: it.id } });
+    for (const b of studio) rows.push({ id: b.id, name: b.title || "Untitled", thumb: briefThumb(b), meta: "from the studio", metaColor: C.blue, date: b.last_activity_at || b.updated_at || "", tab: "studio", body: { briefId: b.id } });
+    return rows;
+  }, [mockups, reruns, pipeline, studio]);
+
+  const counts = { catalog: all.filter(r => r.tab === "catalog").length, pipeline: all.filter(r => r.tab === "pipeline").length, studio: all.filter(r => r.tab === "studio").length };
+  const shown = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    let rows = all.filter(r => r.tab === tab && (!needle || r.name.toLowerCase().includes(needle)));
+    rows = sort === "az"
+      ? [...rows].sort((a, b) => a.name.localeCompare(b.name))
+      : [...rows].sort((a, b) => String(b.date).localeCompare(String(a.date)));
+    return rows;
+  }, [all, tab, q, sort]);
+
+  if (!all.length) {
+    return <div style={{ fontSize: 12, color: C.faint }}>{hasSlots ? "Everything from your pipeline, catalog, and studio is already on it." : "Nothing to pull yet. Designs you approve in the Studio land here."}</div>;
+  }
+  const chip = (on: boolean): any => ({ borderRadius: 999, border: on ? "1px solid #fff" : `1px solid ${C.border}`, background: on ? "#fff" : "transparent", color: on ? C.bg : C.muted, fontFamily: C.mono, fontSize: 10.5, fontWeight: 700, padding: "7px 13px", cursor: "pointer", whiteSpace: "nowrap" as const });
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        {(["catalog", "pipeline", "studio"] as const).map(t => (
+          <button key={t} onClick={() => setTab(t)} style={chip(tab === t)}>
+            {t === "catalog" ? "Catalog" : t === "pipeline" ? "Pipeline" : "Studio"} {counts[t] > 0 ? `· ${counts[t]}` : ""}
+          </button>
+        ))}
+        <button onClick={() => setSort(sort === "recent" ? "az" : "recent")} style={{ ...chip(false), marginLeft: "auto" }}>{sort === "recent" ? "newest ↓" : "A–Z"}</button>
+        <button onClick={onDone} style={{ background: "none", border: "none", color: C.faint, fontSize: 16, cursor: "pointer", lineHeight: 1 }} aria-label="Close picker">×</button>
+      </div>
+      <input value={q} onChange={e => setQ(e.target.value)} autoFocus placeholder="Search your stuff…"
+        style={{ width: "100%", boxSizing: "border-box", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, color: C.text, fontSize: 13, padding: "11px 13px", outline: "none", fontFamily: C.font }} />
+      {shown.length === 0 ? (
+        <div style={{ fontSize: 12, color: C.faint, padding: "8px 0" }}>Nothing {q ? `matching \u201C${q}\u201D` : "here"}{tab !== "catalog" ? ` in the ${tab}` : ""}.</div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(128px, 1fr))", gap: 10, maxHeight: 380, overflowY: "auto", paddingRight: 2 }}>
+          {shown.map(r => (
+            <button key={r.id} disabled={busy === r.id} onClick={() => onAdd(r.body, r.id)}
+              style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 0, overflow: "hidden", cursor: "pointer", textAlign: "left", fontFamily: C.font, color: C.text, opacity: busy === r.id ? 0.5 : 1 }}>
+              <div style={{ background: "#fff", aspectRatio: "1", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                {r.thumb
+                  ? <img src={r.thumb} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />
+                  : <span style={{ color: "#bbb", fontSize: 10 }}>No preview</span>}
+              </div>
+              <div style={{ padding: "8px 10px 10px" }}>
+                <div style={{ fontSize: 11.5, fontWeight: 800, textTransform: "uppercase", lineHeight: 1.25, overflow: "hidden", display: "-webkit-box", WebkitBoxOrient: "vertical" as any, WebkitLineClamp: 2 }}>{r.name}</div>
+                <div style={{ fontSize: 9.5, fontFamily: C.mono, color: r.metaColor, marginTop: 4, fontWeight: 700 }}>{r.meta}</div>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
