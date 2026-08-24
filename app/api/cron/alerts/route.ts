@@ -114,10 +114,18 @@ export async function GET(req: NextRequest) {
       }
 
       // ── PROOFS PENDING 3+ DAYS ──
+      // Only where the nag can still change something: a proof exists to
+      // unblock production. Once the job/item is IN production or beyond
+      // (approved out-of-band — verbal, or internal jobs with no client),
+      // or the job is on hold, the question is moot; nagging is pure noise
+      // (Jon, Aug 24: 32 of 40 digest nags were on printed goods).
+      const jobPastProduction = ["production", "receiving", "fulfillment", "complete", "on_hold"].includes(job.phase);
       for (const proof of proofs) {
+        if (jobPastProduction) continue;
         const item = items.find(i => i.id === proof.item_id);
         // Skip manually approved items — override settles it, no nag needed.
         if (item?.artwork_status === "approved") continue;
+        if (["in_production", "shipped"].includes(item?.pipeline_stage || "")) continue;
         const daysPending = Math.floor((now.getTime() - new Date(proof.created_at).getTime()) / 86400000);
         if (daysPending >= 3) {
           alerts.push({
