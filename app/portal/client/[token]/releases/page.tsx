@@ -289,18 +289,18 @@ export default function ReleasesPage() {
 
 // Inline slot spec — format + retail live ON the slot, edited in place
 // while the release is building (dotted-underline convention).
-function SlotSpecEdit({ slot, onSave }: { slot: any; onSave: (patch: { format?: string; retail?: number | null }) => Promise<void> }) {
+function SlotSpecEdit({ slot, suggested, retailOnly, onSave }: { slot: any; suggested?: number | null; retailOnly?: boolean; onSave: (patch: { format?: string; retail?: number | null }) => Promise<void> }) {
   const [format, setFormat] = useState<string>(slot.format || "");
   const [retail, setRetail] = useState<string>(slot.retail != null ? String(slot.retail) : "");
   const dotted: any = { background: "transparent", border: "none", borderBottom: `1px dashed ${C.faint}`, color: C.text, fontFamily: C.mono, fontSize: 11, outline: "none", padding: "2px 1px" };
   return (
     <span style={{ display: "inline-flex", gap: 10, alignItems: "baseline", width: "100%", paddingLeft: 52 }}>
-      <input value={format} onChange={e => setFormat(e.target.value)} placeholder="Tee, Hoodie…"
+      {!retailOnly && <input value={format} onChange={e => setFormat(e.target.value)} placeholder="Tee, Hoodie…"
         onBlur={() => { if ((format.trim() || null) !== (slot.format || null)) onSave({ format: format.trim() }); }}
-        style={{ ...dotted, width: 110 }} />
+        style={{ ...dotted, width: 110 }} />}
       <span style={{ display: "inline-flex", alignItems: "baseline", gap: 2 }}>
         <span style={{ fontSize: 11, color: C.faint, fontFamily: C.mono }}>$</span>
-        <input value={retail} onChange={e => setRetail(e.target.value.replace(/[^0-9.]/g, ""))} placeholder="retail" inputMode="decimal"
+        <input value={retail} onChange={e => setRetail(e.target.value.replace(/[^0-9.]/g, ""))} placeholder={suggested != null ? String(suggested) : "retail"} inputMode="decimal"
           onBlur={() => { const v = retail === "" ? null : Math.round(Number(retail) * 100) / 100; if (v !== (slot.retail ?? null)) onSave({ retail: v }); }}
           style={{ ...dotted, width: 64 }} />
       </span>
@@ -483,7 +483,7 @@ function DropSheet({ drop, token, briefs, committed, pipeItems, catalogItems, mo
                       : s.rerun
                         ? `new run${lu.total > 0 ? ` · this run ${lu.total.toLocaleString()} pcs` : lastRunPcs > 0 ? ` · last run ${lastRunPcs.toLocaleString()} pcs` : ""}${s.retail != null ? ` · $${s.retail} retail` : ""}`
                         : s.itemId
-                          ? `${lu.total.toLocaleString()} pcs${pit?.eta ? ` · ${landsWord(pit.eta)}` : ""}`
+                          ? `${lu.total.toLocaleString()} pcs${s.retail != null ? ` · $${s.retail} retail` : ""}${pit?.eta ? ` · ${landsWord(pit.eta)}` : ""}`
                           : `${s.retail != null ? `$${s.retail} retail` : "retail TBD"}${s.model ? ` · ${s.model === "preorder" ? "pre-order" : s.model === "not_sure" ? "model TBD" : "fixed run"}` : ""}`}
                   </span>
                 </span>
@@ -492,7 +492,9 @@ function DropSheet({ drop, token, briefs, committed, pipeItems, catalogItems, mo
                 ) : building ? (
                   <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: TONE[meta.tone], whiteSpace: "nowrap" }}>{meta.label}</span>
                 ) : null}
-                {building && (!s.itemId || s.rerun) && <SlotSpecEdit slot={s} onSave={async (patch) => { if (await call("PATCH", "/slots", { slotId: s.id, ...patch })) onChanged(drop.id); }} />}
+                {building && <SlotSpecEdit slot={s} retailOnly={!!s.itemId && !s.rerun}
+                  suggested={s.retail == null && pit?.cost != null ? Number(pit.cost) : null}
+                  onSave={async (patch) => { if (await call("PATCH", "/slots", { slotId: s.id, ...patch })) onChanged(drop.id); }} />}
                 {building && (
                   <button onClick={async () => { setBusy(s.id); if (await call("DELETE", `/slots?slotId=${s.id}`)) onChanged(drop.id); setBusy(null); }}
                     style={{ background: "none", border: "none", color: C.faint, fontSize: 16, cursor: "pointer", lineHeight: 1 }} aria-label="Remove">×</button>
