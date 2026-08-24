@@ -250,12 +250,14 @@ export default function DropsBoard() {
         const totalUnits = r.slots.reduce((a: number, s: any) => a + lineUnits(s, s.items, cut).total, 0);
         // Drop value: retail × run qty per line; unpriced/unquantified lines
         // counted out loud.
-        let dropValue = 0, valueGaps = 0;
+        let dropValue = 0, valueGaps = 0, soldValue = 0;
         for (const sl of r.slots) {
           const qty = lineUnits(sl, sl.items, cut).total;
           const retail = sl.retail != null ? Number(sl.retail) : null;
           if (qty > 0 && retail != null) dropValue += qty * retail;
           else valueGaps++;
+          const sold = Number(sl.sold_units) || 0;
+          if (sold > 0 && retail != null) soldValue += sold * retail;
         }
         return (
           <div className="dr-back">
@@ -282,7 +284,8 @@ export default function DropsBoard() {
                     ) : null}
                     {r.window_close_date && <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.09em", textTransform: "uppercase", color: H.amber }}>◆ Pre-order · closes {fmtDate(r.window_close_date)}</span>}
                     {totalUnits > 0 && <span style={{ fontSize: 10.5, fontFamily: H.mono, color: H.dim }}>{totalUnits.toLocaleString()} pcs</span>}
-                    {dropValue > 0 && <span style={{ fontSize: 10.5, fontFamily: H.mono, color: H.green, fontWeight: 700 }}>~${Math.round(dropValue).toLocaleString()} at retail{valueGaps > 0 ? ` · ${valueGaps} unpriced` : ""}</span>}
+                    {dropValue > 0 && <span style={{ fontSize: 10.5, fontFamily: H.mono, color: H.dim }}>~${Math.round(dropValue).toLocaleString()} at retail{valueGaps > 0 ? ` · ${valueGaps} unpriced` : ""}</span>}
+                    {soldValue > 0 && <span style={{ fontSize: 10.5, fontFamily: H.mono, color: H.green, fontWeight: 700 }}>${Math.round(soldValue).toLocaleString()} sold</span>}
                     {(() => {
                       const pipe = r.slots.filter(isPipelineSlot);
                       if (!pipe.length) return null;
