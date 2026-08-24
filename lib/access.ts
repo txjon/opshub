@@ -62,6 +62,8 @@ export const PAGE_CATALOG: CatalogPage[] = [
   // Billing (bookkeeper surface) — lives in The Office group; kept as its own
   // grantable key so billing-only users (Abigail) see just it.
   { key: "/billing", href: "/billing", label: "Billing", group: "owner", sensitive: true },
+  // Financial V2 Phase 1 — the AR index (docs/financial-v2-phase1-invoices.md)
+  { key: "/invoices", href: "/invoices", label: "Invoices", group: "owner", sensitive: true },
   // Admin utilities (bottom of sidebar)
   { key: "/settings", href: "/settings", label: "Team", group: "settings", sensitive: true },
   { key: "/integrations", href: "/integrations", label: "Integrations", group: "settings", sensitive: true },
