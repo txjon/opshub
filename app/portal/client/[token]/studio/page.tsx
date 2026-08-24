@@ -189,10 +189,10 @@ function Sheet({ detail, token, onClose, onRefresh, nav, onLock }: any) {
   }
   const st = STATE(b.state);
   const [note, setNote] = useState(""); const [busy, setBusy] = useState(false);
-  const [bar, setBar] = useState<"idle" | "keep" | "order" | "pass">("idle");
+  const [bar, setBar] = useState<"idle" | "mockup" | "pass">("idle");
+  const [mockDirection, setMockDirection] = useState("");
   const [killArm, setKillArm] = useState(false);
   const [chNote, setChNote] = useState("");
-  const [obBlank, setObBlank] = useState(""); const [obQty, setObQty] = useState(""); const [obNote, setObNote] = useState("");
   const [heroId, setHeroId] = useState<string | null>(null);
   const fileIn = useRef<HTMLInputElement | null>(null);
 
@@ -204,23 +204,24 @@ function Sheet({ detail, token, onClose, onRefresh, nav, onLock }: any) {
   const ended = ["approved", "shelved", "killed"].includes(b.state);
   const heroReactable = !!hero && hero.sender_role === "hpd" && !ended;
 
-  function closeBar() { setBar("idle"); setKillArm(false); setChNote(""); setObBlank(""); setObQty(""); setObNote(""); setHeroId(null); }
+  function closeBar() { setBar("idle"); setKillArm(false); setChNote(""); setMockDirection(""); setHeroId(null); }
   async function act(body: any) {
     await fetch(`/api/portal/client/${token}/studio/${b.id}/action`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   }
-  async function tapUp() {
-    if (!hero) return; setHeroId(hero.id); setBusy(true);
-    try { if (hero.reaction !== "up") { await act({ action: "like", fileId: hero.file_id }); await onRefresh(); } setBar("keep"); } finally { setBusy(false); }
+  // Phase 2 (Continuum): ONE positive verb. Tapping yes opens the
+  // "Mock it up on ___" composer — saying it IS approving the design.
+  function tapUp() {
+    if (!hero) return; setHeroId(hero.id); setMockDirection(""); setBar("mockup");
+  }
+  async function sendMockup() {
+    if (!hero || !mockDirection.trim()) return; setBusy(true);
+    try { await act({ action: "mockup", fileId: hero.file_id, direction: mockDirection.trim() }); closeBar(); await onRefresh(); } finally { setBusy(false); }
   }
   async function tapDown() {
     if (!hero) return; setHeroId(hero.id); setBusy(true);
     try { await act({ action: "pass", fileId: hero.file_id }); await onRefresh(); setBar("pass"); } finally { setBusy(false); }
   }
-  async function bankIt() { if (!hero) return; setBusy(true); try { await act({ action: "bank", fileId: hero.file_id }); closeBar(); await onRefresh(); } finally { setBusy(false); } }
-  async function sendOrder() {
-    if (!hero || !obBlank.trim() || !(parseInt(obQty, 10) > 0)) return; setBusy(true);
-    try { await act({ action: "order", fileId: hero.file_id, blank: obBlank.trim(), qty: parseInt(obQty, 10), note: obNote.trim() || null }); closeBar(); await onRefresh(); } finally { setBusy(false); }
-  }
+
   async function sendPassNote() {
     if (!chNote.trim()) { closeBar(); return; } setBusy(true);
     try { const fd = new FormData(); fd.set("body", chNote.trim()); await fetch(`/api/portal/client/${token}/studio/${b.id}/action`, { method: "POST", body: fd }); closeBar(); await onRefresh(); } finally { setBusy(false); }
@@ -372,44 +373,38 @@ function Sheet({ detail, token, onClose, onRefresh, nav, onLock }: any) {
       )}
 
       <div style={{ padding: "16px 20px 0" }}>
-        {!ballotLive && (heroReactable || bar === "order") && hero && (
+        {!ballotLive && heroReactable && hero && (
           <div style={{ background: hero.reaction === "down" ? "transparent" : "linear-gradient(180deg,rgba(244,178,43,.07),transparent)", border: `1px solid ${C.line}`, borderRadius: 16, padding: "14px 16px", marginBottom: 4 }}>
             {bar === "idle" && (
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <button disabled={busy} onClick={tapUp} aria-label="Thumbs up" style={{ flexShrink: 0, width: 52, height: 52, borderRadius: 999, background: "rgba(88,201,60,.14)", border: "1px solid rgba(88,201,60,.45)", display: "grid", placeItems: "center", cursor: "pointer", fontFamily: C.font }}><ThumbIcon size={22} color={C.green} /></button>
-                {hero.reaction !== "down" && (
-                  <button disabled={busy} onClick={tapDown} aria-label="Thumbs down" style={{ flexShrink: 0, width: 52, height: 52, borderRadius: 999, background: C.surface, border: `1px solid ${C.line}`, display: "grid", placeItems: "center", cursor: "pointer", fontFamily: C.font }}><ThumbIcon down size={22} color={C.dim} /></button>
-                )}
-                <div style={{ minWidth: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                <button disabled={busy} onClick={tapUp}
+                  style={{ flexShrink: 0, background: C.green, color: "#08210a", border: "none", borderRadius: 999, padding: "13px 22px", fontSize: 11.5, fontWeight: 900, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer", fontFamily: C.font }}>
+                  Mock it up →
+                </button>
+                <div style={{ minWidth: 0, flex: 1 }}>
                   {b.state === "with_client" && hero.reaction !== "down" && <div style={{ fontSize: 11, fontWeight: 900, letterSpacing: "0.03em", textTransform: "uppercase", color: C.amber }}>◆ Your move</div>}
                   <div style={{ fontSize: 12, color: C.dim, lineHeight: 1.45, marginTop: b.state === "with_client" && hero.reaction !== "down" ? 3 : 0 }}>
-                    {hero.reaction === "down" ? "You passed on this one. Thumbs up if it grows on you." : "Thumbs up to keep it. Thumbs down to pass."}
+                    {hero.reaction === "down" ? "You passed on this one. \u201CMock it up\u201D if it grows on you." : "Design done? Tell us what to mock it up on."}
                   </div>
                 </div>
+                {hero.reaction !== "down" && (
+                  <button disabled={busy} onClick={tapDown}
+                    style={{ background: "none", border: "none", color: C.faint, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", cursor: "pointer", fontFamily: C.font, padding: "6px 0", flexShrink: 0 }}>
+                    Pass on this one
+                  </button>
+                )}
               </div>
             )}
-            {bar === "keep" && (
+            {bar === "mockup" && (
               <div>
-                <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, fontWeight: 900, letterSpacing: "0.02em", textTransform: "uppercase", color: C.green }}><ThumbIcon size={14} color={C.green} strokeWidth={2.5} /> Kept. What&rsquo;s the move?</div>
-                <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
-                  <button disabled={busy} onClick={() => setBar("order")} style={{ flex: 1, minWidth: 140, background: C.green, color: "#08210a", border: "none", borderRadius: 999, padding: "13px", fontSize: 11.5, fontWeight: 900, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer", fontFamily: C.font }}>Order it →</button>
-                  <button disabled={busy} onClick={bankIt} style={{ ...ghostBtn, flex: 1, minWidth: 140, padding: "13px 16px", borderColor: "rgba(88,201,60,.45)", color: C.green }}>Keep it in the bank</button>
-                </div>
-                <button disabled={busy} onClick={closeBar} style={{ ...ghostBtn, border: "none", color: C.faint, marginTop: 8, padding: "8px 0" }}>Just the like for now</button>
-              </div>
-            )}
-            {bar === "order" && (
-              <div>
-                <div style={{ fontSize: 12.5, fontWeight: 900, letterSpacing: "0.02em", textTransform: "uppercase", color: C.green }}>Order it. Two quick things.</div>
+                <div style={{ fontSize: 12.5, fontWeight: 900, letterSpacing: "0.02em", textTransform: "uppercase", color: C.green }}>Mock it up on…</div>
+                <div style={{ fontSize: 11.5, color: C.dim, marginTop: 4, lineHeight: 1.5 }}>This locks the design — we build product mockups on what you name and send you the lineup.</div>
+                <input value={mockDirection} onChange={e => setMockDirection(e.target.value)} autoFocus
+                  onKeyDown={e => { if (e.key === "Enter") sendMockup(); if (e.key === "Escape") closeBar(); }}
+                  placeholder="e.g. black heavyweight tee + dad hat" style={{ ...inp, marginTop: 10 }} />
                 <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-                  <input value={obBlank} onChange={e => setObBlank(e.target.value)} placeholder="What garment? e.g. black hoodie" style={{ ...inp, flex: 2, minWidth: 160 }} />
-                  <input value={obQty} onChange={e => setObQty(e.target.value.replace(/[^\d]/g, ""))} inputMode="numeric" placeholder="How many" style={{ ...inp, flex: 1, minWidth: 90 }} />
-                </div>
-                <textarea value={obNote} onChange={e => setObNote(e.target.value)} rows={2} placeholder="Anything else? Sizes, timing, whatever helps." style={{ ...inp, resize: "vertical", marginTop: 8 }} />
-                <div style={{ fontSize: 11, color: C.faint, marginTop: 7, lineHeight: 1.5 }}>This sends the ask. We price it and a quote comes back to you before anything is made.</div>
-                <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-                  <button disabled={busy} onClick={() => setBar(heroReactable ? "keep" : "idle")} style={{ ...ghostBtn, border: "none", color: C.faint }}>Back</button>
-                  <button disabled={busy || !obBlank.trim() || !(parseInt(obQty, 10) > 0)} onClick={sendOrder} style={{ ...primaryBtn, marginLeft: "auto", opacity: busy || !obBlank.trim() || !(parseInt(obQty, 10) > 0) ? 0.5 : 1 }}>Send the request →</button>
+                  <button disabled={busy} onClick={closeBar} style={{ ...ghostBtn, border: "none", color: C.faint }}>Back</button>
+                  <button disabled={busy || !mockDirection.trim()} onClick={sendMockup} style={{ ...primaryBtn, marginLeft: "auto", opacity: busy || !mockDirection.trim() ? 0.5 : 1 }}>Send it →</button>
                 </div>
               </div>
             )}
@@ -433,13 +428,12 @@ function Sheet({ detail, token, onClose, onRefresh, nav, onLock }: any) {
 
         {b.state === "approved" && (
           <div style={{ background: "rgba(88,201,60,.08)", border: `1px solid rgba(88,201,60,.35)`, borderRadius: 16, padding: "16px 18px", fontSize: 13, color: C.dim }}>
-            <b style={{ color: C.green }}>✓ In the bank.</b>{" "}
+            <b style={{ color: C.green }}>✓ Design locked.</b>{" "}
             {orderReq?.open
               ? <>Your order request is in{orderReq.blank ? <> ({orderReq.blank}{orderReq.qty ? ` × ${orderReq.qty}` : ""})</> : null}. We&rsquo;re pricing it and a quote is coming back to you.</>
-              : <>The artwork&rsquo;s locked. Order it whenever you&rsquo;re ready.</>}
-            {!orderReq?.open && bar !== "order" && !reopenForm && (
+              : <>Products from it land in your catalog — ordering and releases happen there.</>}
+            {!orderReq?.open && !reopenForm && (
               <div style={{ marginTop: 10, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-                <button disabled={busy} onClick={() => setBar("order")} style={{ background: C.green, color: "#08210a", border: "none", borderRadius: 999, padding: "11px 20px", fontSize: 11, fontWeight: 900, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer", fontFamily: C.font }}>Order this</button>
                 <button disabled={busy} onClick={() => setReopenForm(true)} style={{ background: "none", border: "none", color: C.faint, fontSize: 11, fontWeight: 800, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer", fontFamily: C.font, padding: 0 }}>Request a change</button>
               </div>
             )}
