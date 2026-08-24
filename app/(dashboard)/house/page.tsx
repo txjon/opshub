@@ -72,7 +72,7 @@ export default function HousePage() {
         // post-production: shipped jobs whose invoice hasn't been finalized
         // with actuals yet (deriveInvoice filters the true reconcile set below)
         god ? supabase.from("jobs")
-          .select("id, job_number, title, phase, shipping_route, fulfillment_status, type_meta, costing_summary, clients(name), items(id, pipeline_stage)")
+          .select("id, job_number, title, phase, shipping_route, fulfillment_status, type_meta, costing_summary, clients(name), items(id, pipeline_stage, shipping_route, forwarded_at)")
           .not("type_meta->>qb_invoice_id", "is", null)
           .is("type_meta->>qb_variance_pushed_at", null)
           .not("phase", "in", "(cancelled,on_hold)")

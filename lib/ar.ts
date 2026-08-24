@@ -30,6 +30,11 @@ export type InvoiceRow = {
   dueDate: string | null;       // explicit unpaid due date when one exists
   expectedDate: string | null;  // terms-aware expected-payment date (forecast chain)
   aging: ArAging;
+  // Close-out inputs (job stream; Phase 1c) — the queue derives from these.
+  phase?: string;
+  jobNumber?: string | null;
+  fullyShipped?: boolean;
+  financialClosedAt?: string | null;
 };
 
 export type ArSummary = {
@@ -114,6 +119,10 @@ export function buildAr(opts: {
       dueDate: due ? due.toISOString().slice(0, 10) : null,
       expectedDate: expected.toISOString().slice(0, 10),
       aging: agingOf(balance, due, expected, now),
+      phase: j.phase,
+      jobNumber: j.job_number || null,
+      fullyShipped: d.isFullyShipped,
+      financialClosedAt: j.financial_closed_at || null,
     });
   }
 
@@ -130,7 +139,7 @@ export function buildAr(opts: {
     rows.push({
       stream: "fulfillment",
       id: r.id,
-      href: `/reports/shipstation/${r.id}`, // moves to /invoices/fulfillment in 1d
+      href: `/invoices/fulfillment/${r.id}`, // moves to /invoices/fulfillment in 1d
       clientId: r.client_id,
       clientName: client?.name || "—",
       label: `${ssReportLabel(r.report_type)}${r.period_label ? ` · ${r.period_label}` : ""}`,
@@ -168,4 +177,15 @@ export function buildAr(opts: {
     kpis: { outstanding: r2(outstanding), overdue: r2(overdue), onTerms: r2(onTerms), expected30: r2(expected30) },
     aging,
   };
+}
+
+/** Close-out queue rule (Phase 1c, locked 2026-08-13): complete + Final
+ *  (or Paid where no reconcile was required) + zero balance + cost-complete.
+ *  Freight NEVER gates (the billing queue already excludes freight sources).
+ *  Cost-complete is supplied by the caller from lib/billing-queue. */
+export function isCloseable(row: InvoiceRow, costComplete: boolean): boolean {
+  if (row.stream !== "job" || row.financialClosedAt) return false;
+  if (row.phase !== "complete") return false;
+  const invoiceDone = row.state === "final" || (row.state === "paid" && !row.fullyShipped);
+  return invoiceDone && row.balance <= 0.01 && costComplete;
 }

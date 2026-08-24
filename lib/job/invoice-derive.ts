@@ -53,8 +53,17 @@ export function deriveInvoice(job: any, items: any[] = [], payments: any[] = [])
 
   const isDropShip = job?.shipping_route === "drop_ship";
   const isShipThrough = job?.shipping_route === "ship_through";
-  const allItemsShipped = items.length > 0 && items.every((it: any) => it.pipeline_stage === "shipped");
-  const isFullyShipped = (isDropShip && allItemsShipped) || (isShipThrough && job?.fulfillment_status === "shipped");
+  // Fully-shipped is judged PER ITEM by the item's own route (mig 076 rule) —
+  // the old job-level check meant MIXED-route jobs never satisfied either
+  // branch and the reconcile card never showed (Financial V2 1e fix, Aug 24).
+  // drop_ship item: decorator shipped it. warehouse item: it forwarded to the
+  // client (or the job's fulfillment run shipped).
+  const itemDelivered = (it: any) => {
+    const r = it.shipping_route || job?.shipping_route;
+    if (r === "ship_through" || r === "stage") return !!it.forwarded_at || job?.fulfillment_status === "shipped";
+    return it.pipeline_stage === "shipped";
+  };
+  const isFullyShipped = items.length > 0 && items.every(itemDelivered);
 
   // Rail step — last matching line wins (higher precedence). Reconcile is an
   // action-needed state that surfaces after shipping until it's finalized.

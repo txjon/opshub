@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { GodModeClient, type ClientStat, type DecoratorStat, type CashRow, type CategoryStat } from "@/components/GodModeClient";
 import { effectiveRevenue, effectiveCost, pnlJobs } from "@/lib/revenue";
+import { buildAr } from "@/lib/ar";
 import { ssRevCost } from "@/lib/analytics";
 import { poSentToItem, isItemInProduction } from "@/lib/item-status";
 import { buildPrintersMap } from "@/lib/pricing";
@@ -41,7 +42,7 @@ export default async function GodModePage() {
       .select("id, job_number, title, phase, client_id, clients(name), company_id, payment_terms, target_ship_date, costing_summary, costing_data, type_meta, phase_timestamps, created_at, quote_approved, quote_approved_at, is_inventory, is_test")
       .order("created_at", { ascending: false }),
     supabase.from("items")
-      .select("id, job_id, name, sort_order, blank_costs, pipeline_stage, pipeline_timestamps, sell_per_unit, cost_per_unit, cost_per_unit_all_in, garment_type, ship_qtys, blanks_order_cost, blanks_order_number, buy_sheet_lines(size, qty_ordered), decorator_assignments(decorator_id)")
+      .select("id, job_id, name, sort_order, blank_costs, pipeline_stage, pipeline_timestamps, sell_per_unit, cost_per_unit, cost_per_unit_all_in, garment_type, ship_qtys, blanks_order_cost, blanks_order_number, shipping_route, forwarded_at, buy_sheet_lines(size, qty_ordered), decorator_assignments(decorator_id)")
       .order("sort_order"),
     supabase.from("payment_records")
       .select("id, job_id, type, amount, status, due_date, paid_date, created_at"),
@@ -530,37 +531,22 @@ export default async function GodModePage() {
   const opsActive = jobs.filter(j => !["complete", "cancelled"].includes(j.phase));
   const completedJobs = jobs.filter(j => j.phase === "complete");
 
-  // AR aging — jobs + unpaid ShipStation invoices, bucketed by oldest due date.
-  const arBuckets = { current: 0, d30: 0, d60: 0, d90plus: 0 };
-  const bucketize = (owed: number, daysOld: number) => {
-    if (owed <= 0) return;
-    if (daysOld <= 0) arBuckets.current += owed;
-    else if (daysOld <= 30) arBuckets.d30 += owed;
-    else if (daysOld <= 60) arBuckets.d60 += owed;
-    else arBuckets.d90plus += owed;
+  // AR aging — lib/ar (Financial V2 1e swap, Aug 24 2026). Verified against
+  // the old inline math on live data: TOTAL identical to the dollar; buckets
+  // reclassify per the terms-aware doctrine ("current" absorbs invoices
+  // waiting inside net terms that the created-date anchor mis-called
+  // overdue). The cash-forecast block below still carries its own copy of
+  // the expected-date chain — dedup deferred, logic already identical.
+  const arSummary = buildAr({
+    jobs, itemsByJob: (() => { const m: Record<string, any[]> = {}; for (const it of items) (m[it.job_id] ||= []).push(it); return m; })(),
+    paymentsByJob, clients: clients as any[], ssReports, now,
+  });
+  const arBuckets = {
+    current: arSummary.aging.not_due.total + arSummary.aging.on_terms.total,
+    d30: arSummary.aging.overdue_30.total,
+    d60: arSummary.aging.overdue_60.total,
+    d90plus: arSummary.aging.overdue_90.total,
   };
-  // Only invoiced, non-cancelled jobs are receivables (any phase, incl. complete).
-  const arJobs = jobs.filter(j => j.phase !== "cancelled" && (j.type_meta as any)?.qb_invoice_number);
-  for (const j of arJobs) {
-    const rev = num((j.type_meta as any)?.qb_total_with_tax) || effectiveRevenue(j);
-    if (rev <= 0) continue;
-    const jobPaid = (paymentsByJob[j.id] || []).filter(p => p.status === "paid").reduce((s, p) => s + (p.amount || 0), 0);
-    const owed = rev - jobPaid;
-    if (owed <= 0) continue;
-    const unpaid = (paymentsByJob[j.id] || []).filter(p => p.status !== "paid" && p.due_date);
-    const oldestDue = unpaid.length
-      ? unpaid.sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime())[0].due_date
-      : j.created_at;
-    bucketize(owed, oldestDue ? daysBetween(oldestDue, now) : 0);
-  }
-  for (const r of ssReports) {
-    if (r.paid_at) continue;
-    const owed = num(r.qb_total_with_tax) || ssRevCost(r).revenue;
-    if (owed <= 0) continue;
-    const delay = termsDays[(clientById[r.client_id]?.default_terms) as string] ?? 30;
-    const due = new Date(new Date(r.created_at).getTime() + delay * msPerDay);
-    bucketize(owed, daysBetween(due.toISOString(), now));
-  }
 
   // Production health — phase cycle times, bottleneck, stalled items.
   const phaseTimes: Record<string, number[]> = {};

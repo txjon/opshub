@@ -441,7 +441,7 @@ function OrdersRail({ model, hist, reports, secHead }: any) {
       : { t: `${fmt$(total)} due`, c: H.amber };
     const label = r.report_type === "combined" ? "Full service" : (r.report_type === "postage" || r.report_type === "fulfillment") ? "Fulfillment" : "Services";
     return (
-      <a key={`rep-${r.id}`} href={`/reports/shipstation/${r.id}`}
+      <a key={`rep-${r.id}`} href={`/invoices/fulfillment/${r.id}`}
         style={{ display: "grid", gridTemplateColumns: "84px 64px minmax(160px, 1fr) 130px 120px minmax(150px, 220px)", gap: 12, alignItems: "center", padding: "11px 0", borderBottom: `1px solid ${H.line}`, textDecoration: "none", color: H.text }}>
         <span style={{ fontSize: 12, fontFamily: H.mono, fontWeight: 700, color: H.blue }}>{r.qb_invoice_number ? `#${r.qb_invoice_number}` : "—"}</span>
         <span style={{ fontSize: 10.5, fontFamily: H.mono, color: H.faint }}>{fmtShort(r.created_at)}</span>

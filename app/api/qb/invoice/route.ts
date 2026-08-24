@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { getOrCreateCustomer, createInvoice, updateInvoice, QBAmbiguousCustomerError, getCustomerById, type QBLineItem } from "@/lib/quickbooks";
+import { billableQtysForItem, sumForwarded } from "@/lib/job/billable-qtys";
 import { deductSamples } from "@/lib/qty";
 // Note: logs to job_activity after push so dashboard actions are traceable
 // Pricing source of truth: items.sell_per_unit (set by CostingTab, rounded to cent)
@@ -138,37 +139,31 @@ export async function POST(req: NextRequest) {
     }
 
     // items.sell_per_unit is the source of truth — set by CostingTab, rounded to cent
-    // useShippedQtys: use best-available qty (received_qtys → ship_qtys → ordered) with
-    // priority flipped by shipping route. Drop-ship prefers decorator-reported ship_qtys;
-    // ship_through/stage prefer HPD's received_qtys (warehouse confirmed).
+    // useShippedQtys: bill the CLIENT-DELIVERED quantity via the shared
+    // derivation (lib/job/billable-qtys — identical math to the variance
+    // review modal, so the review and the push can never disagree).
+    // Warehouse routes bill the ledger's forwarded quantities (what went
+    // OUT to the client), falling back received → shipped → ordered.
     const lineItems: QBLineItem[] = [];
+    let fwdByItem: Record<string, Record<string, number>> = {};
+    if (useShippedQtys) {
+      const { data: moves } = await admin.from("movements")
+        .select("item_id, type, qtys").eq("job_id", jobId).eq("type", "forward");
+      const grouped: Record<string, any[]> = {};
+      for (const m of (moves || []) as any[]) (grouped[m.item_id] ||= []).push(m);
+      for (const [iid, ms] of Object.entries(grouped)) fwdByItem[iid] = sumForwarded(ms);
+    }
 
     for (const item of (items || [])) {
       const lines = (item as any).buy_sheet_lines || [];
-      const received = ((item as any).received_qtys || {}) as Record<string, number>;
-      const shipped = ((item as any).ship_qtys || {}) as Record<string, number>;
-      // Per-item route wins over the job route (migration 076): a ship_through/
-      // stage item bills received qty, a drop_ship item bills shipped qty.
-      const itemRoute = (item as any).shipping_route || (job as any).shipping_route;
-      const prefersReceived = itemRoute === "ship_through" || itemRoute === "stage";
-      const firstChoice = prefersReceived ? received : shipped;
-      const secondChoice = prefersReceived ? shipped : received;
-
-      const perSize: Record<string, number> = {};
-      for (const l of lines) {
-        if (useShippedQtys) {
-          const fromFirst = firstChoice[l.size];
-          const fromSecond = secondChoice[l.size];
-          const fromOrdered = l.qty_ordered || 0;
-          // Missing sizes fall through to ordered — matches packing slip + variance.
-          perSize[l.size] = fromFirst !== undefined
-            ? fromFirst
-            : fromSecond !== undefined
-            ? fromSecond
-            : fromOrdered;
-        } else {
-          perSize[l.size] = l.qty_ordered || 0;
-        }
+      let perSize: Record<string, number> = {};
+      if (useShippedQtys) {
+        perSize = billableQtysForItem({
+          item: item as any, jobRoute: (job as any).shipping_route,
+          forwardedMap: fwdByItem[(item as any).id] || null,
+        }).perSize;
+      } else {
+        for (const l of lines) perSize[l.size] = l.qty_ordered || 0;
       }
       // Bill continuing (delivered − samples). Samples never ship to the
       // customer so we shouldn't charge for them. No-op for drop-ship items

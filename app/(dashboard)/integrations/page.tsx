@@ -44,10 +44,10 @@ const SERVICES: Service[] = [
     key: "shipstation",
     name: "ShipStation",
     description:
-      "Fulfillment reports for postage, sales, and combined invoices. Pushes line items to QuickBooks.",
+      "Order + postage data source for fulfillment billing. Invoicing moved to The Office → Invoices.",
     status: "configured",
     Icon: Truck,
-    href: "/integrations/shipstation",
+    href: "/invoices?stream=fulfillment",
   },
   {
     key: "quickbooks",

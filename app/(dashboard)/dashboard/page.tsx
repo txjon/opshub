@@ -464,9 +464,14 @@ export default async function DashboardPage() {
     p === 0 ? "critical" : p === 1 ? "action" : p === 2 ? "watch" : "ok";
 
   // Mapping from alert.type → which section it belongs to within the
-  // Clients / Decorators bucket. Anything not here is dropped (billing
-  // types live on /billing, not the team dashboard).
+  // Clients / Decorators bucket. AR alerts (create/send invoice, overdue
+  // payments) finally have a home (Financial V2 1e, Aug 24 2026): they
+  // render under Clients and deep-link to the job's Invoice surface; the
+  // roll-up view is /invoices.
   const SECTION_BY_TYPE: Record<string, { bucket: "clients" | "decorators"; section: string }> = {
+    create_invoice:    { bucket: "clients",    section: "Invoices" },
+    send_invoice:      { bucket: "clients",    section: "Invoices" },
+    overdue_payment:   { bucket: "clients",    section: "Invoices" },
     payment_received:  { bucket: "clients",    section: "Payments" },
     overdue:           { bucket: "clients",    section: "Past ship date" },
     quote_rejected:    { bucket: "clients",    section: "Quote feedback" },
@@ -486,7 +491,7 @@ export default async function DashboardPage() {
   // Order in which sections appear inside each bucket — Payments lands
   // at the top so cash-in surfaces draw the eye first.
   const SECTION_ORDER: Record<string, string[]> = {
-    clients:    ["Payments", "Past ship date", "Quote feedback", "Proof revisions", "New leads", "Send to client", "Awaiting client"],
+    clients:    ["Payments", "Invoices", "Past ship date", "Quote feedback", "Proof revisions", "New leads", "Send to client", "Awaiting client"],
     decorators: ["Discrepancies", "Send PO", "Order blanks", "Verify shipping"],
     designers:  ["Unread", "Awaiting HPD review", "Prep print-ready", "Mark delivered", "In design"],
   };

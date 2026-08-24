@@ -860,6 +860,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   const [chooserCandidates, setChooserCandidates] = useState<any>(undefined);
   const [refreshingLink, setRefreshingLink] = useState(false);
   const [showVariance, setShowVariance] = useState(false); // reconcile-at-ship review modal
+  const [reopenArm, setReopenArm] = useState(false); // two-tap un-finalize
   const [linkErr, setLinkErr] = useState("");
   const doRefreshLink = async () => {
     if (refreshingLink) return;
@@ -1972,6 +1973,21 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                       <>
                         <span style={{ color: T.green }}>✓ finalized {fmtDT(s.variancePushedAt)}</span>
                         <button onClick={() => setShowVariance(true)} style={{ background: "none", border: `1px solid ${T.border}`, color: T.muted, fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 999, cursor: "pointer", fontFamily: font }}>Re-review</button>
+                        {/* 1e fix (c): un-finalize — clears the variance stamp so
+                            staleness checks + the reconcile step come back live.
+                            Two-tap arm instead of browser confirm (DESIGN.md). */}
+                        <button onClick={async () => {
+                          if (!reopenArm) { setReopenArm(true); setTimeout(() => setReopenArm(false), 4000); return; }
+                          setReopenArm(false);
+                          const tm = { ...(job.type_meta || {}) };
+                          delete tm.qb_variance_pushed_at; delete tm.qb_variance_total; delete tm.qb_variance_tax; delete tm.qb_variance_billable_qtys;
+                          await (createClient().from("jobs") as any).update({ type_meta: tm }).eq("id", job.id);
+                          setJob((j: any) => ({ ...j, type_meta: tm }));
+                          try { logJobActivity(job.id, "Invoice reconcile reopened — finalization cleared"); } catch {}
+                          refetchTypeMeta();
+                        }} style={{ background: "none", border: "none", color: reopenArm ? T.red : T.faint, fontSize: 10.5, fontWeight: 700, cursor: "pointer", fontFamily: font }}>
+                          {reopenArm ? "tap again to reopen" : "Reopen"}
+                        </button>
                       </>
                     ));
                     if (s.step === "reconcile") return row("Reconcile", (

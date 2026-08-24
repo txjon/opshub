@@ -1058,7 +1058,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                   // Paid wins, then Sent, else it's a saved QB invoice not yet emailed.
                   const status = r.paid_at?{label:"Paid",color:T.green}:r.sent_at?{label:"Sent",color:"#3a8a9e"}:{label:"Invoiced",color:T.accent};
                   return(
-                    <Link key={r.id} href={`/reports/shipstation/${r.id}`}
+                    <Link key={r.id} href={`/invoices/fulfillment/${r.id}`}
                       style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",background:T.surface,borderRadius:6,textDecoration:"none",color:T.text,transition:"background 0.1s"}}
                       onMouseEnter={(e:any)=>e.currentTarget.style.background=T.accentDim}
                       onMouseLeave={(e:any)=>e.currentTarget.style.background=T.surface}>
