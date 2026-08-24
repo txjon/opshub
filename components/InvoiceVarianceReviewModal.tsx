@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { billableQtysForItem, sumForwarded } from "@/lib/job/billable-qtys";
 import { T, font, mono, SIZE_ORDER, sortSizes } from "@/lib/theme";
 
 type VarianceRow = {
@@ -52,43 +53,27 @@ export function InvoiceVarianceReviewModal({
         .select("id, name, blank_vendor, sell_per_unit, shipping_route, ship_qtys, received_qtys, buy_sheet_lines(size, qty_ordered)")
         .eq("job_id", jobId)
         .order("sort_order");
+      // Client-delivered truth for warehouse routes = the ledger's forward
+      // movements (what went OUT to the client), not received_qtys (what
+      // landed at HPD) — lib/job/billable-qtys, shared with the QB push.
+      const { data: moves } = await supabase
+        .from("movements").select("item_id, type, qtys").eq("job_id", jobId).eq("type", "forward");
+      const movesByItem: Record<string, any[]> = {};
+      for (const m of (moves || []) as any[]) (movesByItem[m.item_id] ||= []).push(m);
 
       const built: VarianceRow[] = ((items as any) || []).map((it: any) => {
         const lines = it.buy_sheet_lines || [];
         const orderedPerSize: Record<string, number> = {};
         for (const l of lines) orderedPerSize[l.size] = l.qty_ordered || 0;
 
-        // Priority: received_qtys (HPD confirmed) → ship_qtys (decorator reported)
-        // → ordered (best we have). Order of the two by shipping route, but
-        // always fall through so we use the best available data.
-        const received = (it.received_qtys || {}) as Record<string, number>;
-        const shipped = (it.ship_qtys || {}) as Record<string, number>;
-        const hasReceived = Object.keys(received).length > 0;
-        const hasShipped = Object.keys(shipped).length > 0;
-        // Per-item route wins over the job route (migration 076), so a
-        // ship_through item on a drop_ship job is reviewed on received qty.
-        const itemRoute = it.shipping_route || shippingRoute;
-        const itemPrefersReceived = itemRoute === "ship_through" || itemRoute === "stage";
-        const firstChoice = itemPrefersReceived ? received : shipped;
-        const secondChoice = itemPrefersReceived ? shipped : received;
-
-        const actualPerSize: Record<string, number> = {};
-        for (const sz of Object.keys(orderedPerSize)) {
-          const fromFirst = firstChoice[sz];
-          const fromSecond = secondChoice[sz];
-          const fromOrdered = orderedPerSize[sz];
-          // Missing sizes fall through to ordered — matches packing-slip logic.
-          // If you actually shipped zero of a size, save it as an explicit 0.
-          actualPerSize[sz] = fromFirst !== undefined
-            ? fromFirst
-            : fromSecond !== undefined
-            ? fromSecond
-            : fromOrdered;
-        }
-        // Determine which source actually contributed the majority of data for the UI label
-        (it as any)._actualSourceLabel = itemPrefersReceived
-          ? (hasReceived ? "HPD received" : (hasShipped ? "decorator shipped" : "ordered"))
-          : (hasShipped ? "decorator shipped" : (hasReceived ? "HPD received" : "ordered"));
+        const { perSize: actualPerSize, source } = billableQtysForItem({
+          item: it, jobRoute: shippingRoute,
+          forwardedMap: sumForwarded(movesByItem[it.id] || []),
+        });
+        (it as any)._actualSourceLabel =
+          source === "forwarded" ? "shipped to client"
+          : source === "received" ? "HPD received"
+          : source === "shipped" ? "decorator shipped" : "ordered";
 
         const orderedTotal = Object.values(orderedPerSize).reduce((a, q) => a + q, 0);
         const actualTotal = Object.values(actualPerSize).reduce((a, q) => a + q, 0);

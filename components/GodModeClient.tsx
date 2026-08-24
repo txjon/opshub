@@ -117,7 +117,7 @@ const fmtDateIso = (iso: string) => {
 };
 const garmentLabel = (g: string) => g === "uncategorized" ? "Uncategorized" : g.charAt(0).toUpperCase() + g.slice(1).replace(/_/g, " ");
 // ShipStation rows link to their report; job rows link to the job.
-const detailHref = (row: { reportId?: string | null; jobId?: string }) => row.reportId ? `/reports/shipstation/${row.reportId}` : `/jobs/${row.jobId}`;
+const detailHref = (row: { reportId?: string | null; jobId?: string }) => row.reportId ? `/invoices/fulfillment/${row.reportId}` : `/jobs/${row.jobId}`;
 const marginColor = (m: number) => m >= 0.3 ? T.green : m >= 0.15 ? T.amber : T.red;
 const varianceColor = (v: number) => v <= 0.02 ? T.green : v <= 0.05 ? T.amber : T.red;
 
