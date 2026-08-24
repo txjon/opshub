@@ -26,7 +26,7 @@ const healthLine = (d: any): { text: string; color: string } => {
     case "building": return { text: "Yours to build — send it over when the lineup\u2019s ready.", color: C.amber };
     case "ready": return { text: "With us — we\u2019re costing and scheduling it.", color: C.blue };
     case "live": return { text: d.window_close_date ? `Selling now — closes ${fmtDate(d.window_close_date)}.` : "Selling now.", color: "#fd3aa3" };
-    case "closed": return { text: "Sale\u2019s closed — drop in your final numbers.", color: C.amber };
+    case "closed": return { text: "Closed.", color: C.faint };
     case "cut":
       if (d.payable?.state === "ready") return { text: `In production — invoice${d.payable.invoiceNumber ? ` #${d.payable.invoiceNumber}` : ""} ready to pay.`, color: C.amber };
       if (d.payable?.state === "paid") return { text: "In production \u00b7 paid.", color: C.green };
@@ -321,7 +321,10 @@ function DropSheet({ drop, token, briefs, committed, pipeItems, catalogItems, mo
   // re-runs); an all-pipeline lineup is a launch, not a sale.
   const needsRun = (s: any) => !s.itemId || s.rerun;
   const pipelineOnly = drop.slots.length > 0 && !drop.slots.some(needsRun);
-  const numbersOpen = drop.status === "closed" && drop.slots.some(needsRun);
+  // Numbers are OURS now (Jon, Aug 24): sold counts land via the sales-report
+  // import on our side and the ledger cuts the buys. Clients see the sold
+  // totals; they never type quantities here.
+  const showSold = ["closed", "cut"].includes(drop.status);
   const h = healthLine(drop);
   const ready = drop.slots.filter((s: any) => s.ideaApproved).length;
   const allReady = drop.slots.length > 0 && ready === drop.slots.length;
@@ -462,7 +465,7 @@ function DropSheet({ drop, token, briefs, committed, pipeItems, catalogItems, mo
                         statuses, no ETAs (Jon, Aug 20: production logistics
                         are our altitude, not the client's). */}
                     {!building
-                      ? (s.retail != null ? `$${s.retail} retail` : "")
+                      ? [s.retail != null ? `$${s.retail} retail` : "", showSold && s.soldUnits > 0 ? `sold ${Number(s.soldUnits).toLocaleString()}` : ""].filter(Boolean).join(" \u00b7 ")
                       : s.rerun
                         ? `new run${lu.total > 0 ? ` · this run ${lu.total.toLocaleString()} pcs` : lastRunPcs > 0 ? ` · last run ${lastRunPcs.toLocaleString()} pcs` : ""}${s.retail != null ? ` · $${s.retail} retail` : ""}`
                         : s.itemId
@@ -480,7 +483,6 @@ function DropSheet({ drop, token, briefs, committed, pipeItems, catalogItems, mo
                   <button onClick={async () => { setBusy(s.id); if (await call("DELETE", `/slots?slotId=${s.id}`)) onChanged(drop.id); setBusy(null); }}
                     style={{ background: "none", border: "none", color: C.faint, fontSize: 16, cursor: "pointer", lineHeight: 1 }} aria-label="Remove">×</button>
                 )}
-                {numbersOpen && needsRun(s) && <NumbersEntry slot={s} onSave={async (qtys) => { setBusy(s.id); if (await call("PATCH", "/slots", { slotId: s.id, qtys })) onChanged(drop.id); setBusy(null); }} />}
               </div>
             );
           })}
@@ -622,7 +624,6 @@ function DropSheet({ drop, token, briefs, committed, pipeItems, catalogItems, mo
               </span>
             </div>
           )}
-          {numbersOpen && <span style={{ fontSize: 12, color: C.muted, lineHeight: 1.5 }}>Sale closed. Enter production numbers on each line above and we&rsquo;ll confirm.</span>}
           {drop.status === "cut" && (
             drop.payable?.state === "paid" ? (
               <span style={{ fontSize: 12.5, fontWeight: 800, color: C.green, letterSpacing: "0.04em" }}>Paid in full. It&rsquo;s in production. Thank you!</span>
@@ -645,38 +646,3 @@ function DropSheet({ drop, token, briefs, committed, pipeItems, catalogItems, mo
 }
 
 const DEFAULT_SIZES = ["S", "M", "L", "XL", "2XL", "3XL"];
-function NumbersEntry({ slot, onSave }: { slot: any; onSave: (qtys: Record<string, number>) => void }) {
-  const [openEntry, setOpenEntry] = useState(false);
-  const [q, setQ] = useState<Record<string, string>>(() => {
-    const out: Record<string, string> = {};
-    for (const s of Array.from(new Set([...DEFAULT_SIZES, ...Object.keys(slot.qtys || {})]))) out[s] = slot.qtys?.[s] != null ? String(slot.qtys[s]) : "";
-    return out;
-  });
-  const total = Object.values(q).reduce((a, v) => a + (Math.round(Number(v) || 0)), 0);
-  if (!openEntry) {
-    const has = Object.keys(slot.qtys || {}).length > 0;
-    return (
-      <button onClick={() => setOpenEntry(true)}
-        style={{ background: has ? "transparent" : "#fff", color: has ? C.muted : C.bg, border: has ? `1px solid ${C.border}` : "none", borderRadius: 999, padding: "8px 14px", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", cursor: "pointer", fontFamily: C.font }}>
-        {has ? `${Object.values(slot.qtys).reduce((a: number, b: any) => a + Number(b), 0)} pcs · edit` : "Enter numbers"}
-      </button>
-    );
-  }
-  return (
-    <div style={{ flexBasis: "100%", display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end", paddingTop: 8 }}>
-      {Object.keys(q).map(sz => (
-        <label key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
-          <span style={{ fontSize: 9, fontWeight: 800, color: C.faint, fontFamily: C.mono }}>{sz}</span>
-          <input type="text" inputMode="numeric" value={q[sz]} placeholder="0"
-            onFocus={e => e.currentTarget.select()}
-            onChange={e => setQ(p => ({ ...p, [sz]: e.target.value.replace(/[^0-9]/g, "") }))}
-            style={{ width: 50, padding: "8px 0", textAlign: "center", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, color: C.text, fontFamily: C.mono, fontSize: 12.5, fontWeight: 700, outline: "none" }} />
-        </label>
-      ))}
-      <button onClick={() => { const out: Record<string, number> = {}; for (const [k, v] of Object.entries(q)) { const n = Math.round(Number(v) || 0); if (n > 0) out[k] = n; } onSave(out); setOpenEntry(false); }}
-        style={{ background: "#fff", color: C.bg, border: "none", borderRadius: 999, padding: "10px 18px", fontSize: 10, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", cursor: "pointer", fontFamily: C.font }}>
-        Save · {total.toLocaleString()}
-      </button>
-    </div>
-  );
-}
