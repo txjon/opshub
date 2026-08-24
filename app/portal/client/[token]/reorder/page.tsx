@@ -333,7 +333,7 @@ export default function ReorderPage() {
         <ItemSheet
           entry={detail}
           line={cart[detail.kind === "mockup" ? detail.key : detail.itemId] || null}
-          onAddToRelease={hasReleases && detail.kind !== "mockup" ? () => { window.location.href = `/portal/client/${token}/releases?add=${detail.itemId}`; } : undefined}
+          onAddToRelease={hasReleases ? () => { window.location.href = `/portal/client/${token}/releases?add=${detail.kind === "mockup" ? `p:${detail.productId}` : detail.itemId}`; } : undefined}
           onClose={() => { setDetail(null); if (returnToReview) { setReturnToReview(false); setReviewing(true); } }}
           onSave={(l) => {
             const k = detail.kind === "mockup" ? detail.key : detail.itemId;

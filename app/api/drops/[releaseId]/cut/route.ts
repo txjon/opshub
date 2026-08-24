@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { logJobActivityServer } from "@/lib/notify-server";
-import { isPipelineSlot, isRerunSlot, sumQtys, enteredSizes } from "@/lib/release-lanes";
+import { isPipelineSlot, isRerunSlot, sumQtys, enteredSizes, productIdOfSlot } from "@/lib/release-lanes";
 import { copyItemIntoJob } from "@/lib/reorder-cart";
 
 export const runtime = "nodejs";
@@ -121,8 +121,15 @@ export async function POST(_req: NextRequest, { params }: { params: { releaseId:
         continue;
       }
 
+      // Product slots (Phase 5) carry the product's own identity.
+      const slotProductId = productIdOfSlot(s);
+      let slotProduct: any = null;
+      if (slotProductId) {
+        const { data: sp } = await db.from("products").select("id, title, spec").eq("id", slotProductId).single();
+        slotProduct = sp || null;
+      }
       const ideaTitle = s.art_briefs?.title || "Design";
-      const name = `${ideaTitle} ${s.format || "Item"}`.trim().slice(0, 120);
+      const name = (slotProduct?.title || `${ideaTitle} ${s.format || "Item"}`).trim().slice(0, 120);
       const { data: item, error: itemErr } = await db.from("items").insert({
         job_id: jobId,
         name,
@@ -131,6 +138,7 @@ export async function POST(_req: NextRequest, { params }: { params: { releaseId:
         sort_order: i,
         pipeline_stage: null,
         design_id: s.brief_id,
+        product_id: slotProduct?.id || null,
         notes: s.line_notes || null,
       }).select("id").single();
       if (itemErr || !item) continue;
@@ -144,8 +152,17 @@ export async function POST(_req: NextRequest, { params }: { params: { releaseId:
         })));
       }
 
-      // Mockup: newest client-visible, non-PDF image on the idea.
-      const { data: bf } = await db.from("art_brief_files")
+      // Mockup: the product's own comp image first, else the idea's newest
+      // client-visible non-PDF image.
+      const prodMock = slotProduct?.spec?.mockup_drive_file_id;
+      if (prodMock) {
+        await db.from("item_files").insert({
+          item_id: (item as any).id, file_name: `${name} mockup`, stage: "mockup",
+          drive_file_id: prodMock, drive_link: `https://drive.google.com/file/d/${prodMock}/view`,
+          approval: "none",
+        });
+      }
+      const { data: bf } = prodMock ? { data: [] as any[] } : await db.from("art_brief_files")
         .select("file_name, drive_file_id, preview_drive_file_id, drive_link, mime_type, file_size, uploader_role, shared_with_client_at")
         .eq("brief_id", s.brief_id).order("created_at", { ascending: false }).limit(10);
       const pick = (bf || []).find((f: any) => (f.shared_with_client_at || f.uploader_role === "client")

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
-import { isRerunLineId, briefApproved } from "@/lib/release-lanes";
+import { isRerunLineId, isProductLineId, briefApproved } from "@/lib/release-lanes";
 import { hubClientLookup } from "@/lib/hub-client";
 
 export const runtime = "nodejs";
@@ -52,6 +52,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
           soldUnits: s.sold_units, qtys: s.qtys || {}, qtysConfirmedAt: s.qtys_confirmed_at,
           itemId: s.item_id || null,
           rerun: isRerunLineId(s.line_id),
+          product: isProductLineId(s.line_id),
           ideaTitle: s.art_briefs?.title || null,
           briefState: s.art_briefs?.state || null,
           // item-sourced lines are real by definition — always ready

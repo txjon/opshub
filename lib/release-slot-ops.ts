@@ -25,14 +25,46 @@ const lineupEditable = (r: ReleaseRow, actor: SlotActor) =>
 //    rerun: true } catalog re-run (must have actually run). ──────────────
 export async function addSlot(
   db: Db, release: ReleaseRow,
-  body: { briefId?: string; lineId?: string; itemId?: string; rerun?: boolean },
+  body: { briefId?: string; lineId?: string; itemId?: string; rerun?: boolean; productId?: string },
   actor: SlotActor,
 ): Promise<SlotOpFail | { slotId: string }> {
   if (!lineupEditable(release, actor)) return fail("This release is locked", 409);
-  const { briefId, lineId, itemId, rerun } = body;
+  const { briefId, lineId, itemId, rerun, productId } = body;
   const { count } = await db.from("release_slots").select("id", { count: "exact", head: true }).eq("release_id", release.id);
 
   let insert: Record<string, any>;
+  if (productId) {
+    // Product lane (Phase 5): an un-produced catalog mockup — its first run
+    // is born at cut/buy. One committed lane per product: an open slot on
+    // any non-cut release, or a born item, blocks a second add.
+    const { data: prod } = await db.from("products")
+      .select("id, client_id, brief_id, title, format, retail").eq("id", String(productId)).single();
+    if (!prod || (prod as any).client_id !== release.client_id) return fail("Product not found", 404);
+    if (!(prod as any).brief_id) return fail("That product has no design attached", 400);
+    const pLine = `product:${(prod as any).id}`;
+    const { data: openSlots } = await db.from("release_slots")
+      .select("id, releases!inner(status)").eq("line_id", pLine).neq("releases.status", "cut");
+    if ((openSlots || []).length) return fail("Already on a release", 409);
+    const { count: born } = await db.from("items")
+      .select("id", { count: "exact", head: true }).eq("product_id", (prod as any).id);
+    if (born) return fail("Already in production — add it from the pipeline instead", 409);
+    insert = {
+      company_id: release.company_id || null,
+      release_id: release.id,
+      brief_id: (prod as any).brief_id,
+      line_id: pLine,
+      format: (prod as any).title || (prod as any).format || null,
+      retail: (prod as any).retail ?? null,
+      model: null,
+      sort_order: (count || 0),
+    };
+    const { data, error } = await db.from("release_slots").insert(insert).select("id").single();
+    if (error) {
+      if (/duplicate|unique/i.test(error.message)) return fail("Already on this release", 409);
+      return fail(error.message, 500);
+    }
+    return { slotId: (data as any).id };
+  }
   if (itemId) {
     // Item-sourced line — pipeline item riding along, or a catalog RE-RUN.
     const { data: item } = await db.from("items")

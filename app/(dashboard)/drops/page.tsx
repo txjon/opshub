@@ -507,11 +507,11 @@ function OpsNumbers({ slot, onSave }: { slot: any; onSave: (q: Record<string, nu
 
 function AddLines({ releaseId, onAdd }: { releaseId: string; onAdd: (body: any) => Promise<boolean> }) {
   const [openAdd, setOpenAdd] = useState(false);
-  const [cands, setCands] = useState<{ briefs: any[]; pipeItems: any[]; rerunItems: any[] } | null>(null);
+  const [cands, setCands] = useState<{ briefs: any[]; pipeItems: any[]; rerunItems: any[]; products?: any[] } | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   async function loadCands() {
     try { setCands(await fetch(`/api/drops/${releaseId}/slots`).then(r => r.json())); }
-    catch { setCands({ briefs: [], pipeItems: [], rerunItems: [] }); }
+    catch { setCands({ briefs: [], pipeItems: [], rerunItems: [], products: [] }); }
   }
   async function add(id: string, body: any) {
     setBusyId(id);
@@ -543,7 +543,7 @@ function AddLines({ releaseId, onAdd }: { releaseId: string; onAdd: (body: any) 
     <div style={{ padding: "12px 0 4px", display: "flex", flexDirection: "column", gap: 6, maxHeight: 300, overflowY: "auto" }}>
       {cands === null ? (
         <div style={{ fontSize: 11.5, color: H.faint }}>Loading their studio + pipeline…</div>
-      ) : !cands.briefs.length && !cands.pipeItems.length && !cands.rerunItems.length ? (
+      ) : !cands.briefs.length && !cands.pipeItems.length && !cands.rerunItems.length && !(cands.products || []).length ? (
         <div style={{ fontSize: 11.5, color: H.faint }}>Nothing left to pull — everything is on a release, ordered, or in production.</div>
       ) : (
         <>
@@ -551,6 +551,8 @@ function AddLines({ releaseId, onAdd }: { releaseId: string; onAdd: (body: any) 
           {cands.pipeItems.map((it: any) => row(it.id, { itemId: it.id }, null, it.name, it.qty ? `${it.qty.toLocaleString()} pcs` : ""))}
           {cands.rerunItems.length > 0 && group("From their catalog · run it back")}
           {cands.rerunItems.map((it: any) => row(it.id, { itemId: it.id, rerun: true }, null, it.name, it.qty ? `last run ${it.qty.toLocaleString()} pcs` : "past run"))}
+          {(cands.products || []).length > 0 && group("From their catalog · never run")}
+          {(cands.products || []).map((p: any) => row(p.id, { productId: p.id }, p.thumbId, p.title, p.format || "mockup"))}
           {cands.briefs.length > 0 && group("From the studio · not yet ordered")}
           {cands.briefs.map((b: any) => row(b.id, { briefId: b.id }, b.thumbId, b.title || "Untitled", b.state === "approved" ? "approved" : "in the works"))}
         </>

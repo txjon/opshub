@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { logJobActivityServer } from "@/lib/notify-server";
-import { sumQtys, enteredSizes } from "@/lib/release-lanes";
+import { sumQtys, enteredSizes, productIdOfSlot } from "@/lib/release-lanes";
 import { copyItemIntoJob } from "@/lib/reorder-cart";
 
 export const runtime = "nodejs";
@@ -127,8 +127,15 @@ export async function POST(req: NextRequest, { params }: { params: { releaseId: 
         }
       }
       if (!newItemId) {
-        // Brief-only line, no prior run — bare item + the idea's newest
-        // client-visible mockup (mirrors the cut route).
+        // Brief-only or product line, no prior run — bare item + the best
+        // mockup (product's comp image first; else the idea's newest
+        // client-visible file — mirrors the cut route).
+        const slotProductId = productIdOfSlot(slot);
+        let slotProduct: any = null;
+        if (slotProductId) {
+          const { data: sp } = await db.from("products").select("id, spec").eq("id", slotProductId).single();
+          slotProduct = sp || null;
+        }
         const { data: item, error: itemErr } = await db.from("items").insert({
           job_id: jobId,
           name: finalName,
@@ -137,6 +144,7 @@ export async function POST(req: NextRequest, { params }: { params: { releaseId: 
           sort_order: i,
           pipeline_stage: null,
           design_id: slot.brief_id || null,
+          product_id: slotProduct?.id || null,
           release_slot_id: slot.id,
           notes: slot.line_notes || null,
         }).select("id").single();
@@ -148,7 +156,15 @@ export async function POST(req: NextRequest, { params }: { params: { releaseId: 
             qty_shipped_from_vendor: 0, qty_received_at_hpd: 0, qty_shipped_to_customer: 0,
           })));
         }
-        if (slot.brief_id) {
+        const prodMock = slotProduct?.spec?.mockup_drive_file_id;
+        if (prodMock) {
+          await db.from("item_files").insert({
+            item_id: newItemId, file_name: `${finalName} mockup`, stage: "mockup",
+            drive_file_id: prodMock, drive_link: `https://drive.google.com/file/d/${prodMock}/view`,
+            approval: "none",
+          });
+        }
+        if (slot.brief_id && !prodMock) {
           const { data: bf } = await db.from("art_brief_files")
             .select("file_name, drive_file_id, preview_drive_file_id, drive_link, mime_type, file_size, uploader_role, shared_with_client_at")
             .eq("brief_id", slot.brief_id).order("created_at", { ascending: false }).limit(10);

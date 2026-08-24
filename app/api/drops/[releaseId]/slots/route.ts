@@ -97,10 +97,30 @@ export async function GET(_req: NextRequest, { params }: { params: { releaseId: 
       const key = `${(it.name || "").trim().toLowerCase()}|${(it.blank_sku || "").trim().toLowerCase()}`;
       if (!byKey.has(key)) byKey.set(key, { id: it.id, name: it.name, qty: qtyOf(it) });
     }
+    // Product lane (Phase 5): un-produced catalog mockups — ready products
+    // with no born item and no open slot on a non-cut release.
+    const { data: prods } = await db.from("products")
+      .select("id, title, format, spec, brief_id").eq("client_id", clientId).eq("state", "ready")
+      .order("created_at", { ascending: false }).limit(100);
+    let productCands: any[] = [];
+    if ((prods || []).length) {
+      const pids = (prods || []).map((p: any) => p.id);
+      const { data: bornRows } = await db.from("items").select("product_id").in("product_id", pids);
+      const bornSet = new Set((bornRows || []).map((r: any) => r.product_id));
+      const { data: openSlots } = await db.from("release_slots")
+        .select("line_id, releases!inner(status)")
+        .in("line_id", pids.map((id: string) => `product:${id}`)).neq("releases.status", "cut");
+      const slottedProd = new Set((openSlots || []).map((r: any) => String(r.line_id).slice(8)));
+      productCands = (prods || [])
+        .filter((p: any) => p.brief_id && !bornSet.has(p.id) && !slottedProd.has(p.id))
+        .map((p: any) => ({ id: p.id, title: p.title, format: p.format || null, thumbId: p.spec?.mockup_drive_file_id || null }));
+    }
+
     return NextResponse.json({
       briefs: briefCands.map((b: any) => ({ id: b.id, title: b.title, state: b.state, thumbId: thumbs[b.id] || null })),
       pipeItems,
       rerunItems: Array.from(byKey.values()),
+      products: productCands,
     });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || "Failed" }, { status: 500 });
