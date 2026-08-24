@@ -190,7 +190,7 @@ async function processPayment(payment: any, supabase: any, paymentId: string) {
 
     if (!jobs?.length) {
       // Not a job invoice — try matching to a ShipStation sales report
-      // (fulfillment fee invoice pushed from /reports/shipstation/...).
+      // (fulfillment fee invoice pushed from /invoices/fulfillment/...).
       // Realm: events from any other realm are rejected up top, so the env
       // realm is authoritative here (processPayment has no event in scope).
       const handled = await tryMatchShipstationReport(supabase, qbInvoiceId, amount);

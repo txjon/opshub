@@ -289,7 +289,7 @@ export default function ReportsPage() {
                 {paymentRows.map((p, i) => (
                   <tr key={i}>
                     <td style={{ ...td, fontWeight: 700 }}>{p.client}</td>
-                    <td style={{ ...td, color: T.muted }}>{p.reportId ? <a href={`/reports/shipstation/${p.reportId}`} style={{ color: T.muted, textDecoration: "none" }}>{p.project}</a> : <a href={`/jobs/${p.jobId}`} style={{ color: T.muted, textDecoration: "none" }}>{p.project}</a>}</td>
+                    <td style={{ ...td, color: T.muted }}>{p.reportId ? <a href={`/invoices/fulfillment/${p.reportId}`} style={{ color: T.muted, textDecoration: "none" }}>{p.project}</a> : <a href={`/jobs/${p.jobId}`} style={{ color: T.muted, textDecoration: "none" }}>{p.project}</a>}</td>
                     <td style={{ ...td, color: T.muted, textTransform: "capitalize" }}>{String(p.type).replace(/_/g, " ")}</td>
                     <td style={{ ...td, textAlign: "right", fontFamily: mono, fontWeight: 700 }}>{fmtD(p.amount)}</td>
                     <td style={{ ...td, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.04em", textTransform: "uppercase", color: p.status === "paid" ? T.green : p.status === "overdue" ? T.red : T.amber }}>{p.status}</td>
@@ -316,7 +316,7 @@ export default function ReportsPage() {
                 {shippingRows.map(s => (
                   <tr key={s.reportId}>
                     <td style={{ ...td, fontWeight: 700 }}>{s.client}</td>
-                    <td style={{ ...td, color: T.muted }}><a href={`/reports/shipstation/${s.reportId}`} style={{ color: T.muted, textDecoration: "none" }}>{s.period}</a></td>
+                    <td style={{ ...td, color: T.muted }}><a href={`/invoices/fulfillment/${s.reportId}`} style={{ color: T.muted, textDecoration: "none" }}>{s.period}</a></td>
                     <td style={{ ...td, color: T.muted }}>{s.type}</td>
                     <td style={{ ...td, textAlign: "right", fontFamily: mono }}>{s.shipments ? s.shipments.toLocaleString() : "—"}</td>
                     <td style={{ ...td, textAlign: "right", fontFamily: mono }}>{fmtD(s.rev)}</td>

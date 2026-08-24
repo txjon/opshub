@@ -8,7 +8,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
-import { buildAr, type ArAging, type ArSummary, type InvoiceRow } from "@/lib/ar";
+import { buildAr, isCloseable, type ArAging, type ArSummary, type InvoiceRow } from "@/lib/ar";
+import { computeBillingQueue } from "@/lib/billing-queue";
+import { buildPrintersMap } from "@/lib/pricing";
 
 const money = (n: number) => "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtDay = (iso: string | null) => {
@@ -39,21 +41,32 @@ export default function InvoicesPage() {
   const supabase = createClient();
   const [ar, setAr] = useState<ArSummary | null>(null);
   const [err, setErr] = useState("");
-  const [stream, setStream] = useState<"all" | "job" | "fulfillment">("all");
+  const [stream, setStream] = useState<"all" | "job" | "fulfillment">(() => {
+    if (typeof window === "undefined") return "all";
+    const q = new URLSearchParams(window.location.search).get("stream");
+    return q === "fulfillment" || q === "job" ? q : "all";
+  });
   const [agingFilter, setAgingFilter] = useState<ArAging | null>(null);
   const [openOnly, setOpenOnly] = useState(true);
+  const [tab, setTab] = useState<"index" | "close">("index");
+  const [costCompleteByJob, setCostCompleteByJob] = useState<Record<string, boolean>>({});
+  const [closing, setClosing] = useState<string | null>(null);
   const [q, setQ] = useState("");
 
   async function load() {
     try {
-      const [jobsRes, itemsRes, paysRes, clientsRes, ssRes] = await Promise.all([
-        supabase.from("jobs").select("id, job_number, title, phase, client_id, clients(name), payment_terms, target_ship_date, costing_summary, type_meta, created_at, shipping_route, fulfillment_status, is_inventory, is_test"),
-        supabase.from("items").select("id, job_id, pipeline_stage"),
+      const [jobsRes, itemsRes, decoratorsRes, apRes, entriesRes, marksRes, paysRes, clientsRes, ssRes] = await Promise.all([
+        supabase.from("jobs").select("id, job_number, title, phase, client_id, clients(name), payment_terms, target_ship_date, costing_summary, costing_data, type_meta, created_at, shipping_route, fulfillment_status, is_inventory, is_test, financial_closed_at"),
+        supabase.from("items").select("id, job_id, name, sort_order, blank_costs, pipeline_stage, shipping_route, forwarded_at, buy_sheet_lines(size, qty_ordered)"),
+        supabase.from("decorators").select("id, name, short_code, pricing_data, capabilities"),
+        supabase.from("ap_vendors").select("id, name, kind, decorator_id, match_keys").eq("active", true),
+        supabase.from("cost_entries").select("job_id, vendor_id, amount, source, status"),
+        supabase.from("cost_vendor_status").select("job_id, vendor_id, reason"),
         supabase.from("payment_records").select("id, job_id, amount, status, due_date"),
         supabase.from("clients").select("id, name, default_terms"),
         supabase.from("shipstation_reports").select("id, client_id, report_type, period_label, totals, postage_totals, qb_invoice_number, qb_total_with_tax, paid_at, paid_amount, sent_at, created_at"),
       ]);
-      const firstErr = [jobsRes, itemsRes, paysRes, clientsRes, ssRes].find(r => r.error);
+      const firstErr = [jobsRes, itemsRes, decoratorsRes, apRes, entriesRes, marksRes, paysRes, clientsRes, ssRes].find(r => r.error);
       if (firstErr?.error) { setErr(firstErr.error.message); return; }
       const itemsByJob: Record<string, any[]> = {};
       for (const it of (itemsRes.data || []) as any[]) (itemsByJob[it.job_id] ||= []).push(it);
@@ -66,6 +79,19 @@ export default function InvoicesPage() {
         clients: (clientsRes.data || []) as any[],
         ssReports: ssRes.data || [],
       }));
+      // Cost-complete per job×vendor (lib/billing-queue) — the fourth
+      // close-out condition. Freight sources excluded (never gates close).
+      const q = computeBillingQueue({
+        jobs: jobsRes.data || [],
+        printers: buildPrintersMap((decoratorsRes.data || []) as any[]),
+        apVendors: (apRes.data || []) as any[],
+        entries: ((entriesRes.data || []) as any[]).filter((e: any) => !String(e.source || "").startsWith("ups")),
+        marks: (marksRes.data || []) as any[],
+        itemsByJob,
+      });
+      const cc: Record<string, boolean> = {};
+      for (const row of (q as any).jobs || []) cc[row.id] = !!row.costComplete;
+      setCostCompleteByJob(cc);
     } catch (e: any) { setErr(e?.message || "Load failed"); }
   }
   useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
@@ -106,6 +132,39 @@ export default function InvoicesPage() {
             {kpi("Expected · 30d", money(ar.kpis.expected30), T.green)}
           </div>
 
+          <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+            {(["index", "close"] as const).map(k => {
+              const closeable = ar.rows.filter(r => isCloseable(r, !!costCompleteByJob[r.id])).length;
+              return (
+                <button key={k} onClick={() => setTab(k)}
+                  style={{ borderRadius: 8, border: `1px solid ${tab === k ? T.accent : T.border}`, background: tab === k ? T.surface : "transparent", color: tab === k ? T.text : T.muted, fontSize: 12.5, fontWeight: 800, padding: "9px 16px", cursor: "pointer", fontFamily: font }}>
+                  {k === "index" ? "All invoices" : `Close-out${closeable ? ` · ${closeable}` : ""}`}
+                </button>
+              );
+            })}
+          </div>
+
+          {tab === "close" ? (
+            <CloseOutQueue rows={ar.rows} costCompleteByJob={costCompleteByJob} closing={closing}
+              onClose={async (row) => {
+                setClosing(row.id);
+                const { data: { user } } = await supabase.auth.getUser();
+                const { error } = await (supabase.from("jobs") as any)
+                  .update({ financial_closed_at: new Date().toISOString(), financial_closed_by: user?.id || null })
+                  .eq("id", row.id);
+                setClosing(null);
+                if (error) setErr(error.message); else load();
+              }}
+              onReopen={async (row) => {
+                setClosing(row.id);
+                const { error } = await (supabase.from("jobs") as any)
+                  .update({ financial_closed_at: null, financial_closed_by: null })
+                  .eq("id", row.id);
+                setClosing(null);
+                if (error) setErr(error.message); else load();
+              }} />
+          ) : (
+          <>
           {/* Aging strip — clickable buckets filter the index */}
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
             {(Object.keys(AGING_META) as ArAging[]).map(k => {
@@ -168,7 +227,9 @@ export default function InvoicesPage() {
                       <td style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}33`, fontFamily: mono, textAlign: "right", color: r.paid > 0 ? T.green : T.faint, whiteSpace: "nowrap" }}>{r.paid > 0 ? money(r.paid) : "—"}</td>
                       <td style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}33`, fontFamily: mono, textAlign: "right", fontWeight: 700, color: r.balance > 0.01 ? T.amber : T.green, whiteSpace: "nowrap" }}>{r.balance > 0.01 ? money(r.balance) : "—"}</td>
                       <td style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}33`, whiteSpace: "nowrap" }}>
-                        {r.balance > 0.01
+                        {r.financialClosedAt
+                          ? <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: T.green }}>Closed</span>
+                          : r.balance > 0.01
                           ? <span><span style={{ fontFamily: mono, color: T.muted }}>{fmtDay(r.dueDate || r.expectedDate)}</span> <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: am.color, marginLeft: 6 }}>{am.label}</span></span>
                           : <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: T.green }}>Settled</span>}
                       </td>
@@ -179,9 +240,59 @@ export default function InvoicesPage() {
             </table>
           </div>
           <div style={{ fontSize: 10.5, color: T.faint, marginTop: 10 }}>
-            {shown.length} invoice{shown.length === 1 ? "" : "s"} shown · aging is terms-aware (waiting inside net terms reads as on-terms, not late) · close-out queue arrives in the next build
+            {shown.length} invoice{shown.length === 1 ? "" : "s"} shown · aging is terms-aware (waiting inside net terms reads as on-terms, not late)
           </div>
+          </>
+          )}
         </>
+      )}
+    </div>
+  );
+}
+
+// ── Close-out queue (Phase 1c). Conditions locked 2026-08-13: complete ·
+//    Final (or Paid, no reconcile required) · zero balance · cost-complete.
+//    Freight never gates. Job stream only; fulfillment never "closes". ──
+function CloseOutQueue({ rows, costCompleteByJob, closing, onClose, onReopen }: {
+  rows: InvoiceRow[]; costCompleteByJob: Record<string, boolean>; closing: string | null;
+  onClose: (row: InvoiceRow) => Promise<void>; onReopen: (row: InvoiceRow) => Promise<void>;
+}) {
+  const queue = rows.filter(r => isCloseable(r, !!costCompleteByJob[r.id]));
+  const recentlyClosed = rows.filter(r => r.financialClosedAt).slice(0, 12);
+  return (
+    <div>
+      {queue.length === 0 ? (
+        <div style={{ color: T.faint, fontSize: 13, padding: "18px 0" }}>
+          Nothing ready to close. A job lands here when it is complete, its invoice is Final (or Paid with no reconcile owed), the balance is zero, and every vendor is billed or dispositioned.
+        </div>
+      ) : queue.map(r => (
+        <div key={r.id} style={{ display: "flex", gap: 14, alignItems: "center", background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 16px", marginBottom: 8, flexWrap: "wrap" }}>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ fontSize: 13, fontWeight: 700 }}>{r.clientName} <span style={{ color: T.faint, fontWeight: 400 }}>· {r.label}</span></div>
+            <div style={{ fontSize: 11, fontFamily: mono, color: T.muted, marginTop: 3 }}>{r.jobNumber || ""}{r.invoiceNumber ? ` · #${r.invoiceNumber}` : ""} · {money(r.billed)} billed · paid in full · costs complete</div>
+          </div>
+          <a href={r.href} style={{ fontSize: 11, color: T.muted, textDecoration: "none", fontWeight: 700 }}>open ↗</a>
+          <button disabled={closing === r.id} onClick={() => onClose(r)}
+            style={{ background: T.green, color: "#0a0a0a", border: "none", borderRadius: 8, padding: "9px 18px", fontSize: 12, fontWeight: 800, cursor: "pointer", fontFamily: font, opacity: closing === r.id ? 0.6 : 1 }}>
+            {closing === r.id ? "Closing…" : "Close it out"}
+          </button>
+        </div>
+      ))}
+      {recentlyClosed.length > 0 && (
+        <div style={{ marginTop: 22 }}>
+          <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.09em", textTransform: "uppercase", color: T.faint, marginBottom: 8 }}>Closed</div>
+          {recentlyClosed.map(r => (
+            <div key={r.id} style={{ display: "flex", gap: 12, alignItems: "center", fontSize: 12, color: T.muted, padding: "5px 0" }}>
+              <span style={{ color: T.green, fontWeight: 800, fontSize: 10, letterSpacing: "0.06em" }}>CLOSED</span>
+              <span style={{ fontWeight: 700, color: T.text }}>{r.clientName}</span>
+              <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.label}</span>
+              <span style={{ fontFamily: mono, color: T.faint }}>{fmtDay(r.financialClosedAt || null)}</span>
+              <a href={r.href} style={{ color: T.faint, textDecoration: "none", marginLeft: "auto" }}>open ↗</a>
+              <button disabled={closing === r.id} onClick={() => onReopen(r)}
+                style={{ background: "none", border: "none", color: T.faint, fontSize: 10.5, fontWeight: 700, cursor: "pointer", fontFamily: font }}>reopen</button>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
