@@ -462,7 +462,13 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
       <div>
         {j.vendors.map((v: any) => {
           const vKey = `${j.id}::${v.apVendorId}`;
-          const meta = STATE_META[v.state];
+          // Card-at-order vendors (default_bill_method credit_card): no
+          // invoice is ever coming — the row's verb is "confirm the charge",
+          // one click, amount prefilled with the outstanding commitment.
+          const isCardVendor = vendors.find(x => x.id === v.apVendorId)?.default_bill_method === "credit_card";
+          const meta = isCardVendor && v.state === "awaiting"
+            ? { label: "Card — confirm charge", color: T.amber }
+            : STATE_META[v.state];
           const lines = entriesFor(j.id, v.apVendorId);
           const vLetters = new Set(v.items.map((it: any) => parsePoRef(it.poRef).letters[0]).filter(Boolean));
           const exactByLetter: Record<string, Entry[]> = {};
@@ -481,6 +487,9 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
                 <span style={{ fontSize: 10.5, fontWeight: 700, color: meta.color, background: meta.color + "1f", padding: "2px 9px", borderRadius: 20 }}>{meta.label}</span>
                 <span style={{ width: 150, textAlign: "right", fontFamily: mono, color: T.text }}>{money(v.billed)} <span style={{ color: T.faint }}>of {money(v.expected)}</span></span>
                 <span style={{ width: 90, textAlign: "right", fontFamily: mono, fontWeight: 700, color: v.outstanding > 0 ? T.amber : T.green }}>{v.outstanding > 0 ? money(v.outstanding) : "—"}</span>
+                {isCardVendor && v.outstanding > 0 && !v.complete && (
+                  <ConfirmCardCharge vendor={v} jobId={j.id} onDone={loadAll} />
+                )}
               </div>
               <div style={{ background: T.bg }}>
                 {v.items.map((it: any) => {
@@ -1161,4 +1170,57 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
 
 function miniBtn(color: string) {
   return { background: "none", border: `1px solid ${T.border}`, color, borderRadius: 5, padding: "4px 9px", fontSize: 11, fontWeight: 600 as const, cursor: "pointer", fontFamily: font };
+}
+
+// One-click card-charge confirm (card-at-order vendors, Aug 23 2026).
+// Inserts the cost entry that resolves the row — bill_method credit_card so
+// the QB push guard refuses it (the expense reaches QB via the card feed).
+// Amount prefilled with the outstanding commitment, editable when the real
+// charge differed; the difference rides the normal variance machinery.
+function ConfirmCardCharge({ vendor, jobId, onDone }: { vendor: any; jobId: string; onDone: () => void }) {
+  const supabase = createClient();
+  const [openC, setOpenC] = useState(false);
+  const [amt, setAmt] = useState<string>(String(vendor.outstanding ?? ""));
+  const [ref, setRef] = useState("");
+  const [busy, setBusy] = useState(false);
+  async function confirm() {
+    const amount = Math.round((parseFloat(amt) || 0) * 100) / 100;
+    if (amount <= 0) return;
+    setBusy(true);
+    const poRef = (vendor.items || []).map((it: any) => it.poRef).join(", ").slice(0, 120) || null;
+    const { error } = await supabase.from("cost_entries").insert({
+      source: "decorator_invoice",
+      vendor_id: vendor.apVendorId, vendor_name: vendor.name,
+      vendor_invoice_number: ref.trim() || null,
+      po_ref: poRef, job_id: jobId,
+      amount, expected_amount: vendor.expected ?? null,
+      charge_type: "decoration", status: "matched",
+      bill_method: "credit_card",
+      notes: "Card charge confirmed at reconciliation",
+    } as any);
+    setBusy(false);
+    if (!error) { setOpenC(false); onDone(); }
+  }
+  if (!openC) {
+    return (
+      <button onClick={() => { setAmt(String(vendor.outstanding ?? "")); setOpenC(true); }}
+        style={{ background: T.amber, color: "#0a0a0a", border: "none", borderRadius: 6, padding: "5px 11px", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: font, whiteSpace: "nowrap" }}>
+        Confirm card charge
+      </button>
+    );
+  }
+  return (
+    <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+      <span style={{ fontFamily: mono, fontSize: 12, color: T.muted }}>$
+        <input value={amt} onChange={e => setAmt(e.target.value.replace(/[^0-9.]/g, ""))} autoFocus
+          onKeyDown={e => { if (e.key === "Enter") confirm(); if (e.key === "Escape") setOpenC(false); }}
+          style={{ width: 78, padding: "5px 7px", background: T.bg, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, fontFamily: mono, fontSize: 12, outline: "none" }} />
+      </span>
+      <input value={ref} onChange={e => setRef(e.target.value)} placeholder="ref (optional)"
+        style={{ width: 92, padding: "5px 7px", background: T.bg, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, fontSize: 11, outline: "none", fontFamily: font }} />
+      <button disabled={busy} onClick={confirm}
+        style={{ background: T.green, color: "#0a0a0a", border: "none", borderRadius: 6, padding: "5px 11px", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: font, opacity: busy ? 0.6 : 1 }}>✓</button>
+      <button onClick={() => setOpenC(false)} style={{ background: "none", border: "none", color: T.faint, fontSize: 12, cursor: "pointer", fontFamily: font }}>✕</button>
+    </span>
+  );
 }

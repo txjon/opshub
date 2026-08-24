@@ -30,9 +30,15 @@ export async function POST(req: NextRequest) {
     const admin = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
     const { data: entries } = await admin.from("cost_entries")
-      .select("id, vendor_id, vendor_name, vendor_invoice_number, po_ref, job_id, amount, qb_bill_id, hpd_bill_number")
+      .select("id, vendor_id, vendor_name, vendor_invoice_number, po_ref, job_id, amount, qb_bill_id, hpd_bill_number, bill_method")
       .in("id", entryIds);
     if (!entries?.length) return NextResponse.json({ error: "No cost entries found" }, { status: 404 });
+
+    // Card charges NEVER push as QB Bills — the charge already reaches QB
+    // through the card/bank feed; a Bill on top would double-book the
+    // expense. Card entries exist for OpsHub margin truth only.
+    const cc = entries.find((e: any) => e.bill_method === "credit_card");
+    if (cc) return NextResponse.json({ error: "Card charges don't push to QB — the expense arrives via the card feed. This entry is recorded for job costing only." }, { status: 400 });
 
     // Guard: refuse to double-push
     const already = entries.find((e: any) => e.qb_bill_id);
