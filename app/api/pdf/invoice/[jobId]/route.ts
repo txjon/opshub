@@ -304,9 +304,11 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
         const deliberateFree = p.sellOverride != null && p.sellOverride !== "" && Number(p.sellOverride) === 0;
         if (grossRev === 0 && !deliberateFree) return null;
         return {
-          name: p.name || dbItem?.name || "Item",
-          style: p.style || dbItem?.blank_vendor || "",
-          color: p.color || dbItem?.blank_sku || "",
+          // Buy Sheet owns name/style/color — the LIVE item wins; snapshot is
+          // fallback only (stale "(Copy)" names bug, HPD-2606-038 revised inv).
+          name: dbItem?.name || p.name || "Item",
+          style: dbItem?.blank_vendor || p.style || "",
+          color: dbItem?.blank_sku || p.color || "",
           sizes: sortSizes(Object.keys(effectiveQtys).filter(sz => (effectiveQtys[sz] || 0) > 0)),
           qtys: effectiveQtys,
           totalQty,
