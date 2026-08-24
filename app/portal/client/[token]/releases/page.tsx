@@ -18,13 +18,22 @@ const thumbSrc = (id: string, size = 300) => `/api/files/thumbnail?id=${id}&thum
 const landsWord = (eta: string) => `${eta < new Date().toISOString().slice(0, 10) ? "was due" : "lands"} ${fmtDate(eta)}`;
 const TONE: Record<LineTone, string> = { green: C.green, amber: C.amber, blue: C.blue, purple: C.purple };
 
-const STATUS_WORDS: Record<string, { label: string; color: string; hint: string }> = {
-  building: { label: "Building", color: C.amber, hint: "pull designs on, then send it to us" },
-  ready: { label: "With the team", color: C.blue, hint: "we're costing and scheduling it" },
-  live: { label: "Live", color: "#fd3aa3", hint: "selling now" },
-  closed: { label: "Enter numbers", color: C.amber, hint: "sale closed. Enter your production numbers" },
-  cut: { label: "In production", color: C.green, hint: "it's on the floor" },
-  shelved: { label: "Shelved", color: C.faint, hint: "" },
+// ONE health line per release (Phase 5 vocabulary, Aug 24 2026 — Jon:
+// "simpler is better"). The sentence IS the status: whose move it is and
+// what happens next. No chips, no counters, no logistics.
+const healthLine = (d: any): { text: string; color: string } => {
+  switch (d.status) {
+    case "building": return { text: "Yours to build — send it over when the lineup\u2019s ready.", color: C.amber };
+    case "ready": return { text: "With us — we\u2019re costing and scheduling it.", color: C.blue };
+    case "live": return { text: d.window_close_date ? `Selling now — closes ${fmtDate(d.window_close_date)}.` : "Selling now.", color: "#fd3aa3" };
+    case "closed": return { text: "Sale\u2019s closed — drop in your final numbers.", color: C.amber };
+    case "cut":
+      if (d.payable?.state === "ready") return { text: `In production — invoice${d.payable.invoiceNumber ? ` #${d.payable.invoiceNumber}` : ""} ready to pay.`, color: C.amber };
+      if (d.payable?.state === "paid") return { text: "In production \u00b7 paid.", color: C.green };
+      return { text: "In production.", color: C.green };
+    case "shelved": return { text: "Shelved.", color: C.faint };
+    default: return { text: d.status, color: C.faint };
+  }
 };
 
 export default function ReleasesPage() {
@@ -228,22 +237,16 @@ export default function ReleasesPage() {
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 12, maxWidth: 760, margin: "0 auto" }}>
           {drops.map((d: any) => {
-            const w = STATUS_WORDS[d.status] || { label: d.status, color: C.faint, hint: "" };
-            const ready = d.slots.filter((s: any) => s.ideaApproved).length;
+            const h = healthLine(d);
             return (
               <button key={d.id} onClick={() => { setOpen(d); load(d.id); }}
                 style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: "16px 18px", cursor: "pointer", textAlign: "left", fontFamily: C.font, color: C.text }}>
                 <div style={{ display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap" }}>
                   <span style={{ fontSize: 17, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em" }}>{d.title}</span>
-                  <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.09em", textTransform: "uppercase", color: w.color }}>{w.label}</span>
                   {d.target_live_date && <span style={{ fontSize: 10.5, fontFamily: C.mono, color: C.faint }}>live {fmtDate(d.target_live_date)}</span>}
-                  <span style={{ marginLeft: "auto", fontSize: 10.5, fontFamily: C.mono, color: C.muted }}>{d.slots.length} line{d.slots.length === 1 ? "" : "s"}{d.status === "building" && d.slots.length ? ` · ${ready}/${d.slots.length} approved` : ""}</span>
+                  <span style={{ marginLeft: "auto", fontSize: 10.5, fontFamily: C.mono, color: C.muted }}>{d.slots.length} piece{d.slots.length === 1 ? "" : "s"}</span>
                 </div>
-                {d.status === "cut" && d.payable?.state === "ready" ? (
-                  <div style={{ fontSize: 11, color: C.amber, fontWeight: 800, marginTop: 4, letterSpacing: "0.04em" }}>Invoice {d.payable.invoiceNumber ? `#${d.payable.invoiceNumber}` : ""} ready to pay</div>
-                ) : d.status === "cut" && d.payable?.state === "paid" ? (
-                  <div style={{ fontSize: 11, color: C.green, fontWeight: 800, marginTop: 4, letterSpacing: "0.04em" }}>Paid</div>
-                ) : w.hint ? <div style={{ fontSize: 11.5, color: C.faint, marginTop: 4 }}>{w.hint}</div> : null}
+                <div style={{ fontSize: 12, color: h.color, fontWeight: 700, marginTop: 5 }}>{h.text}</div>
               </button>
             );
           })}
@@ -319,7 +322,7 @@ function DropSheet({ drop, token, briefs, committed, pipeItems, catalogItems, mo
   const needsRun = (s: any) => !s.itemId || s.rerun;
   const pipelineOnly = drop.slots.length > 0 && !drop.slots.some(needsRun);
   const numbersOpen = drop.status === "closed" && drop.slots.some(needsRun);
-  const w = STATUS_WORDS[drop.status] || { label: drop.status, color: C.faint, hint: "" };
+  const h = healthLine(drop);
   const ready = drop.slots.filter((s: any) => s.ideaApproved).length;
   const allReady = drop.slots.length > 0 && ready === drop.slots.length;
 
@@ -378,7 +381,7 @@ function DropSheet({ drop, token, briefs, committed, pipeItems, catalogItems, mo
               onBlur={e => { const v = e.target.value.trim(); if (v && v !== drop.title) call("PATCH", "", { title: v }).then(ok => ok && onChanged(drop.id)); }}
               style={{ fontSize: 18, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", lineHeight: 1.2, background: "transparent", border: "none", outline: "none", color: C.text, width: "100%", fontFamily: C.font, padding: 0 }} />
             <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 4, flexWrap: "wrap" }}>
-              <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.09em", textTransform: "uppercase", color: w.color }}>{w.label}</span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: h.color }}>{h.text}</span>
               {building ? (
                 <label style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
                   <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: C.faint }}>Target live</span>
@@ -619,7 +622,6 @@ function DropSheet({ drop, token, briefs, committed, pipeItems, catalogItems, mo
               </span>
             </div>
           )}
-          {drop.status === "ready" && <span style={{ fontSize: 12, color: C.muted, lineHeight: 1.5 }}>It&rsquo;s with us. We&rsquo;re costing and scheduling, and you&rsquo;ll see it move here.</span>}
           {numbersOpen && <span style={{ fontSize: 12, color: C.muted, lineHeight: 1.5 }}>Sale closed. Enter production numbers on each line above and we&rsquo;ll confirm.</span>}
           {drop.status === "cut" && (
             drop.payable?.state === "paid" ? (
