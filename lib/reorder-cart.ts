@@ -5,9 +5,13 @@
 // drive_file_id (deletion is reference-counted), contacts from the latest
 // source job. Nothing priced or committed — lands in intake for Drake.
 import { getItemFolderId, createShortcut } from "@/lib/google-drive";
+import { scaleCurve, aggregateCurve } from "@/lib/size-curves";
 
 type Db = any;
-export type CartLine = { itemId: string; sizes?: Record<string, number> };
+// Phase 3 (Aug 24 2026): clients type ONE total — the curve is seeded from
+// their history (lib/size-curves) and adjusted at quoting. `sizes` stays
+// accepted for legacy carts in flight; `note` rides per line.
+export type CartLine = { itemId: string; sizes?: Record<string, number>; total?: number; note?: string };
 
 // THE copy shape for "run this item again" — identity + costs carried,
 // lifecycle reset, buy_sheet_lines = requested qtys, files re-referenced by
@@ -82,7 +86,7 @@ export async function createReorderJob(db: Db, opts: {
   const ids = Array.from(new Set(cart.map(c => c.itemId).filter(Boolean)));
   const { data: srcItems } = await db
     .from("items")
-    .select("*, jobs!inner(id, client_id, job_number, title, job_type, payment_terms, shipping_route, created_at)")
+    .select("*, buy_sheet_lines(size, qty_ordered), jobs!inner(id, client_id, job_number, title, job_type, payment_terms, shipping_route, created_at)")
     .in("id", ids);
   const owned = (srcItems || []).filter((it: any) => it.jobs?.client_id === client.id);
   if (owned.length !== ids.length) throw new Error("Item not found");
@@ -115,13 +119,26 @@ export async function createReorderJob(db: Db, opts: {
     const line = cart[i];
     const src: any = owned.find((it: any) => it.id === line.itemId);
     if (!src) continue;
-    const sizes = Object.entries(line.sizes || {})
-      .map(([size, qty]) => ({ size: String(size).slice(0, 20), qty: Math.max(0, Math.min(100000, Math.round(Number(qty) || 0))) }))
-      .filter(s => s.qty > 0);
+    let sizes: { size: string; qty: number }[];
+    let seedNote: string | null = null;
+    const reqTotal = Math.max(0, Math.min(100000, Math.round(Number(line.total) || 0)));
+    if (reqTotal > 0) {
+      // Total-based line: scale the item's own last-run curve to the ask.
+      const lastRun = aggregateCurve(src.buy_sheet_lines || []);
+      sizes = scaleCurve(lastRun, reqTotal);
+      if (!sizes.length) sizes = [{ size: "One Size", qty: reqTotal }];
+      seedNote = `Client asked ${reqTotal} pcs — curve auto-seeded from last run; adjust at quoting.`
+        + (line.note?.trim() ? ` Client note: "${String(line.note).trim().slice(0, 300)}"` : "");
+    } else {
+      sizes = Object.entries(line.sizes || {})
+        .map(([size, qty]) => ({ size: String(size).slice(0, 20), qty: Math.max(0, Math.min(100000, Math.round(Number(qty) || 0))) }))
+        .filter(s => s.qty > 0);
+    }
     if (!sizes.length) continue;
 
     const newId = await copyItemIntoJob(db, src, newJobId, { sizes, sortOrder: i, drive: { clientName: client.name, projectTitle: title } });
     if (!newId) continue;
+    if (seedNote) await db.from("items").update({ notes: seedNote }).eq("id", newId);
     itemCount++;
   }
 
