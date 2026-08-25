@@ -46,6 +46,7 @@ import { useIsMobile } from "@/lib/useIsMobile";
 import { calculatePriority } from "@/lib/dates";
 import { SHIP_METHODS } from "@/lib/ship-methods";
 import { proofCounts, needsProof, proofPdfMissing, carriedApproved, carriedFrom } from "@/lib/proof-gate";
+import { suggestPoField, poSuggestionsFor, type PoFieldKey } from "@/lib/po-suggest";
 const DecorationPanel: any = DecorationPanelRaw; // .jsx — bypass narrow inferred prop types
 const ProofModal: any = ProofModalRaw;           // .jsx — same
 const EditSizesModal: any = EditSizesModalRaw;   // .jsx — same
@@ -2140,72 +2141,88 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
           <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap", padding: "8px 12px", marginTop: 6, marginBottom: 16, borderRadius: 10, background: canOrder ? T.greenDim : T.surface, border: `1px solid ${canOrder ? T.green + "44" : T.border}` }}>
             <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: canOrder ? T.green : T.amber }}>{canOrder ? "Cleared to order" : "Not cleared yet"}</span>
             {[["Quote", flags.approved], ["Payment", paymentGate], ["Proofs", proofGate]].map(([g, ok]: any) => (
-              <span key={g} style={{ fontSize: 12, color: T.muted }}>{ok ? <b style={{ color: T.green }}>✓</b> : <b style={{ color: T.faint }}>○</b>} {g}</span>
+              <span key={g} style={{ fontSize: 12, color: T.muted }}>{ok ? <b style={{ color: T.green }}>✓</b> : <b style={{ color: T.amber }}>○</b>} {g}</span>
             ))}
           </div>
 
-          {/* BLANKS — credit-card purchases, per item */}
-          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
-            <span style={lbl}>Blanks · credit-card purchases · {blanksOrdered}/{items.length} logged</span>
-            <button onClick={() => setSelectedIds(s => s.size === items.length ? new Set() : new Set(items.map((i: any) => i.id)))}
-              style={{ fontSize: 11, fontWeight: 700, color: T.muted, background: "none", border: `1px solid ${T.border}`, borderRadius: 999, padding: "4px 11px", cursor: "pointer", fontFamily: font }}>
-              {selectedIds.size === items.length ? "Clear all" : "Select all"}
-            </button>
-          </div>
-          {/* Each row is a READ-OUT for manual supplier entry (OpsHub in one
-              window, the supplier cart in the other): PO ref with letter,
-              brand/style/color big, and the per-size counts in clear view.
-              Logging = just the total paid (ordered ⇢ cost logged). */}
-          {items.map((item: any) => {
-            const calc = calcBlank(item);
-            const ordered = item.blanks_order_cost != null && item.blanks_order_cost !== "";
-            const actual = ordered ? Number(item.blanks_order_cost) : null;
-            const sel = selectedIds.has(item.id);
-            const sizes = sortSizes(Object.keys(item.qtys || {})).filter(sz => (item.qtys?.[sz] || 0) > 0);
-            return (
-              <div key={item.id} style={{ display: "flex", gap: 14, padding: "13px 0", borderBottom: `1px solid ${T.border}44`, flexWrap: "wrap", alignItems: "flex-start" }}>
-                <input type="checkbox" checked={sel} onChange={() => toggleSel(item.id)} style={{ width: 15, height: 15, accentColor: T.accent, cursor: "pointer", marginTop: 5 }} />
-                <div style={{ flex: 1, minWidth: 260 }}>
-                  <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
-                    {/* Purchasing reference = QB invoice number (matches how vendor
-                        invoices tie back to invoiced jobs — same DELIBERATE rule as
-                        the vendor portal PO number). Job number only pre-invoice. */}
-                    <span style={{ fontFamily: mono, fontSize: 12.5, fontWeight: 800, color: T.text }}>{(tm.qb_invoice_number || job.job_number)}-{letterOf(item.id)}</span>
-                    <span style={{ fontSize: 12, color: T.faint }}>{item.name}</span>
-                  </div>
-                  <div style={{ fontSize: 15, fontWeight: 800, marginTop: 3 }}>
-                    {item.blank_vendor || <span style={{ color: T.amber }}>No blank assigned</span>}
-                    {item.blank_sku && <span style={{ color: T.muted, fontWeight: 700 }}> · {item.blank_sku}</span>}
-                  </div>
-                  {sizes.length > 0 && (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 7 }}>
-                      {sizes.map(sz => (
-                        <span key={sz} style={{ display: "inline-flex", alignItems: "baseline", gap: 5, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 7, padding: "4px 9px" }}>
-                          <span style={{ fontSize: 10, fontWeight: 800, color: T.faint, fontFamily: mono }}>{sz}</span>
-                          <span style={{ fontSize: 14, fontWeight: 800, fontFamily: mono }}>{item.qtys[sz]}</span>
-                        </span>
-                      ))}
-                      <span style={{ display: "inline-flex", alignItems: "center", fontSize: 11, color: T.faint, fontFamily: mono, paddingLeft: 4 }}>= {qtyOf(item).toLocaleString()} u</span>
-                    </div>
-                  )}
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 4 }}>
-                  <span style={{ fontSize: 11, color: T.faint, fontFamily: mono }}>est {fmtMoney(calc)}</span>
-                  <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                    <span style={{ fontSize: 11, color: T.faint }}>$</span>
-                    <input key={item.id + ":c:" + (item.blanks_order_cost ?? "")} defaultValue={actual != null ? actual.toFixed(2) : ""} placeholder="total paid" inputMode="decimal" onBlur={e => saveBlankCost(item, e.target.value)}
-                      style={{ width: 84, padding: "6px 8px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: mono, outline: "none" }} />
-                  </div>
-                  <span style={{ width: 108, textAlign: "right", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: ordered ? (actual! > calc + 0.005 ? T.red : T.green) : T.faint }}>
-                    {!ordered ? "—"
-                      : Math.abs(actual! - calc) < 0.005 ? "logged ✓ exact"
-                      : actual! > calc ? `+${fmtMoney(actual! - calc)} over`
-                      : `−${fmtMoney(calc - actual!)} under`}
-                  </span>
-                </div>
+          {/* BLANKS — credit-card purchases. A TABLE: header rails, fixed money/state
+              columns, two-line rows (ref · name · blank · color / sizes as one mono
+              read-out — you key these into the supplier cart). Unlogged rows carry an
+              amber edge; logged rows recede so what's left to do is what you see. */}
+          {(() => {
+            const cols = isMobile ? "18px minmax(0,1fr)" : "18px minmax(0,1fr) 92px 118px 110px";
+            const allLogged = items.length > 0 && blanksOrdered === items.length;
+            return (<>
+              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
+                <span style={{ ...wlbl, display: "flex", alignItems: "baseline", gap: 8 }}>
+                  <span style={{ fontFamily: mono, color: allLogged ? T.green : T.amber }}>1</span>Blanks · credit-card purchases
+                  <span style={{ fontFamily: mono, color: allLogged ? T.green : T.amber }}>{blanksOrdered}/{items.length} logged{allLogged ? " ✓" : ""}</span>
+                </span>
+                <button onClick={() => setSelectedIds(s => s.size === items.length ? new Set() : new Set(items.map((i: any) => i.id)))}
+                  style={{ fontSize: 11, fontWeight: 700, color: T.muted, background: "none", border: `1px solid ${T.border}`, borderRadius: 999, padding: "4px 11px", cursor: "pointer", fontFamily: font }}>
+                  {selectedIds.size === items.length ? "Clear all" : "Select all"}
+                </button>
               </div>
-            );
-          })}
+              <div style={{ border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>
+                {!isMobile && (
+                  <div style={{ display: "grid", gridTemplateColumns: cols, gap: 12, padding: "7px 12px", background: T.surface, borderBottom: `1px solid ${T.border}` }}>
+                    <span />
+                    <span style={wlbl}>Blank · sizes</span>
+                    <span style={{ ...wlbl, textAlign: "right" }}>Est</span>
+                    <span style={{ ...wlbl, textAlign: "right" }}>Paid</span>
+                    <span style={{ ...wlbl, textAlign: "right" }}>State</span>
+                  </div>
+                )}
+                {items.map((item: any, idx: number) => {
+                  const calc = calcBlank(item);
+                  const ordered = item.blanks_order_cost != null && item.blanks_order_cost !== "";
+                  const actual = ordered ? Number(item.blanks_order_cost) : null;
+                  const sel = selectedIds.has(item.id);
+                  const sizes = sortSizes(Object.keys(item.qtys || {})).filter(sz => (item.qtys?.[sz] || 0) > 0);
+                  const stateClr = !ordered ? T.amber : (actual! > calc + 0.005 ? T.red : T.green);
+                  const stateTxt = !ordered ? "not logged" : Math.abs(actual! - calc) < 0.005 ? "logged ✓" : actual! > calc ? `+${fmtMoney(actual! - calc)} over` : `−${fmtMoney(calc - actual!)} under`;
+                  return (
+                    <div key={item.id} style={{ display: "grid", gridTemplateColumns: cols, gap: isMobile ? 8 : 12, alignItems: "center", padding: "9px 12px", borderTop: idx === 0 ? "none" : `1px solid ${T.border}44`, boxShadow: ordered ? "none" : `inset 3px 0 0 ${T.amber}`, opacity: ordered ? 0.78 : 1 }}>
+                      <input type="checkbox" checked={sel} onChange={() => toggleSel(item.id)} style={{ width: 15, height: 15, accentColor: T.accent, cursor: "pointer" }} />
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap", minWidth: 0 }}>
+                          {/* Purchasing reference = QB invoice number (matches how vendor
+                              invoices tie back to invoiced jobs). Job number only pre-invoice. */}
+                          <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 800, color: T.text }}>{(tm.qb_invoice_number || job.job_number)}-{letterOf(item.id)}</span>
+                          <span style={{ fontSize: 12, color: T.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.name}</span>
+                          <span style={{ fontSize: 13.5, fontWeight: 800 }}>
+                            {item.blank_vendor || <span style={{ color: T.amber }}>No blank assigned</span>}
+                            {item.blank_sku && <span style={{ color: T.muted, fontWeight: 700 }}> · {item.blank_sku}</span>}
+                          </span>
+                        </div>
+                        {sizes.length > 0 && (
+                          <div style={{ fontFamily: mono, fontSize: 12, color: T.muted, marginTop: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                            {sizes.map(sz => <span key={sz}><span style={{ color: T.faint, fontSize: 10 }}>{sz} </span><b style={{ color: T.text }}>{item.qtys[sz]}</b>{"   "}</span>)}
+                            <span style={{ color: T.muted }}>= {qtyOf(item).toLocaleString()} u</span>
+                          </div>
+                        )}
+                      </div>
+                      {isMobile ? (
+                        <div style={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                          <span style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>est {fmtMoney(calc)}</span>
+                          <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ fontSize: 11, color: T.muted }}>$</span>
+                            <input key={item.id + ":c:" + (item.blanks_order_cost ?? "")} defaultValue={actual != null ? actual.toFixed(2) : ""} placeholder="total paid" inputMode="decimal" onBlur={e => saveBlankCost(item, e.target.value)}
+                              style={{ width: 90, padding: "6px 8px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: mono, outline: "none" }} /></span>
+                          <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: stateClr }}>{stateTxt}</span>
+                        </div>
+                      ) : (<>
+                        <span style={{ fontSize: 12, color: T.muted, fontFamily: mono, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtMoney(calc)}</span>
+                        <span style={{ display: "flex", alignItems: "center", gap: 3, justifyContent: "flex-end" }}><span style={{ fontSize: 11, color: T.muted }}>$</span>
+                          <input key={item.id + ":c:" + (item.blanks_order_cost ?? "")} defaultValue={actual != null ? actual.toFixed(2) : ""} placeholder="paid" inputMode="decimal" onBlur={e => saveBlankCost(item, e.target.value)}
+                            style={{ width: 92, padding: "6px 8px", borderRadius: 7, border: `1px solid ${ordered ? T.border : T.amber + "66"}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: mono, outline: "none", textAlign: "right" }} /></span>
+                        <span style={{ textAlign: "right", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: stateClr, whiteSpace: "nowrap" }}>{stateTxt}</span>
+                      </>)}
+                    </div>
+                  );
+                })}
+              </div>
+            </>);
+          })()}
           {/* Bulk purchase — one CC total split across selected items */}
           {selectedIds.size > 0 && (
             <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginTop: 12, padding: "11px 13px", borderRadius: 10, background: T.surface, border: `1px solid ${T.border}` }}>
@@ -2222,50 +2239,78 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
             </div>
           )}
 
-          {/* PURCHASE ORDERS — per vendor */}
-          <div style={{ ...lbl, margin: "22px 0 10px" }}>Purchase orders · bill-later vendors</div>
+          {/* PURCHASE ORDERS — per vendor. One line per vendor: name · status · actions;
+              items + units on the second line; amber edge until the PO is sent. */}
+          {(() => { const vAll = Object.keys(vendorGroups).length; const vSent = Object.keys(vendorGroups).filter(v => poSentVendors.includes(v)).length; const done = vAll > 0 && vSent === vAll; return (
+            <div style={{ ...wlbl, margin: "22px 0 10px", display: "flex", alignItems: "baseline", gap: 8 }}>
+              <span style={{ fontFamily: mono, color: done ? T.green : T.amber }}>2</span>Purchase orders · bill-later vendors
+              <span style={{ fontFamily: mono, color: done ? T.green : T.amber }}>{vSent}/{vAll} sent{done ? " ✓" : ""}</span>
+            </div>
+          ); })()}
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {Object.entries(vendorGroups).map(([vendor, vitems]) => {
               const sent = poSentVendors.includes(vendor);
               const vUnits = vitems.reduce((a: number, it: any) => a + qtyOf(it), 0);
               const allBlanks = vitems.every((it: any) => it.blanks_order_cost != null && it.blanks_order_cost !== "");
               return (
-                <div key={vendor} style={{ border: `1px solid ${T.border}`, borderRadius: 12, background: T.surface, padding: "13px 15px" }}>
+                <div key={vendor} style={{ border: `1px solid ${T.border}`, borderRadius: 12, background: T.surface, padding: "12px 15px", boxShadow: sent ? "none" : `inset 3px 0 0 ${T.amber}`, opacity: sent ? 0.85 : 1 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                    <span style={{ fontSize: 14, fontWeight: 800, flex: 1, minWidth: 120 }}>{vendor}</span>
-                    <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: sent ? T.green : T.faint }}>{sent ? "✓ Sent" : "— Not sent"}</span>
+                    <span style={{ fontSize: 14, fontWeight: 800 }}>{vendor}</span>
+                    <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: sent ? T.green : T.amber }}>{sent ? "✓ Sent" : "Not sent"}</span>
+                    {!allBlanks && <span style={{ fontSize: 11, color: T.amber }}>⚠ blanks not all logged</span>}
+                    <span style={{ flex: 1 }} />
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      <a href={`/api/pdf/po/${job.id}?vendor=${encodeURIComponent(vendor)}${sent ? "&revised=1" : ""}`} target="_blank" rel="noreferrer"
+                        style={{ fontSize: 11.5, fontWeight: 800, color: T.text, textDecoration: "none", padding: "6px 12px", borderRadius: 999, border: `1px solid ${T.border}`, background: T.card }}>Preview</a>
+                      <button onClick={() => openPoSend(vendor)} style={sent ? { ...ghostBtn, padding: "6px 12px", fontSize: 11.5 } : { ...actBtn, padding: "6px 14px", fontSize: 11.5 }}>{sent ? "Re-send" : "Send PO"}</button>
+                      {sent ? <button onClick={() => unmarkPoSent(vendor)} style={{ ...ghostBtn, padding: "6px 12px", fontSize: 11.5 }}>Unmark</button> : <button onClick={() => markPoSent(vendor)} style={{ ...ghostBtn, padding: "6px 12px", fontSize: 11.5 }}>Mark sent</button>}
+                      <button onClick={() => setExpandedVendor(v => v === vendor ? null : vendor)} style={{ ...ghostBtn, padding: "6px 12px", fontSize: 11.5 }}>{expandedVendor === vendor ? "Details ▴" : "Details ▾"}</button>
+                    </div>
                   </div>
-                  <div style={{ fontSize: 12, color: T.muted, marginTop: 4, fontFamily: mono }}>{vitems.map((it: any) => `${letterOf(it.id)} · ${it.name}`).join("  ·  ")} · {vUnits.toLocaleString()} u{(job.type_meta?.po_ship_methods || {})[vendor] ? ` · ${(job.type_meta.po_ship_methods)[vendor]}` : ""}</div>
-                  {!allBlanks && <div style={{ fontSize: 11, color: T.amber, marginTop: 6 }}>⚠ Not all blanks ordered for this vendor.</div>}
-                  <div style={{ display: "flex", gap: 8, marginTop: 11, flexWrap: "wrap" }}>
-                    <a href={`/api/pdf/po/${job.id}?vendor=${encodeURIComponent(vendor)}${sent ? "&revised=1" : ""}`} target="_blank" rel="noreferrer"
-                      style={{ fontSize: 12, fontWeight: 800, color: T.text, textDecoration: "none", padding: "8px 15px", borderRadius: 999, border: `1px solid ${T.border}`, background: T.card }}>Preview PO</a>
-                    <button onClick={() => openPoSend(vendor)} style={sent ? ghostBtn : actBtn}>{sent ? "Re-send PO" : "Send PO"}</button>
-                    {sent ? <button onClick={() => unmarkPoSent(vendor)} style={ghostBtn}>Unmark</button> : <button onClick={() => markPoSent(vendor)} style={ghostBtn}>Mark sent</button>}
-                    <button onClick={() => setExpandedVendor(v => v === vendor ? null : vendor)} style={ghostBtn}>{expandedVendor === vendor ? "Hide items ▴" : "Item details ▾"}</button>
-                  </div>
-                  {expandedVendor === vendor && (
-                    <div style={{ marginTop: 12, borderTop: `1px solid ${T.border}44`, paddingTop: 12, display: "flex", flexDirection: "column", gap: 14 }}>
+                  <div style={{ fontSize: 12, color: T.muted, marginTop: 5, fontFamily: mono }}>{vitems.map((it: any) => `${letterOf(it.id)} · ${it.name}`).join("  ·  ")} · <b style={{ color: T.text }}>{vUnits.toLocaleString()} u</b>{(job.type_meta?.po_ship_methods || {})[vendor] ? ` · ${(job.type_meta.po_ship_methods)[vendor]}` : ""}</div>
+                  {expandedVendor === vendor && (() => {
+                    // Suggestions for EMPTY fields only (lib/po-suggest) — Drive folder,
+                    // incoming goods from blank cost/vendor, re-order provenance, packing
+                    // from costing. Shown as placeholders; written only on click.
+                    const sugg = poSuggestionsFor(vitems, cpFor, client);
+                    const fillAll = async () => { for (const sg of sugg) await saveItemPO(sg.item, sg.k, sg.value); };
+                    return (
+                    <div style={{ marginTop: 12, borderTop: `1px solid ${T.border}44`, paddingTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+                      {sugg.length > 0 && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", fontSize: 12, color: T.muted }}>
+                          <span>{sugg.length} empty field{sugg.length === 1 ? "" : "s"} can be filled from job data</span>
+                          <button onClick={fillAll} style={{ ...ghostBtn, padding: "4px 11px", fontSize: 11, color: T.amber, borderColor: T.amber + "66" }}>Fill empty with suggestions</button>
+                        </div>
+                      )}
                       {vitems.map((item: any) => {
-                        const poField = (fieldK: "drive_link" | "incoming_goods" | "production_notes_po" | "packing_notes", label: string, area = false) => (
-                          <label style={{ flex: area ? "1 1 100%" : "1 1 45%", minWidth: 150 }}>
-                            <span style={{ ...lbl, display: "flex", justifyContent: "space-between", marginBottom: 4 }}>{label}{vitems.length > 1 && item[fieldK] && <button onClick={() => copyPOToAll(vendor, fieldK, item[fieldK])} style={{ background: "none", border: "none", color: T.accent, fontSize: 9, fontWeight: 700, cursor: "pointer", letterSpacing: 0, textTransform: "none" }}>↓ all</button>}</span>
-                            {area
-                              ? <textarea key={item.id + fieldK + (item[fieldK] || "")} defaultValue={item[fieldK] || ""} onBlur={e => saveItemPO(item, fieldK, e.target.value)} rows={2} style={{ ...field, resize: "vertical", fontSize: 12 }} />
-                              : <input key={item.id + fieldK + (item[fieldK] || "")} defaultValue={item[fieldK] || ""} onBlur={e => saveItemPO(item, fieldK, e.target.value)} style={{ ...field, fontSize: 12 }} />}
-                          </label>
-                        );
+                        const cp = cpFor(item);
+                        const poField = (fieldK: PoFieldKey, label: string, area = false) => {
+                          const sg = !item[fieldK] ? suggestPoField(fieldK, item, cp, client) : null;
+                          return (
+                            <label style={{ minWidth: 0 }}>
+                              <span style={{ ...wlbl, display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                                {label}
+                                <span style={{ flex: 1 }} />
+                                {sg && <button onClick={() => saveItemPO(item, fieldK, sg)} title={`Use: ${sg}`} style={{ background: "none", border: "none", color: T.amber, fontSize: 9.5, fontWeight: 800, cursor: "pointer", letterSpacing: 0, textTransform: "none", padding: 0 }}>use suggestion</button>}
+                                {vitems.length > 1 && item[fieldK] && <button onClick={() => copyPOToAll(vendor, fieldK, item[fieldK])} title="Copy this value to every item on this PO" style={{ background: "none", border: "none", color: T.accent, fontSize: 9.5, fontWeight: 700, cursor: "pointer", letterSpacing: 0, textTransform: "none", padding: 0 }}>↓ all</button>}
+                              </span>
+                              {area
+                                ? <textarea key={item.id + fieldK + (item[fieldK] || "")} defaultValue={item[fieldK] || ""} placeholder={sg || ""} onBlur={e => saveItemPO(item, fieldK, e.target.value)} rows={2} style={{ ...field, resize: "vertical", fontSize: 12, padding: "7px 9px", borderColor: sg ? T.amber + "55" : T.border }} />
+                                : <input key={item.id + fieldK + (item[fieldK] || "")} defaultValue={item[fieldK] || ""} placeholder={sg || ""} onBlur={e => saveItemPO(item, fieldK, e.target.value)} style={{ ...field, fontSize: 12, padding: "7px 9px", borderColor: sg ? T.amber + "55" : T.border }} />}
+                            </label>
+                          );
+                        };
                         return (
                           <div key={item.id} style={{ background: T.card, borderRadius: 10, padding: "10px 12px" }}>
                             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 8 }}>
-                              <span style={{ fontSize: 13, fontWeight: 700 }}><span style={{ fontFamily: mono, fontSize: 10.5, fontWeight: 800, color: T.faint, marginRight: 7 }}>{letterOf(item.id)}</span>{item.name}</span>
+                              <span style={{ fontSize: 13, fontWeight: 700 }}><span style={{ fontFamily: mono, fontSize: 10.5, fontWeight: 800, color: T.muted, marginRight: 7 }}>{letterOf(item.id)}</span>{item.name}{carriedFrom(item)?.ref && <span style={{ fontFamily: mono, fontSize: 10.5, color: T.green, marginLeft: 8 }}>re-order of {carriedFrom(item)!.ref}</span>}</span>
                               <select value={item.shipping_route || ""} onChange={e => saveItemRoute(item, e.target.value)} title="Per-item route (blank = job route)" style={{ ...field, width: "auto", padding: "5px 8px", fontSize: 11 }}>
                                 <option value="">route: job default</option>
                                 {clientShippingRoutes().map(r => <option key={r} value={r}>{r.replace(/_/g, "-")}</option>)}
                                 {item.shipping_route && !clientShippingRoutes().includes(item.shipping_route) && <option value={item.shipping_route}>{item.shipping_route}</option>}
                               </select>
                             </div>
-                            <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
                               {poField("drive_link", "Production files link")}
                               {poField("incoming_goods", "Incoming goods")}
                               {poField("production_notes_po", "Production notes", true)}
@@ -2275,7 +2320,8 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                         );
                       })}
                     </div>
-                  )}
+                    );
+                  })()}
                 </div>
               );
             })}

@@ -52,18 +52,19 @@ export function proofPdfMissing(it: any, hasProofFile: boolean, rendererVersion:
 // The copy stamps proof_spec.carriedFrom; with artwork_status still "approved"
 // the item is DONE, not "ready · not sent": Send proofs skips it (no
 // proof_sent_at stamp, no send-time bake) and the Art tab shows provenance.
-export type CarriedFrom = { jobNumber: string | null; itemId: string | null; at: string };
+export type CarriedFrom = { jobNumber: string | null; ref: string | null; itemId: string | null; at: string };
+// ref = the PO/purchasing reference the decorator knows the source by: invoice # (else job #) + letter, e.g. "4345-I".
 
 export const carriedFrom = (it: any): CarriedFrom | null => it?.proof_spec?.carriedFrom || null;
 export const carriedApproved = (it: any): boolean => it?.artwork_status === "approved" && !!carriedFrom(it);
 
 // What a copy should write. artwork_status: approved / n_a carry, everything
 // else starts over. proof_spec: carried whole, stamped with where it came from.
-export function carryProofFields(src: any, srcJobNumber: string | null, now = new Date().toISOString()): { artwork_status: string; proof_spec: any } {
+export function carryProofFields(src: any, srcJobNumber: string | null, srcRef: string | null = null, now = new Date().toISOString()): { artwork_status: string; proof_spec: any } {
   const st = src?.artwork_status;
   const artwork_status = st === "approved" || st === "n_a" ? st : "not_started";
   const proof_spec = src?.proof_spec
-    ? { ...src.proof_spec, carriedFrom: { jobNumber: srcJobNumber, itemId: src.id || null, at: now } as CarriedFrom }
+    ? { ...src.proof_spec, carriedFrom: { jobNumber: srcJobNumber, ref: srcRef, itemId: src.id || null, at: now } as CarriedFrom }
     : null;
   return { artwork_status, proof_spec };
 }
