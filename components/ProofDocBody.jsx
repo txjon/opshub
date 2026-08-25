@@ -32,12 +32,12 @@ function Ed({ value, onChange, placeholder, style, multiline, fill }) {
 }
 
 // A dashed "+ add" affordance (edit-only).
-function AddBtn({ onClick, children, block }) {
+function AddBtn({ onClick, children, block, disabled, title, accent }) {
   return (
-    <button onClick={onClick} style={{
+    <button onClick={onClick} disabled={disabled} title={title} style={{
       display: block ? "grid" : "inline-flex", placeItems: "center", alignItems: "center",
-      fontSize: 11, fontWeight: 700, color: "#6b6b78", background: "#fff",
-      border: "1px dashed #dcdce0", borderRadius: 6, padding: "3px 10px", cursor: "pointer",
+      fontSize: 11, fontWeight: 700, color: accent ? "#b45309" : "#6b6b78", background: "#fff",
+      border: `1px dashed ${accent ? "#f59e0b" : "#dcdce0"}`, borderRadius: 6, padding: "3px 10px", cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.6 : 1,
       fontFamily: "'IBM Plex Sans', system-ui, sans-serif",
     }}>{children}</button>
   );
@@ -127,6 +127,12 @@ export default function ProofDocBody({
           <div style={SEC}>Locations</div>
           {E && (
             <div style={{ display: "flex", gap: 6 }}>
+              {E.pullFromPsd && (
+                <AddBtn onClick={E.pullFromPsd} disabled={E.pullingPsd} accent={E.psdNewer}
+                  title={E.psdNewer ? "A newer PSD was uploaded since this proof was seeded" : "Replace location names, sizes and colors from this item's print-ready PSD. Callouts, method, instructions and notes are kept."}>
+                  {E.pullingPsd ? "Pulling…" : (E.psdNewer ? "↻ pull from PSD · newer file" : "↻ pull from PSD")}
+                </AddBtn>
+              )}
               {E.addLocation && <AddBtn onClick={E.addLocation}>+ location</AddBtn>}
               {E.addTag && <AddBtn onClick={E.addTag}>+ tag</AddBtn>}
             </div>
