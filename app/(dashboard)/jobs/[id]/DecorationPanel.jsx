@@ -328,7 +328,7 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
             <div key={loc} style={{background:isActive?T.surface:"transparent",border:`1px solid ${isActive?T.border:T.border+"66"}`,borderRadius:8,padding:"6px 10px",display:"flex",alignItems:"center",gap:isMobile?6:10,minHeight:38,flexWrap:isMobile?"wrap":"nowrap"}}>
               {/* Location name — fixed-width column so colors below
                   line up across all rows. */}
-              <div style={{width:isMobile?120:170,flexShrink:0,position:"relative"}}>
+              <div style={{flex:isMobile?"1 1 120px":"1 1 260px",minWidth:isMobile?120:200,position:"relative"}}>
                 <input value={ld.location||""} onChange={e=>updateLoc(loc,{location:e.target.value,printer:p.printVendor})}
                   list={`loc-presets-${i}-${loc}`}
                   style={{background:"transparent",border:"none",outline:"none",color:T.text,fontSize:13,fontWeight:700,fontFamily:font,width:"100%",padding:0}}
@@ -424,7 +424,6 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
               {/* Spacer — pushes the cost column to the far right
                   edge while everything else stays anchored on the
                   left in stable columns. */}
-              <div style={{flex:1,minWidth:0}} />
 
               {/* Effective qty + per-unit cost, right-aligned. Shows
                   "Minimum not met" in red when below first tier and
@@ -459,10 +458,9 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
             if (!p.isFleece) return null;
             return (
               <div key={"sp-"+key} style={{background:T.surface,border:`1px solid ${T.green}44`,borderRadius:8,padding:"6px 10px",display:"flex",alignItems:"center",gap:isMobile?6:10,minHeight:38}}>
-                <span style={{width:isMobile?120:170,flexShrink:0,fontSize:13,fontWeight:700,color:T.green,fontFamily:font}}>{key}</span>
+                <span style={{flex:isMobile?"1 1 120px":"1 1 260px",minWidth:isMobile?120:200,fontSize:13,fontWeight:700,color:T.green,fontFamily:font}}>{key}</span>
                 <span style={{fontSize:10,color:T.muted,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:600}}>auto · fleece · {allPrintCount} print{allPrintCount===1?"":"s"}</span>
-                <div style={{flex:1,minWidth:0}}/>
-                <span style={{fontSize:14,fontWeight:700,color:T.green,fontFamily:mono,flexShrink:0}}>${(rate*allPrintCount).toFixed(2)}</span>
+                    <span style={{fontSize:14,fontWeight:700,color:T.green,fontFamily:mono,flexShrink:0}}>${(rate*allPrintCount).toFixed(2)}</span>
               </div>
             );
           }
@@ -472,7 +470,7 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
           const count = stored>0&&stored<activeLocs?stored:activeLocs;
           return (
             <div key={"sp-"+key} style={{background:T.surface,border:`1px solid ${T.green}44`,borderRadius:8,padding:"6px 10px",display:"flex",alignItems:"center",gap:isMobile?6:10,minHeight:38,flexWrap:isMobile?"wrap":"nowrap"}}>
-              <span style={{width:isMobile?120:170,flexShrink:0,fontSize:13,fontWeight:700,color:T.green,fontFamily:font}}>{key}</span>
+              <span style={{flex:isMobile?"1 1 120px":"1 1 260px",minWidth:isMobile?120:200,fontSize:13,fontWeight:700,color:T.green,fontFamily:font}}>{key}</span>
               <div style={{display:"flex",alignItems:"center",gap:4,flexShrink:0}}>
                 <input type="text" inputMode="numeric" value={count||""} onChange={e=>updateProd(i,{...p,specialtyQtys:{...(p.specialtyQtys||{}),[key+"_count"]:parseInt(e.target.value)||0}})}
                   style={{width:34,textAlign:"center",background:T.card,border:`1px solid ${T.border}`,borderRadius:5,color:T.text,fontSize:13,fontWeight:700,fontFamily:mono,outline:"none",padding:"3px 4px"}}/>
@@ -481,8 +479,7 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
               <button onClick={()=>updateProd(i,{...p,specialtyQtys:{...(p.specialtyQtys||{}),[key+"_on"]:0}})}
                 style={{background:"none",border:"none",color:T.faint,cursor:"pointer",fontSize:15,flexShrink:0,padding:"0 2px",lineHeight:1}}
                 onMouseEnter={e=>e.currentTarget.style.color=T.red} onMouseLeave={e=>e.currentTarget.style.color=T.faint}>×</button>
-              <div style={{flex:1,minWidth:0}}/>
-              <span style={{fontSize:14,fontWeight:700,color:T.green,fontFamily:mono,flexShrink:0}}>${(rate*count).toFixed(2)}</span>
+                <span style={{fontSize:14,fontWeight:700,color:T.green,fontFamily:mono,flexShrink:0}}>${(rate*count).toFixed(2)}</span>
             </div>
           );
         })}
@@ -491,7 +488,7 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
             of the old chip modal). Same row chrome as a location line. ── */}
         {(p.customCosts||[]).map((cc,ci)=>(
           <div key={"cc"+ci} style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,padding:"6px 10px",display:"flex",alignItems:"center",gap:isMobile?6:10,minHeight:38,flexWrap:isMobile?"wrap":"nowrap"}}>
-            <div style={{width:isMobile?120:170,flexShrink:0}}>
+            <div style={{flex:isMobile?"1 1 120px":"1 1 260px",minWidth:isMobile?120:200}}>
               <input value={cc.desc||""} onChange={e=>{const c=[...(p.customCosts||[])];c[ci]={...c[ci],desc:e.target.value};updateProd(i,{...p,customCosts:c});}}
                 placeholder="Custom cost..."
                 style={{background:"transparent",border:"none",outline:"none",color:T.text,fontSize:13,fontWeight:700,fontFamily:font,width:"100%",padding:0}}/>
@@ -513,7 +510,6 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
             <button onClick={()=>{const c=(p.customCosts||[]).filter((_,j)=>j!==ci);updateProd(i,{...p,customCosts:c});}}
               style={{background:"none",border:"none",color:T.faint,cursor:"pointer",fontSize:15,flexShrink:0,padding:"0 2px",lineHeight:1}}
               onMouseEnter={e=>e.currentTarget.style.color=T.red} onMouseLeave={e=>e.currentTarget.style.color=T.faint}>×</button>
-            <div style={{flex:1,minWidth:0}}/>
             <span style={{fontSize:14,fontWeight:700,color:T.text,fontFamily:mono,flexShrink:0}}>
               {(()=>{const v=parseFloat(cc.perUnit||cc.amount)||0;return cc.flat?`$${v.toFixed(2)} flat`:`$${v.toFixed(2)}`;})()}
             </span>

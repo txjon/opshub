@@ -2552,6 +2552,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                               ...(inclShip ? [["Ship", fmtMoney(r.shipping), T.muted]] : []),
                               ...(inclCC ? [["CC", fmtMoney(ccFees), T.muted]] : []),
                               ["Net profit", fmtMoney(netProfit), marginColor],
+                              ["Profit / pc", fmtMoney(q > 0 ? netProfit / q : 0), marginColor],
                               ["Margin", (marginPct * 100).toFixed(1) + "%", marginColor]] as any[]).map(([l, v, c]: any, i: number, arr: any[]) => (
                               <div key={l} style={{ flex: "1 1 auto", minWidth: 76, paddingRight: 12, marginRight: 12, borderRight: i < arr.length - 1 ? `1px solid ${T.border}44` : "none" }}>
                                 <div style={wlbl}>{l}</div>
