@@ -1576,6 +1576,9 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   };
 
   const lbl: React.CSSProperties = { fontSize: 9.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: T.faint };
+  // Worksheet + pricing header labels: T.faint (38% white) is unreadable on the
+  // card at these sizes (Jon 2026-08-25) — same eyebrow, readable tier.
+  const wlbl: React.CSSProperties = { ...lbl, color: "rgba(255,255,255,0.72)" };
   const previewBtn: React.CSSProperties = { fontSize: 12, fontWeight: 800, color: T.text, textDecoration: "none", padding: "8px 15px", borderRadius: 999, border: `1px solid ${T.border}`, background: T.card };
   const actBtn: React.CSSProperties = { fontSize: 12, fontWeight: 800, color: "#0a0a0a", background: T.accent, border: "none", borderRadius: 999, padding: "9px 16px", cursor: "pointer", fontFamily: font };
   const ghostBtn: React.CSSProperties = { ...previewBtn, cursor: "pointer", fontFamily: font };
@@ -1625,7 +1628,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
               return (
                 <div style={{ display: "flex", alignItems: "baseline", gap: 18, flexWrap: "wrap", padding: "2px 0 10px", fontFamily: mono, fontSize: 12.5 }}>
                   {([["Revenue", fmtMoney(rev), T.text], ["Net profit", fmtMoney(profit), marginColor], ["Margin", (margin * 100).toFixed(1) + "%", marginColor]] as any[]).map(([l, v, c]: any) => (
-                    <span key={l}><span style={{ ...lbl, marginRight: 6 }}>{l}</span><b style={{ color: c }}>{v}</b></span>
+                    <span key={l}><span style={{ ...wlbl, marginRight: 6 }}>{l}</span><b style={{ color: c }}>{v}</b></span>
                   ))}
                   <span style={{ fontSize: 11, color: T.faint, fontFamily: font }}>{costMargin} target{locked ? " · 🔒 locked" : ""} · open any item to adjust</span>
                 </div>
@@ -1634,9 +1637,9 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
             return (
               <div style={{ background: T.surface, borderBottom: `1px solid ${T.border}`, padding: "12px 18px", flexShrink: 0 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap", marginBottom: 12 }}>
-                  <span style={{ ...lbl, color: T.muted }}>Job pricing · all items</span>
+                  <span style={{ ...wlbl, color: T.amber }}>Job pricing · all items</span>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={lbl}>Margin</span>
+                    <span style={wlbl}>Margin</span>
                     <div style={{ display: "flex", gap: 2, background: T.card, borderRadius: 6, padding: 2 }}>
                       {["10%", "15%", "20%", "25%", "30%"].map(m => (
                         <button key={m} onClick={() => !locked && recomputeAllSells({ costMargin: m })} disabled={locked}
@@ -1666,7 +1669,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                 <div style={{ display: "flex", flexWrap: "wrap" }}>
                   {([["Revenue", fmtMoney(rev), T.text], ["Blanks", fmtMoney(blank), T.muted], ["Decoration", fmtMoney(po), T.muted], ...(inclShip ? [["Shipping", fmtMoney(ship), T.muted]] : []), ...(inclCC ? [["CC", fmtMoney(cc), T.muted]] : []), ["Net profit", fmtMoney(profit), marginColor], ["Margin", (margin * 100).toFixed(1) + "%", marginColor], ...(actualBlanks > 0 ? [["Actual blanks", fmtMoney(actualBlanks), actualBlanks > blank ? T.red : T.green]] : [])] as any[]).map(([l, v, c]: any, i: number, arr: any[]) => (
                     <div key={l} style={{ flex: "1 1 auto", minWidth: 74, paddingRight: 12, marginRight: 12, borderRight: i < arr.length - 1 ? `1px solid ${T.border}44` : "none" }}>
-                      <div style={lbl}>{l}</div>
+                      <div style={wlbl}>{l}</div>
                       <div style={{ fontFamily: mono, fontSize: 15, fontWeight: 800, color: c, marginTop: 3 }}>{v}</div>
                     </div>
                   ))}
@@ -2378,7 +2381,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                   <span style={{ width: 22, height: 22, borderRadius: "50%", background: T.accent, color: "#0a0a0a", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800, fontFamily: mono, flexShrink: 0 }}>{String.fromCharCode(65 + wsIndex!)}</span>
                   <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.name}</span>
                 </div>
-                <div style={{ fontFamily: mono, fontSize: 11.5, color: T.faint, marginTop: 3 }}>{it.blank_vendor || ""} {it.blank_sku || ""} · {qtyOf(it).toLocaleString()} u · ${(Number(it.sell_per_unit) || 0).toFixed(2)}</div>
+                <div style={{ fontFamily: mono, fontSize: 11.5, color: T.muted, marginTop: 3 }}>{it.blank_vendor || ""} {it.blank_sku || ""} · {qtyOf(it).toLocaleString()} u · ${(Number(it.sell_per_unit) || 0).toFixed(2)}</div>
               </div>
             </div>
             {/* task tabs — "click the task you're there to do" */}
@@ -2400,7 +2403,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                         picker owns it (Pick/Swap blank), same ownership rule as classic. */}
                     <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", borderRadius: 10, border: `1px solid ${T.border}`, background: T.surface, marginBottom: 14 }}>
                       <div style={{ minWidth: 0, flex: 1 }}>
-                        <span style={{ ...lbl, display: "block", marginBottom: 3 }}>Blank</span>
+                        <span style={{ ...wlbl, display: "block", marginBottom: 3 }}>Blank</span>
                         {it.blank_vendor ? (
                           <div style={{ fontSize: 13.5, fontWeight: 700, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                             {it.blank_vendor}{it.blank_sku ? <span style={{ color: T.muted, fontWeight: 600 }}> · {it.blank_sku}</span> : null}
@@ -2417,11 +2420,11 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                     {/* name · product type · fleece on one row; stacks on mobile */}
                     <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : (locked ? "minmax(0, 1.6fr) minmax(150px, 0.8fr)" : "minmax(0, 1.6fr) minmax(150px, 0.8fr) auto"), gap: 10, marginBottom: 14, alignItems: "end" }}>
                     <label style={{ minWidth: 0 }}>
-                      <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Product name</span>
+                      <span style={{ ...wlbl, display: "block", marginBottom: 5 }}>Product name</span>
                       <input key={it.id + ":name:" + it.name} defaultValue={it.name || ""} readOnly={locked} onBlur={e => renameItem(it, e.target.value)} style={field} />
                     </label>
                       <label style={{ minWidth: 0 }}>
-                        <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Product type</span>
+                        <span style={{ ...wlbl, display: "block", marginBottom: 5 }}>Product type</span>
                         <select value={it.garment_type || ""} disabled={locked} onChange={e => saveGarmentType(it, e.target.value)} style={field}>
                           <option value="">— type —</option>
                           {ADD_GARMENTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
@@ -2437,7 +2440,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                     </div>
                     {/* sizes + qty with remove + add */}
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                      <span style={lbl}>Sizes &amp; quantities</span>
+                      <span style={wlbl}>Sizes &amp; quantities</span>
                       {!locked && <button onClick={() => setEditSizesFor(it.id)} style={{ ...ghostBtn, padding: "4px 11px", fontSize: 11 }}>Edit sizes ▸</button>}
                     </div>
                     {dimensional ? (
@@ -2445,13 +2448,13 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                          go through the full editor (flat inputs would be soup) */
                       <div>
                         <SizeGrid labels={sizes} qtys={it.qtys || {}} palette={{ text: T.text, muted: T.muted, faint: T.faint, border: T.border, surface: T.surface }} mono={mono} />
-                        <div style={{ fontSize: 11, color: T.faint, marginTop: 8 }}>{qtyOf(it).toLocaleString()} units · Edit sizes ▸ opens the grid editor.</div>
+                        <div style={{ fontSize: 11, color: T.muted, marginTop: 8 }}>{qtyOf(it).toLocaleString()} units · Edit sizes ▸ opens the grid editor.</div>
                       </div>
                     ) : (
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "flex-end", padding: "10px 12px", borderRadius: 10, border: `1px solid ${T.border}`, background: T.surface }}>
                       {sizes.map(sz => (
                         <div key={it.id + "_" + sz + ":" + (it.qtys?.[sz] ?? "")} style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "center", position: "relative" }}>
-                          <span style={{ fontSize: 10, fontWeight: 800, color: T.faint, fontFamily: mono }}>{sz}</span>
+                          <span style={{ fontSize: 10, fontWeight: 800, color: T.muted, fontFamily: mono }}>{sz}</span>
                           <input type="text" inputMode="numeric" defaultValue={String(it.qtys?.[sz] ?? 0)} readOnly={locked}
                             onFocus={e => e.target.select()} onBlur={e => saveQty(it, sz, e.target.value)}
                             onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
@@ -2467,12 +2470,12 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                         </select>
                       )}
                       <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "center", justifyContent: "flex-end", marginLeft: "auto", paddingLeft: 14, borderLeft: `1px solid ${T.border}` }}>
-                        <span style={{ fontSize: 10, fontWeight: 800, color: T.faint, fontFamily: mono }}>TOTAL</span>
+                        <span style={{ fontSize: 10, fontWeight: 800, color: T.muted, fontFamily: mono }}>TOTAL</span>
                         <div style={{ minWidth: 64, textAlign: "center", padding: "7px 6px", fontSize: 16, fontWeight: 800, fontFamily: mono, color: T.text }}>{qtyOf(it).toLocaleString()}</div>
                       </div>
                       {!locked && sizes.length > 1 && (
                         <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "center", justifyContent: "flex-end", marginLeft: 6 }}>
-                          <span style={{ fontSize: 10, fontWeight: 800, color: T.faint, fontFamily: mono }} title="Type a total — spreads across sizes by the sell-through curve">→ CURVE</span>
+                          <span style={{ fontSize: 10, fontWeight: 800, color: T.muted, fontFamily: mono }} title="Type a total — spreads across sizes by the sell-through curve">→ CURVE</span>
                           <input type="text" inputMode="numeric" placeholder="total" key={it.id + ":dist:" + qtyOf(it)}
                             onFocus={e => e.target.select()}
                             onBlur={e => { if (e.target.value.trim()) { distributeTotal(it, e.target.value); e.target.value = ""; } }}
@@ -2488,7 +2491,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                         {/* Client retail = what THEIR shop charges. Powers release
                             planning + re-run prefills; not part of costing math,
                             so no financial refresh and never locked. */}
-                        <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Client retail</span>
+                        <span style={{ ...wlbl, display: "block", marginBottom: 5 }}>Client retail</span>
                         <input key={it.id + ":retail:" + (it.client_retail_per_unit ?? "")} defaultValue={it.client_retail_per_unit ?? ""}
                           inputMode="decimal" placeholder="$"
                           onBlur={async e => {
@@ -2500,7 +2503,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                           }} style={field} />
                       </label>
                     </div>
-                    {!locked && <div style={{ fontSize: 11, color: T.faint, marginTop: 14 }}>Saves to the buy sheet. Pick blank ▸ opens the full catalog (S&S, AS Colour, LA Apparel, Cotton Collective, Favorites).</div>}
+                    {!locked && <div style={{ fontSize: 11, color: T.muted, marginTop: 14 }}>Saves to the buy sheet. Pick blank ▸ opens the full catalog (S&S, AS Colour, LA Apparel, Cotton Collective, Favorites).</div>}
                   </div>
                 );
               })()}
@@ -2531,7 +2534,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                         {/* SELL + override — top, prominent (the invoice truth) */}
                         <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 16, flexWrap: "wrap", paddingBottom: 14, borderBottom: `1px solid ${T.border}` }}>
                           <div>
-                            <div style={{ ...lbl, marginBottom: 4 }}>Sell / unit {overridden && <span style={{ color: T.amber }}>· override</span>}</div>
+                            <div style={{ ...wlbl, marginBottom: 4 }}>Sell / unit {overridden && <span style={{ color: T.amber }}>· override</span>}</div>
                             <div style={{ fontFamily: mono, fontSize: 27, fontWeight: 900, lineHeight: 1 }}>${sell.toFixed(2)}</div>
                           </div>
                           <label style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 160 }}>
@@ -2555,7 +2558,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                             ["Net profit", fmtMoney(netProfit), marginColor],
                             ["Margin", (marginPct * 100).toFixed(1) + "%", marginColor]] as any[]).map(([l, v, c]: any, i: number, arr: any[]) => (
                             <div key={l} style={{ flex: "1 1 auto", minWidth: 76, paddingRight: 12, marginRight: 12, borderRight: i < arr.length - 1 ? `1px solid ${T.border}44` : "none" }}>
-                              <div style={lbl}>{l}</div>
+                              <div style={wlbl}>{l}</div>
                               <div style={{ fontFamily: mono, fontSize: 15, fontWeight: 800, color: c, marginTop: 3 }}>{v}</div>
                             </div>
                           ))}
@@ -2565,7 +2568,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                             share groups (A–J / T1–T10) + qty tiers compute across items. */}
                         <div style={{ marginTop: 18, paddingTop: 14, borderTop: `1px solid ${T.border}44` }}>
                           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 10 }}>
-                            <span style={lbl}>Decoration</span>
+                            <span style={wlbl}>Decoration</span>
                             {!locked && <button onClick={() => pullFromPsds()} disabled={pullingPsds} title="Seed print locations + color counts from uploaded PSDs (only items with no locations yet)"
                               style={{ ...ghostBtn, opacity: pullingPsds ? 0.6 : 1 }}>{pullingPsds ? "Pulling…" : "Pull from PSDs"}</button>}
                           </div>
@@ -2578,13 +2581,13 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                             (single source: items.blank_costs; avg → cost_per_unit) */}
                         <div style={{ display: "flex", gap: 20, flexWrap: "wrap", alignItems: "flex-end", marginTop: 18, paddingTop: 14, borderTop: `1px solid ${T.border}44` }}>
                           <div style={{ flex: "1 1 auto" }}>
-                            <div style={{ ...lbl, marginBottom: 6 }}>Blank cost by size <span style={{ fontWeight: 500, textTransform: "none", letterSpacing: 0, color: T.faint }}>· avg ${Number(it.cost_per_unit || 0).toFixed(2)}/u</span></div>
+                            <div style={{ ...wlbl, marginBottom: 6 }}>Blank cost by size <span style={{ fontWeight: 500, textTransform: "none", letterSpacing: 0, color: T.faint }}>· avg ${Number(it.cost_per_unit || 0).toFixed(2)}/u</span></div>
                             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                               {sortSizes(Object.keys(it.qtys || {})).map(sz => {
                                 const v = Number((it.blank_costs || {})[sz] ?? it.cost_per_unit ?? 0);
                                 return (
                                   <div key={it.id + ":bcs:" + sz + ":" + v} style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "center" }}>
-                                    <span style={{ fontSize: 10, fontWeight: 800, color: T.faint, fontFamily: mono }}>{sz}</span>
+                                    <span style={{ fontSize: 10, fontWeight: 800, color: T.muted, fontFamily: mono }}>{sz}</span>
                                     <input type="text" inputMode="decimal" defaultValue={v ? v.toFixed(2) : ""} placeholder="0.00" readOnly={locked}
                                       onFocus={e => e.target.select()} onBlur={e => saveBlankSizeCost(it, sz, e.target.value)}
                                       onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
@@ -2596,7 +2599,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                             </div>
                           </div>
                           <label style={{ flex: "0 1 190px" }}>
-                            <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Shipping buffer / unit <span style={{ fontWeight: 500, textTransform: "none", letterSpacing: 0, color: T.faint }}>· blank = auto by garment</span></span>
+                            <span style={{ ...wlbl, display: "block", marginBottom: 5 }}>Shipping buffer / unit <span style={{ fontWeight: 500, textTransform: "none", letterSpacing: 0, color: T.faint }}>· blank = auto by garment</span></span>
                             <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                               <span style={{ fontSize: 13, color: T.faint }}>$</span>
                               <input key={it.id + ":sr:" + (cp.shipRate ?? "")} defaultValue={cp.shipRate != null && cp.shipRate !== "" ? Number(cp.shipRate).toFixed(2) : ""} placeholder={"auto · $" + effectiveShipRate(allAssembled[wsIndex!]).toFixed(2)} inputMode="decimal" readOnly={locked}
@@ -2634,7 +2637,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                 return (
                   <div>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 10 }}>
-                      <span style={lbl}>Files · {files.length}</span>
+                      <span style={wlbl}>Files · {files.length}</span>
                       <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
                         <span style={{ fontWeight: 800, fontSize: 11, letterSpacing: "0.04em", textTransform: "uppercase", color: artColor }}>{art.replace(/_/g, " ")}</span>
                         <button onClick={markInternal} title={art === "approved" ? "Clear the approval (back to not started)" : "Approve without a client click — for approvals given verbally or by email"}
@@ -2694,7 +2697,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                       const revisedPend = files.some((f: any) => f.stage === "proof" && f.revision_pending_send);
                       return (
                         <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 14, paddingTop: 14, borderTop: `1px solid ${T.border}44`, flexWrap: "wrap" }}>
-                          <span style={lbl}>Proof</span>
+                          <span style={wlbl}>Proof</span>
                           {hasProof && <button onClick={() => { setProofMode("preview"); setProofItemId(it.id); }} style={ghostBtn}>View</button>}
                           {proofPdf && proofPdf.drive_link && <button onClick={() => window.open(proofPdf.drive_link, "_blank")} style={ghostBtn}>View proof PDF</button>}
                           {mockupFile && <button onClick={() => { setProofMode("edit"); setProofItemId(it.id); }}
@@ -2705,11 +2708,11 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                         </div>
                       );
                     })()}
-                    <div style={{ fontSize: 11, color: T.faint, marginTop: 12 }}>Files open full-size in a new tab. Proofs are sent from the Client section; the client approves in their hub — or use <b style={{ color: T.muted }}>Mark approved</b> above when they&apos;ve okayed it verbally.</div>
+                    <div style={{ fontSize: 11, color: T.muted, marginTop: 12 }}>Files open full-size in a new tab. Proofs are sent from the Client section; the client approves in their hub — or use <b style={{ color: T.muted }}>Mark approved</b> above when they&apos;ve okayed it verbally.</div>
                   </div>
                 );
               })()}
-              <div style={{ fontSize: 11, color: T.faint, marginTop: 16, paddingTop: 12, borderTop: `1px solid ${T.border}55` }}>Flip between items with the rail, ‹ › or ← →.</div>
+              <div style={{ fontSize: 11, color: T.muted, marginTop: 16, paddingTop: 12, borderTop: `1px solid ${T.border}55` }}>Flip between items with the rail, ‹ › or ← →.</div>
             </div>
             </div>
           </div>
