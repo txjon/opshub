@@ -1279,7 +1279,10 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     || costProds.find(cp => (cp.name || "").trim().toLowerCase() === (item.name || "").trim().toLowerCase());
   const calcBlank = (item: any) => (Number(item.cost_per_unit) || 0) * sumQ({ ...(item.qtys || {}) });
   const vendorGroups: Record<string, any[]> = {};
+  // Archived items are closed out — never surface them as a PO group (an
+  // archived item with no vendor produced a phantom "Unassigned" PO on 047).
   for (const item of items) {
+    if (item.archived_at) continue;
     const v = cpFor(item)?.printVendor || item.decorator || "Unassigned";
     (vendorGroups[v] ||= []).push(item);
   }
