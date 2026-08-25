@@ -501,6 +501,7 @@ export async function GET(
         webstoreEnteredAt: item.webstore_entered_at || null,
         shipTracking: item.ship_tracking || null,
         internalApproved: manualApproved,
+        noProofNeeded: item.artwork_status === "n_a",
         proofSpec: item.proof_spec || null,
         proofSentAt: item.proof_sent_at || null,
       };

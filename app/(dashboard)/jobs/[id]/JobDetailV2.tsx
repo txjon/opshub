@@ -45,7 +45,7 @@ import { clientShippingRoutes } from "@/lib/tenants";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { calculatePriority } from "@/lib/dates";
 import { SHIP_METHODS } from "@/lib/ship-methods";
-import { proofCounts, needsProof } from "@/lib/proof-gate";
+import { proofCounts, needsProof, proofPdfMissing } from "@/lib/proof-gate";
 const DecorationPanel: any = DecorationPanelRaw; // .jsx — bypass narrow inferred prop types
 const ProofModal: any = ProofModalRaw;           // .jsx — same
 const EditSizesModal: any = EditSizesModalRaw;   // .jsx — same
@@ -818,13 +818,13 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     setActBusy(true); setActErr("");
     try {
       const [to, ...cc] = emails;
-      const hasReady = items.some((it: any) => it.proof_spec);
+      const hasReady = items.some((it: any) => it.proof_spec && needsProof(it));
       // Bake stale/never-baked proof PDFs into Drive BEFORE the send — the
       // vendor folder + portal + client hub all read that file.
-      const needBake = items.filter((it: any) => it.proof_spec && ((it.proof_spec.bakedRendererVersion == null) || it.proof_spec.bakedRendererVersion < PROOF_RENDERER_VERSION)).map((x: any) => x.id);
+      const needBake = items.filter((it: any) => needsProof(it) && it.proof_spec && ((it.proof_spec.bakedRendererVersion == null) || it.proof_spec.bakedRendererVersion < PROOF_RENDERER_VERSION)).map((x: any) => x.id);
       if (needBake.length) await bakeProofPdfs(needBake);
       await sendQuoteAndProofs(job, { to, cc, includeProofs: hasReady, proofsOnly: !!job.quote_approved });
-      const readyIds = items.filter((it: any) => it.proof_spec && !it.proof_sent_at).map((it: any) => it.id);
+      const readyIds = items.filter((it: any) => needsProof(it) && it.proof_spec && !it.proof_sent_at).map((it: any) => it.id);
       if (readyIds.length) { const nowP = new Date().toISOString(); await (createClient().from("items") as any).update({ proof_sent_at: nowP }).in("id", readyIds); setItems(prev => prev.map(x => readyIds.includes(x.id) ? { ...x, proof_sent_at: nowP } : x)); }
       await refetchTypeMeta();
       setClientAction(null);
@@ -1215,7 +1215,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       // Same send-time bake as the quote path (90s valve inside bakeProofPdfs);
       // was the deferred "decorator PDF bake" on the proof-flow punch list.
       const vendorItems = vendorGroups[poVendor] || [];
-      const poNeedBake = vendorItems.filter((it: any) => it.proof_spec && ((it.proof_spec.bakedRendererVersion == null) || it.proof_spec.bakedRendererVersion < PROOF_RENDERER_VERSION)).map((x: any) => x.id);
+      const poNeedBake = vendorItems.filter((it: any) => needsProof(it) && it.proof_spec && ((it.proof_spec.bakedRendererVersion == null) || it.proof_spec.bakedRendererVersion < PROOF_RENDERER_VERSION)).map((x: any) => x.id);
       if (poNeedBake.length) await bakeProofPdfs(poNeedBake);
       const supabase = createClient();
       const [to, ...cc] = emails;
@@ -1837,7 +1837,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                       <span style={{ fontFamily: mono, fontSize: 14, fontWeight: 800 }}>{fmtMoney(line)}</span>
                     </div>
                     <div style={{ display: "flex", gap: 9, marginTop: 9, paddingTop: 9, borderTop: `1px solid ${T.border}55`, fontSize: 9.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-                      <span style={{ color: item.artwork_status === "approved" ? T.green : T.faint }}>Art {item.artwork_status === "approved" ? "✓" : "…"}</span>
+                      <span style={{ color: item.artwork_status === "approved" ? T.green : T.faint }}>Art {item.artwork_status === "approved" ? "✓" : !needsProof(item) ? "n/a" : "…"}</span>
                       <span style={{ color: item.pipeline_stage === "in_production" ? "#6bb0e8" : item.pipeline_stage === "shipped" ? T.green : T.faint }}>{item.pipeline_stage === "in_production" ? "Printing" : item.pipeline_stage === "shipped" ? "Shipped" : "—"}</span>
                     </div>
                   </div>
@@ -1886,7 +1886,8 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
               (classic-era sends never baked). Runs the send-time bake pass
               WITHOUT sending anything. */}
           {(() => {
-            const needBake = items.filter((it: any) => it.proof_spec && ((it.proof_spec.bakedRendererVersion == null) || it.proof_spec.bakedRendererVersion < PROOF_RENDERER_VERSION));
+            // Sent-or-approved proofs only; a legacy/carried spec with a PDF on file is fine (lib/proof-gate).
+            const needBake = items.filter((it: any) => proofPdfMissing(it, (filesByItem[it.id] || []).some((f: any) => f.stage === "proof" && !f.superseded_at), PROOF_RENDERER_VERSION));
             if (!needBake.length || bakeIds) return null;
             return (
               <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", border: `1px solid ${T.border}`, background: T.surface, borderRadius: 10, padding: "9px 13px", marginBottom: 12 }}>
@@ -2633,6 +2634,18 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                 const files = (filesByItem[it.id] || []).filter((f: any) => f.stage !== "packing_slip");
                 const art = it.artwork_status || "not_started";
                 const artColor = art === "approved" ? T.green : art === "revision_requested" ? T.amber : T.muted;
+                const artLabel = art === "n_a" ? "no proof needed" : art.replace(/_/g, " ");
+                // "No proof needed" — the item is print-only / carried art / stock: it never
+                // gates, never counts, never nags, never shows in the hub as awaiting.
+                const setArt = async (newStatus: string, msg: string) => {
+                  try {
+                    await (createClient().from("items") as any).update({ artwork_status: newStatus }).eq("id", it.id);
+                    setItems(prev => prev.map(x => x.id === it.id ? { ...x, artwork_status: newStatus } : x));
+                    logJobActivity(job.id, msg);
+                    recalcPhase();
+                  } catch (e) { failed("Approval not saved", e); }
+                };
+                const toggleNoProof = () => art === "n_a" ? setArt("not_started", `${it.name} needs a proof again`) : setArt("n_a", `${it.name} marked no proof needed`);
                 // Internal approval toggle (parity with classic ApprovalsTab peek modal):
                 // for verbal/email approvals — same artwork_status the client hub writes,
                 // so the Blanks/PO gate and phase engine see it identically.
@@ -2651,9 +2664,11 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 10 }}>
                       <span style={wlbl}>Files · {files.length}</span>
                       <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <span style={{ fontWeight: 800, fontSize: 11, letterSpacing: "0.04em", textTransform: "uppercase", color: artColor }}>{art.replace(/_/g, " ")}</span>
-                        <button onClick={markInternal} title={art === "approved" ? "Clear the approval (back to not started)" : "Approve without a client click — for approvals given verbally or by email"}
-                          style={ghostBtn}>{art === "approved" ? "Undo approval" : "Mark approved"}</button>
+                        <span style={{ fontWeight: 800, fontSize: 11, letterSpacing: "0.04em", textTransform: "uppercase", color: artColor }}>{artLabel}</span>
+                        {art !== "n_a" && <button onClick={markInternal} title={art === "approved" ? "Clear the approval (back to not started)" : "Approve without a client click — for approvals given verbally or by email"}
+                          style={ghostBtn}>{art === "approved" ? "Undo approval" : "Mark approved"}</button>}
+                        {art !== "approved" && <button onClick={toggleNoProof} title={art === "n_a" ? "This item needs a proof after all" : "No proof for this item — it won't gate, count, or show as awaiting approval"}
+                          style={ghostBtn}>{art === "n_a" ? "Needs a proof" : "No proof needed"}</button>}
                       </span>
                     </div>
                     {tip(<>Upload art by stage (mockup, proof, print-ready). A mockup unlocks <b style={{ color: T.text }}>Generate proof</b> — the proof editor that clients approve and vendors print from. Files land in this item&apos;s Drive folder automatically.</>)}
@@ -2830,7 +2845,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                 // spec but a baked proof PDF (reorder copies) is NOT proof-less:
                 // the folder the vendor gets already holds that PDF.
                 const noProof = (vendorGroups[poVendor] || []).filter((it: any) =>
-                  !it.proof_spec && !(filesByItem[it.id] || []).some((f: any) => f.stage === "proof"));
+                  needsProof(it) && !it.proof_spec && !(filesByItem[it.id] || []).some((f: any) => f.stage === "proof"));
                 return noProof.length > 0 ? (
                   <div style={{ fontSize: 12.5, color: T.amber, marginTop: 10 }}>
                     No proofs drafted for {noProof.length === (vendorGroups[poVendor] || []).length ? "these items" : noProof.map((x: any) => x.name).join(", ")} — the vendor folder will only have art files.

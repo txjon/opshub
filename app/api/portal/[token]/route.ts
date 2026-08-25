@@ -369,6 +369,7 @@ export async function GET(
         shipTracking: item.ship_tracking || null,
         forwardTracking: (item as any).forward_tracking || null,
         internalApproved: manualApproved,
+        noProofNeeded: item.artwork_status === "n_a",
         // The proof document's content — the overlay renders the REAL proof
         // (ProofDocView, same single source as the PDF), not a flat image.
         proofSpec: item.proof_spec || null,

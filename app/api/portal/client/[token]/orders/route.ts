@@ -98,7 +98,8 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
     const thumbByItem: Record<string, string | null> = {};
     const jobIdByItem: Record<string, string> = {};
     for (const i of (items || [])) jobIdByItem[(i as any).id] = (i as any).job_id;
-    const internallyApprovedItems = new Set((items || []).filter((i: any) => i.artwork_status === "approved").map((i: any) => i.id));
+    // approved internally OR no proof needed (n_a) — neither has anything for the client to approve
+    const internallyApprovedItems = new Set((items || []).filter((i: any) => i.artwork_status === "approved" || i.artwork_status === "n_a").map((i: any) => i.id));
     const pendingProofsByJob: Record<string, number> = {};
     if (itemIds.length > 0) {
       const { data: files } = await db

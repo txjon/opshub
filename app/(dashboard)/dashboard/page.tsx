@@ -3,6 +3,7 @@ import { T } from "@/lib/theme";
 import { CommandCenterBuckets, type BucketCard, type BucketPayload, type BucketSection, type Urgency } from "@/components/CommandCenterBuckets";
 import { attachUnreadStatus } from "@/lib/art-brief-activity";
 import { daysUntilDay } from "@/lib/dates";
+import { needsProof } from "@/lib/proof-gate";
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -315,10 +316,10 @@ export default async function DashboardPage() {
     if (proofPhase && quoteApproved && !allProofsApproved) {
       // Exclude items with manual override (artwork_status='approved') — they
       // don't need client approval even if the underlying proof is pending.
-      const pendingItems = items.filter((it: any) => proofMap[it.id]?.pendingCount > 0 && it.artwork_status !== "approved");
+      const pendingItems = items.filter((it: any) => needsProof(it) && proofMap[it.id]?.pendingCount > 0 && it.artwork_status !== "approved");
       const itemsNeedingProofs = items.filter((it: any) => {
         const proofs = (proofFiles || []).filter(f => f.item_id === it.id && f.stage === "proof");
-        return proofs.length === 0 && it.artwork_status !== "approved";
+        return needsProof(it) && proofs.length === 0 && it.artwork_status !== "approved";
       });
       if (pendingItems.length > 0) {
         // Check if proofs have been pending 2+ days — escalate for follow-up

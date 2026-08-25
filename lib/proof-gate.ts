@@ -32,3 +32,18 @@ export function proofCounts(items: any[], ps?: Record<string, ProofPs>): { appro
 // Job-level gate: at least one item, every item satisfied (n_a items pass).
 export const allProofsSatisfied = (items: any[], ps?: Record<string, ProofPs>): boolean =>
   (items || []).length > 0 && (items || []).every(it => proofSatisfied(it, ps?.[it.id]));
+
+// Bake nudge ("N proof PDFs not in Drive"): only proofs the client has SEEN
+// (sent) or that are SIGNED OFF need a PDF in Drive. Drafts bake at Send —
+// nudging them asks for the thing the send flow deliberately stopped doing.
+// A never-stamped spec (legacy / carried in on a reorder) with a proof PDF
+// already on file is fine; a stamped-but-outdated version still re-bakes so
+// renderer bumps keep working.
+export function proofPdfMissing(it: any, hasProofFile: boolean, rendererVersion: number): boolean {
+  if (!it?.proof_spec || !needsProof(it)) return false;
+  const engaged = !!it.proof_sent_at || it.artwork_status === "approved";
+  if (!engaged) return false;
+  const v = it.proof_spec.bakedRendererVersion;
+  if (v == null) return !hasProofFile;
+  return v < rendererVersion;
+}
