@@ -2531,55 +2531,51 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                     ) : (
                       <>
                         {tip(<><b style={{ color: T.text }}>Sell/unit is the number the client is billed</b> — auto-calculated from costs + margin, or type an override. Decoration below drives the cost: vendor, print locations and colors, share groups (same art shared across items combines quantities for better rates and one set of screens). Blank cost by size holds 2XL/3XL upcharges. Everything saves as you go.</>)}
-                        {/* SELL + override — top, prominent (the invoice truth) */}
-                        <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 16, flexWrap: "wrap", paddingBottom: 14, borderBottom: `1px solid ${T.border}` }}>
-                          <div>
-                            <div style={{ ...wlbl, marginBottom: 4 }}>Sell / unit {overridden && <span style={{ color: T.amber }}>· override</span>}</div>
-                            <div style={{ fontFamily: mono, fontSize: 27, fontWeight: 900, lineHeight: 1 }}>${sell.toFixed(2)}</div>
-                          </div>
-                          <label style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 160 }}>
-                            <span style={{ ...lbl }}>Override / unit <span style={{ fontWeight: 500, textTransform: "none", letterSpacing: 0, color: T.faint }}>· blank = auto</span></span>
-                            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                              <span style={{ fontSize: 13, color: T.faint }}>$</span>
-                              <input key={it.id + ":ovr:" + (cp.sellOverride ?? "")} defaultValue={cp.sellOverride != null && cp.sellOverride !== "" ? Number(cp.sellOverride).toFixed(2) : ""} placeholder="auto" inputMode="decimal" readOnly={locked}
-                                onBlur={e => saveOverride(it, e.target.value)}
-                                style={{ flex: 1, padding: "8px 10px", borderRadius: 8, border: `1px solid ${overridden ? T.amber + "88" : T.border}`, background: locked ? T.card : T.surface, color: locked ? T.muted : T.text, fontSize: 14, fontWeight: 700, fontFamily: mono, outline: "none" }} />
+                        {/* ITEM ECONOMICS — one band: the sell/unit IS the override input
+                            (auto value shown as placeholder), then the item P&L tiles. */}
+                        <div style={{ display: "flex", alignItems: "stretch", gap: 0, flexWrap: "wrap", borderRadius: 10, border: `1px solid ${T.border}`, background: T.surface, overflow: "hidden" }}>
+                          <label style={{ display: "flex", flexDirection: "column", justifyContent: "center", gap: 4, padding: "12px 16px", borderRight: `1px solid ${T.border}`, minWidth: 190, background: overridden ? `${T.amber}10` : T.card }}>
+                            <span style={wlbl}>Sell / unit <span style={{ color: overridden ? T.amber : T.muted, fontWeight: 600, textTransform: "none", letterSpacing: 0 }}>{overridden ? "· override" : "· auto"}</span></span>
+                            <div style={{ display: "flex", alignItems: "baseline", gap: 2 }}>
+                              <span style={{ fontFamily: mono, fontSize: 20, fontWeight: 800, color: T.muted }}>$</span>
+                              <input key={it.id + ":ovr:" + (cp.sellOverride ?? "")} defaultValue={cp.sellOverride != null && cp.sellOverride !== "" ? Number(cp.sellOverride).toFixed(2) : ""} placeholder={sell.toFixed(2)} inputMode="decimal" readOnly={locked}
+                                onFocus={e => e.target.select()} onBlur={e => saveOverride(it, e.target.value)}
+                                onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                                title={overridden ? "Override — clear to return to auto" : "Auto from costs + margin — type to override"}
+                                style={{ width: 120, padding: 0, border: "none", background: "none", color: overridden ? T.amber : T.text, fontFamily: mono, fontSize: 27, fontWeight: 900, lineHeight: 1, outline: "none" }} />
                             </div>
                           </label>
-                        </div>
-
-                        {/* condensed KPI strip */}
-                        <div style={{ display: "flex", flexWrap: "wrap", marginTop: 12 }}>
-                          {([["Revenue", fmtMoney(grossRev), T.text],
-                            ["Blank", fmtMoney(r.blankCost), T.muted],
-                            ["Decoration", fmtMoney(r.poTotal), T.muted],
-                            ...(inclShip ? [["Ship", fmtMoney(r.shipping), T.muted]] : []),
-                            ...(inclCC ? [["CC", fmtMoney(ccFees), T.muted]] : []),
-                            ["Net profit", fmtMoney(netProfit), marginColor],
-                            ["Margin", (marginPct * 100).toFixed(1) + "%", marginColor]] as any[]).map(([l, v, c]: any, i: number, arr: any[]) => (
-                            <div key={l} style={{ flex: "1 1 auto", minWidth: 76, paddingRight: 12, marginRight: 12, borderRight: i < arr.length - 1 ? `1px solid ${T.border}44` : "none" }}>
-                              <div style={wlbl}>{l}</div>
-                              <div style={{ fontFamily: mono, fontSize: 15, fontWeight: 800, color: c, marginTop: 3 }}>{v}</div>
-                            </div>
-                          ))}
+                          <div style={{ flex: 1, display: "flex", flexWrap: "wrap", alignItems: "center", padding: "10px 16px", gap: "8px 0" }}>
+                            {([["Revenue", fmtMoney(grossRev), T.text],
+                              ["Blank", fmtMoney(r.blankCost), T.muted],
+                              ["Decoration", fmtMoney(r.poTotal), T.muted],
+                              ...(inclShip ? [["Ship", fmtMoney(r.shipping), T.muted]] : []),
+                              ...(inclCC ? [["CC", fmtMoney(ccFees), T.muted]] : []),
+                              ["Net profit", fmtMoney(netProfit), marginColor],
+                              ["Margin", (marginPct * 100).toFixed(1) + "%", marginColor]] as any[]).map(([l, v, c]: any, i: number, arr: any[]) => (
+                              <div key={l} style={{ flex: "1 1 auto", minWidth: 76, paddingRight: 12, marginRight: 12, borderRight: i < arr.length - 1 ? `1px solid ${T.border}44` : "none" }}>
+                                <div style={wlbl}>{l}</div>
+                                <div style={{ fontFamily: mono, fontSize: 15, fontWeight: 800, color: c, marginTop: 3 }}>{v}</div>
+                              </div>
+                            ))}
+                          </div>
                         </div>
 
                         {/* decoration engine — DecorationPanel fed the full assembled array so
                             share groups (A–J / T1–T10) + qty tiers compute across items. */}
-                        <div style={{ marginTop: 18, paddingTop: 14, borderTop: `1px solid ${T.border}44` }}>
-                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 10 }}>
-                            <span style={wlbl}>Decoration</span>
-                            {!locked && <button onClick={() => pullFromPsds()} disabled={pullingPsds} title="Seed print locations + color counts from uploaded PSDs (only items with no locations yet)"
-                              style={{ ...ghostBtn, opacity: pullingPsds ? 0.6 : 1 }}>{pullingPsds ? "Pulling…" : "Pull from PSDs"}</button>}
-                          </div>
-                          <DecorationPanel p={allAssembled[wsIndex!]} i={wsIndex!} costProds={allAssembled} PRINTERS={printers} decoratorRecords={decoratorRecords} updateProd={updateProd} setCostProds={setCostProdsFn} lookupPrintPrice={lookupPrint} lookupTagPrice={lookupTag} costingLocked={locked} hideVendorApplyAll />
+                        <div style={{ marginTop: 16 }}>
+                          <DecorationPanel p={allAssembled[wsIndex!]} i={wsIndex!} costProds={allAssembled} PRINTERS={printers} decoratorRecords={decoratorRecords} updateProd={updateProd} setCostProds={setCostProdsFn} lookupPrintPrice={lookupPrint} lookupTagPrice={lookupTag} costingLocked={locked} hideVendorApplyAll flush
+                            headerExtra={!locked ? (
+                              <button onClick={() => pullFromPsds()} disabled={pullingPsds} title="Seed print locations + color counts from uploaded PSDs (only items with no locations yet)"
+                                style={{ ...ghostBtn, padding: "4px 11px", fontSize: 11, opacity: pullingPsds ? 0.6 : 1 }}>{pullingPsds ? "Pulling…" : "Pull from PSDs"}</button>
+                            ) : null} />
                         </div>
 
                         {/* raw blank-cost + shipping-buffer editors — bottom of the sheet
                             (writes items / costProd.shipRate) */}
                         {/* blank cost by size — THE blank-cost override surface
                             (single source: items.blank_costs; avg → cost_per_unit) */}
-                        <div style={{ display: "flex", gap: 20, flexWrap: "wrap", alignItems: "flex-end", marginTop: 18, paddingTop: 14, borderTop: `1px solid ${T.border}44` }}>
+                        <div style={{ display: "flex", gap: 20, flexWrap: "wrap", alignItems: "flex-end", marginTop: 16, padding: "10px 12px", borderRadius: 10, border: `1px solid ${T.border}`, background: T.surface }}>
                           <div style={{ flex: "1 1 auto" }}>
                             <div style={{ ...wlbl, marginBottom: 6 }}>Blank cost by size <span style={{ fontWeight: 500, textTransform: "none", letterSpacing: 0, color: T.faint }}>· avg ${Number(it.cost_per_unit || 0).toFixed(2)}/u</span></div>
                             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
@@ -2591,7 +2587,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                                     <input type="text" inputMode="decimal" defaultValue={v ? v.toFixed(2) : ""} placeholder="0.00" readOnly={locked}
                                       onFocus={e => e.target.select()} onBlur={e => saveBlankSizeCost(it, sz, e.target.value)}
                                       onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-                                      style={{ width: 62, textAlign: "center", padding: "7px 5px", borderRadius: 8, border: `1px solid ${T.border}`, background: locked ? T.card : T.surface, color: locked ? T.muted : T.text, fontSize: 12.5, fontWeight: 700, fontFamily: mono, outline: "none" }} />
+                                      style={{ width: 62, textAlign: "center", padding: "7px 5px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.card, color: locked ? T.muted : T.text, fontSize: 12.5, fontWeight: 700, fontFamily: mono, outline: "none" }} />
                                   </div>
                                 );
                               })}
@@ -2604,7 +2600,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                               <span style={{ fontSize: 13, color: T.faint }}>$</span>
                               <input key={it.id + ":sr:" + (cp.shipRate ?? "")} defaultValue={cp.shipRate != null && cp.shipRate !== "" ? Number(cp.shipRate).toFixed(2) : ""} placeholder={"auto · $" + effectiveShipRate(allAssembled[wsIndex!]).toFixed(2)} inputMode="decimal" readOnly={locked}
                                 onBlur={e => saveShipRate(it, e.target.value)}
-                                style={{ flex: 1, padding: "9px 11px", borderRadius: 8, border: `1px solid ${T.border}`, background: locked ? T.card : T.surface, color: locked ? T.muted : T.text, fontSize: 14, fontWeight: 700, fontFamily: mono, outline: "none" }} />
+                                style={{ flex: 1, padding: "9px 11px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.card, color: locked ? T.muted : T.text, fontSize: 14, fontWeight: 700, fontFamily: mono, outline: "none" }} />
                             </div>
                           </label>
                         </div>
