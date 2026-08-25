@@ -241,13 +241,6 @@ export function AppShell({
     ...sideQuestItems.map(sq => ({ href: sq.href, label: sq.label, group: "Utilities" })),
   ];
 
-  // Recent projects — written by the job page on visit; the fastest answer to
-  // "get back to the job I was just on" after a board side-trip.
-  const [recentJobs, setRecentJobs] = useState<{ id: string; label: string; num: string }[]>([]);
-  useEffect(() => {
-    try { setRecentJobs((JSON.parse(localStorage.getItem("opshub_recent_jobs") || "[]") as any[]).slice(0, 5)); } catch {}
-  }, [pathname]);
-
   const rawCrossLink = DEPT_CROSSLINKS[activeDept];
   const crossLink = rawCrossLink && hasDept(rawCrossLink.dept)
     ? (rawCrossLink.dept === "labs" ? { ...rawCrossLink, label: "← Labs" } : rawCrossLink)
@@ -281,21 +274,6 @@ export function AppShell({
 
         {/* nav groups */}
         <div style={{ flex: 1, overflowY: "auto", minHeight: 0, padding: "0 8px 8px" }}>
-          {recentJobs.length > 0 && (
-            <div style={{ marginBottom: 10 }}>
-              <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: "#666", padding: "6px 8px 3px" }}>Recent</div>
-              {recentJobs.map(r => {
-                const href = `/jobs/${r.id}`;
-                const isActive = pathname === href || pathname?.startsWith(href + "/") || pathname?.startsWith(href + "?");
-                return (
-                  <Link key={r.id} href={href} title={`${r.num} · ${r.label}`}
-                    style={{ display: "block", padding: "5px 8px", borderRadius: 7, fontSize: 12, fontWeight: 600, textDecoration: "none", color: isActive ? "#fff" : "rgba(255,255,255,0.55)", background: isActive ? "rgba(255,255,255,0.10)" : "transparent", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {r.label}<span style={{ color: "#666", fontWeight: 500, marginLeft: 6, fontSize: 10.5 }}>{r.num}</span>
-                  </Link>
-                );
-              })}
-            </div>
-          )}
           {sidebarGroups.map(g => {
             // Pillar groups (GROUP_HOMES) get their home page as a big
             // clickable header ("The House", "The Distro", "The Shop");

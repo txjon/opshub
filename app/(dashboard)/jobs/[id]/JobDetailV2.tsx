@@ -345,16 +345,6 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   const [open, setOpen] = useState<Record<string, boolean>>({ products: true, client: false, production: true, logistics: false });
   const toggle = (k: string) => setOpen(o => ({ ...o, [k]: !o[k] }));
 
-  // Recent projects — feed the hub sidebar's RECENT list.
-  useEffect(() => {
-    if (!job?.id) return;
-    try {
-      const list = (JSON.parse(localStorage.getItem("opshub_recent_jobs") || "[]") as any[]).filter(r => r.id !== job.id);
-      list.unshift({ id: job.id, label: job?.clients?.name || job?.title || "Untitled", num: job?.job_number || "" });
-      localStorage.setItem("opshub_recent_jobs", JSON.stringify(list.slice(0, 8)));
-    } catch {}
-  }, [job?.id]);
-
   // ── Legacy ?tab= deep links (emails, notifications, bookmarks) — map the
   // classic tab names onto V2 blocks: open the block and scroll to it. Old
   // links keep working forever without touching any sender. ──
