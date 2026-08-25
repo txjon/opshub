@@ -889,6 +889,17 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       recalcPhase();
     } finally { setActBusy(false); }
   };
+  // Re-sync QB — push current pricing/qtys to the EXISTING QB invoice in place,
+  // no client email (the QB half of Send revised invoice). Until now the only
+  // way to clear a stale invoice was to re-send it. ⋯ menu item.
+  const doResyncQb = async () => {
+    if (actBusy) return; setActBusy(true); setActErr(""); setClientMenu(false);
+    try {
+      const pr = await pushInvoiceToQB(job);
+      if (!pr.ok) { setActErr("Multiple QB customers match — run Send invoice once to pick, or resolve in QB."); return; }
+      await refetchTypeMeta();
+    } catch (e: any) { setActErr(e?.message || "QB re-sync failed"); } finally { setActBusy(false); }
+  };
   // Quiet QB create — mints the invoice NUMBER only (no pay link, zero
   // emails, no AR row); Send invoice later makes it real. ⋯ menu item.
   const doQuietQb = async () => {
@@ -1913,6 +1924,12 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                           <a key={label} href={href} target="_blank" rel="noreferrer" onClick={() => setClientMenu(false)}
                             style={{ display: "block", padding: "9px 12px", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.text, borderRadius: 7, textDecoration: "none" }}>{label}</a>
                         ))}
+                        {invNum && (
+                          <button onClick={doResyncQb} disabled={actBusy} title={needsRevise ? `Order changed by $${Math.abs(toInvoice).toFixed(2)} — update QB #${invNum} without emailing the client` : `Push current pricing to QB #${invNum} without emailing the client`}
+                            style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: needsRevise ? T.amber : T.muted, borderRadius: 7, background: "none", border: "none", cursor: actBusy ? "default" : "pointer" }}>
+                            {actBusy ? "Syncing QB…" : needsRevise ? `Re-sync QB #${invNum} · don’t send` : "Re-sync QuickBooks"}
+                          </button>
+                        )}
                         {!invNum && (
                           <button onClick={doQuietQb} disabled={actBusy}
                             style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.muted, borderRadius: 7, background: "none", border: "none", cursor: actBusy ? "default" : "pointer" }}>
