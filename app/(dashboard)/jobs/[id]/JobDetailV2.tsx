@@ -2346,7 +2346,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       {it && (
         <div onClick={e => { if (e.target === e.currentTarget) setWsIndex(null); }}
           style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.72)", zIndex: 300, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: isMobile ? "8px 4px" : "24px 14px", overflowY: "auto" }}>
-          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: isMobile ? 12 : 16, width: "100%", maxWidth: 980, overflow: "hidden", display: "flex", flexDirection: "column", maxHeight: isMobile ? "calc(100vh - 16px)" : "calc(100vh - 48px)" }}>
+          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: isMobile ? 12 : 16, width: "100%", maxWidth: 784, overflow: "hidden", display: "flex", flexDirection: "column", maxHeight: isMobile ? "calc(100vh - 16px)" : "calc(100vh - 48px)" }}>
             {/* job pricing — margin/toggles/lock + totals, fixed at the top above the rail (Jon 2026-08-25) */}
             {renderPricing("full")}
             {/* nav strip — ‹ image rail › (tap a tile or arrow to switch) + item actions */}
