@@ -2401,9 +2401,9 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                       <input key={it.id + ":name:" + it.name} defaultValue={it.name || ""} readOnly={locked} onBlur={e => renameItem(it, e.target.value)} style={field} />
                     </label>
                     {tip(<>Name, product type, and quantities live here. The blank itself comes from <b style={{ color: T.text }}>Pick/Swap blank</b> (full supplier catalogs) so costs always match a real product. Type a total into <b style={{ color: T.text }}>→ CURVE</b> to spread it across sizes automatically, or Edit sizes for youth, one-size, and pants grids.</>)}
-                    {/* garment + blank (editable text; full catalog picker is separate) */}
-                    <div style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
-                      <label style={{ flex: "1 1 130px" }}>
+                    {/* product type · client retail · fleece — one aligned grid */}
+                    <div style={{ display: "grid", gridTemplateColumns: locked ? "minmax(160px, 1.3fr) minmax(120px, 0.7fr)" : "minmax(160px, 1.3fr) minmax(120px, 0.7fr) auto", gap: 10, marginBottom: 12, alignItems: "end" }}>
+                      <label>
                         <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Product type</span>
                         <select value={it.garment_type || ""} disabled={locked} onChange={e => saveGarmentType(it, e.target.value)} style={field}>
                           <option value="">— type —</option>
@@ -2411,7 +2411,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                           {it.garment_type && !ADD_GARMENTS.some(([v]) => v === it.garment_type) && <option value={it.garment_type}>{it.garment_type.replace(/_/g, " ")}</option>}
                         </select>
                       </label>
-                      <label style={{ flex: "0 1 120px" }}>
+                      <label>
                         {/* Client retail = what THEIR shop charges. Powers release
                             planning + re-run prefills; not part of costing math,
                             so no financial refresh and never locked. */}
@@ -2427,29 +2427,28 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                           }} style={field} />
                       </label>
                       {!locked && (
-                        <div style={{ flex: "0 0 auto" }}>
-                          {/* hidden caption keeps the button on the same
-                              baseline as the labeled columns beside it */}
-                          <span style={{ ...lbl, display: "block", marginBottom: 5, visibility: "hidden" }}>Fleece</span>
-                          <button onClick={() => toggleFleece(it)} title="Fleece applies the decorator's per-print fleece upcharge + fleece packaging"
-                            style={{ display: "block", fontSize: 10, fontWeight: 700, padding: "10px 12px", borderRadius: 8, border: `1px solid ${it.is_fleece ? T.green : T.border}`, background: it.is_fleece ? T.green : T.card, color: it.is_fleece ? "#fff" : T.muted, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase", fontFamily: font, lineHeight: "17.5px", boxSizing: "border-box" }}>
-                            {it.is_fleece ? "Fleece ✓" : "Fleece?"}
-                          </button>
-                        </div>
+                        <button onClick={() => toggleFleece(it)} title="Fleece applies the decorator's per-print fleece upcharge + fleece packaging"
+                          style={{ fontSize: 10, fontWeight: 700, padding: "10px 12px", borderRadius: 8, border: `1px solid ${it.is_fleece ? T.green : T.border}`, background: it.is_fleece ? T.green : T.card, color: it.is_fleece ? "#fff" : T.muted, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase", fontFamily: font, whiteSpace: "nowrap" }}>
+                          {it.is_fleece ? "Fleece ✓" : "Fleece?"}
+                        </button>
                       )}
-                      {/* Blank + color are READ-ONLY here — the picker owns them
-                          (Pick/Swap blank), same ownership rule as classic. */}
-                      <div style={{ flex: "1 1 130px" }}>
-                        <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Blank</span>
-                        <div style={{ padding: "10px 0", fontSize: 13.5, fontWeight: 700, color: it.blank_vendor ? T.text : T.faint }}>{it.blank_vendor || "—"}</div>
-                      </div>
-                      <div style={{ flex: "1 1 110px" }}>
-                        <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Color</span>
-                        <div style={{ padding: "10px 0", fontSize: 13.5, fontWeight: 700, color: it.blank_sku ? T.text : T.faint }}>{it.blank_sku || "—"}</div>
+                    </div>
+                    {/* blank — ONE object (vendor style · color), read-only here; the
+                        picker owns it (Pick/Swap blank), same ownership rule as classic. */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", borderRadius: 10, border: `1px solid ${T.border}`, background: T.surface, marginBottom: 14 }}>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <span style={{ ...lbl, display: "block", marginBottom: 3 }}>Blank</span>
+                        {it.blank_vendor ? (
+                          <div style={{ fontSize: 13.5, fontWeight: 700, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                            {it.blank_vendor}{it.blank_sku ? <span style={{ color: T.muted, fontWeight: 600 }}> · {it.blank_sku}</span> : null}
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: 13, fontWeight: 600, color: T.faint }}>No blank picked</div>
+                        )}
                       </div>
                       {!locked && (
                         <button onClick={() => { setAssignTargetId(it.id); setPickerSrc("src"); }}
-                          style={{ ...ghostBtn, alignSelf: "flex-end", whiteSpace: "nowrap" }}>{it.blank_vendor ? "Swap blank ▸" : "Pick blank ▸"}</button>
+                          style={{ ...ghostBtn, whiteSpace: "nowrap", flexShrink: 0 }}>{it.blank_vendor ? "Swap blank ▸" : "Pick blank ▸"}</button>
                       )}
                     </div>
                     {/* sizes + qty with remove + add */}
@@ -2465,14 +2464,14 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                         <div style={{ fontSize: 11, color: T.faint, marginTop: 8 }}>{qtyOf(it).toLocaleString()} units · Edit sizes ▸ opens the grid editor.</div>
                       </div>
                     ) : (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "flex-end" }}>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "flex-end", padding: "10px 12px", borderRadius: 10, border: `1px solid ${T.border}`, background: T.surface }}>
                       {sizes.map(sz => (
                         <div key={it.id + "_" + sz + ":" + (it.qtys?.[sz] ?? "")} style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "center", position: "relative" }}>
                           <span style={{ fontSize: 10, fontWeight: 800, color: T.faint, fontFamily: mono }}>{sz}</span>
                           <input type="text" inputMode="numeric" defaultValue={String(it.qtys?.[sz] ?? 0)} readOnly={locked}
                             onFocus={e => e.target.select()} onBlur={e => saveQty(it, sz, e.target.value)}
                             onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-                            style={{ width: 56, textAlign: "center", padding: "7px 6px", borderRadius: 8, border: `1px solid ${T.border}`, background: locked ? T.card : T.surface, color: locked ? T.muted : T.text, fontSize: 14, fontWeight: 700, fontFamily: mono, outline: "none" }} />
+                            style={{ width: 56, textAlign: "center", padding: "7px 6px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.card, color: locked ? T.muted : T.text, fontSize: 14, fontWeight: 700, fontFamily: mono, outline: "none" }} />
                           {/* tabIndex -1: tabbing runs qty→qty for fast entry — the × stays mouse-only (Jon, Jul 28) */}
                           {!locked && <button onClick={() => removeSize(it, sz)} title="Remove size" tabIndex={-1} style={{ position: "absolute", top: 10, right: -4, width: 15, height: 15, borderRadius: 999, border: "none", background: T.surface, color: T.faint, fontSize: 11, lineHeight: 1, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>}
                         </div>
@@ -2483,9 +2482,9 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                           {avail.map(s => <option key={s} value={s}>{s}</option>)}
                         </select>
                       )}
-                      <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "center", justifyContent: "flex-end", marginLeft: 6 }}>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "center", justifyContent: "flex-end", marginLeft: "auto", paddingLeft: 14, borderLeft: `1px solid ${T.border}` }}>
                         <span style={{ fontSize: 10, fontWeight: 800, color: T.faint, fontFamily: mono }}>TOTAL</span>
-                        <div style={{ width: 64, textAlign: "center", padding: "7px 6px", fontSize: 15, fontWeight: 800, fontFamily: mono }}>{qtyOf(it).toLocaleString()}</div>
+                        <div style={{ minWidth: 64, textAlign: "center", padding: "7px 6px", fontSize: 16, fontWeight: 800, fontFamily: mono, color: T.text }}>{qtyOf(it).toLocaleString()}</div>
                       </div>
                       {!locked && sizes.length > 1 && (
                         <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "center", justifyContent: "flex-end", marginLeft: 6 }}>
