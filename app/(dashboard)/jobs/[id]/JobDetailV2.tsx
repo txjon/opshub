@@ -1958,7 +1958,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
           {/* ── 2×2 grid of trays: Order+Billing · Additional charges / Payments · Contacts.
               Actions sit INLINE beside their label — nothing floats to the far edge (Jon 2026-08-25). ── */}
           <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12, marginTop: 4 }}>
-          <div style={ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 12px", minWidth: 0 }>
+          <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 12px", minWidth: 0 }}>
           {/* ── ORDER + BILLING — two compact columns; label sits NEXT to its
               value (full-width justified rows were unscannable). ── */}
           {(() => {
@@ -2043,7 +2043,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
 
           {/* Additional charges — invoice extra lines (same shape as classic:
               rides the quote PDF + billable total; QB push is Phase 2). */}
-          <div style={ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 12px", minWidth: 0 }>
+          <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 12px", minWidth: 0 }}>
             <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: extraLines.length ? 8 : 0 }}>
               <span style={lbl}>Additional charges{extrasTotal ? ` · ${fmtMoney(extrasTotal)}` : ""}</span>
               <button onClick={() => saveTypeMeta({ invoice_extra_lines: [...extraLines, { id: `xl_${Date.now()}`, description: "", amount: 0, qb_item: "Service Fee", type: "fee" }] })}
@@ -2066,7 +2066,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
           </div>
 
           {/* payments — terms + records (click status to cycle, × to delete) */}
-          <div style={ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 12px", minWidth: 0 }>
+          <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 12px", minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
             <span style={{ ...lbl, display: "flex", alignItems: "center", gap: 8 }}>Payments · {fmtMoney(paid)} paid of {fmtMoney(invoiced || orderTotal)}{(invoiced || orderTotal) - paid > 0.01 && <span style={{ color: T.amber }}>· {fmtMoney((invoiced || orderTotal) - paid)} due</span>}
               <button onClick={() => { setActErr(""); const bal = Math.max(0, (invoiced || orderTotal) - paid); setPayForm(f => ({ ...f, amount: f.amount || (bal > 0 ? bal.toFixed(2) : "") })); setClientAction("payment"); }}
@@ -2096,7 +2096,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
           </div>
 
           {/* contacts — add / remove */}
-          <div style={ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 12px", minWidth: 0 }>
+          <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 12px", minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
             <span style={lbl}>Contacts</span>
             <span style={{ display: "flex", gap: 6 }}>
