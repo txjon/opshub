@@ -45,7 +45,7 @@ import { clientShippingRoutes } from "@/lib/tenants";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { calculatePriority } from "@/lib/dates";
 import { SHIP_METHODS } from "@/lib/ship-methods";
-import { proofCounts, needsProof, proofPdfMissing } from "@/lib/proof-gate";
+import { proofCounts, needsProof, proofPdfMissing, carriedApproved, carriedFrom } from "@/lib/proof-gate";
 const DecorationPanel: any = DecorationPanelRaw; // .jsx — bypass narrow inferred prop types
 const ProofModal: any = ProofModalRaw;           // .jsx — same
 const EditSizesModal: any = EditSizesModalRaw;   // .jsx — same
@@ -818,13 +818,13 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     setActBusy(true); setActErr("");
     try {
       const [to, ...cc] = emails;
-      const hasReady = items.some((it: any) => it.proof_spec && needsProof(it));
+      const hasReady = items.some((it: any) => it.proof_spec && needsProof(it) && !carriedApproved(it));
       // Bake stale/never-baked proof PDFs into Drive BEFORE the send — the
       // vendor folder + portal + client hub all read that file.
-      const needBake = items.filter((it: any) => needsProof(it) && it.proof_spec && ((it.proof_spec.bakedRendererVersion == null) || it.proof_spec.bakedRendererVersion < PROOF_RENDERER_VERSION)).map((x: any) => x.id);
+      const needBake = items.filter((it: any) => needsProof(it) && !carriedApproved(it) && it.proof_spec && ((it.proof_spec.bakedRendererVersion == null) || it.proof_spec.bakedRendererVersion < PROOF_RENDERER_VERSION)).map((x: any) => x.id);
       if (needBake.length) await bakeProofPdfs(needBake);
       await sendQuoteAndProofs(job, { to, cc, includeProofs: hasReady, proofsOnly: !!job.quote_approved });
-      const readyIds = items.filter((it: any) => needsProof(it) && it.proof_spec && !it.proof_sent_at).map((it: any) => it.id);
+      const readyIds = items.filter((it: any) => needsProof(it) && !carriedApproved(it) && it.proof_spec && !it.proof_sent_at).map((it: any) => it.id);
       if (readyIds.length) { const nowP = new Date().toISOString(); await (createClient().from("items") as any).update({ proof_sent_at: nowP }).in("id", readyIds); setItems(prev => prev.map(x => readyIds.includes(x.id) ? { ...x, proof_sent_at: nowP } : x)); }
       await refetchTypeMeta();
       setClientAction(null);
@@ -2730,7 +2730,8 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                           {mockupFile && <button onClick={() => { setProofMode("edit"); setProofItemId(it.id); }}
                             style={hasProof || proofPdf ? ghostBtn : { ...actBtn, background: T.amber, color: "#fff" }}>{hasProof ? "Edit proof" : "Generate proof"}</button>}
                           {!mockupFile && <span style={{ fontSize: 12, color: T.faint }}>Upload a mockup first — the proof is built on it.</span>}
-                          {hasProof && !it.proof_sent_at && !revisedPend && <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", color: T.muted }}>Ready · not sent</span>}
+                          {hasProof && carriedApproved(it) && <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", color: T.green }}>Approved · carried from {carriedFrom(it)?.jobNumber || "reorder"}</span>}
+                          {hasProof && !carriedApproved(it) && !it.proof_sent_at && !revisedPend && <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", color: T.muted }}>Ready · not sent</span>}
                           {revisedPend && <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", color: T.amber }}>Revised · send</span>}
                         </div>
                       );

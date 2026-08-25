@@ -3,6 +3,7 @@ import { createClient as createAdmin } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { logJobActivityServer } from "@/lib/notify-server";
 import { getItemFolderId, createShortcut } from "@/lib/google-drive";
+import { carryProofFields } from "@/lib/proof-gate";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -130,7 +131,9 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
           drive_link: (item as any).drive_link || null,
           is_fleece: !!(item as any).is_fleece,
           status: "tbd",
-          artwork_status: (item as any).artwork_status === "approved" ? "approved" : "not_started",
+          // Approval carries with the art (lib/proof-gate.carryProofFields) — same
+          // rule as the hub reorder cart; this route previously dropped proof_spec.
+          ...carryProofFields(item, (srcJob as any).job_number || null),
           sort_order: (item as any).sort_order ?? 0,
           pipeline_stage: null,
           blanks_order_number: null,
