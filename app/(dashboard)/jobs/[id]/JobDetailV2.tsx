@@ -1632,7 +1632,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
               );
             }
             return (
-              <div style={{ background: T.surface, borderTop: `1px solid ${T.border}`, padding: "12px 18px", flexShrink: 0 }}>
+              <div style={{ background: T.surface, borderBottom: `1px solid ${T.border}`, padding: "12px 18px", flexShrink: 0 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap", marginBottom: 12 }}>
                   <span style={{ ...lbl, color: T.muted }}>Job pricing · all items</span>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -1660,7 +1660,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                     )}
                   </div>
                   {isCommitted && (
-                    <button onClick={toggleUnlock} style={{ fontSize: 11, fontWeight: 800, padding: "6px 13px", borderRadius: 999, border: `1px solid ${locked ? T.border : T.amber}`, background: locked ? T.card : T.amber, color: locked ? T.text : "#0a0a0a", cursor: "pointer", fontFamily: font }}>{locked ? "🔒 Unlock to revise" : "Re-lock"}</button>
+                    <button onClick={toggleUnlock} style={{ fontSize: 11, fontWeight: 800, padding: "6px 13px", borderRadius: 999, border: `1px solid ${locked ? T.border : T.amber}`, background: locked ? T.card : T.amber, color: locked ? T.text : "#0a0a0a", cursor: "pointer", fontFamily: font }}>{locked ? "🔒 Pricing locked · unlock to revise" : "Re-lock pricing"}</button>
                   )}
                 </div>
                 <div style={{ display: "flex", flexWrap: "wrap" }}>
@@ -2328,6 +2328,8 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
         <div onClick={e => { if (e.target === e.currentTarget) setWsIndex(null); }}
           style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.72)", zIndex: 300, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: isMobile ? "8px 4px" : "24px 14px", overflowY: "auto" }}>
           <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: isMobile ? 12 : 16, width: "100%", maxWidth: 980, overflow: "hidden", display: "flex", flexDirection: "column", maxHeight: isMobile ? "calc(100vh - 16px)" : "calc(100vh - 48px)" }}>
+            {/* job pricing — margin/toggles/lock + totals, fixed at the top above the rail (Jon 2026-08-25) */}
+            {renderPricing("full")}
             {/* nav strip — ‹ image rail › (tap a tile or arrow to switch) + item actions */}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 14px", borderBottom: `1px solid ${T.border}55`, flexShrink: 0 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0 }}>
@@ -2497,9 +2499,11 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                       )}
                     </div>
                     )}
-                    <div style={{ fontSize: 11, color: locked ? T.amber : T.faint, marginTop: 14 }}>
-                      {locked ? "🔒 Pricing is locked — unlock in Costing to edit." : "Saves to the buy sheet. Pick blank ▸ opens the full catalog (S&S, AS Colour, LA Apparel, Cotton Collective, Favorites)."}
-                    </div>
+                    {locked ? (
+                      <button onClick={toggleUnlock} style={{ marginTop: 14, fontSize: 11, fontWeight: 800, color: T.amber, background: "none", border: `1px solid ${T.amber}66`, borderRadius: 999, padding: "5px 12px", cursor: "pointer", fontFamily: font }}>🔒 Pricing locked · unlock to revise</button>
+                    ) : (
+                      <div style={{ fontSize: 11, color: T.faint, marginTop: 14 }}>Saves to the buy sheet. Pick blank ▸ opens the full catalog (S&S, AS Colour, LA Apparel, Cotton Collective, Favorites).</div>
+                    )}
                   </div>
                 );
               })()}
@@ -2711,8 +2715,6 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
               <div style={{ fontSize: 11, color: T.faint, marginTop: 16, paddingTop: 12, borderTop: `1px solid ${T.border}55` }}>Flip between items with the rail, ‹ › or ← →.</div>
             </div>
             </div>
-            {/* job pricing — margin/toggles/lock + totals, pinned so it's visible from every tab */}
-            {renderPricing("full")}
           </div>
         </div>
       )}
