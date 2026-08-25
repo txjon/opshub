@@ -421,10 +421,6 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
                 );
               })()}
 
-              {/* Spacer — pushes the cost column to the far right
-                  edge while everything else stays anchored on the
-                  left in stable columns. */}
-
               {/* Effective qty + per-unit cost, right-aligned. Shows
                   "Minimum not met" in red when below first tier and
                   the decorator has no minimum charge configured —
