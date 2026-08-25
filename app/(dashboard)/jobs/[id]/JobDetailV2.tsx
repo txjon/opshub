@@ -1599,6 +1599,82 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
 
   const it = wsIndex !== null ? items[wsIndex] : null;
 
+  // ── Job pricing — margin / shipping / CC toggles / cost request / lock +
+  // project totals. ONE computation, two renders: "full" = the worksheet's
+  // pinned footer (adjust margin without leaving the item — Jon 2026-08-25),
+  // "summary" = read-only totals in the Products header. Job-wide either way.
+  const renderPricing = (mode: "full" | "summary") => {
+            let rev = 0, blank = 0, po = 0, ship = 0;
+            items.forEach((it: any) => { const r: any = calcFor(it); const q = qtyOf(it); rev += (Number(it.sell_per_unit) || 0) * q; if (r) { blank += r.blankCost || 0; po += r.poTotal || 0; ship += r.shipping || 0; } });
+            const cc = inclCC ? rev * 0.03 : 0;
+            const cost = blank + po + ship + cc;
+            const profit = rev - cost;
+            const margin = rev > 0 ? profit / rev : 0;
+            const marginColor = margin >= 0.30 ? T.green : margin >= 0.20 ? T.amber : T.red;
+            const actualBlanks = items.reduce((a: number, it: any) => a + (Number(it.blanks_order_cost) || 0), 0);
+            const isCommitted = !!(job.quote_approved || job.type_meta?.quote_sent_at);
+            const tog = (on: boolean, label: string, onClick: () => void) => (
+              <button onClick={() => !locked && onClick()} disabled={locked} style={{ display: "flex", alignItems: "center", gap: 7, background: "none", border: "none", cursor: locked ? "default" : "pointer", fontFamily: font, opacity: locked ? 0.6 : 1 }}>
+                <span style={{ width: 30, height: 17, borderRadius: 9, background: on ? T.accent : T.card, border: `1px solid ${on ? T.accent : T.border}`, position: "relative" }}><span style={{ position: "absolute", top: 2, left: on ? 14 : 2, width: 11, height: 11, borderRadius: "50%", background: on ? T.bg : "#fff" }} /></span>
+                <span style={{ fontSize: 12, color: T.muted }}>{label}</span>
+              </button>
+            );
+            if (mode === "summary") {
+              // Products header: read-only project totals at a glance. Controls
+              // live in the worksheet footer (open any item to adjust).
+              return (
+                <div style={{ display: "flex", alignItems: "baseline", gap: 18, flexWrap: "wrap", padding: "2px 0 10px", fontFamily: mono, fontSize: 12.5 }}>
+                  {([["Revenue", fmtMoney(rev), T.text], ["Net profit", fmtMoney(profit), marginColor], ["Margin", (margin * 100).toFixed(1) + "%", marginColor]] as any[]).map(([l, v, c]: any) => (
+                    <span key={l}><span style={{ ...lbl, marginRight: 6 }}>{l}</span><b style={{ color: c }}>{v}</b></span>
+                  ))}
+                  <span style={{ fontSize: 11, color: T.faint, fontFamily: font }}>{costMargin} target{locked ? " · 🔒 locked" : ""} · open any item to adjust</span>
+                </div>
+              );
+            }
+            return (
+              <div style={{ background: T.surface, borderTop: `1px solid ${T.border}`, padding: "12px 18px", flexShrink: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap", marginBottom: 12 }}>
+                  <span style={{ ...lbl, color: T.muted }}>Job pricing · all items</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={lbl}>Margin</span>
+                    <div style={{ display: "flex", gap: 2, background: T.card, borderRadius: 6, padding: 2 }}>
+                      {["10%", "15%", "20%", "25%", "30%"].map(m => (
+                        <button key={m} onClick={() => !locked && recomputeAllSells({ costMargin: m })} disabled={locked}
+                          style={{ background: costMargin === m ? T.amber : "transparent", color: costMargin === m ? "#0a0a0a" : T.muted, border: "none", borderRadius: 4, padding: "3px 8px", fontSize: 11, fontFamily: mono, cursor: locked ? "default" : "pointer" }}>{m}</button>
+                      ))}
+                    </div>
+                  </div>
+                  {tog(inclShip, "Shipping", () => recomputeAllSells({ inclShip: !inclShip }))}
+                  {tog(inclCC, "CC fees", () => recomputeAllSells({ inclCC: !inclCC }))}
+                  <div style={{ flex: 1 }} />
+                  <div style={{ position: "relative" }}>
+                    <button onClick={() => setCostReqMenu(m => !m)} style={{ fontSize: 11, fontWeight: 700, padding: "6px 13px", borderRadius: 999, border: `1px solid ${T.border}`, background: T.card, color: T.text, cursor: "pointer", fontFamily: font }}>Cost request ▾</button>
+                    {costReqMenu && (
+                      <>
+                        <div onClick={() => setCostReqMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+                        <div style={{ position: "absolute", top: 32, right: 0, zIndex: 41, background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, minWidth: 210, padding: 5, boxShadow: "0 12px 40px rgba(0,0,0,0.4)" }}>
+                          <button onClick={() => { setCostReqMenu(false); setRfqOpen(true); }} style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.text, borderRadius: 7 }}>Decorator quote (RFQ)</button>
+                          <button onClick={() => { setCostReqMenu(false); setArtReqOpen(true); }} style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.text, borderRadius: 7 }}>Art pricing request</button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                  {isCommitted && (
+                    <button onClick={toggleUnlock} style={{ fontSize: 11, fontWeight: 800, padding: "6px 13px", borderRadius: 999, border: `1px solid ${locked ? T.border : T.amber}`, background: locked ? T.card : T.amber, color: locked ? T.text : "#0a0a0a", cursor: "pointer", fontFamily: font }}>{locked ? "🔒 Unlock to revise" : "Re-lock"}</button>
+                  )}
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap" }}>
+                  {([["Revenue", fmtMoney(rev), T.text], ["Blanks", fmtMoney(blank), T.muted], ["Decoration", fmtMoney(po), T.muted], ...(inclShip ? [["Shipping", fmtMoney(ship), T.muted]] : []), ...(inclCC ? [["CC", fmtMoney(cc), T.muted]] : []), ["Net profit", fmtMoney(profit), marginColor], ["Margin", (margin * 100).toFixed(1) + "%", marginColor], ...(actualBlanks > 0 ? [["Actual blanks", fmtMoney(actualBlanks), actualBlanks > blank ? T.red : T.green]] : [])] as any[]).map(([l, v, c]: any, i: number, arr: any[]) => (
+                    <div key={l} style={{ flex: "1 1 auto", minWidth: 74, paddingRight: 12, marginRight: 12, borderRight: i < arr.length - 1 ? `1px solid ${T.border}44` : "none" }}>
+                      <div style={lbl}>{l}</div>
+                      <div style={{ fontFamily: mono, fontSize: 15, fontWeight: 800, color: c, marginTop: 3 }}>{v}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+  };
+
   return (
     <div style={{ fontFamily: font, color: T.text, maxWidth: 1120, margin: "0 auto", padding: "0 20px 80px" }}>
       {/* top bar */}
@@ -1721,66 +1797,8 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       {/* PRODUCTS gallery */}
       {block("products", "done", "Products & Costing", `${items.length} items · ${units.toLocaleString()} units · ${fmtMoney(orderTotal)}`, (
         <>
-          {tip(<><b style={{ color: T.text }}>Everything about the products lives here.</b> The margin buttons and toggles reprice every item instantly — the price each item sells at is what lands on the quote and invoice. Tap a card for its worksheet: <b style={{ color: T.text }}>Build</b> (name, blank, sizes and quantities), <b style={{ color: T.text }}>Cost</b> (decoration, share groups, sell price), <b style={{ color: T.text }}>Art</b> (files and the proof editor). Add products from the catalogs with + Add product, drop PSDs or mockups anywhere on the grid to create items, and drag cards to reorder. Once a quote is sent, pricing locks — Unlock to revise.</>)}
-          {/* job-level costing controls + project totals */}
-          {(() => {
-            let rev = 0, blank = 0, po = 0, ship = 0;
-            items.forEach((it: any) => { const r: any = calcFor(it); const q = qtyOf(it); rev += (Number(it.sell_per_unit) || 0) * q; if (r) { blank += r.blankCost || 0; po += r.poTotal || 0; ship += r.shipping || 0; } });
-            const cc = inclCC ? rev * 0.03 : 0;
-            const cost = blank + po + ship + cc;
-            const profit = rev - cost;
-            const margin = rev > 0 ? profit / rev : 0;
-            const marginColor = margin >= 0.30 ? T.green : margin >= 0.20 ? T.amber : T.red;
-            const actualBlanks = items.reduce((a: number, it: any) => a + (Number(it.blanks_order_cost) || 0), 0);
-            const isCommitted = !!(job.quote_approved || job.type_meta?.quote_sent_at);
-            const tog = (on: boolean, label: string, onClick: () => void) => (
-              <button onClick={() => !locked && onClick()} disabled={locked} style={{ display: "flex", alignItems: "center", gap: 7, background: "none", border: "none", cursor: locked ? "default" : "pointer", fontFamily: font, opacity: locked ? 0.6 : 1 }}>
-                <span style={{ width: 30, height: 17, borderRadius: 9, background: on ? T.accent : T.card, border: `1px solid ${on ? T.accent : T.border}`, position: "relative" }}><span style={{ position: "absolute", top: 2, left: on ? 14 : 2, width: 11, height: 11, borderRadius: "50%", background: on ? T.bg : "#fff" }} /></span>
-                <span style={{ fontSize: 12, color: T.muted }}>{label}</span>
-              </button>
-            );
-            return (
-              <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: "12px 14px", marginBottom: 14 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap", marginBottom: 12 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={lbl}>Margin</span>
-                    <div style={{ display: "flex", gap: 2, background: T.card, borderRadius: 6, padding: 2 }}>
-                      {["10%", "15%", "20%", "25%", "30%"].map(m => (
-                        <button key={m} onClick={() => !locked && recomputeAllSells({ costMargin: m })} disabled={locked}
-                          style={{ background: costMargin === m ? T.amber : "transparent", color: costMargin === m ? "#0a0a0a" : T.muted, border: "none", borderRadius: 4, padding: "3px 8px", fontSize: 11, fontFamily: mono, cursor: locked ? "default" : "pointer" }}>{m}</button>
-                      ))}
-                    </div>
-                  </div>
-                  {tog(inclShip, "Shipping", () => recomputeAllSells({ inclShip: !inclShip }))}
-                  {tog(inclCC, "CC fees", () => recomputeAllSells({ inclCC: !inclCC }))}
-                  <div style={{ flex: 1 }} />
-                  <div style={{ position: "relative" }}>
-                    <button onClick={() => setCostReqMenu(m => !m)} style={{ fontSize: 11, fontWeight: 700, padding: "6px 13px", borderRadius: 999, border: `1px solid ${T.border}`, background: T.card, color: T.text, cursor: "pointer", fontFamily: font }}>Cost request ▾</button>
-                    {costReqMenu && (
-                      <>
-                        <div onClick={() => setCostReqMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
-                        <div style={{ position: "absolute", top: 32, right: 0, zIndex: 41, background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, minWidth: 210, padding: 5, boxShadow: "0 12px 40px rgba(0,0,0,0.4)" }}>
-                          <button onClick={() => { setCostReqMenu(false); setRfqOpen(true); }} style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.text, borderRadius: 7 }}>Decorator quote (RFQ)</button>
-                          <button onClick={() => { setCostReqMenu(false); setArtReqOpen(true); }} style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.text, borderRadius: 7 }}>Art pricing request</button>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                  {isCommitted && (
-                    <button onClick={toggleUnlock} style={{ fontSize: 11, fontWeight: 800, padding: "6px 13px", borderRadius: 999, border: `1px solid ${locked ? T.border : T.amber}`, background: locked ? T.card : T.amber, color: locked ? T.text : "#0a0a0a", cursor: "pointer", fontFamily: font }}>{locked ? "🔒 Unlock to revise" : "Re-lock"}</button>
-                  )}
-                </div>
-                <div style={{ display: "flex", flexWrap: "wrap" }}>
-                  {([["Revenue", fmtMoney(rev), T.text], ["Blanks", fmtMoney(blank), T.muted], ["Decoration", fmtMoney(po), T.muted], ...(inclShip ? [["Shipping", fmtMoney(ship), T.muted]] : []), ...(inclCC ? [["CC", fmtMoney(cc), T.muted]] : []), ["Net profit", fmtMoney(profit), marginColor], ["Margin", (margin * 100).toFixed(1) + "%", marginColor], ...(actualBlanks > 0 ? [["Actual blanks", fmtMoney(actualBlanks), actualBlanks > blank ? T.red : T.green]] : [])] as any[]).map(([l, v, c]: any, i: number, arr: any[]) => (
-                    <div key={l} style={{ flex: "1 1 auto", minWidth: 74, paddingRight: 12, marginRight: 12, borderRight: i < arr.length - 1 ? `1px solid ${T.border}44` : "none" }}>
-                      <div style={lbl}>{l}</div>
-                      <div style={{ fontFamily: mono, fontSize: 15, fontWeight: 800, color: c, marginTop: 3 }}>{v}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            );
-          })()}
+          {tip(<><b style={{ color: T.text }}>Everything about the products lives here.</b> Margin, shipping and CC toggles sit in the footer of every item worksheet and reprice every item instantly — the price each item sells at is what lands on the quote and invoice. Tap a card for its worksheet: <b style={{ color: T.text }}>Build</b> (name, blank, sizes and quantities), <b style={{ color: T.text }}>Cost</b> (decoration, share groups, sell price), <b style={{ color: T.text }}>Art</b> (files and the proof editor). Add products from the catalogs with + Add product, drop PSDs or mockups anywhere on the grid to create items, and drag cards to reorder. Once a quote is sent, pricing locks — Unlock to revise.</>)}
+          {renderPricing("summary")}
           <div style={{ fontSize: 11.5, color: T.faint, padding: "8px 0 12px" }}>Tap a product for its worksheet — sizes, blank cost, decoration, vendor &amp; margin. Drag cards to reorder · drop PSDs/mockups anywhere here to create items.</div>
           {/* auto-FILL (not -fit): empty tracks stay, so one product renders as
               one quarter-width card instead of a full-page banner (Jon, Jul 29) */}
@@ -2309,13 +2327,22 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       {it && (
         <div onClick={e => { if (e.target === e.currentTarget) setWsIndex(null); }}
           style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.72)", zIndex: 300, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: isMobile ? "8px 4px" : "24px 14px", overflowY: "auto" }}>
-          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: isMobile ? 12 : 16, width: "100%", maxWidth: 820, overflow: "hidden" }}>
+          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: isMobile ? 12 : 16, width: "100%", maxWidth: 980, overflow: "hidden", display: "flex", flexDirection: "column", maxHeight: isMobile ? "calc(100vh - 16px)" : "calc(100vh - 48px)" }}>
             {/* nav strip */}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", borderBottom: `1px solid ${T.border}55` }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <button onClick={() => setWsIndex((wsIndex! - 1 + items.length) % items.length)} aria-label="Previous item" style={navBtn}>‹</button>
                 <button onClick={() => setWsIndex((wsIndex! + 1) % items.length)} aria-label="Next item" style={navBtn}>›</button>
-                <span style={{ fontFamily: mono, fontSize: 12, color: T.faint, marginLeft: 6 }}>{wsIndex! + 1} / {items.length}</span>
+              </div>
+              {/* image rail — every item on the job, tap to switch (replaces the 1 / N counter) */}
+              <div style={{ flex: 1, minWidth: 0, display: "flex", gap: 6, overflowX: "auto", padding: "2px 4px", margin: "0 12px" }}>
+                {items.map((x: any, i: number) => (
+                  <button key={x.id} onClick={() => setWsIndex(i)} title={`${String.fromCharCode(65 + i)} · ${x.name}`}
+                    style={{ width: 44, height: 44, borderRadius: 9, flexShrink: 0, padding: 0, background: "#fff", border: "none", outline: i === wsIndex ? `2.5px solid ${T.accent}` : `1px solid ${T.border}`, outlineOffset: -1, opacity: i === wsIndex ? 1 : 0.5, cursor: "pointer", overflow: "hidden", position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    {thumbOf(x.id) ? <img src={thumbSrc(thumbOf(x.id))} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} /> : <span style={{ fontSize: 20 }}>👕</span>}
+                    <span style={{ position: "absolute", bottom: 2, left: 2, width: 14, height: 14, borderRadius: "50%", background: "rgba(255,255,255,0.92)", fontSize: 8, fontWeight: 800, color: "#0a0a0a", fontFamily: mono, display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid rgba(0,0,0,0.12)" }}>{String.fromCharCode(65 + i)}</span>
+                  </button>
+                ))}
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 {!locked && <><div style={{ position: "relative", display: "inline-flex" }}>
@@ -2338,6 +2365,8 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                 <button onClick={() => setWsIndex(null)} aria-label="Close" style={{ ...navBtn, background: T.surface }}>×</button>
               </div>
             </div>
+            {/* scroll region — head + tabs + body; the pricing footer stays put below */}
+            <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
             {/* item head */}
             <div style={{ display: "flex", gap: 14, padding: "16px 18px", alignItems: "center" }}>
               <div style={{ width: 56, height: 56, borderRadius: 10, background: "#fff", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26 }}>
@@ -2680,8 +2709,11 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                   </div>
                 );
               })()}
-              <div style={{ fontSize: 11, color: T.faint, marginTop: 16, paddingTop: 12, borderTop: `1px solid ${T.border}55` }}>Flip between items with ‹ › or ← →.</div>
+              <div style={{ fontSize: 11, color: T.faint, marginTop: 16, paddingTop: 12, borderTop: `1px solid ${T.border}55` }}>Flip between items with the rail, ‹ › or ← →.</div>
             </div>
+            </div>
+            {/* job pricing — margin/toggles/lock + totals, pinned so it's visible from every tab */}
+            {renderPricing("full")}
           </div>
         </div>
       )}
