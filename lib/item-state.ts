@@ -10,6 +10,7 @@ import { computePhase, paymentGateMet, type PhaseItem, type PhaseGate, type Phas
 import { poSentToItem } from "./item-status";
 import { transitDaysFor } from "./date-chain";
 import { addDays } from "./dates";
+import { proofSatisfied } from "./proof-gate";
 
 type Sb = any; // Supabase client (project convention: loose typing at the boundary)
 
@@ -583,7 +584,7 @@ function buildJobPhaseView(
   const gate: PhaseGate = {
     quoteApproved: !!job.quote_approved,
     paymentReceived: paymentGateMet(job.payment_terms, (payments || []) as any),
-    proofsApproved: items.every(it => { const pr = proofByItem.get(it.id); return (pr?.any && pr.allApproved) || it.artwork_status === "approved"; }),
+    proofsApproved: items.every(it => { const pr = proofByItem.get(it.id); return proofSatisfied(it, pr?.any ? pr : undefined); }),
   };
   const noticeSent = Array.isArray(job.type_meta?.shipping_notifications) && job.type_meta.shipping_notifications.length > 0;
   const result = computePhase({ gate, items: phaseItems, noticeSent });

@@ -45,6 +45,7 @@ import { clientShippingRoutes } from "@/lib/tenants";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { calculatePriority } from "@/lib/dates";
 import { SHIP_METHODS } from "@/lib/ship-methods";
+import { proofCounts, needsProof } from "@/lib/proof-gate";
 const DecorationPanel: any = DecorationPanelRaw; // .jsx — bypass narrow inferred prop types
 const ProofModal: any = ProofModalRaw;           // .jsx — same
 const EditSizesModal: any = EditSizesModalRaw;   // .jsx — same
@@ -1259,7 +1260,10 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   const segBg = (s: string) => s === "done" ? T.green : s === "warn" ? T.amber : s === "now" ? "transparent" : T.border;
 
   // ── art / production summaries ──
-  const artApproved = items.filter((it: any) => it.artwork_status === "approved").length;
+  // V2 keys proof state off artwork_status only (no file map here). n_a items are
+  // excluded from the count and never gate — lib/proof-gate is the one rule.
+  const proofC = proofCounts(items);
+  const artApproved = proofC.approved;
   const inProd = items.filter((it: any) => it.pipeline_stage === "in_production").length;
   const shipped = items.filter((it: any) => it.pipeline_stage === "shipped").length;
   const blanksOrdered = items.filter((it: any) => it.blanks_order_number || it.blanks_order_cost != null).length;
@@ -1268,7 +1272,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   // · all proofs approved. All three must be met before ordering blanks / POs. ──
   const terms = (job?.payment_terms || "").toLowerCase();
   const paymentGate = /^net/.test(terms) ? flags.approved : terms === "deposit_balance" ? payments.some((p: any) => p.status === "paid") : flags.paid;
-  const proofGate = items.length > 0 && artApproved === items.length;
+  const proofGate = items.length > 0 && artApproved === proofC.total;
   const canOrder = flags.approved && paymentGate && proofGate;
 
   // ── per-vendor PO grouping. Group by the costing printVendor (what the PO PDF
@@ -1976,7 +1980,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                   {/* "Sent" only when the email actually went (type_meta stamps) — approved
                       internally / synced-not-sent must never read as sent (Jon 2026-08-25). */}
                   {row("Quote", flags.approved ? (flags.quoted ? "Sent · Approved" : "Approved internally · not sent") : flags.quoted ? "Sent" : "Not sent")}
-                  {row("Proofs", `${artApproved}/${items.length} approved`)}
+                  {row("Proofs", `${artApproved}/${proofC.total} approved${proofC.noProof ? ` · ${proofC.noProof} no proof` : ""}`)}
                 </div>
                 <div style={{ flex: "1 1 220px", minWidth: 0 }}>
                   <div style={{ ...lbl, marginBottom: 4 }}>Billing</div>

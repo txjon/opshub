@@ -3,6 +3,7 @@
  * Phase labels are READ-ONLY, never manually set (except on_hold).
  */
 import { isItemInProduction } from "./item-status";
+import { proofSatisfied } from "./proof-gate";
 
 export type LifecycleInput = {
   job: {
@@ -116,7 +117,7 @@ export function calculatePhase(input: LifecycleInput): LifecycleResult {
   const NON_GARMENT = ["accessory","patch","sticker","poster","pin","koozie","banner","flag","lighter","towel","water_bottle","samples","custom","key_chain","woven_labels","bandana","socks","tote","custom_bag","pillow","rug","pens","napkins","balloons","stencils"];
   const apparelItems = items.filter(it => !NON_GARMENT.includes(it.garment_type || ""));
   const blanksOrdered = apparelItems.filter(it => it.blanks_order_cost != null).length;
-  const allProofsApproved = items.every(it => proofStatus[it.id]?.allApproved || it.artwork_status === "approved");
+  const allProofsApproved = items.every(it => proofSatisfied(it, proofStatus[it.id]));
 
   // Stage-route "done" requires both received AND webstore_entered on
   // every to-HPD item. The webstore handoff is the OpsHub completion
