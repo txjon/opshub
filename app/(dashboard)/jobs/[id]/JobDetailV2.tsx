@@ -2328,23 +2328,24 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
         <div onClick={e => { if (e.target === e.currentTarget) setWsIndex(null); }}
           style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.72)", zIndex: 300, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: isMobile ? "8px 4px" : "24px 14px", overflowY: "auto" }}>
           <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: isMobile ? 12 : 16, width: "100%", maxWidth: 980, overflow: "hidden", display: "flex", flexDirection: "column", maxHeight: isMobile ? "calc(100vh - 16px)" : "calc(100vh - 48px)" }}>
-            {/* top bar — title + item actions; the item list lives in the left column (desktop) or a rail here (mobile) */}
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "10px 14px", borderBottom: `1px solid ${T.border}55`, flexShrink: 0 }}>
-              {isMobile ? (
-                <div style={{ flex: 1, minWidth: 0, display: "flex", gap: 6, overflowX: "auto", padding: "2px 0" }}>
-                  {items.map((x: any, i: number) => (
-                    <button key={x.id} onClick={() => setWsIndex(i)} title={`${String.fromCharCode(65 + i)} · ${x.name}`}
-                      style={{ width: 40, height: 40, borderRadius: 8, flexShrink: 0, padding: 0, background: "#fff", border: "none", outline: i === wsIndex ? `2.5px solid ${T.accent}` : "none", outlineOffset: -1, opacity: i === wsIndex ? 1 : 0.5, cursor: "pointer", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      {thumbOf(x.id) ? <img src={thumbSrc(thumbOf(x.id))} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} /> : <span style={{ fontSize: 18 }}>👕</span>}
-                    </button>
-                  ))}
+            {/* nav strip — ‹ image rail › (tap a tile or arrow to switch) + item actions */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 14px", borderBottom: `1px solid ${T.border}55`, flexShrink: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0 }}>
+                <button onClick={() => setWsIndex((wsIndex! - 1 + items.length) % items.length)} aria-label="Previous item" style={navBtn}>‹</button>
+                <div style={{ flex: 1, minWidth: 0, display: "flex", gap: 8, overflowX: "auto", padding: "3px 2px" }}>
+                  {items.map((x: any, i: number) => {
+                    const on = i === wsIndex;
+                    return (
+                      <button key={x.id} onClick={() => setWsIndex(i)} title={`${String.fromCharCode(65 + i)} · ${x.name}`}
+                        style={{ width: 56, height: 56, borderRadius: 10, flexShrink: 0, padding: 0, background: "#fff", border: "none", outline: on ? `2.5px solid ${T.accent}` : "none", outlineOffset: 1, opacity: on ? 1 : 0.42, transform: on ? "scale(1.04)" : "none", transition: "opacity .12s, transform .12s", cursor: "pointer", overflow: "hidden", position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        {thumbOf(x.id) ? <img src={thumbSrc(thumbOf(x.id))} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} /> : <span style={{ fontSize: 24 }}>👕</span>}
+                        <span style={{ position: "absolute", top: 3, left: 3, width: 15, height: 15, borderRadius: "50%", background: "rgba(255,255,255,0.94)", fontSize: 8.5, fontWeight: 800, color: "#0a0a0a", fontFamily: mono, display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid rgba(0,0,0,0.12)" }}>{String.fromCharCode(65 + i)}</span>
+                      </button>
+                    );
+                  })}
                 </div>
-              ) : (
-                <div style={{ display: "flex", alignItems: "baseline", gap: 8, minWidth: 0 }}>
-                  <span style={{ ...lbl, color: T.muted }}>Item worksheet</span>
-                  <span style={{ fontFamily: mono, fontSize: 11.5, color: T.faint }}>{items.length} items · {units.toLocaleString()} u</span>
-                </div>
-              )}
+                <button onClick={() => setWsIndex((wsIndex! + 1) % items.length)} aria-label="Next item" style={navBtn}>›</button>
+              </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 {!locked && <><div style={{ position: "relative", display: "inline-flex" }}>
                   <button onClick={() => setWsMenu(m => !m)} title="More item actions" style={{ ...ghostBtn, padding: "6px 11px", fontWeight: 900 }}>⋯</button>
@@ -2366,37 +2367,10 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                 <button onClick={() => setWsIndex(null)} aria-label="Close" style={{ ...navBtn, background: T.surface }}>×</button>
               </div>
             </div>
-            <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
-            {/* left column — every item on the job; tap to switch. Same row anatomy as the projects peek. */}
-            {!isMobile && (
-              <div style={{ width: 224, flexShrink: 0, borderRight: `1px solid ${T.border}55`, overflowY: "auto", padding: "8px 6px" }}>
-                {items.map((x: any, i: number) => {
-                  const on = i === wsIndex;
-                  return (
-                    <button key={x.id} onClick={() => setWsIndex(i)} title={x.name}
-                      style={{ display: "flex", alignItems: "center", gap: 9, width: "100%", textAlign: "left", padding: "6px 8px", borderRadius: 9, border: "none", background: on ? T.surface : "none", boxShadow: on ? `inset 3px 0 0 ${T.accent}` : "none", cursor: "pointer", fontFamily: font, marginBottom: 2 }}>
-                      <div style={{ width: 38, height: 38, borderRadius: 8, background: "#fff", flexShrink: 0, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", opacity: on ? 1 : 0.7 }}>
-                        {thumbOf(x.id) ? <img src={thumbSrc(thumbOf(x.id))} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} /> : <span style={{ fontSize: 18 }}>👕</span>}
-                      </div>
-                      <div style={{ minWidth: 0, flex: 1 }}>
-                        <div style={{ display: "flex", alignItems: "baseline", gap: 6, minWidth: 0 }}>
-                          <span style={{ fontFamily: mono, fontSize: 9.5, fontWeight: 800, color: on ? T.text : T.faint, flexShrink: 0 }}>{String.fromCharCode(65 + i)}</span>
-                          <span style={{ fontSize: 12, fontWeight: on ? 800 : 600, color: on ? T.text : T.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{x.name || "Item"}</span>
-                        </div>
-                        <div style={{ fontFamily: mono, fontSize: 10, color: T.faint, marginTop: 2 }}>{qtyOf(x).toLocaleString()} u{Number(x.sell_per_unit) ? ` · ${fmtMoney(Number(x.sell_per_unit))}` : ""}</div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
             {/* scroll region — head + tabs + body; the pricing footer stays put below */}
             <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
             {/* item head */}
-            <div style={{ display: "flex", gap: 14, padding: "16px 18px", alignItems: "center" }}>
-              <div style={{ width: 56, height: 56, borderRadius: 10, background: "#fff", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26 }}>
-                {thumbOf(it.id) ? <img src={thumbSrc(thumbOf(it.id))} alt="" style={{ width: "100%", height: "100%", objectFit: "contain", borderRadius: 10 }} /> : "👕"}
-              </div>
+            <div style={{ display: "flex", gap: 14, padding: "14px 18px 12px", alignItems: "center" }}>
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 17, fontWeight: 900, letterSpacing: "-0.01em", display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={{ width: 22, height: 22, borderRadius: "50%", background: T.accent, color: "#0a0a0a", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800, fontFamily: mono, flexShrink: 0 }}>{String.fromCharCode(65 + wsIndex!)}</span>
@@ -2734,8 +2708,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                   </div>
                 );
               })()}
-              <div style={{ fontSize: 11, color: T.faint, marginTop: 16, paddingTop: 12, borderTop: `1px solid ${T.border}55` }}>Flip between items with the list or ← →.</div>
-            </div>
+              <div style={{ fontSize: 11, color: T.faint, marginTop: 16, paddingTop: 12, borderTop: `1px solid ${T.border}55` }}>Flip between items with the rail, ‹ › or ← →.</div>
             </div>
             </div>
             {/* job pricing — margin/toggles/lock + totals, pinned so it's visible from every tab */}
