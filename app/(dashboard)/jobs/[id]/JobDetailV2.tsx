@@ -2334,32 +2334,58 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
         `${ROUTE_LABEL[route] || "route not set"} — ${phase === "receiving" ? "receiving" : phase === "fulfillment" ? "fulfillment" : "waiting on production"}`, (
         <div>
           {tip(<><b style={{ color: T.text }}>Where the goods go after the decorator.</b> The route decides the ship-to on every PO: drop ship goes straight to the client, ship-through and stage come to the HPD warehouse first (some vendors always ship to us regardless — set on the decorator). Receiving, staging, and outbound shipping happen on the warehouse boards; this section shows the truth of where things stand plus the packing slips.</>)}
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: `1px solid ${T.border}55`, fontSize: 13, gap: 12, flexWrap: "wrap" }}>
-            <span style={{ color: T.muted }}>Shipping route</span>
-            <select value={route || ""} onChange={e => saveRoute(e.target.value)} style={{ ...field, width: "auto", minWidth: 260 }}>
-              <option value="">— set route —</option>
-              {/* tenant allow-list (DMD = ship_through only) — same as classic */}
-              {clientShippingRoutes().includes("drop_ship") && <option value="drop_ship">Drop ship · vendor → client</option>}
-              {clientShippingRoutes().includes("ship_through") && <option value="ship_through">Ship-through · → HPD → client</option>}
-              {clientShippingRoutes().includes("stage") && <option value="stage">Stage · → HPD → fulfillment</option>}
-              {route && !clientShippingRoutes().includes(route) && <option value={route}>{route}</option>}
-            </select>
-          </div>
-          <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", fontSize: 13 }}>
-            <span style={{ color: T.muted }}>Vendor ships to</span><span style={{ fontWeight: 700, textAlign: "right", maxWidth: "60%", lineHeight: 1.35 }}>{address ? addrLines(address).map((l, i) => <div key={i}>{l}</div>) : "—"}</span>
-          </div>
-          {(route === "ship_through" || route === "stage") && clientAddr && (
-            <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", fontSize: 13, borderTop: `1px solid ${T.border}44` }}>
-              <span style={{ color: T.muted }}>Final destination (client)</span><span style={{ fontWeight: 700, textAlign: "right", maxWidth: "60%", lineHeight: 1.35 }}>{clientAddr ? addrLines(clientAddr).map((l, i) => <div key={i}>{l}</div>) : "—"}</span>
-            </div>
-          )}
+          {/* One row, three cards: route → where the vendor ships → what happens next.
+              The third card is ROUTE-SPECIFIC: stage goods never go to the client's
+              address — they're staged at HPD and fulfilled to end customers via the
+              webstore — so that card explains the flow instead of showing an address. */}
+          {(() => {
+            const card = (label: string, body: React.ReactNode, accent?: string) => (
+              <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 12px", minWidth: 0, boxShadow: accent ? `inset 3px 0 0 ${accent}` : "none" }}>
+                <div style={{ ...wlbl, marginBottom: 6 }}>{label}</div>
+                <div style={{ fontSize: 13, lineHeight: 1.4 }}>{body}</div>
+              </div>
+            );
+            const addr = (a: string | null) => a ? addrLines(a).map((l, i) => <div key={i} style={{ fontWeight: 700 }}>{l}</div>) : <span style={{ color: T.amber }}>No address on file</span>;
+            const third = route === "drop_ship"
+              ? null
+              : route === "stage"
+                ? card("Then", <>
+                    <div style={{ fontWeight: 700 }}>Staged at HPD · fulfilled from the webstore</div>
+                    <div style={{ color: T.muted, fontSize: 12, marginTop: 3 }}>Received, counted, keyed into Shopify; ShipStation ships each order to the end customer. Nothing goes to the client's address.</div>
+                  </>)
+                : route === "ship_through"
+                  ? card("Then forwarded to (client)", addr(clientAddr))
+                  : null;
+            return (
+              <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : (third ? "minmax(200px, 0.9fr) 1fr 1fr" : "minmax(200px, 0.9fr) 1fr"), gap: 10, marginTop: 4 }}>
+                {card("Shipping route", <>
+                  <select value={route || ""} onChange={e => saveRoute(e.target.value)} style={{ ...field, padding: "7px 9px", fontSize: 12.5 }}>
+                    <option value="">— set route —</option>
+                    {/* tenant allow-list (DMD = ship_through only) — same as classic */}
+                    {clientShippingRoutes().includes("drop_ship") && <option value="drop_ship">Drop ship · vendor → client</option>}
+                    {clientShippingRoutes().includes("ship_through") && <option value="ship_through">Ship-through · vendor → HPD → client</option>}
+                    {clientShippingRoutes().includes("stage") && <option value="stage">Stage · vendor → HPD → webstore</option>}
+                    {route && !clientShippingRoutes().includes(route) && <option value={route}>{route}</option>}
+                  </select>
+                  <div style={{ fontSize: 11, color: T.muted, marginTop: 6 }}>
+                    {route === "drop_ship" ? "Vendor ships direct to the client. Vendors with a default route to HPD still land with us (set per decorator)."
+                      : route === "stage" ? "Goods land at HPD and stay — this is a webstore drop, not a client delivery."
+                      : route === "ship_through" ? "Goods land at HPD first, then forward to the client."
+                      : "Sets the ship-to on every PO and the post-decorator flow."}
+                  </div>
+                </>, route ? undefined : T.amber)}
+                {card(route === "drop_ship" ? "Vendor ships to (client)" : "Vendor ships to (HPD)", addr(address))}
+                {third}
+              </div>
+            );
+          })()}
           {/* packing slips — frozen per outbound shipment, or the live job-level slip */}
           {(() => {
             const hasShipping = items.some((x: any) => x.ship_tracking || x.received_at_hpd || x.pipeline_stage === "shipped");
             if (!forwardSlips.length && !hasShipping) return null;
             return (
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", padding: "10px 0", borderTop: `1px solid ${T.border}44` }}>
-                <span style={{ ...lbl }}>Packing slips</span>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", padding: "12px 0 2px" }}>
+                <span style={wlbl}>Packing slips</span>
                 {forwardSlips.length > 0
                   ? forwardSlips.map((s, i) => (
                     <a key={s.id} href={`/api/pdf/packing-slip/${job.id}?shipment=${s.id}`} target="_blank" rel="noreferrer" style={previewBtn}>
@@ -2369,9 +2395,6 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
               </div>
             );
           })()}
-          <div style={{ fontSize: 11, color: T.faint, marginTop: 6 }}>
-            {route === "drop_ship" ? "Vendor ships direct to the client — but vendors with a default route to HPD still land with us (set per decorator)." : route ? "Goods land at HPD first, then ship to the client." : "Set the route to determine the ship-to and post-decorator flow."}
-          </div>
         </div>
       ), true)}
 
