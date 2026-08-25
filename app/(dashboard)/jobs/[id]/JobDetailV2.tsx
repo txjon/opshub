@@ -2401,38 +2401,6 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                       <input key={it.id + ":name:" + it.name} defaultValue={it.name || ""} readOnly={locked} onBlur={e => renameItem(it, e.target.value)} style={field} />
                     </label>
                     {tip(<>Name, product type, and quantities live here. The blank itself comes from <b style={{ color: T.text }}>Pick/Swap blank</b> (full supplier catalogs) so costs always match a real product. Type a total into <b style={{ color: T.text }}>→ CURVE</b> to spread it across sizes automatically, or Edit sizes for youth, one-size, and pants grids.</>)}
-                    {/* product type · client retail · fleece — one aligned grid */}
-                    <div style={{ display: "grid", gridTemplateColumns: locked ? "minmax(160px, 1.3fr) minmax(120px, 0.7fr)" : "minmax(160px, 1.3fr) minmax(120px, 0.7fr) auto", gap: 10, marginBottom: 12, alignItems: "end" }}>
-                      <label>
-                        <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Product type</span>
-                        <select value={it.garment_type || ""} disabled={locked} onChange={e => saveGarmentType(it, e.target.value)} style={field}>
-                          <option value="">— type —</option>
-                          {ADD_GARMENTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                          {it.garment_type && !ADD_GARMENTS.some(([v]) => v === it.garment_type) && <option value={it.garment_type}>{it.garment_type.replace(/_/g, " ")}</option>}
-                        </select>
-                      </label>
-                      <label>
-                        {/* Client retail = what THEIR shop charges. Powers release
-                            planning + re-run prefills; not part of costing math,
-                            so no financial refresh and never locked. */}
-                        <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Client retail</span>
-                        <input key={it.id + ":retail:" + (it.client_retail_per_unit ?? "")} defaultValue={it.client_retail_per_unit ?? ""}
-                          inputMode="decimal" placeholder="$"
-                          onBlur={async e => {
-                            const raw = e.target.value.replace(/[^0-9.]/g, "");
-                            const v = raw === "" ? null : Math.round(Number(raw) * 100) / 100;
-                            if (v === (it.client_retail_per_unit ?? null)) return;
-                            await (createClient().from("items") as any).update({ client_retail_per_unit: v }).eq("id", it.id);
-                            setItems(prev => prev.map((x: any) => x.id === it.id ? { ...x, client_retail_per_unit: v } : x));
-                          }} style={field} />
-                      </label>
-                      {!locked && (
-                        <button onClick={() => toggleFleece(it)} title="Fleece applies the decorator's per-print fleece upcharge + fleece packaging"
-                          style={{ fontSize: 10, fontWeight: 700, padding: "10px 12px", borderRadius: 8, border: `1px solid ${it.is_fleece ? T.green : T.border}`, background: it.is_fleece ? T.green : T.card, color: it.is_fleece ? "#fff" : T.muted, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase", fontFamily: font, whiteSpace: "nowrap" }}>
-                          {it.is_fleece ? "Fleece ✓" : "Fleece?"}
-                        </button>
-                      )}
-                    </div>
                     {/* blank — ONE object (vendor style · color), read-only here; the
                         picker owns it (Pick/Swap blank), same ownership rule as classic. */}
                     <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", borderRadius: 10, border: `1px solid ${T.border}`, background: T.surface, marginBottom: 14 }}>
@@ -2449,6 +2417,23 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                       {!locked && (
                         <button onClick={() => { setAssignTargetId(it.id); setPickerSrc("src"); }}
                           style={{ ...ghostBtn, whiteSpace: "nowrap", flexShrink: 0 }}>{it.blank_vendor ? "Swap blank ▸" : "Pick blank ▸"}</button>
+                      )}
+                    </div>
+                    {/* product type · fleece */}
+                    <div style={{ display: "grid", gridTemplateColumns: locked ? "1fr" : "1fr auto", gap: 10, marginBottom: 14, alignItems: "end" }}>
+                      <label>
+                        <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Product type</span>
+                        <select value={it.garment_type || ""} disabled={locked} onChange={e => saveGarmentType(it, e.target.value)} style={field}>
+                          <option value="">— type —</option>
+                          {ADD_GARMENTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                          {it.garment_type && !ADD_GARMENTS.some(([v]) => v === it.garment_type) && <option value={it.garment_type}>{it.garment_type.replace(/_/g, " ")}</option>}
+                        </select>
+                      </label>
+                      {!locked && (
+                        <button onClick={() => toggleFleece(it)} title="Fleece applies the decorator's per-print fleece upcharge + fleece packaging"
+                          style={{ fontSize: 10, fontWeight: 700, padding: "10px 12px", borderRadius: 8, border: `1px solid ${it.is_fleece ? T.green : T.border}`, background: it.is_fleece ? T.green : T.card, color: it.is_fleece ? "#fff" : T.muted, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase", fontFamily: font, whiteSpace: "nowrap" }}>
+                          {it.is_fleece ? "Fleece ✓" : "Fleece?"}
+                        </button>
                       )}
                     </div>
                     {/* sizes + qty with remove + add */}
@@ -2498,6 +2483,24 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                       )}
                     </div>
                     )}
+                    {/* client retail — the client's shop price; not costing, never locked */}
+                    <div style={{ width: 160, marginTop: 14 }}>
+                      <label>
+                        {/* Client retail = what THEIR shop charges. Powers release
+                            planning + re-run prefills; not part of costing math,
+                            so no financial refresh and never locked. */}
+                        <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Client retail</span>
+                        <input key={it.id + ":retail:" + (it.client_retail_per_unit ?? "")} defaultValue={it.client_retail_per_unit ?? ""}
+                          inputMode="decimal" placeholder="$"
+                          onBlur={async e => {
+                            const raw = e.target.value.replace(/[^0-9.]/g, "");
+                            const v = raw === "" ? null : Math.round(Number(raw) * 100) / 100;
+                            if (v === (it.client_retail_per_unit ?? null)) return;
+                            await (createClient().from("items") as any).update({ client_retail_per_unit: v }).eq("id", it.id);
+                            setItems(prev => prev.map((x: any) => x.id === it.id ? { ...x, client_retail_per_unit: v } : x));
+                          }} style={field} />
+                      </label>
+                    </div>
                     {!locked && <div style={{ fontSize: 11, color: T.faint, marginTop: 14 }}>Saves to the buy sheet. Pick blank ▸ opens the full catalog (S&S, AS Colour, LA Apparel, Cotton Collective, Favorites).</div>}
                   </div>
                 );
