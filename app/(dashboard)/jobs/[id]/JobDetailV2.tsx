@@ -1660,7 +1660,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                     )}
                   </div>
                   {isCommitted && (
-                    <button onClick={toggleUnlock} style={{ fontSize: 11, fontWeight: 800, padding: "6px 13px", borderRadius: 999, border: `1px solid ${locked ? T.border : T.amber}`, background: locked ? T.card : T.amber, color: locked ? T.text : "#0a0a0a", cursor: "pointer", fontFamily: font }}>{locked ? "🔒 Pricing locked · unlock to revise" : "Re-lock pricing"}</button>
+                    <button onClick={toggleUnlock} style={{ fontSize: 11, fontWeight: 800, padding: "6px 13px", borderRadius: 999, border: `1px solid ${locked ? T.amber : T.border}`, background: locked ? T.amber : T.card, color: locked ? "#0a0a0a" : T.text, cursor: "pointer", fontFamily: font }}>{locked ? "🔒 Pricing locked · unlock to revise" : "Re-lock pricing"}</button>
                   )}
                 </div>
                 <div style={{ display: "flex", flexWrap: "wrap" }}>
@@ -2499,11 +2499,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                       )}
                     </div>
                     )}
-                    {locked ? (
-                      <button onClick={toggleUnlock} style={{ marginTop: 14, fontSize: 11, fontWeight: 800, color: T.amber, background: "none", border: `1px solid ${T.amber}66`, borderRadius: 999, padding: "5px 12px", cursor: "pointer", fontFamily: font }}>🔒 Pricing locked · unlock to revise</button>
-                    ) : (
-                      <div style={{ fontSize: 11, color: T.faint, marginTop: 14 }}>Saves to the buy sheet. Pick blank ▸ opens the full catalog (S&S, AS Colour, LA Apparel, Cotton Collective, Favorites).</div>
-                    )}
+                    {!locked && <div style={{ fontSize: 11, color: T.faint, marginTop: 14 }}>Saves to the buy sheet. Pick blank ▸ opens the full catalog (S&S, AS Colour, LA Apparel, Cotton Collective, Favorites).</div>}
                   </div>
                 );
               })()}
