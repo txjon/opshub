@@ -1886,7 +1886,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
             if (!needBake.length || bakeIds) return null;
             return (
               <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", border: `1px solid ${T.border}`, background: T.surface, borderRadius: 10, padding: "9px 13px", marginBottom: 12 }}>
-                <span style={{ fontSize: 12.5, color: T.muted, flex: 1, minWidth: 180 }}>{needBake.length} proof PDF{needBake.length === 1 ? "" : "s"} not in Drive yet (built before send-time baking).</span>
+                <span style={{ fontSize: 12.5, color: T.muted, minWidth: 180 }}>{needBake.length} proof PDF{needBake.length === 1 ? "" : "s"} not in Drive yet (built before send-time baking).</span>
                 <button onClick={() => bakeProofPdfs(needBake.map((x: any) => x.id))} style={ghostBtn}>Bake to Drive — no emails</button>
               </div>
             );
@@ -1955,6 +1955,10 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
               </div>
             );
           })()}
+          {/* ── 2×2 grid of trays: Order+Billing · Additional charges / Payments · Contacts.
+              Actions sit INLINE beside their label — nothing floats to the far edge (Jon 2026-08-25). ── */}
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12, marginTop: 4 }}>
+          <div style={ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 12px", minWidth: 0 }>
           {/* ── ORDER + BILLING — two compact columns; label sits NEXT to its
               value (full-width justified rows were unscannable). ── */}
           {(() => {
@@ -1966,15 +1970,15 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
             );
             const balDue = (invoiced || orderTotal) - paid;
             return (
-              <div style={{ display: "flex", gap: 44, flexWrap: "wrap", padding: "6px 0 4px" }}>
-                <div style={{ flex: "0 1 auto", minWidth: 220 }}>
+              <div style={{ display: "flex", gap: 28, flexWrap: "wrap" }}>
+                <div style={{ flex: "1 1 200px", minWidth: 0 }}>
                   <div style={{ ...lbl, marginBottom: 4 }}>Order</div>
                   {/* "Sent" only when the email actually went (type_meta stamps) — approved
                       internally / synced-not-sent must never read as sent (Jon 2026-08-25). */}
                   {row("Quote", flags.approved ? (flags.quoted ? "Sent · Approved" : "Approved internally · not sent") : flags.quoted ? "Sent" : "Not sent")}
                   {row("Proofs", `${artApproved}/${items.length} approved`)}
                 </div>
-                <div style={{ flex: "1 1 auto", minWidth: 260 }}>
+                <div style={{ flex: "1 1 220px", minWidth: 0 }}>
                   <div style={{ ...lbl, marginBottom: 4 }}>Billing</div>
                   {row("Invoice", invNum ? (
                     <>
@@ -2035,11 +2039,12 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
               </div>
             );
           })()}
+          </div>
 
           {/* Additional charges — invoice extra lines (same shape as classic:
               rides the quote PDF + billable total; QB push is Phase 2). */}
-          <div style={{ padding: "12px 0", borderBottom: `1px solid ${T.border}55` }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: extraLines.length ? 8 : 0 }}>
+          <div style={ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 12px", minWidth: 0 }>
+            <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: extraLines.length ? 8 : 0 }}>
               <span style={lbl}>Additional charges{extrasTotal ? ` · ${fmtMoney(extrasTotal)}` : ""}</span>
               <button onClick={() => saveTypeMeta({ invoice_extra_lines: [...extraLines, { id: `xl_${Date.now()}`, description: "", amount: 0, qb_item: "Service Fee", type: "fee" }] })}
                 style={{ background: "transparent", border: `1px solid ${T.border}`, color: T.text, fontSize: 11, fontWeight: 700, padding: "4px 10px", borderRadius: 6, cursor: "pointer", fontFamily: font }}>+ Add line</button>
@@ -2061,7 +2066,8 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
           </div>
 
           {/* payments — terms + records (click status to cycle, × to delete) */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "16px 0 8px", gap: 10, flexWrap: "wrap" }}>
+          <div style={ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 12px", minWidth: 0 }>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
             <span style={{ ...lbl, display: "flex", alignItems: "center", gap: 8 }}>Payments · {fmtMoney(paid)} paid of {fmtMoney(invoiced || orderTotal)}{(invoiced || orderTotal) - paid > 0.01 && <span style={{ color: T.amber }}>· {fmtMoney((invoiced || orderTotal) - paid)} due</span>}
               <button onClick={() => { setActErr(""); const bal = Math.max(0, (invoiced || orderTotal) - paid); setPayForm(f => ({ ...f, amount: f.amount || (bal > 0 ? bal.toFixed(2) : "") })); setClientAction("payment"); }}
                 style={{ background: "transparent", border: `1px solid ${T.border}`, color: T.text, fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: 6, cursor: "pointer", fontFamily: font, letterSpacing: 0, textTransform: "none" }}>+ Record</button>
@@ -2074,7 +2080,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
               <option value="net_30">Net 30</option>
             </select>
           </div>
-          {payments.length === 0 ? <div style={{ fontSize: 12.5, color: T.faint, paddingBottom: 4 }}>No payments recorded.</div> : payments.map((p: any) => {
+          {payments.length === 0 ? <div style={{ fontSize: 12.5, color: T.muted }}>No payments recorded.</div> : payments.map((p: any) => {
             const sc = p.status === "paid" ? T.green : p.status === "partial" ? T.amber : p.status === "overdue" ? T.red : p.status === "void" ? T.faint : T.muted;
             return (
               <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "5px 0", fontSize: 13 }}>
@@ -2087,15 +2093,18 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
             );
           })}
 
+          </div>
+
           {/* contacts — add / remove */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "16px 0 8px", paddingTop: 12, borderTop: `1px solid ${T.border}44` }}>
+          <div style={ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 12px", minWidth: 0 }>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
             <span style={lbl}>Contacts</span>
             <span style={{ display: "flex", gap: 6 }}>
               <button onClick={syncContacts} title="Pull in any client contacts not yet on this project" style={{ ...ghostBtn, padding: "5px 11px", fontSize: 11 }}>Sync</button>
               {!contactForm && <button onClick={() => setContactForm({ name: "", email: "", phone: "", role: "cc" })} style={{ ...ghostBtn, padding: "5px 11px", fontSize: 11 }}>+ Add</button>}
             </span>
           </div>
-          {localContacts.length === 0 && !contactForm ? <div style={{ fontSize: 12.5, color: T.faint }}>No contacts on this job.</div> : localContacts.map((c: any) => (
+          {localContacts.length === 0 && !contactForm ? <div style={{ fontSize: 12.5, color: T.muted }}>No contacts on this job.</div> : localContacts.map((c: any) => (
             <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 0", borderBottom: `1px solid ${T.border}44`, fontSize: 13 }}>
               <span style={{ flex: 1 }}>{c.contacts?.name || c.contacts?.email}<span style={{ color: T.faint }}> · {c.contacts?.email || "no email"}{c.role_on_job ? " · " + c.role_on_job : ""}</span></span>
               <button onClick={() => removeContact(c.id)} title="Remove" style={{ background: "none", border: "none", color: T.faint, fontSize: 14, cursor: "pointer" }}>×</button>
@@ -2112,6 +2121,8 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
               <button onClick={() => setContactForm(null)} style={ghostBtn}>Cancel</button>
             </div>
           )}
+          </div>
+          </div>
         </div>
       ))}
 
