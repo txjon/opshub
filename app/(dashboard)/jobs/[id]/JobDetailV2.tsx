@@ -2395,11 +2395,6 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                 const dimensional = !!parseSizeMatrix(sizes, it.qtys || null);
                 return (
                   <div>
-                    {/* name */}
-                    <label style={{ display: "block", marginBottom: 12 }}>
-                      <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Product name</span>
-                      <input key={it.id + ":name:" + it.name} defaultValue={it.name || ""} readOnly={locked} onBlur={e => renameItem(it, e.target.value)} style={field} />
-                    </label>
                     {tip(<>Name, product type, and quantities live here. The blank itself comes from <b style={{ color: T.text }}>Pick/Swap blank</b> (full supplier catalogs) so costs always match a real product. Type a total into <b style={{ color: T.text }}>→ CURVE</b> to spread it across sizes automatically, or Edit sizes for youth, one-size, and pants grids.</>)}
                     {/* blank — ONE object (vendor style · color), read-only here; the
                         picker owns it (Pick/Swap blank), same ownership rule as classic. */}
@@ -2419,9 +2414,13 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                           style={{ ...ghostBtn, whiteSpace: "nowrap", flexShrink: 0 }}>{it.blank_vendor ? "Swap blank ▸" : "Pick blank ▸"}</button>
                       )}
                     </div>
-                    {/* product type · fleece */}
-                    <div style={{ display: "grid", gridTemplateColumns: locked ? "1fr" : "1fr auto", gap: 10, marginBottom: 14, alignItems: "end" }}>
-                      <label>
+                    {/* name · product type · fleece on one row; stacks on mobile */}
+                    <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : (locked ? "minmax(0, 1.6fr) minmax(150px, 0.8fr)" : "minmax(0, 1.6fr) minmax(150px, 0.8fr) auto"), gap: 10, marginBottom: 14, alignItems: "end" }}>
+                    <label style={{ minWidth: 0 }}>
+                      <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Product name</span>
+                      <input key={it.id + ":name:" + it.name} defaultValue={it.name || ""} readOnly={locked} onBlur={e => renameItem(it, e.target.value)} style={field} />
+                    </label>
+                      <label style={{ minWidth: 0 }}>
                         <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Product type</span>
                         <select value={it.garment_type || ""} disabled={locked} onChange={e => saveGarmentType(it, e.target.value)} style={field}>
                           <option value="">— type —</option>
@@ -2431,7 +2430,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                       </label>
                       {!locked && (
                         <button onClick={() => toggleFleece(it)} title="Fleece applies the decorator's per-print fleece upcharge + fleece packaging"
-                          style={{ fontSize: 10, fontWeight: 700, padding: "10px 12px", borderRadius: 8, border: `1px solid ${it.is_fleece ? T.green : T.border}`, background: it.is_fleece ? T.green : T.card, color: it.is_fleece ? "#fff" : T.muted, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase", fontFamily: font, whiteSpace: "nowrap" }}>
+                          style={{ fontSize: 10, fontWeight: 700, padding: "10px 12px", borderRadius: 8, border: `1px solid ${it.is_fleece ? T.green : T.border}`, background: it.is_fleece ? T.green : T.card, color: it.is_fleece ? "#fff" : T.muted, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase", fontFamily: font, whiteSpace: "nowrap", width: isMobile ? "100%" : "auto" }}>
                           {it.is_fleece ? "Fleece ✓" : "Fleece?"}
                         </button>
                       )}
