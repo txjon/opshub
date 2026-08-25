@@ -365,6 +365,33 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
     }
     return m;
   }, [entries]);
+  // Deposit-aware prior (Aug 25 2026 — FCX balance entry flagged −$34K
+  // because the deposit was logged job-level, ref "4191", never matching
+  // key "4191B"): when a vendor has exactly ONE PO line on a job, every
+  // bill on that job×vendor unambiguously belongs to that line — prior =
+  // the vendor-level total. Multi-line vendors keep exact-key matching
+  // (a job-level bill can't be attributed per-letter there).
+  const vendorLineCount = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const j of queue.jobs) for (const v of j.vendors) m[`${j.id}::${v.apVendorId}`] = v.items.length;
+    return m;
+  }, [queue]);
+  const billedJobVendorTotals = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const e of entries) {
+      if (!e.job_id || !e.vendor_id || e.not_job_specific) continue;
+      const k = `${e.job_id}::${e.vendor_id}`;
+      m[k] = Math.round(((m[k] || 0) + Number(e.amount || 0)) * 100) / 100;
+    }
+    return m;
+  }, [entries]);
+  const priorBilledFor = (resolved: NbResolved | null): number => {
+    if (!resolved) return 0;
+    const poKey = resolved.poRef.toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const jvKey = `${resolved.job_id}::${resolved.apVendorId}`;
+    if ((vendorLineCount[jvKey] || 0) === 1) return billedJobVendorTotals[jvKey] || billedPoTotals[poKey] || 0;
+    return billedPoTotals[poKey] || 0;
+  };
   const billedPoAmounts = useMemo(() => {
     const m: Record<string, number[]> = {};
     for (const e of entries) {
@@ -757,7 +784,7 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
                   // it would flag itself). Empty rows are dropped from the saved summary.
                   if (nbSavedIds) {
                     if (!(l.resolved && amt > 0)) return null;
-                    const dv = Math.round(((billedPoTotals[poKey] || 0) - l.resolved.projected) * 100) / 100;
+                    const dv = Math.round((priorBilledFor(l.resolved) - l.resolved.projected) * 100) / 100;
                     const ro = { fontSize: 12, whiteSpace: "nowrap" as const, overflow: "hidden", textOverflow: "ellipsis", padding: "6px 2px" };
                     return (
                       <div key={l.id} style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -770,7 +797,7 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
                       </div>
                     );
                   }
-                  const prior = poKey ? (billedPoTotals[poKey] || 0) : 0; // already billed on this PO
+                  const prior = priorBilledFor(l.resolved); // already billed on this PO (deposit-aware)
                   // Variance is CUMULATIVE: everything billed on this PO (prior + this line) vs projected.
                   const d = l.resolved && amt > 0 ? Math.round((prior + amt - l.resolved.projected) * 100) / 100 : 0;
                   const mism = nbVendor && l.resolved && l.resolved.apVendorId !== nbVendor;
