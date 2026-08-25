@@ -16,6 +16,7 @@
 import { calculatePhase } from "./lifecycle";
 import { poSentToItem } from "./item-status";
 import { deriveItem } from "./item-derivation";
+import { needsProof } from "./proof-gate";
 
 export async function recalcJobPhase(sb: any, jobId: string, opts?: { commit?: boolean }): Promise<{ phase: string; stored: string; changed: boolean } | null> {
   const { data: jobData } = await sb.from("jobs").select("*, clients(name)").eq("id", jobId).single();
@@ -48,7 +49,7 @@ export async function recalcJobPhase(sb: any, jobId: string, opts?: { commit?: b
     .eq("stage", "proof").is("superseded_at", null).in("item_id", (jobItems || []).map((it: any) => it.id));
   const proofStatus: Record<string, { allApproved: boolean }> = {};
   for (const it of (jobItems || [])) {
-    const manualApproved = it.artwork_status === "approved";
+    const manualApproved = !needsProof(it) || it.artwork_status === "approved";
     const proofs = (proofFiles || []).filter((f: any) => f.item_id === it.id);
     proofStatus[it.id] = { allApproved: manualApproved || (proofs.length > 0 && proofs.every((f: any) => f.approval === "approved")) };
   }

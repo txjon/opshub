@@ -6,6 +6,7 @@
 // source job. Nothing priced or committed — lands in intake for Drake.
 import { getItemFolderId, createShortcut } from "@/lib/google-drive";
 import { scaleCurve, aggregateCurve, groupCurve, formatGroup } from "@/lib/size-curves";
+import { carryProofFields } from "@/lib/proof-gate";
 
 type Db = any;
 // Phase 3 (Aug 24 2026): clients type ONE total — the curve is seeded from
@@ -31,12 +32,13 @@ export async function copyItemIntoJob(db: Db, src: any, jobId: string, opts: {
     job_id: jobId, name: src.name, blank_vendor: src.blank_vendor, blank_sku: src.blank_sku,
     cost_per_unit: src.cost_per_unit, sell_per_unit: src.sell_per_unit, blank_costs: src.blank_costs || null,
     garment_type: src.garment_type || null, drive_link: src.drive_link || null, is_fleece: !!src.is_fleece,
-    status: "tbd", artwork_status: src.artwork_status === "approved" ? "approved" : "not_started",
+    status: "tbd",
     sort_order: opts.sortOrder, pipeline_stage: null, blanks_order_number: null, ship_tracking: null,
     design_id: src.design_id || null,
-    // Proof document carries whole (spec is job/qty-free by design); proof_sent_at
-    // stays null — the new item reads "Draft, ready, not sent" until someone sends.
-    proof_spec: src.proof_spec || null,
+    // Approval carries with the art on a reorder (lib/proof-gate.carryProofFields):
+    // approved / n_a stay, proof_spec carries whole + carriedFrom provenance.
+    // proof_sent_at stays null — a carried-approved item is DONE, not "not sent".
+    ...carryProofFields(src, src.jobs?.job_number || null),
   }).select("id").single();
   if (itemErr || !ni) return null;
 

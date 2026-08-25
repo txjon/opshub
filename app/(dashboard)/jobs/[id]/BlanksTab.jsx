@@ -7,6 +7,7 @@ import { useIsMobile } from "@/lib/useIsMobile";
 import SizeGrid from "@/components/SizeGrid";
 import { parseSizeMatrix } from "@/lib/size-grid";
 import { ItemThumb } from "@/components/board-kit";
+import { needsProof, allProofsSatisfied, proofCounts } from "@/lib/proof-gate";
 
 // Dark-app palette for the shared <SizeGrid/> cut-ticket renderer.
 const GRID_PALETTE = { text: T.text, muted: T.muted, faint: T.faint, border: T.border, surface: T.surface, accent: T.accent };
@@ -114,7 +115,7 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
       const status = {};
       for (const it of items) {
         const proofs = (data || []).filter(f => f.item_id === it.id && f.stage === "proof");
-        const manualApproved = it.artwork_status === "approved";
+        const manualApproved = !needsProof(it) || it.artwork_status === "approved";
         status[it.id] = {
           hasProof: proofs.length > 0 || manualApproved,
           allApproved: manualApproved || (proofs.length > 0 && proofs.every(f => f.approval === "approved")),
@@ -295,7 +296,8 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
     paymentGateMet = false; // Require terms to be set
   }
 
-  const allProofsApproved = items.length > 0 && items.every(it => proofStatus[it.id]?.allApproved || it.artwork_status === "approved");
+  const allProofsApproved = allProofsSatisfied(items, proofStatus);
+  const proofC = proofCounts(items, proofStatus);
   const gatesMet = quoteApproved && paymentGateMet && allProofsApproved;
 
   const card = { background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" };
@@ -332,7 +334,7 @@ export function BlanksTab({ items: allItems, job, payments, onRecalcPhase, onUpd
             )}
             <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
               <span style={{ color: allProofsApproved ? T.green : T.red, fontWeight: 800 }}>{allProofsApproved ? "✓" : "✕"}</span>
-              <span style={{ color: allProofsApproved ? T.muted : T.text }}>All proofs approved ({items.filter(it => proofStatus[it.id]?.allApproved || it.artwork_status === "approved").length}/{items.length})</span>
+              <span style={{ color: allProofsApproved ? T.muted : T.text }}>All proofs approved ({proofC.approved}/{proofC.total}{proofC.noProof ? ` · ${proofC.noProof} no proof` : ""})</span>
             </div>
           </div>
         </div>

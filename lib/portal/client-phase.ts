@@ -19,6 +19,7 @@ export function itemClientPhase(it: {
   forwardedAt?: string | null;
   webstoreEnteredAt?: string | null;
   internalApproved?: boolean;
+  noProofNeeded?: boolean; // artwork_status n_a — nothing for the client to approve
   proofSentAt?: string | null;   // the proof was sent to the client (proof_spec render; no PDF needed)
   proofs?: { stage: string; approval: string }[];
 }): ClientItemPhase {
@@ -32,6 +33,7 @@ export function itemClientPhase(it: {
   if (it.pipelineStage === "shipped") return { label: "Shipping", tone: "move" };
   if (it.pipelineStage === "in_production") return { label: "In production", tone: "move" };
 
+  if (it.noProofNeeded) return { label: "No proof needed", tone: "dim" };
   const proofs = (it.proofs || []).filter(p => p.stage === "proof");
   if (proofs.some(p => p.approval === "revision_requested")) return { label: "Revising your proof", tone: "warn" };
   const allApproved = proofs.length > 0 && proofs.every(p => p.approval === "approved");

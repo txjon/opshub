@@ -12,6 +12,7 @@ import {
 } from "@/lib/handoff";
 import { recordReceive, recordOutbound, recomputeItemFromLedger, reverseLastMovement, reverseReceiptForShipment, appendMovement } from "@/lib/inventory-ledger";
 import { addQtys, subtractQtys } from "@/lib/ship-progress";
+import { needsProof } from "@/lib/proof-gate";
 
 // forwarded/staged qty = what's on hand to send = received (fallback shipped)
 // minus any units pulled as samples.
@@ -329,7 +330,7 @@ export function useWarehouse() {
     const { data: proofFiles } = await supabase.from("item_files").select("item_id, approval").eq("stage", "proof").is("superseded_at", null).in("item_id", (jobItems || []).map(it => it.id));
     const proofStatus: Record<string, { allApproved: boolean }> = {};
     for (const it of (jobItems || [])) {
-      const manualApproved = it.artwork_status === "approved";
+      const manualApproved = !needsProof(it) || it.artwork_status === "approved";
       const proofs = (proofFiles || []).filter(f => f.item_id === it.id);
       proofStatus[it.id] = { allApproved: manualApproved || (proofs.length > 0 && proofs.every(f => f.approval === "approved")) };
     }

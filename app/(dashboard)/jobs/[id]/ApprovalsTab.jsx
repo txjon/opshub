@@ -8,6 +8,7 @@ import { ProofModal } from "./ArtTab";
 import ProofDocView from "@/components/ProofDocView";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { PROOF_RENDERER_VERSION } from "@/lib/proof-client";
+import { needsProof } from "@/lib/proof-gate";
 
 export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, onRecalcPhase }) {
   const supabase = createClient();
@@ -266,10 +267,12 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
     const proofs = files.filter(f => f.stage === "proof");
     fileApprovedByItem[it.id] = proofs.length > 0 && proofs.every(f => f.approval === "approved");
   }
-  const fileApprovedCount = items.filter(it => fileApprovedByItem[it.id]).length;
-  const internalOnlyCount = items.filter(it => !fileApprovedByItem[it.id] && it.artwork_status === "approved").length;
+  // n_a (no proof needed) items sit outside the count entirely — lib/proof-gate.
+  const gatedItems = items.filter(needsProof);
+  const fileApprovedCount = gatedItems.filter(it => fileApprovedByItem[it.id]).length;
+  const internalOnlyCount = gatedItems.filter(it => !fileApprovedByItem[it.id] && it.artwork_status === "approved").length;
   const approvedCount = fileApprovedCount + internalOnlyCount;
-  const allApproved = items.length > 0 && approvedCount === items.length;
+  const allApproved = items.length > 0 && approvedCount === gatedItems.length;
   // Items whose latest proof was re-uploaded after a client revision request
   // and hasn't been re-sent yet.
   const revisedPendingItems = items.filter(it => (itemFiles[it.id] || []).some(f => f.stage === "proof" && f.revision_pending_send));
@@ -282,7 +285,7 @@ export function ApprovalsTab({ job, items, contacts, proofStatus, onUpdateItem, 
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
           <div style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em" }}>Order items &amp; proofs</div>
           <span style={{ fontSize: 11, fontWeight: 600, color: allApproved ? T.green : T.amber }}>
-            {approvedCount}/{items.length} approved{internalOnlyCount > 0 ? ` · ${internalOnlyCount} internal` : ""}
+            {approvedCount}/{gatedItems.length} approved{internalOnlyCount > 0 ? ` · ${internalOnlyCount} internal` : ""}
           </span>
         </div>
 

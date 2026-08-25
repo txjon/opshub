@@ -81,7 +81,8 @@ export async function approvePackage(sb: Sb, jobId: string, ctx: { via?: string 
     await sb.from("item_files")
       .update({ approval: "approved", approved_at: now })
       .in("item_id", itemIds).eq("stage", "proof").is("superseded_at", null);
-    await sb.from("items").update({ artwork_status: "approved" }).in("id", itemIds);
+    // n_a (no proof needed) stays n_a — the client never had a proof to approve on it.
+    await sb.from("items").update({ artwork_status: "approved" }).in("id", itemIds).neq("artwork_status", "n_a");
   }
 
   const snapshot: ApprovalSnapshot = {

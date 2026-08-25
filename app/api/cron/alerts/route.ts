@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { resendForSlug } from "@/lib/resend-client";
+import { needsProof } from "@/lib/proof-gate";
 
 const admin = () =>
   createClient(
@@ -124,7 +125,7 @@ export async function GET(req: NextRequest) {
         if (jobPastProduction) continue;
         const item = items.find(i => i.id === proof.item_id);
         // Skip manually approved items — override settles it, no nag needed.
-        if (item?.artwork_status === "approved") continue;
+        if (item?.artwork_status === "approved" || !needsProof(item)) continue;
         if (["in_production", "shipped"].includes(item?.pipeline_stage || "")) continue;
         const daysPending = Math.floor((now.getTime() - new Date(proof.created_at).getTime()) / 86400000);
         if (daysPending >= 3) {

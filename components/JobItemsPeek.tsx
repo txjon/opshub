@@ -25,6 +25,7 @@ export function itemPeekState(it: any, ps?: { state?: string }): [string, string
   if (it.received_at_hpd) return ["Received", T.green];
   if (it.pipeline_stage === "shipped") return ["Shipped", T.blue];
   if (it.pipeline_stage === "in_production") return ["In production", T.blue];
+  if (it.artwork_status === "n_a") return ["No proof needed", T.muted];
   if (it.artwork_status === "approved" || ps?.state === "approved") return ["Proof approved", T.green];
   if (ps?.state === "revision") return ["Revision requested", T.amber];
   if (ps?.state === "pending") return ["Proof pending", T.amber];

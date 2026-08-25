@@ -1,3 +1,4 @@
+import { proofCounts } from "./proof-gate";
 // Projects Board V2 — turn a job's real state into a milestone on the board spine.
 // Front of the spine (Quote+Proofs → Order) is derived from the gate fields;
 // the warehouse tail (Production → Fulfillment) trusts the phase engine
@@ -82,9 +83,9 @@ export function deriveProjectStage(job: any, phaseView: any | undefined, items: 
   // Proof approvals — mirrors lib/lifecycle's gate (per-item allApproved OR the
   // manual artwork_status override). proofStatus undefined = the caller has no
   // proof data → gate off (never falsely hold a job on missing data).
-  const proofOk = (it: any) => !!(proofStatus?.[it.id]?.allApproved || it.artwork_status === "approved");
-  const proofs = proofStatus ? { approved: items.filter(proofOk).length, total: items.length } : null;
-  const allProofsApproved = !proofs || (proofs.total > 0 && proofs.approved === proofs.total);
+  // n_a items never gate and never count (lib/proof-gate). total = items that need a proof.
+  const proofs = proofStatus ? proofCounts(items, proofStatus) : null;
+  const allProofsApproved = !proofs || (items.length > 0 && proofs.approved === proofs.total);
   const mk = (milestone: ProjMilestone | null, now: string, signal: ProjSignal, reason = "", det = detail): ProjStage =>
     ({ complete: false, preQuote: false, milestone, now, detail: det, signal, reason, route, paidState, proofs });
 

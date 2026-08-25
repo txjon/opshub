@@ -2,6 +2,7 @@
 import { T, font, mono } from "@/lib/theme";
 import { poSentToItem, isItemInProduction } from "@/lib/item-status";
 import { isCostingLocked } from "@/lib/costing-lock";
+import { allProofsSatisfied } from "@/lib/proof-gate";
 
 type Step = {
   id: string;
@@ -35,7 +36,7 @@ export function ProjectProgress({ job, items, payments, proofStatus, onTabClick,
   const hasCosting = items.some(it => it.decorator);
   const costingLocked = isCostingLocked(job);
   const quoteApproved = job.quote_approved;
-  const allProofsApproved = items.length > 0 && items.every(it => proofStatus[it.id]?.allApproved || it.artwork_status === "approved");
+  const allProofsApproved = allProofsSatisfied(items, proofStatus);
   const hasProofs = items.some(it => (it as any).hasFiles);
 
   const terms = job.payment_terms || "";
