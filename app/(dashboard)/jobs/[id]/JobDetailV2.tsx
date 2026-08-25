@@ -1958,19 +1958,21 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
               <div style={{ display: "flex", gap: 44, flexWrap: "wrap", padding: "6px 0 4px" }}>
                 <div style={{ flex: "0 1 auto", minWidth: 220 }}>
                   <div style={{ ...lbl, marginBottom: 4 }}>Order</div>
-                  {row("Quote", flags.approved ? "Sent · Approved" : flags.quoted ? "Sent" : "Not sent")}
+                  {/* "Sent" only when the email actually went (type_meta stamps) — approved
+                      internally / synced-not-sent must never read as sent (Jon 2026-08-25). */}
+                  {row("Quote", flags.approved ? (flags.quoted ? "Sent · Approved" : "Approved internally · not sent") : flags.quoted ? "Sent" : "Not sent")}
                   {row("Proofs", `${artApproved}/${items.length} approved`)}
                 </div>
                 <div style={{ flex: "1 1 auto", minWidth: 260 }}>
                   <div style={{ ...lbl, marginBottom: 4 }}>Billing</div>
                   {row("Invoice", invNum ? (
                     <>
-                      <span>{invNum} · sent</span>
+                      <span>{invNum} · {tm.invoice_sent_at ? "sent" : <span style={{ color: T.amber }}>not sent</span>}</span>
                       {Math.abs(toInvoice) <= 0.01
                         ? <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", color: T.green }}>✓ QB in sync</span>
                         : <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", color: T.amber }} title={`OpsHub order ${fmtMoney(orderTotal)} vs QB ${fmtMoney(invoicedSub)} (pre-tax). Send invoice re-pushes.`}>⚠ off {fmtMoney(Math.abs(toInvoice))} vs QB</span>}
                     </>
-                  ) : "not sent")}
+                  ) : "none")}
                   {tm.qb_invoice_id && row("Pay link", (
                     <>
                       {tm.qb_payment_link
