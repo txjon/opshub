@@ -46,6 +46,7 @@ import { useIsMobile } from "@/lib/useIsMobile";
 import { calculatePriority } from "@/lib/dates";
 import { SHIP_METHODS } from "@/lib/ship-methods";
 import { proofCounts, needsProof, proofPdfMissing, carriedApproved, carriedFrom } from "@/lib/proof-gate";
+import { suggestPoField, poSuggestionsFor, type PoFieldKey } from "@/lib/po-suggest";
 const DecorationPanel: any = DecorationPanelRaw; // .jsx — bypass narrow inferred prop types
 const ProofModal: any = ProofModalRaw;           // .jsx — same
 const EditSizesModal: any = EditSizesModalRaw;   // .jsx — same
@@ -2267,28 +2268,49 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                     </div>
                   </div>
                   <div style={{ fontSize: 12, color: T.muted, marginTop: 5, fontFamily: mono }}>{vitems.map((it: any) => `${letterOf(it.id)} · ${it.name}`).join("  ·  ")} · <b style={{ color: T.text }}>{vUnits.toLocaleString()} u</b>{(job.type_meta?.po_ship_methods || {})[vendor] ? ` · ${(job.type_meta.po_ship_methods)[vendor]}` : ""}</div>
-                  {expandedVendor === vendor && (
-                    <div style={{ marginTop: 12, borderTop: `1px solid ${T.border}44`, paddingTop: 12, display: "flex", flexDirection: "column", gap: 14 }}>
+                  {expandedVendor === vendor && (() => {
+                    // Suggestions for EMPTY fields only (lib/po-suggest) — Drive folder,
+                    // incoming goods from blank cost/vendor, re-order provenance, packing
+                    // from costing. Shown as placeholders; written only on click.
+                    const sugg = poSuggestionsFor(vitems, cpFor, client);
+                    const fillAll = async () => { for (const sg of sugg) await saveItemPO(sg.item, sg.k, sg.value); };
+                    return (
+                    <div style={{ marginTop: 12, borderTop: `1px solid ${T.border}44`, paddingTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+                      {sugg.length > 0 && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", fontSize: 12, color: T.muted }}>
+                          <span>{sugg.length} empty field{sugg.length === 1 ? "" : "s"} can be filled from job data</span>
+                          <button onClick={fillAll} style={{ ...ghostBtn, padding: "4px 11px", fontSize: 11, color: T.amber, borderColor: T.amber + "66" }}>Fill empty with suggestions</button>
+                        </div>
+                      )}
                       {vitems.map((item: any) => {
-                        const poField = (fieldK: "drive_link" | "incoming_goods" | "production_notes_po" | "packing_notes", label: string, area = false) => (
-                          <label style={{ flex: area ? "1 1 100%" : "1 1 45%", minWidth: 150 }}>
-                            <span style={{ ...lbl, display: "flex", justifyContent: "space-between", marginBottom: 4 }}>{label}{vitems.length > 1 && item[fieldK] && <button onClick={() => copyPOToAll(vendor, fieldK, item[fieldK])} style={{ background: "none", border: "none", color: T.accent, fontSize: 9, fontWeight: 700, cursor: "pointer", letterSpacing: 0, textTransform: "none" }}>↓ all</button>}</span>
-                            {area
-                              ? <textarea key={item.id + fieldK + (item[fieldK] || "")} defaultValue={item[fieldK] || ""} onBlur={e => saveItemPO(item, fieldK, e.target.value)} rows={2} style={{ ...field, resize: "vertical", fontSize: 12 }} />
-                              : <input key={item.id + fieldK + (item[fieldK] || "")} defaultValue={item[fieldK] || ""} onBlur={e => saveItemPO(item, fieldK, e.target.value)} style={{ ...field, fontSize: 12 }} />}
-                          </label>
-                        );
+                        const cp = cpFor(item);
+                        const poField = (fieldK: PoFieldKey, label: string, area = false) => {
+                          const sg = !item[fieldK] ? suggestPoField(fieldK, item, cp, client) : null;
+                          return (
+                            <label style={{ minWidth: 0 }}>
+                              <span style={{ ...wlbl, display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                                {label}
+                                <span style={{ flex: 1 }} />
+                                {sg && <button onClick={() => saveItemPO(item, fieldK, sg)} title={`Use: ${sg}`} style={{ background: "none", border: "none", color: T.amber, fontSize: 9.5, fontWeight: 800, cursor: "pointer", letterSpacing: 0, textTransform: "none", padding: 0 }}>use suggestion</button>}
+                                {vitems.length > 1 && item[fieldK] && <button onClick={() => copyPOToAll(vendor, fieldK, item[fieldK])} title="Copy this value to every item on this PO" style={{ background: "none", border: "none", color: T.accent, fontSize: 9.5, fontWeight: 700, cursor: "pointer", letterSpacing: 0, textTransform: "none", padding: 0 }}>↓ all</button>}
+                              </span>
+                              {area
+                                ? <textarea key={item.id + fieldK + (item[fieldK] || "")} defaultValue={item[fieldK] || ""} placeholder={sg || ""} onBlur={e => saveItemPO(item, fieldK, e.target.value)} rows={2} style={{ ...field, resize: "vertical", fontSize: 12, padding: "7px 9px", borderColor: sg ? T.amber + "55" : T.border }} />
+                                : <input key={item.id + fieldK + (item[fieldK] || "")} defaultValue={item[fieldK] || ""} placeholder={sg || ""} onBlur={e => saveItemPO(item, fieldK, e.target.value)} style={{ ...field, fontSize: 12, padding: "7px 9px", borderColor: sg ? T.amber + "55" : T.border }} />}
+                            </label>
+                          );
+                        };
                         return (
                           <div key={item.id} style={{ background: T.card, borderRadius: 10, padding: "10px 12px" }}>
                             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 8 }}>
-                              <span style={{ fontSize: 13, fontWeight: 700 }}><span style={{ fontFamily: mono, fontSize: 10.5, fontWeight: 800, color: T.faint, marginRight: 7 }}>{letterOf(item.id)}</span>{item.name}</span>
+                              <span style={{ fontSize: 13, fontWeight: 700 }}><span style={{ fontFamily: mono, fontSize: 10.5, fontWeight: 800, color: T.muted, marginRight: 7 }}>{letterOf(item.id)}</span>{item.name}{carriedFrom(item)?.ref && <span style={{ fontFamily: mono, fontSize: 10.5, color: T.green, marginLeft: 8 }}>re-order of {carriedFrom(item)!.ref}</span>}</span>
                               <select value={item.shipping_route || ""} onChange={e => saveItemRoute(item, e.target.value)} title="Per-item route (blank = job route)" style={{ ...field, width: "auto", padding: "5px 8px", fontSize: 11 }}>
                                 <option value="">route: job default</option>
                                 {clientShippingRoutes().map(r => <option key={r} value={r}>{r.replace(/_/g, "-")}</option>)}
                                 {item.shipping_route && !clientShippingRoutes().includes(item.shipping_route) && <option value={item.shipping_route}>{item.shipping_route}</option>}
                               </select>
                             </div>
-                            <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
                               {poField("drive_link", "Production files link")}
                               {poField("incoming_goods", "Incoming goods")}
                               {poField("production_notes_po", "Production notes", true)}
@@ -2298,7 +2320,8 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                         );
                       })}
                     </div>
-                  )}
+                    );
+                  })()}
                 </div>
               );
             })}

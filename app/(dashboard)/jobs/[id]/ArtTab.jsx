@@ -593,6 +593,9 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
     notes,
     summaryText: summaryOverride,
     seededFrom: seededFromRef.current,
+    // Reorder provenance (lib/proof-gate.carryProofFields) rides along — every
+    // save/bake rebuilds the spec from here, so without this a bake wiped it.
+    carriedFrom: item.proof_spec?.carriedFrom || null,
     // Baked display values — so the read-only renderer (proofs tab + client
     // portal) needs NO costing access. proof_spec is self-contained.
     finishing: [...(costProd ? (spec?.finishing || []) : (carriedBakedRef.current?.finishing || [])), ...selInstructions],

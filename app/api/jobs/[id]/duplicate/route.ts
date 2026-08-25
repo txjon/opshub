@@ -116,7 +116,8 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     const idMap: Record<string, string> = {};
     const newItems: { id: string; name: string }[] = [];
 
-    for (const item of srcItems || []) {
+    for (let srcIdx = 0; srcIdx < (srcItems || []).length; srcIdx++) {
+      const item = (srcItems || [])[srcIdx];
       const { data: ni, error: itemErr } = await db
         .from("items")
         .insert({
@@ -133,7 +134,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
           status: "tbd",
           // Approval carries with the art (lib/proof-gate.carryProofFields) — same
           // rule as the hub reorder cart; this route previously dropped proof_spec.
-          ...carryProofFields(item, (srcJob as any).job_number || null),
+          ...carryProofFields(item, (srcJob as any).job_number || null, `${(srcJob as any).type_meta?.qb_invoice_number || (srcJob as any).job_number || "?"}-${String.fromCharCode(65 + srcIdx)}`),
           sort_order: (item as any).sort_order ?? 0,
           pipeline_stage: null,
           blanks_order_number: null,

@@ -27,6 +27,7 @@ export async function copyItemIntoJob(db: Db, src: any, jobId: string, opts: {
   // one lone file instead of the art. projectTitle must equal the new job's
   // title EXACTLY (uploads resolve their folder from the job title).
   drive?: { clientName: string; projectTitle: string };
+  srcRef?: string | null; // "4345-I" — source invoice/job + letter, for carriedFrom.ref
 }): Promise<string | null> {
   const { data: ni, error: itemErr } = await db.from("items").insert({
     job_id: jobId, name: src.name, blank_vendor: src.blank_vendor, blank_sku: src.blank_sku,
@@ -38,7 +39,7 @@ export async function copyItemIntoJob(db: Db, src: any, jobId: string, opts: {
     // Approval carries with the art on a reorder (lib/proof-gate.carryProofFields):
     // approved / n_a stay, proof_spec carries whole + carriedFrom provenance.
     // proof_sent_at stays null — a carried-approved item is DONE, not "not sent".
-    ...carryProofFields(src, src.jobs?.job_number || null),
+    ...carryProofFields(src, src.jobs?.job_number || null, opts.srcRef || null),
   }).select("id").single();
   if (itemErr || !ni) return null;
 
@@ -96,9 +97,17 @@ export async function createReorderJob(db: Db, opts: {
   }
   const { data: srcItems } = await db
     .from("items")
-    .select("*, buy_sheet_lines(size, qty_ordered), jobs!inner(id, client_id, job_number, title, job_type, payment_terms, shipping_route, created_at)")
+    .select("*, buy_sheet_lines(size, qty_ordered), jobs!inner(id, client_id, job_number, title, job_type, payment_terms, shipping_route, created_at, type_meta)")
     .in("id", ids);
   const owned = (srcItems || []).filter((it: any) => it.jobs?.client_id === client.id);
+  // Source purchasing ref per item ("4345-I"): invoice # (else job #) + letter =
+  // position in the SOURCE job's sort_order — what the decorator knows it by.
+  const srcJobIds = Array.from(new Set(owned.map((it: any) => it.jobs?.id).filter(Boolean)));
+  const { data: sibs } = srcJobIds.length ? await db.from("items").select("id, job_id").in("job_id", srcJobIds).order("sort_order") : { data: [] as any[] };
+  const letterByItem: Record<string, string> = {};
+  const seen: Record<string, number> = {};
+  for (const sib of (sibs || [])) { const n = seen[sib.job_id] = (seen[sib.job_id] || 0); letterByItem[sib.id] = String.fromCharCode(65 + n); seen[sib.job_id] = n + 1; }
+  const srcRefOf = (it: any) => `${it.jobs?.type_meta?.qb_invoice_number || it.jobs?.job_number || "?"}-${letterByItem[it.id] || "?"}`;
   if (owned.length !== ids.length) throw new Error("Item not found");
   if (!owned.length && !products.length) throw new Error("Cart is empty");
 
@@ -200,7 +209,7 @@ export async function createReorderJob(db: Db, opts: {
     }
     if (!sizes.length) continue;
 
-    const newId = await copyItemIntoJob(db, src, newJobId, { sizes, sortOrder: i, drive: { clientName: client.name, projectTitle: title } });
+    const newId = await copyItemIntoJob(db, src, newJobId, { sizes, sortOrder: i, drive: { clientName: client.name, projectTitle: title }, srcRef: srcRefOf(src) });
     if (!newId) continue;
     if (seedNote) await db.from("items").update({ notes: seedNote }).eq("id", newId);
     itemCount++;
