@@ -14,6 +14,7 @@ import { JOB_DIRECTIVES } from "@/lib/directives";
 import { ClientWorkingSheet } from "@/components/ClientWorkingSheet";
 import { QBCustomerChooser } from "@/components/QBCustomerChooser";
 import { JobStatusBar } from "@/components/JobStatusBar";
+import { ItemsPeekRail } from "@/components/JobItemsPeek";
 import { deriveProjectStage } from "@/lib/project-stage";
 import { loadJobPhasesBatch } from "@/lib/item-state";
 
@@ -75,7 +76,7 @@ export default function ClientSpacePage() {
         supabase.from("jobs")
           // shipping_route / phase_timestamps / quote_approved_at + the item money
           // and lifecycle fields feed the Working Sheet in the Pipeline section.
-          .select("id, job_number, title, phase, payment_terms, target_ship_date, created_at, quote_approved, quote_approved_at, shipping_route, phase_timestamps, type_meta, costing_summary, items(id, name, created_at, blank_sku, blank_vendor, garment_type, drive_link, pipeline_stage, artwork_status, received_at_hpd, forwarded_at, webstore_entered_at, sell_per_unit, client_retail_per_unit, client_eta, notes, archived_at, completed_at, shipping_route, blanks_order_cost, blanks_order_number, product_id, design_id, decorator_assignments(decorators(name, short_code)), buy_sheet_lines(size, qty_ordered)), payment_records(id, amount, status, due_date, paid_date, invoice_number)")
+          .select("id, job_number, title, phase, payment_terms, target_ship_date, created_at, quote_approved, quote_approved_at, shipping_route, phase_timestamps, type_meta, costing_summary, items(id, name, sort_order, ship_est, expected_arrival, created_at, blank_sku, blank_vendor, garment_type, drive_link, pipeline_stage, artwork_status, received_at_hpd, forwarded_at, webstore_entered_at, sell_per_unit, client_retail_per_unit, client_eta, notes, archived_at, completed_at, shipping_route, blanks_order_cost, blanks_order_number, product_id, design_id, decorator_assignments(decorators(name, short_code)), buy_sheet_lines(size, qty_ordered)), payment_records(id, amount, status, due_date, paid_date, invoice_number)")
           .eq("client_id", id).order("created_at", { ascending: false }),
         supabase.from("releases").select("*").eq("client_id", id).order("created_at", { ascending: false }),
         supabase.from("products").select("*").eq("client_id", id).order("created_at", { ascending: false }),
@@ -139,7 +140,7 @@ export default function ClientSpacePage() {
       })().catch(() => {});
       (async () => {
         const ids = activeJs.flatMap(j => (j.items || []).map((i: any) => i.id));
-        const ps: Record<string, { allApproved: boolean }> = {};
+        const ps: Record<string, { allApproved: boolean; state: "approved" | "revision" | "pending" | "none" }> = {};
         for (let i = 0; i < ids.length; i += 150) {
           const { data: files } = await supabase.from("item_files")
             .select("item_id, stage, approval").eq("stage", "proof").is("superseded_at", null)
@@ -148,7 +149,11 @@ export default function ClientSpacePage() {
           for (const f of (files || []) as any[]) (byItem[f.item_id] ||= []).push(f);
           for (const id of ids.slice(i, i + 150)) {
             const proofs = byItem[id] || [];
-            ps[id] = { allApproved: proofs.length > 0 && proofs.every((f: any) => f.approval === "approved") };
+            // state mirrors /projects so the items peek labels read the same on both.
+            const state = proofs.some((f: any) => f.approval === "revision_requested") ? "revision"
+              : (proofs.length > 0 && proofs.every((f: any) => f.approval === "approved")) ? "approved"
+              : proofs.length > 0 ? "pending" : "none";
+            ps[id] = { allApproved: state === "approved", state };
           }
         }
         setProofStatus(ps);
@@ -277,7 +282,7 @@ export default function ClientSpacePage() {
 
         {section === "Overview" && (
           <>
-            <ActionFeed jobs={jobs} phaseViews={phaseViews} proofStatus={proofStatus} router={router} secHead={secHead} />
+            <ActionFeed jobs={jobs} phaseViews={phaseViews} proofStatus={proofStatus} thumbs={itemThumbs} router={router} secHead={secHead} />
             <Overview client={client} contacts={contacts} wire={wire} model={model} briefs={briefs} secHead={secHead} onEdit={() => setEditOpen(true)} />
           </>
         )}
@@ -776,7 +781,7 @@ function EditClientModal({ client, contacts, onClose, onSaved }: any) {
 // above act (our amber move) above wait (client's court). The bar's amber/red
 // segments ARE the action items; clicking a segment deep-links, clicking the
 // row opens the job. ──
-function ActionFeed({ jobs, phaseViews, proofStatus, router, secHead }: any) {
+function ActionFeed({ jobs, phaseViews, proofStatus, thumbs, router, secHead }: any) {
   const [raised, setRaised] = useState<string | null>(null);
   const rows = jobs
     .filter((j: any) => !["complete", "cancelled"].includes(j.phase))
@@ -801,6 +806,8 @@ function ActionFeed({ jobs, phaseViews, proofStatus, router, secHead }: any) {
           <div style={{ flex: 1, minWidth: 0 }} onClick={e => e.stopPropagation()}>
             <JobStatusBar job={job} stage={stage} items={job.items} payments={job.payment_records} navigate />
           </div>
+          {/* Items peek — same thumb rail + expanded modal as the /projects strip. */}
+          <ItemsPeekRail job={job} stage={stage} thumbs={thumbs || {}} proofStatus={proofStatus} onOpen={() => router.push(`/jobs/${job.id}`)} onPeekChange={o => setRaised(o ? job.id : null)} />
         </div>
       ))}
     </div>
