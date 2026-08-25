@@ -870,6 +870,13 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
     mockupReplacing: replacingMockup,
     setMockupCrop,
     resolveHex,
+    // Per-proof PSD pull — the classic sidebar's Re-pull button, restored for
+    // the inline editor. Replaces location names/sizes/colors from THIS item's
+    // print-ready PSD(s); callouts carry over by name, method/instructions/
+    // notes untouched. Independent of Costing's job-wide Pull from PSDs.
+    pullFromPsd: activePsdFiles(files).length ? repullFromPsd : null,
+    pullingPsd: loadingPsd,
+    psdNewer,
   };
   // Editor sees the effective summary (override ?? auto) so the auto text is
   // visible + editable; Preview/client use the raw buildSpec (auto stays omitted

@@ -11,7 +11,7 @@ const LOCATION_PRESETS = ["Front","Back","Left Sleeve","Right Sleeve","Left Ches
 const SHARE_GROUPS = ["1","2","3","4","5","6","7","8","9","10"];
 const TAG_SHARE_GROUPS = ["T1","T2","T3","T4","T5","T6","T7","T8","T9","T10"];
 
-export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = [], onAddDecorator, updateProd, setCostProds, lookupPrintPrice, lookupTagPrice, costingLocked = false, hideVendorApplyAll = false }) {
+export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = [], onAddDecorator, updateProd, setCostProds, lookupPrintPrice, lookupTagPrice, headerExtra = null, flush = false, costingLocked = false, hideVendorApplyAll = false }) {
   const isMobile = useIsMobile();
   const pr = PRINTERS[p.printVendor] || {};
   const [forceExpanded, setForceExpanded] = useState(false);
@@ -177,7 +177,7 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
   }
 
   return (
-    <div style={{display:"flex",flexDirection:"column",gap:10,paddingLeft:isMobile?0:20,...(costingLocked?{pointerEvents:"none",opacity:0.6}:{})}}>
+    <div style={{display:"flex",flexDirection:"column",gap:10,paddingLeft:(flush||isMobile)?0:20,...(costingLocked?{pointerEvents:"none",opacity:0.6}:{})}}>
       {/* Header */}
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",paddingBottom:8,borderBottom:"2px solid "+T.text}}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
@@ -189,6 +189,8 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
             </button>
           )}
         </div>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+        {headerExtra}
         {i>0&&costProds[i-1]&&<button onClick={()=>{const prev=costProds[i-1];updateProd(i,{...p,
           printVendor:prev.printVendor,
           decorationType:prev.decorationType||"",
@@ -202,6 +204,7 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
           customCosts:prev.customCosts?JSON.parse(JSON.stringify(prev.customCosts)):[]
         });}}
           style={{fontSize:10,color:T.accent,fontFamily:font,background:T.accentDim,border:"1px solid "+T.accent+"44",borderRadius:5,cursor:"pointer",padding:"2px 10px",fontWeight:600}}>⎘ Copy from previous</button>}
+        </div>
       </div>
 
       {/* Vendor + Decoration Type — single row */}
@@ -325,7 +328,7 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
             <div key={loc} style={{background:isActive?T.surface:"transparent",border:`1px solid ${isActive?T.border:T.border+"66"}`,borderRadius:8,padding:"6px 10px",display:"flex",alignItems:"center",gap:isMobile?6:10,minHeight:38,flexWrap:isMobile?"wrap":"nowrap"}}>
               {/* Location name — fixed-width column so colors below
                   line up across all rows. */}
-              <div style={{width:isMobile?120:170,flexShrink:0,position:"relative"}}>
+              <div style={{flex:isMobile?"1 1 120px":"1 1 260px",minWidth:isMobile?120:200,position:"relative"}}>
                 <input value={ld.location||""} onChange={e=>updateLoc(loc,{location:e.target.value,printer:p.printVendor})}
                   list={`loc-presets-${i}-${loc}`}
                   style={{background:"transparent",border:"none",outline:"none",color:T.text,fontSize:13,fontWeight:700,fontFamily:font,width:"100%",padding:0}}
@@ -418,11 +421,6 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
                 );
               })()}
 
-              {/* Spacer — pushes the cost column to the far right
-                  edge while everything else stays anchored on the
-                  left in stable columns. */}
-              <div style={{flex:1,minWidth:0}} />
-
               {/* Effective qty + per-unit cost, right-aligned. Shows
                   "Minimum not met" in red when below first tier and
                   the decorator has no minimum charge configured —
@@ -456,10 +454,9 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
             if (!p.isFleece) return null;
             return (
               <div key={"sp-"+key} style={{background:T.surface,border:`1px solid ${T.green}44`,borderRadius:8,padding:"6px 10px",display:"flex",alignItems:"center",gap:isMobile?6:10,minHeight:38}}>
-                <span style={{width:isMobile?120:170,flexShrink:0,fontSize:13,fontWeight:700,color:T.green,fontFamily:font}}>{key}</span>
+                <span style={{flex:isMobile?"1 1 120px":"1 1 260px",minWidth:isMobile?120:200,fontSize:13,fontWeight:700,color:T.green,fontFamily:font}}>{key}</span>
                 <span style={{fontSize:10,color:T.muted,textTransform:"uppercase",letterSpacing:"0.06em",fontWeight:600}}>auto · fleece · {allPrintCount} print{allPrintCount===1?"":"s"}</span>
-                <div style={{flex:1,minWidth:0}}/>
-                <span style={{fontSize:14,fontWeight:700,color:T.green,fontFamily:mono,flexShrink:0}}>${(rate*allPrintCount).toFixed(2)}</span>
+                    <span style={{fontSize:14,fontWeight:700,color:T.green,fontFamily:mono,flexShrink:0}}>${(rate*allPrintCount).toFixed(2)}</span>
               </div>
             );
           }
@@ -469,7 +466,7 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
           const count = stored>0&&stored<activeLocs?stored:activeLocs;
           return (
             <div key={"sp-"+key} style={{background:T.surface,border:`1px solid ${T.green}44`,borderRadius:8,padding:"6px 10px",display:"flex",alignItems:"center",gap:isMobile?6:10,minHeight:38,flexWrap:isMobile?"wrap":"nowrap"}}>
-              <span style={{width:isMobile?120:170,flexShrink:0,fontSize:13,fontWeight:700,color:T.green,fontFamily:font}}>{key}</span>
+              <span style={{flex:isMobile?"1 1 120px":"1 1 260px",minWidth:isMobile?120:200,fontSize:13,fontWeight:700,color:T.green,fontFamily:font}}>{key}</span>
               <div style={{display:"flex",alignItems:"center",gap:4,flexShrink:0}}>
                 <input type="text" inputMode="numeric" value={count||""} onChange={e=>updateProd(i,{...p,specialtyQtys:{...(p.specialtyQtys||{}),[key+"_count"]:parseInt(e.target.value)||0}})}
                   style={{width:34,textAlign:"center",background:T.card,border:`1px solid ${T.border}`,borderRadius:5,color:T.text,fontSize:13,fontWeight:700,fontFamily:mono,outline:"none",padding:"3px 4px"}}/>
@@ -478,8 +475,7 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
               <button onClick={()=>updateProd(i,{...p,specialtyQtys:{...(p.specialtyQtys||{}),[key+"_on"]:0}})}
                 style={{background:"none",border:"none",color:T.faint,cursor:"pointer",fontSize:15,flexShrink:0,padding:"0 2px",lineHeight:1}}
                 onMouseEnter={e=>e.currentTarget.style.color=T.red} onMouseLeave={e=>e.currentTarget.style.color=T.faint}>×</button>
-              <div style={{flex:1,minWidth:0}}/>
-              <span style={{fontSize:14,fontWeight:700,color:T.green,fontFamily:mono,flexShrink:0}}>${(rate*count).toFixed(2)}</span>
+                <span style={{fontSize:14,fontWeight:700,color:T.green,fontFamily:mono,flexShrink:0}}>${(rate*count).toFixed(2)}</span>
             </div>
           );
         })}
@@ -488,7 +484,7 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
             of the old chip modal). Same row chrome as a location line. ── */}
         {(p.customCosts||[]).map((cc,ci)=>(
           <div key={"cc"+ci} style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:8,padding:"6px 10px",display:"flex",alignItems:"center",gap:isMobile?6:10,minHeight:38,flexWrap:isMobile?"wrap":"nowrap"}}>
-            <div style={{width:isMobile?120:170,flexShrink:0}}>
+            <div style={{flex:isMobile?"1 1 120px":"1 1 260px",minWidth:isMobile?120:200}}>
               <input value={cc.desc||""} onChange={e=>{const c=[...(p.customCosts||[])];c[ci]={...c[ci],desc:e.target.value};updateProd(i,{...p,customCosts:c});}}
                 placeholder="Custom cost..."
                 style={{background:"transparent",border:"none",outline:"none",color:T.text,fontSize:13,fontWeight:700,fontFamily:font,width:"100%",padding:0}}/>
@@ -510,7 +506,6 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
             <button onClick={()=>{const c=(p.customCosts||[]).filter((_,j)=>j!==ci);updateProd(i,{...p,customCosts:c});}}
               style={{background:"none",border:"none",color:T.faint,cursor:"pointer",fontSize:15,flexShrink:0,padding:"0 2px",lineHeight:1}}
               onMouseEnter={e=>e.currentTarget.style.color=T.red} onMouseLeave={e=>e.currentTarget.style.color=T.faint}>×</button>
-            <div style={{flex:1,minWidth:0}}/>
             <span style={{fontSize:14,fontWeight:700,color:T.text,fontFamily:mono,flexShrink:0}}>
               {(()=>{const v=parseFloat(cc.perUnit||cc.amount)||0;return cc.flat?`$${v.toFixed(2)} flat`:`$${v.toFixed(2)}`;})()}
             </span>
@@ -522,7 +517,7 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
             <button key={"add-"+key}
               onClick={()=>{const nq={...(p.specialtyQtys||{}),[key+"_on"]:1};if(!nq[key+"_count"])nq[key+"_count"]=activeLocs;updateProd(i,{...p,specialtyQtys:nq});}}
               title={`$${Number(rate).toFixed(2)} per print, per unit`}
-              style={{fontSize:11,fontWeight:600,color:T.faint,background:"none",border:`1px dashed ${T.border}66`,borderRadius:8,padding:"8px 10px",cursor:"pointer",fontFamily:font}}
+              style={{fontSize:11,fontWeight:600,color:T.faint,background:"none",border:`1px dashed ${T.border}66`,borderRadius:8,padding:"5px 9px",cursor:"pointer",fontFamily:font}}
               onMouseEnter={e=>{e.currentTarget.style.color=T.text;e.currentTarget.style.borderColor=T.border;}}
               onMouseLeave={e=>{e.currentTarget.style.color=T.faint;e.currentTarget.style.borderColor=T.border+"66";}}>
               + {key}
@@ -531,7 +526,7 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
           {/* (setup fees no longer need add chips — the full breakdown renders above) */}
           {(p.customCosts||[]).length < 6 && (
             <button onClick={()=>updateProd(i,{...p,customCosts:[...(p.customCosts||[]),{desc:"",perUnit:0,flat:false}]})}
-              style={{fontSize:11,fontWeight:600,color:T.faint,background:"none",border:`1px dashed ${T.border}66`,borderRadius:8,padding:"8px 10px",cursor:"pointer",fontFamily:font,textAlign:"left"}}
+              style={{fontSize:11,fontWeight:600,color:T.faint,background:"none",border:`1px dashed ${T.border}66`,borderRadius:8,padding:"5px 9px",cursor:"pointer",fontFamily:font,textAlign:"left"}}
               onMouseEnter={e=>{e.currentTarget.style.color=T.text;e.currentTarget.style.borderColor=T.border;}}
               onMouseLeave={e=>{e.currentTarget.style.color=T.faint;e.currentTarget.style.borderColor=T.border+"66";}}>
               + Custom cost
@@ -555,7 +550,9 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
         });
         const hasPackaging = p.printVendor && pr.packaging && Object.keys(pr.packaging).length > 0;
         return (
-          <div style={{display:"flex",flexDirection:isMobile?"column":"row",gap:isMobile?12:24,flexWrap:"wrap",alignItems:isMobile?"stretch":"flex-start",padding:"4px 0"}}>
+          <div style={isMobile ? {display:"flex",flexDirection:"column",gap:12,padding:"4px 0"} : {display:"grid",gridTemplateColumns:"minmax(0,1fr) 300px",gap:24,alignItems:"start",padding:"4px 0"}}>
+            {/* left: Tag · Packaging · Item add-ons stacked; right: Setup fees table at the same height */}
+            <div style={{display:"flex",flexDirection:"column",gap:14,minWidth:0}}>
             {/* Tag */}
             <div style={{display:"flex",flexDirection:"column",gap:0,minWidth:isMobile?0:300}}>
               <div style={sectionLabel}>Tag print</div>
@@ -651,11 +648,12 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
               </div>
             )}
 
+            </div>
             {/* Setup fees — condensed column, right of the selection strips.
                 Full modal breakdown (every fee, count × rate = flat total,
                 zeros dimmed) in tight single lines. Same auto/dedupe logic. */}
             {p.printVendor && pr.setup && Object.keys(pr.setup).length > 0 && (
-              <div style={{display:"flex",flexDirection:"column",gap:0,minWidth:isMobile?0:250,marginLeft:isMobile?0:"auto",flex:isMobile?"1 1 100%":"0 1 280px"}}>
+              <div style={{display:"flex",flexDirection:"column",gap:0,minWidth:0}}>
                 <div style={sectionLabel}>Setup fees</div>
                 <div style={{display:"flex",flexDirection:"column"}}>
                   {Object.keys(pr.setup).map(key=>{

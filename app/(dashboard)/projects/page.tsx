@@ -3,58 +3,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
-import { BoardFrame, SliceSortRow, ModalShell } from "@/components/board-kit";
+import { BoardFrame, SliceSortRow } from "@/components/board-kit";
+import { firstItemDue, closedAt } from "@/lib/project-due";
+import { ItemsPeekRail, fmtStamp } from "@/components/JobItemsPeek";
 import { loadJobPhasesBatch } from "@/lib/item-state";
 import { deriveProjectStage, PROJ_MILESTONES, type ProjStage } from "@/lib/project-stage";
 import { JobStatusBar } from "@/components/JobStatusBar";
 import { etaCountdown } from "@/lib/eta";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { fmtDay } from "@/lib/dates";
-
-// An item has finished its lifecycle when its ROUTE says so (item route
-// overrides job route — mig 076): drop_ship = shipped from vendor,
-// ship_through = forwarded to client, stage = entered in the webstore.
-function itemLifecycleDone(it: any, jobRoute: string): boolean {
-  const route = it.shipping_route || jobRoute || "ship_through";
-  if (route === "drop_ship") return it.pipeline_stage === "shipped";
-  if (route === "stage") return !!it.webstore_entered_at;
-  return !!it.forwarded_at;
-}
-
-// The board countdown target: the EARLIEST expected date among items still in
-// flight. Internal proxy = the per-item production/receiving date (ship_est ▸
-// legacy expected_arrival); the chain-resolved CLIENT ETA lives on the customer
-// surfaces. client_eta is retired. Final fallback: the earliest agreed/live
-// vendor ship-by from the PO tab's vendor chips (type_meta.po_ship_live /
-// po_ship_dates) — most jobs carry their dates THERE, not on target_ship_date.
-function vendorShipFallback(job: any, liveVendors: Set<string> | null): string | null {
-  const tm = job.type_meta || {};
-  const dates: string[] = [];
-  for (const src of [tm.po_ship_live, tm.po_ship_dates]) {
-    for (const [vendor, v] of Object.entries(src || {})) {
-      // NEXT item due (Jon, Jul 28): a vendor whose items are ALL finished
-      // must stop contributing dates — stale May ship-bys were pinning
-      // months-old jobs to the top of the board "for no reason". When we
-      // can't resolve vendors (no assignments loaded), count everything.
-      if (liveVendors && !liveVendors.has(vendor)) continue;
-      if (typeof v === "string" && /^\d{4}-\d{2}-\d{2}/.test(v)) dates.push(v.slice(0, 10));
-    }
-  }
-  return dates.length ? dates.sort()[0] : null;
-}
-function firstItemDue(job: any): string | null {
-  const liveItems = ((job.items || []) as any[]).filter(it => !itemLifecycleDone(it, job.shipping_route));
-  const dates = liveItems.map(it => it.ship_est || it.expected_arrival || null).filter(Boolean) as string[];
-  if (dates.length) return dates.sort()[0];
-  // Fallback: vendor ship-bys, but only from vendors that still have live items.
-  const liveVendors = new Set<string>();
-  let anyResolved = false;
-  for (const it of liveItems) {
-    const dec = (it.decorator_assignments || [])[0]?.decorators;
-    if (dec) { anyResolved = true; if (dec.name) liveVendors.add(dec.name); if (dec.short_code) liveVendors.add(dec.short_code); }
-  }
-  return vendorShipFallback(job, anyResolved ? liveVendors : null);
-}
 
 // Projects Board V2 — the "find the job that needs action" board, on the shared
 // V2 board-kit (matches /receiving chrome). Each job = a strip with a ticked
@@ -320,12 +277,6 @@ export default function ProjectsBoard() {
   );
 }
 
-// When a completed job actually closed: the lifecycle stamp, else last touch.
-function closedAt(job: any): string | null {
-  return (job.phase_timestamps as any)?.complete || job.updated_at || null;
-}
-const fmtStamp = (iso: string | null) => iso ? new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—";
-
 // Money state for a strip: paid against the invoice total (QB with tax, else
 // costing gross). "none" = nothing invoiced and no value to chase.
 function payState(job: any): { state: "paid" | "partial" | "unpaid" | "none"; due: number } {
@@ -337,25 +288,9 @@ function payState(job: any): { state: "paid" | "partial" | "unpaid" | "none"; du
   return { state: paid > 0 ? "partial" : "unpaid", due };
 }
 
-// Per-item state for the peek — flat uppercase color text (v2 style).
-function itemPeekState(it: any, ps?: { state?: string }): [string, string] {
-  if (it.received_at_hpd) return ["Received", T.green];
-  if (it.pipeline_stage === "shipped") return ["Shipped", T.blue];
-  if (it.pipeline_stage === "in_production") return ["In production", T.blue];
-  if (it.artwork_status === "approved" || ps?.state === "approved") return ["Proof approved", T.green];
-  if (ps?.state === "revision") return ["Revision requested", T.amber];
-  if (ps?.state === "pending") return ["Proof pending", T.amber];
-  return ["No proof yet", T.faint];
-}
-
 function Strip({ r, thumbs, proofStatus, completed = false, flash = false, onOpen, onRemember }: { r: Row; thumbs: Record<string, string>; proofStatus?: Record<string, { state?: string }>; completed?: boolean; flash?: boolean; onOpen: () => void; onRemember?: () => void }) {
   const { job, stage } = r;
   const isMobile = useIsMobile();
-  const [peek, setPeek] = useState(false); // inline items panel
-  const items = ([...(job.items || [])] as any[]).sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
-  // thumb=1 — serve Drive's pre-rendered thumbnail, NOT the multi-MB original
-  // (these render at 30-52px; the original PNG was the board's slow part).
-  const thumbUrl = (id: string, size: number) => `/api/files/thumbnail?id=${thumbs[id]}&thumb=1&size=${size}`;
   // Once a QB invoice # is assigned that's the number used everywhere (POs tie to
   // it, it matches QB) — lead with it, fall back to the job number pre-invoice.
   const invNo = (job.type_meta as any)?.qb_invoice_number || job.job_number;
@@ -428,19 +363,10 @@ function Strip({ r, thumbs, proofStatus, completed = false, flash = false, onOpe
         ) : (
           <JobStatusBar job={job} stage={stage} items={job.items} payments={job.payment_records} navigate onHoverChange={setRaised} onBeforeNavigate={onRemember} />
         )}
-        {/* Items peek toggle — overlapping mockup thumbs; click expands the panel. */}
-        {items.length > 0 && (
-          <button onClick={e => { e.stopPropagation(); setPeek(p => !p); }} title={peek ? "Hide items" : `Peek ${items.length} item${items.length === 1 ? "" : "s"}`}
-            style={{ display: "flex", alignItems: "center", justifyContent: isMobile ? "flex-start" : "flex-end", width: isMobile ? "auto" : 130, flexShrink: 0, marginLeft: isMobile ? 0 : 14, padding: 0, background: "none", border: "none", cursor: "pointer" }}>
-            {items.slice(0, 4).map((it: any, i: number) => (
-              <div key={it.id} style={{ width: 30, height: 30, borderRadius: 7, border: `2px solid ${peek ? T.text : T.card}`, background: T.surface, overflow: "hidden", marginLeft: i === 0 ? 0 : -9, boxShadow: "0 1px 3px rgba(0,0,0,.12)", flexShrink: 0 }}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                {thumbs[it.id] && <img src={thumbUrl(it.id, 60)} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} />}
-              </div>
-            ))}
-            <span style={{ fontFamily: mono, fontSize: 10, fontWeight: 800, color: T.muted, marginLeft: 6 }}>{items.length > 4 ? `+${items.length - 4}` : ""}{peek ? "▴" : "▾"}</span>
-          </button>
-        )}
+        {/* Items peek — thumb cluster + V2 items modal (shared with the client-profile action feed). */}
+        <div style={{ marginLeft: isMobile ? 0 : 14, display: "flex" }}>
+          <ItemsPeekRail job={job} stage={stage} thumbs={thumbs} proofStatus={proofStatus} completed={completed} onOpen={onOpen} align={isMobile ? "left" : "right"} width={isMobile ? "auto" : 130} />
+        </div>
         {/* Dates rail — opened date + countdown to expected completion (active only;
             completed strips carry the timeline instead). */}
         {!completed && (isMobile ? (
@@ -463,52 +389,6 @@ function Strip({ r, thumbs, proofStatus, completed = false, flash = false, onOpe
           </div>
         ))}
       </div>
-      {/* Items peek — V2 modal (eyebrow → title → summary strip → cards → footer). */}
-      {peek && (
-        <div onClick={e => e.stopPropagation()} style={{ cursor: "default" }}>
-          <ModalShell onClose={() => setPeek(false)} maxWidth={560}>
-            <div style={{ padding: "18px 22px 14px", borderBottom: `1px solid ${T.border}` }}>
-              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: T.faint, fontFamily: mono }}>{invNo} · {routeLabel[stage.route] || stage.route}</div>
-              <div style={{ fontSize: 17, fontWeight: 700, marginTop: 3 }}>{(job.clients as any)?.name || "—"}{job.title ? <span style={{ color: T.muted, fontWeight: 400 }}> · {job.title}</span> : null}</div>
-            </div>
-            <div style={{ display: "flex", gap: 26, padding: "12px 22px", background: T.surface, flexWrap: "wrap" }}>
-              {[
-                ["Items", String(items.length)],
-                ["Units", String(items.reduce((a: number, it: any) => a + ((it.buy_sheet_lines || []) as any[]).reduce((x: number, l: any) => x + (Number(l.qty_ordered) || 0), 0), 0).toLocaleString())],
-                completed ? ["Completed", fmtStamp(closedAt(job))] : ["First due", firstDue ? `~${fmtDay(firstDue)}` : "TBD"],
-              ].map(([k, v]) => (
-                <div key={k}>
-                  <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: T.faint }}>{k}</div>
-                  <div style={{ fontFamily: mono, fontSize: 14, fontWeight: 700, marginTop: 1, fontVariantNumeric: "tabular-nums" }}>{v}</div>
-                </div>
-              ))}
-            </div>
-            <div style={{ padding: "14px 22px", display: "flex", flexDirection: "column", gap: 8, maxHeight: 420, overflowY: "auto" }}>
-              {items.map((it: any) => {
-                const units = ((it.buy_sheet_lines || []) as any[]).reduce((a, l) => a + (Number(l.qty_ordered) || 0), 0);
-                const [lbl, clr] = itemPeekState(it, proofStatus?.[it.id]);
-                return (
-                  <div key={it.id} style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
-                    <div style={{ width: 52, height: 52, borderRadius: 9, background: T.surface, overflow: "hidden", flexShrink: 0, border: `1px solid ${T.border}` }}>
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      {thumbs[it.id] && <img src={thumbUrl(it.id, 104)} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover" }} />}
-                    </div>
-                    <div style={{ minWidth: 0, flex: 1 }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{it.name || "Item"}</div>
-                      <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: ".05em", textTransform: "uppercase", color: clr, marginTop: 3 }}>{lbl}</div>
-                    </div>
-                    {units > 0 && <div style={{ fontFamily: mono, fontSize: 12, color: T.muted, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>{units} u</div>}
-                  </div>
-                );
-              })}
-            </div>
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, padding: "14px 22px", borderTop: `1px solid ${T.border}` }}>
-              <button onClick={() => setPeek(false)} style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "9px 16px", border: `1px solid ${T.border}`, background: T.card, color: T.text, cursor: "pointer", fontFamily: font }}>Close</button>
-              <button onClick={onOpen} style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "9px 18px", border: "none", background: T.text, color: "#0a0a0a", cursor: "pointer", fontFamily: font }}>Open project →</button>
-            </div>
-          </ModalShell>
-        </div>
-      )}
     </div>
   );
 }

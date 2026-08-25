@@ -345,16 +345,6 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   const [open, setOpen] = useState<Record<string, boolean>>({ products: true, client: false, production: true, logistics: false });
   const toggle = (k: string) => setOpen(o => ({ ...o, [k]: !o[k] }));
 
-  // Recent projects — feed the hub sidebar's RECENT list.
-  useEffect(() => {
-    if (!job?.id) return;
-    try {
-      const list = (JSON.parse(localStorage.getItem("opshub_recent_jobs") || "[]") as any[]).filter(r => r.id !== job.id);
-      list.unshift({ id: job.id, label: job?.clients?.name || job?.title || "Untitled", num: job?.job_number || "" });
-      localStorage.setItem("opshub_recent_jobs", JSON.stringify(list.slice(0, 8)));
-    } catch {}
-  }, [job?.id]);
-
   // ── Legacy ?tab= deep links (emails, notifications, bookmarks) — map the
   // classic tab names onto V2 blocks: open the block and scroll to it. Old
   // links keep working forever without touching any sender. ──
@@ -888,6 +878,17 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       try { logJobActivity(job.id, "Quote approved (internal)"); } catch {}
       recalcPhase();
     } finally { setActBusy(false); }
+  };
+  // Re-sync QB — push current pricing/qtys to the EXISTING QB invoice in place,
+  // no client email (the QB half of Send revised invoice). Until now the only
+  // way to clear a stale invoice was to re-send it. ⋯ menu item.
+  const doResyncQb = async () => {
+    if (actBusy) return; setActBusy(true); setActErr(""); setClientMenu(false);
+    try {
+      const pr = await pushInvoiceToQB(job);
+      if (!pr.ok) { setActErr("Multiple QB customers match — run Send invoice once to pick, or resolve in QB."); return; }
+      await refetchTypeMeta();
+    } catch (e: any) { setActErr(e?.message || "QB re-sync failed"); } finally { setActBusy(false); }
   };
   // Quiet QB create — mints the invoice NUMBER only (no pay link, zero
   // emails, no AR row); Send invoice later makes it real. ⋯ menu item.
@@ -1575,6 +1576,9 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   };
 
   const lbl: React.CSSProperties = { fontSize: 9.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: T.faint };
+  // Worksheet + pricing header labels: T.faint (38% white) is unreadable on the
+  // card at these sizes (Jon 2026-08-25) — same eyebrow, readable tier.
+  const wlbl: React.CSSProperties = { ...lbl, color: "rgba(255,255,255,0.72)" };
   const previewBtn: React.CSSProperties = { fontSize: 12, fontWeight: 800, color: T.text, textDecoration: "none", padding: "8px 15px", borderRadius: 999, border: `1px solid ${T.border}`, background: T.card };
   const actBtn: React.CSSProperties = { fontSize: 12, fontWeight: 800, color: "#0a0a0a", background: T.accent, border: "none", borderRadius: 999, padding: "9px 16px", cursor: "pointer", fontFamily: font };
   const ghostBtn: React.CSSProperties = { ...previewBtn, cursor: "pointer", fontFamily: font };
@@ -1597,6 +1601,82 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   );
 
   const it = wsIndex !== null ? items[wsIndex] : null;
+
+  // ── Job pricing — margin / shipping / CC toggles / cost request / lock +
+  // project totals. ONE computation, two renders: "full" = the worksheet's
+  // pinned footer (adjust margin without leaving the item — Jon 2026-08-25),
+  // "summary" = read-only totals in the Products header. Job-wide either way.
+  const renderPricing = (mode: "full" | "summary") => {
+            let rev = 0, blank = 0, po = 0, ship = 0;
+            items.forEach((it: any) => { const r: any = calcFor(it); const q = qtyOf(it); rev += (Number(it.sell_per_unit) || 0) * q; if (r) { blank += r.blankCost || 0; po += r.poTotal || 0; ship += r.shipping || 0; } });
+            const cc = inclCC ? rev * 0.03 : 0;
+            const cost = blank + po + ship + cc;
+            const profit = rev - cost;
+            const margin = rev > 0 ? profit / rev : 0;
+            const marginColor = margin >= 0.30 ? T.green : margin >= 0.20 ? T.amber : T.red;
+            const actualBlanks = items.reduce((a: number, it: any) => a + (Number(it.blanks_order_cost) || 0), 0);
+            const isCommitted = !!(job.quote_approved || job.type_meta?.quote_sent_at);
+            const tog = (on: boolean, label: string, onClick: () => void) => (
+              <button onClick={() => !locked && onClick()} disabled={locked} style={{ display: "flex", alignItems: "center", gap: 7, background: "none", border: "none", cursor: locked ? "default" : "pointer", fontFamily: font, opacity: locked ? 0.6 : 1 }}>
+                <span style={{ width: 30, height: 17, borderRadius: 9, background: on ? T.accent : T.card, border: `1px solid ${on ? T.accent : T.border}`, position: "relative" }}><span style={{ position: "absolute", top: 2, left: on ? 14 : 2, width: 11, height: 11, borderRadius: "50%", background: on ? T.bg : "#fff" }} /></span>
+                <span style={{ fontSize: 12, color: T.muted }}>{label}</span>
+              </button>
+            );
+            if (mode === "summary") {
+              // Products header: read-only project totals at a glance. Controls
+              // live in the worksheet footer (open any item to adjust).
+              return (
+                <div style={{ display: "flex", alignItems: "baseline", gap: 18, flexWrap: "wrap", padding: "2px 0 10px", fontFamily: mono, fontSize: 12.5 }}>
+                  {([["Revenue", fmtMoney(rev), T.text], ["Net profit", fmtMoney(profit), marginColor], ["Margin", (margin * 100).toFixed(1) + "%", marginColor]] as any[]).map(([l, v, c]: any) => (
+                    <span key={l}><span style={{ ...wlbl, marginRight: 6 }}>{l}</span><b style={{ color: c }}>{v}</b></span>
+                  ))}
+                  <span style={{ fontSize: 11, color: T.faint, fontFamily: font }}>{costMargin} target{locked ? " · 🔒 locked" : ""} · open any item to adjust</span>
+                </div>
+              );
+            }
+            return (
+              <div style={{ background: T.surface, borderBottom: `1px solid ${T.border}`, padding: "12px 18px", flexShrink: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap", marginBottom: 12 }}>
+                  <span style={{ ...wlbl, color: T.amber }}>Job pricing · all items</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={wlbl}>Margin</span>
+                    <div style={{ display: "flex", gap: 2, background: T.card, borderRadius: 6, padding: 2 }}>
+                      {["10%", "15%", "20%", "25%", "30%"].map(m => (
+                        <button key={m} onClick={() => !locked && recomputeAllSells({ costMargin: m })} disabled={locked}
+                          style={{ background: costMargin === m ? T.amber : "transparent", color: costMargin === m ? "#0a0a0a" : T.muted, border: "none", borderRadius: 4, padding: "3px 8px", fontSize: 11, fontFamily: mono, cursor: locked ? "default" : "pointer" }}>{m}</button>
+                      ))}
+                    </div>
+                  </div>
+                  {tog(inclShip, "Shipping", () => recomputeAllSells({ inclShip: !inclShip }))}
+                  {tog(inclCC, "CC fees", () => recomputeAllSells({ inclCC: !inclCC }))}
+                  <div style={{ flex: 1 }} />
+                  <div style={{ position: "relative" }}>
+                    <button onClick={() => setCostReqMenu(m => !m)} style={{ fontSize: 11, fontWeight: 700, padding: "6px 13px", borderRadius: 999, border: `1px solid ${T.border}`, background: T.card, color: T.text, cursor: "pointer", fontFamily: font }}>Cost request ▾</button>
+                    {costReqMenu && (
+                      <>
+                        <div onClick={() => setCostReqMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+                        <div style={{ position: "absolute", top: 32, right: 0, zIndex: 41, background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, minWidth: 210, padding: 5, boxShadow: "0 12px 40px rgba(0,0,0,0.4)" }}>
+                          <button onClick={() => { setCostReqMenu(false); setRfqOpen(true); }} style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.text, borderRadius: 7 }}>Decorator quote (RFQ)</button>
+                          <button onClick={() => { setCostReqMenu(false); setArtReqOpen(true); }} style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.text, borderRadius: 7 }}>Art pricing request</button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                  {isCommitted && (
+                    <button onClick={toggleUnlock} style={{ fontSize: 11, fontWeight: 800, padding: "6px 13px", borderRadius: 999, border: `1px solid ${locked ? T.amber : T.border}`, background: locked ? T.amber : T.card, color: locked ? "#0a0a0a" : T.text, cursor: "pointer", fontFamily: font }}>{locked ? "🔒 Pricing locked · unlock to revise" : "Re-lock pricing"}</button>
+                  )}
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap" }}>
+                  {([["Revenue", fmtMoney(rev), T.text], ["Blanks", fmtMoney(blank), T.muted], ["Decoration", fmtMoney(po), T.muted], ...(inclShip ? [["Shipping", fmtMoney(ship), T.muted]] : []), ...(inclCC ? [["CC", fmtMoney(cc), T.muted]] : []), ["Net profit", fmtMoney(profit), marginColor], ["Margin", (margin * 100).toFixed(1) + "%", marginColor], ...(actualBlanks > 0 ? [["Actual blanks", fmtMoney(actualBlanks), actualBlanks > blank ? T.red : T.green]] : [])] as any[]).map(([l, v, c]: any, i: number, arr: any[]) => (
+                    <div key={l} style={{ flex: "1 1 auto", minWidth: 74, paddingRight: 12, marginRight: 12, borderRight: i < arr.length - 1 ? `1px solid ${T.border}44` : "none" }}>
+                      <div style={wlbl}>{l}</div>
+                      <div style={{ fontFamily: mono, fontSize: 15, fontWeight: 800, color: c, marginTop: 3 }}>{v}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+  };
 
   return (
     <div style={{ fontFamily: font, color: T.text, maxWidth: 1120, margin: "0 auto", padding: "0 20px 80px" }}>
@@ -1720,66 +1800,8 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       {/* PRODUCTS gallery */}
       {block("products", "done", "Products & Costing", `${items.length} items · ${units.toLocaleString()} units · ${fmtMoney(orderTotal)}`, (
         <>
-          {tip(<><b style={{ color: T.text }}>Everything about the products lives here.</b> The margin buttons and toggles reprice every item instantly — the price each item sells at is what lands on the quote and invoice. Tap a card for its worksheet: <b style={{ color: T.text }}>Build</b> (name, blank, sizes and quantities), <b style={{ color: T.text }}>Cost</b> (decoration, share groups, sell price), <b style={{ color: T.text }}>Art</b> (files and the proof editor). Add products from the catalogs with + Add product, drop PSDs or mockups anywhere on the grid to create items, and drag cards to reorder. Once a quote is sent, pricing locks — Unlock to revise.</>)}
-          {/* job-level costing controls + project totals */}
-          {(() => {
-            let rev = 0, blank = 0, po = 0, ship = 0;
-            items.forEach((it: any) => { const r: any = calcFor(it); const q = qtyOf(it); rev += (Number(it.sell_per_unit) || 0) * q; if (r) { blank += r.blankCost || 0; po += r.poTotal || 0; ship += r.shipping || 0; } });
-            const cc = inclCC ? rev * 0.03 : 0;
-            const cost = blank + po + ship + cc;
-            const profit = rev - cost;
-            const margin = rev > 0 ? profit / rev : 0;
-            const marginColor = margin >= 0.30 ? T.green : margin >= 0.20 ? T.amber : T.red;
-            const actualBlanks = items.reduce((a: number, it: any) => a + (Number(it.blanks_order_cost) || 0), 0);
-            const isCommitted = !!(job.quote_approved || job.type_meta?.quote_sent_at);
-            const tog = (on: boolean, label: string, onClick: () => void) => (
-              <button onClick={() => !locked && onClick()} disabled={locked} style={{ display: "flex", alignItems: "center", gap: 7, background: "none", border: "none", cursor: locked ? "default" : "pointer", fontFamily: font, opacity: locked ? 0.6 : 1 }}>
-                <span style={{ width: 30, height: 17, borderRadius: 9, background: on ? T.accent : T.card, border: `1px solid ${on ? T.accent : T.border}`, position: "relative" }}><span style={{ position: "absolute", top: 2, left: on ? 14 : 2, width: 11, height: 11, borderRadius: "50%", background: on ? T.bg : "#fff" }} /></span>
-                <span style={{ fontSize: 12, color: T.muted }}>{label}</span>
-              </button>
-            );
-            return (
-              <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: "12px 14px", marginBottom: 14 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap", marginBottom: 12 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={lbl}>Margin</span>
-                    <div style={{ display: "flex", gap: 2, background: T.card, borderRadius: 6, padding: 2 }}>
-                      {["10%", "15%", "20%", "25%", "30%"].map(m => (
-                        <button key={m} onClick={() => !locked && recomputeAllSells({ costMargin: m })} disabled={locked}
-                          style={{ background: costMargin === m ? T.amber : "transparent", color: costMargin === m ? "#0a0a0a" : T.muted, border: "none", borderRadius: 4, padding: "3px 8px", fontSize: 11, fontFamily: mono, cursor: locked ? "default" : "pointer" }}>{m}</button>
-                      ))}
-                    </div>
-                  </div>
-                  {tog(inclShip, "Shipping", () => recomputeAllSells({ inclShip: !inclShip }))}
-                  {tog(inclCC, "CC fees", () => recomputeAllSells({ inclCC: !inclCC }))}
-                  <div style={{ flex: 1 }} />
-                  <div style={{ position: "relative" }}>
-                    <button onClick={() => setCostReqMenu(m => !m)} style={{ fontSize: 11, fontWeight: 700, padding: "6px 13px", borderRadius: 999, border: `1px solid ${T.border}`, background: T.card, color: T.text, cursor: "pointer", fontFamily: font }}>Cost request ▾</button>
-                    {costReqMenu && (
-                      <>
-                        <div onClick={() => setCostReqMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
-                        <div style={{ position: "absolute", top: 32, right: 0, zIndex: 41, background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, minWidth: 210, padding: 5, boxShadow: "0 12px 40px rgba(0,0,0,0.4)" }}>
-                          <button onClick={() => { setCostReqMenu(false); setRfqOpen(true); }} style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.text, borderRadius: 7 }}>Decorator quote (RFQ)</button>
-                          <button onClick={() => { setCostReqMenu(false); setArtReqOpen(true); }} style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.text, borderRadius: 7 }}>Art pricing request</button>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                  {isCommitted && (
-                    <button onClick={toggleUnlock} style={{ fontSize: 11, fontWeight: 800, padding: "6px 13px", borderRadius: 999, border: `1px solid ${locked ? T.border : T.amber}`, background: locked ? T.card : T.amber, color: locked ? T.text : "#0a0a0a", cursor: "pointer", fontFamily: font }}>{locked ? "🔒 Unlock to revise" : "Re-lock"}</button>
-                  )}
-                </div>
-                <div style={{ display: "flex", flexWrap: "wrap" }}>
-                  {([["Revenue", fmtMoney(rev), T.text], ["Blanks", fmtMoney(blank), T.muted], ["Decoration", fmtMoney(po), T.muted], ...(inclShip ? [["Shipping", fmtMoney(ship), T.muted]] : []), ...(inclCC ? [["CC", fmtMoney(cc), T.muted]] : []), ["Net profit", fmtMoney(profit), marginColor], ["Margin", (margin * 100).toFixed(1) + "%", marginColor], ...(actualBlanks > 0 ? [["Actual blanks", fmtMoney(actualBlanks), actualBlanks > blank ? T.red : T.green]] : [])] as any[]).map(([l, v, c]: any, i: number, arr: any[]) => (
-                    <div key={l} style={{ flex: "1 1 auto", minWidth: 74, paddingRight: 12, marginRight: 12, borderRight: i < arr.length - 1 ? `1px solid ${T.border}44` : "none" }}>
-                      <div style={lbl}>{l}</div>
-                      <div style={{ fontFamily: mono, fontSize: 15, fontWeight: 800, color: c, marginTop: 3 }}>{v}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            );
-          })()}
+          {tip(<><b style={{ color: T.text }}>Everything about the products lives here.</b> Margin, shipping and CC toggles sit in the footer of every item worksheet and reprice every item instantly — the price each item sells at is what lands on the quote and invoice. Tap a card for its worksheet: <b style={{ color: T.text }}>Build</b> (name, blank, sizes and quantities), <b style={{ color: T.text }}>Cost</b> (decoration, share groups, sell price), <b style={{ color: T.text }}>Art</b> (files and the proof editor). Add products from the catalogs with + Add product, drop PSDs or mockups anywhere on the grid to create items, and drag cards to reorder. Once a quote is sent, pricing locks — Unlock to revise.</>)}
+          {renderPricing("summary")}
           <div style={{ fontSize: 11.5, color: T.faint, padding: "8px 0 12px" }}>Tap a product for its worksheet — sizes, blank cost, decoration, vendor &amp; margin. Drag cards to reorder · drop PSDs/mockups anywhere here to create items.</div>
           {/* auto-FILL (not -fit): empty tracks stay, so one product renders as
               one quarter-width card instead of a full-page banner (Jon, Jul 29) */}
@@ -1913,6 +1935,12 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                           <a key={label} href={href} target="_blank" rel="noreferrer" onClick={() => setClientMenu(false)}
                             style={{ display: "block", padding: "9px 12px", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.text, borderRadius: 7, textDecoration: "none" }}>{label}</a>
                         ))}
+                        {invNum && (
+                          <button onClick={doResyncQb} disabled={actBusy} title={needsRevise ? `Order changed by $${Math.abs(toInvoice).toFixed(2)} — update QB #${invNum} without emailing the client` : `Push current pricing to QB #${invNum} without emailing the client`}
+                            style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: needsRevise ? T.amber : T.muted, borderRadius: 7, background: "none", border: "none", cursor: actBusy ? "default" : "pointer" }}>
+                            {actBusy ? "Syncing QB…" : needsRevise ? `Re-sync QB #${invNum} · don’t send` : "Re-sync QuickBooks"}
+                          </button>
+                        )}
                         {!invNum && (
                           <button onClick={doQuietQb} disabled={actBusy}
                             style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.muted, borderRadius: 7, background: "none", border: "none", cursor: actBusy ? "default" : "pointer" }}>
@@ -1941,19 +1969,21 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
               <div style={{ display: "flex", gap: 44, flexWrap: "wrap", padding: "6px 0 4px" }}>
                 <div style={{ flex: "0 1 auto", minWidth: 220 }}>
                   <div style={{ ...lbl, marginBottom: 4 }}>Order</div>
-                  {row("Quote", flags.approved ? "Sent · Approved" : flags.quoted ? "Sent" : "Not sent")}
+                  {/* "Sent" only when the email actually went (type_meta stamps) — approved
+                      internally / synced-not-sent must never read as sent (Jon 2026-08-25). */}
+                  {row("Quote", flags.approved ? (flags.quoted ? "Sent · Approved" : "Approved internally · not sent") : flags.quoted ? "Sent" : "Not sent")}
                   {row("Proofs", `${artApproved}/${items.length} approved`)}
                 </div>
                 <div style={{ flex: "1 1 auto", minWidth: 260 }}>
                   <div style={{ ...lbl, marginBottom: 4 }}>Billing</div>
                   {row("Invoice", invNum ? (
                     <>
-                      <span>{invNum} · sent</span>
+                      <span>{invNum} · {tm.invoice_sent_at ? "sent" : <span style={{ color: T.amber }}>not sent</span>}</span>
                       {Math.abs(toInvoice) <= 0.01
                         ? <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", color: T.green }}>✓ QB in sync</span>
                         : <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", color: T.amber }} title={`OpsHub order ${fmtMoney(orderTotal)} vs QB ${fmtMoney(invoicedSub)} (pre-tax). Send invoice re-pushes.`}>⚠ off {fmtMoney(Math.abs(toInvoice))} vs QB</span>}
                     </>
-                  ) : "not sent")}
+                  ) : "none")}
                   {tm.qb_invoice_id && row("Pay link", (
                     <>
                       {tm.qb_payment_link
@@ -2300,13 +2330,26 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       {it && (
         <div onClick={e => { if (e.target === e.currentTarget) setWsIndex(null); }}
           style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.72)", zIndex: 300, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: isMobile ? "8px 4px" : "24px 14px", overflowY: "auto" }}>
-          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: isMobile ? 12 : 16, width: "100%", maxWidth: 820, overflow: "hidden" }}>
-            {/* nav strip */}
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", borderBottom: `1px solid ${T.border}55` }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: isMobile ? 12 : 16, width: "100%", maxWidth: 980, overflow: "hidden", display: "flex", flexDirection: "column", maxHeight: isMobile ? "calc(100vh - 16px)" : "calc(100vh - 48px)" }}>
+            {/* job pricing — margin/toggles/lock + totals, fixed at the top above the rail (Jon 2026-08-25) */}
+            {renderPricing("full")}
+            {/* nav strip — ‹ image rail › (tap a tile or arrow to switch) + item actions */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 14px", borderBottom: `1px solid ${T.border}55`, flexShrink: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0 }}>
                 <button onClick={() => setWsIndex((wsIndex! - 1 + items.length) % items.length)} aria-label="Previous item" style={navBtn}>‹</button>
+                <div style={{ flex: 1, minWidth: 0, display: "flex", gap: 8, overflowX: "auto", padding: "3px 2px" }}>
+                  {items.map((x: any, i: number) => {
+                    const on = i === wsIndex;
+                    return (
+                      <button key={x.id} onClick={() => setWsIndex(i)} title={`${String.fromCharCode(65 + i)} · ${x.name}`}
+                        style={{ width: 56, height: 56, borderRadius: 10, flexShrink: 0, padding: 0, background: "#fff", border: "none", outline: on ? `2.5px solid ${T.accent}` : "none", outlineOffset: 1, opacity: on ? 1 : 0.42, transform: on ? "scale(1.04)" : "none", transition: "opacity .12s, transform .12s", cursor: "pointer", overflow: "hidden", position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        {thumbOf(x.id) ? <img src={thumbSrc(thumbOf(x.id))} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} /> : <span style={{ fontSize: 24 }}>👕</span>}
+                        <span style={{ position: "absolute", top: 3, left: 3, width: 15, height: 15, borderRadius: "50%", background: "rgba(255,255,255,0.94)", fontSize: 8.5, fontWeight: 800, color: "#0a0a0a", fontFamily: mono, display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid rgba(0,0,0,0.12)" }}>{String.fromCharCode(65 + i)}</span>
+                      </button>
+                    );
+                  })}
+                </div>
                 <button onClick={() => setWsIndex((wsIndex! + 1) % items.length)} aria-label="Next item" style={navBtn}>›</button>
-                <span style={{ fontFamily: mono, fontSize: 12, color: T.faint, marginLeft: 6 }}>{wsIndex! + 1} / {items.length}</span>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 {!locked && <><div style={{ position: "relative", display: "inline-flex" }}>
@@ -2329,17 +2372,16 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                 <button onClick={() => setWsIndex(null)} aria-label="Close" style={{ ...navBtn, background: T.surface }}>×</button>
               </div>
             </div>
+            {/* scroll region — head + tabs + body; the pricing footer stays put below */}
+            <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
             {/* item head */}
-            <div style={{ display: "flex", gap: 14, padding: "16px 18px", alignItems: "center" }}>
-              <div style={{ width: 56, height: 56, borderRadius: 10, background: "#fff", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26 }}>
-                {thumbOf(it.id) ? <img src={thumbSrc(thumbOf(it.id))} alt="" style={{ width: "100%", height: "100%", objectFit: "contain", borderRadius: 10 }} /> : "👕"}
-              </div>
+            <div style={{ display: "flex", gap: 14, padding: "14px 18px 12px", alignItems: "center" }}>
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 17, fontWeight: 900, letterSpacing: "-0.01em", display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={{ width: 22, height: 22, borderRadius: "50%", background: T.accent, color: "#0a0a0a", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800, fontFamily: mono, flexShrink: 0 }}>{String.fromCharCode(65 + wsIndex!)}</span>
                   <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.name}</span>
                 </div>
-                <div style={{ fontFamily: mono, fontSize: 11.5, color: T.faint, marginTop: 3 }}>{it.blank_vendor || ""} {it.blank_sku || ""} · {qtyOf(it).toLocaleString()} u · ${(Number(it.sell_per_unit) || 0).toFixed(2)}</div>
+                <div style={{ fontFamily: mono, fontSize: 11.5, color: T.muted, marginTop: 3 }}>{it.blank_vendor || ""} {it.blank_sku || ""} · {qtyOf(it).toLocaleString()} u · ${(Number(it.sell_per_unit) || 0).toFixed(2)}</div>
               </div>
             </div>
             {/* task tabs — "click the task you're there to do" */}
@@ -2356,66 +2398,49 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                 const dimensional = !!parseSizeMatrix(sizes, it.qtys || null);
                 return (
                   <div>
-                    {/* name */}
-                    <label style={{ display: "block", marginBottom: 12 }}>
-                      <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Product name</span>
+                    {tip(<>Name, product type, and quantities live here. The blank itself comes from <b style={{ color: T.text }}>Pick/Swap blank</b> (full supplier catalogs) so costs always match a real product. Type a total into <b style={{ color: T.text }}>→ CURVE</b> to spread it across sizes automatically, or Edit sizes for youth, one-size, and pants grids.</>)}
+                    {/* blank — ONE object (vendor style · color), read-only here; the
+                        picker owns it (Pick/Swap blank), same ownership rule as classic. */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", borderRadius: 10, border: `1px solid ${T.border}`, background: T.surface, marginBottom: 14 }}>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <span style={{ ...wlbl, display: "block", marginBottom: 3 }}>Blank</span>
+                        {it.blank_vendor ? (
+                          <div style={{ fontSize: 13.5, fontWeight: 700, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                            {it.blank_vendor}{it.blank_sku ? <span style={{ color: T.muted, fontWeight: 600 }}> · {it.blank_sku}</span> : null}
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: 13, fontWeight: 600, color: T.faint }}>No blank picked</div>
+                        )}
+                      </div>
+                      {!locked && (
+                        <button onClick={() => { setAssignTargetId(it.id); setPickerSrc("src"); }}
+                          style={{ ...ghostBtn, whiteSpace: "nowrap", flexShrink: 0 }}>{it.blank_vendor ? "Swap blank ▸" : "Pick blank ▸"}</button>
+                      )}
+                    </div>
+                    {/* name · product type · fleece on one row; stacks on mobile */}
+                    <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : (locked ? "minmax(0, 1.6fr) minmax(150px, 0.8fr)" : "minmax(0, 1.6fr) minmax(150px, 0.8fr) auto"), gap: 10, marginBottom: 14, alignItems: "end" }}>
+                    <label style={{ minWidth: 0 }}>
+                      <span style={{ ...wlbl, display: "block", marginBottom: 5 }}>Product name</span>
                       <input key={it.id + ":name:" + it.name} defaultValue={it.name || ""} readOnly={locked} onBlur={e => renameItem(it, e.target.value)} style={field} />
                     </label>
-                    {tip(<>Name, product type, and quantities live here. The blank itself comes from <b style={{ color: T.text }}>Pick/Swap blank</b> (full supplier catalogs) so costs always match a real product. Type a total into <b style={{ color: T.text }}>→ CURVE</b> to spread it across sizes automatically, or Edit sizes for youth, one-size, and pants grids.</>)}
-                    {/* garment + blank (editable text; full catalog picker is separate) */}
-                    <div style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
-                      <label style={{ flex: "1 1 130px" }}>
-                        <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Product type</span>
+                      <label style={{ minWidth: 0 }}>
+                        <span style={{ ...wlbl, display: "block", marginBottom: 5 }}>Product type</span>
                         <select value={it.garment_type || ""} disabled={locked} onChange={e => saveGarmentType(it, e.target.value)} style={field}>
                           <option value="">— type —</option>
                           {ADD_GARMENTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                           {it.garment_type && !ADD_GARMENTS.some(([v]) => v === it.garment_type) && <option value={it.garment_type}>{it.garment_type.replace(/_/g, " ")}</option>}
                         </select>
                       </label>
-                      <label style={{ flex: "0 1 120px" }}>
-                        {/* Client retail = what THEIR shop charges. Powers release
-                            planning + re-run prefills; not part of costing math,
-                            so no financial refresh and never locked. */}
-                        <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Client retail</span>
-                        <input key={it.id + ":retail:" + (it.client_retail_per_unit ?? "")} defaultValue={it.client_retail_per_unit ?? ""}
-                          inputMode="decimal" placeholder="$"
-                          onBlur={async e => {
-                            const raw = e.target.value.replace(/[^0-9.]/g, "");
-                            const v = raw === "" ? null : Math.round(Number(raw) * 100) / 100;
-                            if (v === (it.client_retail_per_unit ?? null)) return;
-                            await (createClient().from("items") as any).update({ client_retail_per_unit: v }).eq("id", it.id);
-                            setItems(prev => prev.map((x: any) => x.id === it.id ? { ...x, client_retail_per_unit: v } : x));
-                          }} style={field} />
-                      </label>
                       {!locked && (
-                        <div style={{ flex: "0 0 auto" }}>
-                          {/* hidden caption keeps the button on the same
-                              baseline as the labeled columns beside it */}
-                          <span style={{ ...lbl, display: "block", marginBottom: 5, visibility: "hidden" }}>Fleece</span>
-                          <button onClick={() => toggleFleece(it)} title="Fleece applies the decorator's per-print fleece upcharge + fleece packaging"
-                            style={{ display: "block", fontSize: 10, fontWeight: 700, padding: "10px 12px", borderRadius: 8, border: `1px solid ${it.is_fleece ? T.green : T.border}`, background: it.is_fleece ? T.green : T.card, color: it.is_fleece ? "#fff" : T.muted, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase", fontFamily: font, lineHeight: "17.5px", boxSizing: "border-box" }}>
-                            {it.is_fleece ? "Fleece ✓" : "Fleece?"}
-                          </button>
-                        </div>
-                      )}
-                      {/* Blank + color are READ-ONLY here — the picker owns them
-                          (Pick/Swap blank), same ownership rule as classic. */}
-                      <div style={{ flex: "1 1 130px" }}>
-                        <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Blank</span>
-                        <div style={{ padding: "10px 0", fontSize: 13.5, fontWeight: 700, color: it.blank_vendor ? T.text : T.faint }}>{it.blank_vendor || "—"}</div>
-                      </div>
-                      <div style={{ flex: "1 1 110px" }}>
-                        <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Color</span>
-                        <div style={{ padding: "10px 0", fontSize: 13.5, fontWeight: 700, color: it.blank_sku ? T.text : T.faint }}>{it.blank_sku || "—"}</div>
-                      </div>
-                      {!locked && (
-                        <button onClick={() => { setAssignTargetId(it.id); setPickerSrc("src"); }}
-                          style={{ ...ghostBtn, alignSelf: "flex-end", whiteSpace: "nowrap" }}>{it.blank_vendor ? "Swap blank ▸" : "Pick blank ▸"}</button>
+                        <button onClick={() => toggleFleece(it)} title="Fleece applies the decorator's per-print fleece upcharge + fleece packaging"
+                          style={{ fontSize: 10, fontWeight: 700, padding: "10px 12px", borderRadius: 8, border: `1px solid ${it.is_fleece ? T.green : T.border}`, background: it.is_fleece ? T.green : T.card, color: it.is_fleece ? "#fff" : T.muted, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase", fontFamily: font, whiteSpace: "nowrap", width: isMobile ? "100%" : "auto" }}>
+                          {it.is_fleece ? "Fleece ✓" : "Fleece?"}
+                        </button>
                       )}
                     </div>
                     {/* sizes + qty with remove + add */}
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                      <span style={lbl}>Sizes &amp; quantities</span>
+                      <span style={wlbl}>Sizes &amp; quantities</span>
                       {!locked && <button onClick={() => setEditSizesFor(it.id)} style={{ ...ghostBtn, padding: "4px 11px", fontSize: 11 }}>Edit sizes ▸</button>}
                     </div>
                     {dimensional ? (
@@ -2423,17 +2448,17 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                          go through the full editor (flat inputs would be soup) */
                       <div>
                         <SizeGrid labels={sizes} qtys={it.qtys || {}} palette={{ text: T.text, muted: T.muted, faint: T.faint, border: T.border, surface: T.surface }} mono={mono} />
-                        <div style={{ fontSize: 11, color: T.faint, marginTop: 8 }}>{qtyOf(it).toLocaleString()} units · Edit sizes ▸ opens the grid editor.</div>
+                        <div style={{ fontSize: 11, color: T.muted, marginTop: 8 }}>{qtyOf(it).toLocaleString()} units · Edit sizes ▸ opens the grid editor.</div>
                       </div>
                     ) : (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "flex-end" }}>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "flex-end", padding: "10px 12px", borderRadius: 10, border: `1px solid ${T.border}`, background: T.surface }}>
                       {sizes.map(sz => (
                         <div key={it.id + "_" + sz + ":" + (it.qtys?.[sz] ?? "")} style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "center", position: "relative" }}>
-                          <span style={{ fontSize: 10, fontWeight: 800, color: T.faint, fontFamily: mono }}>{sz}</span>
+                          <span style={{ fontSize: 10, fontWeight: 800, color: T.muted, fontFamily: mono }}>{sz}</span>
                           <input type="text" inputMode="numeric" defaultValue={String(it.qtys?.[sz] ?? 0)} readOnly={locked}
                             onFocus={e => e.target.select()} onBlur={e => saveQty(it, sz, e.target.value)}
                             onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-                            style={{ width: 56, textAlign: "center", padding: "7px 6px", borderRadius: 8, border: `1px solid ${T.border}`, background: locked ? T.card : T.surface, color: locked ? T.muted : T.text, fontSize: 14, fontWeight: 700, fontFamily: mono, outline: "none" }} />
+                            style={{ width: 56, textAlign: "center", padding: "7px 6px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.card, color: locked ? T.muted : T.text, fontSize: 14, fontWeight: 700, fontFamily: mono, outline: "none" }} />
                           {/* tabIndex -1: tabbing runs qty→qty for fast entry — the × stays mouse-only (Jon, Jul 28) */}
                           {!locked && <button onClick={() => removeSize(it, sz)} title="Remove size" tabIndex={-1} style={{ position: "absolute", top: 10, right: -4, width: 15, height: 15, borderRadius: 999, border: "none", background: T.surface, color: T.faint, fontSize: 11, lineHeight: 1, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>}
                         </div>
@@ -2444,13 +2469,13 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                           {avail.map(s => <option key={s} value={s}>{s}</option>)}
                         </select>
                       )}
-                      <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "center", justifyContent: "flex-end", marginLeft: 6 }}>
-                        <span style={{ fontSize: 10, fontWeight: 800, color: T.faint, fontFamily: mono }}>TOTAL</span>
-                        <div style={{ width: 64, textAlign: "center", padding: "7px 6px", fontSize: 15, fontWeight: 800, fontFamily: mono }}>{qtyOf(it).toLocaleString()}</div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "center", justifyContent: "flex-end", marginLeft: "auto", paddingLeft: 14, borderLeft: `1px solid ${T.border}` }}>
+                        <span style={{ fontSize: 10, fontWeight: 800, color: T.muted, fontFamily: mono }}>TOTAL</span>
+                        <div style={{ minWidth: 64, textAlign: "center", padding: "7px 6px", fontSize: 16, fontWeight: 800, fontFamily: mono, color: T.text }}>{qtyOf(it).toLocaleString()}</div>
                       </div>
                       {!locked && sizes.length > 1 && (
                         <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "center", justifyContent: "flex-end", marginLeft: 6 }}>
-                          <span style={{ fontSize: 10, fontWeight: 800, color: T.faint, fontFamily: mono }} title="Type a total — spreads across sizes by the sell-through curve">→ CURVE</span>
+                          <span style={{ fontSize: 10, fontWeight: 800, color: T.muted, fontFamily: mono }} title="Type a total — spreads across sizes by the sell-through curve">→ CURVE</span>
                           <input type="text" inputMode="numeric" placeholder="total" key={it.id + ":dist:" + qtyOf(it)}
                             onFocus={e => e.target.select()}
                             onBlur={e => { if (e.target.value.trim()) { distributeTotal(it, e.target.value); e.target.value = ""; } }}
@@ -2460,9 +2485,25 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                       )}
                     </div>
                     )}
-                    <div style={{ fontSize: 11, color: locked ? T.amber : T.faint, marginTop: 14 }}>
-                      {locked ? "🔒 Pricing is locked — unlock in Costing to edit." : "Saves to the buy sheet. Pick blank ▸ opens the full catalog (S&S, AS Colour, LA Apparel, Cotton Collective, Favorites)."}
+                    {/* client retail — the client's shop price; not costing, never locked */}
+                    <div style={{ width: 160, marginTop: 14 }}>
+                      <label>
+                        {/* Client retail = what THEIR shop charges. Powers release
+                            planning + re-run prefills; not part of costing math,
+                            so no financial refresh and never locked. */}
+                        <span style={{ ...wlbl, display: "block", marginBottom: 5 }}>Client retail</span>
+                        <input key={it.id + ":retail:" + (it.client_retail_per_unit ?? "")} defaultValue={it.client_retail_per_unit ?? ""}
+                          inputMode="decimal" placeholder="$"
+                          onBlur={async e => {
+                            const raw = e.target.value.replace(/[^0-9.]/g, "");
+                            const v = raw === "" ? null : Math.round(Number(raw) * 100) / 100;
+                            if (v === (it.client_retail_per_unit ?? null)) return;
+                            await (createClient().from("items") as any).update({ client_retail_per_unit: v }).eq("id", it.id);
+                            setItems(prev => prev.map((x: any) => x.id === it.id ? { ...x, client_retail_per_unit: v } : x));
+                          }} style={field} />
+                      </label>
                     </div>
+                    {!locked && <div style={{ fontSize: 11, color: T.muted, marginTop: 14 }}>Saves to the buy sheet. Pick blank ▸ opens the full catalog (S&S, AS Colour, LA Apparel, Cotton Collective, Favorites).</div>}
                   </div>
                 );
               })()}
@@ -2490,67 +2531,64 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                     ) : (
                       <>
                         {tip(<><b style={{ color: T.text }}>Sell/unit is the number the client is billed</b> — auto-calculated from costs + margin, or type an override. Decoration below drives the cost: vendor, print locations and colors, share groups (same art shared across items combines quantities for better rates and one set of screens). Blank cost by size holds 2XL/3XL upcharges. Everything saves as you go.</>)}
-                        {/* SELL + override — top, prominent (the invoice truth) */}
-                        <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 16, flexWrap: "wrap", paddingBottom: 14, borderBottom: `1px solid ${T.border}` }}>
-                          <div>
-                            <div style={{ ...lbl, marginBottom: 4 }}>Sell / unit {overridden && <span style={{ color: T.amber }}>· override</span>}</div>
-                            <div style={{ fontFamily: mono, fontSize: 27, fontWeight: 900, lineHeight: 1 }}>${sell.toFixed(2)}</div>
-                          </div>
-                          <label style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 160 }}>
-                            <span style={{ ...lbl }}>Override / unit <span style={{ fontWeight: 500, textTransform: "none", letterSpacing: 0, color: T.faint }}>· blank = auto</span></span>
-                            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                              <span style={{ fontSize: 13, color: T.faint }}>$</span>
-                              <input key={it.id + ":ovr:" + (cp.sellOverride ?? "")} defaultValue={cp.sellOverride != null && cp.sellOverride !== "" ? Number(cp.sellOverride).toFixed(2) : ""} placeholder="auto" inputMode="decimal" readOnly={locked}
-                                onBlur={e => saveOverride(it, e.target.value)}
-                                style={{ flex: 1, padding: "8px 10px", borderRadius: 8, border: `1px solid ${overridden ? T.amber + "88" : T.border}`, background: locked ? T.card : T.surface, color: locked ? T.muted : T.text, fontSize: 14, fontWeight: 700, fontFamily: mono, outline: "none" }} />
+                        {/* ITEM ECONOMICS — one band: the sell/unit IS the override input
+                            (auto value shown as placeholder), then the item P&L tiles. */}
+                        <div style={{ display: "flex", alignItems: "stretch", gap: 0, flexWrap: "wrap", borderRadius: 10, border: `1px solid ${T.border}`, background: T.surface, overflow: "hidden" }}>
+                          <label style={{ display: "flex", flexDirection: "column", justifyContent: "center", gap: 4, padding: "12px 16px", borderRight: `1px solid ${T.border}`, minWidth: 190, background: overridden ? `${T.amber}10` : T.card }}>
+                            <span style={wlbl}>Sell / unit <span style={{ color: overridden ? T.amber : T.muted, fontWeight: 600, textTransform: "none", letterSpacing: 0 }}>{overridden ? "· override" : "· auto"}</span></span>
+                            <div style={{ display: "flex", alignItems: "baseline", gap: 2 }}>
+                              <span style={{ fontFamily: mono, fontSize: 20, fontWeight: 800, color: T.muted }}>$</span>
+                              <input key={it.id + ":ovr:" + (cp.sellOverride ?? "")} defaultValue={cp.sellOverride != null && cp.sellOverride !== "" ? Number(cp.sellOverride).toFixed(2) : ""} placeholder={sell.toFixed(2)} inputMode="decimal" readOnly={locked}
+                                onFocus={e => e.target.select()} onBlur={e => saveOverride(it, e.target.value)}
+                                onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                                title={overridden ? "Override — clear to return to auto" : "Auto from costs + margin — type to override"}
+                                style={{ width: 120, padding: 0, border: "none", background: "none", color: overridden ? T.amber : T.text, fontFamily: mono, fontSize: 27, fontWeight: 900, lineHeight: 1, outline: "none" }} />
                             </div>
                           </label>
-                        </div>
-
-                        {/* condensed KPI strip */}
-                        <div style={{ display: "flex", flexWrap: "wrap", marginTop: 12 }}>
-                          {([["Revenue", fmtMoney(grossRev), T.text],
-                            ["Blank", fmtMoney(r.blankCost), T.muted],
-                            ["Decoration", fmtMoney(r.poTotal), T.muted],
-                            ...(inclShip ? [["Ship", fmtMoney(r.shipping), T.muted]] : []),
-                            ...(inclCC ? [["CC", fmtMoney(ccFees), T.muted]] : []),
-                            ["Net profit", fmtMoney(netProfit), marginColor],
-                            ["Margin", (marginPct * 100).toFixed(1) + "%", marginColor]] as any[]).map(([l, v, c]: any, i: number, arr: any[]) => (
-                            <div key={l} style={{ flex: "1 1 auto", minWidth: 76, paddingRight: 12, marginRight: 12, borderRight: i < arr.length - 1 ? `1px solid ${T.border}44` : "none" }}>
-                              <div style={lbl}>{l}</div>
-                              <div style={{ fontFamily: mono, fontSize: 15, fontWeight: 800, color: c, marginTop: 3 }}>{v}</div>
-                            </div>
-                          ))}
+                          <div style={{ flex: 1, display: "flex", flexWrap: "wrap", alignItems: "center", padding: "10px 16px", gap: "8px 0" }}>
+                            {([["Revenue", fmtMoney(grossRev), T.text],
+                              ["Blank", fmtMoney(r.blankCost), T.muted],
+                              ["Decoration", fmtMoney(r.poTotal), T.muted],
+                              ...(inclShip ? [["Ship", fmtMoney(r.shipping), T.muted]] : []),
+                              ...(inclCC ? [["CC", fmtMoney(ccFees), T.muted]] : []),
+                              ["Net profit", fmtMoney(netProfit), marginColor],
+                              ["Profit / pc", fmtMoney(q > 0 ? netProfit / q : 0), marginColor],
+                              ["Margin", (marginPct * 100).toFixed(1) + "%", marginColor]] as any[]).map(([l, v, c]: any, i: number, arr: any[]) => (
+                              <div key={l} style={{ flex: "1 1 auto", minWidth: 76, paddingRight: 12, marginRight: 12, borderRight: i < arr.length - 1 ? `1px solid ${T.border}44` : "none" }}>
+                                <div style={wlbl}>{l}</div>
+                                <div style={{ fontFamily: mono, fontSize: 15, fontWeight: 800, color: c, marginTop: 3 }}>{v}</div>
+                              </div>
+                            ))}
+                          </div>
                         </div>
 
                         {/* decoration engine — DecorationPanel fed the full assembled array so
                             share groups (A–J / T1–T10) + qty tiers compute across items. */}
-                        <div style={{ marginTop: 18, paddingTop: 14, borderTop: `1px solid ${T.border}44` }}>
-                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 10 }}>
-                            <span style={lbl}>Decoration</span>
-                            {!locked && <button onClick={() => pullFromPsds()} disabled={pullingPsds} title="Seed print locations + color counts from uploaded PSDs (only items with no locations yet)"
-                              style={{ ...ghostBtn, opacity: pullingPsds ? 0.6 : 1 }}>{pullingPsds ? "Pulling…" : "Pull from PSDs"}</button>}
-                          </div>
-                          <DecorationPanel p={allAssembled[wsIndex!]} i={wsIndex!} costProds={allAssembled} PRINTERS={printers} decoratorRecords={decoratorRecords} updateProd={updateProd} setCostProds={setCostProdsFn} lookupPrintPrice={lookupPrint} lookupTagPrice={lookupTag} costingLocked={locked} hideVendorApplyAll />
+                        <div style={{ marginTop: 16 }}>
+                          <DecorationPanel p={allAssembled[wsIndex!]} i={wsIndex!} costProds={allAssembled} PRINTERS={printers} decoratorRecords={decoratorRecords} updateProd={updateProd} setCostProds={setCostProdsFn} lookupPrintPrice={lookupPrint} lookupTagPrice={lookupTag} costingLocked={locked} hideVendorApplyAll flush
+                            headerExtra={!locked ? (
+                              <button onClick={() => pullFromPsds()} disabled={pullingPsds} title="Seed print locations + color counts from uploaded PSDs (only items with no locations yet)"
+                                style={{ ...ghostBtn, padding: "4px 11px", fontSize: 11, opacity: pullingPsds ? 0.6 : 1 }}>{pullingPsds ? "Pulling…" : "Pull from PSDs"}</button>
+                            ) : null} />
                         </div>
 
                         {/* raw blank-cost + shipping-buffer editors — bottom of the sheet
                             (writes items / costProd.shipRate) */}
                         {/* blank cost by size — THE blank-cost override surface
                             (single source: items.blank_costs; avg → cost_per_unit) */}
-                        <div style={{ display: "flex", gap: 20, flexWrap: "wrap", alignItems: "flex-end", marginTop: 18, paddingTop: 14, borderTop: `1px solid ${T.border}44` }}>
+                        <div style={{ display: "flex", gap: 20, flexWrap: "wrap", alignItems: "flex-end", marginTop: 16, padding: "10px 12px", borderRadius: 10, border: `1px solid ${T.border}`, background: T.surface }}>
                           <div style={{ flex: "1 1 auto" }}>
-                            <div style={{ ...lbl, marginBottom: 6 }}>Blank cost by size <span style={{ fontWeight: 500, textTransform: "none", letterSpacing: 0, color: T.faint }}>· avg ${Number(it.cost_per_unit || 0).toFixed(2)}/u</span></div>
+                            <div style={{ ...wlbl, marginBottom: 6 }}>Blank cost by size <span style={{ fontWeight: 500, textTransform: "none", letterSpacing: 0, color: T.faint }}>· avg ${Number(it.cost_per_unit || 0).toFixed(2)}/u</span></div>
                             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                               {sortSizes(Object.keys(it.qtys || {})).map(sz => {
                                 const v = Number((it.blank_costs || {})[sz] ?? it.cost_per_unit ?? 0);
                                 return (
                                   <div key={it.id + ":bcs:" + sz + ":" + v} style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "center" }}>
-                                    <span style={{ fontSize: 10, fontWeight: 800, color: T.faint, fontFamily: mono }}>{sz}</span>
+                                    <span style={{ fontSize: 10, fontWeight: 800, color: T.muted, fontFamily: mono }}>{sz}</span>
                                     <input type="text" inputMode="decimal" defaultValue={v ? v.toFixed(2) : ""} placeholder="0.00" readOnly={locked}
                                       onFocus={e => e.target.select()} onBlur={e => saveBlankSizeCost(it, sz, e.target.value)}
                                       onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-                                      style={{ width: 62, textAlign: "center", padding: "7px 5px", borderRadius: 8, border: `1px solid ${T.border}`, background: locked ? T.card : T.surface, color: locked ? T.muted : T.text, fontSize: 12.5, fontWeight: 700, fontFamily: mono, outline: "none" }} />
+                                      style={{ width: 62, textAlign: "center", padding: "7px 5px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.card, color: locked ? T.muted : T.text, fontSize: 12.5, fontWeight: 700, fontFamily: mono, outline: "none" }} />
                                   </div>
                                 );
                               })}
@@ -2558,12 +2596,12 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                             </div>
                           </div>
                           <label style={{ flex: "0 1 190px" }}>
-                            <span style={{ ...lbl, display: "block", marginBottom: 5 }}>Shipping buffer / unit <span style={{ fontWeight: 500, textTransform: "none", letterSpacing: 0, color: T.faint }}>· blank = auto by garment</span></span>
+                            <span style={{ ...wlbl, display: "block", marginBottom: 5 }}>Shipping buffer / unit <span style={{ fontWeight: 500, textTransform: "none", letterSpacing: 0, color: T.faint }}>· blank = auto by garment</span></span>
                             <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                               <span style={{ fontSize: 13, color: T.faint }}>$</span>
                               <input key={it.id + ":sr:" + (cp.shipRate ?? "")} defaultValue={cp.shipRate != null && cp.shipRate !== "" ? Number(cp.shipRate).toFixed(2) : ""} placeholder={"auto · $" + effectiveShipRate(allAssembled[wsIndex!]).toFixed(2)} inputMode="decimal" readOnly={locked}
                                 onBlur={e => saveShipRate(it, e.target.value)}
-                                style={{ flex: 1, padding: "9px 11px", borderRadius: 8, border: `1px solid ${T.border}`, background: locked ? T.card : T.surface, color: locked ? T.muted : T.text, fontSize: 14, fontWeight: 700, fontFamily: mono, outline: "none" }} />
+                                style={{ flex: 1, padding: "9px 11px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.card, color: locked ? T.muted : T.text, fontSize: 14, fontWeight: 700, fontFamily: mono, outline: "none" }} />
                             </div>
                           </label>
                         </div>
@@ -2596,7 +2634,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                 return (
                   <div>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 10 }}>
-                      <span style={lbl}>Files · {files.length}</span>
+                      <span style={wlbl}>Files · {files.length}</span>
                       <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
                         <span style={{ fontWeight: 800, fontSize: 11, letterSpacing: "0.04em", textTransform: "uppercase", color: artColor }}>{art.replace(/_/g, " ")}</span>
                         <button onClick={markInternal} title={art === "approved" ? "Clear the approval (back to not started)" : "Approve without a client click — for approvals given verbally or by email"}
@@ -2656,7 +2694,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                       const revisedPend = files.some((f: any) => f.stage === "proof" && f.revision_pending_send);
                       return (
                         <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 14, paddingTop: 14, borderTop: `1px solid ${T.border}44`, flexWrap: "wrap" }}>
-                          <span style={lbl}>Proof</span>
+                          <span style={wlbl}>Proof</span>
                           {hasProof && <button onClick={() => { setProofMode("preview"); setProofItemId(it.id); }} style={ghostBtn}>View</button>}
                           {proofPdf && proofPdf.drive_link && <button onClick={() => window.open(proofPdf.drive_link, "_blank")} style={ghostBtn}>View proof PDF</button>}
                           {mockupFile && <button onClick={() => { setProofMode("edit"); setProofItemId(it.id); }}
@@ -2667,11 +2705,12 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                         </div>
                       );
                     })()}
-                    <div style={{ fontSize: 11, color: T.faint, marginTop: 12 }}>Files open full-size in a new tab. Proofs are sent from the Client section; the client approves in their hub — or use <b style={{ color: T.muted }}>Mark approved</b> above when they&apos;ve okayed it verbally.</div>
+                    <div style={{ fontSize: 11, color: T.muted, marginTop: 12 }}>Files open full-size in a new tab. Proofs are sent from the Client section; the client approves in their hub — or use <b style={{ color: T.muted }}>Mark approved</b> above when they&apos;ve okayed it verbally.</div>
                   </div>
                 );
               })()}
-              <div style={{ fontSize: 11, color: T.faint, marginTop: 16, paddingTop: 12, borderTop: `1px solid ${T.border}55` }}>Flip between items with ‹ › or ← →.</div>
+              <div style={{ fontSize: 11, color: T.muted, marginTop: 16, paddingTop: 12, borderTop: `1px solid ${T.border}55` }}>Flip between items with the rail, ‹ › or ← →.</div>
+            </div>
             </div>
           </div>
         </div>
