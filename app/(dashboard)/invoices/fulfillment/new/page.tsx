@@ -145,6 +145,7 @@ export default function NewShipstationReportPage() {
   const [editError, setEditError] = useState<string>("");
 
   const [reportType, setReportType] = useState<ReportType>("sales");
+  const [typeMenu, setTypeMenu] = useState(false);
   const [stage, setStage] = useState<1 | 2 | 3 | 4>(1);
 
   // Stage 1 — shared
@@ -1331,30 +1332,47 @@ export default function NewShipstationReportPage() {
           allowed to flip after, but parsed rows get cleared (see onChangeType).
           Hidden in edit mode: changing type would invalidate the hydrated
           rows since the source CSV isn't kept after generate. */}
-      {!isEditing && (
-        <div style={{ display: "flex", gap: 6, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 4, width: "fit-content" }}>
-          {([
-            { value: "sales", label: "Sales" },
-            { value: "postage", label: "Postage" },
-            { value: "fulfillment", label: "Fulfillment" },
-            { value: "combined", label: "Full Service" },
-          ] as const).map(t => (
-            <button
-              key={t.value}
-              onClick={() => onChangeType(t.value)}
-              style={{
-                background: reportType === t.value ? T.accent : "transparent",
-                color: reportType === t.value ? "#0a0a0a" : T.muted,
-                border: "none", borderRadius: 6,
-                padding: "6px 18px", fontSize: 12, fontWeight: 700,
-                fontFamily: font, cursor: "pointer",
-              }}
-            >
-              {t.label}{t.value === "combined" ? "" : " Report"}
-            </button>
-          ))}
-        </div>
-      )}
+      {!isEditing && (() => {
+        // Fulfillment + Full Service are the two real scenarios (Jon,
+        // Aug 25); Sales-only and Postage-only live behind ⋯ — good to
+        // have, rarely needed. A rare type stays visible while selected.
+        const primary = [
+          { value: "fulfillment", label: "Fulfillment Report" },
+          { value: "combined", label: "Full Service" },
+        ] as const;
+        const rare = [
+          { value: "sales", label: "Sales Report" },
+          { value: "postage", label: "Postage Report" },
+        ] as const;
+        const btn = (t: { value: ReportType; label: string }) => (
+          <button key={t.value} onClick={() => { onChangeType(t.value); setTypeMenu(false); }}
+            style={{
+              background: reportType === t.value ? T.accent : "transparent",
+              color: reportType === t.value ? "#0a0a0a" : T.muted,
+              border: "none", borderRadius: 6,
+              padding: "6px 18px", fontSize: 12, fontWeight: 700,
+              fontFamily: font, cursor: "pointer",
+            }}>{t.label}</button>
+        );
+        return (
+          <div style={{ display: "flex", gap: 6, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 4, width: "fit-content", position: "relative", alignItems: "center" }}>
+            {primary.map(t => btn(t as any))}
+            {rare.filter(t => reportType === t.value).map(t => btn(t as any))}
+            <button onClick={() => setTypeMenu(v => !v)} aria-label="More report types"
+              style={{ background: "transparent", border: "none", color: T.muted, fontSize: 15, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: font }}>⋯</button>
+            {typeMenu && (
+              <div style={{ position: "absolute", left: "100%", top: 0, marginLeft: 8, zIndex: 30, background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 6, minWidth: 170, boxShadow: "0 8px 30px rgba(0,0,0,0.45)", display: "flex", flexDirection: "column" }}>
+                {rare.map(t => (
+                  <button key={t.value} onClick={() => { onChangeType(t.value as ReportType); setTypeMenu(false); }}
+                    style={{ textAlign: "left", background: "none", border: "none", color: reportType === t.value ? T.text : T.muted, fontSize: 12.5, fontWeight: 700, padding: "8px 12px", cursor: "pointer", borderRadius: 6, fontFamily: font }}>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Postage source toggle — only when there's a postage half (Postage
           or Full Service). Per-shipment is the original per-package report;
