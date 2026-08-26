@@ -89,7 +89,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   // The link + email. Tenant slug picks the branding + resend key.
   const slug = (brief as any).clients?.companies?.slug || "hpd";
   const tenantName = (brief as any).clients?.companies?.name || "House Party Distro";
-  const url = `${appBaseUrlForSlug(slug)}/designer/${token}`;
+  // Localhost sends link to localhost (so a test send opens where the code is
+  // running); anywhere else, the tenant's canonical domain.
+  const origin = req.nextUrl.origin;
+  const base = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin) ? origin : appBaseUrlForSlug(slug);
+  const url = `${base}/designer/${token}`;
   let emailSent = false;
   if (designerEmail) {
     try {
