@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { detachFileFromWorkOrders } from "@/lib/design-work-orders-server";
 import { createClient } from "@/lib/supabase/server";
 import { dbNoStore } from "@/lib/db-nostore";
 import { deleteDriveFileIfUnreferenced } from "@/lib/google-drive-refs";
@@ -43,6 +44,9 @@ export async function DELETE(_req: NextRequest, { params }: { params: { fileId: 
     .select("id, brief_id, drive_file_id").eq("id", params.fileId).maybeSingle();
   if (!file) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
+  // Designer-door deliveries that pointed at this file lose it (and their
+  // order's state is re-derived) BEFORE the row goes — never a stale "Delivered".
+  await detachFileFromWorkOrders(params.fileId);
   // If this version is the banked pin, unpin first.
   await db.from("art_briefs").update({ approved_file_id: null })
     .eq("id", (file as any).brief_id).eq("approved_file_id", params.fileId);
