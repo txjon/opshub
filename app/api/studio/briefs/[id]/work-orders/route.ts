@@ -97,7 +97,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   let emailSent = false;
   if (designerEmail) {
     try {
-      const from = process.env.EMAIL_FROM_PO || "production@housepartydistro.com";
+      // Designer-facing mail comes from, and replies to, the creative desk
+      // (Jon, Aug 26) — not production@.
+      const creative = process.env.EMAIL_FROM_CREATIVE || "creative@housepartydistro.com";
+      const from = `${tenantName} <${creative}>`;
       const typeWord = b.type === "creative" ? "creative art" : b.type === "vector" ? "a vector clean-up" : "separations";
       const html = renderBrandedEmail({
         eyebrow: tenantName, heading: "Work order",
@@ -108,7 +111,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         cta: { label: "Open the work order", url, style: "dark" },
         hint: "This link is yours for this job only. It stays live until the file is accepted.",
       });
-      await resendForSlug(slug).emails.send({ from, to: designerEmail, replyTo: from, subject: `Work order — ${(brief as any).title || "design"}`, html });
+      await resendForSlug(slug).emails.send({ from, to: designerEmail, replyTo: creative, subject: `Work order — ${(brief as any).title || "design"}`, html });
       emailSent = true;
       await db.from("design_work_orders").update({ sent_at: now } as never).eq("id", (wo as any).id);
     } catch (e) { console.error("[designer-door] email failed", (e as any)?.message || e); }
