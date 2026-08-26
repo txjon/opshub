@@ -20,6 +20,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { QBCustomerChooser } from "@/components/QBCustomerChooser";
 import { StripePaymentTab } from "../StripePaymentTab";
 import { deriveInvoice, InvoiceStep } from "@/lib/job/invoice-derive";
+import { maybeAutoFinalizeInvoice } from "@/lib/job/auto-finalize";
 import { pushInvoiceToQB, refreshPayLink, unlinkQBCustomer, recordPayment, cyclePaymentStatus, deletePayment, patchTypeMeta } from "@/lib/job/invoice-actions";
 
 // Provider fork — Stripe-backed companies (IHM) keep StripePaymentTab; HPD (QB)
@@ -53,6 +54,17 @@ const RAIL: { k: InvoiceStep; label: string }[] = [
 function InvoiceSurfaceQB({ job, items = [], contacts, payments, onReload, onRecalcPhase, onUpdateJob }: any) {
   const isMobile = useIsMobile();
   const s = deriveInvoice(job, items, payments);
+  const sb = createClient();
+
+  // Zero-variance reconciles finalize themselves (lib/job/auto-finalize) —
+  // amber RECONCILE only survives when a human actually has something to judge.
+  useEffect(() => {
+    if (s.step !== "reconcile") return;
+    let cancelled = false;
+    maybeAutoFinalizeInvoice(sb, job.id).then(did => { if (did && !cancelled && onReload) onReload(); });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [s.step, job.id]);
 
   const [showInvoiceEmail, setShowInvoiceEmail] = useState(false);
   const [showReminderEmail, setShowReminderEmail] = useState(false);
@@ -285,7 +297,7 @@ function InvoiceSurfaceQB({ job, items = [], contacts, payments, onReload, onRec
             </div>
             {s.variancePushedAt ? (
               <>
-                <div style={{ fontSize: 12, color: T.muted, marginBottom: 8 }}>Invoice finalized with {s.isShipThrough ? "received" : "shipped"} qtys · {new Date(s.variancePushedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}.</div>
+                <div style={{ fontSize: 12, color: T.muted, marginBottom: 8 }}>{(job.type_meta as any)?.invoice_variance_auto ? "Finalized automatically — delivered matched the invoice exactly" : `Invoice finalized with ${s.isShipThrough ? "received" : "shipped"} qtys`} · {new Date(s.variancePushedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}.</div>
                 <button onClick={() => setShowVarianceModal(true)} style={{ borderRadius: 8, border: `1px solid ${T.green}`, background: "transparent", color: T.green, fontSize: 11, fontWeight: 700, padding: "7px 13px", cursor: "pointer", fontFamily: font }}>Re-review</button>
               </>
             ) : s.isFullyShipped ? (
