@@ -61,7 +61,7 @@ export const PAGE_CATALOG: CatalogPage[] = [
   { key: "/settings/designers", href: "/settings/designers", label: "Designers", group: "contacts" },
   // Billing (bookkeeper surface) — lives in The Office group; kept as its own
   // grantable key so billing-only users (Abigail) see just it.
-  { key: "/billing", href: "/billing", label: "Billing", group: "owner", sensitive: true },
+  { key: "/billing", href: "/billing", label: "Bills", group: "owner", sensitive: true },
   // Financial V2 Phase 1 — the AR index (docs/financial-v2-phase1-invoices.md)
   { key: "/invoices", href: "/invoices", label: "Invoices", group: "owner", sensitive: true },
   // Admin utilities (bottom of sidebar)
@@ -113,6 +113,11 @@ const V2_TWIN_PAIRS: [string, string][] = [
   // The Distro absorbed the /distro arrival radar (2026-08-13); /distro
   // redirects there, so a /distro grant must reach /the-distro (and vice versa).
   ["/the-distro", "/distro"],
+  // Bills merge (Financial V2 Phase 2, 2026-08-25): /reconciliation redirects
+  // to /billing; either grant reaches the one surface (capabilities differ
+  // inside — a /reconciliation grant means full powers, /billing-only means
+  // bill entry). Variances stays owner/full-powers-gated in the component.
+  ["/billing", "/reconciliation"],
 ];
 const V2_TWIN_OF: Record<string, string> = {};
 for (const [v2, legacy] of V2_TWIN_PAIRS) { V2_TWIN_OF[v2] = legacy; V2_TWIN_OF[legacy] = v2; }

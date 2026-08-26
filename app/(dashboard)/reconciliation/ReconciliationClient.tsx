@@ -863,7 +863,7 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
       )}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-          <h1 style={{ fontSize: 20, fontWeight: 800, color: T.text, margin: 0 }}>{billingOnly ? "Billing" : "Cost Reconciliation"}</h1>
+          <h1 style={{ fontSize: 20, fontWeight: 800, color: T.text, margin: 0 }}>{billingOnly ? "Bills" : "Bills · Cost Reconciliation"}</h1>
           <div style={{ display: "flex", gap: 3, background: T.surface, borderRadius: 8, padding: 3 }}>
             {(([["queue", "Billing Queue"], ["history", "Bill History"], ["shipping", "Freight"], ["hours", "Contractor Hours"], ["variances", "Variances"]] as const).filter(([k]) => !billingOnly || k !== "variances")).map(([k, label]) => (
               <button key={k} onClick={() => setView(k)} style={{ background: view === k ? T.card : "transparent", color: view === k ? T.text : T.muted, border: "none", borderRadius: 6, padding: "5px 13px", fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: font, boxShadow: view === k ? "0 1px 2px rgba(0,0,0,0.08)" : "none" }}>{label}</button>
