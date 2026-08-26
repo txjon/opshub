@@ -7,3 +7,6 @@ tsconfig.tsbuildinfo
 public/planner
 .vercel
 .env*
+
+# local import inputs (Shopify exports etc.) — data, never committed
+inbox-slips/
