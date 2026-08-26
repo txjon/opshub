@@ -181,3 +181,24 @@ Rules (locked in session 2026-08-13):
 - [ ] God Mode AR aging + forecast numbers UNCHANGED after the lib/ar swap (diff them)
 - [ ] The three reconcile-flow fixes verified on a mixed-route job
 - [ ] tsc clean on touched files; no new eslint no-undef in .jsx
+
+---
+
+## Post-ship amendment — auto-close (2026-08-26)
+
+Phase 1c's manual close-out queue is RETIRED. Jon batch-closed two ~50-job
+backlogs without inspecting any (every gate is machine-verified), so the
+click added no judgment. Now:
+
+- `/invoices` load() sweeps: zero-variance reconciles auto-finalize
+  (lib/job/auto-finalize, stamps `qb_variance_pushed_at` +
+  `invoice_variance_auto`, NO QB call/email), then jobs passing all four
+  close gates auto-close (`financial_closed_at` stamped, `financial_closed_by`
+  NULL = auto, job_activity logged). ≤2 sweep passes per visit.
+- The Close-out tab is now the **Closed log** (newest first, reopen = the
+  escape hatch for trailing costs).
+- Surface principle, applied three times in one night: amber/queues hold
+  ONLY real human decisions (true variances, open balances). Everything
+  machine-verifiable happens by itself.
+- State column is payment-state only (Draft/Sent/Partial/Paid + amber
+  Reconcile); "Final" lives on the job invoice rail, not the index.
