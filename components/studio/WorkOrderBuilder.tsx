@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { H, primaryBtn, ghostBtn, inp, lbl, tag } from "@/lib/studio-theme";
 import { WO_TYPES, EMPTY_BRIEF, newPinId, type BriefCanvas, type BriefExtra, type BriefSpec, type WoType } from "@/lib/design-work-orders";
 import PinBrief from "@/components/studio/PinBrief";
@@ -41,6 +41,21 @@ export default function WorkOrderBuilder({ brief, images, notes = [], onClose, o
   const [known, setKnown] = useState<{ name: string; email: string }[]>([]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [addingRef, setAddingRef] = useState(false);
+  const [copied, setCopied] = useState<string | null>(null);
+  const refIn = useRef<HTMLInputElement | null>(null);
+  // A brand-new reference (not in the thread yet): browser → Drive, registered
+  // as a real internal brief file, then it's a canvas.
+  async function addReference(f: File) {
+    setAddingRef(true); setErr("");
+    try {
+      const up = await uploadToDrive({ blob: f, fileName: f.name, mimeType: f.type || "image/png", itemId: null, clientName: brief?.clients?.name || "Studio", projectTitle: "Studio", itemName: brief?.title || "Design", onProgress: undefined });
+      const reg = await fetch(`/api/studio/briefs/${brief.id}/files`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fileId: up.fileId, webViewLink: up.webViewLink, fileName: f.name, mimeType: f.type || null, fileSize: f.size, visibility: "internal" }) }).then(r => r.json()).catch(() => ({}));
+      setSpec(s => ({ ...s, canvases: [...s.canvases, { id: newPinId(), fileId: reg?.fileRowId || null, driveId: up.fileId, previewId: null, name: f.name, note: "", pins: [] }] }));
+    } catch (e: any) { setErr(e?.message || "Couldn't add that reference."); }
+    finally { setAddingRef(false); }
+  }
+  async function copyLine(n: Note) { try { await navigator.clipboard.writeText(n.body.trim()); setCopied(n.id); setTimeout(() => setCopied(null), 1200); } catch {} }
 
   // Designers we've used before — one tap fills both fields.
   useEffect(() => {
@@ -108,16 +123,22 @@ export default function WorkOrderBuilder({ brief, images, notes = [], onClose, o
 
         <div style={{ padding: "16px 22px 0" }}>
           <label style={lbl}>Pin the brief · tap a reference to pin on it</label>
-          {imgs.length === 0 ? <div style={{ fontSize: 12.5, color: H.faint }}>No images on this design yet — drop a reference in the thread first.</div> : (
-            <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4 }}>
+          <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4, alignItems: "center" }}>
               {imgs.map(im => { const on = isCanvas(im.drive_file_id!); return (
                 <button key={im.id} type="button" onClick={() => toggleCanvas(im)} title={on ? "Pinned canvas — tap to drop it" : "Tap to pin on this"} style={{ position: "relative", flexShrink: 0, width: 64, height: 64, borderRadius: 9, overflow: "hidden", background: "#fff", border: on ? "2px solid #fff" : `1px solid ${H.line}`, padding: 0, cursor: "pointer", opacity: on ? 1 : 0.55 }}>
                   <img src={thumb(im.drive_file_id!, 300)} alt="" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.opacity = 0.2; }} />
                   {on && <span style={{ position: "absolute", right: 3, top: 3, background: H.amber, color: H.ink, borderRadius: 999, fontSize: 9, fontWeight: 900, width: 16, height: 16, display: "grid", placeItems: "center" }}>📌</span>}
                 </button>
               ); })}
-            </div>
-          )}
+              {spec.canvases.filter(c => !imgs.some(im => im.drive_file_id === c.driveId)).map(c => (
+                <span key={c.id} style={{ position: "relative", flexShrink: 0, width: 64, height: 64, borderRadius: 9, overflow: "hidden", background: "#fff", border: "2px solid #fff" }}>
+                  <img src={thumb(c.driveId, 300)} alt="" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                  <span style={{ position: "absolute", right: 3, top: 3, background: H.amber, color: H.ink, borderRadius: 999, fontSize: 9, fontWeight: 900, width: 16, height: 16, display: "grid", placeItems: "center" }}>📌</span>
+                </span>
+              ))}
+              <input ref={refIn} type="file" accept="image/*" style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; if (f) addReference(f); if (refIn.current) refIn.current.value = ""; }} />
+              <button type="button" disabled={addingRef} onClick={() => refIn.current?.click()} style={{ ...ghostBtn, flexShrink: 0, color: H.blue, borderColor: "rgba(143,199,216,.4)", opacity: addingRef ? 0.6 : 1 }}>{addingRef ? "Uploading…" : "+ New reference"}</button>
+          </div>
         </div>
 
         {spec.canvases.map((c, i) => (
@@ -140,14 +161,14 @@ export default function WorkOrderBuilder({ brief, images, notes = [], onClose, o
 
         {lines.length > 0 && (
           <div style={{ padding: "16px 22px 0" }}>
-            <label style={lbl}>The conversation · {handLines.size} of {lines.length} lines go with it · names stripped</label>
+            <label style={lbl}>The conversation · {handLines.size} of {lines.length} lines go with it · names stripped · tap the text to copy it into a pin</label>
             <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 220, overflowY: "auto" }}>
               {lines.map(n => { const on = handLines.has(n.id); const client = n.sender_role === "client"; const whisper = n.visibility === "internal"; return (
-                <button key={n.id} type="button" onClick={() => toggleLine(n.id)} style={{ textAlign: "left", display: "flex", gap: 10, alignItems: "flex-start", background: on ? H.surface : "transparent", border: `1px ${whisper ? "dashed" : "solid"} ${on ? H.line : H.line2}`, borderRadius: 10, padding: "8px 11px", cursor: "pointer", fontFamily: H.font, color: H.text, opacity: on ? 1 : 0.45 }}>
+                <div key={n.id} style={{ display: "flex", gap: 10, alignItems: "flex-start", background: on ? H.surface : "transparent", border: `1px ${whisper ? "dashed" : "solid"} ${on ? H.line : H.line2}`, borderRadius: 10, padding: "8px 11px", fontFamily: H.font, color: H.text, opacity: on ? 1 : 0.55 }}>
                   <span style={{ ...tag(client ? H.blue : whisper ? H.amber : H.dim, 8.5), flexShrink: 0, width: 46, paddingTop: 2 }}>{client ? "Client" : whisper ? "Internal" : "Us"}</span>
-                  <span style={{ fontSize: 12.5, lineHeight: 1.45, whiteSpace: "pre-wrap", flex: 1 }}>{n.body}</span>
-                  <span style={{ flexShrink: 0, ...tag(on ? H.green : H.faint, 9) }}>{on ? "✓" : "off"}</span>
-                </button>
+                  <button type="button" onClick={() => copyLine(n)} title="Copy" style={{ flex: 1, textAlign: "left", background: "none", border: "none", color: copied === n.id ? H.green : H.text, fontSize: 12.5, lineHeight: 1.45, whiteSpace: "pre-wrap", cursor: "copy", fontFamily: H.font, padding: 0 }}>{copied === n.id ? "✓ Copied" : n.body}</button>
+                  <button type="button" onClick={() => toggleLine(n.id)} title={on ? "Goes with the order — tap to leave it out" : "Left out — tap to hand it over"} style={{ flexShrink: 0, background: "none", border: "none", cursor: "pointer", ...tag(on ? H.green : H.faint, 9), fontFamily: H.font }}>{on ? "✓" : "off"}</button>
+                </div>
               ); })}
             </div>
           </div>

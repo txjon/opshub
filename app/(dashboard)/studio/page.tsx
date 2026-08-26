@@ -566,7 +566,7 @@ function BriefSheet({ detail, onRefresh, onClose, openWoId, setOpenWoId }: any) 
       }} />}
       {openWoId && (
         <div className="st-back" style={{ zIndex: 230 }} onClick={e => { if (e.target === e.currentTarget) setOpenWoId(null); }}>
-          <div className="st-sheet"><WorkOrderPanel key={openWoId} woId={openWoId} brief={b} onClose={() => setOpenWoId(null)} onChanged={async () => { await loadWos(); await onRefresh(); }} /></div>
+          <div className="st-sheet"><WorkOrderPanel key={openWoId} woId={openWoId} brief={b} notes={notes} onClose={() => setOpenWoId(null)} onChanged={async () => { await loadWos(); await onRefresh(); }} /></div>
         </div>
       )}
 

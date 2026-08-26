@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { H, primaryBtn, ghostBtn, inp, lbl, tag, fmtStamp, fmtDue, ago } from "@/lib/studio-theme";
-import { woState, woTypeLabel, type BriefSpec, type DesignWorkOrder } from "@/lib/design-work-orders";
+import { woState, woTypeLabel, newPinId, type BriefSpec, type DesignWorkOrder } from "@/lib/design-work-orders";
 import PinBrief from "@/components/studio/PinBrief";
 import Lightbox, { type LightboxItem } from "@/components/studio/Lightbox";
 import { useConfirm } from "@/components/useConfirm";
@@ -12,10 +12,11 @@ import { uploadToDrive } from "@/lib/drive-upload-client";
 // place: the designer's page reads the same row), their deliveries, the
 // thread, reply / revise / Accept = the file. Opening it clears the unread
 // clock on the desk.
-type Props = { woId: string; brief: any; onClose: () => void; onChanged?: () => void };
+type Note = { id: string; sender_role: string; body: string; visibility?: string; created_at: string };
+type Props = { woId: string; brief: any; notes?: Note[]; onClose: () => void; onChanged?: () => void };
 const thumb = (id: string, size = 900) => `/api/files/thumbnail?id=${id}&thumb=1&size=${size}`;
 
-export default function WorkOrderPanel({ woId, brief, onClose, onChanged }: Props) {
+export default function WorkOrderPanel({ woId, brief, notes = [], onClose, onChanged }: Props) {
   const [wo, setWo] = useState<DesignWorkOrder | null>(null);
   const [msgs, setMsgs] = useState<any[]>([]);
   const [url, setUrl] = useState("");
@@ -32,6 +33,10 @@ export default function WorkOrderPanel({ woId, brief, onClose, onChanged }: Prop
   const fileIn = useRef<HTMLInputElement | null>(null);
   const [confirm, confirmEl] = useConfirm();
   const [lit, setLit] = useState<LightboxItem | null>(null);
+  const [copiedLine, setCopiedLine] = useState<string | null>(null);
+  const [addingRef, setAddingRef] = useState(false);
+  const refIn = useRef<HTMLInputElement | null>(null);
+  const lines = notes.filter(n => n.body && n.body.trim() && !/^[✓✕↩]/.test(n.body.trim()));
   const dlOf = (id: string, name?: string | null) => `/api/files/view/${encodeURIComponent(name || "file")}?id=${id}&download=1`;
 
   async function load() {
@@ -84,6 +89,22 @@ export default function WorkOrderPanel({ woId, brief, onClose, onChanged }: Prop
     finally { setBusy(false); }
   }
   async function uploadPinImage(f: File) { const up = await uploadRef(f); return { driveId: up.fileId as string, name: f.name }; }
+  // A NEW reference to pin on: browser → Drive, registered as a real (internal)
+  // brief file so it lives with the design, then it's a canvas.
+  async function addReference(f: File) {
+    if (!draft) return; setAddingRef(true); setErr("");
+    try {
+      const up = await uploadRef(f);
+      const reg = await fetch(`/api/studio/briefs/${wo?.brief_id}/files`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fileId: up.fileId, webViewLink: up.webViewLink, fileName: f.name, mimeType: f.type || null, fileSize: f.size, visibility: "internal" }) }).then(r => r.json()).catch(() => ({}));
+      setDraft(d => d ? { ...d, brief: { ...d.brief, canvases: [...d.brief.canvases, { id: newPinId(), fileId: reg?.fileRowId || null, driveId: up.fileId, previewId: null, name: f.name, note: "", pins: [] }] } } : d);
+    } catch (e: any) { setErr(e?.message || "Couldn't add that reference."); }
+    finally { setAddingRef(false); setPct(""); }
+  }
+  const promote = (driveId: string) => setDraft(d => { if (!d) return d; const ex = d.brief.extras.find(e => e.driveId === driveId); if (!ex) return d; return { ...d, brief: { ...d.brief, extras: d.brief.extras.filter(e => e.driveId !== driveId), canvases: [...d.brief.canvases, { id: newPinId(), fileId: ex.fileId, driveId: ex.driveId, previewId: ex.previewId, name: ex.name, note: "", pins: [] }] } }; });
+  const demote = (canvasId: string) => setDraft(d => { if (!d) return d; const c = d.brief.canvases.find(x => x.id === canvasId); if (!c) return d; return { ...d, brief: { ...d.brief, canvases: d.brief.canvases.filter(x => x.id !== canvasId), extras: [...d.brief.extras, { fileId: c.fileId, driveId: c.driveId, previewId: c.previewId, name: c.name }] } }; });
+  const lineOn = (n: Note) => !!draft?.brief.conversation?.some(l => l.text === n.body.trim());
+  const toggleLine = (n: Note) => setDraft(d => { if (!d) return d; const conv = d.brief.conversation || []; const text = n.body.trim(); const has = conv.some(l => l.text === text); return { ...d, brief: { ...d.brief, conversation: has ? conv.filter(l => l.text !== text) : [...conv, { role: (n.sender_role === "client" ? "client" : "us") as "client" | "us", text, at: n.created_at }].sort((a, b) => String(a.at || "").localeCompare(String(b.at || ""))) } }; });
+  async function copyLine(n: Note) { try { await navigator.clipboard.writeText(n.body.trim()); setCopiedLine(n.id); setTimeout(() => setCopiedLine(null), 1200); } catch {} }
 
   if (!wo) return <div style={{ padding: 30, color: H.faint, fontSize: 13 }}>Opening the work order…</div>;
   const st = woState(wo); const closed = wo.state === "accepted" || wo.state === "killed";
@@ -135,6 +156,33 @@ export default function WorkOrderPanel({ woId, brief, onClose, onChanged }: Prop
                 <input value={draft.headline} onChange={e => setDraft({ ...draft, headline: e.target.value })} placeholder="The one line that rules — e.g. KEEP EXACT STYLE" style={{ ...inp, fontSize: 15, fontWeight: 800, textTransform: "uppercase" }} />
                 <textarea value={draft.instructions} onChange={e => setDraft({ ...draft, instructions: e.target.value })} rows={2} placeholder="Notes" style={{ ...inp, resize: "vertical" }} />
                 <div style={{ maxWidth: 220 }}><label style={lbl}>Due by</label><input type="date" value={draft.dueBy} onChange={e => setDraft({ ...draft, dueBy: e.target.value })} style={inp} /></div>
+                <div>
+                  <label style={lbl}>Pin on · tap a handed-over image to make it a canvas, or add a new reference</label>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                    {draft.brief.extras.map(e => (
+                      <button key={e.driveId} type="button" onClick={() => promote(e.driveId)} title="Make this a canvas" style={{ width: 56, height: 56, borderRadius: 8, overflow: "hidden", background: "#fff", border: `1px solid ${H.line}`, padding: 0, cursor: "pointer", position: "relative" }}>
+                        <img src={thumb(e.previewId || e.driveId, 300)} alt="" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(ev: any) => { ev.target.style.opacity = 0.2; }} />
+                        <span style={{ position: "absolute", right: 3, bottom: 3, background: H.ink, color: H.amber, borderRadius: 6, fontSize: 9, fontWeight: 900, padding: "2px 5px" }}>📌</span>
+                      </button>
+                    ))}
+                    <input ref={refIn} type="file" accept="image/*" style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; if (f) addReference(f); if (refIn.current) refIn.current.value = ""; }} />
+                    <button type="button" disabled={addingRef} onClick={() => refIn.current?.click()} style={{ ...ghostBtn, color: H.blue, borderColor: "rgba(143,199,216,.4)", opacity: addingRef ? 0.6 : 1 }}>{addingRef ? (pct ? `Uploading ${pct}` : "Uploading…") : "+ New reference to pin on"}</button>
+                  </div>
+                </div>
+                {lines.length > 0 && (
+                  <div>
+                    <label style={lbl}>The conversation · tap the text to copy it into a pin · ✓ = goes with the order</label>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 200, overflowY: "auto" }}>
+                      {lines.map(n => { const on = lineOn(n); const client = n.sender_role === "client"; return (
+                        <div key={n.id} style={{ display: "flex", gap: 8, alignItems: "flex-start", background: H.surface, border: `1px solid ${on ? H.line : H.line2}`, borderRadius: 10, padding: "7px 10px", opacity: on ? 1 : 0.55 }}>
+                          <span style={{ ...tag(client ? H.blue : n.visibility === "internal" ? H.amber : H.dim, 8.5), flexShrink: 0, width: 46, paddingTop: 2 }}>{client ? "Client" : n.visibility === "internal" ? "Internal" : "Us"}</span>
+                          <button type="button" onClick={() => copyLine(n)} title="Copy" style={{ flex: 1, textAlign: "left", background: "none", border: "none", color: copiedLine === n.id ? H.green : H.text, fontSize: 12.5, lineHeight: 1.45, whiteSpace: "pre-wrap", cursor: "copy", fontFamily: H.font, padding: 0 }}>{copiedLine === n.id ? "✓ Copied" : n.body}</button>
+                          <button type="button" onClick={() => toggleLine(n)} title={on ? "Goes with the order — tap to leave it out" : "Left out — tap to hand it over"} style={{ flexShrink: 0, background: "none", border: "none", cursor: "pointer", ...tag(on ? H.green : H.faint, 9), fontFamily: H.font }}>{on ? "✓" : "off"}</button>
+                        </div>
+                      ); })}
+                    </div>
+                  </div>
+                )}
               </>
             ) : (
               <>
@@ -144,7 +192,10 @@ export default function WorkOrderPanel({ woId, brief, onClose, onChanged }: Prop
             )}
             {spec.canvases.map((c, i) => (
               <div key={c.id} style={{ padding: 12, background: H.ink, border: `1px solid ${H.line2}`, borderRadius: 14 }}>
-                <div style={{ ...tag(H.amber, 9), marginBottom: 8 }}>Canvas {i + 1}</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                  <span style={tag(H.amber, 9)}>Canvas {i + 1}</span>
+                  {editing && <button type="button" onClick={() => demote(c.id)} style={{ marginLeft: "auto", background: "none", border: "none", color: H.faint, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>Not a canvas</button>}
+                </div>
                 <PinBrief canvas={c} imgSrc={(id, size) => thumb(id, size || 900)} readOnly={!editing} onOpenImage={(id, name, caption) => setLit({ src: thumb(id, 1600), downloadHref: dlOf(id, name), name, caption })} onChange={next => draft && setDraft({ ...draft, brief: { ...draft.brief, canvases: draft.brief.canvases.map(x => x.id === c.id ? next : x) } })} onUploadImage={uploadPinImage} />
               </div>
             ))}
