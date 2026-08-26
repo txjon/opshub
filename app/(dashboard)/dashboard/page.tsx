@@ -195,10 +195,13 @@ export default async function DashboardPage() {
     }
 
     // ═══════════ BILLING ALERTS ═══════════
+    // Internal lines (mig 164) never invoice or collect — every billing
+    // alert below is noise for them, so gate the pushes on this flag.
+    const internalJob = !!(j as any).is_internal;
 
     // 4. Create invoice — timing depends on payment terms
     const isNet = terms === "net_15" || terms === "net_30";
-    if (quoteApproved && !invoiceNum) {
+    if (quoteApproved && !invoiceNum && !internalJob) {
       if (isNet) {
         const hasShippedItems = items.some((it: any) => it.pipeline_stage === "shipped" || it.ship_tracking);
         const isShippingPhase = j.phase === "shipping" || j.phase === "fulfillment" || j.phase === "receiving";
@@ -218,7 +221,7 @@ export default async function DashboardPage() {
     // legacy `payments.length === 0` gate was too tight — it suppressed
     // the pre-due nag once that row existed. Switch to "no PAID record
     // yet" so the block fires whenever there's still money to collect.
-    if (quoteApproved && invoiceNum && !hasPaidPayment) {
+    if (quoteApproved && invoiceNum && !hasPaidPayment && !internalJob) {
       const invoiceSentAt = typeMeta.invoice_sent_at ? new Date(typeMeta.invoice_sent_at) : null;
       const daysSinceInvoiceSent = invoiceSentAt ? Math.ceil((now.getTime() - invoiceSentAt.getTime()) / 86400000) : 0;
       if (invoiceSentAt && daysSinceInvoiceSent >= 2) {
@@ -256,7 +259,7 @@ export default async function DashboardPage() {
 
     // 5b. Overdue payments — past due date, not paid
     for (const p of payments) {
-      if (p.due_date && (daysUntilDay(p.due_date) ?? 1) < 0 && p.status !== "paid" && p.status !== "void") {
+      if (!internalJob && p.due_date && (daysUntilDay(p.due_date) ?? 1) < 0 && p.status !== "paid" && p.status !== "void") {
         const days = Math.abs(daysUntilDay(p.due_date) ?? 0);
         alerts.push({ ...base, priority: 1, type: "overdue_payment", color: T.red,
           paymentId: p.id,
