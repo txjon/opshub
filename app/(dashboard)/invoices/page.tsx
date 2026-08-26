@@ -49,7 +49,7 @@ export default function InvoicesPage() {
     return q === "fulfillment" || q === "job" ? q : "all";
   });
   const [agingFilter, setAgingFilter] = useState<ArAging | null>(null);
-  const [openOnly, setOpenOnly] = useState(true);
+  const [view, setView] = useState<"open" | "history">("open");
   const [tab, setTab] = useState<"index" | "close">("index");
   const [costCompleteByJob, setCostCompleteByJob] = useState<Record<string, boolean>>({});
   const [closing, setClosing] = useState<string | null>(null);
@@ -150,16 +150,34 @@ export default function InvoicesPage() {
     } finally { setActBusy(false); }
   }
 
+  // Chase math: how late is this row, against its real anchor (explicit due
+  // date when one exists, else the terms-derived expected date).
+  const daysLate = (r: InvoiceRow) => {
+    const anchor = r.dueDate || r.expectedDate;
+    if (!anchor) return 0;
+    return Math.floor((Date.now() - new Date(anchor).getTime()) / 86400000);
+  };
   const shown: InvoiceRow[] = useMemo(() => {
     if (!ar) return [];
     const needle = q.trim().toLowerCase();
-    return ar.rows.filter(r =>
+    const rows = ar.rows.filter(r =>
       (stream === "all" || r.stream === stream)
       && (!agingFilter || r.aging === agingFilter)
-      && (!openOnly || r.balance > 0.01)
+      && (view === "history" || r.balance > 0.01)
       && (!needle || r.clientName.toLowerCase().includes(needle) || r.label.toLowerCase().includes(needle) || (r.invoiceNumber || "").toLowerCase().includes(needle))
     );
-  }, [ar, stream, agingFilter, openOnly, q]);
+    if (view === "open") {
+      // Chase order: most late first; not-yet-due below, soonest deadline first.
+      rows.sort((a, b) => {
+        const la = daysLate(a), lb = daysLate(b);
+        const aLate = la > 0, bLate = lb > 0;
+        if (aLate !== bLate) return aLate ? -1 : 1;
+        if (aLate) return lb - la || b.balance - a.balance;
+        return la !== lb ? lb - la : b.balance - a.balance;
+      });
+    }
+    return rows;
+  }, [ar, stream, agingFilter, view, q]);
 
   const kpi = (label: string, value: string, color = T.text) => (
     <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "14px 18px", minWidth: 150 }}>
@@ -225,7 +243,8 @@ export default function InvoicesPage() {
               }} />
           ) : (
           <>
-          {/* Aging strip — clickable buckets filter the index */}
+          {/* Aging strip — clickable buckets filter the chase list */}
+          {view === "open" && (
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
             {(Object.keys(AGING_META) as ArAging[]).map(k => {
               const b = ar.aging[k]; const m = AGING_META[k]; const on = agingFilter === k;
@@ -238,17 +257,26 @@ export default function InvoicesPage() {
               );
             })}
           </div>
+          )}
 
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 12 }}>
-            {(["all", "job", "fulfillment"] as const).map(k => (
-              <button key={k} onClick={() => setStream(k)}
-                style={{ borderRadius: 6, border: `1px solid ${stream === k ? T.accent : T.border}`, background: stream === k ? T.surface : "transparent", color: stream === k ? T.text : T.muted, fontSize: 12, fontWeight: 700, padding: "7px 13px", cursor: "pointer", fontFamily: font }}>
-                {k === "all" ? "All" : k === "job" ? "Jobs" : "Fulfillment"}
-              </button>
-            ))}
-            <label style={{ display: "inline-flex", gap: 6, alignItems: "center", fontSize: 12, color: T.muted, cursor: "pointer" }}>
-              <input type="checkbox" checked={openOnly} onChange={e => setOpenOnly(e.target.checked)} /> open balances only
-            </label>
+            {(["open", "history"] as const).map(k => {
+              const openCount = ar.rows.filter(r => r.balance > 0.01 && (stream === "all" || r.stream === stream)).length;
+              return (
+                <button key={k} onClick={() => { setView(k); setAgingFilter(null); }}
+                  style={{ borderRadius: 6, border: `1px solid ${view === k ? T.accent : T.border}`, background: view === k ? T.surface : "transparent", color: view === k ? T.text : T.muted, fontSize: 12, fontWeight: 800, padding: "7px 14px", cursor: "pointer", fontFamily: font }}>
+                  {k === "open" ? `Open · ${openCount}` : "History"}
+                </button>
+              );
+            })}
+            <span style={{ display: "inline-flex", gap: 2, marginLeft: 6 }}>
+              {(["all", "job", "fulfillment"] as const).map(k => (
+                <button key={k} onClick={() => setStream(k)}
+                  style={{ background: "none", border: "none", color: stream === k ? T.text : T.faint, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", padding: "4px 7px", cursor: "pointer", fontFamily: font, textDecoration: stream === k ? "underline" : "none", textUnderlineOffset: 4 }}>
+                  {k === "all" ? "All" : k === "job" ? "Jobs" : "Fulfillment"}
+                </button>
+              ))}
+            </span>
             <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search client, invoice #, title…"
               style={{ marginLeft: "auto", minWidth: 220, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, fontSize: 12.5, padding: "9px 12px", outline: "none", fontFamily: font }} />
           </div>
@@ -257,14 +285,17 @@ export default function InvoicesPage() {
           <div style={{ border: `1px solid ${T.border}`, borderRadius: 10, overflowX: "auto", background: T.card }} onClick={() => menuFor && setMenuFor(null)}>
             <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 860, fontSize: 12.5 }}>
               <thead><tr>
-                {["Date", "Client", "Inv #", "", "State", "Billed", "Paid", "Balance", "Due / aging", ""].map((h, i) => (
-                  <th key={i} style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.09em", textTransform: "uppercase", color: T.faint, textAlign: i >= 5 && i <= 7 ? "right" : "left", padding: "11px 14px", borderBottom: `1px solid ${T.border}` }}>{h}</th>
+                {(view === "open"
+                  ? ["Client", "Inv #", "", "State", "Balance", "Due / late", ""]
+                  : ["Date", "Client", "Inv #", "", "State", "Billed", "Paid", "Balance", "Status", ""]
+                ).map((h, i) => (
+                  <th key={i} style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.09em", textTransform: "uppercase", color: T.faint, textAlign: h === "Billed" || h === "Paid" || h === "Balance" ? "right" : "left", padding: "11px 14px", borderBottom: `1px solid ${T.border}` }}>{h}</th>
                 ))}
               </tr></thead>
               <tbody>
                 {shown.length === 0 && (
-                  <tr><td colSpan={10} style={{ padding: "26px 14px", color: T.faint, fontSize: 12.5 }}>
-                    {q || agingFilter || stream !== "all" ? "Nothing matches those filters." : openOnly ? "No open balances — everything's collected." : "No invoices yet."}
+                  <tr><td colSpan={view === "open" ? 7 : 10} style={{ padding: "26px 14px", color: T.faint, fontSize: 12.5 }}>
+                    {q || agingFilter || stream !== "all" ? "Nothing matches those filters." : view === "open" ? "No open balances — everything's collected." : "No invoices yet."}
                   </td></tr>
                 )}
                 {shown.map(r => {
@@ -275,7 +306,7 @@ export default function InvoicesPage() {
                       style={{ cursor: "pointer" }}
                       onMouseEnter={e => (e.currentTarget.style.background = T.surface)}
                       onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
-                      <td style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}33`, fontFamily: mono, color: T.muted, whiteSpace: "nowrap" }}>{fmtDay(r.date)}</td>
+                      {view === "history" && <td style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}33`, fontFamily: mono, color: T.muted, whiteSpace: "nowrap" }}>{fmtDay(r.date)}</td>}
                       <td style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}33`, fontWeight: 700, whiteSpace: "nowrap" }}>{r.clientName}</td>
                       <td style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}33`, fontFamily: mono, color: r.invoiceNumber ? T.text : T.faint, whiteSpace: "nowrap" }}>{r.invoiceNumber ? `#${r.invoiceNumber}` : "—"}</td>
                       <td style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}33`, color: T.muted, maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -284,9 +315,19 @@ export default function InvoicesPage() {
                       <td style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}33`, whiteSpace: "nowrap" }}>
                         <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: sm.color }}>{sm.label}</span>
                       </td>
-                      <td style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}33`, fontFamily: mono, textAlign: "right", whiteSpace: "nowrap" }}>{money(r.billed)}</td>
-                      <td style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}33`, fontFamily: mono, textAlign: "right", color: r.paid > 0 ? T.green : T.faint, whiteSpace: "nowrap" }}>{r.paid > 0 ? money(r.paid) : "—"}</td>
+                      {view === "history" && <td style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}33`, fontFamily: mono, textAlign: "right", whiteSpace: "nowrap" }}>{money(r.billed)}</td>}
+                      {view === "history" && <td style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}33`, fontFamily: mono, textAlign: "right", color: r.paid > 0 ? T.green : T.faint, whiteSpace: "nowrap" }}>{r.paid > 0 ? money(r.paid) : "—"}</td>}
                       <td style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}33`, fontFamily: mono, textAlign: "right", fontWeight: 700, color: r.balance > 0.01 ? T.amber : T.green, whiteSpace: "nowrap" }}>{r.balance > 0.01 ? money(r.balance) : "—"}</td>
+                      {view === "open" ? (
+                      <td style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}33`, whiteSpace: "nowrap" }}>
+                        {(() => {
+                          const late = daysLate(r);
+                          return late > 0
+                            ? <span><span style={{ fontFamily: mono, fontWeight: 800, color: am.color }}>{late}d late</span><span style={{ fontFamily: mono, color: T.faint, marginLeft: 8, fontSize: 11 }}>{r.dueDate ? `due ${fmtDay(r.dueDate)}` : `expected ${fmtDay(r.expectedDate)}`}</span></span>
+                            : <span><span style={{ fontFamily: mono, color: T.muted }}>{fmtDay(r.dueDate || r.expectedDate)}</span> <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: am.color, marginLeft: 6 }}>{am.label}</span></span>;
+                        })()}
+                      </td>
+                      ) : (
                       <td style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}33`, whiteSpace: "nowrap" }}>
                         {r.financialClosedAt
                           ? <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: T.green }}>Closed</span>
@@ -296,6 +337,7 @@ export default function InvoicesPage() {
                           ? <span><span style={{ fontFamily: mono, color: T.muted }}>{fmtDay(r.dueDate || r.expectedDate)}</span> <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: am.color, marginLeft: 6 }}>{am.label}</span></span>
                           : <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: T.green }}>Settled</span>}
                       </td>
+                      )}
                       <td style={{ padding: "6px 8px", borderBottom: `1px solid ${T.border}33`, position: "relative", width: 36 }} onClick={e => e.stopPropagation()}>
                         {r.stream === "job" && (r.balance > 0.01 || (r.waived || 0) > 0.01) && (
                           <>
