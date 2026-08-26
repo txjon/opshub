@@ -1,8 +1,5 @@
 // THE DESIGNER DOOR — server-only helpers (DB on the service role, Drive, mail).
 import { dbNoStore } from "@/lib/db-nostore";
-import { getItemFolderId, uploadFile } from "@/lib/google-drive";
-import { generatePsdPreview, isPsdFile } from "@/lib/psd-preview-server";
-import { LAB_BUCKET } from "@/lib/lab";
 import { sendInternalMail } from "@/lib/internal-mail";
 import type { DesignWorkOrder, DesignWoMessage } from "@/lib/design-work-orders";
 
@@ -52,36 +49,14 @@ export function driveIdsInMessages(messages: any[]): Set<string> {
   return ids;
 }
 
-// A designer's delivery: the bytes landed in storage (signed upload); copy
-// them into Drive under the design's folder + register a REAL brief file
-// (uploader_role designer, internal until we share). If Drive is down the
-// storage url still rides the message — nothing is ever lost.
-export async function fileDesignerDelivery(opts: { briefId: string; clientName: string; designTitle: string; storagePath: string; fileName: string; mimeType: string }): Promise<{ fileRowId: string | null; publicUrl: string }> {
-  const db = woDb();
-  const { data: pub } = db.storage.from(LAB_BUCKET).getPublicUrl(opts.storagePath);
-  const publicUrl = pub.publicUrl;
-  try {
-    const dl = await db.storage.from(LAB_BUCKET).download(opts.storagePath);
-    if (dl.error || !dl.data) throw new Error(dl.error?.message || "download failed");
-    const buffer = Buffer.from(await dl.data.arrayBuffer());
-    const folderId = await getItemFolderId(opts.clientName || "Studio", "Studio", opts.designTitle || "Design");
-    const up = await uploadFile(folderId, opts.fileName, opts.mimeType || "application/octet-stream", buffer);
-    const { data: fRow, error } = await db.from("art_brief_files").insert({
-      brief_id: opts.briefId, file_name: opts.fileName, drive_file_id: up.fileId, drive_link: up.webViewLink,
-      mime_type: opts.mimeType || null, file_size: buffer.length, kind: "wip", uploader_role: "designer",
-      shared_with_client_at: null,
-    } as never).select("id").single();
-    if (error || !fRow) throw new Error(error?.message || "register failed");
-    if (isPsdFile(opts.fileName, opts.mimeType)) {
-      generatePsdPreview(up.fileId, opts.fileName).then(async (previewId) => {
-        if (previewId) await db.from("art_brief_files").update({ preview_drive_file_id: previewId } as never).eq("id", (fRow as any).id);
-      }).catch(() => {});
-    }
-    return { fileRowId: (fRow as any).id, publicUrl };
-  } catch (e) {
-    console.error("[designer-door] Drive copy failed, keeping storage copy", (e as any)?.message || e);
-    return { fileRowId: null, publicUrl };
-  }
+// Inbound wall for deliveries: the Drive file must sit in the given folder.
+// Returns its meta, or null if it isn't there / doesn't exist.
+export async function verifyDriveFileInFolder(token: string, fileId: string, folderId: string): Promise<{ mimeType: string | null; size: number | null; name: string | null } | null> {
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?fields=id,name,mimeType,size,parents`, { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) return null;
+  const meta = await res.json().catch(() => null);
+  if (!meta || !Array.isArray(meta.parents) || !meta.parents.includes(folderId)) return null;
+  return { mimeType: meta.mimeType || null, size: meta.size ? Number(meta.size) : null, name: meta.name || null };
 }
 
 // Fire the labs@ ping for a designer move. Best-effort, never sinks the write.

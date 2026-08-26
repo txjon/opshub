@@ -4,6 +4,7 @@ import { H, primaryBtn, ghostBtn, inp, tag, fmtStamp, fmtDue } from "@/lib/studi
 import { woTypeLabel, type BriefSpec } from "@/lib/design-work-orders";
 import PinBrief from "@/components/studio/PinBrief";
 import Lightbox, { type LightboxItem } from "@/components/studio/Lightbox";
+import { uploadFileToDriveSession } from "@/lib/upload-drive-client";
 
 // THE DESIGNER'S PAGE — one work order by magic link. What we need, the brief
 // pinned right on the references (same component we wrote it with), every
@@ -41,23 +42,16 @@ export default function DesignerPage({ params }: { params: { token: string } }) 
   async function send() {
     if (!note.trim() && !staged) return; setBusy(true); setErr(""); setPct(0);
     try {
-      let storagePath: string | null = null;
+      let driveFileId: string | null = null;
       if (staged) {
-        const s = await fetch(`/api/designer/${token}/upload`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ filename: staged.name, contentType: staged.type }) }).then(r => r.json());
+        // Straight into Drive (resumable session, 4MB chunks) — big AI/PSD/ZIP
+        // deliverables are fine; no size ceiling on this path.
+        const s = await fetch(`/api/designer/${token}/upload-session`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fileName: staged.name, mimeType: staged.type }) }).then(r => r.json());
         if (s.error) throw new Error(s.error);
-        await new Promise<void>((resolve, reject) => {
-          const xhr = new XMLHttpRequest();
-          xhr.open("PUT", s.uploadUrl);
-          xhr.setRequestHeader("content-type", staged.type || "application/octet-stream");
-          xhr.setRequestHeader("x-upsert", "true");
-          xhr.upload.onprogress = e => { if (e.lengthComputable) setPct(Math.round((e.loaded / e.total) * 100)); };
-          xhr.onload = () => (xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error("Upload failed — try again")));
-          xhr.onerror = () => reject(new Error("Upload failed — check your connection"));
-          xhr.send(staged);
-        });
-        storagePath = s.path;
+        const up = await uploadFileToDriveSession(s.uploadUrl, staged, (done, total) => setPct(Math.round((done / total) * 100)));
+        driveFileId = up.drive_file_id;
       }
-      const r = await fetch(`/api/designer/${token}/messages`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ body: note.trim() || null, storagePath, fileName: staged?.name || null, mimeType: staged?.type || null, senderName: name.trim() || null }) }).then(x => x.json());
+      const r = await fetch(`/api/designer/${token}/messages`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ body: note.trim() || null, driveFileId, fileName: staged?.name || null, mimeType: staged?.type || null, fileSize: staged?.size || null, senderName: name.trim() || null }) }).then(x => x.json());
       if (r.error) throw new Error(r.error);
       try { if (name.trim()) localStorage.setItem("hpd_designer_name", name.trim()); } catch {}
       setNote(""); setStaged(null); setHeroId(null); await load();
