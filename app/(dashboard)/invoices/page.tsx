@@ -170,9 +170,15 @@ export default function InvoicesPage() {
 
   return (
     <div style={{ fontFamily: font, color: T.text, maxWidth: 1100, margin: "0 auto" }}>
-      <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em", marginBottom: 4 }}>Invoices</h1>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap" }}>
+        <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em", marginBottom: 4 }}>Invoices</h1>
+        <a href="/invoices/fulfillment/new"
+          style={{ marginLeft: "auto", background: T.accent, color: "#0a0a0a", borderRadius: 6, padding: "8px 16px", fontSize: 13, fontWeight: 700, textDecoration: "none", fontFamily: font }}>
+          + Fulfillment invoice
+        </a>
+      </div>
       <p style={{ fontSize: 12, color: T.faint, marginBottom: 18 }}>
-        Every invoice, both streams, one aging model. Rows link to where the actions live — this page only reads.
+        Every invoice, both streams, one aging model. Rows link to where the actions live. Job invoices are born on their jobs; fulfillment invoices are born here.
       </p>
       {err && <div style={{ color: T.red, fontSize: 13, fontWeight: 700, marginBottom: 12 }}>{err}</div>}
       {!ar ? (
