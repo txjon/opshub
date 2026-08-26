@@ -29,7 +29,7 @@ import { parsePsd } from "./ProcessingTab";
 import { EditSizesModal as EditSizesModalRaw } from "./ProductBuilder";
 import SizeGrid from "@/components/SizeGrid";
 import RfqModalRaw from "@/components/RfqModal";
-import ArtRequestModal from "@/components/ArtRequestModal";
+import ItemWorkOrders from "@/components/studio/ItemWorkOrders";
 import MoveItemDialog from "@/components/MoveItemDialog";
 import { parseSizeMatrix } from "@/lib/size-grid";
 import { uploadToDrive, registerFileInDb } from "@/lib/drive-upload-client";
@@ -337,6 +337,9 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   const [costReqMenu, setCostReqMenu] = useState(false);
   const [rfqOpen, setRfqOpen] = useState(false);
   const [artReqOpen, setArtReqOpen] = useState(false);
+  // ?wo=<id> (the labs@ email's deep link) opens straight onto that order.
+  const [artReqWo, setArtReqWo] = useState<string | null>(null);
+  useEffect(() => { try { const w = new URLSearchParams(window.location.search).get("wo"); if (w) { setArtReqWo(w); setArtReqOpen(true); } } catch {} }, []);
   const [wsMenu, setWsMenu] = useState(false);
   const [moveItem, setMoveItem] = useState<{ id: string; name: string; mode: "move" | "copy" } | null>(null);
   // Revised-proof re-send (classic nudge: item_files.revision_pending_send).
@@ -1662,7 +1665,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                         <div onClick={() => setCostReqMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
                         <div style={{ position: "absolute", top: 32, right: 0, zIndex: 41, background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, minWidth: 210, padding: 5, boxShadow: "0 12px 40px rgba(0,0,0,0.4)" }}>
                           <button onClick={() => { setCostReqMenu(false); setRfqOpen(true); }} style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.text, borderRadius: 7 }}>Decorator quote (RFQ)</button>
-                          <button onClick={() => { setCostReqMenu(false); setArtReqOpen(true); }} style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.text, borderRadius: 7 }}>Art pricing request</button>
+                          <button onClick={() => { setCostReqMenu(false); setArtReqOpen(true); }} style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.text, borderRadius: 7 }}>Hand to a designer</button>
                         </div>
                       </>
                     )}
@@ -3174,8 +3177,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
           onClose={() => setRfqOpen(false)}
           onSent={(entry: any) => { const meta = { ...(job.type_meta || {}), rfq_history: [...(job.type_meta?.rfq_history || []), entry] }; setJob((j: any) => ({ ...j, type_meta: meta })); logJobActivity(job.id, `Quote request sent to ${entry.vendor}`); }} />
       )}
-      <ArtRequestModal open={artReqOpen} onClose={() => setArtReqOpen(false)} project={job}
-        onSent={() => { logJobActivity(job.id, "Art pricing request sent"); }} />
+      <ItemWorkOrders open={artReqOpen} onClose={() => { setArtReqOpen(false); setArtReqWo(null); }} job={job} openWoId={artReqWo} />
       {moveItem && (
         <MoveItemDialog itemId={moveItem.id} itemName={moveItem.name} open={true} mode={moveItem.mode}
           onClose={() => setMoveItem(null)}

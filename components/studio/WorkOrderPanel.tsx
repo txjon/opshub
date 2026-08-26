@@ -1,7 +1,8 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { H, primaryBtn, ghostBtn, inp, lbl, tag, fmtStamp, fmtDue, ago } from "@/lib/studio-theme";
-import { woState, woTypeLabel, newPinId, type BriefSpec, type DesignWorkOrder } from "@/lib/design-work-orders";
+import { woState, woTypeLabel, newPinId, type BriefSpec, type DesignWorkOrder, type WoTarget } from "@/lib/design-work-orders";
+import { createClient } from "@/lib/supabase/client";
 import PinBrief from "@/components/studio/PinBrief";
 import Lightbox, { type LightboxItem } from "@/components/studio/Lightbox";
 import { useConfirm } from "@/components/useConfirm";
@@ -16,10 +17,11 @@ type Note = { id: string; sender_role: string; body: string; visibility?: string
 // inline = rendered as a TAB inside the brief sheet (no own header/close; the
 // sheet owns those). onDirty lets the sheet refuse tab switches / backdrop
 // clicks while there's unsaved work here.
-type Props = { woId: string; brief: any; notes?: Note[]; inline?: boolean; onClose: () => void; onChanged?: () => void; onDirty?: (d: boolean) => void };
+type Props = { woId: string; target: WoTarget; notes?: Note[]; inline?: boolean; onClose: () => void; onChanged?: () => void; onDirty?: (d: boolean) => void };
 const thumb = (id: string, size = 900) => `/api/files/thumbnail?id=${id}&thumb=1&size=${size}`;
 
-export default function WorkOrderPanel({ woId, brief, notes = [], inline, onClose, onChanged, onDirty }: Props) {
+export default function WorkOrderPanel({ woId, target, notes = [], inline, onClose, onChanged, onDirty }: Props) {
+  const uploadOpts = { itemId: target.kind === "item" ? target.id : null, clientName: target.clientName || "Studio", projectTitle: target.kind === "item" ? (target.jobTitle || "Project") : "Studio", itemName: target.title || "Design" };
   const [wo, setWo] = useState<DesignWorkOrder | null>(null);
   const [msgs, setMsgs] = useState<any[]>([]);
   const [url, setUrl] = useState("");
@@ -63,7 +65,7 @@ export default function WorkOrderPanel({ woId, brief, notes = [], inline, onClos
   const words = msgs.filter(m => m.body && m.body.trim());
 
   async function uploadRef(f: File) {
-    return uploadToDrive({ blob: f, fileName: f.name, mimeType: f.type || "application/octet-stream", itemId: null, clientName: brief?.clients?.name || "Studio", projectTitle: "Studio", itemName: brief?.title || wo?.title || "Design", onProgress: (p: number) => setPct(`${p}%`) });
+    return uploadToDrive({ blob: f, fileName: f.name, mimeType: f.type || "application/octet-stream", ...uploadOpts, onProgress: (p: number) => setPct(`${p}%`) });
   }
   async function send() {
     if (!note.trim() && !staged) return; setBusy(true); setErr("");
@@ -109,8 +111,10 @@ export default function WorkOrderPanel({ woId, brief, notes = [], inline, onClos
     if (!draft) return; setAddingRef(true); setErr("");
     try {
       const up = await uploadRef(f);
-      const reg = await fetch(`/api/studio/briefs/${wo?.brief_id}/files`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fileId: up.fileId, webViewLink: up.webViewLink, fileName: f.name, mimeType: f.type || null, fileSize: f.size, visibility: "internal" }) }).then(r => r.json()).catch(() => ({}));
-      setDraft(d => d ? { ...d, brief: { ...d.brief, canvases: [...d.brief.canvases, { id: newPinId(), fileId: reg?.fileRowId || null, driveId: up.fileId, previewId: null, name: f.name, note: "", pins: [] }] } } : d);
+      let fileId: string | null = null;
+      if (target.kind === "item") { const { data } = await createClient().from("item_files").insert({ item_id: target.id, file_name: f.name, stage: "client_art", drive_file_id: up.fileId, drive_link: up.webViewLink, mime_type: f.type || null, file_size: f.size, approval: "none" } as any).select("id").single(); fileId = (data as any)?.id || null; }
+      else { const reg = await fetch(`/api/studio/briefs/${target.id}/files`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fileId: up.fileId, webViewLink: up.webViewLink, fileName: f.name, mimeType: f.type || null, fileSize: f.size, visibility: "internal" }) }).then(r => r.json()).catch(() => ({})); fileId = reg?.fileRowId || null; }
+      setDraft(d => d ? { ...d, brief: { ...d.brief, canvases: [...d.brief.canvases, { id: newPinId(), fileId, driveId: up.fileId, previewId: null, name: f.name, note: "", pins: [] }] } } : d);
     } catch (e: any) { setErr(e?.message || "Couldn't add that reference."); }
     finally { setAddingRef(false); setPct(""); }
   }
@@ -238,7 +242,7 @@ export default function WorkOrderPanel({ woId, brief, notes = [], inline, onClos
             <span style={{ position: "absolute", left: 10, bottom: 8, display: "flex", gap: 6, flexWrap: "wrap" }}>
               <span style={{ ...tag(hero.sender_role === "designer" ? "#3c9a2e" : "#666", 8.5), background: "rgba(255,255,255,0.92)", borderRadius: 6, padding: "4px 9px" }}>{hero.sender_role === "designer" ? "Designer delivery" : "Our reference"}{hero.file_name ? ` · ${hero.file_name}` : ""}</span>
               {hero.download_url && <a href={hero.download_url} style={{ ...tag(H.green, 8.5), background: H.ink, borderRadius: 6, padding: "4px 9px", textDecoration: "none" }}>↓ Download</a>}
-              {wo.accepted_file_id && hero.file_id === wo.accepted_file_id && <span style={{ ...tag(H.green, 8.5), background: H.ink, borderRadius: 6, padding: "4px 9px" }}>✓ The file</span>}
+              {((wo.accepted_file_id && hero.file_id === wo.accepted_file_id) || (wo.accepted_item_file_id && hero.item_file_id === wo.accepted_item_file_id)) && <span style={{ ...tag(H.green, 8.5), background: H.ink, borderRadius: 6, padding: "4px 9px" }}>✓ The file</span>}
             </span>
           </div>
           {files.length > 1 && (
@@ -268,7 +272,7 @@ export default function WorkOrderPanel({ woId, brief, notes = [], inline, onClos
       </div>
 
       {wo.state === "accepted" ? (
-        <div style={{ padding: "16px 22px 20px", borderTop: `1px solid ${H.line}`, background: "rgba(88,201,60,.06)", fontSize: 13, color: H.dim }}><b style={{ color: H.green }}>✓ Accepted</b> · {fmtStamp(wo.updated_at)}. The file is on the design (internal until you share it with the client).</div>
+        <div style={{ padding: "16px 22px 20px", borderTop: `1px solid ${H.line}`, background: "rgba(88,201,60,.06)", fontSize: 13, color: H.dim }}><b style={{ color: H.green }}>✓ Accepted</b> · {fmtStamp(wo.updated_at)}. {target.kind === "item" ? "It's the item's print-ready file now — it rides the PO." : "The file is on the design (internal until you share it with the client)."}</div>
       ) : wo.state === "killed" ? (
         <div style={{ padding: "16px 22px 20px", borderTop: `1px solid ${H.line}`, fontSize: 13, color: H.faint, display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}><span><b style={{ color: H.faint }}>✕ Pulled</b> · the link is dead.</span><button disabled={busy} onClick={reopen} style={{ ...ghostBtn, padding: "7px 12px" }}>↩ Reopen</button></div>
       ) : (

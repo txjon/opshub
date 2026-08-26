@@ -1,7 +1,8 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { H, primaryBtn, ghostBtn, inp, lbl, tag } from "@/lib/studio-theme";
-import { WO_TYPES, EMPTY_BRIEF, newPinId, type BriefCanvas, type BriefExtra, type BriefSpec, type WoType } from "@/lib/design-work-orders";
+import { WO_TYPES, EMPTY_BRIEF, newPinId, type BriefCanvas, type BriefExtra, type BriefSpec, type WoType, type WoTarget } from "@/lib/design-work-orders";
+import { createClient } from "@/lib/supabase/client";
 import PinBrief from "@/components/studio/PinBrief";
 import { useConfirm } from "@/components/useConfirm";
 // @ts-ignore — plain-JS lib, no declarations
@@ -13,20 +14,34 @@ import { uploadToDrive } from "@/lib/drive-upload-client";
 // name never leaves this sheet. Replaces Freeform → PDF → Slack.
 type Img = { id: string; file_id: string | null; drive_file_id: string | null; file_url: string; file_name: string | null; reaction?: string | null };
 type Note = { id: string; sender_role: string; body: string; visibility?: string; created_at: string };
-type Props = { brief: any; images: Img[]; notes?: Note[]; onClose: () => void; onCreated: (r: { id: string; url: string; emailSent: boolean }) => void };
+// target = the design (art_brief) or the item (a job's run) this order hangs
+// off. Runs default to separations; designs to creative.
+type Props = { target: WoTarget; images: Img[]; notes?: Note[]; onClose: () => void; onCreated: (r: { id: string; url: string; emailSent: boolean }) => void };
 
 const thumb = (id: string, size = 900) => `/api/files/thumbnail?id=${id}&thumb=1&size=${size}`;
 const previewIdOf = (im: Img) => { const m = /[?&]id=([^&]+)/.exec(im.file_url || ""); const id = m ? decodeURIComponent(m[1]) : null; return id && id !== im.drive_file_id ? id : null; };
 
-export default function WorkOrderBuilder({ brief, images, notes = [], onClose, onCreated }: Props) {
+export default function WorkOrderBuilder({ target, images, notes = [], onClose, onCreated }: Props) {
   const imgs = useMemo(() => images.filter(i => i.drive_file_id), [images]);
+  const uploadOpts = { itemId: target.kind === "item" ? target.id : null, clientName: target.clientName || "Studio", projectTitle: target.kind === "item" ? (target.jobTitle || "Project") : "Studio", itemName: target.title || "Design" };
+  const createUrl = target.kind === "item" ? "/api/studio/work-orders" : `/api/studio/briefs/${target.id}/work-orders`;
+  // A fresh reference must be REGISTERED on the target so the create route's
+  // ownership check accepts it: brief file (internal) or item file (client art).
+  async function registerReference(up: any, f: File): Promise<string | null> {
+    if (target.kind === "item") {
+      const { data } = await createClient().from("item_files").insert({ item_id: target.id, file_name: f.name, stage: "client_art", drive_file_id: up.fileId, drive_link: up.webViewLink, mime_type: f.type || null, file_size: f.size, approval: "none" } as any).select("id").single();
+      return (data as any)?.id || null;
+    }
+    const reg = await fetch(`/api/studio/briefs/${target.id}/files`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fileId: up.fileId, webViewLink: up.webViewLink, fileName: f.name, mimeType: f.type || null, fileSize: f.size, visibility: "internal" }) }).then(r => r.json()).catch(() => ({}));
+    return reg?.fileRowId || null;
+  }
   // The conversation: folded, and NOTHING rides along unless tapped on (Jon,
   // Aug 26: "we'll just grab pertinent text to drop in pins"). Tap text = copy.
   const lines = useMemo(() => notes.filter(n => n.body && n.body.trim() && !/^[✓✕↩]/.test(n.body.trim()) && !/^(Handed to a designer|Pulled back into the works)/.test(n.body.trim())), [notes]);
   const [handLines, setHandLines] = useState<Set<string>>(() => new Set());
   const [showChat, setShowChat] = useState(true);
   const toggleLine = (id: string) => setHandLines(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-  const [type, setType] = useState<WoType>("creative");
+  const [type, setType] = useState<WoType>(target.kind === "item" ? "separations" : "creative");
   const [spec, setSpec] = useState<BriefSpec>(() => {
     // The latest live image is the first canvas — the brief usually pins on it.
     const live = imgs.filter(i => i.reaction !== "down");
@@ -60,9 +75,9 @@ export default function WorkOrderBuilder({ brief, images, notes = [], onClose, o
   async function addReference(f: File) {
     setAddingRef(true); setErr("");
     try {
-      const up = await uploadToDrive({ blob: f, fileName: f.name, mimeType: f.type || "image/png", itemId: null, clientName: brief?.clients?.name || "Studio", projectTitle: "Studio", itemName: brief?.title || "Design", onProgress: undefined });
-      const reg = await fetch(`/api/studio/briefs/${brief.id}/files`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fileId: up.fileId, webViewLink: up.webViewLink, fileName: f.name, mimeType: f.type || null, fileSize: f.size, visibility: "internal" }) }).then(r => r.json()).catch(() => ({}));
-      setSpec(s => ({ ...s, canvases: [...s.canvases, { id: newPinId(), fileId: reg?.fileRowId || null, driveId: up.fileId, previewId: null, name: f.name, note: "", pins: [] }] }));
+      const up = await uploadToDrive({ blob: f, fileName: f.name, mimeType: f.type || "image/png", ...uploadOpts, onProgress: undefined });
+      const fileId = await registerReference(up, f);
+      setSpec(s => ({ ...s, canvases: [...s.canvases, { id: newPinId(), fileId, driveId: up.fileId, previewId: null, name: f.name, note: "", pins: [] }] }));
     } catch (e: any) { setErr(e?.message || "Couldn't add that reference."); }
     finally { setAddingRef(false); }
   }
@@ -90,7 +105,7 @@ export default function WorkOrderBuilder({ brief, images, notes = [], onClose, o
     else setSpec(s => ({ ...s, extras: [...s.extras, { fileId: im.file_id, driveId: id, previewId: previewIdOf(im), name: im.file_name }] }));
   }
   async function uploadPinImage(f: File) {
-    const up = await uploadToDrive({ blob: f, fileName: f.name, mimeType: f.type || "image/png", itemId: null, clientName: brief?.clients?.name || "Studio", projectTitle: "Studio", itemName: brief?.title || "Design", onProgress: undefined });
+    const up = await uploadToDrive({ blob: f, fileName: f.name, mimeType: f.type || "image/png", ...uploadOpts, onProgress: undefined });
     return { driveId: up.fileId as string, name: f.name };
   }
   async function go() {
@@ -101,7 +116,7 @@ export default function WorkOrderBuilder({ brief, images, notes = [], onClose, o
     setBusy(true);
     try {
       const conversation = lines.filter(n => handLines.has(n.id)).map(n => ({ role: n.sender_role === "client" ? "client" : "us", text: n.body.trim(), at: n.created_at }));
-      const r = await fetch(`/api/studio/briefs/${brief.id}/work-orders`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type, headline: headline.trim() || null, instructions: instructions.trim() || null, brief: { ...spec, conversation }, dueBy: dueBy || null, designerName: designerName.trim() || null, designerEmail: designerEmail.trim() || null }) }).then(x => x.json());
+      const r = await fetch(createUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...(target.kind === "item" ? { itemId: target.id } : {}), type, headline: headline.trim() || null, instructions: instructions.trim() || null, brief: { ...spec, conversation }, dueBy: dueBy || null, designerName: designerName.trim() || null, designerEmail: designerEmail.trim() || null }) }).then(x => x.json());
       if (r.error) { setErr(r.error); return; }
       onCreated({ id: r.workOrder.id, url: r.url, emailSent: !!r.emailSent });
     } finally { setBusy(false); }
@@ -116,7 +131,7 @@ export default function WorkOrderBuilder({ brief, images, notes = [], onClose, o
           <div>
             <div style={tag(H.faint, 9.5)}>Designer · Room 2</div>
             <div style={{ fontSize: 18, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", marginTop: 2 }}>Hand to a designer</div>
-            <div style={{ fontSize: 11.5, color: H.faint, marginTop: 4 }}>{brief?.title || "Design"} · the client&rsquo;s name stays here</div>
+            <div style={{ fontSize: 11.5, color: H.faint, marginTop: 4 }}>{target.title || "Design"}{target.jobNumber ? ` · ${target.jobNumber}` : ""} · the client&rsquo;s name stays here</div>
           </div>
           <button onClick={requestClose} aria-label="Close" style={{ background: "none", border: "none", color: H.dim, fontSize: 26, cursor: "pointer", lineHeight: 1 }}>×</button>
         </div>
