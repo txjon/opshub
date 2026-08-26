@@ -179,11 +179,11 @@ export default function NewShipstationReportPage() {
 
   // Stage 1 — shared
   const [clients, setClients] = useState<Client[]>([]);
+  const [clientId, setClientId] = useState<string>("");
   const selectedClient = clients.find(c => c.id === clientId) || null;
   const filteredClients = clientSearch.trim()
     ? clients.filter(c => c.name.toLowerCase().includes(clientSearch.trim().toLowerCase()))
     : clients;
-  const [clientId, setClientId] = useState<string>("");
   const [periodLabel, setPeriodLabel] = useState<string>(() => {
     const d = new Date();
     d.setMonth(d.getMonth() - 1);
