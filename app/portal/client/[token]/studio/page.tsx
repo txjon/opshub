@@ -234,10 +234,6 @@ function Sheet({ detail, token, onClose, onRefresh, nav, onLock }: any) {
     try { await act({ action: "reopen", note: roNote.trim() }); setReopenForm(false); setRoNote(""); await onRefresh(); } finally { setBusy(false); }
   }
   async function killIt() { setBusy(true); try { await act({ action: "kill" }); closeBar(); await onRefresh(); } finally { setBusy(false); } }
-  async function reply(file?: File) {
-    if (!note.trim() && !file) return; setBusy(true);
-    try { const fd = new FormData(); if (note.trim()) fd.set("body", note.trim()); if (file) fd.set("file", file); await fetch(`/api/portal/client/${token}/studio/${b.id}/action`, { method: "POST", body: fd }); setNote(""); setHeroId(null); await onRefresh(); } finally { setBusy(false); }
-  }
   // Staged attachments: 📎 only STAGES (typing is never interrupted); Send
   // ships note + files together — one request per file so each stays small,
   // the note riding the first. Progress shows on the button and every exit
@@ -521,7 +517,10 @@ function ShareForm({ token, onClose, onDone }: any) {
       // as replies — each becomes its own entry on the new design.
       if (bid) for (const { f } of files) {
         const fd = new FormData(); fd.set("file", f);
-        await fetch(`/api/portal/client/${token}/studio/${bid}/action`, { method: "POST", body: fd });
+        const pr = await fetch(`/api/portal/client/${token}/studio/${bid}/action`, { method: "POST", body: fd });
+        // The idea itself is already saved; a photo that doesn't land must
+        // say so (never a silent gap in the design).
+        if (!pr.ok) { const pj = await pr.json().catch(() => null); throw new Error((pj as any)?.error || (pr.status === 413 ? `${f.name} is too big to send — 4MB max. Your idea was saved; add that photo from the design.` : `${f.name} didn't send. Your idea was saved; add it again from the design.`)); }
       }
       for (const { url } of files) URL.revokeObjectURL(url);
       onDone(bid);
