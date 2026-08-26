@@ -50,6 +50,11 @@ export async function POST(req: NextRequest) {
     // Load job + items + client shipping address
     const { data: job } = await admin.from("jobs").select("*, clients(name, default_terms, shipping_address, allow_cc, allow_ach)").eq("id", jobId).single();
     if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
+    // Internal lines (mig 164): production-only jobs, never real revenue —
+    // pushing a QB invoice would just recreate the zero-out ritual in QB.
+    if ((job as any).is_internal) {
+      return NextResponse.json({ error: "Internal line — QB invoices are disabled for internal jobs (HPD Web / Labs). Costs still flow to QB through vendor bills." }, { status: 400 });
+    }
 
     const { data: items } = await admin.from("items")
       .select("*, buy_sheet_lines(size, qty_ordered)")

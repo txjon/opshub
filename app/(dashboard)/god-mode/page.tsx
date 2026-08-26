@@ -39,7 +39,7 @@ export default async function GodModePage() {
     costMarksRes,
   ] = await Promise.all([
     supabase.from("jobs")
-      .select("id, job_number, title, phase, client_id, clients(name), company_id, payment_terms, target_ship_date, costing_summary, costing_data, type_meta, phase_timestamps, created_at, quote_approved, quote_approved_at, is_inventory, is_test")
+      .select("id, job_number, title, phase, client_id, clients(name), company_id, payment_terms, target_ship_date, costing_summary, costing_data, type_meta, phase_timestamps, created_at, quote_approved, quote_approved_at, is_inventory, is_test, is_internal")
       .order("created_at", { ascending: false }),
     supabase.from("items")
       .select("id, job_id, name, sort_order, blank_costs, pipeline_stage, pipeline_timestamps, sell_per_unit, cost_per_unit, cost_per_unit_all_in, garment_type, ship_qtys, blanks_order_cost, blanks_order_number, shipping_route, forwarded_at, buy_sheet_lines(size, qty_ordered), decorator_assignments(decorator_id)")

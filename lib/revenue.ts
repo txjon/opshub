@@ -98,7 +98,10 @@ export const isInventoryJob = (job: any): boolean => !!job?.is_inventory;
 //   - is_inventory: stock buys, cost rides future jobs (see above)
 //   - cancelled: cancel/void zeroes reported revenue — a dead job is not sales
 //   - is_test: Playwright/e2e sandbox jobs (jobs.is_test, migration 125)
-// Callers must SELECT phase + is_test + is_inventory for this to work.
+//   - is_internal: internal lines (HPD Web / Labs, migration 164) — jobs run
+//     production + POs but are never real revenue; client-level flag stamped
+//     onto jobs by DB trigger
+// Callers must SELECT phase + is_test + is_inventory + is_internal for this to work.
 export function pnlJobs<T>(jobs: T[] | null | undefined): T[] {
-  return (jobs || []).filter((j: any) => !j?.is_inventory && j?.phase !== "cancelled" && !j?.is_test);
+  return (jobs || []).filter((j: any) => !j?.is_inventory && j?.phase !== "cancelled" && !j?.is_test && !j?.is_internal);
 }

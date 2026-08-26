@@ -63,7 +63,7 @@ export default function InvoicesPage() {
   async function load() {
     try {
       const [jobsRes, itemsRes, decoratorsRes, apRes, entriesRes, marksRes, paysRes, clientsRes, ssRes] = await Promise.all([
-        supabase.from("jobs").select("id, job_number, title, phase, client_id, clients(name), payment_terms, target_ship_date, costing_summary, costing_data, type_meta, created_at, shipping_route, fulfillment_status, is_inventory, is_test, financial_closed_at"),
+        supabase.from("jobs").select("id, job_number, title, phase, client_id, clients(name), payment_terms, target_ship_date, costing_summary, costing_data, type_meta, created_at, shipping_route, fulfillment_status, is_inventory, is_test, is_internal, financial_closed_at"),
         supabase.from("items").select("id, job_id, name, sort_order, blank_costs, pipeline_stage, shipping_route, forwarded_at, buy_sheet_lines(size, qty_ordered)"),
         supabase.from("decorators").select("id, name, short_code, pricing_data, capabilities"),
         supabase.from("ap_vendors").select("id, name, kind, decorator_id, match_keys").eq("active", true),
