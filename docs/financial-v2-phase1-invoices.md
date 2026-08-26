@@ -160,9 +160,9 @@ Rules (locked in session 2026-08-13):
 
 ## Out of scope (later phases — do NOT start)
 
-- Phase 2: Bills = /billing + /reconciliation as ONE capability-gated surface (billingOnly
-  becomes a user-derived flag, not a route prop; /reconciliation twins to /billing in
-  V2_TWIN_PAIRS; Variances stays owner-gated).
+- Phase 2: **SHIPPED 2026-08-25 (c42a57b7)** — Bills = one surface at /billing (nav
+  "Bills"); billingOnly derived server-side (god / /reconciliation grant / owner-manager
+  fallback); /reconciliation redirects + twinned; Variances stays full-powers-gated.
 - Phase 3: Reports folds into God Mode (views are subsets; CSV export moves along);
   god-mode-v2 renamed "The Archive"; Office hub-skin rebuild.
 - Money-model audit beyond what lib/ar.ts forces (the full audit is the Financial V2
