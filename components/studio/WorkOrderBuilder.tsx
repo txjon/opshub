@@ -16,7 +16,7 @@ type Img = { id: string; file_id: string | null; drive_file_id: string | null; f
 type Note = { id: string; sender_role: string; body: string; visibility?: string; created_at: string };
 // target = the design (art_brief) or the item (a job's run) this order hangs
 // off. Runs default to separations; designs to creative.
-type Props = { target: WoTarget; images: Img[]; notes?: Note[]; onClose: () => void; onCreated: (r: { id: string; url: string; emailSent: boolean }) => void };
+type Props = { target: WoTarget; images: Img[]; notes?: Note[]; onClose: () => void; onCreated: (r: { id: string; url: string; emailSent: boolean; emailSkipped?: string | null }) => void };
 
 const thumb = (id: string, size = 900) => `/api/files/thumbnail?id=${id}&thumb=1&size=${size}`;
 const previewIdOf = (im: Img) => { const m = /[?&]id=([^&]+)/.exec(im.file_url || ""); const id = m ? decodeURIComponent(m[1]) : null; return id && id !== im.drive_file_id ? id : null; };
@@ -118,7 +118,7 @@ export default function WorkOrderBuilder({ target, images, notes = [], onClose, 
       const conversation = lines.filter(n => handLines.has(n.id)).map(n => ({ role: n.sender_role === "client" ? "client" : "us", text: n.body.trim(), at: n.created_at }));
       const r = await fetch(createUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...(target.kind === "item" ? { itemId: target.id } : {}), type, headline: headline.trim() || null, instructions: instructions.trim() || null, brief: { ...spec, conversation }, dueBy: dueBy || null, designerName: designerName.trim() || null, designerEmail: designerEmail.trim() || null }) }).then(x => x.json());
       if (r.error) { setErr(r.error); return; }
-      onCreated({ id: r.workOrder.id, url: r.url, emailSent: !!r.emailSent });
+      onCreated({ id: r.workOrder.id, url: r.url, emailSent: !!r.emailSent, emailSkipped: r.emailSkipped || null });
     } finally { setBusy(false); }
   }
 

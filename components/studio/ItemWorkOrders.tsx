@@ -121,7 +121,8 @@ export default function ItemWorkOrders({ open, job, onClose, openWoId }: Props) 
 
         {building && <WorkOrderBuilder target={targetFor(building)} images={imagesFor(building.id)} notes={[]} onClose={() => setBuilding(null)} onCreated={async (r: any) => {
           setBuilding(null);
-          if (!r.emailSent) { try { await navigator.clipboard.writeText(r.url); setNotice("Work order created — link copied. Paste it to the designer."); } catch { setNotice("Work order created — copy the link from the order."); } }
+          if (r.emailSkipped === "localhost") setNotice("Created — no email from localhost. Send it live from the app, or copy the link.");
+          else if (!r.emailSent) { try { await navigator.clipboard.writeText(r.url); setNotice("Work order created — link copied. Paste it to the designer."); } catch { setNotice("Work order created — copy the link from the order."); } }
           else setNotice("Work order sent. The link's in their inbox.");
           setTimeout(() => setNotice(""), 6000);
           await load(); setActive(r.id);

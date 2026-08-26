@@ -487,7 +487,8 @@ function BriefSheet({ detail, onRefresh, onClose, openWoId, setOpenWoId, onDirty
       {woNotice && <div style={{ margin: "8px 22px 0", fontSize: 12, color: H.green }}>{woNotice}</div>}
       {woBuilder && <WorkOrderBuilder target={{ kind: "brief", id: b.id, title: b.title || null, clientName: b.clients?.name || null }} images={images} notes={convo} onClose={() => setWoBuilder(false)} onCreated={async (r: any) => {
         setWoBuilder(false);
-        if (!r.emailSent) { try { await navigator.clipboard.writeText(r.url); setWoNotice("Work order created — link copied. Paste it to the designer."); } catch { setWoNotice("Work order created — copy the link from the order."); } }
+        if (r.emailSkipped === "localhost") setWoNotice("Created — no email from localhost. Send it live from the app, or copy the link.");
+        else if (!r.emailSent) { try { await navigator.clipboard.writeText(r.url); setWoNotice("Work order created — link copied. Paste it to the designer."); } catch { setWoNotice("Work order created — copy the link from the order."); } }
         else setWoNotice("Work order sent. The link's in their inbox.");
         setTimeout(() => setWoNotice(""), 6000);
         await loadWos(); await onRefresh(); setOpenWoId(r.id);

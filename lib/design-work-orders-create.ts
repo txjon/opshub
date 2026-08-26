@@ -10,7 +10,7 @@ import { woDb, newWoToken, ownedDriveIds, sanitizeSpec, type ResolvedTarget } fr
 
 export type CreateWoInput = { type: string; headline?: string | null; instructions?: string | null; brief?: any; dueBy?: string | null; designerName?: string | null; designerEmail?: string | null };
 
-export async function createWorkOrder(t: ResolvedTarget, b: CreateWoInput, who: { name: string }, origin: string): Promise<{ workOrder: any; url: string; emailSent: boolean } | { error: string; status: number }> {
+export async function createWorkOrder(t: ResolvedTarget, b: CreateWoInput, who: { name: string }, origin: string): Promise<{ workOrder: any; url: string; emailSent: boolean; emailSkipped: string | null } | { error: string; status: number }> {
   if (!["creative", "vector", "separations"].includes(b.type)) return { error: "Pick what you need made", status: 400 };
   const db = woDb();
   const { ok } = await ownedDriveIds(t);
@@ -33,30 +33,16 @@ export async function createWorkOrder(t: ResolvedTarget, b: CreateWoInput, who: 
   const seed = [b.headline, b.instructions].map(x => (x ? String(x).trim() : "")).filter(Boolean).join("\n\n") || "Brief's above — pins on the reference. Deliver the file here when it's ready.";
   await db.from("design_wo_messages").insert({ work_order_id: (wo as any).id, sender_role: "hpd", sender_name: who.name, body: seed, kind: "comment" } as never);
 
-  // Localhost sends link to localhost; anywhere else, the tenant's domain.
-  const base = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin) ? origin : appBaseUrlForSlug(t.companySlug);
-  const url = `${base}/designer/${token}`;
-  let emailSent = false;
-  if (designerEmail) {
-    try {
-      const creative = process.env.EMAIL_FROM_CREATIVE || "creative@housepartydistro.com";
-      const from = `${t.companyName} <${creative}>`;
-      const typeWord = b.type === "creative" ? "creative art" : b.type === "vector" ? "a vector clean-up" : "separations";
-      // Designer-facing copy: the item/design name and (for runs) the job NUMBER — never the client.
-      const what = t.kind === "item" && t.jobNumber ? `${t.title} (${t.jobNumber})` : t.title;
-      const html = renderBrandedEmail({
-        eyebrow: t.companyName, heading: "Work order",
-        greeting: b.designerName ? `Hi ${String(b.designerName).trim()},` : "Hi,",
-        bodyHtml: `<p style="margin:0 0 14px;">We need ${typeWord} on <strong>${esc(what)}</strong>${b.dueBy ? `, due <strong>${esc(String(b.dueBy))}</strong>` : ""}.</p>` +
-          (b.headline ? `<p style="margin:0 0 14px;"><strong>${esc(String(b.headline).trim())}</strong></p>` : "") +
-          `<p style="margin:0 0 14px;">The brief is pinned right on the reference images at the link below, with every file to download. Deliver your file on that same page, no account needed. Questions go there too.</p>`,
-        cta: { label: "Open the work order", url, style: "dark" },
-        hint: "This link is yours for this job only. It stays live until the file is accepted.",
-      });
-      await resendForSlug(t.companySlug).emails.send({ from, to: designerEmail, replyTo: creative, subject: `Work order — ${what}`, html });
-      emailSent = true;
-      await db.from("design_work_orders").update({ sent_at: now } as never).eq("id", (wo as any).id);
-    } catch (e) { console.error("[designer-door] email failed", (e as any)?.message || e); }
+  // The link is ALWAYS the tenant's real domain (the DB is shared, so a prod
+  // link is the only one that works for an outsider). A dev box never emails
+  // anyone — Aug 26: a localhost send reached a real designer with a dead link.
+  const url = `${appBaseUrlForSlug(t.companySlug)}/designer/${token}`;
+  const isLocal = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+  let emailSent = false, emailSkipped: string | null = null;
+  if (designerEmail && isLocal) emailSkipped = "localhost";
+  else if (designerEmail) {
+    emailSent = await sendWorkOrderEmail(t, { ...(wo as any), designer_email: designerEmail, designer_name: b.designerName || null, due_by: b.dueBy || null, headline: b.headline || null }, url);
+    if (emailSent) await db.from("design_work_orders").update({ sent_at: now } as never).eq("id", (wo as any).id);
   }
   const record = `Handed to a designer (${b.type})${b.designerName || designerEmail ? ` — ${b.designerName || designerEmail}` : ""}${b.dueBy ? `, due ${b.dueBy}` : ""}.`;
   if (t.kind === "brief") {
@@ -65,7 +51,31 @@ export async function createWorkOrder(t: ResolvedTarget, b: CreateWoInput, who: 
   } else if (t.jobId) {
     await logJobActivityServer(t.jobId, `${t.title}: ${record}`, { work_order_id: (wo as any).id, type: b.type });
   }
-  return { workOrder: { ...(wo as any), sent_at: emailSent ? now : null }, url, emailSent };
+  return { workOrder: { ...(wo as any), sent_at: emailSent ? now : null }, url, emailSent, emailSkipped };
+}
+
+// The designer's email — used at create and by "Resend link". From/reply-to
+// the creative desk; names the item/design and (for runs) the job NUMBER, never
+// the client. Returns true when Resend accepted it.
+export async function sendWorkOrderEmail(t: ResolvedTarget, wo: { type: string; designer_email: string | null; designer_name: string | null; due_by: string | null; headline: string | null }, url: string): Promise<boolean> {
+  if (!wo.designer_email) return false;
+  try {
+    const creative = process.env.EMAIL_FROM_CREATIVE || "creative@housepartydistro.com";
+    const from = `${t.companyName} <${creative}>`;
+    const typeWord = wo.type === "creative" ? "creative art" : wo.type === "vector" ? "a vector clean-up" : "separations";
+    const what = t.kind === "item" && t.jobNumber ? `${t.title} (${t.jobNumber})` : t.title;
+    const html = renderBrandedEmail({
+      eyebrow: t.companyName, heading: "Work order",
+      greeting: wo.designer_name ? `Hi ${String(wo.designer_name).trim()},` : "Hi,",
+      bodyHtml: `<p style="margin:0 0 14px;">We need ${typeWord} on <strong>${esc(what)}</strong>${wo.due_by ? `, due <strong>${esc(String(wo.due_by))}</strong>` : ""}.</p>` +
+        (wo.headline ? `<p style="margin:0 0 14px;"><strong>${esc(String(wo.headline).trim())}</strong></p>` : "") +
+        `<p style="margin:0 0 14px;">The brief is pinned right on the reference images at the link below, with every file to download. Deliver your file on that same page, no account needed. Questions go there too.</p>`,
+      cta: { label: "Open the work order", url, style: "dark" },
+      hint: "This link is yours for this job only. It stays live until the file is accepted.",
+    });
+    await resendForSlug(t.companySlug).emails.send({ from, to: wo.designer_email, replyTo: creative, subject: `Work order — ${what}`, html });
+    return true;
+  } catch (e) { console.error("[designer-door] email failed", (e as any)?.message || e); return false; }
 }
 
 function esc(s: string): string { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }

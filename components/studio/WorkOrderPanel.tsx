@@ -35,6 +35,12 @@ export default function WorkOrderPanel({ woId, target, notes = [], inline, onClo
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<{ headline: string; instructions: string; dueBy: string; brief: BriefSpec } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [resent, setResent] = useState("");
+  async function resend() {
+    setBusy(true); setErr(""); setResent("");
+    try { const r = await fetch(`/api/studio/work-orders/${woId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "resend" }) }).then(x => x.json()); if (r.error) { setErr(r.error); return; } setResent(`Sent to ${wo?.designer_email}`); setTimeout(() => setResent(""), 4000); await refresh(); }
+    finally { setBusy(false); }
+  }
   const fileIn = useRef<HTMLInputElement | null>(null);
   const [confirm, confirmEl] = useConfirm();
   const [lit, setLit] = useState<LightboxItem | null>(null);
@@ -153,6 +159,7 @@ export default function WorkOrderPanel({ woId, target, notes = [], inline, onClo
             <input readOnly value={url} onFocus={e => e.currentTarget.select()} style={{ ...inp, flex: 1, minWidth: 160, fontSize: 11, fontFamily: H.mono, padding: "8px 10px" }} />
             <button onClick={() => { navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 1500); }} style={ghostBtn}>{copied ? "✓ Copied" : "Copy"}</button>
             <a href={url} target="_blank" rel="noreferrer" style={{ ...ghostBtn, textDecoration: "none", display: "inline-block" }}>Open ↗</a>
+            {wo.designer_email && <button disabled={busy} onClick={resend} title={`Email the link again to ${wo.designer_email}`} style={{ ...ghostBtn, color: H.blue, borderColor: "rgba(143,199,216,.4)", opacity: busy ? 0.6 : 1 }}>{resent ? `✓ ${resent}` : "Resend link"}</button>}
           </div>
         </div>
       )}

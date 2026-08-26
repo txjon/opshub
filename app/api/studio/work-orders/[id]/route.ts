@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { woDb, loadWorkOrder } from "@/lib/design-work-orders-server";
+import { woDb, loadWorkOrder, targetOf } from "@/lib/design-work-orders-server";
+import { sendWorkOrderEmail } from "@/lib/design-work-orders-create";
+import { appBaseUrlForSlug } from "@/lib/public-url";
 import { logJobActivityServer } from "@/lib/notify-server";
 
 export const runtime = "nodejs";
@@ -25,7 +27,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   if (!(await me())) return NextResponse.json({ error: "Sign in" }, { status: 401 });
   const r = await loadWorkOrder(params.id);
   if (!r) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  const url = `${_req.nextUrl.origin}/designer/${r.wo.token}`;
+  const t = await targetOf(r.wo);
+  const url = `${t ? appBaseUrlForSlug(t.companySlug) : _req.nextUrl.origin}/designer/${r.wo.token}`;
   return NextResponse.json({ workOrder: r.wo, messages: r.messages.map(decorate), url });
 }
 
@@ -44,10 +47,24 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if (!who) return NextResponse.json({ error: "Sign in" }, { status: 401 });
   const b = await req.json().catch(() => ({} as any));
   const db = woDb();
-  const { data: wo } = await db.from("design_work_orders").select("id, brief_id, item_id, job_id, state, title").eq("id", params.id).maybeSingle();
+  const { data: wo } = await db.from("design_work_orders").select("id, brief_id, item_id, job_id, state, title, type, token, designer_email, designer_name, due_by, headline").eq("id", params.id).maybeSingle();
   if (!wo) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const now = new Date().toISOString();
 
+  // Resend the designer's link (optionally to a new/changed address) — always
+  // the tenant's real domain, from the creative desk.
+  if (b.action === "resend") {
+    const to = b.designerEmail ? String(b.designerEmail).trim().toLowerCase() : (wo as any).designer_email;
+    if (!to || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) return NextResponse.json({ error: "Add the designer's email first" }, { status: 400 });
+    if ((wo as any).state === "killed") return NextResponse.json({ error: "The order is pulled — reopen it first" }, { status: 409 });
+    const t = await targetOf(wo as any);
+    if (!t) return NextResponse.json({ error: "This order's target is gone" }, { status: 404 });
+    const url = `${appBaseUrlForSlug(t.companySlug)}/designer/${(wo as any).token}`;
+    const sent = await sendWorkOrderEmail(t, { ...(wo as any), designer_email: to }, url);
+    if (!sent) return NextResponse.json({ error: "The email didn't go out — copy the link and send it by hand" }, { status: 502 });
+    await db.from("design_work_orders").update({ designer_email: to, sent_at: now, updated_at: now } as never).eq("id", params.id);
+    return NextResponse.json({ ok: true, url });
+  }
   if (b.action === "seen") {
     await db.from("design_work_orders").update({ hpd_seen_at: now } as never).eq("id", params.id);
     return NextResponse.json({ ok: true });
