@@ -19,10 +19,11 @@ const previewIdOf = (im: Img) => { const m = /[?&]id=([^&]+)/.exec(im.file_url |
 
 export default function WorkOrderBuilder({ brief, images, notes = [], onClose, onCreated }: Props) {
   const imgs = useMemo(() => images.filter(i => i.drive_file_id), [images]);
-  // The conversation: client-visible lines ride along by default (that IS the
-  // direction, in the client's own words); internal notes are off unless tapped.
+  // The conversation: folded, and NOTHING rides along unless tapped on (Jon,
+  // Aug 26: "we'll just grab pertinent text to drop in pins"). Tap text = copy.
   const lines = useMemo(() => notes.filter(n => n.body && n.body.trim() && !/^[✓✕↩]/.test(n.body.trim())), [notes]);
-  const [handLines, setHandLines] = useState<Set<string>>(() => new Set(lines.filter(n => n.visibility !== "internal").map(n => n.id)));
+  const [handLines, setHandLines] = useState<Set<string>>(() => new Set());
+  const [showChat, setShowChat] = useState(false);
   const toggleLine = (id: string) => setHandLines(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const [type, setType] = useState<WoType>("creative");
   const [spec, setSpec] = useState<BriefSpec>(() => {
@@ -161,16 +162,16 @@ export default function WorkOrderBuilder({ brief, images, notes = [], onClose, o
 
         {lines.length > 0 && (
           <div style={{ padding: "16px 22px 0" }}>
-            <label style={lbl}>The conversation · {handLines.size} of {lines.length} lines go with it · names stripped · tap the text to copy it into a pin</label>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 220, overflowY: "auto" }}>
+            <button type="button" onClick={() => setShowChat(v => !v)} style={{ ...lbl, background: "none", border: "none", cursor: "pointer", padding: 0, textAlign: "left", fontFamily: H.font }}>{showChat ? "▾" : "▸"} The conversation · {lines.length} lines{handLines.size ? ` · ${handLines.size} go with it` : ""} · tap text to copy into a pin</button>
+            {showChat && <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 220, overflowY: "auto" }}>
               {lines.map(n => { const on = handLines.has(n.id); const client = n.sender_role === "client"; const whisper = n.visibility === "internal"; return (
                 <div key={n.id} style={{ display: "flex", gap: 10, alignItems: "flex-start", background: on ? H.surface : "transparent", border: `1px ${whisper ? "dashed" : "solid"} ${on ? H.line : H.line2}`, borderRadius: 10, padding: "8px 11px", fontFamily: H.font, color: H.text, opacity: on ? 1 : 0.55 }}>
                   <span style={{ ...tag(client ? H.blue : whisper ? H.amber : H.dim, 8.5), flexShrink: 0, width: 46, paddingTop: 2 }}>{client ? "Client" : whisper ? "Internal" : "Us"}</span>
                   <button type="button" onClick={() => copyLine(n)} title="Copy" style={{ flex: 1, textAlign: "left", background: "none", border: "none", color: copied === n.id ? H.green : H.text, fontSize: 12.5, lineHeight: 1.45, whiteSpace: "pre-wrap", cursor: "copy", fontFamily: H.font, padding: 0 }}>{copied === n.id ? "✓ Copied" : n.body}</button>
-                  <button type="button" onClick={() => toggleLine(n.id)} title={on ? "Goes with the order — tap to leave it out" : "Left out — tap to hand it over"} style={{ flexShrink: 0, background: "none", border: "none", cursor: "pointer", ...tag(on ? H.green : H.faint, 9), fontFamily: H.font }}>{on ? "✓" : "off"}</button>
+                  <button type="button" onClick={() => toggleLine(n.id)} title={on ? "Goes with the order — tap to leave it out" : "Stays here — tap to hand it over"} style={{ flexShrink: 0, background: "none", border: "none", cursor: "pointer", ...tag(on ? H.green : H.faint, 9), fontFamily: H.font }}>{on ? "✓ sent" : "hand over"}</button>
                 </div>
               ); })}
-            </div>
+            </div>}
           </div>
         )}
 
