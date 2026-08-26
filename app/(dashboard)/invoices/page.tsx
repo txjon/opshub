@@ -66,7 +66,7 @@ export default function InvoicesPage() {
   const [q, setQ] = useState("");
   const [stmtOpen, setStmtOpen] = useState(false);
 
-  async function load(skipAutoFinal = false) {
+  async function load(depth = 0) {
     try {
       const [jobsRes, itemsRes, decoratorsRes, apRes, entriesRes, marksRes, paysRes, clientsRes, ssRes] = await Promise.all([
         supabase.from("jobs").select("id, job_number, title, phase, client_id, clients(name), payment_terms, target_ship_date, costing_summary, costing_data, type_meta, created_at, shipping_route, fulfillment_status, is_inventory, is_test, is_internal, financial_closed_at"),
@@ -92,15 +92,6 @@ export default function InvoicesPage() {
         clients: (clientsRes.data || []) as any[],
         ssReports: ssRes.data || [],
       });
-      // Zero-variance reconciles self-finalize (lib/job/auto-finalize) so the
-      // amber state on this index always means a real discrepancy. One pass,
-      // then a single reload if anything stamped.
-      if (!skipAutoFinal) {
-        const rec = arData.rows.filter(r => r.stream === "job" && r.state === "reconcile");
-        const did = await Promise.all(rec.map(r => maybeAutoFinalizeInvoice(supabase, r.id).catch(() => false)));
-        if (did.some(Boolean)) return load(true);
-      }
-      setAr(arData);
       // Cost-complete per job×vendor (lib/billing-queue) — the fourth
       // close-out condition. Freight sources excluded (never gates close).
       const q = computeBillingQueue({
@@ -113,6 +104,28 @@ export default function InvoicesPage() {
       });
       const cc: Record<string, boolean> = {};
       for (const row of (q as any).jobs || []) cc[row.id] = !!row.costComplete;
+
+      // The no-human-needed sweeps (Jon, Aug 26): zero-variance reconciles
+      // self-finalize, and jobs passing every close gate self-close — amber
+      // and queues only ever hold real human decisions. Loop ≤2 extra passes
+      // so a job can finalize AND close in one visit; both stamps are
+      // idempotent so this terminates.
+      if (depth < 2) {
+        const rec = arData.rows.filter(r => r.stream === "job" && r.state === "reconcile");
+        const didFinal = await Promise.all(rec.map(r => maybeAutoFinalizeInvoice(supabase, r.id).catch(() => false)));
+        const closeable = arData.rows.filter(r => isCloseable(r, !!cc[r.id]));
+        for (const r of closeable) {
+          await (supabase.from("jobs") as any)
+            .update({ financial_closed_at: new Date().toISOString(), financial_closed_by: null })
+            .eq("id", r.id);
+          await (supabase.from("job_activity") as any).insert({
+            job_id: r.id, user_id: null, type: "auto",
+            message: "Financially closed automatically — settled, shipped, and cost-complete", metadata: {},
+          });
+        }
+        if (didFinal.some(Boolean) || closeable.length > 0) return load(depth + 1);
+      }
+      setAr(arData);
       setCostCompleteByJob(cc);
     } catch (e: any) { setErr(e?.message || "Load failed"); }
   }
@@ -231,39 +244,16 @@ export default function InvoicesPage() {
           </div>
 
           <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
-            {(["index", "close"] as const).map(k => {
-              const closeable = ar.rows.filter(r => isCloseable(r, !!costCompleteByJob[r.id])).length;
-              return (
-                <button key={k} onClick={() => setTab(k)}
-                  style={{ borderRadius: 8, border: `1px solid ${tab === k ? T.accent : T.border}`, background: tab === k ? T.surface : "transparent", color: tab === k ? T.text : T.muted, fontSize: 12.5, fontWeight: 800, padding: "9px 16px", cursor: "pointer", fontFamily: font }}>
-                  {k === "index" ? "All invoices" : `Close-out${closeable ? ` · ${closeable}` : ""}`}
-                </button>
-              );
-            })}
+            {(["index", "close"] as const).map(k => (
+              <button key={k} onClick={() => setTab(k)}
+                style={{ borderRadius: 8, border: `1px solid ${tab === k ? T.accent : T.border}`, background: tab === k ? T.surface : "transparent", color: tab === k ? T.text : T.muted, fontSize: 12.5, fontWeight: 800, padding: "9px 16px", cursor: "pointer", fontFamily: font }}>
+                {k === "index" ? "All invoices" : "Closed"}
+              </button>
+            ))}
           </div>
 
           {tab === "close" ? (
-            <CloseOutQueue rows={ar.rows} costCompleteByJob={costCompleteByJob} closing={closing}
-              onCloseMany={async (rowsToClose) => {
-                setClosing("bulk");
-                const { data: { user } } = await supabase.auth.getUser();
-                for (const row of rowsToClose) {
-                  await (supabase.from("jobs") as any)
-                    .update({ financial_closed_at: new Date().toISOString(), financial_closed_by: user?.id || null })
-                    .eq("id", row.id);
-                }
-                setClosing(null);
-                load();
-              }}
-              onClose={async (row) => {
-                setClosing(row.id);
-                const { data: { user } } = await supabase.auth.getUser();
-                const { error } = await (supabase.from("jobs") as any)
-                  .update({ financial_closed_at: new Date().toISOString(), financial_closed_by: user?.id || null })
-                  .eq("id", row.id);
-                setClosing(null);
-                if (error) setErr(error.message); else load();
-              }}
+            <ClosedLog rows={ar.rows} closing={closing}
               onReopen={async (row) => {
                 setClosing(row.id);
                 const { error } = await (supabase.from("jobs") as any)
@@ -555,65 +545,35 @@ Thank you for your continued business.`);
   );
 }
 
-// ── Close-out queue (Phase 1c). Conditions locked 2026-08-13: complete ·
-//    Final (or Paid, no reconcile required) · zero balance · cost-complete.
-//    Freight never gates. Job stream only; fulfillment never "closes". ──
-function CloseOutQueue({ rows, costCompleteByJob, closing, onClose, onCloseMany, onReopen }: {
-  rows: InvoiceRow[]; costCompleteByJob: Record<string, boolean>; closing: string | null;
-  onClose: (row: InvoiceRow) => Promise<void>; onCloseMany: (rows: InvoiceRow[]) => Promise<void>; onReopen: (row: InvoiceRow) => Promise<void>;
+// ── Closed log (auto-close, Aug 26 2026). Close-out stopped being a human
+//    step: when a job passes every gate (complete · Final or Paid-no-
+//    reconcile · zero balance · cost-complete) the load() sweep stamps it
+//    closed automatically. This tab is the record — reopen is the escape
+//    hatch for a job that needs to stay live (e.g. a trailing cost). ──
+function ClosedLog({ rows, closing, onReopen }: {
+  rows: InvoiceRow[]; closing: string | null; onReopen: (row: InvoiceRow) => Promise<void>;
 }) {
-  const queue = rows.filter(r => isCloseable(r, !!costCompleteByJob[r.id]));
-  const recentlyClosed = rows.filter(r => r.financialClosedAt).slice(0, 12);
-  const [bulkBusy, setBulkBusy] = useState(false);
-  const [bulkArm, setBulkArm] = useState(false);
-  async function closeAll() {
-    setBulkBusy(true);
-    await onCloseMany(queue);
-    setBulkBusy(false); setBulkArm(false);
-  }
+  const closed = rows.filter(r => r.financialClosedAt)
+    .sort((a, b) => String(b.financialClosedAt).localeCompare(String(a.financialClosedAt)));
   return (
     <div>
-      {queue.length > 1 && (
-        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
-          <button disabled={bulkBusy} onClick={() => { if (!bulkArm) { setBulkArm(true); return; } closeAll(); }}
-            style={{ background: bulkArm ? T.green : "transparent", color: bulkArm ? "#0a0a0a" : T.green, border: `1px solid ${T.green}`, borderRadius: 8, padding: "8px 16px", fontSize: 12, fontWeight: 800, cursor: "pointer", fontFamily: font, opacity: bulkBusy ? 0.6 : 1 }}>
-            {bulkBusy ? `Closing ${queue.length}…` : bulkArm ? `Tap again — close all ${queue.length}` : `Close all ${queue.length}`}
-          </button>
-        </div>
-      )}
-      {queue.length === 0 ? (
-        <div style={{ color: T.faint, fontSize: 13, padding: "18px 0" }}>
-          Nothing ready to close. A job lands here when it is complete, its invoice is Final (or Paid with no reconcile owed), the balance is zero, and every vendor is billed or dispositioned.
-        </div>
-      ) : queue.map(r => (
-        <div key={r.id} style={{ display: "flex", gap: 14, alignItems: "center", background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 16px", marginBottom: 8, flexWrap: "wrap" }}>
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ fontSize: 13, fontWeight: 700 }}>{r.clientName} <span style={{ color: T.faint, fontWeight: 400 }}>· {r.label}</span></div>
-            <div style={{ fontSize: 11, fontFamily: mono, color: T.muted, marginTop: 3 }}>{r.jobNumber || ""}{r.invoiceNumber ? ` · #${r.invoiceNumber}` : ""} · {money(r.billed)} billed · paid in full · costs complete</div>
-          </div>
-          <a href={r.href} style={{ fontSize: 11, color: T.muted, textDecoration: "none", fontWeight: 700 }}>open ↗</a>
-          <button disabled={closing === r.id} onClick={() => onClose(r)}
-            style={{ background: T.green, color: "#0a0a0a", border: "none", borderRadius: 8, padding: "9px 18px", fontSize: 12, fontWeight: 800, cursor: "pointer", fontFamily: font, opacity: closing === r.id ? 0.6 : 1 }}>
-            {closing === r.id ? "Closing…" : "Close it out"}
-          </button>
+      <div style={{ fontSize: 12, color: T.faint, marginBottom: 14, maxWidth: "70ch" }}>
+        Jobs close themselves when the books are finished — complete, invoice final, paid to zero, every vendor billed or dispositioned. Reopen one if money still needs to move on it.
+      </div>
+      {closed.length === 0 && <div style={{ color: T.faint, fontSize: 13, padding: "12px 0" }}>Nothing closed yet.</div>}
+      {closed.slice(0, 40).map(r => (
+        <div key={r.id} style={{ display: "flex", gap: 12, alignItems: "center", fontSize: 12, color: T.muted, padding: "6px 0", borderBottom: `1px solid ${T.border}33` }}>
+          <span style={{ color: T.green, fontWeight: 800, fontSize: 10, letterSpacing: "0.06em" }}>CLOSED</span>
+          <span style={{ fontWeight: 700, color: T.text }}>{r.clientName}</span>
+          <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.label}</span>
+          <span style={{ fontFamily: mono, color: T.faint }}>{fmtDay(r.financialClosedAt || null)}</span>
+          <span style={{ fontFamily: mono, color: T.faint, marginLeft: "auto" }}>{money(r.billed)}</span>
+          <a href={r.href} style={{ color: T.faint, textDecoration: "none" }}>open ↗</a>
+          <button disabled={closing === r.id} onClick={() => onReopen(r)}
+            style={{ background: "none", border: "none", color: T.faint, fontSize: 10.5, fontWeight: 700, cursor: "pointer", fontFamily: font }}>reopen</button>
         </div>
       ))}
-      {recentlyClosed.length > 0 && (
-        <div style={{ marginTop: 22 }}>
-          <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.09em", textTransform: "uppercase", color: T.faint, marginBottom: 8 }}>Closed</div>
-          {recentlyClosed.map(r => (
-            <div key={r.id} style={{ display: "flex", gap: 12, alignItems: "center", fontSize: 12, color: T.muted, padding: "5px 0" }}>
-              <span style={{ color: T.green, fontWeight: 800, fontSize: 10, letterSpacing: "0.06em" }}>CLOSED</span>
-              <span style={{ fontWeight: 700, color: T.text }}>{r.clientName}</span>
-              <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.label}</span>
-              <span style={{ fontFamily: mono, color: T.faint }}>{fmtDay(r.financialClosedAt || null)}</span>
-              <a href={r.href} style={{ color: T.faint, textDecoration: "none", marginLeft: "auto" }}>open ↗</a>
-              <button disabled={closing === r.id} onClick={() => onReopen(r)}
-                style={{ background: "none", border: "none", color: T.faint, fontSize: 10.5, fontWeight: 700, cursor: "pointer", fontFamily: font }}>reopen</button>
-            </div>
-          ))}
-        </div>
-      )}
+      {closed.length > 40 && <div style={{ fontSize: 11, color: T.faint, marginTop: 10 }}>{closed.length - 40} older closed jobs not shown — search History for a specific one.</div>}
     </div>
   );
 }
