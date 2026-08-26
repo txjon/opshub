@@ -156,6 +156,7 @@ export function buildAr(opts: {
       dueDate: null,
       expectedDate: expected.toISOString().slice(0, 10),
       aging: agingOf(balance, null, expected, now),
+      payLink: r.qb_payment_link || null,
     });
   }
 

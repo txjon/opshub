@@ -77,7 +77,7 @@ export default function InvoicesPage() {
         supabase.from("cost_vendor_status").select("job_id, vendor_id, reason"),
         supabase.from("payment_records").select("id, job_id, amount, status, due_date"),
         supabase.from("clients").select("id, name, default_terms"),
-        supabase.from("shipstation_reports").select("id, client_id, report_type, period_label, totals, postage_totals, qb_invoice_number, qb_total_with_tax, paid_at, paid_amount, sent_at, created_at"),
+        supabase.from("shipstation_reports").select("id, client_id, report_type, period_label, totals, postage_totals, qb_invoice_number, qb_total_with_tax, qb_payment_link, paid_at, paid_amount, sent_at, created_at"),
       ]);
       const firstErr = [jobsRes, itemsRes, decoratorsRes, apRes, entriesRes, marksRes, paysRes, clientsRes, ssRes].find(r => r.error);
       if (firstErr?.error) { setErr(firstErr.error.message); return; }
@@ -360,19 +360,29 @@ export default function InvoicesPage() {
                       </td>
                       )}
                       <td style={{ padding: "6px 8px", borderBottom: `1px solid ${T.border}33`, position: "relative", width: 36 }} onClick={e => e.stopPropagation()}>
-                        {r.stream === "job" && (r.balance > 0.01 || (r.waived || 0) > 0.01) && (
+                        {(r.stream === "job" ? (r.balance > 0.01 || (r.waived || 0) > 0.01) : r.balance > 0.01) && (
                           <>
                             <button onClick={() => { setMenuFor(menuFor === `${r.stream}-${r.id}` ? null : `${r.stream}-${r.id}`); setWaiveArm(false); }}
                               style={{ background: "none", border: "none", color: T.muted, fontSize: 16, cursor: "pointer", fontFamily: font, padding: "2px 8px" }}>⋯</button>
                             {menuFor === `${r.stream}-${r.id}` && (
                               <div style={{ position: "absolute", right: 8, top: 30, zIndex: 40, background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 6, minWidth: 210, boxShadow: "0 8px 30px rgba(0,0,0,0.45)" }}>
-                                {r.balance > 0.01 && (
+                                {r.stream === "job" && r.balance > 0.01 && (
                                   <button disabled={actBusy} onClick={() => sendReminder(r)} style={menuBtn}>Send payment reminder</button>
                                 )}
                                 {r.payLink && (
                                   <button onClick={() => { navigator.clipboard?.writeText(r.payLink!); setActMsg("Pay link copied."); setMenuFor(null); }} style={menuBtn}>Copy pay link</button>
                                 )}
-                                {r.balance > 0.01 && (
+                                {r.stream === "fulfillment" && r.balance > 0.01 && (
+                                  <button disabled={actBusy} onClick={async () => {
+                                    setActBusy(true);
+                                    const { error } = await (supabase.from("shipstation_reports") as any)
+                                      .update({ paid_at: new Date().toISOString(), paid_amount: r.billed })
+                                      .eq("id", r.id);
+                                    setActBusy(false); setMenuFor(null);
+                                    if (error) setActMsg(error.message); else { setActMsg("Marked paid."); load(); }
+                                  }} style={{ ...menuBtn, color: T.green }}>Mark paid · {money(r.balance)}</button>
+                                )}
+                                {r.stream === "job" && r.balance > 0.01 && (
                                   <button disabled={actBusy} onClick={() => { if (!waiveArm) { setWaiveArm(true); return; } closeShort(r); }}
                                     style={{ ...menuBtn, color: waiveArm ? T.red : T.amber }}>
                                     {waiveArm ? `Tap again — waive ${money(r.balance)}` : `Close short · waive ${money(r.balance)}`}
