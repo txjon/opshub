@@ -21,9 +21,9 @@ export default function WorkOrderBuilder({ brief, images, notes = [], onClose, o
   const imgs = useMemo(() => images.filter(i => i.drive_file_id), [images]);
   // The conversation: folded, and NOTHING rides along unless tapped on (Jon,
   // Aug 26: "we'll just grab pertinent text to drop in pins"). Tap text = copy.
-  const lines = useMemo(() => notes.filter(n => n.body && n.body.trim() && !/^[✓✕↩]/.test(n.body.trim())), [notes]);
+  const lines = useMemo(() => notes.filter(n => n.body && n.body.trim() && !/^[✓✕↩]/.test(n.body.trim()) && !/^(Handed to a designer|Pulled back into the works)/.test(n.body.trim())), [notes]);
   const [handLines, setHandLines] = useState<Set<string>>(() => new Set());
-  const [showChat, setShowChat] = useState(false);
+  const [showChat, setShowChat] = useState(true);
   const toggleLine = (id: string) => setHandLines(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const [type, setType] = useState<WoType>("creative");
   const [spec, setSpec] = useState<BriefSpec>(() => {

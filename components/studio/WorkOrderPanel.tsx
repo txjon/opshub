@@ -35,9 +35,9 @@ export default function WorkOrderPanel({ woId, brief, notes = [], onClose, onCha
   const [lit, setLit] = useState<LightboxItem | null>(null);
   const [copiedLine, setCopiedLine] = useState<string | null>(null);
   const [addingRef, setAddingRef] = useState(false);
-  const [showChat, setShowChat] = useState(false);
+  const [showChat, setShowChat] = useState(true);
   const refIn = useRef<HTMLInputElement | null>(null);
-  const lines = notes.filter(n => n.body && n.body.trim() && !/^[✓✕↩]/.test(n.body.trim()));
+  const lines = notes.filter(n => n.body && n.body.trim() && !/^[✓✕↩]/.test(n.body.trim()) && !/^(Handed to a designer|Pulled back into the works)/.test(n.body.trim()));
   const dlOf = (id: string, name?: string | null) => `/api/files/view/${encodeURIComponent(name || "file")}?id=${id}&download=1`;
 
   async function load() {
