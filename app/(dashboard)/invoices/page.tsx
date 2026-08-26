@@ -244,6 +244,17 @@ export default function InvoicesPage() {
 
           {tab === "close" ? (
             <CloseOutQueue rows={ar.rows} costCompleteByJob={costCompleteByJob} closing={closing}
+              onCloseMany={async (rowsToClose) => {
+                setClosing("bulk");
+                const { data: { user } } = await supabase.auth.getUser();
+                for (const row of rowsToClose) {
+                  await (supabase.from("jobs") as any)
+                    .update({ financial_closed_at: new Date().toISOString(), financial_closed_by: user?.id || null })
+                    .eq("id", row.id);
+                }
+                setClosing(null);
+                load();
+              }}
               onClose={async (row) => {
                 setClosing(row.id);
                 const { data: { user } } = await supabase.auth.getUser();
@@ -547,14 +558,29 @@ Thank you for your continued business.`);
 // ── Close-out queue (Phase 1c). Conditions locked 2026-08-13: complete ·
 //    Final (or Paid, no reconcile required) · zero balance · cost-complete.
 //    Freight never gates. Job stream only; fulfillment never "closes". ──
-function CloseOutQueue({ rows, costCompleteByJob, closing, onClose, onReopen }: {
+function CloseOutQueue({ rows, costCompleteByJob, closing, onClose, onCloseMany, onReopen }: {
   rows: InvoiceRow[]; costCompleteByJob: Record<string, boolean>; closing: string | null;
-  onClose: (row: InvoiceRow) => Promise<void>; onReopen: (row: InvoiceRow) => Promise<void>;
+  onClose: (row: InvoiceRow) => Promise<void>; onCloseMany: (rows: InvoiceRow[]) => Promise<void>; onReopen: (row: InvoiceRow) => Promise<void>;
 }) {
   const queue = rows.filter(r => isCloseable(r, !!costCompleteByJob[r.id]));
   const recentlyClosed = rows.filter(r => r.financialClosedAt).slice(0, 12);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkArm, setBulkArm] = useState(false);
+  async function closeAll() {
+    setBulkBusy(true);
+    await onCloseMany(queue);
+    setBulkBusy(false); setBulkArm(false);
+  }
   return (
     <div>
+      {queue.length > 1 && (
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
+          <button disabled={bulkBusy} onClick={() => { if (!bulkArm) { setBulkArm(true); return; } closeAll(); }}
+            style={{ background: bulkArm ? T.green : "transparent", color: bulkArm ? "#0a0a0a" : T.green, border: `1px solid ${T.green}`, borderRadius: 8, padding: "8px 16px", fontSize: 12, fontWeight: 800, cursor: "pointer", fontFamily: font, opacity: bulkBusy ? 0.6 : 1 }}>
+            {bulkBusy ? `Closing ${queue.length}…` : bulkArm ? `Tap again — close all ${queue.length}` : `Close all ${queue.length}`}
+          </button>
+        </div>
+      )}
       {queue.length === 0 ? (
         <div style={{ color: T.faint, fontSize: 13, padding: "18px 0" }}>
           Nothing ready to close. A job lands here when it is complete, its invoice is Final (or Paid with no reconcile owed), the balance is zero, and every vendor is billed or dispositioned.
