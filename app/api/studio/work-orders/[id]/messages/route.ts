@@ -22,11 +22,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (!body && !driveId) return NextResponse.json({ error: "Say something or attach a file" }, { status: 400 });
 
   const db = woDb();
-  const { data: wo } = await db.from("design_work_orders").select("id, brief_id, state").eq("id", params.id).maybeSingle();
+  const { data: wo } = await db.from("design_work_orders").select("id, brief_id, item_id, state").eq("id", params.id).maybeSingle();
   if (!wo) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   let fileRowId: string | null = null;
-  if (driveId) {
+  // On a run our references ride as a Drive id only (not production files);
+  // on a design they're real internal brief files.
+  if (driveId && (wo as any).brief_id) {
     const fileName = String(b.fileName || "reference.png");
     const { data: fRow, error } = await db.from("art_brief_files").insert({
       brief_id: (wo as any).brief_id, file_name: fileName, drive_file_id: driveId,
@@ -46,7 +48,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const kind = cur === "delivered" ? "revision" : "comment";
   const { data: msg, error: mErr } = await db.from("design_wo_messages").insert({
     work_order_id: params.id, sender_role: "hpd", sender_name: name, body: body || null,
-    file_id: fileRowId, file_name: driveId ? (b.fileName || null) : null, kind,
+    file_id: fileRowId, drive_file_id: driveId && !fileRowId ? driveId : null, file_name: driveId ? (b.fileName || null) : null, kind,
   } as never).select("*").single();
   if (mErr) return NextResponse.json({ error: mErr.message }, { status: 500 });
   const now = new Date().toISOString();

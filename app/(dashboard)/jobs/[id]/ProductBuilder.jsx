@@ -15,7 +15,7 @@ import { useIsMobile } from "@/lib/useIsMobile";
 import { useClientBranding } from "@/lib/branding-client";
 import { isCutSewOnly } from "@/lib/tenants";
 import { isCostingLocked } from "@/lib/costing-lock";
-import ArtRequestModal from "@/components/ArtRequestModal";
+import ItemWorkOrders from "@/components/studio/ItemWorkOrders";
 import { MobileBlankPicker } from "./MobileBlankPicker";
 // ItemArtSection from ArtTab is no longer rendered — removed after workflow merge
 import {
@@ -1044,7 +1044,7 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
 
       {/* Art pricing request — outside-costing designer quote (email-back v1),
           scoped to selected files. Available pre-costing. */}
-      <ArtRequestModal open={showArtReqModal} onClose={() => setShowArtReqModal(false)} project={project} />
+      <ItemWorkOrders open={showArtReqModal} onClose={() => setShowArtReqModal(false)} job={project} />
 
       {/* ══ Above-the-list region ══
           Three rendering modes:
@@ -1096,17 +1096,18 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
               </button>
             </div>
 
-            {/* Outside-costing art pricing — send a graphic artist a private
-                gallery of SELECTED files to quote. Lives here so it can fire
-                before costing exists (Jon, 2026-07-20). */}
+            {/* THE DESIGNER DOOR on a run (mig 166) — hand an item to a
+                designer (seps / vector clean-up): pinned brief on its art,
+                private link, delivery lands on the item, Accept = print-ready.
+                Replaced "Request art pricing" (Jon, Aug 26). */}
             {safeItems.length > 0 && (
               <div style={{ display: "flex", justifyContent: "flex-end", marginTop: -4 }}>
                 <button onClick={() => setShowArtReqModal(true)}
                   style={{ background: "none", border: "none", color: T.muted, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font, display: "inline-flex", alignItems: "center", gap: 6, padding: "2px 4px" }}
                   onMouseEnter={e => { e.currentTarget.style.color = T.accent; }}
                   onMouseLeave={e => { e.currentTarget.style.color = T.muted; }}
-                  title="Send a graphic artist a private link to download selected art and quote the design">
-                  Request art pricing →
+                  title="Hand an item to a designer — pinned brief, private link, delivery lands on the item">
+                  Hand to a designer →
                 </button>
               </div>
             )}

@@ -188,13 +188,13 @@ export default function StudioPage() {
               const st = woState(w);
               const clock = w.state === "accepted" ? `accepted ${ago(w.updated_at)}` : w.last_designer_at && (!w.last_hpd_at || w.last_designer_at > w.last_hpd_at) ? `${w.state === "delivered" ? "delivered" : "replied"} ${ago(w.last_designer_at)}` : `out ${ago(w.created_at)}`;
               return (
-                <button key={w.id} onClick={() => { setOpenId(w.brief_id); setOpenWoId(w.id); }} style={{ display: "flex", alignItems: "center", gap: 12, textAlign: "left", background: H.panel, border: `1px solid ${H.line}`, outline: st.unread ? `2px solid ${H.amber}` : st.late ? `2px solid ${H.red}` : "none", outlineOffset: -1, borderRadius: 12, padding: "10px 14px 10px 10px", cursor: "pointer", color: H.text, fontFamily: H.font, width: "100%" }}>
+                <button key={w.id} onClick={() => { if (w.item_id) { window.location.href = `/jobs/${w.job_id}?wo=${w.id}`; return; } setOpenId(w.brief_id); setOpenWoId(w.id); }} style={{ display: "flex", alignItems: "center", gap: 12, textAlign: "left", background: H.panel, border: `1px solid ${H.line}`, outline: st.unread ? `2px solid ${H.amber}` : st.late ? `2px solid ${H.red}` : "none", outlineOffset: -1, borderRadius: 12, padding: "10px 14px 10px 10px", cursor: "pointer", color: H.text, fontFamily: H.font, width: "100%" }}>
                   <span style={{ width: 48, height: 48, borderRadius: 8, overflow: "hidden", background: "#fff", flexShrink: 0 }}>
                     {w._thumb && <img src={thumb(w._thumb, 300)} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.opacity = 0.2; }} />}
                   </span>
                   <span style={{ minWidth: 0, flex: 1 }}>
                     <span style={{ display: "block", fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{w.design_title || "Design"}</span>
-                    <span style={{ display: "block", fontSize: 10.5, color: H.dim, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{w.client_name || "—"} · {woTypeLabel(w.type)}{w.designer_name ? ` · ${w.designer_name}` : ""}</span>
+                    <span style={{ display: "block", fontSize: 10.5, color: H.dim, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{w.client_name || "—"}{w.job_number ? ` · ${w.job_number}` : ""} · {woTypeLabel(w.type)}{w.designer_name ? ` · ${w.designer_name}` : ""}</span>
                     <span style={{ display: "block", marginTop: 4, ...tag(st.color, 9) }}>{st.label}<span style={{ color: H.faint, fontWeight: 600, letterSpacing: 0, textTransform: "none", fontFamily: H.mono }}> · {clock}{w.due_by ? ` · due ${fmtDue(w.due_by)}` : ""}{st.late ? " · LATE" : ""}</span></span>
                   </span>
                 </button>
@@ -485,15 +485,16 @@ function BriefSheet({ detail, onRefresh, onClose, openWoId, setOpenWoId, onDirty
         </div>
       )}
       {woNotice && <div style={{ margin: "8px 22px 0", fontSize: 12, color: H.green }}>{woNotice}</div>}
-      {woBuilder && <WorkOrderBuilder brief={b} images={images} notes={convo} onClose={() => setWoBuilder(false)} onCreated={async (r: any) => {
+      {woBuilder && <WorkOrderBuilder target={{ kind: "brief", id: b.id, title: b.title || null, clientName: b.clients?.name || null }} images={images} notes={convo} onClose={() => setWoBuilder(false)} onCreated={async (r: any) => {
         setWoBuilder(false);
-        if (!r.emailSent) { try { await navigator.clipboard.writeText(r.url); setWoNotice("Work order created — link copied. Paste it to the designer."); } catch { setWoNotice("Work order created — copy the link from the order."); } }
+        if (r.emailSkipped === "localhost") setWoNotice("Created — no email from localhost. Send it live from the app, or copy the link.");
+        else if (!r.emailSent) { try { await navigator.clipboard.writeText(r.url); setWoNotice("Work order created — link copied. Paste it to the designer."); } catch { setWoNotice("Work order created — copy the link from the order."); } }
         else setWoNotice("Work order sent. The link's in their inbox.");
         setTimeout(() => setWoNotice(""), 6000);
         await loadWos(); await onRefresh(); setOpenWoId(r.id);
       }} />}
       {tab !== "design" ? (
-        <WorkOrderPanel key={tab} woId={tab} brief={b} notes={convo} inline onClose={() => switchTab(null)} onChanged={async () => { await loadWos(); await onRefresh(); }} onDirty={(d: boolean) => { woDirty.current = d; onDirty?.(d || !!note.trim() || stagedList.length > 0); }} />
+        <WorkOrderPanel key={tab} woId={tab} target={{ kind: "brief", id: b.id, title: b.title || null, clientName: b.clients?.name || null }} notes={convo} inline onClose={() => switchTab(null)} onChanged={async () => { await loadWos(); await onRefresh(); }} onDirty={(d: boolean) => { woDirty.current = d; onDirty?.(d || !!note.trim() || stagedList.length > 0); }} />
       ) : (
       <>
       {b.concept && <div style={{ margin: "6px 22px 0", fontSize: 12.5, color: H.dim, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{b.concept}</div>}

@@ -7,15 +7,17 @@ import { getDriveToken, getOrCreateNestedFolder } from "@/lib/drive-token";
 
 export async function createResumableUploadSession({
   folderSegments,
+  folderId: givenFolderId,
   fileName,
   mimeType,
 }: {
-  folderSegments: string[];
+  folderSegments?: string[];   // nested path under the tenant root, or…
+  folderId?: string;           // …an already-resolved folder (e.g. an item's stashed folder)
   fileName: string;
   mimeType: string;
 }): Promise<{ uploadUrl: string; folderId: string }> {
   const token = await getDriveToken();
-  const folderId = await getOrCreateNestedFolder(token, folderSegments);
+  const folderId = givenFolderId || await getOrCreateNestedFolder(token, folderSegments || []);
 
   const res = await fetch(
     "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable",

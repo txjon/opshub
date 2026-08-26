@@ -6,7 +6,7 @@ import { T, font, mono, sortSizes } from "@/lib/theme";
 import { parseSizeMatrix, splitColHead } from "@/lib/size-grid";
 import SizeGridInput from "@/components/SizeGridInput";
 import { isCostingLocked, isCostingCommitted } from "@/lib/costing-lock";
-import ArtRequestModal from "@/components/ArtRequestModal";
+import ItemWorkOrders from "@/components/studio/ItemWorkOrders";
 import RfqModal from "@/components/RfqModal";
 import { SendEmailDialog } from "@/components/SendEmailDialog";
 import { logJobActivity } from "@/components/JobActivityPanel";
@@ -1278,13 +1278,12 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                   title="Send a quote request to a decorator for selected items">
                   Request Pricing
                 </button>
-                {/* Art pricing — outside the decorator flow. Sends a graphic
-                    artist a private gallery link to download the art + quote it. */}
+                {/* The designer door on a run — seps / vector clean-up outside
+                    the decorator flow (mig 166; replaced art pricing Aug 26). */}
                 <button onClick={()=>setShowArtReqModal(true)}
                   style={{height:32,borderRadius:8,fontSize:11.5,fontWeight:600,cursor:"pointer",background:"transparent",border:`1px solid ${T.border}`,color:T.muted,fontFamily:font,width:"100%"}}
-                  title="Send a graphic artist a private link to download the art and quote the design">
-                  Request Art Pricing
-                </button>
+                  title="Hand an item to a designer — pinned brief, private link, delivery lands on the item">
+                  Hand to a designer</button>
                 {pullResult && (
                   <span style={{fontSize:10.5,color:T.muted,fontFamily:font,textAlign:"center"}}>{pullResult}</span>
                 )}
@@ -1436,7 +1435,7 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
       {/* PO */}
 
       {/* Art pricing request — outside-costing designer quote (email-back v1). */}
-      <ArtRequestModal open={showArtReqModal} onClose={()=>setShowArtReqModal(false)} project={project} />
+      <ItemWorkOrders open={showArtReqModal} onClose={()=>setShowArtReqModal(false)} job={project} />
 
       {/* RFQ — step 1: pick decorator + items */}
       {showRfqModal && (

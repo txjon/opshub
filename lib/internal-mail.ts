@@ -31,7 +31,7 @@ export type InternalEvent =
   | { kind: "product_run"; client: string; title: string; units: number; jobId: string; jobNumber: string }
   | { kind: "lab_order_request"; client: string; title: string; blank?: string | null; qty?: number | null; note?: string | null }
   // THE DESIGNER DOOR (mig 165): the outside designer moved on a work order.
-  | { kind: "designer_delivery" | "designer_reply"; title: string; woType: string; briefId: string; woId: string; designer: string; note?: string | null };
+  | { kind: "designer_delivery" | "designer_reply"; title: string; woType: string; briefId: string; woId: string; jobId?: string | null; designer: string; note?: string | null };
 
 function build(e: InternalEvent): { to: string[]; subject: string; text: string } {
   // Directive voice (Jon: "here's what's coming is nice — here's what to do
@@ -48,7 +48,7 @@ function build(e: InternalEvent): { to: string[]; subject: string; text: string 
         text: `${e.designer} ${delivered ? "delivered a file on" : "replied on"} the work order for "${e.title}".${e.note ? `\nTheir note: "${e.note}"` : ""}
 
 DO THIS:
-1. Open it: ${APP}/studio?brief=${e.briefId}&wo=${e.woId}
+1. Open it: ${e.jobId ? `${APP}/jobs/${e.jobId}?wo=${e.woId}` : `${APP}/studio?brief=${e.briefId}&wo=${e.woId}`}
 2. ${delivered ? "Look at the delivery. Accept it as the file, or reply with what to change" : "Answer them in the thread — they're waiting on you"}
 
 DONE WHEN: ${delivered ? "the delivery is accepted or a revision is asked for" : "you've replied"}. Nothing else pings for this — it's on the desk until you act.`,

@@ -21,17 +21,21 @@ export type BriefLine = { role: "client" | "us"; text: string; at?: string | nul
 export type BriefSpec = { canvases: BriefCanvas[]; extras: BriefExtra[]; conversation?: BriefLine[] };
 export const EMPTY_BRIEF: BriefSpec = { canvases: [], extras: [], conversation: [] };
 
+// Where an order hangs: a DESIGN (art_brief — creative) or an ITEM (a job's
+// run — vector / separations; the accepted file becomes its print-ready file).
+export type WoTarget = { kind: "brief" | "item"; id: string; title: string | null; clientName: string | null; jobId?: string | null; jobTitle?: string | null; jobNumber?: string | null };
+
 export type DesignWorkOrder = {
-  id: string; brief_id: string; type: WoType; title: string | null;
+  id: string; brief_id: string | null; item_id: string | null; job_id: string | null; type: WoType; title: string | null;
   headline: string | null; instructions: string | null; brief: BriefSpec;
   due_by: string | null; designer_name: string | null; designer_email: string | null;
-  token: string; state: WoState; accepted_file_id: string | null;
+  token: string; state: WoState; accepted_file_id: string | null; accepted_item_file_id: string | null;
   sent_at: string | null; last_designer_at: string | null; last_hpd_at: string | null; hpd_seen_at: string | null;
   created_by: string | null; created_at: string; updated_at: string;
 };
 export type DesignWoMessage = {
   id: string; work_order_id: string; sender_role: "hpd" | "designer"; sender_name: string | null;
-  body: string | null; file_id: string | null; file_url: string | null; file_name: string | null;
+  body: string | null; file_id: string | null; item_file_id: string | null; drive_file_id: string | null; file_url: string | null; file_name: string | null;
   kind: "comment" | "delivery" | "revision" | "accept"; created_at: string;
   // decorated by the API: a renderable image url + a download url
   image_url?: string | null; download_url?: string | null;
