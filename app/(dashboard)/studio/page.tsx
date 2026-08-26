@@ -557,7 +557,7 @@ function BriefSheet({ detail, onRefresh, onClose, openWoId, setOpenWoId }: any) 
           )}
         </div>
       )}
-      {woBuilder && <WorkOrderBuilder brief={b} images={images} onClose={() => setWoBuilder(false)} onCreated={async (r: any) => {
+      {woBuilder && <WorkOrderBuilder brief={b} images={images} notes={notes} onClose={() => setWoBuilder(false)} onCreated={async (r: any) => {
         setWoBuilder(false);
         if (!r.emailSent) { try { await navigator.clipboard.writeText(r.url); setWoNotice("Work order created — link copied. Paste it to the designer."); } catch { setWoNotice("Work order created — copy the link from the order."); } }
         else setWoNotice("Work order sent. The link's in their inbox.");

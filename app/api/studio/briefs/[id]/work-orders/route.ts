@@ -44,7 +44,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const { data: files } = await db.from("art_brief_files").select("id, drive_file_id, preview_drive_file_id, file_name").eq("brief_id", params.id);
   const okDrive = new Set<string>();
   for (const f of (files || []) as any[]) { if (f.drive_file_id) okDrive.add(f.drive_file_id); if (f.preview_drive_file_id) okDrive.add(f.preview_drive_file_id); }
-  const spec: BriefSpec = { canvases: [], extras: [] };
+  const spec: BriefSpec = { canvases: [], extras: [], conversation: [] };
+  // The thread, roles only — a name never rides along (the wall).
+  for (const l of (Array.isArray(b.brief?.conversation) ? b.brief.conversation : []) as any[]) {
+    const text = String(l?.text || "").trim(); if (!text) continue;
+    spec.conversation!.push({ role: l.role === "client" ? "client" : "us", text: text.slice(0, 2000), at: l.at || null });
+  }
   for (const c of (b.brief?.canvases || []) as any[]) {
     if (!c?.driveId || !okDrive.has(c.driveId)) continue;
     spec.canvases.push({

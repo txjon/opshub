@@ -117,7 +117,7 @@ export default function WorkOrderPanel({ woId, brief, onClose, onChanged }: Prop
       {/* THE BRIEF — pinned, live-editable */}
       <div style={{ margin: "12px 22px 0" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <button onClick={() => setShowBrief(v => !v)} style={{ background: "none", border: "none", color: H.text, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font, padding: 0 }}>{showBrief ? "▾" : "▸"} The brief · {spec.canvases.length} canvas{spec.canvases.length === 1 ? "" : "es"} · {spec.canvases.reduce((n, c) => n + (c.pins?.length || 0), 0)} pins · {spec.extras.length} more files</button>
+          <button onClick={() => setShowBrief(v => !v)} style={{ background: "none", border: "none", color: H.text, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font, padding: 0 }}>{showBrief ? "▾" : "▸"} The brief · {spec.canvases.length} canvas{spec.canvases.length === 1 ? "" : "es"} · {spec.canvases.reduce((n, c) => n + (c.pins?.length || 0), 0)} pins · {spec.extras.length} more files{(spec.conversation || []).length ? ` · ${(spec.conversation || []).length} lines of the conversation` : ""}</button>
           {!closed && !editing && <button onClick={startEdit} style={{ marginLeft: "auto", background: "none", border: "none", color: H.blue, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font, padding: 0 }}>Edit brief</button>}
           {editing && <span style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
             <button disabled={busy} onClick={() => { setEditing(false); setDraft(null); }} style={{ ...ghostBtn, border: "none", color: H.faint, padding: "6px 8px" }}>Cancel</button>
@@ -144,6 +144,12 @@ export default function WorkOrderPanel({ woId, brief, onClose, onChanged }: Prop
                 <PinBrief canvas={c} imgSrc={(id, size) => thumb(id, size || 900)} readOnly={!editing} onChange={next => draft && setDraft({ ...draft, brief: { ...draft.brief, canvases: draft.brief.canvases.map(x => x.id === c.id ? next : x) } })} onUploadImage={uploadPinImage} />
               </div>
             ))}
+            {(spec.conversation || []).length > 0 && !editing && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <span style={tag(H.faint, 8.5)}>The conversation they got · roles only</span>
+                {(spec.conversation || []).map((l, i) => <div key={i} style={{ display: "flex", gap: 10, fontSize: 12.5, lineHeight: 1.45 }}><span style={{ ...tag(l.role === "client" ? H.blue : H.dim, 8.5), flexShrink: 0, width: 44, paddingTop: 2 }}>{l.role === "client" ? "Client" : "Us"}</span><span style={{ whiteSpace: "pre-wrap", color: H.dim }}>{l.text}</span></div>)}
+              </div>
+            )}
             {spec.extras.length > 0 && (
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                 <span style={tag(H.faint, 8.5)}>Also handed over</span>

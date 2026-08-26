@@ -15,8 +15,11 @@ export type BriefPin = { id: string; x: number; y: number; text: string; driveId
 export type BriefCanvas = { id: string; fileId?: string | null; driveId: string; previewId?: string | null; name?: string | null; note?: string | null; pins: BriefPin[] };
 // Loose extra hand-overs (the rest of the thread's images, no pins).
 export type BriefExtra = { fileId?: string | null; driveId: string; previewId?: string | null; name?: string | null };
-export type BriefSpec = { canvases: BriefCanvas[]; extras: BriefExtra[] };
-export const EMPTY_BRIEF: BriefSpec = { canvases: [], extras: [] };
+// The conversation, handed over with the wall intact: roles only (client / us),
+// never a name. The designer reads what the client actually said.
+export type BriefLine = { role: "client" | "us"; text: string; at?: string | null };
+export type BriefSpec = { canvases: BriefCanvas[]; extras: BriefExtra[]; conversation?: BriefLine[] };
+export const EMPTY_BRIEF: BriefSpec = { canvases: [], extras: [], conversation: [] };
 
 export type DesignWorkOrder = {
   id: string; brief_id: string; type: WoType; title: string | null;

@@ -100,6 +100,20 @@ export default function DesignerPage({ params }: { params: { token: string } }) 
         </section>
       )}
 
+      {(spec.conversation || []).length > 0 && (
+        <section style={{ marginTop: 18, padding: "14px 16px", background: H.panel, border: `1px solid ${H.line}`, borderRadius: 16 }}>
+          <div style={{ ...tag(H.faint, 9), marginBottom: 10 }}>What the client said · the conversation so far</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {(spec.conversation || []).map((l, i) => (
+              <div key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                <span style={{ ...tag(l.role === "client" ? H.blue : H.dim, 8.5), flexShrink: 0, width: 44, paddingTop: 3 }}>{l.role === "client" ? "Client" : "HPD"}</span>
+                <span style={{ fontSize: 13.5, lineHeight: 1.55, whiteSpace: "pre-wrap", color: l.role === "client" ? H.text : H.dim }}>{l.text}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       {spec.extras.length > 0 && (
         <section style={{ marginTop: 18 }}>
           <div style={{ ...tag(H.faint, 9), marginBottom: 8 }}>More files · tap to download the original</div>

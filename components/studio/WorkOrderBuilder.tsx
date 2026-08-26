@@ -11,13 +11,19 @@ import { uploadToDrive } from "@/lib/drive-upload-client";
 // one-line rule + notes, hand over the rest of the images, send. The client's
 // name never leaves this sheet. Replaces Freeform → PDF → Slack.
 type Img = { id: string; file_id: string | null; drive_file_id: string | null; file_url: string; file_name: string | null; reaction?: string | null };
-type Props = { brief: any; images: Img[]; onClose: () => void; onCreated: (r: { id: string; url: string; emailSent: boolean }) => void };
+type Note = { id: string; sender_role: string; body: string; visibility?: string; created_at: string };
+type Props = { brief: any; images: Img[]; notes?: Note[]; onClose: () => void; onCreated: (r: { id: string; url: string; emailSent: boolean }) => void };
 
 const thumb = (id: string, size = 900) => `/api/files/thumbnail?id=${id}&thumb=1&size=${size}`;
 const previewIdOf = (im: Img) => { const m = /[?&]id=([^&]+)/.exec(im.file_url || ""); const id = m ? decodeURIComponent(m[1]) : null; return id && id !== im.drive_file_id ? id : null; };
 
-export default function WorkOrderBuilder({ brief, images, onClose, onCreated }: Props) {
+export default function WorkOrderBuilder({ brief, images, notes = [], onClose, onCreated }: Props) {
   const imgs = useMemo(() => images.filter(i => i.drive_file_id), [images]);
+  // The conversation: client-visible lines ride along by default (that IS the
+  // direction, in the client's own words); internal notes are off unless tapped.
+  const lines = useMemo(() => notes.filter(n => n.body && n.body.trim() && !/^[✓✕↩]/.test(n.body.trim())), [notes]);
+  const [handLines, setHandLines] = useState<Set<string>>(() => new Set(lines.filter(n => n.visibility !== "internal").map(n => n.id)));
+  const toggleLine = (id: string) => setHandLines(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const [type, setType] = useState<WoType>("creative");
   const [spec, setSpec] = useState<BriefSpec>(() => {
     // The latest live image is the first canvas — the brief usually pins on it.
@@ -68,7 +74,8 @@ export default function WorkOrderBuilder({ brief, images, onClose, onCreated }: 
     if (emptyPins) { setErr("A pin has nothing on it — give it words or an image, or remove it."); return; }
     setBusy(true);
     try {
-      const r = await fetch(`/api/studio/briefs/${brief.id}/work-orders`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type, headline: headline.trim() || null, instructions: instructions.trim() || null, brief: spec, dueBy: dueBy || null, designerName: designerName.trim() || null, designerEmail: designerEmail.trim() || null }) }).then(x => x.json());
+      const conversation = lines.filter(n => handLines.has(n.id)).map(n => ({ role: n.sender_role === "client" ? "client" : "us", text: n.body.trim(), at: n.created_at }));
+      const r = await fetch(`/api/studio/briefs/${brief.id}/work-orders`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type, headline: headline.trim() || null, instructions: instructions.trim() || null, brief: { ...spec, conversation }, dueBy: dueBy || null, designerName: designerName.trim() || null, designerEmail: designerEmail.trim() || null }) }).then(x => x.json());
       if (r.error) { setErr(r.error); return; }
       onCreated({ id: r.workOrder.id, url: r.url, emailSent: !!r.emailSent });
     } finally { setBusy(false); }
@@ -130,6 +137,21 @@ export default function WorkOrderBuilder({ brief, images, onClose, onCreated }: 
           <label style={{ ...lbl, marginTop: 12 }}>Notes <span style={{ color: H.faint }}>(optional)</span></label>
           <textarea value={instructions} onChange={e => setInstructions(e.target.value)} rows={3} placeholder="Anything the pins don't say — colors, sizing, format, print method…" style={{ ...inp, resize: "vertical" }} />
         </div>
+
+        {lines.length > 0 && (
+          <div style={{ padding: "16px 22px 0" }}>
+            <label style={lbl}>The conversation · {handLines.size} of {lines.length} lines go with it · names stripped</label>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 220, overflowY: "auto" }}>
+              {lines.map(n => { const on = handLines.has(n.id); const client = n.sender_role === "client"; const whisper = n.visibility === "internal"; return (
+                <button key={n.id} type="button" onClick={() => toggleLine(n.id)} style={{ textAlign: "left", display: "flex", gap: 10, alignItems: "flex-start", background: on ? H.surface : "transparent", border: `1px ${whisper ? "dashed" : "solid"} ${on ? H.line : H.line2}`, borderRadius: 10, padding: "8px 11px", cursor: "pointer", fontFamily: H.font, color: H.text, opacity: on ? 1 : 0.45 }}>
+                  <span style={{ ...tag(client ? H.blue : whisper ? H.amber : H.dim, 8.5), flexShrink: 0, width: 46, paddingTop: 2 }}>{client ? "Client" : whisper ? "Internal" : "Us"}</span>
+                  <span style={{ fontSize: 12.5, lineHeight: 1.45, whiteSpace: "pre-wrap", flex: 1 }}>{n.body}</span>
+                  <span style={{ flexShrink: 0, ...tag(on ? H.green : H.faint, 9) }}>{on ? "✓" : "off"}</span>
+                </button>
+              ); })}
+            </div>
+          </div>
+        )}
 
         {imgs.some(im => !isCanvas(im.drive_file_id!)) && (
           <div style={{ padding: "16px 22px 0" }}>

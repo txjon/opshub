@@ -72,7 +72,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if (b.headline !== undefined) patch.headline = b.headline ? String(b.headline).trim().slice(0, 140) : null;
   if (b.instructions !== undefined) patch.instructions = b.instructions ? String(b.instructions).trim() : null;
   if (b.dueBy !== undefined) patch.due_by = b.dueBy || null;
-  if (b.brief && typeof b.brief === "object") patch.brief = { canvases: Array.isArray(b.brief.canvases) ? b.brief.canvases : [], extras: Array.isArray(b.brief.extras) ? b.brief.extras : [] };
+  if (b.brief && typeof b.brief === "object") patch.brief = { canvases: Array.isArray(b.brief.canvases) ? b.brief.canvases : [], extras: Array.isArray(b.brief.extras) ? b.brief.extras : [], conversation: (Array.isArray(b.brief.conversation) ? b.brief.conversation : []).map((l: any) => ({ role: l?.role === "client" ? "client" : "us", text: String(l?.text || "").trim().slice(0, 2000), at: l?.at || null })).filter((l: any) => l.text) };
   if (b.designerName !== undefined) patch.designer_name = b.designerName ? String(b.designerName).trim() : null;
   if (b.designerEmail !== undefined) patch.designer_email = b.designerEmail ? String(b.designerEmail).trim().toLowerCase() : null;
   if (Object.keys(patch).length === 1) return NextResponse.json({ error: "Nothing to change" }, { status: 400 });
