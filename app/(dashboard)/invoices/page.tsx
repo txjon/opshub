@@ -58,6 +58,7 @@ export default function InvoicesPage() {
   const [actMsg, setActMsg] = useState("");                       // last action outcome
   const [waiveArm, setWaiveArm] = useState(false);                // two-tap close-short
   const [q, setQ] = useState("");
+  const [stmtOpen, setStmtOpen] = useState(false);
 
   async function load() {
     try {
@@ -190,8 +191,12 @@ export default function InvoicesPage() {
     <div style={{ fontFamily: font, color: T.text, maxWidth: 1100, margin: "0 auto" }}>
       <div style={{ display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap" }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em", marginBottom: 4 }}>Invoices</h1>
+        <button onClick={() => setStmtOpen(true)}
+          style={{ marginLeft: "auto", background: "transparent", color: T.text, border: `1px solid ${T.border}`, borderRadius: 6, padding: "8px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: font }}>
+          Send statement
+        </button>
         <a href="/invoices/fulfillment/new"
-          style={{ marginLeft: "auto", background: T.accent, color: "#0a0a0a", borderRadius: 6, padding: "8px 16px", fontSize: 13, fontWeight: 700, textDecoration: "none", fontFamily: font }}>
+          style={{ background: T.accent, color: "#0a0a0a", borderRadius: 6, padding: "8px 16px", fontSize: 13, fontWeight: 700, textDecoration: "none", fontFamily: font }}>
           + Fulfillment invoice
         </a>
       </div>
@@ -376,8 +381,150 @@ export default function InvoicesPage() {
           </div>
           </>
           )}
+          {stmtOpen && <SendStatementModal rows={ar.rows} daysLate={daysLate} onClose={() => setStmtOpen(false)} />}
         </>
       )}
+    </div>
+  );
+}
+
+// ── Send account statement (Aug 25 2026). Pick a client with open money,
+//    review recipients + copy, send from billing@ with the statement PDF
+//    attached (/api/statement/send → /api/pdf/statement). ──
+function SendStatementModal({ rows, daysLate, onClose }: {
+  rows: InvoiceRow[]; daysLate: (r: InvoiceRow) => number; onClose: () => void;
+}) {
+  const supabase = createClient();
+  const [clientId, setClientId] = useState<string>("");
+  const [contacts, setContacts] = useState<{ name: string; email: string; role_label: string | null; is_primary: boolean }[]>([]);
+  const [picked, setPicked] = useState<Record<string, boolean>>({});
+  const [subject, setSubject] = useState("");
+  const [body, setBody] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  const money0 = (n: number) => "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  // Clients with open balances, biggest first.
+  const clients = useMemo(() => {
+    const by: Record<string, { id: string; name: string; total: number; pastDue: number; count: number }> = {};
+    for (const r of rows) {
+      if (r.balance <= 0.01) continue;
+      const c = (by[r.clientId] ||= { id: r.clientId, name: r.clientName, total: 0, pastDue: 0, count: 0 });
+      c.total += r.balance; c.count++;
+      if (daysLate(r) > 0) c.pastDue += r.balance;
+    }
+    return Object.values(by).sort((a, b) => b.total - a.total);
+  }, [rows, daysLate]);
+
+  async function pickClient(id: string) {
+    setClientId(id); setMsg("");
+    const c = clients.find(x => x.id === id)!;
+    const dateLabel = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+    setSubject(`Account Statement — ${c.name} — ${dateLabel}`);
+    setBody(c.pastDue > 0.01
+      ? `Hi Accounts Payable team,
+
+Please find attached your current account statement from House Party Distro, dated ${dateLabel}.
+
+The account reflects a total balance of ${money0(c.total)}, of which ${money0(c.pastDue)} is now past due. We'd greatly appreciate remittance of the past-due amount at your earliest convenience.
+
+If you need a copy of any invoice, a PO cross-reference, or believe there's a discrepancy, just reply here and we'll get it resolved right away.
+
+Thank you for your continued business.`
+      : `Hi Accounts Payable team,
+
+Please find attached your current account statement from House Party Distro, dated ${dateLabel}.
+
+The account reflects a total balance of ${money0(c.total)}. Nothing is currently past due — this statement is a summary for your records.
+
+If you need a copy of any invoice, a PO cross-reference, or believe there's a discrepancy, just reply here and we'll get it resolved right away.
+
+Thank you for your continued business.`);
+    const { data } = await supabase.from("contacts").select("name, email, role_label, is_primary").eq("client_id", id);
+    const list = ((data || []) as any[]).filter(x => x.email);
+    setContacts(list);
+    const def: Record<string, boolean> = {};
+    const billing = list.filter(x => /bill|account|a\/?p/i.test(x.role_label || ""));
+    const defaults = billing.length > 0 ? billing : list.filter(x => x.is_primary);
+    for (const x of (defaults.length > 0 ? defaults : list.slice(0, 1))) def[x.email] = true;
+    setPicked(def);
+  }
+
+  async function send() {
+    const recipients = Object.keys(picked).filter(e => picked[e]);
+    if (recipients.length === 0) { setMsg("Pick at least one recipient."); return; }
+    setBusy(true); setMsg("");
+    try {
+      const res = await fetch("/api/statement/send", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clientId, recipients, subject, body }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || "Send failed");
+      setMsg("Statement sent.");
+      setTimeout(onClose, 900);
+    } catch (e: any) { setMsg(e.message); } finally { setBusy(false); }
+  }
+
+  const label = (t: string) => <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: T.faint, marginBottom: 6 }}>{t}</div>;
+  const inputStyle: any = { width: "100%", background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, fontSize: 12.5, padding: "9px 12px", outline: "none", fontFamily: font, boxSizing: "border-box" };
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 100, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "6vh 16px", overflowY: "auto" }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 14, padding: 22, width: "100%", maxWidth: 620, fontFamily: font, color: T.text }}>
+        <div style={{ display: "flex", alignItems: "baseline", marginBottom: 16 }}>
+          <div style={{ fontSize: 16, fontWeight: 800 }}>Send account statement</div>
+          <button onClick={onClose} style={{ marginLeft: "auto", background: "none", border: "none", color: T.faint, fontSize: 18, cursor: "pointer" }}>✕</button>
+        </div>
+
+        {!clientId ? (
+          <div>
+            {label("Client — open balances")}
+            {clients.length === 0 && <div style={{ color: T.faint, fontSize: 13 }}>No clients with open balances.</div>}
+            {clients.map(c => (
+              <div key={c.id} onClick={() => pickClient(c.id)}
+                style={{ display: "flex", gap: 12, alignItems: "baseline", padding: "10px 12px", borderRadius: 8, cursor: "pointer", border: `1px solid transparent` }}
+                onMouseEnter={e => (e.currentTarget.style.background = T.surface)}
+                onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
+                <span style={{ fontWeight: 700, fontSize: 13 }}>{c.name}</span>
+                <span style={{ fontSize: 11, color: T.faint }}>{c.count} open</span>
+                <span style={{ marginLeft: "auto", fontFamily: mono, fontSize: 12.5, fontWeight: 700 }}>{money0(c.total)}</span>
+                {c.pastDue > 0.01 && <span style={{ fontFamily: mono, fontSize: 11, color: T.red, fontWeight: 700 }}>{money0(c.pastDue)} past due</span>}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+              <span style={{ fontWeight: 800, fontSize: 13.5 }}>{clients.find(c => c.id === clientId)?.name}</span>
+              <button onClick={() => setClientId("")} style={{ background: "none", border: "none", color: T.faint, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: font }}>change</button>
+              <a href={`/api/pdf/statement/${clientId}`} target="_blank" rel="noreferrer"
+                style={{ marginLeft: "auto", fontSize: 11, color: T.accent, fontWeight: 700, textDecoration: "none" }}>Preview statement ↗</a>
+            </div>
+            <div>
+              {label("Recipients")}
+              {contacts.length === 0 && <div style={{ color: T.amber, fontSize: 12 }}>No contacts with an email on this client — add one on the client page first.</div>}
+              {contacts.map(c => (
+                <label key={c.email} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12.5, padding: "4px 0", cursor: "pointer" }}>
+                  <input type="checkbox" checked={!!picked[c.email]} onChange={e => setPicked(p => ({ ...p, [c.email]: e.target.checked }))} />
+                  <span style={{ fontWeight: 600 }}>{c.name || c.email}</span>
+                  <span style={{ color: T.faint, fontSize: 11 }}>{c.email}{c.role_label ? ` · ${c.role_label}` : ""}</span>
+                </label>
+              ))}
+            </div>
+            <div>{label("Subject")}<input value={subject} onChange={e => setSubject(e.target.value)} style={inputStyle} /></div>
+            <div>{label("Message")}<textarea value={body} onChange={e => setBody(e.target.value)} rows={10} style={{ ...inputStyle, resize: "vertical", lineHeight: 1.5 }} /></div>
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              <span style={{ fontSize: 11, color: T.faint }}>Sends from billing@ · statement PDF attached</span>
+              {msg && <span style={{ fontSize: 12, fontWeight: 700, color: msg === "Statement sent." ? T.green : T.red }}>{msg}</span>}
+              <button disabled={busy} onClick={send}
+                style={{ marginLeft: "auto", background: T.accent, color: "#0a0a0a", border: "none", borderRadius: 8, padding: "10px 22px", fontSize: 13, fontWeight: 800, cursor: "pointer", fontFamily: font, opacity: busy ? 0.6 : 1 }}>
+                {busy ? "Sending…" : "Send statement"}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
