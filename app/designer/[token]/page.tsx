@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { H, primaryBtn, ghostBtn, inp, tag, fmtStamp, fmtDue } from "@/lib/studio-theme";
 import { woTypeLabel, type BriefSpec } from "@/lib/design-work-orders";
 import PinBrief from "@/components/studio/PinBrief";
+import Lightbox, { type LightboxItem } from "@/components/studio/Lightbox";
 
 // THE DESIGNER'S PAGE — one work order by magic link. What we need, the brief
 // pinned right on the references (same component we wrote it with), every
@@ -25,6 +26,7 @@ export default function DesignerPage({ params }: { params: { token: string } }) 
   const [err, setErr] = useState("");
   const [heroId, setHeroId] = useState<string | null>(null);
   const fileIn = useRef<HTMLInputElement | null>(null);
+  const [lit, setLit] = useState<LightboxItem | null>(null);
 
   async function load() {
     const j = await fetch(`/api/designer/${token}`).then(r => r.json()).catch(() => ({ error: true }));
@@ -74,6 +76,7 @@ export default function DesignerPage({ params }: { params: { token: string } }) 
 
   return (
     <div style={{ maxWidth: 720, margin: "0 auto", padding: "28px 16px 90px" }}>
+      <Lightbox item={lit} onClose={() => setLit(null)} />
       <div style={{ textAlign: "center" }}>
         <div style={tag(H.faint, 11)}>Work order · House Party Distro</div>
         <h1 style={{ fontSize: "clamp(24px,5vw,40px)", fontWeight: 900, letterSpacing: "-0.02em", textTransform: "uppercase", margin: "8px 0 6px" }}>{wo.title || "Design"}</h1>
@@ -89,7 +92,7 @@ export default function DesignerPage({ params }: { params: { token: string } }) 
       {spec.canvases.map((c, i) => (
         <section key={c.id} style={{ marginTop: 22, padding: 12, background: H.panel, border: `1px solid ${H.line}`, borderRadius: 16 }}>
           <div style={{ ...tag(H.amber, 9), marginBottom: 8 }}>{spec.canvases.length > 1 ? `Reference ${i + 1}` : "The reference"} · {c.pins?.length || 0} pin{(c.pins?.length || 0) === 1 ? "" : "s"}</div>
-          <PinBrief canvas={c} readOnly imgSrc={img} downloadHref={dl(c.driveId)} downloadSrc={dl} />
+          <PinBrief canvas={c} readOnly imgSrc={img} downloadHref={dl(c.driveId)} downloadSrc={dl} onOpenImage={(id, name, caption) => setLit({ src: img(id, 1600), downloadHref: dl(id), name, caption })} />
         </section>
       ))}
 
@@ -116,13 +119,12 @@ export default function DesignerPage({ params }: { params: { token: string } }) 
 
       {spec.extras.length > 0 && (
         <section style={{ marginTop: 18 }}>
-          <div style={{ ...tag(H.faint, 9), marginBottom: 8 }}>More files · tap to download the original</div>
+          <div style={{ ...tag(H.faint, 9), marginBottom: 8 }}>More files · tap to view, download from there</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(92px, 1fr))", gap: 8 }}>
             {spec.extras.map(e => (
-              <a key={e.driveId} href={dl(e.driveId)} style={{ display: "block", aspectRatio: "1", borderRadius: 10, overflow: "hidden", background: "#fff", position: "relative" }}>
+              <button key={e.driveId} type="button" onClick={() => setLit({ src: img(e.previewId || e.driveId, 1600), downloadHref: dl(e.driveId), name: e.name, caption: "Reference" })} style={{ display: "block", aspectRatio: "1", borderRadius: 10, overflow: "hidden", background: "#fff", position: "relative", border: "none", padding: 0, cursor: "zoom-in", width: "100%" }}>
                 <img src={img(e.previewId || e.driveId, 400)} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(ev: any) => { ev.target.style.opacity = 0.2; }} />
-                <span style={{ position: "absolute", right: 5, bottom: 5, ...tag(H.green, 8.5), background: H.ink, borderRadius: 6, padding: "3px 7px" }}>↓</span>
-              </a>
+              </button>
             ))}
           </div>
         </section>
@@ -132,7 +134,7 @@ export default function DesignerPage({ params }: { params: { token: string } }) 
         <section style={{ marginTop: 22 }}>
           <div style={{ ...tag(H.faint, 9), marginBottom: 8 }}>{hero.sender_role === "designer" ? "Your delivery" : "From HPD"}</div>
           <div style={{ background: "#fff", borderRadius: 16, overflow: "hidden", display: "flex", justifyContent: "center", padding: "12px 0", position: "relative" }}>
-            <img src={hero.image_url} alt="" referrerPolicy="no-referrer" style={{ maxWidth: "100%", maxHeight: "42vh", objectFit: "contain" }} onError={(e: any) => { e.target.style.opacity = 0.15; }} />
+            <img src={hero.image_url} alt="" referrerPolicy="no-referrer" onClick={() => setLit({ src: hero.image_url, downloadHref: hero.download_url, name: hero.file_name, caption: hero.sender_role === "designer" ? "Your delivery" : "From HPD" })} style={{ maxWidth: "100%", maxHeight: "42vh", objectFit: "contain", cursor: "zoom-in" }} onError={(e: any) => { e.target.style.opacity = 0.15; }} />
             <span style={{ position: "absolute", right: 10, bottom: 8, display: "flex", gap: 6 }}>
               {hero.file_name && <span style={{ ...tag("#666", 8.5), background: "rgba(255,255,255,0.92)", borderRadius: 6, padding: "4px 9px" }}>{hero.file_name}</span>}
               {hero.download_url && <a href={hero.download_url} style={{ ...tag(H.green, 8.5), background: H.ink, borderRadius: 6, padding: "4px 9px", textDecoration: "none" }}>↓</a>}

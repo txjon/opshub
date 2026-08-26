@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { H, primaryBtn, ghostBtn, inp, lbl, tag, fmtStamp, fmtDue, ago } from "@/lib/studio-theme";
 import { woState, woTypeLabel, type BriefSpec, type DesignWorkOrder } from "@/lib/design-work-orders";
 import PinBrief from "@/components/studio/PinBrief";
+import Lightbox, { type LightboxItem } from "@/components/studio/Lightbox";
 import { useConfirm } from "@/components/useConfirm";
 // @ts-ignore — plain-JS lib, no declarations
 import { uploadToDrive } from "@/lib/drive-upload-client";
@@ -30,6 +31,8 @@ export default function WorkOrderPanel({ woId, brief, onClose, onChanged }: Prop
   const [copied, setCopied] = useState(false);
   const fileIn = useRef<HTMLInputElement | null>(null);
   const [confirm, confirmEl] = useConfirm();
+  const [lit, setLit] = useState<LightboxItem | null>(null);
+  const dlOf = (id: string, name?: string | null) => `/api/files/view/${encodeURIComponent(name || "file")}?id=${id}&download=1`;
 
   async function load() {
     const j = await fetch(`/api/studio/work-orders/${woId}`).then(r => r.json()).catch(() => null);
@@ -89,6 +92,7 @@ export default function WorkOrderPanel({ woId, brief, onClose, onChanged }: Prop
   return (
     <>
       {confirmEl}
+      <Lightbox item={lit} onClose={() => setLit(null)} />
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, padding: "18px 22px 6px" }}>
         <div style={{ minWidth: 0 }}>
           <div style={tag(H.faint, 9.5)}>Designer · Room 2</div>
@@ -141,7 +145,7 @@ export default function WorkOrderPanel({ woId, brief, onClose, onChanged }: Prop
             {spec.canvases.map((c, i) => (
               <div key={c.id} style={{ padding: 12, background: H.ink, border: `1px solid ${H.line2}`, borderRadius: 14 }}>
                 <div style={{ ...tag(H.amber, 9), marginBottom: 8 }}>Canvas {i + 1}</div>
-                <PinBrief canvas={c} imgSrc={(id, size) => thumb(id, size || 900)} readOnly={!editing} onChange={next => draft && setDraft({ ...draft, brief: { ...draft.brief, canvases: draft.brief.canvases.map(x => x.id === c.id ? next : x) } })} onUploadImage={uploadPinImage} />
+                <PinBrief canvas={c} imgSrc={(id, size) => thumb(id, size || 900)} readOnly={!editing} onOpenImage={(id, name, caption) => setLit({ src: thumb(id, 1600), downloadHref: dlOf(id, name), name, caption })} onChange={next => draft && setDraft({ ...draft, brief: { ...draft.brief, canvases: draft.brief.canvases.map(x => x.id === c.id ? next : x) } })} onUploadImage={uploadPinImage} />
               </div>
             ))}
             {(spec.conversation || []).length > 0 && !editing && (
@@ -164,7 +168,7 @@ export default function WorkOrderPanel({ woId, brief, onClose, onChanged }: Prop
       {hero && (
         <div style={{ marginTop: 14 }}>
           <div style={{ background: "#fff", position: "relative" }}>
-            <img src={hero.image_url} alt="" referrerPolicy="no-referrer" style={{ width: "100%", maxHeight: "40vh", objectFit: "contain", display: "block", margin: "0 auto" }} onError={(e: any) => { e.target.style.opacity = 0.15; }} />
+            <img src={hero.image_url} alt="" referrerPolicy="no-referrer" onClick={() => setLit({ src: hero.image_url, downloadHref: hero.download_url, name: hero.file_name, caption: hero.sender_role === "designer" ? "Designer delivery" : "Our reference" })} style={{ width: "100%", maxHeight: "40vh", objectFit: "contain", display: "block", margin: "0 auto", cursor: "zoom-in" }} onError={(e: any) => { e.target.style.opacity = 0.15; }} />
             <span style={{ position: "absolute", left: 10, bottom: 8, display: "flex", gap: 6, flexWrap: "wrap" }}>
               <span style={{ ...tag(hero.sender_role === "designer" ? "#3c9a2e" : "#666", 8.5), background: "rgba(255,255,255,0.92)", borderRadius: 6, padding: "4px 9px" }}>{hero.sender_role === "designer" ? "Designer delivery" : "Our reference"}{hero.file_name ? ` · ${hero.file_name}` : ""}</span>
               {hero.download_url && <a href={hero.download_url} style={{ ...tag(H.green, 8.5), background: H.ink, borderRadius: 6, padding: "4px 9px", textDecoration: "none" }}>↓ Download</a>}

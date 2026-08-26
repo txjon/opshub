@@ -19,8 +19,9 @@ type Props = {
   onUploadImage?: (file: File) => Promise<{ driveId: string; name: string }>;
   downloadHref?: string | null;                          // designer side: the original, full-res
   downloadSrc?: (driveId: string) => string;             // designer side: full-res link for a pin's swap-in
+  onOpenImage?: (driveId: string, name?: string | null, caption?: string | null) => void;  // read-only tap → lightbox
 };
-export default function PinBrief({ canvas, imgSrc, readOnly, onChange, onUploadImage, downloadHref, downloadSrc }: Props) {
+export default function PinBrief({ canvas, imgSrc, readOnly, onChange, onUploadImage, downloadHref, downloadSrc, onOpenImage }: Props) {
   const [active, setActive] = useState<string | null>(null);
   const [uploadingFor, setUploadingFor] = useState<string | null>(null);
   const boxRef = useRef<HTMLDivElement | null>(null);
@@ -35,7 +36,7 @@ export default function PinBrief({ canvas, imgSrc, readOnly, onChange, onUploadI
     return { x: Math.min(100, Math.max(0, ((e.clientX - r.left) / r.width) * 100)), y: Math.min(100, Math.max(0, ((e.clientY - r.top) / r.height) * 100)) };
   };
   function addPin(e: React.MouseEvent) {
-    if (readOnly) return;
+    if (readOnly) { onOpenImage?.(canvas.driveId, canvas.name, "The reference"); return; }
     const p = pct(e); if (!p) return;
     const pin: BriefPin = { id: newPinId(), x: +p.x.toFixed(2), y: +p.y.toFixed(2), text: "" };
     set([...pins, pin]); setActive(pin.id);
@@ -81,7 +82,7 @@ export default function PinBrief({ canvas, imgSrc, readOnly, onChange, onUploadI
         @media(min-width:760px){.pb-wrap{grid-template-columns:minmax(0,1.35fr) minmax(220px,1fr)}}
       ` }} />
       <div>
-        <div ref={boxRef} onClick={addPin} style={{ position: "relative", background: "#fff", borderRadius: 12, overflow: "hidden", cursor: readOnly ? "default" : "crosshair", userSelect: "none", lineHeight: 0 }}>
+        <div ref={boxRef} onClick={addPin} style={{ position: "relative", background: "#fff", borderRadius: 12, overflow: "hidden", cursor: readOnly ? (onOpenImage ? "zoom-in" : "default") : "crosshair", userSelect: "none", lineHeight: 0 }}>
           <img src={imgSrc(canvas.previewId || canvas.driveId, 1200)} alt="" draggable={false} referrerPolicy="no-referrer" style={{ width: "100%", display: "block", pointerEvents: "none" }} />
           {pins.map(marker)}
           {!readOnly && pins.length === 0 && <span style={{ position: "absolute", left: 10, bottom: 10, ...tag("#666", 9), background: "rgba(255,255,255,.92)", borderRadius: 6, padding: "5px 9px" }}>Tap the image to drop a pin</span>}
@@ -112,11 +113,12 @@ export default function PinBrief({ canvas, imgSrc, readOnly, onChange, onUploadI
                 )}
                 {p.driveId && (
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
-                    <a href={readOnly && downloadSrc ? downloadSrc(p.driveId) : undefined} onClick={e => { e.stopPropagation(); if (!readOnly || !downloadSrc) e.preventDefault(); }} style={{ display: "block", width: 84, height: 84, borderRadius: 8, overflow: "hidden", background: "#fff", flexShrink: 0 }}>
+                    <a href={readOnly && downloadSrc ? downloadSrc(p.driveId) : undefined} onClick={e => { e.stopPropagation(); if (readOnly && onOpenImage) { e.preventDefault(); onOpenImage(p.driveId!, p.name, `Pin ${i + 1} · use this`); return; } if (!readOnly || !downloadSrc) e.preventDefault(); }} style={{ display: "block", width: 84, height: 84, borderRadius: 8, overflow: "hidden", background: "#fff", flexShrink: 0, cursor: readOnly ? "zoom-in" : "default" }}>
                       <img src={imgSrc(p.driveId, 300)} alt="" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.opacity = 0.2; }} />
                     </a>
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ ...tag(H.blue, 9) }}>{readOnly ? "Use this ↓" : "Swap-in image"}</div>
+                      <div style={{ ...tag(H.blue, 9) }}>{readOnly ? "Use this" : "Swap-in image"}</div>
+                      {readOnly && downloadSrc && <a href={downloadSrc(p.driveId)} onClick={e => e.stopPropagation()} style={{ ...tag(H.green, 9), textDecoration: "none", display: "inline-block", marginTop: 3 }}>↓ Download</a>}
                       {p.name && <div style={{ fontSize: 10, fontFamily: H.mono, color: H.faint, marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>}
                       {!readOnly && <button type="button" onClick={e => { e.stopPropagation(); set(pins.map(x => x.id === p.id ? { ...x, driveId: null, name: null } : x)); }} style={{ background: "none", border: "none", color: H.faint, fontSize: 10.5, cursor: "pointer", fontFamily: H.font, padding: 0, marginTop: 4 }}>remove image</button>}
                     </div>
