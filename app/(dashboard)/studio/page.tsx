@@ -4,6 +4,10 @@ import { useSearchParams } from "next/navigation";
 import ThumbIcon from "@/components/ThumbIcon";
 // @ts-ignore — plain-JS lib, no declarations
 import { uploadToDrive } from "@/lib/drive-upload-client";
+import { H, primaryBtn, ghostBtn, inp, lbl, tag, ago, fmtDue } from "@/lib/studio-theme";
+import { woState, woTypeLabel } from "@/lib/design-work-orders";
+import WorkOrderBuilder from "@/components/studio/WorkOrderBuilder";
+import WorkOrderPanel from "@/components/studio/WorkOrderPanel";
 
 // THE STUDIO (Phase 2 of the replacement, Aug 4 2026) — the Lab's proven UX
 // on the REAL tables: art_briefs + art_brief_messages + art_brief_files.
@@ -11,7 +15,7 @@ import { uploadToDrive } from "@/lib/drive-upload-client";
 // filmstrip, thumbs rendered from file reactions, the bank footer with the
 // order ask + bridged job. FOG's 41 real briefs are the launch content.
 // The old /art-studio + /studio2 died with this page's arrival.
-const H = { ink: "#0a0a0a", panel: "#131313", surface: "#1e1e1e", line: "rgba(255,255,255,.13)", line2: "rgba(255,255,255,.07)", text: "#fff", dim: "rgba(255,255,255,.6)", faint: "rgba(255,255,255,.38)", amber: "#f4b22b", green: "#58c93c", blue: "#8fc7d8", red: "#ff5a6e", font: "Inter, -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif", mono: "ui-monospace, 'SF Mono', Menlo, monospace" };
+// palette + control styles: lib/studio-theme (shared with the designer door)
 const STATE = (s: string) => s === "with_client" ? { label: "With the client", color: H.blue } : s === "approved" ? { label: "In the bank", color: H.green } : s === "shelved" ? { label: "On the shelf", color: H.faint } : s === "killed" ? { label: "Killed", color: H.red } : { label: "Your move", color: H.amber };
 const GUIDE: Record<string, { tint: string; head: string; text: string }> = {
   working: { tint: H.amber, head: "It's your move", text: "Shape the design with the client. Drop a draft, or talk it through — flip a note to Internal to keep it off their screen. Send a client-visible design and it's their move." },
@@ -32,15 +36,23 @@ export default function StudioPage() {
   const params = useSearchParams();
 
   const [reqs, setReqs] = useState<any[]>([]);
+  // THE DESIGNER LANE (mig 165): every live work order, so nothing waits on
+  // someone remembering to scroll Slack. ?wo= deep-links straight into one.
+  const [wos, setWos] = useState<any[]>([]);
+  const [openWoId, setOpenWoId] = useState<string | null>(null);
+  // A click outside the sheet closes it — unless there's an unsent note or
+  // attachment in the composer (Jon: losing work on a stray click sucks).
+  const sheetDirty = useRef(false);
   const [bridging, setBridging] = useState<string | null>(null);
   const [bridged, setBridged] = useState<Record<string, { jobId: string; jobNumber: string }>>({});
   const [bridgeErr, setBridgeErr] = useState<Record<string, string>>({});
   async function loadList() {
-    const [j, r] = await Promise.all([
+    const [j, r, w] = await Promise.all([
       fetch("/api/studio/briefs").then(r => r.json()).catch(() => ({})),
       fetch("/api/lab/order-requests").then(r => r.json()).catch(() => ({})),
+      fetch("/api/studio/work-orders").then(r => r.json()).catch(() => ({})),
     ]);
-    setBriefs(j.briefs || []); setReqs(r.requests || []);
+    setBriefs(j.briefs || []); setReqs(r.requests || []); setWos(w.workOrders || []);
   }
   async function startJob(id: string) {
     setBridging(id); setBridgeErr(e => ({ ...e, [id]: "" }));
@@ -56,7 +68,7 @@ export default function StudioPage() {
   }
   async function loadDetail(id: string) { setDetail(await fetch(`/api/studio/briefs/${id}`).then(r => r.json()).catch(() => null)); }
   useEffect(() => { loadList(); }, []);
-  useEffect(() => { const b = params.get("brief"); if (b) setOpenId(b); }, [params]);
+  useEffect(() => { const b = params.get("brief"); if (b) setOpenId(b); const w = params.get("wo"); if (w) setOpenWoId(w); }, [params]);
   useEffect(() => { if (openId) loadDetail(openId); else setDetail(null); }, [openId]);
   const refresh = async () => { await loadList(); if (openId) await loadDetail(openId); };
 
@@ -91,6 +103,7 @@ export default function StudioPage() {
           <div style={{ fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", lineHeight: 1.25, overflow: "hidden", display: "-webkit-box", WebkitBoxOrient: "vertical" as any, WebkitLineClamp: 2 }}>{b.title || "Untitled"}</div>
           <div style={{ fontSize: 9.5, fontFamily: H.mono, color: H.faint, marginTop: 4 }}>{b.client_name || "—"}</div>
           <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: st.color, marginTop: 4 }}>{st.label}{b.source === "client" ? " · they started it" : ""}</div>
+          {b._wo && <div style={{ ...tag(b._wo.unread ? H.amber : b._wo.late ? H.red : H.faint, 8.5), marginTop: 3 }}>{b._wo.unread ? "● Designer replied" : b._wo.state === "delivered" ? "Designer delivered" : b._wo.state === "in_revision" ? "Designer · in revision" : "With the designer"}{b._wo.late ? " · late" : ""}</div>}
           {b._release && <div style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", color: b._release.status === "cut" ? H.green : H.blue, marginTop: 3 }}>{b._release.status === "cut" ? "In production" : "On release"} · <span style={{ fontWeight: 600 }}>{b._release.title}</span></div>}
         </div>
       </button>
@@ -102,6 +115,8 @@ export default function StudioPage() {
       <style dangerouslySetInnerHTML={{ __html: `
         .st-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px 12px}
         @media(min-width:900px){.st-grid{grid-template-columns:repeat(4,1fr);gap:22px 16px}}
+        .st-desk{display:grid;grid-template-columns:1fr;gap:8px}
+        @media(min-width:900px){.st-desk{grid-template-columns:1fr 1fr}}
         .st-card{background:${H.panel};border:1px solid ${H.line};border-radius:14px;overflow:hidden;cursor:pointer;text-align:left;color:${H.text};font-family:${H.font};padding:0;transition:transform .15s ease,border-color .15s ease;display:block;width:100%}
         .st-card:hover{transform:translateY(-3px);border-color:rgba(255,255,255,.3)}
         .st-back{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:200;display:flex;align-items:flex-start;justify-content:center;padding:34px 14px;overflow-y:auto}
@@ -161,6 +176,33 @@ export default function StudioPage() {
         </section>
       )}
 
+      {wos.length > 0 && (
+        <section style={{ marginTop: 30 }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
+            <h2 style={{ margin: 0, fontSize: 19, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", color: H.blue }}>The designer lane.</h2>
+            <span style={{ fontSize: 10.5, color: H.faint }}>every order out the door · nothing waits on you remembering</span>
+          </div>
+          <div className="st-desk">
+            {wos.filter(w => !clientFilter || w.client_name === clientFilter).map((w: any) => {
+              const st = woState(w);
+              const clock = w.state === "accepted" ? `accepted ${ago(w.updated_at)}` : w.last_designer_at && (!w.last_hpd_at || w.last_designer_at > w.last_hpd_at) ? `${w.state === "delivered" ? "delivered" : "replied"} ${ago(w.last_designer_at)}` : `out ${ago(w.created_at)}`;
+              return (
+                <button key={w.id} onClick={() => { setOpenId(w.brief_id); setOpenWoId(w.id); }} style={{ display: "flex", alignItems: "center", gap: 12, textAlign: "left", background: H.panel, border: `1px solid ${H.line}`, outline: st.unread ? `2px solid ${H.amber}` : st.late ? `2px solid ${H.red}` : "none", outlineOffset: -1, borderRadius: 12, padding: "10px 14px 10px 10px", cursor: "pointer", color: H.text, fontFamily: H.font, width: "100%" }}>
+                  <span style={{ width: 48, height: 48, borderRadius: 8, overflow: "hidden", background: "#fff", flexShrink: 0 }}>
+                    {w._thumb && <img src={thumb(w._thumb, 300)} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.opacity = 0.2; }} />}
+                  </span>
+                  <span style={{ minWidth: 0, flex: 1 }}>
+                    <span style={{ display: "block", fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{w.design_title || "Design"}</span>
+                    <span style={{ display: "block", fontSize: 10.5, color: H.dim, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{w.client_name || "—"} · {woTypeLabel(w.type)}{w.designer_name ? ` · ${w.designer_name}` : ""}</span>
+                    <span style={{ display: "block", marginTop: 4, ...tag(st.color, 9) }}>{st.label}<span style={{ color: H.faint, fontWeight: 600, letterSpacing: 0, textTransform: "none", fontFamily: H.mono }}> · {clock}{w.due_by ? ` · due ${fmtDue(w.due_by)}` : ""}{st.late ? " · LATE" : ""}</span></span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
       {visible.length === 0 && <div style={{ color: H.faint, fontSize: 13, padding: "40px 0" }}>{clientFilter ? `Nothing in the studio for ${clientFilter} yet.` : "Nothing here yet. Start something."}</div>}
 
       {buckets.map(bk => {
@@ -204,8 +246,8 @@ export default function StudioPage() {
         </section>
       )}
 
-      {detail?.brief && <div className="st-back" onClick={e => { if (e.target === e.currentTarget) setOpenId(null); }}>
-        <div className="st-sheet"><BriefSheet key={detail.brief.id} detail={detail} onRefresh={refresh} onClose={() => setOpenId(null)} /></div>
+      {detail?.brief && <div className="st-back" onClick={e => { if (e.target === e.currentTarget && !sheetDirty.current) setOpenId(null); }}>
+        <div className="st-sheet"><BriefSheet key={detail.brief.id} detail={detail} onRefresh={refresh} onClose={() => { setOpenId(null); setOpenWoId(null); }} openWoId={openWoId} setOpenWoId={setOpenWoId} onDirty={(d: boolean) => { sheetDirty.current = d; }} /></div>
       </div>}
 
       {showNew && <NewDesign onClose={() => setShowNew(false)} onCreated={async (id: string) => { setShowNew(false); await loadList(); setOpenId(id); }} />}
@@ -214,8 +256,14 @@ export default function StudioPage() {
 }
 
 // ── the sheet: header · hero+filmstrip (files) · notes (messages) · composer ──
-function BriefSheet({ detail, onRefresh, onClose }: any) {
+function BriefSheet({ detail, onRefresh, onClose, openWoId, setOpenWoId, onDirty }: any) {
   const b = detail.brief; const timeline: any[] = detail.timeline || [];
+  // ── ROOM 2 — the designer lane on this design ──
+  const [wos, setWos] = useState<any[]>([]);
+  const [woBuilder, setWoBuilder] = useState(false);
+  const [woNotice, setWoNotice] = useState("");
+  async function loadWos() { const j = await fetch(`/api/studio/briefs/${b.id}/work-orders`).then(r => r.json()).catch(() => ({})); setWos(j.workOrders || []); }
+  useEffect(() => { loadWos(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [b.id]);
   const orderReq = detail.orderRequest;
   const lineup = detail.lineup;
   const st = STATE(b.state);
@@ -321,6 +369,8 @@ function BriefSheet({ detail, onRefresh, onClose }: any) {
     } finally { setBusy(false); }
   }
   const [stagedList, setStagedList] = useState<{ f: File; url: string }[]>([]);
+  useEffect(() => { onDirty?.(!!note.trim() || stagedList.length > 0); }, [note, stagedList, onDirty]);
+  useEffect(() => () => onDirty?.(false), [onDirty]);
   const [heroId, setHeroId] = useState<string | null>(null);
   const fileIn = useRef<HTMLInputElement | null>(null);
 
@@ -488,6 +538,42 @@ function BriefSheet({ detail, onRefresh, onClose }: any) {
           );
         })}
       </div>
+
+      {/* ── ROOM 2 — hand it to a designer, see every order on it ── */}
+      {b.state !== "killed" && (
+        <div style={{ padding: "12px 22px", borderTop: `1px solid ${H.line}` }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <span style={tag(H.faint, 8.5)}>Designer · Room 2</span>
+            {wos.length === 0 && <span style={{ fontSize: 10.5, color: H.faint }}>nothing out</span>}
+            <button onClick={() => setWoBuilder(true)} disabled={!images.length} title={images.length ? "Pin the brief on a reference and send it" : "Drop a reference in the thread first"} style={{ ...ghostBtn, marginLeft: "auto", color: H.blue, borderColor: "rgba(143,199,216,.4)", opacity: images.length ? 1 : 0.4 }}>+ Hand to a designer</button>
+          </div>
+          {woNotice && <div style={{ marginTop: 8, fontSize: 12, color: H.green }}>{woNotice}</div>}
+          {wos.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
+              {wos.map((w: any) => { const st = woState(w); return (
+                <button key={w.id} onClick={() => setOpenWoId(w.id)} style={{ display: "flex", alignItems: "center", gap: 10, textAlign: "left", background: H.surface, border: `1px solid ${H.line2}`, outline: st.unread ? `2px solid ${H.amber}` : "none", outlineOffset: -1, borderRadius: 10, padding: "9px 12px", cursor: "pointer", color: H.text, fontFamily: H.font, width: "100%" }}>
+                  <span style={{ fontSize: 12, fontWeight: 800, textTransform: "uppercase" }}>{woTypeLabel(w.type)}</span>
+                  <span style={{ fontSize: 10.5, color: H.faint }}>{w.designer_name || w.designer_email || "link only"}</span>
+                  <span style={{ marginLeft: "auto", ...tag(st.color, 9), whiteSpace: "nowrap" }}>{st.label}</span>
+                  {w.due_by && <span style={{ fontSize: 10, fontFamily: H.mono, color: st.late ? H.red : H.faint, whiteSpace: "nowrap" }}>due {fmtDue(w.due_by)}</span>}
+                </button>
+              ); })}
+            </div>
+          )}
+        </div>
+      )}
+      {woBuilder && <WorkOrderBuilder brief={b} images={images} notes={notes} onClose={() => setWoBuilder(false)} onCreated={async (r: any) => {
+        setWoBuilder(false);
+        if (!r.emailSent) { try { await navigator.clipboard.writeText(r.url); setWoNotice("Work order created — link copied. Paste it to the designer."); } catch { setWoNotice("Work order created — copy the link from the order."); } }
+        else setWoNotice("Work order sent. The link's in their inbox.");
+        setTimeout(() => setWoNotice(""), 6000);
+        await loadWos(); await onRefresh(); setOpenWoId(r.id);
+      }} />}
+      {openWoId && (
+        <div className="st-back" style={{ zIndex: 230 }}>
+          <div className="st-sheet"><WorkOrderPanel key={openWoId} woId={openWoId} brief={b} notes={notes} onClose={() => setOpenWoId(null)} onChanged={async () => { await loadWos(); await onRefresh(); }} /></div>
+        </div>
+      )}
 
       {/* ── THE LINEUP — the menu round ── */}
       {["approved", "working", "with_client"].includes(b.state) && (
@@ -704,7 +790,4 @@ function NewDesign({ onClose, onCreated }: any) {
   );
 }
 
-const primaryBtn: React.CSSProperties = { background: "#fff", color: H.ink, border: "none", borderRadius: 999, padding: "10px 18px", fontSize: 11, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font };
-const ghostBtn: React.CSSProperties = { background: "transparent", color: H.text, border: `1px solid ${H.line}`, borderRadius: 999, padding: "10px 14px", fontSize: 10.5, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font };
-const inp: React.CSSProperties = { width: "100%", boxSizing: "border-box", background: H.surface, border: `1px solid ${H.line}`, borderRadius: 9, color: H.text, fontSize: 13, padding: "9px 11px", outline: "none", fontFamily: H.font };
-const lbl: React.CSSProperties = { display: "block", fontSize: 9, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: H.faint, marginBottom: 6 };
+
