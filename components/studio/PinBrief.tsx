@@ -113,11 +113,11 @@ export default function PinBrief({ canvas, imgSrc, readOnly, onChange, onUploadI
                 )}
                 {p.driveId && (
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
-                    <a href={readOnly && downloadSrc ? downloadSrc(p.driveId) : undefined} onClick={e => { e.stopPropagation(); if (readOnly && onOpenImage) { e.preventDefault(); onOpenImage(p.driveId!, p.name, `Pin ${i + 1} · use this`); return; } if (!readOnly || !downloadSrc) e.preventDefault(); }} style={{ display: "block", width: 84, height: 84, borderRadius: 8, overflow: "hidden", background: "#fff", flexShrink: 0, cursor: readOnly ? "zoom-in" : "default" }}>
+                    <a href={readOnly && downloadSrc ? downloadSrc(p.driveId) : undefined} onClick={e => { e.stopPropagation(); if (readOnly && onOpenImage) { e.preventDefault(); onOpenImage(p.driveId!, p.name, `Image for pin ${i + 1}`); return; } if (!readOnly || !downloadSrc) e.preventDefault(); }} style={{ display: "block", width: 84, height: 84, borderRadius: 8, overflow: "hidden", background: "#fff", flexShrink: 0, cursor: readOnly ? "zoom-in" : "default" }}>
                       <img src={imgSrc(p.driveId, 300)} alt="" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.opacity = 0.2; }} />
                     </a>
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ ...tag(H.blue, 9) }}>{readOnly ? "Use this" : "Swap-in image"}</div>
+                      <div style={{ ...tag(H.blue, 9) }}>{readOnly ? `Image for pin ${i + 1}` : "Pin image"}</div>
                       {readOnly && downloadSrc && <a href={downloadSrc(p.driveId)} onClick={e => e.stopPropagation()} style={{ ...tag(H.green, 9), textDecoration: "none", display: "inline-block", marginTop: 3 }}>↓ Download</a>}
                       {p.name && <div style={{ fontSize: 10, fontFamily: H.mono, color: H.faint, marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>}
                       {!readOnly && <button type="button" onClick={e => { e.stopPropagation(); set(pins.map(x => x.id === p.id ? { ...x, driveId: null, name: null } : x)); }} style={{ background: "none", border: "none", color: H.faint, fontSize: 10.5, cursor: "pointer", fontFamily: H.font, padding: 0, marginTop: 4 }}>remove image</button>}
