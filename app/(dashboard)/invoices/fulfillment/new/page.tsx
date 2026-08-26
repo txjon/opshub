@@ -146,6 +146,27 @@ export default function NewShipstationReportPage() {
 
   const [reportType, setReportType] = useState<ReportType>("sales");
   const [typeMenu, setTypeMenu] = useState(false);
+  const [dropHot, setDropHot] = useState(false);
+  const [dropError, setDropError] = useState("");
+  // One dropzone, many exports: sniff each file's header row and route it.
+  async function routeCsvFiles(files: FileList | null) {
+    if (!files) return;
+    setDropError("");
+    const picked = Array.from(files); // snapshot before any input reset
+    for (const f of picked) {
+      try {
+        const head = (await f.text()).slice(0, 2000).toLowerCase();
+        const isSales = /sku/.test(head) && /(qty ?sold|qtysold)/.test(head);
+        const isLedger = /transactiontime|transaction time/.test(head);
+        const isShipments = /(ship ?date|recipient|shipping ?paid)/.test(head);
+        if (isSales && showSales) onSalesCsvFile(f);
+        else if (isLedger && showPostage && isBulkPostage) onBulkCsvFile(f);
+        else if (isShipments && showPostage && !isBulkPostage) onPostageCsvFile(f);
+        else if (isSales || isLedger || isShipments) setDropError(`${f.name}: that's a ${isSales ? "sales" : isLedger ? "postage-ledger" : "shipments"} CSV — this report type doesn't take one.`);
+        else setDropError(`${f.name}: couldn't recognize the columns — export ShipStation's ${showSales ? "sales" : ""}${showSales && showPostage ? " / " : ""}${showPostage ? (isBulkPostage ? "postage ledger" : "shipments") : ""} report.`);
+      } catch { setDropError(`${f.name}: couldn't read the file.`); }
+    }
+  }
   const [stage, setStage] = useState<1 | 2 | 3 | 4>(1);
 
   // Stage 1 — shared
@@ -1418,7 +1439,7 @@ export default function NewShipstationReportPage() {
 
       {/* ── Stage 1 — Upload ── */}
       {stage === 1 && (
-        <div style={{ ...card, display: "flex", flexDirection: "column", gap: 14 }}>
+        <div style={{ ...card, display: "flex", flexDirection: "column", gap: 14, maxWidth: 640 }}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <div>
               <label style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, display: "block" }}>Client</label>
@@ -1433,72 +1454,32 @@ export default function NewShipstationReportPage() {
             </div>
           </div>
 
-          {/* Per-half period overrides — only when both halves exist and
-              they cover different date ranges. Blank inherits the invoice
-              period above, so most months these stay empty. */}
-          {isCombined && (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, display: "block" }}>Sales period <span style={{ color: T.faint, fontWeight: 500 }}>(if different)</span></label>
-                <input value={salesPeriodLabel} onChange={e => setSalesPeriodLabel(e.target.value)} placeholder={periodLabel || "defaults to invoice period"} style={input} />
-              </div>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, display: "block" }}>Postage period <span style={{ color: T.faint, fontWeight: 500 }}>(if different)</span></label>
-                <input value={postagePeriodLabel} onChange={e => setPostagePeriodLabel(e.target.value)} placeholder={periodLabel || "defaults to invoice period"} style={input} />
-              </div>
+          {/* ONE dropzone (Jon, Aug 25: "feels very government website") —
+              drop every export at once; each file is classified by its
+              header row and routed to the right parser. */}
+          <div
+            onDragOver={e => { e.preventDefault(); setDropHot(true); }}
+            onDragLeave={() => setDropHot(false)}
+            onDrop={e => { e.preventDefault(); setDropHot(false); routeCsvFiles(e.dataTransfer.files); }}
+            onClick={() => document.getElementById("ssr-file-input")?.click()}
+            style={{ border: `1.5px dashed ${dropHot ? T.accent : T.border}`, borderRadius: 12, padding: "26px 18px", background: dropHot ? T.surface : "transparent", textAlign: "center", cursor: "pointer" }}>
+            <div style={{ fontSize: 13.5, fontWeight: 700, color: T.text }}>
+              Drop the ShipStation export{showSales && showPostage ? "s" : ""} here — or click to choose
             </div>
-          )}
-
-          {/* Sales CSV input — visible for sales-only and combined */}
-          {showSales && (
-            <div>
-              <label style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, display: "block" }}>
-                ShipStation sales CSV
-              </label>
-              <div style={{ border: `1px dashed ${T.border}`, borderRadius: 10, padding: "18px 16px", background: T.surface, display: "flex", alignItems: "center", gap: 12 }}>
-                <input
-                  type="file"
-                  accept=".csv,text/csv"
-                  onChange={e => e.target.files?.[0] && onSalesCsvFile(e.target.files[0])}
-                  style={{ fontSize: 12, color: T.muted, fontFamily: font }}
-                />
-                {salesLoaded > 0 && (
-                  <span style={{ fontSize: 12, color: T.green, fontFamily: mono }}>
-                    ✓ {salesLoaded} rows parsed
-                  </span>
-                )}
-              </div>
-              {csvError && <div style={{ fontSize: 12, color: T.red, marginTop: 8 }}>{csvError}</div>}
+            <div style={{ fontSize: 11, color: T.faint, marginTop: 5, lineHeight: 1.5 }}>
+              {[showSales ? "sales CSV" : null, showPostage ? (isBulkPostage ? "postage-ledger CSV" : "shipments CSV") : null].filter(Boolean).join(" + ")} · each file is recognized automatically
             </div>
-          )}
-
-          {/* Postage CSV input — visible for postage-only and combined.
-              Bulk mode swaps in the postage-account ledger uploader. */}
-          {showPostage && (
-            <div>
-              <label style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, display: "block" }}>
-                {isBulkPostage ? "ShipStation postage ledger CSV" : "ShipStation shipment CSV"}
-              </label>
-              <div style={{ border: `1px dashed ${T.border}`, borderRadius: 10, padding: "18px 16px", background: T.surface, display: "flex", alignItems: "center", gap: 12 }}>
-                <input
-                  type="file"
-                  accept=".csv,text/csv"
-                  onChange={e => e.target.files?.[0] && (isBulkPostage ? onBulkCsvFile(e.target.files[0]) : onPostageCsvFile(e.target.files[0]))}
-                  style={{ fontSize: 12, color: T.muted, fontFamily: font }}
-                />
-                {postageLoaded > 0 && (
-                  <span style={{ fontSize: 12, color: T.green, fontFamily: mono }}>
-                    ✓ {postageLoaded} {isBulkPostage ? "purchases" : "shipments"} parsed
-                  </span>
-                )}
-              </div>
-              <div style={{ fontSize: 10, color: T.faint, marginTop: 6, lineHeight: 1.5 }}>
-                {isBulkPostage
-                  ? "Expected columns: TransactionTime · Amount (the postage-account purchase ledger). Balance and other columns are ignored. Each purchase is billed back to the client at cost."
-                  : "Expected columns: Ship Date · Recipient · Order # · Provider · Service · Package · Items · Zone · Shipping Paid · Shipping Cost · Insurance Cost · Weight · Weight Unit. Extra columns are ignored."}
-              </div>
-              {csvErrorPostage && <div style={{ fontSize: 12, color: T.red, marginTop: 8 }}>{csvErrorPostage}</div>}
+            <input id="ssr-file-input" type="file" accept=".csv,text/csv" multiple style={{ display: "none" }}
+              onChange={e => { routeCsvFiles(e.target.files); (e.target as any).value = ""; }} />
+            <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap", marginTop: salesLoaded > 0 || postageLoaded > 0 ? 14 : 0 }}>
+              {salesLoaded > 0 && <span style={{ fontSize: 12, color: T.green, fontFamily: mono, fontWeight: 700 }}>✓ Sales · {salesLoaded} rows</span>}
+              {postageLoaded > 0 && <span style={{ fontSize: 12, color: T.green, fontFamily: mono, fontWeight: 700 }}>✓ {isBulkPostage ? "Postage purchases" : "Shipments"} · {postageLoaded}</span>}
+              {showSales && salesLoaded === 0 && <span style={{ fontSize: 12, color: T.faint, fontFamily: mono }}>waiting on sales CSV</span>}
+              {showPostage && postageLoaded === 0 && <span style={{ fontSize: 12, color: T.faint, fontFamily: mono }}>waiting on {isBulkPostage ? "ledger" : "shipments"} CSV</span>}
             </div>
+          </div>
+          {(csvError || csvErrorPostage || dropError) && (
+            <div style={{ fontSize: 12, color: T.red }}>{[dropError, csvError, csvErrorPostage].filter(Boolean).join(" · ")}</div>
           )}
 
           <div style={{ display: "flex", justifyContent: "flex-end" }}>
