@@ -8,6 +8,7 @@ import { H, primaryBtn, ghostBtn, inp, lbl, tag, ago, fmtDue } from "@/lib/studi
 import { woState, woTypeLabel } from "@/lib/design-work-orders";
 import WorkOrderBuilder from "@/components/studio/WorkOrderBuilder";
 import WorkOrderPanel from "@/components/studio/WorkOrderPanel";
+import { useConfirm } from "@/components/useConfirm";
 
 // THE STUDIO (Phase 2 of the replacement, Aug 4 2026) — the Lab's proven UX
 // on the REAL tables: art_briefs + art_brief_messages + art_brief_files.
@@ -262,6 +263,15 @@ function BriefSheet({ detail, onRefresh, onClose, openWoId, setOpenWoId, onDirty
   const [wos, setWos] = useState<any[]>([]);
   const [woBuilder, setWoBuilder] = useState(false);
   const [woNotice, setWoNotice] = useState("");
+  // The order is a TAB inside this sheet (not a second sheet on top). The
+  // active tab is "design" or a work-order id; ?wo= / the desk land on one.
+  const tab: string = openWoId && wos.some((w: any) => w.id === openWoId) ? openWoId : openWoId && !wos.length ? openWoId : "design";
+  const woDirty = useRef(false);
+  const [confirmTab, confirmTabEl] = useConfirm();
+  async function switchTab(next: string | null) {
+    if (woDirty.current && !await confirmTab({ title: "Leave this order?", message: "There's unsaved work on it. Leaving throws it away.", confirmLabel: "Throw it away" })) return;
+    woDirty.current = false; setOpenWoId(next);
+  }
   async function loadWos() { const j = await fetch(`/api/studio/briefs/${b.id}/work-orders`).then(r => r.json()).catch(() => ({})); setWos(j.workOrders || []); }
   useEffect(() => { loadWos(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [b.id]);
   const orderReq = detail.orderRequest;
@@ -369,7 +379,7 @@ function BriefSheet({ detail, onRefresh, onClose, openWoId, setOpenWoId, onDirty
     } finally { setBusy(false); }
   }
   const [stagedList, setStagedList] = useState<{ f: File; url: string }[]>([]);
-  useEffect(() => { onDirty?.(!!note.trim() || stagedList.length > 0); }, [note, stagedList, onDirty]);
+  useEffect(() => { onDirty?.(!!note.trim() || stagedList.length > 0 || woDirty.current); }, [note, stagedList, onDirty]);
   useEffect(() => () => onDirty?.(false), [onDirty]);
   const [heroId, setHeroId] = useState<string | null>(null);
   const fileIn = useRef<HTMLInputElement | null>(null);
@@ -462,6 +472,30 @@ function BriefSheet({ detail, onRefresh, onClose, openWoId, setOpenWoId, onDirty
         </div>
       </div>
 
+      {confirmTabEl}
+      {(wos.length > 0 || b.state !== "killed") && (
+        <div style={{ display: "flex", alignItems: "center", gap: 18, padding: "10px 22px 0", borderBottom: `1px solid ${H.line2}`, overflowX: "auto" }}>
+          <button onClick={() => switchTab(null)} style={{ background: "none", border: "none", borderBottom: tab === "design" ? "2px solid #fff" : "2px solid transparent", color: tab === "design" ? H.text : H.faint, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font, padding: "6px 0 9px", whiteSpace: "nowrap" }}>Design</button>
+          {wos.map((w: any) => { const st = woState(w); const on = tab === w.id; return (
+            <button key={w.id} onClick={() => switchTab(w.id)} style={{ background: "none", border: "none", borderBottom: on ? "2px solid #fff" : "2px solid transparent", color: on ? H.text : H.faint, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font, padding: "6px 0 9px", whiteSpace: "nowrap", display: "inline-flex", gap: 8, alignItems: "baseline" }}>
+              <span>Designer · {woTypeLabel(w.type)}</span><span style={tag(st.color, 9)}>{st.unread ? "●" : ""} {st.label}</span>
+            </button>
+          ); })}
+          {b.state !== "killed" && <button onClick={() => setWoBuilder(true)} disabled={!images.length} title={images.length ? "Pin the brief on a reference and send it" : "Drop a reference in the thread first"} style={{ marginLeft: "auto", background: "none", border: "none", color: H.blue, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font, padding: "6px 0 9px", whiteSpace: "nowrap", opacity: images.length ? 1 : 0.4 }}>+ Hand to a designer</button>}
+        </div>
+      )}
+      {woNotice && <div style={{ margin: "8px 22px 0", fontSize: 12, color: H.green }}>{woNotice}</div>}
+      {woBuilder && <WorkOrderBuilder brief={b} images={images} notes={convo} onClose={() => setWoBuilder(false)} onCreated={async (r: any) => {
+        setWoBuilder(false);
+        if (!r.emailSent) { try { await navigator.clipboard.writeText(r.url); setWoNotice("Work order created — link copied. Paste it to the designer."); } catch { setWoNotice("Work order created — copy the link from the order."); } }
+        else setWoNotice("Work order sent. The link's in their inbox.");
+        setTimeout(() => setWoNotice(""), 6000);
+        await loadWos(); await onRefresh(); setOpenWoId(r.id);
+      }} />}
+      {tab !== "design" ? (
+        <WorkOrderPanel key={tab} woId={tab} brief={b} notes={convo} inline onClose={() => switchTab(null)} onChanged={async () => { await loadWos(); await onRefresh(); }} onDirty={(d: boolean) => { woDirty.current = d; onDirty?.(d || !!note.trim() || stagedList.length > 0); }} />
+      ) : (
+      <>
       {b.concept && <div style={{ margin: "6px 22px 0", fontSize: 12.5, color: H.dim, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{b.concept}</div>}
 
       {GUIDE[b.state] && (
@@ -541,42 +575,6 @@ function BriefSheet({ detail, onRefresh, onClose, openWoId, setOpenWoId, onDirty
           );
         })}
       </div>
-
-      {/* ── ROOM 2 — hand it to a designer, see every order on it ── */}
-      {b.state !== "killed" && (
-        <div style={{ padding: "12px 22px", borderTop: `1px solid ${H.line}` }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            <span style={tag(H.faint, 8.5)}>Designer · Room 2</span>
-            {wos.length === 0 && <span style={{ fontSize: 10.5, color: H.faint }}>nothing out</span>}
-            <button onClick={() => setWoBuilder(true)} disabled={!images.length} title={images.length ? "Pin the brief on a reference and send it" : "Drop a reference in the thread first"} style={{ ...ghostBtn, marginLeft: "auto", color: H.blue, borderColor: "rgba(143,199,216,.4)", opacity: images.length ? 1 : 0.4 }}>+ Hand to a designer</button>
-          </div>
-          {woNotice && <div style={{ marginTop: 8, fontSize: 12, color: H.green }}>{woNotice}</div>}
-          {wos.length > 0 && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
-              {wos.map((w: any) => { const st = woState(w); return (
-                <button key={w.id} onClick={() => setOpenWoId(w.id)} style={{ display: "flex", alignItems: "center", gap: 10, textAlign: "left", background: H.surface, border: `1px solid ${H.line2}`, outline: st.unread ? `2px solid ${H.amber}` : "none", outlineOffset: -1, borderRadius: 10, padding: "9px 12px", cursor: "pointer", color: H.text, fontFamily: H.font, width: "100%" }}>
-                  <span style={{ fontSize: 12, fontWeight: 800, textTransform: "uppercase" }}>{woTypeLabel(w.type)}</span>
-                  <span style={{ fontSize: 10.5, color: H.faint }}>{w.designer_name || w.designer_email || "link only"}</span>
-                  <span style={{ marginLeft: "auto", ...tag(st.color, 9), whiteSpace: "nowrap" }}>{st.label}</span>
-                  {w.due_by && <span style={{ fontSize: 10, fontFamily: H.mono, color: st.late ? H.red : H.faint, whiteSpace: "nowrap" }}>due {fmtDue(w.due_by)}</span>}
-                </button>
-              ); })}
-            </div>
-          )}
-        </div>
-      )}
-      {woBuilder && <WorkOrderBuilder brief={b} images={images} notes={convo} onClose={() => setWoBuilder(false)} onCreated={async (r: any) => {
-        setWoBuilder(false);
-        if (!r.emailSent) { try { await navigator.clipboard.writeText(r.url); setWoNotice("Work order created — link copied. Paste it to the designer."); } catch { setWoNotice("Work order created — copy the link from the order."); } }
-        else setWoNotice("Work order sent. The link's in their inbox.");
-        setTimeout(() => setWoNotice(""), 6000);
-        await loadWos(); await onRefresh(); setOpenWoId(r.id);
-      }} />}
-      {openWoId && (
-        <div className="st-back" style={{ zIndex: 230 }}>
-          <div className="st-sheet"><WorkOrderPanel key={openWoId} woId={openWoId} brief={b} notes={convo} onClose={() => setOpenWoId(null)} onChanged={async () => { await loadWos(); await onRefresh(); }} /></div>
-        </div>
-      )}
 
       {/* ── THE LINEUP — the menu round ── */}
       {["approved", "working", "with_client"].includes(b.state) && (
@@ -729,6 +727,8 @@ function BriefSheet({ detail, onRefresh, onClose, openWoId, setOpenWoId, onDirty
           </div>
           <div style={{ padding: "0 22px 16px", fontSize: 10.5, color: H.faint, textAlign: "center", lineHeight: 1.5 }}>Send a <b style={{ color: H.dim }}>Client-visible</b> design and it&rsquo;s the client&rsquo;s move.</div>
         </>
+      )}
+      </>
       )}
     </>
   );
