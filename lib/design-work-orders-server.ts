@@ -59,6 +59,42 @@ export async function verifyDriveFileInFolder(token: string, fileId: string, fol
   return { mimeType: meta.mimeType || null, size: meta.size ? Number(meta.size) : null, name: meta.name || null };
 }
 
+// Loose state, re-derived from what's actually in the thread. Called when a
+// delivered file is deleted from the design (the message loses its file, so
+// "delivered" would be a lie). Never touches killed; accepted only falls back
+// when its own file is gone.
+export async function recomputeWoState(woId: string): Promise<string | null> {
+  const db = woDb();
+  const { data: wo } = await db.from("design_work_orders").select("id, state, accepted_file_id").eq("id", woId).maybeSingle();
+  if (!wo) return null;
+  const cur = (wo as any).state as string;
+  if (cur === "killed") return cur;
+  if (cur === "accepted" && (wo as any).accepted_file_id) return cur;
+  const { data: msgs } = await db.from("design_wo_messages").select("sender_role, kind, file_id, created_at").eq("work_order_id", woId).order("created_at", { ascending: true });
+  let next = "out";
+  for (const m of (msgs || []) as any[]) {
+    if (m.sender_role === "designer" && m.kind === "delivery" && m.file_id) next = "delivered";
+    else if (m.sender_role === "hpd" && next === "delivered") next = "in_revision";
+  }
+  if (next !== cur) await db.from("design_work_orders").update({ state: next, updated_at: new Date().toISOString() } as never).eq("id", woId);
+  return next;
+}
+
+// A brief file is being deleted: any delivery that pointed at it becomes a
+// plain note ("(file removed)") and its order's state is re-derived.
+export async function detachFileFromWorkOrders(fileId: string): Promise<void> {
+  const db = woDb();
+  const { data: msgs } = await db.from("design_wo_messages").select("id, work_order_id, body, kind").eq("file_id", fileId);
+  const woIds = new Set<string>();
+  for (const m of (msgs || []) as any[]) {
+    woIds.add(m.work_order_id);
+    await db.from("design_wo_messages").update({ file_id: null, kind: "comment", body: [m.body, "(file removed)"].filter(Boolean).join(" ") } as never).eq("id", m.id);
+  }
+  const { data: accepted } = await db.from("design_work_orders").select("id").eq("accepted_file_id", fileId);
+  for (const w of (accepted || []) as any[]) { woIds.add(w.id); await db.from("design_work_orders").update({ accepted_file_id: null } as never).eq("id", w.id); }
+  for (const id of Array.from(woIds)) await recomputeWoState(id);
+}
+
 // Fire the labs@ ping for a designer move. Best-effort, never sinks the write.
 export async function pingLabsAboutDesigner(kind: "designer_delivery" | "designer_reply", wo: DesignWorkOrder, note?: string | null) {
   try {

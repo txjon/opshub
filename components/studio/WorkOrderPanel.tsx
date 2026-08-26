@@ -44,7 +44,7 @@ export default function WorkOrderPanel({ woId, brief, notes = [], onClose, onCha
     const j = await fetch(`/api/studio/work-orders/${woId}`).then(r => r.json()).catch(() => null);
     if (!j || j.error) return;
     setWo(j.workOrder); setMsgs(j.messages || []); setUrl(j.url || "");
-    if (showBrief === null) setShowBrief(!(j.messages || []).some((m: any) => m.sender_role === "designer" && m.kind === "delivery"));
+    if (showBrief === null) setShowBrief(!(j.messages || []).some((m: any) => m.sender_role === "designer" && m.kind === "delivery" && m.image_url));
   }
   useEffect(() => {
     load();
