@@ -379,6 +379,9 @@ function BriefSheet({ detail, onRefresh, onClose, openWoId, setOpenWoId, onDirty
   const passed = images.filter(f => f.reaction === "down");
   const hero = images.find(f => f.id === heroId) || (live.length ? live[live.length - 1] : images[images.length - 1] || null);
   const notes = timeline.filter(t => t.kind === "note" && t.body && t.body.trim());
+  // For the designer door: the idea's original submission text (concept) is
+  // the first line of the conversation — it's usually the best brief there is.
+  const convo = [...(b.concept && String(b.concept).trim() ? [{ id: "concept", kind: "note", sender_role: b.source === "client" ? "client" : "hpd", sender_name: b.source === "client" ? (b.clients?.name || "Client") : "HPD", body: String(b.concept).trim(), visibility: "client", created_at: b.created_at }] : []), ...notes];
   const banked = (fid: string | null) => fid && b.approved_file_id && `file-${b.approved_file_id}` === fid;
 
   const [sendErr, setSendErr] = useState("");
@@ -562,7 +565,7 @@ function BriefSheet({ detail, onRefresh, onClose, openWoId, setOpenWoId, onDirty
           )}
         </div>
       )}
-      {woBuilder && <WorkOrderBuilder brief={b} images={images} notes={notes} onClose={() => setWoBuilder(false)} onCreated={async (r: any) => {
+      {woBuilder && <WorkOrderBuilder brief={b} images={images} notes={convo} onClose={() => setWoBuilder(false)} onCreated={async (r: any) => {
         setWoBuilder(false);
         if (!r.emailSent) { try { await navigator.clipboard.writeText(r.url); setWoNotice("Work order created — link copied. Paste it to the designer."); } catch { setWoNotice("Work order created — copy the link from the order."); } }
         else setWoNotice("Work order sent. The link's in their inbox.");
@@ -571,7 +574,7 @@ function BriefSheet({ detail, onRefresh, onClose, openWoId, setOpenWoId, onDirty
       }} />}
       {openWoId && (
         <div className="st-back" style={{ zIndex: 230 }}>
-          <div className="st-sheet"><WorkOrderPanel key={openWoId} woId={openWoId} brief={b} notes={notes} onClose={() => setOpenWoId(null)} onChanged={async () => { await loadWos(); await onRefresh(); }} /></div>
+          <div className="st-sheet"><WorkOrderPanel key={openWoId} woId={openWoId} brief={b} notes={convo} onClose={() => setOpenWoId(null)} onChanged={async () => { await loadWos(); await onRefresh(); }} /></div>
         </div>
       )}
 
