@@ -153,6 +153,8 @@ export default function NewShipstationReportPage() {
     return A || B;
   };
   const [dropHot, setDropHot] = useState(false);
+  const [clientSearch, setClientSearch] = useState("");
+  const [clientListOpen, setClientListOpen] = useState(false);
   const [dropError, setDropError] = useState("");
   // One dropzone, many exports: sniff each file's header row and route it.
   async function routeCsvFiles(files: FileList | null) {
@@ -177,6 +179,10 @@ export default function NewShipstationReportPage() {
 
   // Stage 1 — shared
   const [clients, setClients] = useState<Client[]>([]);
+  const selectedClient = clients.find(c => c.id === clientId) || null;
+  const filteredClients = clientSearch.trim()
+    ? clients.filter(c => c.name.toLowerCase().includes(clientSearch.trim().toLowerCase()))
+    : clients;
   const [clientId, setClientId] = useState<string>("");
   const [periodLabel, setPeriodLabel] = useState<string>(() => {
     const d = new Date();
@@ -237,11 +243,6 @@ export default function NewShipstationReportPage() {
         .select("id, name, hpd_fee_pct, hpd_per_package_fee")
         .order("name");
       setClients(data || []);
-      // Don't auto-select FOG when editing — the report's client_id wins.
-      if (!editId) {
-        const fog = (data || []).find(c => c.name.toLowerCase().includes("forward observations"));
-        if (fog) setClientId(fog.id);
-      }
     })();
   }, [editId]);
 
@@ -1449,10 +1450,32 @@ export default function NewShipstationReportPage() {
           <div style={{ display: "grid", gridTemplateColumns: isCombined ? "1.2fr 1fr 1fr" : "1fr 1fr", gap: 12 }}>
             <div>
               <label style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, display: "block" }}>Client</label>
-              <select value={clientId} onChange={e => setClientId(e.target.value)} style={input}>
-                <option value="">— select client —</option>
-                {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
+              <div style={{ position: "relative" }}>
+                <input
+                  value={clientListOpen ? clientSearch : (selectedClient?.name || "")}
+                  onChange={e => { setClientSearch(e.target.value); setClientListOpen(true); }}
+                  onFocus={e => { setClientSearch(""); setClientListOpen(true); e.target.select(); }}
+                  onBlur={() => setTimeout(() => setClientListOpen(false), 150)}
+                  placeholder="Search clients…"
+                  autoComplete="off"
+                  style={{ ...input, width: "100%" }}
+                />
+                {clientListOpen && (
+                  <div style={{ position: "absolute", top: "100%", left: 0, right: 0, marginTop: 4, background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, maxHeight: 260, overflowY: "auto", zIndex: 30, boxShadow: "0 8px 24px rgba(0,0,0,0.45)" }}>
+                    {filteredClients.length === 0 ? (
+                      <div style={{ padding: "10px 12px", fontSize: 12, color: T.faint }}>No clients match "{clientSearch}"</div>
+                    ) : filteredClients.map(c => (
+                      <div key={c.id}
+                        onMouseDown={() => { setClientId(c.id); setClientListOpen(false); setClientSearch(""); }}
+                        style={{ padding: "8px 12px", fontSize: 13, color: c.id === clientId ? T.accent : T.text, cursor: "pointer", fontWeight: c.id === clientId ? 700 : 400 }}
+                        onMouseEnter={e => (e.currentTarget.style.background = T.surface)}
+                        onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
+                        {c.name}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
             {isCombined ? (
               /* Full Service: sales + postage can run on different timelines,
