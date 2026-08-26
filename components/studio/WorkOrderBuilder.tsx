@@ -173,12 +173,13 @@ export default function WorkOrderBuilder({ brief, images, notes = [], onClose, o
 
         {lines.length > 0 && (
           <div style={{ padding: "16px 22px 0" }}>
-            <button type="button" onClick={() => setShowChat(v => !v)} style={{ ...lbl, background: "none", border: "none", cursor: "pointer", padding: 0, textAlign: "left", fontFamily: H.font }}>{showChat ? "▾" : "▸"} The conversation · {lines.length} lines{handLines.size ? ` · ${handLines.size} go with it` : ""} · tap text to copy into a pin</button>
+            <button type="button" onClick={() => setShowChat(v => !v)} style={{ ...lbl, background: "none", border: "none", cursor: "pointer", padding: 0, textAlign: "left", fontFamily: H.font }}>{showChat ? "▾" : "▸"} The conversation · {lines.length} lines{handLines.size ? ` · ${handLines.size} go with it` : ""} · select any text, or copy a whole line</button>
             {showChat && <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 220, overflowY: "auto" }}>
               {lines.map(n => { const on = handLines.has(n.id); const client = n.sender_role === "client"; const whisper = n.visibility === "internal"; return (
                 <div key={n.id} style={{ display: "flex", gap: 10, alignItems: "flex-start", background: on ? H.surface : "transparent", border: `1px ${whisper ? "dashed" : "solid"} ${on ? H.line : H.line2}`, borderRadius: 10, padding: "8px 11px", fontFamily: H.font, color: H.text, opacity: on ? 1 : 0.55 }}>
                   <span style={{ ...tag(client ? H.blue : whisper ? H.amber : H.dim, 8.5), flexShrink: 0, width: 46, paddingTop: 2 }}>{client ? "Client" : whisper ? "Internal" : "Us"}</span>
-                  <button type="button" onClick={() => copyLine(n)} title="Copy" style={{ flex: 1, textAlign: "left", background: "none", border: "none", color: copied === n.id ? H.green : H.text, fontSize: 12.5, lineHeight: 1.45, whiteSpace: "pre-wrap", cursor: "copy", fontFamily: H.font, padding: 0 }}>{copied === n.id ? "✓ Copied" : n.body}</button>
+                  <span style={{ flex: 1, color: H.text, fontSize: 12.5, lineHeight: 1.45, whiteSpace: "pre-wrap", userSelect: "text", cursor: "text" }}>{n.body}</span>
+                  <button type="button" onClick={() => copyLine(n)} title="Copy the whole line" style={{ flexShrink: 0, background: "none", border: "none", cursor: "pointer", ...tag(copied === n.id ? H.green : H.faint, 9), fontFamily: H.font }}>{copied === n.id ? "✓ copied" : "copy"}</button>
                   <button type="button" onClick={() => toggleLine(n.id)} title={on ? "Goes with the order — tap to leave it out" : "Stays here — tap to hand it over"} style={{ flexShrink: 0, background: "none", border: "none", cursor: "pointer", ...tag(on ? H.green : H.faint, 9), fontFamily: H.font }}>{on ? "✓ sent" : "hand over"}</button>
                 </div>
               ); })}
