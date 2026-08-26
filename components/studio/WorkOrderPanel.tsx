@@ -13,10 +13,13 @@ import { uploadToDrive } from "@/lib/drive-upload-client";
 // thread, reply / revise / Accept = the file. Opening it clears the unread
 // clock on the desk.
 type Note = { id: string; sender_role: string; body: string; visibility?: string; created_at: string };
-type Props = { woId: string; brief: any; notes?: Note[]; onClose: () => void; onChanged?: () => void };
+// inline = rendered as a TAB inside the brief sheet (no own header/close; the
+// sheet owns those). onDirty lets the sheet refuse tab switches / backdrop
+// clicks while there's unsaved work here.
+type Props = { woId: string; brief: any; notes?: Note[]; inline?: boolean; onClose: () => void; onChanged?: () => void; onDirty?: (d: boolean) => void };
 const thumb = (id: string, size = 900) => `/api/files/thumbnail?id=${id}&thumb=1&size=${size}`;
 
-export default function WorkOrderPanel({ woId, brief, notes = [], onClose, onChanged }: Props) {
+export default function WorkOrderPanel({ woId, brief, notes = [], inline, onClose, onChanged, onDirty }: Props) {
   const [wo, setWo] = useState<DesignWorkOrder | null>(null);
   const [msgs, setMsgs] = useState<any[]>([]);
   const [url, setUrl] = useState("");
@@ -93,6 +96,8 @@ export default function WorkOrderPanel({ woId, brief, notes = [], onClose, onCha
   // × only (the backdrop never closes this), and × asks first when there's
   // an unsaved brief edit or an unsent reply.
   const dirty = editing || !!note.trim() || !!staged;
+  useEffect(() => { onDirty?.(dirty); }, [dirty, onDirty]);
+  useEffect(() => () => onDirty?.(false), [onDirty]);
   async function requestClose() {
     if (busy) return;
     if (dirty && !await confirm({ title: "Leave this order?", message: editing ? "Your brief edits haven't been saved. Leaving throws them away." : "Your reply hasn't been sent. Leaving throws it away.", confirmLabel: "Throw it away" })) return;
@@ -123,10 +128,10 @@ export default function WorkOrderPanel({ woId, brief, notes = [], onClose, onCha
     <>
       {confirmEl}
       <Lightbox item={lit} onClose={() => setLit(null)} />
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, padding: "18px 22px 6px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, padding: inline ? "12px 22px 4px" : "18px 22px 6px" }}>
         <div style={{ minWidth: 0 }}>
-          <div style={tag(H.faint, 9.5)}>Designer · Room 2</div>
-          <div style={{ fontSize: 17, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", lineHeight: 1.2, marginTop: 2 }}>{woTypeLabel(wo.type)}{wo.title ? <span style={{ color: H.dim }}> · {wo.title}</span> : null}</div>
+          {!inline && <div style={tag(H.faint, 9.5)}>Designer · Room 2</div>}
+          <div style={{ fontSize: inline ? 14 : 17, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", lineHeight: 1.2, marginTop: 2 }}>{woTypeLabel(wo.type)}{!inline && wo.title ? <span style={{ color: H.dim }}> · {wo.title}</span> : null}</div>
           <div style={{ display: "flex", gap: 12, alignItems: "baseline", flexWrap: "wrap", marginTop: 5 }}>
             <span style={tag(st.color)}>{st.label}</span>
             {wo.due_by && <span style={{ fontSize: 10.5, fontFamily: H.mono, color: st.late ? H.red : H.faint }}>due {fmtDue(wo.due_by)}{st.late ? " · late" : ""}</span>}
@@ -134,7 +139,7 @@ export default function WorkOrderPanel({ woId, brief, notes = [], onClose, onCha
             {wo.last_designer_at && <span style={{ fontSize: 10.5, fontFamily: H.mono, color: H.faint }}>their last word {ago(wo.last_designer_at)}</span>}
           </div>
         </div>
-        <button onClick={requestClose} aria-label="Close" style={{ background: "none", border: "none", color: H.dim, fontSize: 26, cursor: "pointer", lineHeight: 1 }}>×</button>
+        {!inline && <button onClick={requestClose} aria-label="Close" style={{ background: "none", border: "none", color: H.dim, fontSize: 26, cursor: "pointer", lineHeight: 1 }}>×</button>}
       </div>
 
       {!closed && (
