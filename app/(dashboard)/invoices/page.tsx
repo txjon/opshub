@@ -23,17 +23,17 @@ const fmtDay = (iso: string | null) => {
 // Flat uppercase color text — DESIGN.md, no pills.
 const menuBtn: any = { display: "block", width: "100%", textAlign: "left", background: "none", border: "none", color: "#e6e9f2", fontSize: 12.5, fontWeight: 600, padding: "8px 12px", cursor: "pointer", borderRadius: 6, fontFamily: "inherit" };
 
-// Unified AR vocabulary (accounting-standard, Jon Aug 25): Draft → Sent →
-// Partial → Paid across BOTH streams — the stream column carries the
-// job/fulfillment distinction, the state column speaks one language.
-// Reconcile/Final are OpsHub's quantity-confirmation tail on top.
+// Unified AR vocabulary (accounting-standard, Jon Aug 25): the state column
+// is PAYMENT state only — Draft → Sent → Partial → Paid — one language for
+// both streams. Reconcile keeps its amber exception because it demands a
+// human. "Final" (qtys confirmed) is a workflow fact, not a payment fact —
+// it reads as done on a chase list, so here it renders as its payment state;
+// the job's invoice rail still says Final where the workflow meaning lives.
 function stateMeta(r: InvoiceRow): { label: string; color: string } {
-  if (r.state === "final") return { label: "Final", color: T.green };
   if (r.state === "reconcile") return { label: "Reconcile", color: T.amber };
-  if (r.state === "paid" || r.state === "ss_paid") return { label: "Paid", color: T.green };
   if (r.state === "draft") return { label: "Draft", color: T.faint };
-  // sent / invoiced — one word; a partial payment shows as Partial.
-  return r.paid > 0.01 && r.balance > 0.01
+  if (r.state === "paid" || r.state === "ss_paid" || r.balance <= 0.01) return { label: "Paid", color: T.green };
+  return r.paid > 0.01
     ? { label: "Partial", color: T.accent }
     : { label: "Sent", color: T.accent };
 }
