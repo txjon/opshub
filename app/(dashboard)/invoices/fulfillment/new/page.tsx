@@ -144,8 +144,14 @@ export default function NewShipstationReportPage() {
   const [editLoading, setEditLoading] = useState<boolean>(!!editId);
   const [editError, setEditError] = useState<string>("");
 
-  const [reportType, setReportType] = useState<ReportType>("sales");
+  const [reportType, setReportType] = useState<ReportType>("fulfillment");
   const [typeMenu, setTypeMenu] = useState(false);
+  // Invoice period for Full Service, derived from the two halves.
+  const derivePeriod = (a: string, b: string) => {
+    const A = a.trim(), B = b.trim();
+    if (A && B) return A === B ? A : `${A} / ${B}`;
+    return A || B;
+  };
   const [dropHot, setDropHot] = useState(false);
   const [dropError, setDropError] = useState("");
   // One dropzone, many exports: sniff each file's header row and route it.
@@ -1439,8 +1445,8 @@ export default function NewShipstationReportPage() {
 
       {/* ── Stage 1 — Upload ── */}
       {stage === 1 && (
-        <div style={{ ...card, display: "flex", flexDirection: "column", gap: 14, maxWidth: 640 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <div style={{ ...card, display: "flex", flexDirection: "column", gap: 14, maxWidth: isCombined ? 760 : 640 }}>
+          <div style={{ display: "grid", gridTemplateColumns: isCombined ? "1.2fr 1fr 1fr" : "1fr 1fr", gap: 12 }}>
             <div>
               <label style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, display: "block" }}>Client</label>
               <select value={clientId} onChange={e => setClientId(e.target.value)} style={input}>
@@ -1448,10 +1454,26 @@ export default function NewShipstationReportPage() {
                 {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
-            <div>
-              <label style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, display: "block" }}>Period</label>
-              <input value={periodLabel} onChange={e => setPeriodLabel(e.target.value)} placeholder="e.g. April 2026" style={input} />
-            </div>
+            {isCombined ? (
+              /* Full Service: sales + postage can run on different timelines,
+                 so each half gets its own period; the invoice period derives
+                 from the pair (same -> one label, different -> "a / b"). */
+              <>
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, display: "block" }}>Sales period</label>
+                  <input value={salesPeriodLabel} onChange={e => { setSalesPeriodLabel(e.target.value); setPeriodLabel(derivePeriod(e.target.value, postagePeriodLabel)); }} placeholder="e.g. April 2026" style={input} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, display: "block" }}>Postage period</label>
+                  <input value={postagePeriodLabel} onChange={e => { setPostagePeriodLabel(e.target.value); setPeriodLabel(derivePeriod(salesPeriodLabel, e.target.value)); }} placeholder="e.g. April 2026" style={input} />
+                </div>
+              </>
+            ) : (
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, display: "block" }}>Period</label>
+                <input value={periodLabel} onChange={e => setPeriodLabel(e.target.value)} placeholder="e.g. April 2026" style={input} />
+              </div>
+            )}
           </div>
 
           {/* ONE dropzone (Jon, Aug 25: "feels very government website") —
