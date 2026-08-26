@@ -11,6 +11,7 @@ import { T, font, mono } from "@/lib/theme";
 import { buildAr, isCloseable, type ArAging, type ArSummary, type InvoiceRow } from "@/lib/ar";
 import { computeBillingQueue } from "@/lib/billing-queue";
 import { buildPrintersMap } from "@/lib/pricing";
+import { maybeAutoFinalizeInvoice } from "@/lib/job/auto-finalize";
 
 const money = (n: number) => "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtDay = (iso: string | null) => {
@@ -60,7 +61,7 @@ export default function InvoicesPage() {
   const [q, setQ] = useState("");
   const [stmtOpen, setStmtOpen] = useState(false);
 
-  async function load() {
+  async function load(skipAutoFinal = false) {
     try {
       const [jobsRes, itemsRes, decoratorsRes, apRes, entriesRes, marksRes, paysRes, clientsRes, ssRes] = await Promise.all([
         supabase.from("jobs").select("id, job_number, title, phase, client_id, clients(name), payment_terms, target_ship_date, costing_summary, costing_data, type_meta, created_at, shipping_route, fulfillment_status, is_inventory, is_test, is_internal, financial_closed_at"),
@@ -79,13 +80,22 @@ export default function InvoicesPage() {
       for (const it of (itemsRes.data || []) as any[]) (itemsByJob[it.job_id] ||= []).push(it);
       const paymentsByJob: Record<string, any[]> = {};
       for (const p of (paysRes.data || []) as any[]) if (p.job_id) (paymentsByJob[p.job_id] ||= []).push(p);
-      setAr(buildAr({
+      const arData = buildAr({
         jobs: jobsRes.data || [],
         itemsByJob,
         paymentsByJob,
         clients: (clientsRes.data || []) as any[],
         ssReports: ssRes.data || [],
-      }));
+      });
+      // Zero-variance reconciles self-finalize (lib/job/auto-finalize) so the
+      // amber state on this index always means a real discrepancy. One pass,
+      // then a single reload if anything stamped.
+      if (!skipAutoFinal) {
+        const rec = arData.rows.filter(r => r.stream === "job" && r.state === "reconcile");
+        const did = await Promise.all(rec.map(r => maybeAutoFinalizeInvoice(supabase, r.id).catch(() => false)));
+        if (did.some(Boolean)) return load(true);
+      }
+      setAr(arData);
       // Cost-complete per job×vendor (lib/billing-queue) — the fourth
       // close-out condition. Freight sources excluded (never gates close).
       const q = computeBillingQueue({
