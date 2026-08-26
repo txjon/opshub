@@ -1252,7 +1252,7 @@ export default function NewShipstationReportPage() {
           cursor: canJump ? "pointer" : "default",
         }}
       >
-        <span style={{ width: 22, height: 22, borderRadius: 11, background: active ? T.accent : done ? T.green : T.surface, color: active ? "#ffffff" : done ? "#0a0e1a" : T.muted, fontSize: 11, fontWeight: 700, display: "grid", placeItems: "center", fontFamily: mono }}>
+        <span style={{ width: 22, height: 22, borderRadius: 11, background: active ? T.accent : done ? T.green : T.surface, color: active ? "#0a0a0a" : done ? "#0a0e1a" : T.muted, fontSize: 11, fontWeight: 700, display: "grid", placeItems: "center", fontFamily: mono }}>
           {done ? "✓" : n}
         </span>
         <span style={{ fontSize: 12, fontWeight: 600, color: active ? T.text : T.muted }}>{label}</span>
@@ -1344,7 +1344,7 @@ export default function NewShipstationReportPage() {
               onClick={() => onChangeType(t.value)}
               style={{
                 background: reportType === t.value ? T.accent : "transparent",
-                color: reportType === t.value ? "#ffffff" : T.muted,
+                color: reportType === t.value ? "#0a0a0a" : T.muted,
                 border: "none", borderRadius: 6,
                 padding: "6px 18px", fontSize: 12, fontWeight: 700,
                 fontFamily: font, cursor: "pointer",

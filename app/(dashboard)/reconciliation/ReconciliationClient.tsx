@@ -696,7 +696,7 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
       <style>{`
         .bq-mono { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
         .bq-ghost { background: transparent; border: 1px solid ${T.border}; color: ${T.muted}; border-radius: 6px; padding: 4px 11px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: ${font}; transition: background .12s, color .12s, border-color .12s; white-space: nowrap; }
-        .bq-ghost:hover { background: ${T.accent}; color: #fff; border-color: ${T.accent}; }
+        .bq-ghost:hover { background: ${T.accent}; color: #0a0a0a; border-color: ${T.accent}; }
         .bq-ghost.on { background: ${T.green}; color: #fff; border-color: ${T.green}; }
         .bq-act { opacity: 0; transition: opacity .12s; }
         .bq-row:hover .bq-act { opacity: 1; }
@@ -969,7 +969,7 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
               : <span style={{ color: T.amber }}>⚠ No job matched — will go to the unmatched queue.</span>}
           </div>
           <button onClick={addEntry} disabled={saving || !vendorId || !parseAmount(amount)}
-            style={{ background: (!vendorId || !parseAmount(amount)) ? T.surface : T.accent, color: (!vendorId || !parseAmount(amount)) ? T.faint : "#fff", border: "none", borderRadius: 6, padding: "8px 18px", fontSize: 13, fontWeight: 700, cursor: (!vendorId || !parseAmount(amount)) ? "default" : "pointer", fontFamily: font }}>
+            style={{ background: (!vendorId || !parseAmount(amount)) ? T.surface : T.accent, color: (!vendorId || !parseAmount(amount)) ? T.faint : "#0a0a0a", border: "none", borderRadius: 6, padding: "8px 18px", fontSize: 13, fontWeight: 700, cursor: (!vendorId || !parseAmount(amount)) ? "default" : "pointer", fontFamily: font }}>
             {saving ? "Saving…" : "Add entry"}
           </button>
         </div>
