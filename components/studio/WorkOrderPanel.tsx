@@ -90,6 +90,14 @@ export default function WorkOrderPanel({ woId, brief, notes = [], onClose, onCha
     finally { setBusy(false); }
   }
   async function uploadPinImage(f: File) { const up = await uploadRef(f); return { driveId: up.fileId as string, name: f.name }; }
+  // × only (the backdrop never closes this), and × asks first when there's
+  // an unsaved brief edit or an unsent reply.
+  const dirty = editing || !!note.trim() || !!staged;
+  async function requestClose() {
+    if (busy) return;
+    if (dirty && !await confirm({ title: "Leave this order?", message: editing ? "Your brief edits haven't been saved. Leaving throws them away." : "Your reply hasn't been sent. Leaving throws it away.", confirmLabel: "Throw it away" })) return;
+    onClose();
+  }
   // A NEW reference to pin on: browser → Drive, registered as a real (internal)
   // brief file so it lives with the design, then it's a canvas.
   async function addReference(f: File) {
@@ -126,7 +134,7 @@ export default function WorkOrderPanel({ woId, brief, notes = [], onClose, onCha
             {wo.last_designer_at && <span style={{ fontSize: 10.5, fontFamily: H.mono, color: H.faint }}>their last word {ago(wo.last_designer_at)}</span>}
           </div>
         </div>
-        <button onClick={onClose} aria-label="Close" style={{ background: "none", border: "none", color: H.dim, fontSize: 26, cursor: "pointer", lineHeight: 1 }}>×</button>
+        <button onClick={requestClose} aria-label="Close" style={{ background: "none", border: "none", color: H.dim, fontSize: 26, cursor: "pointer", lineHeight: 1 }}>×</button>
       </div>
 
       {!closed && (

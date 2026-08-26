@@ -40,6 +40,9 @@ export default function StudioPage() {
   // someone remembering to scroll Slack. ?wo= deep-links straight into one.
   const [wos, setWos] = useState<any[]>([]);
   const [openWoId, setOpenWoId] = useState<string | null>(null);
+  // A click outside the sheet closes it — unless there's an unsent note or
+  // attachment in the composer (Jon: losing work on a stray click sucks).
+  const sheetDirty = useRef(false);
   const [bridging, setBridging] = useState<string | null>(null);
   const [bridged, setBridged] = useState<Record<string, { jobId: string; jobNumber: string }>>({});
   const [bridgeErr, setBridgeErr] = useState<Record<string, string>>({});
@@ -243,8 +246,8 @@ export default function StudioPage() {
         </section>
       )}
 
-      {detail?.brief && <div className="st-back" onClick={e => { if (e.target === e.currentTarget) setOpenId(null); }}>
-        <div className="st-sheet"><BriefSheet key={detail.brief.id} detail={detail} onRefresh={refresh} onClose={() => { setOpenId(null); setOpenWoId(null); }} openWoId={openWoId} setOpenWoId={setOpenWoId} /></div>
+      {detail?.brief && <div className="st-back" onClick={e => { if (e.target === e.currentTarget && !sheetDirty.current) setOpenId(null); }}>
+        <div className="st-sheet"><BriefSheet key={detail.brief.id} detail={detail} onRefresh={refresh} onClose={() => { setOpenId(null); setOpenWoId(null); }} openWoId={openWoId} setOpenWoId={setOpenWoId} onDirty={(d: boolean) => { sheetDirty.current = d; }} /></div>
       </div>}
 
       {showNew && <NewDesign onClose={() => setShowNew(false)} onCreated={async (id: string) => { setShowNew(false); await loadList(); setOpenId(id); }} />}
@@ -253,7 +256,7 @@ export default function StudioPage() {
 }
 
 // ── the sheet: header · hero+filmstrip (files) · notes (messages) · composer ──
-function BriefSheet({ detail, onRefresh, onClose, openWoId, setOpenWoId }: any) {
+function BriefSheet({ detail, onRefresh, onClose, openWoId, setOpenWoId, onDirty }: any) {
   const b = detail.brief; const timeline: any[] = detail.timeline || [];
   // ── ROOM 2 — the designer lane on this design ──
   const [wos, setWos] = useState<any[]>([]);
@@ -366,6 +369,8 @@ function BriefSheet({ detail, onRefresh, onClose, openWoId, setOpenWoId }: any) 
     } finally { setBusy(false); }
   }
   const [stagedList, setStagedList] = useState<{ f: File; url: string }[]>([]);
+  useEffect(() => { onDirty?.(!!note.trim() || stagedList.length > 0); }, [note, stagedList, onDirty]);
+  useEffect(() => () => onDirty?.(false), [onDirty]);
   const [heroId, setHeroId] = useState<string | null>(null);
   const fileIn = useRef<HTMLInputElement | null>(null);
 
@@ -565,7 +570,7 @@ function BriefSheet({ detail, onRefresh, onClose, openWoId, setOpenWoId }: any) 
         await loadWos(); await onRefresh(); setOpenWoId(r.id);
       }} />}
       {openWoId && (
-        <div className="st-back" style={{ zIndex: 230 }} onClick={e => { if (e.target === e.currentTarget) setOpenWoId(null); }}>
+        <div className="st-back" style={{ zIndex: 230 }}>
           <div className="st-sheet"><WorkOrderPanel key={openWoId} woId={openWoId} brief={b} notes={notes} onClose={() => setOpenWoId(null)} onChanged={async () => { await loadWos(); await onRefresh(); }} /></div>
         </div>
       )}

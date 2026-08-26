@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { H, primaryBtn, ghostBtn, inp, lbl, tag } from "@/lib/studio-theme";
 import { WO_TYPES, EMPTY_BRIEF, newPinId, type BriefCanvas, type BriefExtra, type BriefSpec, type WoType } from "@/lib/design-work-orders";
 import PinBrief from "@/components/studio/PinBrief";
+import { useConfirm } from "@/components/useConfirm";
 // @ts-ignore — plain-JS lib, no declarations
 import { uploadToDrive } from "@/lib/drive-upload-client";
 
@@ -44,6 +45,15 @@ export default function WorkOrderBuilder({ brief, images, notes = [], onClose, o
   const [err, setErr] = useState("");
   const [addingRef, setAddingRef] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
+  const [confirm, confirmEl] = useConfirm();
+  // Work in progress = pins, words, a date, a designer. Closing is × only —
+  // never a stray click on the backdrop — and × asks first when there's work.
+  const dirty = spec.canvases.some(c => c.pins.length > 0 || (c.note || "").trim()) || !!headline.trim() || !!instructions.trim() || !!dueBy || !!designerName.trim() || !!designerEmail.trim();
+  async function requestClose() {
+    if (busy) return;
+    if (dirty && !await confirm({ title: "Leave this work order?", message: "Your pins and notes here haven't been sent. Leaving throws them away.", confirmLabel: "Throw it away" })) return;
+    onClose();
+  }
   const refIn = useRef<HTMLInputElement | null>(null);
   // A brand-new reference (not in the thread yet): browser → Drive, registered
   // as a real internal brief file, then it's a canvas.
@@ -99,15 +109,16 @@ export default function WorkOrderBuilder({ brief, images, notes = [], onClose, o
 
   const handing = spec.canvases.length + spec.extras.length;
   return (
-    <div onClick={e => { if (e.target === e.currentTarget && !busy) onClose(); }} style={{ position: "fixed", inset: 0, zIndex: 220, background: "rgba(0,0,0,.85)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "24px 10px", overflowY: "auto" }}>
+    <div style={{ position: "fixed", inset: 0, zIndex: 220, background: "rgba(0,0,0,.85)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "24px 10px", overflowY: "auto" }}>
       <div style={{ background: H.panel, border: `1px solid ${H.line}`, borderRadius: 20, width: "100%", maxWidth: 860, color: H.text, fontFamily: H.font, overflow: "hidden" }}>
+        {confirmEl}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, padding: "18px 22px 6px" }}>
           <div>
             <div style={tag(H.faint, 9.5)}>Designer · Room 2</div>
             <div style={{ fontSize: 18, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", marginTop: 2 }}>Hand to a designer</div>
             <div style={{ fontSize: 11.5, color: H.faint, marginTop: 4 }}>{brief?.title || "Design"} · the client&rsquo;s name stays here</div>
           </div>
-          <button onClick={onClose} aria-label="Close" style={{ background: "none", border: "none", color: H.dim, fontSize: 26, cursor: "pointer", lineHeight: 1 }}>×</button>
+          <button onClick={requestClose} aria-label="Close" style={{ background: "none", border: "none", color: H.dim, fontSize: 26, cursor: "pointer", lineHeight: 1 }}>×</button>
         </div>
 
         <div style={{ padding: "8px 22px 0" }}>
