@@ -46,7 +46,7 @@ export default function ItemWorkOrders({ open, job, onClose, openWoId }: Props) 
   useEffect(() => { if (open) { load(); loadFiles(); setActive(openWoId || null); } /* eslint-disable-next-line */ }, [open, job?.id, openWoId]);
 
   const targetFor = (it: any): WoTarget => ({ kind: "item", id: it.id, title: it.name || "Item", clientName: job?.clients?.name || null, jobId: job.id, jobTitle: job?.title || null, jobNumber: job?.job_number || null });
-  const imagesFor = (itemId: string) => files.filter(f => f.item_id === itemId).map(f => ({ id: f.id, file_id: f.id, drive_file_id: f.drive_file_id, file_url: `/api/files/thumbnail?id=${f.drive_file_id}&thumb=1&size=900`, file_name: f.file_name, reaction: null }));
+  const imagesFor = (itemId: string) => files.filter(f => f.item_id === itemId).map(f => ({ id: f.id, file_id: f.id, drive_file_id: f.drive_file_id, file_url: `/api/files/thumbnail?id=${f.drive_file_id}&thumb=1&size=900`, file_name: f.file_name, reaction: null, stage: f.stage || null }));
   const activeWo = useMemo(() => wos.find(w => w.id === active) || null, [wos, active]);
   const activeItem = useMemo(() => activeWo ? items.find(i => i.id === activeWo.item_id) || { id: activeWo.item_id, name: activeWo.design_title } : null, [activeWo, items]);
 

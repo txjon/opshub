@@ -113,11 +113,12 @@ export default function DesignerPage({ params }: { params: { token: string } }) 
 
       {spec.extras.length > 0 && (
         <section style={{ marginTop: 18 }}>
-          <div style={{ ...tag(H.faint, 9), marginBottom: 8 }}>More files · tap to view, download from there</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(92px, 1fr))", gap: 8 }}>
+          <div style={{ ...tag(H.faint, 9), marginBottom: 8 }}>{spec.canvases.length ? "More files" : "The files"} · tap to view, download from there</div>
+          <div style={{ display: "grid", gridTemplateColumns: spec.canvases.length ? "repeat(auto-fill, minmax(92px, 1fr))" : "repeat(auto-fill, minmax(140px, 1fr))", gap: 8 }}>
             {spec.extras.map(e => (
               <button key={e.driveId} type="button" onClick={() => setLit({ src: img(e.previewId || e.driveId, 1600), downloadHref: dl(e.driveId), name: e.name, caption: "Reference" })} style={{ display: "block", aspectRatio: "1", borderRadius: 10, overflow: "hidden", background: "#fff", position: "relative", border: "none", padding: 0, cursor: "zoom-in", width: "100%" }}>
                 <img src={img(e.previewId || e.driveId, 400)} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(ev: any) => { ev.target.style.opacity = 0.2; }} />
+                {e.label && <span style={{ position: "absolute", left: 5, top: 5, ...tag(H.ink, 8.5), background: "rgba(255,255,255,.92)", borderRadius: 6, padding: "3px 7px" }}>{e.label}</span>}
               </button>
             ))}
           </div>

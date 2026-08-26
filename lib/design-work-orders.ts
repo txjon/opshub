@@ -14,7 +14,12 @@ export type BriefPin = { id: string; x: number; y: number; text: string; driveId
 // A canvas: one reference image from the design thread, with its pins.
 export type BriefCanvas = { id: string; fileId?: string | null; driveId: string; previewId?: string | null; name?: string | null; note?: string | null; pins: BriefPin[] };
 // Loose extra hand-overs (the rest of the thread's images, no pins).
-export type BriefExtra = { fileId?: string | null; driveId: string; previewId?: string | null; name?: string | null };
+export type BriefExtra = { fileId?: string | null; driveId: string; previewId?: string | null; name?: string | null; label?: string | null };
+// Production orders (seps / vector on a run): the graphic is final — no pins,
+// just the files and one note. Creative keeps the pinned brief.
+export const isProductionType = (t: string) => t === "separations" || t === "vector";
+export const STAGE_LABEL: Record<string, string> = { client_art: "Client art", vector: "Vector", mockup: "Mockup", proof: "Proof", print_ready: "Print file" };
+export const PRODUCTION_STAGES = ["print_ready", "proof", "mockup"];
 // The conversation, handed over with the wall intact: roles only (client / us),
 // never a name. The designer reads what the client actually said.
 export type BriefLine = { role: "client" | "us"; text: string; at?: string | null };
