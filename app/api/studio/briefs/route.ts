@@ -81,11 +81,26 @@ export async function GET() {
     for (const r of (reqs || []) as any[]) jobByBrief[r.brief_id] = { id: r.job_id, number: r.jobs?.job_number || null };
   }
 
+  // THE DESIGNER DOOR (mig 165): an open work order tags the card — and an
+  // unread designer move lights it, so the board itself is the desk.
+  const woByBrief: Record<string, { state: string; unread: boolean; late: boolean }> = {};
+  if (ids.length) {
+    const today = new Date().toISOString().slice(0, 10);
+    const { data: wos } = await db.from("design_work_orders").select("brief_id, state, last_designer_at, hpd_seen_at, due_by, updated_at")
+      .in("brief_id", ids).in("state", ["out", "delivered", "in_revision"]).order("updated_at", { ascending: false });
+    for (const w of (wos || []) as any[]) {
+      const unread = !!w.last_designer_at && (!w.hpd_seen_at || w.last_designer_at > w.hpd_seen_at);
+      const late = !!w.due_by && w.due_by < today;
+      const cur = woByBrief[w.brief_id];
+      if (!cur || (unread && !cur.unread)) woByBrief[w.brief_id] = { state: w.state, unread, late };
+    }
+  }
+
   return NextResponse.json({
     briefs: list.map(b => ({
       id: b.id, title: b.title, state: b.state, source: b.source,
       client_name: b.clients?.name || null, updated_at: b.updated_at,
-      _art: artByBrief[b.id] || null, _job: jobByBrief[b.id] || null, _lineup: lineupMeta[b.id] || null, _release: releaseByBrief[b.id] || null,
+      _art: artByBrief[b.id] || null, _job: jobByBrief[b.id] || null, _lineup: lineupMeta[b.id] || null, _release: releaseByBrief[b.id] || null, _wo: woByBrief[b.id] || null,
     })),
   });
 }

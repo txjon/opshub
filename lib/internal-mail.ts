@@ -29,7 +29,9 @@ export type InternalEvent =
   | { kind: "drop_ready"; client: string; title: string; targetLive?: string | null; newLines: number; pipeLines: number }
   | { kind: "idea_greenlit"; client: string; title: string; door: "order" | "later"; productCount: number; jobId?: string | null; jobNumber?: string | null }
   | { kind: "product_run"; client: string; title: string; units: number; jobId: string; jobNumber: string }
-  | { kind: "lab_order_request"; client: string; title: string; blank?: string | null; qty?: number | null; note?: string | null };
+  | { kind: "lab_order_request"; client: string; title: string; blank?: string | null; qty?: number | null; note?: string | null }
+  // THE DESIGNER DOOR (mig 165): the outside designer moved on a work order.
+  | { kind: "designer_delivery" | "designer_reply"; title: string; woType: string; briefId: string; woId: string; designer: string; note?: string | null };
 
 function build(e: InternalEvent): { to: string[]; subject: string; text: string } {
   // Directive voice (Jon: "here's what's coming is nice — here's what to do
@@ -37,6 +39,21 @@ function build(e: InternalEvent): { to: string[]; subject: string; text: string 
   // with the exact link), DONE WHEN (the completion condition).
   const APP = "https://app.housepartydistro.com";
   switch (e.kind) {
+    case "designer_delivery":
+    case "designer_reply": {
+      const delivered = e.kind === "designer_delivery";
+      return {
+        to: [DEPT.labs],
+        subject: delivered ? `Designer delivered — "${e.title}" (${e.woType}) — review it` : `Designer replied — "${e.title}" (${e.woType})`,
+        text: `${e.designer} ${delivered ? "delivered a file on" : "replied on"} the work order for "${e.title}".${e.note ? `\nTheir note: "${e.note}"` : ""}
+
+DO THIS:
+1. Open it: ${APP}/studio?brief=${e.briefId}&wo=${e.woId}
+2. ${delivered ? "Look at the delivery. Accept it as the file, or reply with what to change" : "Answer them in the thread — they're waiting on you"}
+
+DONE WHEN: ${delivered ? "the delivery is accepted or a revision is asked for" : "you've replied"}. Nothing else pings for this — it's on the desk until you act.`,
+      };
+    }
     case "cart_reorder":
       return {
         to: [DEPT.labs],
