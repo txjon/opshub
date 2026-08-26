@@ -10,6 +10,7 @@ import { createClient as createAdmin } from "@supabase/supabase-js";
 import { renderBrandedEmail } from "@/lib/email-template";
 import { resendForSlug } from "@/lib/resend-client";
 import { resolveSlugFromHost } from "@/lib/tenants";
+import { appBaseUrl } from "@/lib/public-url";
 
 export async function POST(req: NextRequest) {
   try {
@@ -32,8 +33,12 @@ export async function POST(req: NextRequest) {
     const companyName = (companyRow as any)?.name || "House Party Distro";
     const fromBilling = (companyRow as any)?.from_email_billing || (companyRow as any)?.from_email_quotes || "onboarding@resend.dev";
 
-    const { data: clientRow } = await admin.from("clients").select("name").eq("id", clientId).single();
+    const { data: clientRow } = await admin.from("clients").select("name, portal_token, client_hub_enabled").eq("id", clientId).single();
     const clientName = (clientRow as any)?.name || "client";
+    // Hub-enabled clients get a pay button straight to their unpaid list.
+    const hubUrl = (clientRow as any)?.client_hub_enabled && (clientRow as any)?.portal_token
+      ? `${await appBaseUrl()}/portal/client/${(clientRow as any).portal_token}/orders?filter=unpaid`
+      : null;
 
     const baseUrl = process.env.NEXT_PUBLIC_SITE_URL
       || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
@@ -54,6 +59,8 @@ export async function POST(req: NextRequest) {
       eyebrow: companyName,
       heading: "Account Statement",
       bodyHtml: esc(String(body || "")).replace(/\n/g, "<br/>"),
+      cta: hubUrl ? { label: "View & Pay Invoices", url: hubUrl, style: "green" } : undefined,
+      hint: hubUrl ? "The button opens your client hub — every open invoice in one place, payable online." : undefined,
       closing: `${companyName} · Billing\n${fromBilling}`,
     });
 
