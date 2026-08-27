@@ -73,6 +73,7 @@ export default function DesignerPage({ params }: { params: { token: string } }) 
       <Lightbox item={lit} onClose={() => setLit(null)} />
       <div style={{ textAlign: "center" }}>
         <div style={tag(H.faint, 11)}>Work order · House Party Distro</div>
+        {(wo.client_name || wo.job_number) && <div style={{ ...tag(H.blue, 11), marginTop: 6 }}>{[wo.client_name, wo.job_number].filter(Boolean).join(" · ")}</div>}
         <h1 style={{ fontSize: "clamp(24px,5vw,40px)", fontWeight: 900, letterSpacing: "-0.02em", textTransform: "uppercase", margin: "8px 0 6px" }}>{wo.title || "Design"}</h1>
         <div style={{ display: "inline-flex", gap: 12, alignItems: "baseline", flexWrap: "wrap", justifyContent: "center" }}>
           <span style={tag(H.blue, 10.5)}>{woTypeLabel(wo.type)}</span>

@@ -55,15 +55,15 @@ export async function createWorkOrder(t: ResolvedTarget, b: CreateWoInput, who: 
 }
 
 // The designer's email — used at create and by "Resend link". From/reply-to
-// the creative desk; names the item/design and (for runs) the job NUMBER, never
-// the client. Returns true when Resend accepted it.
+// the creative desk; names the client, the item/design and (for runs) the job
+// number. Returns true when Resend accepted it.
 export async function sendWorkOrderEmail(t: ResolvedTarget, wo: { type: string; designer_email: string | null; designer_name: string | null; due_by: string | null; headline: string | null }, url: string): Promise<boolean> {
   if (!wo.designer_email) return false;
   try {
     const creative = process.env.EMAIL_FROM_CREATIVE || "creative@housepartydistro.com";
     const from = `${t.companyName} <${creative}>`;
     const typeWord = wo.type === "creative" ? "creative art" : wo.type === "vector" ? "a vector clean-up" : "separations";
-    const what = t.kind === "item" && t.jobNumber ? `${t.title} (${t.jobNumber})` : t.title;
+    const what = `${t.clientName ? `${t.clientName} · ` : ""}${t.title}${t.kind === "item" && t.jobNumber ? ` (${t.jobNumber})` : ""}`;
     const html = renderBrandedEmail({
       eyebrow: t.companyName, heading: "Work order",
       greeting: wo.designer_name ? `Hi ${String(wo.designer_name).trim()},` : "Hi,",

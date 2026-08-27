@@ -34,7 +34,7 @@ export async function packetHtml(wo: DesignWorkOrder, t: ResolvedTarget, message
   for (const c of spec.canvases) { want.add(c.previewId || c.driveId); for (const p of c.pins) if (p.driveId) want.add(p.driveId); }
   for (const e of spec.extras) want.add(e.previewId || e.driveId);
   await Promise.all(Array.from(want).map(async id => { const b = await driveBytes(id, { thumb: true, size: 1400 }); if (b) img[id] = dataUri(b); }));
-  const what = t.kind === "item" && t.jobNumber ? `${t.title} (${t.jobNumber})` : t.title;
+  const what = `${t.clientName ? `${t.clientName} · ` : ""}${t.title}${t.kind === "item" && t.jobNumber ? ` (${t.jobNumber})` : ""}`;
   const due = wo.due_by ? new Date(wo.due_by + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }) : null;
   const words = messages.filter(m => m.body && String(m.body).trim() && !/^[✓✕↩]/.test(String(m.body).trim()));
   const notesBlock = wo.instructions ? `<div class="blk"><div class="eyebrow">Notes</div><div class="notes">${esc(wo.instructions)}</div></div>` : "";
