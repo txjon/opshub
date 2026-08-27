@@ -180,6 +180,7 @@ export default function WorkOrderPanel({ woId, target, notes = [], inline, onClo
             <input readOnly value={url} onFocus={e => e.currentTarget.select()} style={{ ...inp, flex: 1, minWidth: 160, fontSize: 11, fontFamily: H.mono, padding: "8px 10px" }} />
             <button onClick={() => { navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 1500); }} style={ghostBtn}>{copied ? "✓ Copied" : "Copy"}</button>
             <a href={url} target="_blank" rel="noreferrer" style={{ ...ghostBtn, textDecoration: "none", display: "inline-block" }}>Open ↗</a>
+            <a href={`${url.replace(/\/designer\//, "/api/designer/")}/packet`} target="_blank" rel="noreferrer" title="The brief as a PDF (what the designer's Download package includes)" style={{ ...ghostBtn, textDecoration: "none", display: "inline-block" }}>PDF</a>
             <button onClick={() => { navigator.clipboard.writeText(slackCopy()); setCopiedSlack(true); setTimeout(() => setCopiedSlack(false), 1500); }} title="A paste-ready message with the link" style={ghostBtn}>{copiedSlack ? "✓ Copied" : "Copy for Slack"}</button>
             {wo.designer_email && <button disabled={busy} onClick={resend} title={`Email the link again to ${wo.designer_email}`} style={{ ...ghostBtn, color: H.blue, borderColor: "rgba(143,199,216,.4)", opacity: busy ? 0.6 : 1 }}>{resent ? `✓ ${resent}` : "Resend link"}</button>}
           </div>
