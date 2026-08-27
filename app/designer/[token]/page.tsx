@@ -33,9 +33,9 @@ export default function DesignerPage({ params }: { params: { token: string } }) 
     const j = await fetch(`/api/designer/${token}`).then(r => r.json()).catch(() => ({ error: true }));
     if (j.error) { setBad(true); return; }
     setWo(j.workOrder); setMsgs(j.messages || []); setFileBase(j.fileBase || "");
-    // "Your name": the order's designer first; the name remembered on this
-    // device only when the order was sent without one.
-    setName(prev => prev || j.workOrder?.designer_name || (() => { try { return localStorage.getItem("hpd_designer_name") || ""; } catch { return ""; } })());
+    // No name field (Jon, Aug 26: unnecessary step). Sends carry the order's
+    // designer name; the server falls back to "Designer".
+    setName(j.workOrder?.designer_name || "");
   }
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [token]);
 
@@ -56,7 +56,6 @@ export default function DesignerPage({ params }: { params: { token: string } }) 
       }
       const r = await fetch(`/api/designer/${token}/messages`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ body: note.trim() || null, driveFileId, fileName: staged?.name || null, mimeType: staged?.type || null, fileSize: staged?.size || null, senderName: name.trim() || null }) }).then(x => x.json());
       if (r.error) throw new Error(r.error);
-      try { if (name.trim()) localStorage.setItem("hpd_designer_name", name.trim()); } catch {}
       setNote(""); setStaged(null); setHeroId(null); await load();
     } catch (e: any) { setErr(e?.message || "Didn't send — try again."); }
     finally { setBusy(false); setPct(0); }
@@ -181,7 +180,6 @@ export default function DesignerPage({ params }: { params: { token: string } }) 
 
       {!accepted && (
         <div style={{ marginTop: 18, padding: 14, background: H.panel, border: `1px solid ${H.line}`, borderRadius: 16 }}>
-          <input value={name} onChange={e => setName(e.target.value)} placeholder="Your name" style={{ ...inp, marginBottom: 8, maxWidth: 260 }} />
           <textarea value={note} onChange={e => setNote(e.target.value)} rows={2} placeholder="Message HPD…" style={{ ...inp, resize: "vertical", marginBottom: 8 }} />
           {staged && <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, fontSize: 12.5 }}><span style={{ ...tag(H.green, 9) }}>Attached</span><span style={{ fontFamily: H.mono, fontSize: 11, color: H.dim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{staged.name} · {(staged.size / 1048576).toFixed(1)} MB</span><button onClick={() => setStaged(null)} style={{ background: "none", border: "none", color: H.faint, cursor: "pointer", fontSize: 16 }}>×</button></div>}
           {busy && pct > 0 && <div style={{ height: 4, background: H.line2, borderRadius: 4, marginBottom: 10, overflow: "hidden" }}><div style={{ width: `${pct}%`, height: "100%", background: H.green, transition: "width .2s" }} /></div>}
