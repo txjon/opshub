@@ -78,11 +78,13 @@ export default function PinBrief({ canvas, imgSrc, readOnly, onChange, onUploadI
   return (
     <div className="pb-wrap" style={{ display: "grid", gap: 12 }}>
       <style dangerouslySetInnerHTML={{ __html: `
-        .pb-wrap{grid-template-columns:1fr}
+        .pb-wrap{grid-template-columns:minmax(0,1fr)}
+        .pb-wrap>*{min-width:0}
+        .pb-canvas img{max-width:100%;height:auto}
         @media(min-width:760px){.pb-wrap{grid-template-columns:minmax(0,1.35fr) minmax(220px,1fr)}}
       ` }} />
       <div>
-        <div ref={boxRef} onClick={addPin} style={{ position: "relative", background: "#fff", borderRadius: 12, overflow: "hidden", cursor: readOnly ? (onOpenImage ? "zoom-in" : "default") : "crosshair", userSelect: "none", lineHeight: 0 }}>
+        <div ref={boxRef} onClick={addPin} className="pb-canvas" style={{ position: "relative", background: "#fff", borderRadius: 12, overflow: "hidden", maxWidth: "100%", cursor: readOnly ? (onOpenImage ? "zoom-in" : "default") : "crosshair", userSelect: "none", lineHeight: 0 }}>
           <img src={imgSrc(canvas.previewId || canvas.driveId, 1200)} alt="" draggable={false} referrerPolicy="no-referrer" style={{ width: "100%", display: "block", pointerEvents: "none" }} />
           {pins.map(marker)}
           {!readOnly && pins.length === 0 && <span style={{ position: "absolute", left: 10, bottom: 10, ...tag("#666", 9), background: "rgba(255,255,255,.92)", borderRadius: 6, padding: "5px 9px" }}>Tap the image to drop a pin</span>}

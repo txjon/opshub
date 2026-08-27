@@ -69,7 +69,7 @@ export default function DesignerPage({ params }: { params: { token: string } }) 
   const words = msgs.filter(m => m.body && m.body.trim());
 
   return (
-    <div style={{ maxWidth: 720, margin: "0 auto", padding: "28px 16px 90px" }}>
+    <div style={{ maxWidth: 720, margin: "0 auto", padding: "28px 14px 90px", overflowX: "hidden", boxSizing: "border-box" }}>
       <Lightbox item={lit} onClose={() => setLit(null)} />
       <div style={{ textAlign: "center" }}>
         <div style={tag(H.faint, 11)}>Work order · House Party Distro</div>
@@ -84,7 +84,7 @@ export default function DesignerPage({ params }: { params: { token: string } }) 
       {wo.headline && <div style={{ marginTop: 22, textAlign: "center", fontSize: "clamp(18px,3.5vw,26px)", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.02em", background: H.blue, color: H.ink, borderRadius: 10, padding: "12px 16px" }}>{wo.headline}</div>}
 
       {spec.canvases.map((c, i) => (
-        <section key={c.id} style={{ marginTop: 22, padding: 12, background: H.panel, border: `1px solid ${H.line}`, borderRadius: 16 }}>
+        <section key={c.id} style={{ marginTop: 22, padding: 12, background: H.panel, border: `1px solid ${H.line}`, borderRadius: 16, minWidth: 0, overflow: "hidden" }}>
           <div style={{ ...tag(H.amber, 9), marginBottom: 8 }}>{spec.canvases.length > 1 ? `Reference ${i + 1}` : "The reference"} · {c.pins?.length || 0} pin{(c.pins?.length || 0) === 1 ? "" : "s"}</div>
           <PinBrief canvas={c} readOnly imgSrc={img} downloadHref={dl(c.driveId)} downloadSrc={dl} onOpenImage={(id, name, caption) => setLit({ src: img(id, 1600), downloadHref: dl(id), name, caption })} />
         </section>
