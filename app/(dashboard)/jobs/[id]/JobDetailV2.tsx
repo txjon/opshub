@@ -43,6 +43,7 @@ import { recalcJobPhase } from "@/lib/job-phase-recalc";
 import { PROOF_RENDERER_VERSION } from "@/lib/proof-client";
 import { clientShippingRoutes } from "@/lib/tenants";
 import { useIsMobile } from "@/lib/useIsMobile";
+import { similarClients } from "@/lib/client-match";
 import { calculatePriority } from "@/lib/dates";
 import { SHIP_METHODS } from "@/lib/ship-methods";
 import { proofCounts, needsProof, proofPdfMissing, carriedApproved, carriedFrom } from "@/lib/proof-gate";
@@ -3023,12 +3024,24 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                         {c.name}{c.id === job.client_id ? "  · current" : ""}
                       </button>
                     ))}
-                    {clientQuery.trim() && !clientList.some((c: any) => (c.name || "").toLowerCase() === clientQuery.trim().toLowerCase()) && (
-                      <button disabled={clientBusy} onClick={() => createNewClient(clientQuery)}
-                        style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 11px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 700, color: T.accent }}>
-                        + Create &ldquo;{clientQuery.trim()}&rdquo;
-                      </button>
-                    )}
+                    {clientQuery.trim() && !clientList.some((c: any) => (c.name || "").toLowerCase() === clientQuery.trim().toLowerCase()) && (() => {
+                      const alike = similarClients(clientQuery, clientList as any[], job.client_id);
+                      return (
+                        <>
+                          {alike.length > 0 && (
+                            <div style={{ margin: "6px 4px 2px", padding: "7px 10px", borderLeft: `3px solid ${T.amber}`, background: T.surface, borderRadius: 6, fontSize: 11.5, color: T.muted }}>
+                              <span style={{ fontWeight: 800, color: T.amber, textTransform: "uppercase", letterSpacing: "0.06em", fontSize: 10 }}>Looks like</span>{" "}
+                              {alike.slice(0, 3).map((c: any) => <button key={c.id} disabled={clientBusy} onClick={() => assignClient(c.id, c.name)} style={{ background: "none", border: "none", color: T.text, fontWeight: 700, cursor: "pointer", fontFamily: font, fontSize: 12, padding: "0 4px", textDecoration: "underline" }}>{c.name}</button>)}
+                              — pick it, or create a second one on purpose.
+                            </div>
+                          )}
+                          <button disabled={clientBusy} onClick={() => createNewClient(clientQuery)}
+                            style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 11px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 700, color: alike.length ? T.muted : T.accent }}>
+                            + {alike.length ? "Create anyway" : "Create"} &ldquo;{clientQuery.trim()}&rdquo;
+                          </button>
+                        </>
+                      );
+                    })()}
                   </div>
                   <div style={{ fontSize: 10.5, color: T.faint, marginTop: 6 }}>Reassigning swaps contacts, delivery address, and payment terms to the new client.</div>
                 </div>
