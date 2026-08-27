@@ -22,7 +22,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     .select("id, title, state, source, created_at, updated_at")
     .eq("client_id", (client as any).id)
     .eq("internal_only", false)
-    .is("client_aborted_at", null)
+    .is("client_aborted_at", null).is("deleted_at", null)
     .in("state", ["working", "with_client", "approved"])
     .order("updated_at", { ascending: false });
   const list = (briefs || []) as any[];

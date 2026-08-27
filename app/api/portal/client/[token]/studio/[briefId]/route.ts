@@ -17,7 +17,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
   if (!client) return NextResponse.json({ error: "Invalid link" }, { status: 404 });
   const { data: brief } = await db.from("art_briefs")
     .select("id, title, state, concept, approved_file_id, client_id, internal_only")
-    .eq("id", params.briefId).eq("client_id", (client as any).id).eq("internal_only", false).maybeSingle();
+    .eq("id", params.briefId).is("deleted_at", null).eq("client_id", (client as any).id).eq("internal_only", false).maybeSingle();
   if (!brief) return NextResponse.json({ error: "Not your design" }, { status: 404 });
 
   // Mark-as-read on every detail open — same stamp as the legacy

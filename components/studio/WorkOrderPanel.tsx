@@ -35,7 +35,22 @@ export default function WorkOrderPanel({ woId, target, notes = [], inline, onClo
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<{ headline: string; instructions: string; dueBy: string; brief: BriefSpec } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [copiedSlack, setCopiedSlack] = useState(false);
   const [resent, setResent] = useState("");
+  // A paste-ready blurb for Slack (the interim pointer): what, when, the link.
+  // Never the client's name.
+  function slackCopy(): string {
+    if (!wo) return "";
+    const what = `${woTypeLabel(wo.type)} · ${wo.title || "design"}${target.jobNumber ? ` (${target.jobNumber})` : ""}`;
+    const lines = [
+      `Work order — ${what}${wo.due_by ? ` · due ${fmtDue(wo.due_by)}` : ""}`,
+      wo.headline ? wo.headline : null,
+      `Brief, files and delivery are all at the link (no login):`,
+      url,
+      `Deliver the file on that page — it lands on our side instantly.`,
+    ].filter(Boolean);
+    return lines.join("\n");
+  }
   async function resend() {
     setBusy(true); setErr(""); setResent("");
     try { const r = await fetch(`/api/studio/work-orders/${woId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "resend" }) }).then(x => x.json()); if (r.error) { setErr(r.error); return; } setResent(`Sent to ${wo?.designer_email}`); setTimeout(() => setResent(""), 4000); await refresh(); }
@@ -159,6 +174,7 @@ export default function WorkOrderPanel({ woId, target, notes = [], inline, onClo
             <input readOnly value={url} onFocus={e => e.currentTarget.select()} style={{ ...inp, flex: 1, minWidth: 160, fontSize: 11, fontFamily: H.mono, padding: "8px 10px" }} />
             <button onClick={() => { navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 1500); }} style={ghostBtn}>{copied ? "✓ Copied" : "Copy"}</button>
             <a href={url} target="_blank" rel="noreferrer" style={{ ...ghostBtn, textDecoration: "none", display: "inline-block" }}>Open ↗</a>
+            <button onClick={() => { navigator.clipboard.writeText(slackCopy()); setCopiedSlack(true); setTimeout(() => setCopiedSlack(false), 1500); }} title="A paste-ready message with the link" style={ghostBtn}>{copiedSlack ? "✓ Copied" : "Copy for Slack"}</button>
             {wo.designer_email && <button disabled={busy} onClick={resend} title={`Email the link again to ${wo.designer_email}`} style={{ ...ghostBtn, color: H.blue, borderColor: "rgba(143,199,216,.4)", opacity: busy ? 0.6 : 1 }}>{resent ? `✓ ${resent}` : "Resend link"}</button>}
           </div>
         </div>

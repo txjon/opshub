@@ -23,6 +23,7 @@ export default function ItemWorkOrders({ open, job, onClose, openWoId }: Props) 
   const [building, setBuilding] = useState<any | null>(null);   // the item being handed over
   const [active, setActive] = useState<string | null>(openWoId || null);
   const [notice, setNotice] = useState("");
+  const [showKilled, setShowKilled] = useState(false);
 
   async function load() {
     if (!job?.id) return;
@@ -45,7 +46,7 @@ export default function ItemWorkOrders({ open, job, onClose, openWoId }: Props) 
   useEffect(() => { if (open) { load(); loadFiles(); setActive(openWoId || null); } /* eslint-disable-next-line */ }, [open, job?.id, openWoId]);
 
   const targetFor = (it: any): WoTarget => ({ kind: "item", id: it.id, title: it.name || "Item", clientName: job?.clients?.name || null, jobId: job.id, jobTitle: job?.title || null, jobNumber: job?.job_number || null });
-  const imagesFor = (itemId: string) => files.filter(f => f.item_id === itemId).map(f => ({ id: f.id, file_id: f.id, drive_file_id: f.drive_file_id, file_url: `/api/files/thumbnail?id=${f.drive_file_id}&thumb=1&size=900`, file_name: f.file_name, reaction: null }));
+  const imagesFor = (itemId: string) => files.filter(f => f.item_id === itemId).map(f => ({ id: f.id, file_id: f.id, drive_file_id: f.drive_file_id, file_url: `/api/files/thumbnail?id=${f.drive_file_id}&thumb=1&size=900`, file_name: f.file_name, reaction: null, stage: f.stage || null }));
   const activeWo = useMemo(() => wos.find(w => w.id === active) || null, [wos, active]);
   const activeItem = useMemo(() => activeWo ? items.find(i => i.id === activeWo.item_id) || { id: activeWo.item_id, name: activeWo.design_title } : null, [activeWo, items]);
 
@@ -53,23 +54,19 @@ export default function ItemWorkOrders({ open, job, onClose, openWoId }: Props) 
   return createPortal(
     <div onClick={e => { if (e.target === e.currentTarget && !building) onClose(); }} style={{ position: "fixed", inset: 0, zIndex: 9999, background: "rgba(0,0,0,.85)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "34px 14px", overflowY: "auto", fontFamily: H.font, color: H.text }}>
       <div style={{ background: H.panel, border: `1px solid ${H.line}`, borderRadius: 20, maxWidth: 760, width: "100%", overflow: "hidden" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, padding: "18px 22px 6px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, padding: "18px 22px 10px", borderBottom: `1px solid ${H.line2}` }}>
           <div style={{ minWidth: 0 }}>
             <div style={tag(H.faint, 9.5)}>{job?.job_number || "Job"} · designer · Room 2</div>
-            <div style={{ fontSize: 18, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", lineHeight: 1.2, marginTop: 2 }}>Hand to a designer</div>
+            {active && activeWo ? (
+              <button onClick={() => setActive(null)} style={{ background: "none", border: "none", color: H.text, fontSize: 18, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", lineHeight: 1.2, marginTop: 2, cursor: "pointer", fontFamily: H.font, padding: 0, textAlign: "left" }}>‹ Orders <span style={{ color: H.dim }}>· {activeWo.design_title || "Item"}</span></button>
+            ) : (
+              <div style={{ fontSize: 18, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", lineHeight: 1.2, marginTop: 2 }}>Hand to a designer</div>
+            )}
           </div>
-          <button onClick={onClose} aria-label="Close" style={{ background: "none", border: "none", color: H.dim, fontSize: 26, cursor: "pointer", lineHeight: 1 }}>×</button>
-        </div>
-
-        {/* tabs: one per order · + new */}
-        <div style={{ display: "flex", alignItems: "center", gap: 18, padding: "10px 22px 0", borderBottom: `1px solid ${H.line2}`, overflowX: "auto" }}>
-          <button onClick={() => setActive(null)} style={{ background: "none", border: "none", borderBottom: !active ? "2px solid #fff" : "2px solid transparent", color: !active ? H.text : H.faint, ...tag(!active ? H.text : H.faint, 10.5), cursor: "pointer", fontFamily: H.font, padding: "6px 0 9px", whiteSpace: "nowrap" }}>Orders · {wos.length}</button>
-          {wos.map(w => { const st = woState(w); const on = active === w.id; return (
-            <button key={w.id} onClick={() => setActive(w.id)} style={{ background: "none", border: "none", borderBottom: on ? "2px solid #fff" : "2px solid transparent", color: on ? H.text : H.faint, ...tag(on ? H.text : H.faint, 10.5), cursor: "pointer", fontFamily: H.font, padding: "6px 0 9px", whiteSpace: "nowrap", display: "inline-flex", gap: 8, alignItems: "baseline" }}>
-              <span>{w.design_title || "Item"} · {woTypeLabel(w.type)}</span><span style={tag(st.color, 9)}>{st.unread ? "●" : ""} {st.label}</span>
-            </button>
-          ); })}
-          <button onClick={() => setPickItem(true)} style={{ marginLeft: "auto", background: "none", border: "none", color: H.blue, ...tag(H.blue, 10.5), cursor: "pointer", fontFamily: H.font, padding: "6px 0 9px", whiteSpace: "nowrap" }}>+ New order</button>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+            <button onClick={() => setPickItem(true)} style={{ ...ghostBtn, color: H.blue, borderColor: "rgba(143,199,216,.4)" }}>+ New order</button>
+            <button onClick={onClose} aria-label="Close" style={{ background: "none", border: "none", color: H.dim, fontSize: 26, cursor: "pointer", lineHeight: 1 }}>×</button>
+          </div>
         </div>
         {notice && <div style={{ margin: "8px 22px 0", fontSize: 12, color: H.green }}>{notice}</div>}
 
@@ -77,14 +74,26 @@ export default function ItemWorkOrders({ open, job, onClose, openWoId }: Props) 
           <WorkOrderPanel key={active} woId={active} target={targetFor(activeItem)} inline onClose={() => setActive(null)} onChanged={load} />
         ) : (
           <div style={{ padding: "16px 22px 22px" }}>
-            {loading && !wos.length ? <div style={{ fontSize: 13, color: H.faint }}>Loading…</div> : wos.length === 0 ? (
+            {loading && !wos.length ? <div style={{ fontSize: 13, color: H.faint }}>Loading…</div> : wos.filter(w => w.state !== "killed").length === 0 && !wos.some(w => w.state === "killed") ? (
               <div style={{ fontSize: 13, color: H.dim, lineHeight: 1.55 }}>
                 Nothing out on this job yet. <b style={{ color: H.text }}>+ New order</b> picks an item, pins the brief on its art, and sends the designer a private link. Their delivery lands on the item; <b style={{ color: H.text }}>Accept</b> makes it the print-ready file.
               </div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {wos.map(w => { const st = woState(w); return (
+                {wos.filter(w => w.state !== "killed").map(w => { const st = woState(w); return (
                   <button key={w.id} onClick={() => setActive(w.id)} style={{ display: "flex", alignItems: "center", gap: 12, textAlign: "left", background: H.surface, border: `1px solid ${H.line2}`, outline: st.unread ? `2px solid ${H.amber}` : st.late ? `2px solid ${H.red}` : "none", outlineOffset: -1, borderRadius: 12, padding: "10px 14px 10px 10px", cursor: "pointer", color: H.text, fontFamily: H.font, width: "100%" }}>
+                    <span style={{ width: 44, height: 44, borderRadius: 8, overflow: "hidden", background: "#fff", flexShrink: 0 }}>{w._thumb && <img src={`/api/files/thumbnail?id=${w._thumb}&thumb=1&size=300`} alt="" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.opacity = 0.2; }} />}</span>
+                    <span style={{ minWidth: 0, flex: 1 }}>
+                      <span style={{ display: "block", fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{w.design_title || "Item"} · {woTypeLabel(w.type)}</span>
+                      <span style={{ display: "block", marginTop: 3, ...tag(st.color, 9) }}>{st.label}<span style={{ color: H.faint, fontWeight: 600, letterSpacing: 0, textTransform: "none", fontFamily: H.mono }}> · {w.designer_name || w.designer_email || "link only"}{w.last_designer_at ? ` · their last word ${ago(w.last_designer_at)}` : ` · out ${ago(w.created_at)}`}{w.due_by ? ` · due ${fmtDue(w.due_by)}` : ""}</span></span>
+                    </span>
+                  </button>
+                ); })}
+                {wos.some(w => w.state === "killed") && (
+                  <button onClick={() => setShowKilled(v => !v)} style={{ alignSelf: "flex-start", background: "none", border: "none", cursor: "pointer", fontFamily: H.font, padding: "4px 0", ...tag(H.faint, 9.5) }}>✕ {wos.filter(w => w.state === "killed").length} pulled · {showKilled ? "hide" : "show"}</button>
+                )}
+                {showKilled && wos.filter(w => w.state === "killed").map(w => { const st = woState(w); return (
+                  <button key={w.id} onClick={() => setActive(w.id)} style={{ opacity: 0.5, display: "flex", alignItems: "center", gap: 12, textAlign: "left", background: H.surface, border: `1px solid ${H.line2}`, outline: st.unread ? `2px solid ${H.amber}` : st.late ? `2px solid ${H.red}` : "none", outlineOffset: -1, borderRadius: 12, padding: "10px 14px 10px 10px", cursor: "pointer", color: H.text, fontFamily: H.font, width: "100%" }}>
                     <span style={{ width: 44, height: 44, borderRadius: 8, overflow: "hidden", background: "#fff", flexShrink: 0 }}>{w._thumb && <img src={`/api/files/thumbnail?id=${w._thumb}&thumb=1&size=300`} alt="" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.opacity = 0.2; }} />}</span>
                     <span style={{ minWidth: 0, flex: 1 }}>
                       <span style={{ display: "block", fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{w.design_title || "Item"} · {woTypeLabel(w.type)}</span>

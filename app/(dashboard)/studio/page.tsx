@@ -41,6 +41,9 @@ export default function StudioPage() {
   // someone remembering to scroll Slack. ?wo= deep-links straight into one.
   const [wos, setWos] = useState<any[]>([]);
   const [openWoId, setOpenWoId] = useState<string | null>(null);
+  const [deleted, setDeleted] = useState<any[]>([]);
+  const [showDeleted, setShowDeleted] = useState(false);
+  async function restoreBrief(id: string) { await fetch(`/api/studio/briefs/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ restore: true }) }); await loadList(); }
   // A click outside the sheet closes it — unless there's an unsent note or
   // attachment in the composer (Jon: losing work on a stray click sucks).
   const sheetDirty = useRef(false);
@@ -48,12 +51,13 @@ export default function StudioPage() {
   const [bridged, setBridged] = useState<Record<string, { jobId: string; jobNumber: string }>>({});
   const [bridgeErr, setBridgeErr] = useState<Record<string, string>>({});
   async function loadList() {
-    const [j, r, w] = await Promise.all([
+    const [j, r, w, d] = await Promise.all([
       fetch("/api/studio/briefs").then(r => r.json()).catch(() => ({})),
       fetch("/api/lab/order-requests").then(r => r.json()).catch(() => ({})),
       fetch("/api/studio/work-orders").then(r => r.json()).catch(() => ({})),
+      fetch("/api/studio/briefs?deleted=1").then(r => r.json()).catch(() => ({})),
     ]);
-    setBriefs(j.briefs || []); setReqs(r.requests || []); setWos(w.workOrders || []);
+    setBriefs(j.briefs || []); setReqs(r.requests || []); setWos(w.workOrders || []); setDeleted(d.briefs || []);
   }
   async function startJob(id: string) {
     setBridging(id); setBridgeErr(e => ({ ...e, [id]: "" }));
@@ -244,6 +248,27 @@ export default function StudioPage() {
             <span style={{ color: H.red }}>✕</span> {killed.length} killed · {showKilled ? "hide" : "show"}
           </button>
           {showKilled && <div className="st-grid" style={{ marginTop: 14, opacity: 0.5 }}>{killed.map(card)}</div>}
+        </section>
+      )}
+
+      {deleted.length > 0 && (
+        <section style={{ marginTop: 34 }}>
+          <button onClick={() => setShowDeleted(v => !v)} style={{ background: "none", border: "none", color: H.faint, fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font, padding: 0 }}>
+            <span style={{ color: H.faint }}>🗑</span> {deleted.length} deleted · {showDeleted ? "hide" : "show"}
+          </button>
+          {showDeleted && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 12, maxWidth: 640 }}>
+              {deleted.map((b: any) => (
+                <div key={b.id} style={{ display: "flex", alignItems: "center", gap: 12, background: H.panel, border: `1px solid ${H.line2}`, borderRadius: 10, padding: "9px 12px", opacity: 0.8 }}>
+                  <span style={{ minWidth: 0, flex: 1 }}>
+                    <span style={{ display: "block", fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.title || "Untitled"}</span>
+                    <span style={{ display: "block", fontSize: 10, fontFamily: H.mono, color: H.faint, marginTop: 2 }}>{b.client_name || "—"} · deleted {fmt(b.deleted_at)}</span>
+                  </span>
+                  <button onClick={() => restoreBrief(b.id)} style={{ ...ghostBtn, padding: "7px 12px", color: H.green, borderColor: "rgba(88,201,60,.4)" }}>↩ Restore</button>
+                </div>
+              ))}
+            </div>
+          )}
         </section>
       )}
 
@@ -448,7 +473,13 @@ function BriefSheet({ detail, onRefresh, onClose, openWoId, setOpenWoId, onDirty
     const picked = Array.from(list).map(f => ({ f, url: URL.createObjectURL(f) }));
     setStagedList(prev => [...prev, ...picked]);
   }
-  async function delBrief() { if (!confirm(`Delete "${b.title}"? This removes the design and its whole thread. Can't be undone.`)) return; await fetch(`/api/studio/briefs/${b.id}`, { method: "DELETE" }); onClose(); await onRefresh(); }
+  // Deleting the DESIGN (not an order on it). Named in the title, styled
+  // modal, never from an order tab — Aug 26: Jon deleted Cable Management
+  // thinking he was pulling a test order. Restored by hand from Drive.
+  async function delBrief() {
+    if (!await confirmTab({ title: `Delete the design "${b.title}"?`, message: "It leaves the studio and the client's hub. Files, the conversation and designer orders stay with it, and you can restore it from the Deleted fold at the bottom of the studio.", confirmLabel: "Delete the design" })) return;
+    await fetch(`/api/studio/briefs/${b.id}`, { method: "DELETE" }); onClose(); await onRefresh();
+  }
   async function delFile(fileId: string) { if (!confirm("Delete this version? It comes out of the thread. Can't be undone.")) return; setBusy(true); try { await fetch(`/api/studio/files/${fileId}`, { method: "DELETE" }); setHeroId(null); await onRefresh(); } finally { setBusy(false); } }
   // Flip a version across the wall after the fact (Jon: "make an internal
   // upload visible on client side"). No state move — sharing isn't the ball.
@@ -467,7 +498,7 @@ function BriefSheet({ detail, onRefresh, onClose, openWoId, setOpenWoId, onDirty
           <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: st.color, marginTop: 4 }}>{st.label}</div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 14, flexShrink: 0 }}>
-          <button onClick={delBrief} title="Delete this design" style={{ background: "none", border: "none", color: H.faint, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }} onMouseEnter={e => (e.currentTarget.style.color = H.red)} onMouseLeave={e => (e.currentTarget.style.color = H.faint)}>Delete</button>
+          {tab === "design" && <button onClick={delBrief} title="Delete this design (not an order)" style={{ background: "none", border: "none", color: H.faint, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }} onMouseEnter={e => (e.currentTarget.style.color = H.red)} onMouseLeave={e => (e.currentTarget.style.color = H.faint)}>Delete design</button>}
           <button onClick={onClose} aria-label="Close" style={{ background: "none", border: "none", color: H.dim, fontSize: 26, cursor: "pointer", lineHeight: 1 }}>×</button>
         </div>
       </div>

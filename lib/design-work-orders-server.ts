@@ -168,13 +168,36 @@ export function sanitizeSpec(raw: any, ok: Set<string>): BriefSpec {
   }
   for (const e of (raw?.extras || []) as any[]) {
     if (!e?.driveId || !ok.has(e.driveId)) continue;
-    spec.extras.push({ fileId: e.fileId || null, driveId: e.driveId, previewId: e.previewId && ok.has(e.previewId) ? e.previewId : null, name: e.name || null });
+    spec.extras.push({ fileId: e.fileId || null, driveId: e.driveId, previewId: e.previewId && ok.has(e.previewId) ? e.previewId : null, name: e.name || null, label: e.label ? String(e.label).slice(0, 40) : null });
   }
   for (const l of (Array.isArray(raw?.conversation) ? raw.conversation : []) as any[]) {
     const text = String(l?.text || "").trim(); if (!text) continue;
     spec.conversation!.push({ role: l.role === "client" ? "client" : "us", text: text.slice(0, 2000), at: l.at || null });
   }
   return spec;
+}
+
+// The production note, written from the item's proof spec (the proof IS the
+// brief for seps). Jon's edit of the first draft set the shape: name · job,
+// method · print type, each PRINT location with its size, the deliver line.
+// No ink count (that's the separator's call), no blank, no callouts, no
+// finishing, and size/neck tags aren't art — they're skipped.
+export async function productionNoteForItem(itemId: string): Promise<string> {
+  const db = woDb();
+  const { data: it } = await db.from("items").select("name, proof_spec, jobs:job_id(job_number)").eq("id", itemId).maybeSingle();
+  if (!it) return "";
+  const ps: any = (it as any).proof_spec || null;
+  const lines: string[] = [];
+  const head = [(it as any).name, (it as any).jobs?.job_number].filter(Boolean).join(" · ");
+  if (head) lines.push(head);
+  const tech = [[...(ps?.methods || [])].filter(Boolean).join(" + "), ps?.printType].filter(Boolean).join(" · ");
+  if (tech) lines.push(tech);
+  const locs = ((ps?.locations || []) as any[]).filter(l => !/tag|label|neck/i.test(String(l.placement || "")));
+  if (locs.length) { lines.push(""); for (const l of locs) lines.push([l.placement, l.sizeText].filter(Boolean).join(" · ")); }
+  else lines.push("", "No proof on this item yet — list each print location and its size here.");
+  if (ps?.notes) { lines.push(""); lines.push(String(ps.notes).trim()); }
+  lines.push("", "Deliver: separations per location, print-ready, named by location.");
+  return lines.join("\n");
 }
 
 // Fire the labs@ ping for a designer move. Best-effort, never sinks the write.

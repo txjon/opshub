@@ -55,7 +55,7 @@ export async function GET() {
       // then run attachUnreadStatus to score them.
       supabase.from("art_briefs")
         .select("id, hpd_last_seen_at, state, client_aborted_at")
-        .is("client_aborted_at", null)
+        .is("client_aborted_at", null).is("deleted_at", null)
         .neq("state", "killed"),
     ]);
 

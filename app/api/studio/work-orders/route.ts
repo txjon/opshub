@@ -19,7 +19,7 @@ async function me() {
   const { data: profile } = await supabase.from("profiles").select("full_name").eq("id", user.id).single();
   return { user, name: (profile as any)?.full_name || user.email || "HPD" };
 }
-const SEL = "id, brief_id, item_id, job_id, type, title, headline, brief, due_by, designer_name, designer_email, state, sent_at, last_designer_at, last_hpd_at, hpd_seen_at, created_at, updated_at, art_briefs(id, title, clients(name, company_id)), items(id, name, jobs:job_id(id, title, job_number, clients:client_id(name, company_id)))";
+const SEL = "id, brief_id, item_id, job_id, type, title, headline, brief, due_by, designer_name, designer_email, state, sent_at, last_designer_at, last_hpd_at, hpd_seen_at, created_at, updated_at, art_briefs(id, title, deleted_at, clients(name, company_id)), items(id, name, jobs:job_id(id, title, job_number, clients:client_id(name, company_id)))";
 const shape = (w: any) => ({
   ...w, art_briefs: undefined, items: undefined, brief: undefined,
   client_name: w.art_briefs?.clients?.name || w.items?.jobs?.clients?.name || null,
@@ -43,6 +43,7 @@ export async function GET(req: NextRequest) {
     .order("updated_at", { ascending: false });
   const list = ((data || []) as any[])
     .filter(w => (w.art_briefs?.clients?.company_id || w.items?.jobs?.clients?.company_id) === company.id)
+    .filter(w => !w.art_briefs?.deleted_at)
     .map(shape);
   return NextResponse.json({ workOrders: list });
 }

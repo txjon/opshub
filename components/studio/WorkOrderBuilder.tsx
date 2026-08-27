@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { H, primaryBtn, ghostBtn, inp, lbl, tag } from "@/lib/studio-theme";
-import { WO_TYPES, EMPTY_BRIEF, newPinId, type BriefCanvas, type BriefExtra, type BriefSpec, type WoType, type WoTarget } from "@/lib/design-work-orders";
+import { WO_TYPES, EMPTY_BRIEF, newPinId, isProductionType, STAGE_LABEL, PRODUCTION_STAGES, type BriefCanvas, type BriefExtra, type BriefSpec, type WoType, type WoTarget } from "@/lib/design-work-orders";
 import { createClient } from "@/lib/supabase/client";
 import PinBrief from "@/components/studio/PinBrief";
 import { useConfirm } from "@/components/useConfirm";
@@ -12,7 +12,7 @@ import { uploadToDrive } from "@/lib/drive-upload-client";
 // the design's own references (tap a thumbnail → it becomes a canvas), add the
 // one-line rule + notes, hand over the rest of the images, send. The client's
 // name never leaves this sheet. Replaces Freeform → PDF → Slack.
-type Img = { id: string; file_id: string | null; drive_file_id: string | null; file_url: string; file_name: string | null; reaction?: string | null };
+type Img = { id: string; file_id: string | null; drive_file_id: string | null; file_url: string; file_name: string | null; reaction?: string | null; stage?: string | null };
 type Note = { id: string; sender_role: string; body: string; visibility?: string; created_at: string };
 // target = the design (art_brief) or the item (a job's run) this order hangs
 // off. Runs default to separations; designs to creative.
@@ -41,15 +41,27 @@ export default function WorkOrderBuilder({ target, images, notes = [], onClose, 
   const [handLines, setHandLines] = useState<Set<string>>(() => new Set());
   const [showChat, setShowChat] = useState(true);
   const toggleLine = (id: string) => setHandLines(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  // Creative art is STUDIO-only (it bakes into the design); vector clean-up and
+  // separations are RUN-only (they live on the item). The picker only shows
+  // where there's a choice.
+  const typeChoices = target.kind === "item" ? WO_TYPES.filter(t => t.id !== "creative") : WO_TYPES.filter(t => t.id === "creative");
   const [type, setType] = useState<WoType>(target.kind === "item" ? "separations" : "creative");
-  const [spec, setSpec] = useState<BriefSpec>(() => {
-    // The latest live image is the first canvas — the brief usually pins on it.
-    const live = imgs.filter(i => i.reaction !== "down");
-    const first = live[live.length - 1] || imgs[imgs.length - 1];
-    const canvases: BriefCanvas[] = first ? [{ id: newPinId(), fileId: first.file_id, driveId: first.drive_file_id!, previewId: previewIdOf(first), name: first.file_name, note: "", pins: [] }] : [];
-    const extras: BriefExtra[] = imgs.filter(i => i !== first).map(i => ({ fileId: i.file_id, driveId: i.drive_file_id!, previewId: previewIdOf(i), name: i.file_name }));
-    return { ...EMPTY_BRIEF, canvases, extras };
-  });
+  // PRODUCTION MODE (seps / vector on a run): the graphic is final. No pins —
+  // the item's files by stage (print file · proof · mockup pre-checked) + one
+  // note written from the proof spec.
+  const production = target.kind === "item" && isProductionType(type);
+  const [prodFiles, setProdFiles] = useState<Set<string>>(() => new Set(imgs.filter(i => PRODUCTION_STAGES.includes(i.stage || "")).map(i => i.drive_file_id!)));
+  const [prodNote, setProdNote] = useState("");
+  const [prodNoteLoaded, setProdNoteLoaded] = useState(false);
+  useEffect(() => {
+    if (!production || prodNoteLoaded || target.kind !== "item") return;
+    fetch(`/api/studio/work-orders/prefill?itemId=${target.id}`).then(r => r.json()).then(j => { if (j.note && !prodNote) setProdNote(j.note); }).catch(() => {}).finally(() => setProdNoteLoaded(true));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [production]);
+  const toggleProdFile = (id: string) => setProdFiles(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  // Nothing is pre-selected: what goes to the designer is exactly what you tap
+  // (Jon, Aug 26: a hidden default set "could cause sending the wrong things").
+  const [spec, setSpec] = useState<BriefSpec>(() => ({ ...EMPTY_BRIEF, canvases: [], extras: [] }));
   const [headline, setHeadline] = useState("");
   const [instructions, setInstructions] = useState("");
   const [dueBy, setDueBy] = useState("");
@@ -93,16 +105,10 @@ export default function WorkOrderBuilder({ target, images, notes = [], onClose, 
   }, []);
 
   const isCanvas = (driveId: string) => spec.canvases.some(c => c.driveId === driveId);
-  const isExtra = (driveId: string) => spec.extras.some(e => e.driveId === driveId);
   function toggleCanvas(im: Img) {
     const id = im.drive_file_id!;
-    if (isCanvas(id)) setSpec(s => ({ ...s, canvases: s.canvases.filter(c => c.driveId !== id), extras: [...s.extras, { fileId: im.file_id, driveId: id, previewId: previewIdOf(im), name: im.file_name }] }));
-    else setSpec(s => ({ ...s, extras: s.extras.filter(e => e.driveId !== id), canvases: [...s.canvases, { id: newPinId(), fileId: im.file_id, driveId: id, previewId: previewIdOf(im), name: im.file_name, note: "", pins: [] }] }));
-  }
-  function toggleExtra(im: Img) {
-    const id = im.drive_file_id!;
-    if (isExtra(id)) setSpec(s => ({ ...s, extras: s.extras.filter(e => e.driveId !== id) }));
-    else setSpec(s => ({ ...s, extras: [...s.extras, { fileId: im.file_id, driveId: id, previewId: previewIdOf(im), name: im.file_name }] }));
+    if (isCanvas(id)) setSpec(s => ({ ...s, canvases: s.canvases.filter(c => c.driveId !== id) }));
+    else setSpec(s => ({ ...s, canvases: [...s.canvases, { id: newPinId(), fileId: im.file_id, driveId: id, previewId: previewIdOf(im), name: im.file_name, note: "", pins: [] }] }));
   }
   async function uploadPinImage(f: File) {
     const up = await uploadToDrive({ blob: f, fileName: f.name, mimeType: f.type || "image/png", ...uploadOpts, onProgress: undefined });
@@ -110,7 +116,18 @@ export default function WorkOrderBuilder({ target, images, notes = [], onClose, 
   }
   async function go() {
     setErr("");
-    if (!spec.canvases.length && !spec.extras.length) { setErr("Hand over at least one image."); return; }
+    if (production) {
+      if (!prodFiles.size) { setErr("Pick at least one file to hand over."); return; }
+      setBusy(true);
+      try {
+        const extras = imgs.filter(i => prodFiles.has(i.drive_file_id!)).map(i => ({ fileId: i.file_id, driveId: i.drive_file_id!, previewId: previewIdOf(i), name: i.file_name, label: STAGE_LABEL[i.stage || ""] || null }));
+        const r = await fetch(createUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: target.id, type, headline: null, instructions: prodNote.trim() || null, brief: { canvases: [], extras, conversation: [] }, dueBy: dueBy || null, designerName: designerName.trim() || null, designerEmail: designerEmail.trim() || null }) }).then(x => x.json());
+        if (r.error) { setErr(r.error); return; }
+        onCreated({ id: r.workOrder.id, url: r.url, emailSent: !!r.emailSent, emailSkipped: r.emailSkipped || null });
+      } finally { setBusy(false); }
+      return;
+    }
+    if (!spec.canvases.length) { setErr("Tap at least one image to send."); return; }
     const emptyPins = spec.canvases.some(c => c.pins.some(p => !p.text.trim() && !p.driveId));
     if (emptyPins) { setErr("A pin has nothing on it — give it words or an image, or remove it."); return; }
     setBusy(true);
@@ -122,7 +139,7 @@ export default function WorkOrderBuilder({ target, images, notes = [], onClose, 
     } finally { setBusy(false); }
   }
 
-  const handing = spec.canvases.length + spec.extras.length;
+  const handing = spec.canvases.length;
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 220, background: "rgba(0,0,0,.85)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "24px 10px", overflowY: "auto" }}>
       <div style={{ background: H.panel, border: `1px solid ${H.line}`, borderRadius: 20, width: "100%", maxWidth: 860, color: H.text, fontFamily: H.font, overflow: "hidden" }}>
@@ -136,23 +153,50 @@ export default function WorkOrderBuilder({ target, images, notes = [], onClose, 
           <button onClick={requestClose} aria-label="Close" style={{ background: "none", border: "none", color: H.dim, fontSize: 26, cursor: "pointer", lineHeight: 1 }}>×</button>
         </div>
 
-        <div style={{ padding: "8px 22px 0" }}>
+        {typeChoices.length > 1 && <div style={{ padding: "8px 22px 0" }}>
           <label style={lbl}>What do we need?</label>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8 }}>
-            {WO_TYPES.map(ty => { const on = type === ty.id; return (
+            {typeChoices.map(ty => { const on = type === ty.id; return (
               <button key={ty.id} type="button" onClick={() => setType(ty.id)} style={{ textAlign: "left", background: H.surface, border: on ? "1px solid #fff" : `1px solid ${H.line}`, boxShadow: on ? "inset 0 0 0 1px #fff" : "none", borderRadius: 10, padding: "11px 13px", cursor: "pointer", fontFamily: H.font }}>
                 <div style={{ fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", color: H.text }}>{ty.label}</div>
                 <div style={{ fontSize: 11, color: H.dim, marginTop: 2 }}>{ty.blurb}</div>
               </button>
             ); })}
           </div>
-        </div>
+        </div>}
 
+        {production ? (
+          <>
+            <div style={{ padding: "16px 22px 0" }}>
+              <label style={lbl}>Files for the designer · {prodFiles.size} of {imgs.length} · the graphic is final, they need the print file, proof and mockup</label>
+              {imgs.length === 0 ? <div style={{ fontSize: 12.5, color: H.faint }}>No files on this item yet — upload the print file in Product Builder first.</div> : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {[...PRODUCTION_STAGES, ...Array.from(new Set(imgs.map(i => i.stage || "other"))).filter(st => !PRODUCTION_STAGES.includes(st))].map(st => {
+                    const group = imgs.filter(i => (i.stage || "other") === st); if (!group.length) return null;
+                    return group.map(im => { const on = prodFiles.has(im.drive_file_id!); return (
+                      <button key={im.id} type="button" onClick={() => toggleProdFile(im.drive_file_id!)} style={{ display: "flex", alignItems: "center", gap: 10, textAlign: "left", background: on ? H.surface : "transparent", border: `1px solid ${on ? H.line : H.line2}`, borderRadius: 10, padding: "7px 10px", cursor: "pointer", color: H.text, fontFamily: H.font, opacity: on ? 1 : 0.5 }}>
+                        <span style={{ width: 40, height: 40, borderRadius: 7, overflow: "hidden", background: "#fff", flexShrink: 0 }}><img src={thumb(im.drive_file_id!, 200)} alt="" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.opacity = 0.2; }} /></span>
+                        <span style={{ ...tag(PRODUCTION_STAGES.includes(st) ? H.green : H.faint, 8.5), width: 64, flexShrink: 0 }}>{STAGE_LABEL[st] || "File"}</span>
+                        <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontFamily: H.mono, color: H.dim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{im.file_name}</span>
+                        <span style={{ flexShrink: 0, ...tag(on ? H.green : H.faint, 9) }}>{on ? "✓" : "off"}</span>
+                      </button>
+                    ); });
+                  })}
+                </div>
+              )}
+            </div>
+            <div style={{ padding: "16px 22px 0" }}>
+              <label style={lbl}>The note · written from the proof, edit anything</label>
+              <textarea value={prodNote} onChange={e => setProdNote(e.target.value)} rows={Math.min(14, Math.max(6, prodNote.split("\n").length + 1))} placeholder={prodNoteLoaded ? "Locations, sizes, placement, ink count, anything the designer needs…" : "Reading the proof…"} style={{ ...inp, resize: "vertical", fontFamily: H.mono, fontSize: 12.5, lineHeight: 1.5 }} />
+            </div>
+          </>
+        ) : (
+          <>
         <div style={{ padding: "16px 22px 0" }}>
-          <label style={lbl}>Pin the brief · tap a reference to pin on it</label>
+          <label style={lbl}>What goes to the designer · {spec.canvases.length ? `${spec.canvases.length} image${spec.canvases.length === 1 ? "" : "s"}` : "tap to add"} · pins are optional</label>
           <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4, alignItems: "center" }}>
               {imgs.map(im => { const on = isCanvas(im.drive_file_id!); return (
-                <button key={im.id} type="button" onClick={() => toggleCanvas(im)} title={on ? "Pinned canvas — tap to drop it" : "Tap to pin on this"} style={{ position: "relative", flexShrink: 0, width: 64, height: 64, borderRadius: 9, overflow: "hidden", background: "#fff", border: on ? "2px solid #fff" : `1px solid ${H.line}`, padding: 0, cursor: "pointer", opacity: on ? 1 : 0.55 }}>
+                <button key={im.id} type="button" onClick={() => toggleCanvas(im)} title={on ? "Going to the designer — tap to take it out" : "Tap to send this one"} style={{ position: "relative", flexShrink: 0, width: 64, height: 64, borderRadius: 9, overflow: "hidden", background: "#fff", border: on ? "2px solid #fff" : `1px solid ${H.line}`, padding: 0, cursor: "pointer", opacity: on ? 1 : 0.55 }}>
                   <img src={thumb(im.drive_file_id!, 300)} alt="" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.opacity = 0.2; }} />
                   {on && <span style={{ position: "absolute", right: 3, top: 3, background: H.amber, color: H.ink, borderRadius: 999, fontSize: 9, fontWeight: 900, width: 16, height: 16, display: "grid", placeItems: "center" }}>📌</span>}
                 </button>
@@ -171,9 +215,9 @@ export default function WorkOrderBuilder({ target, images, notes = [], onClose, 
         {spec.canvases.map((c, i) => (
           <div key={c.id} style={{ margin: "14px 22px 0", padding: 12, background: H.ink, border: `1px solid ${H.line2}`, borderRadius: 14 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-              <span style={tag(H.amber, 9)}>Canvas {i + 1}</span>
-              <span style={{ fontSize: 10.5, color: H.faint }}>{c.pins.length ? `${c.pins.length} pin${c.pins.length === 1 ? "" : "s"}` : "tap the image to drop pins"}</span>
-              <button type="button" onClick={() => setSpec(s => ({ ...s, canvases: s.canvases.filter(x => x.id !== c.id), extras: [...s.extras, { fileId: c.fileId, driveId: c.driveId, previewId: c.previewId, name: c.name }] }))} style={{ marginLeft: "auto", background: "none", border: "none", color: H.faint, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>Not a canvas</button>
+              <span style={tag(H.amber, 9)}>Image {i + 1}</span>
+              <span style={{ fontSize: 10.5, color: H.faint }}>{c.pins.length ? `${c.pins.length} pin${c.pins.length === 1 ? "" : "s"}` : "tap the image to drop a pin, or send it as-is"}</span>
+              <button type="button" onClick={() => setSpec(s => ({ ...s, canvases: s.canvases.filter(x => x.id !== c.id) }))} style={{ marginLeft: "auto", background: "none", border: "none", color: H.faint, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>Take it out</button>
             </div>
             <PinBrief canvas={c} imgSrc={(id, size) => thumb(id, size || 900)} onChange={next => setSpec(s => ({ ...s, canvases: s.canvases.map(x => x.id === c.id ? next : x) }))} onUploadImage={uploadPinImage} />
           </div>
@@ -183,7 +227,7 @@ export default function WorkOrderBuilder({ target, images, notes = [], onClose, 
           <label style={lbl}>The one line that rules <span style={{ color: H.faint }}>(optional)</span></label>
           <input value={headline} onChange={e => setHeadline(e.target.value)} placeholder="e.g. KEEP EXACT STYLE" style={{ ...inp, fontSize: 15, fontWeight: 800, textTransform: "uppercase" }} />
           <label style={{ ...lbl, marginTop: 12 }}>Notes <span style={{ color: H.faint }}>(optional)</span></label>
-          <textarea value={instructions} onChange={e => setInstructions(e.target.value)} rows={3} placeholder="Anything the pins don't say — colors, sizing, format, print method…" style={{ ...inp, resize: "vertical" }} />
+          <textarea value={instructions} onChange={e => setInstructions(e.target.value)} rows={3} placeholder="Anything the pins don't say — vibe, colors, format…" style={{ ...inp, resize: "vertical" }} />
         </div>
 
         {lines.length > 0 && (
@@ -201,20 +245,7 @@ export default function WorkOrderBuilder({ target, images, notes = [], onClose, 
             </div>}
           </div>
         )}
-
-        {imgs.some(im => !isCanvas(im.drive_file_id!)) && (
-          <div style={{ padding: "16px 22px 0" }}>
-            <label style={lbl}>Also hand over · {spec.extras.length} more</label>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {imgs.filter(im => !isCanvas(im.drive_file_id!)).map(im => { const on = isExtra(im.drive_file_id!); return (
-                <button key={im.id} type="button" onClick={() => toggleExtra(im)} style={{ position: "relative", width: 56, height: 56, borderRadius: 8, overflow: "hidden", background: "#fff", border: on ? "2px solid #fff" : `1px solid ${H.line}`, padding: 0, cursor: "pointer", opacity: on ? 1 : 0.35 }}>
-                  <img src={thumb(im.drive_file_id!, 300)} alt="" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.opacity = 0.2; }} />
-                  {on && <span style={{ position: "absolute", right: 3, top: 3, background: "#fff", color: H.ink, borderRadius: 999, fontSize: 9, fontWeight: 900, width: 15, height: 15, display: "grid", placeItems: "center" }}>✓</span>}
-                </button>
-              ); })}
-            </div>
-            <div style={{ fontSize: 11, color: H.faint, marginTop: 7 }}>The rest of the thread&rsquo;s references + drafts, for context. Tap to exclude any.</div>
-          </div>
+          </>
         )}
 
         <div style={{ padding: "16px 22px 0", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10 }}>
@@ -233,7 +264,7 @@ export default function WorkOrderBuilder({ target, images, notes = [], onClose, 
 
         {err && <div style={{ padding: "12px 22px 0", fontSize: 12, color: H.red }}>{err}</div>}
         <div style={{ padding: "16px 22px 20px", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-          <span style={{ fontSize: 11, color: H.faint }}>{handing} image{handing === 1 ? "" : "s"} · {spec.canvases.reduce((n, c) => n + c.pins.length, 0)} pins</span>
+          <span style={{ fontSize: 11, color: H.faint }}>{production ? `${prodFiles.size} file${prodFiles.size === 1 ? "" : "s"} · one note` : `${handing} image${handing === 1 ? "" : "s"} · ${spec.canvases.reduce((n, c) => n + c.pins.length, 0)} pins`}</span>
           <button disabled={busy} onClick={go} style={{ ...primaryBtn, marginLeft: "auto", padding: "13px 24px", opacity: busy ? 0.6 : 1 }}>{busy ? "Sending…" : designerEmail.trim() ? "Send the work order →" : "Create + copy the link →"}</button>
         </div>
       </div>

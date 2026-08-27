@@ -75,6 +75,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const b = await req.json().catch(() => ({}));
   const db = admin();
 
+  if (b.restore) {
+    const { error } = await db.from("art_briefs").update({ deleted_at: null, updated_at: new Date().toISOString() } as never).eq("id", params.id);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true });
+  }
   if (b.unbank) {
     const { data: brief } = await db.from("art_briefs").select("state").eq("id", params.id).maybeSingle();
     if (!brief) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -94,11 +99,14 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   return NextResponse.json({ ok: true });
 }
 
+// DELETE = SOFT (mig 167): stamps deleted_at; files, messages and designer
+// orders stay put; the studio's "Deleted" fold restores it (PATCH { restore }).
+// Aug 26: two hard deletes in one night, one unrecoverable. No hard delete
+// from the UI anymore.
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   if (!(await requireUser())) return NextResponse.json({ error: "Sign in" }, { status: 401 });
   const db = admin();
-  await db.from("products").delete().eq("brief_id", params.id);
-  const { error } = await db.from("art_briefs").delete().eq("id", params.id);
+  const { error } = await db.from("art_briefs").update({ deleted_at: new Date().toISOString(), updated_at: new Date().toISOString() } as never).eq("id", params.id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, soft: true });
 }
