@@ -29,7 +29,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
       // Aborted (client) or archived (HPD) briefs are recalled from the
       // designer's view. HPD still sees them in art-studio for 60 days
       // (repurpose window) — but the designer is done with them.
-      .is("client_aborted_at", null)
+      .is("client_aborted_at", null).is("deleted_at", null)
       .order("updated_at", { ascending: false });
 
     if (briefErr) console.error("[design portal] brief query error:", briefErr);

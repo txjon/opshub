@@ -32,7 +32,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
       // on the client side so the client can still see / download the
       // final design (watermark off, download enabled at this state).
       // Aborted briefs are still hidden.
-      .is("client_aborted_at", null)
+      .is("client_aborted_at", null).is("deleted_at", null)
       .order("updated_at", { ascending: false });
 
     const briefList = (briefs || []) as any[];

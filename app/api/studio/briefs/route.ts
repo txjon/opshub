@@ -17,14 +17,20 @@ async function requireUser() {
   return user;
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   if (!(await requireUser())) return NextResponse.json({ error: "Sign in" }, { status: 401 });
   const db = admin();
   const company = await getActiveCompany();
+  // The "Deleted" fold (mig 167): soft-deleted designs, restorable.
+  if (req.nextUrl.searchParams.get("deleted") === "1") {
+    const { data } = await db.from("art_briefs").select("id, title, state, deleted_at, clients!inner(id, name, company_id)").eq("clients.company_id", company.id).not("deleted_at", "is", null).order("deleted_at", { ascending: false }).limit(50);
+    return NextResponse.json({ briefs: ((data || []) as any[]).map(b => ({ id: b.id, title: b.title, state: b.state, deleted_at: b.deleted_at, client_name: b.clients?.name || null })) });
+  }
   const { data: briefs } = await db.from("art_briefs")
     .select("id, title, state, source, internal_only, client_aborted_at, approved_file_id, updated_at, created_at, clients!inner(id, name, company_id)")
     .eq("clients.company_id", company.id)
     .is("client_aborted_at", null)
+    .is("deleted_at", null)
     .order("updated_at", { ascending: false });
   const list = (briefs || []) as any[];
   const ids = list.map(b => b.id);
