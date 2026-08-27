@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { H, primaryBtn, ghostBtn, inp, lbl, tag, fmtStamp, fmtDue, ago } from "@/lib/studio-theme";
-import { woState, woTypeLabel, newPinId, type BriefSpec, type DesignWorkOrder, type WoTarget } from "@/lib/design-work-orders";
+import { woState, woTypeLabel, woWho, newPinId, type BriefSpec, type DesignWorkOrder, type WoTarget } from "@/lib/design-work-orders";
 import { createClient } from "@/lib/supabase/client";
 import PinBrief from "@/components/studio/PinBrief";
 import Lightbox, { type LightboxItem } from "@/components/studio/Lightbox";
@@ -37,17 +37,18 @@ export default function WorkOrderPanel({ woId, target, notes = [], inline, onClo
   const [copied, setCopied] = useState(false);
   const [copiedSlack, setCopiedSlack] = useState(false);
   const [resent, setResent] = useState("");
-  // A paste-ready blurb for Slack (the interim pointer): what, when, the link.
-  // Never the client's name.
+  // A paste-ready blurb for Slack: client and design up front (Jon, Aug 26:
+  // the designer sees the client — it's going in the art — and it makes Slack
+  // searchable), then what/when, the link, one line on delivery.
   function slackCopy(): string {
     if (!wo) return "";
-    const what = `${woTypeLabel(wo.type)} · ${wo.title || "design"}${target.jobNumber ? ` (${target.jobNumber})` : ""}`;
+    const who = target.clientName ? `${target.clientName} · ` : "";
+    const job = target.jobNumber ? ` · ${target.jobNumber}` : "";
     const lines = [
-      `Work order — ${what}${wo.due_by ? ` · due ${fmtDue(wo.due_by)}` : ""}`,
+      `${who}${wo.title || "Design"}${job} — ${woTypeLabel(wo.type)}${wo.due_by ? ` · due ${fmtDue(wo.due_by)}` : ""}`,
       wo.headline ? wo.headline : null,
-      `Brief, files and delivery are all at the link (no login):`,
       url,
-      `Deliver the file on that page — it lands on our side instantly.`,
+      `Brief, files and delivery are all on that page, no login. Upload your work there.`,
     ].filter(Boolean);
     return lines.join("\n");
   }
@@ -109,6 +110,12 @@ export default function WorkOrderPanel({ woId, target, notes = [], inline, onClo
     setBusy(true); try { await fetch(`/api/studio/work-orders/${woId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "kill" }) }); await refresh(); } finally { setBusy(false); }
   }
   async function reopen() { setBusy(true); try { await fetch(`/api/studio/work-orders/${woId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "reopen" }) }); await refresh(); } finally { setBusy(false); } }
+  // A pulled order can be deleted outright (declutter): the order and its
+  // thread go; any file already filed on the design / item stays.
+  async function deleteOrder() {
+    if (!await confirm({ title: "Delete this order?", message: "The order and its thread are removed for good. Files it already delivered stay on the design. The link is already dead.", confirmLabel: "Delete order" })) return;
+    setBusy(true); try { await fetch(`/api/studio/work-orders/${woId}`, { method: "DELETE" }); onChanged?.(); onClose(); } finally { setBusy(false); }
+  }
   function startEdit() { if (!wo) return; setDraft({ headline: wo.headline || "", instructions: wo.instructions || "", dueBy: wo.due_by || "", brief: JSON.parse(JSON.stringify(wo.brief || { canvases: [], extras: [] })) }); setEditing(true); setShowBrief(true); }
   async function saveEdit() {
     if (!draft) return; setBusy(true); setErr("");
@@ -156,7 +163,7 @@ export default function WorkOrderPanel({ woId, target, notes = [], inline, onClo
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, padding: inline ? "12px 22px 4px" : "18px 22px 6px" }}>
         <div style={{ minWidth: 0 }}>
           {!inline && <div style={tag(H.faint, 9.5)}>Designer · Room 2</div>}
-          <div style={{ fontSize: inline ? 14 : 17, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", lineHeight: 1.2, marginTop: 2 }}>{woTypeLabel(wo.type)}{!inline && wo.title ? <span style={{ color: H.dim }}> · {wo.title}</span> : null}</div>
+          <div style={{ fontSize: inline ? 14 : 17, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", lineHeight: 1.2, marginTop: 2 }}>{inline ? <>{woWho(wo)} <span style={{ color: H.dim }}>· {woTypeLabel(wo.type)}</span></> : <>{woTypeLabel(wo.type)}{wo.title ? <span style={{ color: H.dim }}> · {wo.title}</span> : null}</>}</div>
           <div style={{ display: "flex", gap: 12, alignItems: "baseline", flexWrap: "wrap", marginTop: 5 }}>
             <span style={tag(st.color)}>{st.label}</span>
             {wo.due_by && <span style={{ fontSize: 10.5, fontFamily: H.mono, color: st.late ? H.red : H.faint }}>due {fmtDue(wo.due_by)}{st.late ? " · late" : ""}</span>}
@@ -174,6 +181,7 @@ export default function WorkOrderPanel({ woId, target, notes = [], inline, onClo
             <input readOnly value={url} onFocus={e => e.currentTarget.select()} style={{ ...inp, flex: 1, minWidth: 160, fontSize: 11, fontFamily: H.mono, padding: "8px 10px" }} />
             <button onClick={() => { navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 1500); }} style={ghostBtn}>{copied ? "✓ Copied" : "Copy"}</button>
             <a href={url} target="_blank" rel="noreferrer" style={{ ...ghostBtn, textDecoration: "none", display: "inline-block" }}>Open ↗</a>
+            <a href={`${url.replace(/\/designer\//, "/api/designer/")}/packet`} target="_blank" rel="noreferrer" title="The brief as a PDF (what the designer's Download package includes)" style={{ ...ghostBtn, textDecoration: "none", display: "inline-block" }}>PDF</a>
             <button onClick={() => { navigator.clipboard.writeText(slackCopy()); setCopiedSlack(true); setTimeout(() => setCopiedSlack(false), 1500); }} title="A paste-ready message with the link" style={ghostBtn}>{copiedSlack ? "✓ Copied" : "Copy for Slack"}</button>
             {wo.designer_email && <button disabled={busy} onClick={resend} title={`Email the link again to ${wo.designer_email}`} style={{ ...ghostBtn, color: H.blue, borderColor: "rgba(143,199,216,.4)", opacity: busy ? 0.6 : 1 }}>{resent ? `✓ ${resent}` : "Resend link"}</button>}
           </div>
@@ -297,7 +305,7 @@ export default function WorkOrderPanel({ woId, target, notes = [], inline, onClo
       {wo.state === "accepted" ? (
         <div style={{ padding: "16px 22px 20px", borderTop: `1px solid ${H.line}`, background: "rgba(88,201,60,.06)", fontSize: 13, color: H.dim }}><b style={{ color: H.green }}>✓ Accepted</b> · {fmtStamp(wo.updated_at)}. {target.kind === "item" ? "It's the item's print-ready file now — it rides the PO." : "The file is on the design (internal until you share it with the client)."}</div>
       ) : wo.state === "killed" ? (
-        <div style={{ padding: "16px 22px 20px", borderTop: `1px solid ${H.line}`, fontSize: 13, color: H.faint, display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}><span><b style={{ color: H.faint }}>✕ Pulled</b> · the link is dead.</span><button disabled={busy} onClick={reopen} style={{ ...ghostBtn, padding: "7px 12px" }}>↩ Reopen</button></div>
+        <div style={{ padding: "16px 22px 20px", borderTop: `1px solid ${H.line}`, fontSize: 13, color: H.faint, display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}><span><b style={{ color: H.faint }}>✕ Pulled</b> · the link is dead.</span><button disabled={busy} onClick={reopen} style={{ ...ghostBtn, padding: "7px 12px" }}>↩ Reopen</button><button disabled={busy} onClick={deleteOrder} style={{ background: "none", border: "none", color: H.faint, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }} onMouseEnter={e => (e.currentTarget.style.color = H.red)} onMouseLeave={e => (e.currentTarget.style.color = H.faint)}>Delete order</button></div>
       ) : (
         <>
           {deliveries.length > 0 && <div style={{ padding: "12px 22px 0" }}><button disabled={busy} onClick={accept} style={{ ...primaryBtn, width: "100%", padding: "13px", background: H.green, color: "#08210a" }}>✓ Accept — this is the file</button></div>}

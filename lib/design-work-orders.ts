@@ -65,6 +65,13 @@ export function woState(wo: Pick<DesignWorkOrder, "state" | "last_designer_at" |
   return { label: unread ? "Designer replied" : "With the designer", color: unread ? H.amber : H.dim, unread, late };
 }
 
+// Short state for a tab: "out · delivered ● · revising · ✓ accepted · pulled".
+export function woShort(wo: Pick<DesignWorkOrder, "state" | "last_designer_at" | "hpd_seen_at" | "due_by">): { text: string; color: string } {
+  const st = woState(wo);
+  const text = wo.state === "accepted" ? "✓ accepted" : wo.state === "killed" ? "pulled" : wo.state === "in_revision" ? "revising" : wo.state === "delivered" ? "delivered" : st.unread ? "replied" : "out";
+  return { text: st.unread ? `${text} ●` : text, color: st.color };
+}
+export const woWho = (wo: { designer_name?: string | null; designer_email?: string | null }) => wo.designer_name || (wo.designer_email ? wo.designer_email.split("@")[0] : null) || "Designer";
 export const isOpenWo = (s: WoState) => s !== "accepted" && s !== "killed";
 
 // Every Drive id a work order is allowed to serve to its designer — the

@@ -73,6 +73,7 @@ export default function DesignerPage({ params }: { params: { token: string } }) 
       <Lightbox item={lit} onClose={() => setLit(null)} />
       <div style={{ textAlign: "center" }}>
         <div style={tag(H.faint, 11)}>Work order · House Party Distro</div>
+        {(wo.client_name || wo.job_number) && <div style={{ ...tag(H.blue, 11), marginTop: 6 }}>{[wo.client_name, wo.job_number].filter(Boolean).join(" · ")}</div>}
         <h1 style={{ fontSize: "clamp(24px,5vw,40px)", fontWeight: 900, letterSpacing: "-0.02em", textTransform: "uppercase", margin: "8px 0 6px" }}>{wo.title || "Design"}</h1>
         <div style={{ display: "inline-flex", gap: 12, alignItems: "baseline", flexWrap: "wrap", justifyContent: "center" }}>
           <span style={tag(H.blue, 10.5)}>{woTypeLabel(wo.type)}</span>
@@ -80,6 +81,12 @@ export default function DesignerPage({ params }: { params: { token: string } }) 
           {wo.due_by && <span style={{ fontSize: 10.5, fontFamily: H.mono, color: H.faint }}>due {fmtDue(wo.due_by)}</span>}
         </div>
       </div>
+
+      <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap", marginTop: 16 }}>
+        <a href={`/api/designer/${token}/package`} style={{ ...primaryBtn, textDecoration: "none", display: "inline-block", padding: "11px 18px" }}>↓ Download package (.zip)</a>
+        <a href={`/api/designer/${token}/packet`} style={{ ...ghostBtn, textDecoration: "none", display: "inline-block", padding: "11px 16px" }}>PDF brief</a>
+      </div>
+      <div style={{ textAlign: "center", fontSize: 10.5, color: H.faint, marginTop: 6 }}>Every file at full resolution + the brief as a PDF, for working offline. Upload your work below.</div>
 
       {wo.headline && <div style={{ marginTop: 22, textAlign: "center", fontSize: "clamp(18px,3.5vw,26px)", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.02em", background: H.blue, color: H.ink, borderRadius: 10, padding: "12px 16px" }}>{wo.headline}</div>}
 

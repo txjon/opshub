@@ -5,7 +5,7 @@ import ThumbIcon from "@/components/ThumbIcon";
 // @ts-ignore — plain-JS lib, no declarations
 import { uploadToDrive } from "@/lib/drive-upload-client";
 import { H, primaryBtn, ghostBtn, inp, lbl, tag, ago, fmtDue } from "@/lib/studio-theme";
-import { woState, woTypeLabel } from "@/lib/design-work-orders";
+import { woState, woTypeLabel, woShort, woWho } from "@/lib/design-work-orders";
 import WorkOrderBuilder from "@/components/studio/WorkOrderBuilder";
 import WorkOrderPanel from "@/components/studio/WorkOrderPanel";
 import { useConfirm } from "@/components/useConfirm";
@@ -44,6 +44,17 @@ export default function StudioPage() {
   const [deleted, setDeleted] = useState<any[]>([]);
   const [showDeleted, setShowDeleted] = useState(false);
   async function restoreBrief(id: string) { await fetch(`/api/studio/briefs/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ restore: true }) }); await loadList(); }
+  const [confirmList, confirmListEl] = useConfirm();
+  // From the killed fold: soft delete (to the Deleted fold). From the Deleted
+  // fold: forever — the real cascade, named, confirmed, two steps from live.
+  async function softDelete(b: any) {
+    if (!await confirmList({ title: `Delete "${b.title || "Untitled"}"?`, message: "It moves to the Deleted fold. Files, the conversation and designer orders stay with it; restore anytime.", confirmLabel: "Delete" })) return;
+    await fetch(`/api/studio/briefs/${b.id}`, { method: "DELETE" }); await loadList();
+  }
+  async function deleteForever(b: any) {
+    if (!await confirmList({ title: `Delete "${b.title || "Untitled"}" forever?`, message: "This is the real one: the design, its files, the conversation and every designer order on it are gone for good. Drive keeps the bytes, nothing else does.", confirmLabel: "Delete forever" })) return;
+    await fetch(`/api/studio/briefs/${b.id}?forever=1`, { method: "DELETE" }); await loadList();
+  }
   // A click outside the sheet closes it — unless there's an unsent note or
   // attachment in the composer (Jon: losing work on a stray click sucks).
   const sheetDirty = useRef(false);
@@ -129,6 +140,7 @@ export default function StudioPage() {
         @media(prefers-reduced-motion:reduce){.st-card,.st-card:hover{transition:none;transform:none}}
       ` }} />
 
+      {confirmListEl}
       <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase", color: H.faint }}>Everything before a job</div>
       <div style={{ display: "flex", alignItems: "baseline", gap: 16, flexWrap: "wrap", margin: "6px 0 4px" }}>
         <h1 style={{ fontSize: "clamp(34px,5vw,60px)", fontWeight: 900, lineHeight: 0.98, letterSpacing: "-0.02em", textTransform: "uppercase", margin: 0 }}>The studio.</h1>
@@ -247,7 +259,16 @@ export default function StudioPage() {
           <button onClick={() => setShowKilled(v => !v)} style={{ background: "none", border: "none", color: H.faint, fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font, padding: 0 }}>
             <span style={{ color: H.red }}>✕</span> {killed.length} killed · {showKilled ? "hide" : "show"}
           </button>
-          {showKilled && <div className="st-grid" style={{ marginTop: 14, opacity: 0.5 }}>{killed.map(card)}</div>}
+          {showKilled && (
+            <div className="st-grid" style={{ marginTop: 14, opacity: 0.6 }}>
+              {killed.map(b => (
+                <div key={b.id} style={{ position: "relative" }}>
+                  {card(b)}
+                  <button onClick={e => { e.stopPropagation(); softDelete(b); }} title="Delete this design (to the Deleted fold)" style={{ position: "absolute", top: 8, right: 8, background: "rgba(10,10,10,.85)", color: H.red, border: "none", borderRadius: 999, padding: "5px 11px", fontSize: 9, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>Delete</button>
+                </div>
+              ))}
+            </div>
+          )}
         </section>
       )}
 
@@ -265,6 +286,7 @@ export default function StudioPage() {
                     <span style={{ display: "block", fontSize: 10, fontFamily: H.mono, color: H.faint, marginTop: 2 }}>{b.client_name || "—"} · deleted {fmt(b.deleted_at)}</span>
                   </span>
                   <button onClick={() => restoreBrief(b.id)} style={{ ...ghostBtn, padding: "7px 12px", color: H.green, borderColor: "rgba(88,201,60,.4)" }}>↩ Restore</button>
+                  <button onClick={() => deleteForever(b)} style={{ background: "none", border: "none", color: H.faint, fontSize: 10, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }} onMouseEnter={e => (e.currentTarget.style.color = H.red)} onMouseLeave={e => (e.currentTarget.style.color = H.faint)}>Forever</button>
                 </div>
               ))}
             </div>
@@ -507,12 +529,12 @@ function BriefSheet({ detail, onRefresh, onClose, openWoId, setOpenWoId, onDirty
       {(wos.length > 0 || b.state !== "killed") && (
         <div style={{ display: "flex", alignItems: "center", gap: 18, padding: "10px 22px 0", borderBottom: `1px solid ${H.line2}`, overflowX: "auto" }}>
           <button onClick={() => switchTab(null)} style={{ background: "none", border: "none", borderBottom: tab === "design" ? "2px solid #fff" : "2px solid transparent", color: tab === "design" ? H.text : H.faint, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font, padding: "6px 0 9px", whiteSpace: "nowrap" }}>Design</button>
-          {wos.map((w: any) => { const st = woState(w); const on = tab === w.id; return (
-            <button key={w.id} onClick={() => switchTab(w.id)} style={{ background: "none", border: "none", borderBottom: on ? "2px solid #fff" : "2px solid transparent", color: on ? H.text : H.faint, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font, padding: "6px 0 9px", whiteSpace: "nowrap", display: "inline-flex", gap: 8, alignItems: "baseline" }}>
-              <span>Designer · {woTypeLabel(w.type)}</span><span style={tag(st.color, 9)}>{st.unread ? "●" : ""} {st.label}</span>
+          {wos.map((w: any) => { const sh = woShort(w); const on = tab === w.id; return (
+            <button key={w.id} onClick={() => switchTab(w.id)} title={`${woTypeLabel(w.type)} · ${woState(w).label}`} style={{ background: "none", border: "none", borderBottom: on ? "2px solid #fff" : "2px solid transparent", color: on ? H.text : H.faint, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font, padding: "6px 0 9px", whiteSpace: "nowrap", display: "inline-flex", gap: 8, alignItems: "baseline", opacity: w.state === "killed" && !on ? 0.5 : 1 }}>
+              <span>{woWho(w)}</span><span style={tag(sh.color, 9)}>{sh.text}</span>
             </button>
           ); })}
-          {b.state !== "killed" && <button onClick={() => setWoBuilder(true)} disabled={!images.length} title={images.length ? "Pin the brief on a reference and send it" : "Drop a reference in the thread first"} style={{ marginLeft: "auto", background: "none", border: "none", color: H.blue, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font, padding: "6px 0 9px", whiteSpace: "nowrap", opacity: images.length ? 1 : 0.4 }}>+ Hand to a designer</button>}
+          {b.state !== "killed" && <button onClick={() => setWoBuilder(true)} disabled={!images.length} title={images.length ? (wos.length ? "Start another order on this design" : "Pin the brief on a reference and send it") : "Drop a reference in the thread first"} style={{ marginLeft: "auto", background: "none", border: "none", color: H.blue, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font, padding: "6px 0 9px", whiteSpace: "nowrap", opacity: images.length ? 1 : 0.4 }}>{wos.length ? "+ New order" : "Send to designer"}</button>}
         </div>
       )}
       {woNotice && <div style={{ margin: "8px 22px 0", fontSize: 12, color: H.green }}>{woNotice}</div>}

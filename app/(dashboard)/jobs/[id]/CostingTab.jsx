@@ -1282,8 +1282,8 @@ const CostingTab=({project,buyItems=[],contacts=[],onUpdateBuyItems,costProds,se
                     the decorator flow (mig 166; replaced art pricing Aug 26). */}
                 <button onClick={()=>setShowArtReqModal(true)}
                   style={{height:32,borderRadius:8,fontSize:11.5,fontWeight:600,cursor:"pointer",background:"transparent",border:`1px solid ${T.border}`,color:T.muted,fontFamily:font,width:"100%"}}
-                  title="Hand an item to a designer — pinned brief, private link, delivery lands on the item">
-                  Hand to a designer</button>
+                  title="Send an item to a designer — pinned brief, private link, delivery lands on the item">
+                  Send to designer</button>
                 {pullResult && (
                   <span style={{fontSize:10.5,color:T.muted,fontFamily:font,textAlign:"center"}}>{pullResult}</span>
                 )}
