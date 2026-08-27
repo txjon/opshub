@@ -44,6 +44,17 @@ export default function StudioPage() {
   const [deleted, setDeleted] = useState<any[]>([]);
   const [showDeleted, setShowDeleted] = useState(false);
   async function restoreBrief(id: string) { await fetch(`/api/studio/briefs/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ restore: true }) }); await loadList(); }
+  const [confirmList, confirmListEl] = useConfirm();
+  // From the killed fold: soft delete (to the Deleted fold). From the Deleted
+  // fold: forever — the real cascade, named, confirmed, two steps from live.
+  async function softDelete(b: any) {
+    if (!await confirmList({ title: `Delete "${b.title || "Untitled"}"?`, message: "It moves to the Deleted fold. Files, the conversation and designer orders stay with it; restore anytime.", confirmLabel: "Delete" })) return;
+    await fetch(`/api/studio/briefs/${b.id}`, { method: "DELETE" }); await loadList();
+  }
+  async function deleteForever(b: any) {
+    if (!await confirmList({ title: `Delete "${b.title || "Untitled"}" forever?`, message: "This is the real one: the design, its files, the conversation and every designer order on it are gone for good. Drive keeps the bytes, nothing else does.", confirmLabel: "Delete forever" })) return;
+    await fetch(`/api/studio/briefs/${b.id}?forever=1`, { method: "DELETE" }); await loadList();
+  }
   // A click outside the sheet closes it — unless there's an unsent note or
   // attachment in the composer (Jon: losing work on a stray click sucks).
   const sheetDirty = useRef(false);
@@ -129,6 +140,7 @@ export default function StudioPage() {
         @media(prefers-reduced-motion:reduce){.st-card,.st-card:hover{transition:none;transform:none}}
       ` }} />
 
+      {confirmListEl}
       <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase", color: H.faint }}>Everything before a job</div>
       <div style={{ display: "flex", alignItems: "baseline", gap: 16, flexWrap: "wrap", margin: "6px 0 4px" }}>
         <h1 style={{ fontSize: "clamp(34px,5vw,60px)", fontWeight: 900, lineHeight: 0.98, letterSpacing: "-0.02em", textTransform: "uppercase", margin: 0 }}>The studio.</h1>
@@ -247,7 +259,16 @@ export default function StudioPage() {
           <button onClick={() => setShowKilled(v => !v)} style={{ background: "none", border: "none", color: H.faint, fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font, padding: 0 }}>
             <span style={{ color: H.red }}>✕</span> {killed.length} killed · {showKilled ? "hide" : "show"}
           </button>
-          {showKilled && <div className="st-grid" style={{ marginTop: 14, opacity: 0.5 }}>{killed.map(card)}</div>}
+          {showKilled && (
+            <div className="st-grid" style={{ marginTop: 14, opacity: 0.6 }}>
+              {killed.map(b => (
+                <div key={b.id} style={{ position: "relative" }}>
+                  {card(b)}
+                  <button onClick={e => { e.stopPropagation(); softDelete(b); }} title="Delete this design (to the Deleted fold)" style={{ position: "absolute", top: 8, right: 8, background: "rgba(10,10,10,.85)", color: H.red, border: "none", borderRadius: 999, padding: "5px 11px", fontSize: 9, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>Delete</button>
+                </div>
+              ))}
+            </div>
+          )}
         </section>
       )}
 
@@ -265,6 +286,7 @@ export default function StudioPage() {
                     <span style={{ display: "block", fontSize: 10, fontFamily: H.mono, color: H.faint, marginTop: 2 }}>{b.client_name || "—"} · deleted {fmt(b.deleted_at)}</span>
                   </span>
                   <button onClick={() => restoreBrief(b.id)} style={{ ...ghostBtn, padding: "7px 12px", color: H.green, borderColor: "rgba(88,201,60,.4)" }}>↩ Restore</button>
+                  <button onClick={() => deleteForever(b)} style={{ background: "none", border: "none", color: H.faint, fontSize: 10, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }} onMouseEnter={e => (e.currentTarget.style.color = H.red)} onMouseLeave={e => (e.currentTarget.style.color = H.faint)}>Forever</button>
                 </div>
               ))}
             </div>
