@@ -30,8 +30,8 @@ export async function createWorkOrder(t: ResolvedTarget, b: CreateWoInput, who: 
   } as never).select("*").single();
   if (error || !wo) return { error: error?.message || "Failed", status: 500 };
 
-  const seed = [b.headline, b.instructions].map(x => (x ? String(x).trim() : "")).filter(Boolean).join("\n\n") || "Brief's above — pins on the reference. Deliver the file here when it's ready.";
-  await db.from("design_wo_messages").insert({ work_order_id: (wo as any).id, sender_role: "hpd", sender_name: who.name, body: seed, kind: "comment" } as never);
+  // No seed message: the headline + notes render in the brief itself (a copy
+  // in the thread just read as redundant — Jon, Aug 26). The thread is for talk.
 
   // The link is ALWAYS the tenant's real domain (the DB is shared, so a prod
   // link is the only one that works for an outsider). A dev box never emails
