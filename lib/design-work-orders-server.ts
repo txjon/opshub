@@ -178,33 +178,24 @@ export function sanitizeSpec(raw: any, ok: Set<string>): BriefSpec {
 }
 
 // The production note, written from the item's proof spec (the proof IS the
-// brief for seps): garment, print type, ink count, every location with size +
-// placement. Editable before send; a fallback line when there's no proof yet.
+// brief for seps). Jon's edit of the first draft set the shape: name · job,
+// method · print type, each PRINT location with its size, the deliver line.
+// No ink count (that's the separator's call), no blank, no callouts, no
+// finishing, and size/neck tags aren't art — they're skipped.
 export async function productionNoteForItem(itemId: string): Promise<string> {
   const db = woDb();
-  const { data: it } = await db.from("items").select("name, blank_vendor, blank_sku, garment_type, proof_spec, jobs:job_id(job_number)").eq("id", itemId).maybeSingle();
+  const { data: it } = await db.from("items").select("name, proof_spec, jobs:job_id(job_number)").eq("id", itemId).maybeSingle();
   if (!it) return "";
   const ps: any = (it as any).proof_spec || null;
   const lines: string[] = [];
   const head = [(it as any).name, (it as any).jobs?.job_number].filter(Boolean).join(" · ");
   if (head) lines.push(head);
-  const method = [...(ps?.methods || [])].filter(Boolean).join(" + ");
-  const tech = [method, ps?.printType, ps?.colorCount ? `${ps.colorCount} color${ps.colorCount === 1 ? "" : "s"}` : null].filter(Boolean).join(" · ");
+  const tech = [[...(ps?.methods || [])].filter(Boolean).join(" + "), ps?.printType].filter(Boolean).join(" · ");
   if (tech) lines.push(tech);
-  const blank = [(it as any).blank_vendor || ps?.blankVendor, (it as any).blank_sku || ps?.blankColor].filter(Boolean).join(" · ");
-  if (blank) lines.push(`Blank: ${blank}`);
-  const locs = (ps?.locations || []) as any[];
-  if (locs.length) {
-    lines.push("");
-    for (const l of locs) {
-      const names = (l.colors || []).map((c: any) => c?.name).filter((n: any) => n && !/^separations?$/i.test(n));
-      const sizeTagLike = names.length && names.every((n: string) => /^\d?x{0,3}[sml]$/i.test(n) || /^\d+xl$/i.test(n));
-      lines.push([l.placement, l.sizeText, l.callout, sizeTagLike ? `sizes ${names.join("/")}` : (names.length ? names.join(", ") : null)].filter(Boolean).join(" · "));
-    }
-  }
-  if (ps?.finishing?.length) { lines.push(""); lines.push(`Finishing: ${ps.finishing.join(", ")}`); }
+  const locs = ((ps?.locations || []) as any[]).filter(l => !/tag|label|neck/i.test(String(l.placement || "")));
+  if (locs.length) { lines.push(""); for (const l of locs) lines.push([l.placement, l.sizeText].filter(Boolean).join(" · ")); }
+  else lines.push("", "No proof on this item yet — list each print location and its size here.");
   if (ps?.notes) { lines.push(""); lines.push(String(ps.notes).trim()); }
-  if (!locs.length) lines.push("", "No proof on this item yet — add locations, sizes and placement here.");
   lines.push("", "Deliver: separations per location, print-ready, named by location.");
   return lines.join("\n");
 }
