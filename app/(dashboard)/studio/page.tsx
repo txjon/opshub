@@ -534,7 +534,7 @@ function BriefSheet({ detail, onRefresh, onClose, openWoId, setOpenWoId, onDirty
               <span>{woWho(w)}</span><span style={tag(sh.color, 9)}>{sh.text}</span>
             </button>
           ); })}
-          {b.state !== "killed" && <button onClick={() => setWoBuilder(true)} disabled={!images.length} title={images.length ? "Pin the brief on a reference and send it" : "Drop a reference in the thread first"} style={{ marginLeft: "auto", background: "none", border: "none", color: H.blue, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font, padding: "6px 0 9px", whiteSpace: "nowrap", opacity: images.length ? 1 : 0.4 }}>+ Hand to a designer</button>}
+          {b.state !== "killed" && <button onClick={() => setWoBuilder(true)} disabled={!images.length} title={images.length ? (wos.length ? "Start another order on this design" : "Pin the brief on a reference and send it") : "Drop a reference in the thread first"} style={{ marginLeft: "auto", background: "none", border: "none", color: H.blue, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font, padding: "6px 0 9px", whiteSpace: "nowrap", opacity: images.length ? 1 : 0.4 }}>{wos.length ? "+ New order" : "Send to designer"}</button>}
         </div>
       )}
       {woNotice && <div style={{ margin: "8px 22px 0", fontSize: 12, color: H.green }}>{woNotice}</div>}

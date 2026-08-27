@@ -147,7 +147,7 @@ export default function WorkOrderBuilder({ target, images, notes = [], onClose, 
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, padding: "18px 22px 6px" }}>
           <div>
             <div style={tag(H.faint, 9.5)}>Designer · Room 2</div>
-            <div style={{ fontSize: 18, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", marginTop: 2 }}>Hand to a designer</div>
+            <div style={{ fontSize: 18, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", marginTop: 2 }}>Send to designer</div>
             <div style={{ fontSize: 11.5, color: H.faint, marginTop: 4 }}>{target.title || "Design"}{target.jobNumber ? ` · ${target.jobNumber}` : ""} · the client&rsquo;s name stays here</div>
           </div>
           <button onClick={requestClose} aria-label="Close" style={{ background: "none", border: "none", color: H.dim, fontSize: 26, cursor: "pointer", lineHeight: 1 }}>×</button>

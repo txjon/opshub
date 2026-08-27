@@ -60,7 +60,7 @@ export default function ItemWorkOrders({ open, job, onClose, openWoId }: Props) 
             {active && activeWo ? (
               <button onClick={() => setActive(null)} style={{ background: "none", border: "none", color: H.text, fontSize: 18, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", lineHeight: 1.2, marginTop: 2, cursor: "pointer", fontFamily: H.font, padding: 0, textAlign: "left" }}>‹ Orders <span style={{ color: H.dim }}>· {activeWo.design_title || "Item"}</span></button>
             ) : (
-              <div style={{ fontSize: 18, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", lineHeight: 1.2, marginTop: 2 }}>Hand to a designer</div>
+              <div style={{ fontSize: 18, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", lineHeight: 1.2, marginTop: 2 }}>Send to designer</div>
             )}
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>

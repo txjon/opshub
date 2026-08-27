@@ -1106,8 +1106,8 @@ export function ProductBuilder({ project, items, contacts, onItemsChanged, onReg
                   style={{ background: "none", border: "none", color: T.muted, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font, display: "inline-flex", alignItems: "center", gap: 6, padding: "2px 4px" }}
                   onMouseEnter={e => { e.currentTarget.style.color = T.accent; }}
                   onMouseLeave={e => { e.currentTarget.style.color = T.muted; }}
-                  title="Hand an item to a designer — pinned brief, private link, delivery lands on the item">
-                  Hand to a designer →
+                  title="Send an item to a designer — pinned brief, private link, delivery lands on the item">
+                  Send to designer →
                 </button>
               </div>
             )}
