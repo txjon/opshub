@@ -83,10 +83,10 @@ export default function DesignerPage({ params }: { params: { token: string } }) 
       </div>
 
       <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap", marginTop: 16 }}>
-        <a href={`/api/designer/${token}/package`} style={{ ...primaryBtn, textDecoration: "none", display: "inline-block", padding: "11px 18px" }}>↓ Download package (.zip)</a>
-        <a href={`/api/designer/${token}/packet`} style={{ ...ghostBtn, textDecoration: "none", display: "inline-block", padding: "11px 16px" }}>PDF brief</a>
+        <a href={`/api/designer/${token}/package`} style={{ ...primaryBtn, textDecoration: "none", display: "inline-block", padding: "11px 18px" }}>{spec.canvases.length ? "↓ Download package (.zip)" : "↓ Download all files (.zip)"}</a>
+        {spec.canvases.length > 0 && <a href={`/api/designer/${token}/packet`} style={{ ...ghostBtn, textDecoration: "none", display: "inline-block", padding: "11px 16px" }}>PDF brief</a>}
       </div>
-      <div style={{ textAlign: "center", fontSize: 10.5, color: H.faint, marginTop: 6 }}>Every file at full resolution + the brief as a PDF, for working offline. Upload your work below.</div>
+      <div style={{ textAlign: "center", fontSize: 10.5, color: H.faint, marginTop: 6 }}>{spec.canvases.length ? "Every file at full resolution + the brief as a PDF, for working offline. Upload your work below." : "Every file at full resolution. Upload your work below."}</div>
 
       {wo.headline && <div style={{ marginTop: 22, textAlign: "center", fontSize: "clamp(18px,3.5vw,26px)", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.02em", background: H.blue, color: H.ink, borderRadius: 10, padding: "12px 16px" }}>{wo.headline}</div>}
 
