@@ -114,9 +114,12 @@ export async function packetPdf(wo: DesignWorkOrder, t: ResolvedTarget, messages
 // compressed and the designer wants it now.
 export async function packageZipStream(wo: DesignWorkOrder, t: ResolvedTarget, messages: any[]): Promise<{ stream: ReadableStream<Uint8Array>; name: string }> {
   const spec: BriefSpec = wo.brief || { canvases: [], extras: [] };
-  const html = await packetHtml(wo, t, messages);
-  let pdf: Buffer | null = null;
-  try { pdf = await generatePDF(html); } catch { pdf = null; }
+  // A production order (seps / vector: no canvases) is just the files — the
+  // graphic is final, the note is on the page. No brief.pdf, no manifest,
+  // no folders (Jon, Aug 26).
+  const filesOnly = spec.canvases.length === 0;
+  let html = "", pdf: Buffer | null = null;
+  if (!filesOnly) { html = await packetHtml(wo, t, messages); try { pdf = await generatePDF(html); } catch { pdf = null; } }
   const want: { id: string; folder: string; label: string }[] = [];
   const seen = new Set<string>();
   const add = (id: string | null | undefined, folder: string, label: string) => { if (id && !seen.has(id)) { seen.add(id); want.push({ id, folder, label }); } };
@@ -127,8 +130,10 @@ export async function packageZipStream(wo: DesignWorkOrder, t: ResolvedTarget, m
 
   const archive = archiver("zip", { store: true });
   const manifest: string[] = [`${t.title} — work order (${woTypeLabel(wo.type)})`, `Packaged ${new Date().toISOString().slice(0, 16).replace("T", " ")} UTC`, ""];
-  if (pdf) { archive.append(pdf, { name: "brief.pdf" }); manifest.push("brief.pdf — the design packet"); }
-  else { archive.append(Buffer.from(html, "utf8"), { name: "brief.html" }); manifest.push("brief.html — the design packet (open in a browser)"); }
+  if (!filesOnly) {
+    if (pdf) { archive.append(pdf, { name: "brief.pdf" }); manifest.push("brief.pdf — the design packet"); }
+    else { archive.append(Buffer.from(html, "utf8"), { name: "brief.html" }); manifest.push("brief.html — the design packet (open in a browser)"); }
+  }
   const used = new Set<string>();
   const uniq = (n: string) => { let k = n, i = 2; while (used.has(k)) { const dot = n.lastIndexOf("."); k = dot > 0 ? `${n.slice(0, dot)} (${i})${n.slice(dot)}` : `${n} (${i})`; i++; } used.add(k); return k; };
   // Pump files sequentially in the background; the response starts streaming
@@ -143,12 +148,12 @@ export async function packageZipStream(wo: DesignWorkOrder, t: ResolvedTarget, m
         await new Promise<void>((resolve, reject) => {
           const src = Readable.fromWeb(body as any);
           src.on("end", resolve); src.on("error", reject);
-          archive.append(src, { name: `${w.folder}/${name}` });
+          archive.append(src, { name: filesOnly ? name : `${w.folder}/${name}` });
         });
       }
-      archive.append(Buffer.from(manifest.join("\n"), "utf8"), { name: "manifest.txt" });
+      if (!filesOnly) archive.append(Buffer.from(manifest.join("\n"), "utf8"), { name: "manifest.txt" });
       await archive.finalize();
     } catch (e) { archive.abort(); console.error("[designer-door] zip stream failed", (e as any)?.message || e); }
   })();
-  return { stream: Readable.toWeb(archive as any) as ReadableStream<Uint8Array>, name: `${safeName(t.title, "design")} - work order.zip` };
+  return { stream: Readable.toWeb(archive as any) as ReadableStream<Uint8Array>, name: `${safeName(t.title, "design")} - ${filesOnly ? "files" : "work order"}.zip` };
 }
