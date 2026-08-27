@@ -50,7 +50,8 @@ export default function WorkOrderPanel({ woId, target, notes = [], images = [], 
     const who = target.clientName ? `${target.clientName} · ` : "";
     const job = target.jobNumber ? ` · ${target.jobNumber}` : "";
     const lines = [
-      `${who}${wo.title || "Design"}${job} — ${woTypeLabel(wo.type)}${wo.due_by ? ` · due ${fmtDue(wo.due_by)}` : ""}`,
+      `${woTypeLabel(wo.type)} request${wo.due_by ? ` · due ${fmtDue(wo.due_by)}` : ""}`,
+      `${who}${wo.title || "Design"}${job}`,
       wo.headline ? wo.headline : null,
       url,
       `Brief, files and delivery are all on that page, no login. Upload your work there.`,
