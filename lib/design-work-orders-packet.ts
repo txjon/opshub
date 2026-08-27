@@ -8,7 +8,7 @@ import archiver from "archiver";
 import { Readable } from "stream";
 import { generatePDF } from "@/lib/pdf/browser";
 import { proxyDriveFile, driveFileMeta, driveFileStream } from "@/lib/drive-proxy";
-import { woTypeLabel, type BriefSpec, type DesignWorkOrder } from "@/lib/design-work-orders";
+import { woTypeLabel, isProductionType, type BriefSpec, type DesignWorkOrder } from "@/lib/design-work-orders";
 import type { ResolvedTarget } from "@/lib/design-work-orders-server";
 
 
@@ -117,7 +117,7 @@ export async function packageZipStream(wo: DesignWorkOrder, t: ResolvedTarget, m
   // A production order (seps / vector: no canvases) is just the files — the
   // graphic is final, the note is on the page. No brief.pdf, no manifest,
   // no folders (Jon, Aug 26).
-  const filesOnly = spec.canvases.length === 0;
+  const filesOnly = isProductionType(wo.type) || spec.canvases.length === 0;
   let html = "", pdf: Buffer | null = null;
   if (!filesOnly) { html = await packetHtml(wo, t, messages); try { pdf = await generatePDF(html); } catch { pdf = null; } }
   const want: { id: string; folder: string; label: string }[] = [];
