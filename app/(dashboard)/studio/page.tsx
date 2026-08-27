@@ -448,7 +448,13 @@ function BriefSheet({ detail, onRefresh, onClose, openWoId, setOpenWoId, onDirty
     const picked = Array.from(list).map(f => ({ f, url: URL.createObjectURL(f) }));
     setStagedList(prev => [...prev, ...picked]);
   }
-  async function delBrief() { if (!confirm(`Delete "${b.title}"? This removes the design and its whole thread. Can't be undone.`)) return; await fetch(`/api/studio/briefs/${b.id}`, { method: "DELETE" }); onClose(); await onRefresh(); }
+  // Deleting the DESIGN (not an order on it). Named in the title, styled
+  // modal, never from an order tab — Aug 26: Jon deleted Cable Management
+  // thinking he was pulling a test order. Restored by hand from Drive.
+  async function delBrief() {
+    if (!await confirmTab({ title: `Delete the design "${b.title}"?`, message: "This removes the whole design: its files, the client conversation, and every designer order on it. Not the same as pulling an order. Can't be undone.", confirmLabel: "Delete the design" })) return;
+    await fetch(`/api/studio/briefs/${b.id}`, { method: "DELETE" }); onClose(); await onRefresh();
+  }
   async function delFile(fileId: string) { if (!confirm("Delete this version? It comes out of the thread. Can't be undone.")) return; setBusy(true); try { await fetch(`/api/studio/files/${fileId}`, { method: "DELETE" }); setHeroId(null); await onRefresh(); } finally { setBusy(false); } }
   // Flip a version across the wall after the fact (Jon: "make an internal
   // upload visible on client side"). No state move — sharing isn't the ball.
@@ -467,7 +473,7 @@ function BriefSheet({ detail, onRefresh, onClose, openWoId, setOpenWoId, onDirty
           <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: st.color, marginTop: 4 }}>{st.label}</div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 14, flexShrink: 0 }}>
-          <button onClick={delBrief} title="Delete this design" style={{ background: "none", border: "none", color: H.faint, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }} onMouseEnter={e => (e.currentTarget.style.color = H.red)} onMouseLeave={e => (e.currentTarget.style.color = H.faint)}>Delete</button>
+          {tab === "design" && <button onClick={delBrief} title="Delete this design (not an order)" style={{ background: "none", border: "none", color: H.faint, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }} onMouseEnter={e => (e.currentTarget.style.color = H.red)} onMouseLeave={e => (e.currentTarget.style.color = H.faint)}>Delete design</button>}
           <button onClick={onClose} aria-label="Close" style={{ background: "none", border: "none", color: H.dim, fontSize: 26, cursor: "pointer", lineHeight: 1 }}>×</button>
         </div>
       </div>
