@@ -13,8 +13,8 @@ const inter = Inter({ subsets: ["latin"] });
 // appleIcon must be a PNG — iOS ignores SVG touch icons, which left
 // home-screen shortcuts with the generic screenshot tile.
 const TENANT_TAB_META: Record<string, { title: string; icon: string; appleIcon: string }> = {
-  hpd: { title: "OpsHub · HPD", icon: "/favicon-hpd.svg", appleIcon: "/apple-touch-hpd.png" },
-  dmd: { title: "OpsHub · DMD", icon: "/favicon-dmd.png", appleIcon: "/favicon-dmd.png" },
+  hpd: { title: "HPD Ops", icon: "/favicon-hpd.svg", appleIcon: "/apple-touch-hpd.png" },
+  dmd: { title: "DMD Ops", icon: "/favicon-dmd.png", appleIcon: "/favicon-dmd.png" },
 };
 
 export async function generateMetadata(): Promise<Metadata> {
