@@ -109,6 +109,12 @@ export default function WorkOrderPanel({ woId, target, notes = [], inline, onClo
     setBusy(true); try { await fetch(`/api/studio/work-orders/${woId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "kill" }) }); await refresh(); } finally { setBusy(false); }
   }
   async function reopen() { setBusy(true); try { await fetch(`/api/studio/work-orders/${woId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "reopen" }) }); await refresh(); } finally { setBusy(false); } }
+  // A pulled order can be deleted outright (declutter): the order and its
+  // thread go; any file already filed on the design / item stays.
+  async function deleteOrder() {
+    if (!await confirm({ title: "Delete this order?", message: "The order and its thread are removed for good. Files it already delivered stay on the design. The link is already dead.", confirmLabel: "Delete order" })) return;
+    setBusy(true); try { await fetch(`/api/studio/work-orders/${woId}`, { method: "DELETE" }); onChanged?.(); onClose(); } finally { setBusy(false); }
+  }
   function startEdit() { if (!wo) return; setDraft({ headline: wo.headline || "", instructions: wo.instructions || "", dueBy: wo.due_by || "", brief: JSON.parse(JSON.stringify(wo.brief || { canvases: [], extras: [] })) }); setEditing(true); setShowBrief(true); }
   async function saveEdit() {
     if (!draft) return; setBusy(true); setErr("");
@@ -297,7 +303,7 @@ export default function WorkOrderPanel({ woId, target, notes = [], inline, onClo
       {wo.state === "accepted" ? (
         <div style={{ padding: "16px 22px 20px", borderTop: `1px solid ${H.line}`, background: "rgba(88,201,60,.06)", fontSize: 13, color: H.dim }}><b style={{ color: H.green }}>✓ Accepted</b> · {fmtStamp(wo.updated_at)}. {target.kind === "item" ? "It's the item's print-ready file now — it rides the PO." : "The file is on the design (internal until you share it with the client)."}</div>
       ) : wo.state === "killed" ? (
-        <div style={{ padding: "16px 22px 20px", borderTop: `1px solid ${H.line}`, fontSize: 13, color: H.faint, display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}><span><b style={{ color: H.faint }}>✕ Pulled</b> · the link is dead.</span><button disabled={busy} onClick={reopen} style={{ ...ghostBtn, padding: "7px 12px" }}>↩ Reopen</button></div>
+        <div style={{ padding: "16px 22px 20px", borderTop: `1px solid ${H.line}`, fontSize: 13, color: H.faint, display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}><span><b style={{ color: H.faint }}>✕ Pulled</b> · the link is dead.</span><button disabled={busy} onClick={reopen} style={{ ...ghostBtn, padding: "7px 12px" }}>↩ Reopen</button><button disabled={busy} onClick={deleteOrder} style={{ background: "none", border: "none", color: H.faint, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }} onMouseEnter={e => (e.currentTarget.style.color = H.red)} onMouseLeave={e => (e.currentTarget.style.color = H.faint)}>Delete order</button></div>
       ) : (
         <>
           {deliveries.length > 0 && <div style={{ padding: "12px 22px 0" }}><button disabled={busy} onClick={accept} style={{ ...primaryBtn, width: "100%", padding: "13px", background: H.green, color: "#08210a" }}>✓ Accept — this is the file</button></div>}
