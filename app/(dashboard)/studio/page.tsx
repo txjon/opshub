@@ -547,7 +547,7 @@ function BriefSheet({ detail, onRefresh, onClose, openWoId, setOpenWoId, onDirty
         await loadWos(); await onRefresh(); setOpenWoId(r.id);
       }} />}
       {tab !== "design" ? (
-        <WorkOrderPanel key={tab} woId={tab} target={{ kind: "brief", id: b.id, title: b.title || null, clientName: b.clients?.name || null }} notes={convo} inline onClose={() => switchTab(null)} onChanged={async () => { await loadWos(); await onRefresh(); }} onDirty={(d: boolean) => { woDirty.current = d; onDirty?.(d || !!note.trim() || stagedList.length > 0); }} />
+        <WorkOrderPanel key={tab} woId={tab} target={{ kind: "brief", id: b.id, title: b.title || null, clientName: b.clients?.name || null }} notes={convo} images={images} inline onClose={() => switchTab(null)} onChanged={async () => { await loadWos(); await onRefresh(); }} onDirty={(d: boolean) => { woDirty.current = d; onDirty?.(d || !!note.trim() || stagedList.length > 0); }} />
       ) : (
       <>
       {b.concept && <div style={{ margin: "6px 22px 0", fontSize: 12.5, color: H.dim, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{b.concept}</div>}

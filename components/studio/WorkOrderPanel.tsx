@@ -17,10 +17,15 @@ type Note = { id: string; sender_role: string; body: string; visibility?: string
 // inline = rendered as a TAB inside the brief sheet (no own header/close; the
 // sheet owns those). onDirty lets the sheet refuse tab switches / backdrop
 // clicks while there's unsaved work here.
-type Props = { woId: string; target: WoTarget; notes?: Note[]; inline?: boolean; onClose: () => void; onChanged?: () => void; onDirty?: (d: boolean) => void };
+type Img = { id: string; file_id: string | null; drive_file_id: string | null; file_url: string; file_name: string | null; stage?: string | null };
+// images = the design's (or item's) files, so Edit brief can pull any of them
+// into the order — not just what was handed over at send time.
+type Props = { woId: string; target: WoTarget; notes?: Note[]; images?: Img[]; inline?: boolean; onClose: () => void; onChanged?: () => void; onDirty?: (d: boolean) => void };
 const thumb = (id: string, size = 900) => `/api/files/thumbnail?id=${id}&thumb=1&size=${size}`;
 
-export default function WorkOrderPanel({ woId, target, notes = [], inline, onClose, onChanged, onDirty }: Props) {
+export default function WorkOrderPanel({ woId, target, notes = [], images = [], inline, onClose, onChanged, onDirty }: Props) {
+  const previewIdOf = (im: Img) => { const m = /[?&]id=([^&]+)/.exec(im.file_url || ""); const id = m ? decodeURIComponent(m[1]) : null; return id && id !== im.drive_file_id ? id : null; };
+  const addFromDesign = (im: Img) => setDraft(d => { if (!d || !im.drive_file_id) return d; if (d.brief.canvases.some(c => c.driveId === im.drive_file_id)) return d; return { ...d, brief: { ...d.brief, extras: d.brief.extras.filter(e => e.driveId !== im.drive_file_id), canvases: [...d.brief.canvases, { id: newPinId(), fileId: im.file_id, driveId: im.drive_file_id, previewId: previewIdOf(im), name: im.file_name, note: "", pins: [] }] } }; });
   const uploadOpts = { itemId: target.kind === "item" ? target.id : null, clientName: target.clientName || "Studio", projectTitle: target.kind === "item" ? (target.jobTitle || "Project") : "Studio", itemName: target.title || "Design" };
   const [wo, setWo] = useState<DesignWorkOrder | null>(null);
   const [msgs, setMsgs] = useState<any[]>([]);
@@ -206,8 +211,14 @@ export default function WorkOrderPanel({ woId, target, notes = [], inline, onClo
                 <textarea value={draft.instructions} onChange={e => setDraft({ ...draft, instructions: e.target.value })} rows={2} placeholder="Notes" style={{ ...inp, resize: "vertical" }} />
                 <div style={{ maxWidth: 220 }}><label style={lbl}>Due by</label><input type="date" value={draft.dueBy} onChange={e => setDraft({ ...draft, dueBy: e.target.value })} style={inp} /></div>
                 <div>
-                  <label style={lbl}>Pin on · tap a handed-over image to make it a canvas, or add a new reference</label>
+                  <label style={lbl}>Add to the brief · tap any of the design&rsquo;s images, or upload a new reference</label>
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                    {images.filter(im => im.drive_file_id && !draft.brief.canvases.some(c => c.driveId === im.drive_file_id) && !draft.brief.extras.some(e => e.driveId === im.drive_file_id)).map(im => (
+                      <button key={im.id} type="button" onClick={() => addFromDesign(im)} title={`Add ${im.file_name || "this"} to the brief`} style={{ width: 56, height: 56, borderRadius: 8, overflow: "hidden", background: "#fff", border: `1px solid ${H.line}`, padding: 0, cursor: "pointer", position: "relative", opacity: 0.75 }}>
+                        <img src={thumb(im.drive_file_id!, 300)} alt="" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(ev: any) => { ev.target.style.opacity = 0.2; }} />
+                        <span style={{ position: "absolute", right: 3, bottom: 3, background: H.ink, color: H.blue, borderRadius: 6, fontSize: 9, fontWeight: 900, padding: "2px 5px" }}>+</span>
+                      </button>
+                    ))}
                     {draft.brief.extras.map(e => (
                       <button key={e.driveId} type="button" onClick={() => promote(e.driveId)} title="Make this a canvas" style={{ width: 56, height: 56, borderRadius: 8, overflow: "hidden", background: "#fff", border: `1px solid ${H.line}`, padding: 0, cursor: "pointer", position: "relative" }}>
                         <img src={thumb(e.previewId || e.driveId, 300)} alt="" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(ev: any) => { ev.target.style.opacity = 0.2; }} />
