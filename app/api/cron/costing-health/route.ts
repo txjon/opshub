@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { resendForSlug } from "@/lib/resend-client";
 import { recalcJobPhase } from "@/lib/job-phase-recalc";
+import { refreshJobFinancials } from "@/lib/costing-summary";
 
 export const maxDuration = 60; // per-job phase recompute over the active jobs
 
@@ -40,11 +41,18 @@ export async function GET(req: NextRequest) {
     const sb = admin();
     const { data: jobs, error } = await sb
       .from("jobs")
-      .select("job_number, phase, costing_data, costing_summary, items(id, name, is_fleece, sell_per_unit, buy_sheet_lines(qty_ordered))")
+      .select("id, job_number, phase, costing_data, costing_summary, items(id, name, is_fleece, sell_per_unit, buy_sheet_lines(qty_ordered))")
       .not("costing_summary", "is", null);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
     const drift: { job: string; phase: string; grossRev: number; target: number; delta: number }[] = [];
+    // HEAL ON SIGHT for pre-production jobs (Jon, Aug 27): their rates are
+    // today's rates, so recomputing is safe — the "old summaries embed the
+    // rates of their era" warning is about closed jobs. Healed jobs are still
+    // reported (the write path that leaked is still a bug); the write is
+    // guarded: it only counts as healed when fresh.grossRev lands on target.
+    const HEAL_PHASES = new Set(["intake", "pending", "ready"]);
+    const healed: { job: string; phase: string; from: number; to: number }[] = [];
     const fleeceGaps: string[] = [];
     let consistent = 0;
 
@@ -71,6 +79,13 @@ export async function GET(req: NextRequest) {
       const delta = Math.round((gr - target) * 100) / 100;
       if (Math.abs(delta) <= 1) { consistent++; continue; }
       if (SKIP.has(j.job_number)) continue;
+      if (HEAL_PHASES.has(j.phase)) {
+        try {
+          const r = await refreshJobFinancials(sb, (j as any).id);
+          const fresh = Number(r.summary?.grossRev);
+          if (r.ok && Number.isFinite(fresh) && Math.abs(fresh - target) <= 1) { healed.push({ job: j.job_number, phase: j.phase, from: gr, to: fresh }); continue; }
+        } catch { /* fall through to report */ }
+      }
       drift.push({ job: j.job_number, phase: j.phase, grossRev: gr, target, delta });
     }
 
@@ -92,7 +107,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Email the owner ONLY when something is wrong. Silent when clean.
-    if ((drift.length || fleeceGaps.length || phaseDrift.length) && process.env.OWNER_EMAIL) {
+    if ((drift.length || healed.length || fleeceGaps.length || phaseDrift.length) && process.env.OWNER_EMAIL) {
       try {
         const resend = resendForSlug("hpd");
         const driftRows = drift.map(d =>
@@ -104,6 +119,7 @@ export async function GET(req: NextRequest) {
 <div style="font-family:sans-serif;max-width:600px">
   <h2 style="margin:0 0 8px">OpsHub · Ops Health</h2>
   <p style="color:#666;margin:0 0 16px">${consistent} costing-consistent · ${drift.length} revenue drift · ${fleeceGaps.length} fleece · ${phaseDrift.length} phase drift</p>
+  ${healed.length ? `<h3 style="color:#16a34a;margin:16px 0 8px">Revenue drift healed on sight (${healed.length})</h3><ul style="margin:0;padding-left:20px">${healed.map(h => `<li style="margin:4px 0;font-size:14px"><b>${h.job}</b> (${h.phase}) — was $${h.from.toLocaleString()}, now $${h.to.toLocaleString()} · a price edit skipped the summary refresh</li>`).join("")}</ul>` : ""}
   ${drift.length ? `<h3 style="color:#ef4444;margin:16px 0 8px">Revenue drift — summary out of step with item prices (${drift.length})</h3><ul style="margin:0;padding-left:20px">${driftRows}</ul>` : ""}
   ${fleeceGaps.length ? `<h3 style="color:#d97706;margin:16px 0 8px">Fleece not applied in costing (${fleeceGaps.length})</h3><ul style="margin:0;padding-left:20px">${fleeceRows}</ul>` : ""}
   ${phaseDrift.length ? `<h3 style="color:#ef4444;margin:16px 0 8px">Phase drift — stored phase ≠ recomputed (${phaseDrift.length})</h3><ul style="margin:0;padding-left:20px">${phaseRows}</ul>` : ""}
@@ -120,7 +136,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ consistent, drifted: drift.length, fleeceGaps: fleeceGaps.length, phaseDrift: phaseDrift.length, jobs: drift.map(d => d.job), phaseJobs: phaseDrift.map(p => p.job) });
+    return NextResponse.json({ consistent, drifted: drift.length, healed: healed.length, fleeceGaps: fleeceGaps.length, phaseDrift: phaseDrift.length, jobs: drift.map(d => d.job), healedJobs: healed.map(h => h.job), phaseJobs: phaseDrift.map(p => p.job) });
   } catch (e: any) {
     console.error("Costing-health cron error:", e);
     return NextResponse.json({ error: e.message }, { status: 500 });
