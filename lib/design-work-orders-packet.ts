@@ -58,11 +58,12 @@ export async function packetHtml(wo: DesignWorkOrder, t: ResolvedTarget, message
   .eyebrow{font-size:9px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#888;margin:0 0 8px}
   .meta{font-size:11px;color:#555}
   .headline{margin:14px 0 0;padding:12px 14px;background:#111;color:#fff;font-weight:900;font-size:18px;text-transform:uppercase;letter-spacing:.02em;border-radius:8px}
-  section{margin-top:22px;break-inside:avoid}
-  .canvas{break-before:auto}
+  section{margin-top:22px}
+  .canvas .box,.canvas .note,.canvas .eyebrow{break-inside:avoid}
+  .box{page-break-inside:avoid}
   .note{font-size:14px;font-weight:800;text-transform:uppercase;margin:0 0 8px}
   .box{position:relative;display:inline-block;max-width:100%;border:1px solid #ddd;border-radius:8px;overflow:hidden;line-height:0}
-  .box img{max-width:100%;max-height:6.2in;display:block}
+  .box img{max-width:100%;max-height:5.6in;display:block}
   .pin{position:absolute;transform:translate(-50%,-50%);width:22px;height:22px;border-radius:999px;background:#111;color:#fff;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);font:900 11px/18px ui-monospace,Menlo,monospace;text-align:center}
   ol.pins{list-style:none;padding:0;margin:10px 0 0}
   ol.pins li{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px solid #eee;break-inside:avoid}
