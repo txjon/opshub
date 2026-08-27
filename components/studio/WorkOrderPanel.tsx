@@ -37,35 +37,21 @@ export default function WorkOrderPanel({ woId, target, notes = [], inline, onClo
   const [copied, setCopied] = useState(false);
   const [copiedSlack, setCopiedSlack] = useState(false);
   const [resent, setResent] = useState("");
-  // A paste-ready blurb for Slack (the interim pointer): what, when, the link.
-  // Never the client's name.
+  // A paste-ready blurb for Slack: client and design up front (Jon, Aug 26:
+  // the designer sees the client — it's going in the art — and it makes Slack
+  // searchable), then what/when, the link, one line on delivery.
   function slackCopy(): string {
     if (!wo) return "";
-    const what = `${woTypeLabel(wo.type)} · ${wo.title || "design"}${target.jobNumber ? ` (${target.jobNumber})` : ""}`;
+    const who = target.clientName ? `${target.clientName} · ` : "";
+    const job = target.jobNumber ? ` · ${target.jobNumber}` : "";
     const lines = [
-      `Work order — ${what}${wo.due_by ? ` · due ${fmtDue(wo.due_by)}` : ""}`,
+      `${who}${wo.title || "Design"}${job} — ${woTypeLabel(wo.type)}${wo.due_by ? ` · due ${fmtDue(wo.due_by)}` : ""}`,
       wo.headline ? wo.headline : null,
-      `Brief, files and delivery are all at the link (no login):`,
       url,
-      `Deliver the file on that page — it lands on our side instantly.`,
+      `Brief, files and delivery are all on that page, no login. Upload your work there.`,
     ].filter(Boolean);
     return lines.join("\n");
   }
-  async function resend() {
-    setBusy(true); setErr(""); setResent("");
-    try { const r = await fetch(`/api/studio/work-orders/${woId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "resend" }) }).then(x => x.json()); if (r.error) { setErr(r.error); return; } setResent(`Sent to ${wo?.designer_email}`); setTimeout(() => setResent(""), 4000); await refresh(); }
-    finally { setBusy(false); }
-  }
-  const fileIn = useRef<HTMLInputElement | null>(null);
-  const [confirm, confirmEl] = useConfirm();
-  const [lit, setLit] = useState<LightboxItem | null>(null);
-  const [copiedLine, setCopiedLine] = useState<string | null>(null);
-  const [addingRef, setAddingRef] = useState(false);
-  const [showChat, setShowChat] = useState(true);
-  const refIn = useRef<HTMLInputElement | null>(null);
-  const lines = notes.filter(n => n.body && n.body.trim() && !/^[✓✕↩]/.test(n.body.trim()) && !/^(Handed to a designer|Pulled back into the works)/.test(n.body.trim()));
-  const dlOf = (id: string, name?: string | null) => `/api/files/view/${encodeURIComponent(name || "file")}?id=${id}&download=1`;
-
   async function load() {
     const j = await fetch(`/api/studio/work-orders/${woId}`).then(r => r.json()).catch(() => null);
     if (!j || j.error) return;
