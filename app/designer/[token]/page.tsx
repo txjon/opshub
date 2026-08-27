@@ -28,6 +28,9 @@ export default function DesignerPage({ params }: { params: { token: string } }) 
   const [heroId, setHeroId] = useState<string | null>(null);
   const fileIn = useRef<HTMLInputElement | null>(null);
   const [lit, setLit] = useState<LightboxItem | null>(null);
+  // Files with no preview (layered PSD): the tile downloads directly instead
+  // of opening an empty lightbox.
+  const [noPreview, setNoPreview] = useState<Set<string>>(new Set());
 
   async function load() {
     const j = await fetch(`/api/designer/${token}`).then(r => r.json()).catch(() => ({ error: true }));
@@ -127,10 +130,10 @@ export default function DesignerPage({ params }: { params: { token: string } }) 
           <div style={{ ...tag(H.faint, 9), marginBottom: 8 }}>{spec.canvases.length ? "More files" : "The files"} · tap to view, download from there</div>
           <div style={{ display: "grid", gridTemplateColumns: spec.canvases.length ? "repeat(auto-fill, minmax(92px, 1fr))" : "repeat(auto-fill, minmax(140px, 1fr))", gap: 8 }}>
             {spec.extras.map(e => (
-              <button key={e.driveId} type="button" onClick={() => setLit({ src: img(e.previewId || e.driveId, 1600), downloadHref: dl(e.driveId), name: e.name, caption: e.label || "Reference" })} style={{ display: "block", aspectRatio: "1", borderRadius: 10, overflow: "hidden", background: "#fff", position: "relative", border: "none", padding: 0, cursor: "zoom-in", width: "100%" }}>
+              <button key={e.driveId} type="button" onClick={() => { if (noPreview.has(e.driveId)) { window.location.href = dl(e.driveId); return; } setLit({ src: img(e.previewId || e.driveId, 1600), downloadHref: dl(e.driveId), name: e.name, caption: e.label || "Reference" }); }} style={{ display: "block", aspectRatio: "1", borderRadius: 10, overflow: "hidden", background: "#fff", position: "relative", border: "none", padding: 0, cursor: "zoom-in", width: "100%" }}>
                 {/* No preview (layered PSD): a labeled tile instead of a broken image; the download still works. */}
                 <span style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", padding: 10, textAlign: "center", color: "#555", fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.04em", lineHeight: 1.3 }}>{(e.name || "").replace(/\.[a-z0-9]+$/i, "")}<br /><span style={{ fontWeight: 600, color: "#999", fontSize: 10, textTransform: "none" }}>{(e.name || "").split(".").pop()?.toUpperCase()} · tap to download</span></span>
-                <img src={img(e.previewId || e.driveId, 400)} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ position: "relative", width: "100%", height: "100%", objectFit: "cover" }} onError={(ev: any) => { ev.target.style.display = "none"; }} />
+                <img src={img(e.previewId || e.driveId, 400)} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ position: "relative", width: "100%", height: "100%", objectFit: "cover" }} onError={(ev: any) => { ev.target.style.display = "none"; setNoPreview(prev => new Set(prev).add(e.driveId)); }} />
                 {e.label && <span style={{ position: "absolute", left: 5, top: 5, ...tag(H.ink, 8.5), background: "rgba(255,255,255,.92)", borderRadius: 6, padding: "3px 7px" }}>{e.label}</span>}
               </button>
             ))}
