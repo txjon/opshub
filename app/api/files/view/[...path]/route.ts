@@ -18,18 +18,19 @@ export async function GET(req: NextRequest, { params }: { params: { path: string
       { headers: { Authorization: `Bearer ${token}` } }
     );
 
-    if (!res.ok) return new NextResponse("Not found", { status: 404 });
+    if (!res.ok || !res.body) return new NextResponse("Not found", { status: 404 });
 
-    const buf = Buffer.from(await res.arrayBuffer());
+    // Stream — buffering capped downloads at Vercel's 4.5MB response limit
+    // (print PSDs are 50MB+; the Aug 26 designer-page 500).
     const contentType = res.headers.get("content-type") || "application/octet-stream";
-
-    return new NextResponse(buf, {
-      headers: {
-        "Content-Type": contentType,
-        "Content-Disposition": `${req.nextUrl.searchParams.get("download") ? "attachment" : "inline"}; filename="${fileName}"`,
-        "Cache-Control": "public, max-age=3600, s-maxage=3600",
-      },
-    });
+    const asciiName = fileName.replace(/[^\x20-\x7E]/g, "_");
+    const headers: Record<string, string> = {
+      "Content-Type": contentType,
+      "Content-Disposition": `${req.nextUrl.searchParams.get("download") ? "attachment" : "inline"}; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(fileName)}`,
+      "Cache-Control": "public, max-age=3600, s-maxage=3600",
+    };
+    const len = res.headers.get("content-length"); if (len) headers["Content-Length"] = len;
+    return new Response(res.body, { headers });
   } catch {
     return new NextResponse("Failed", { status: 500 });
   }
