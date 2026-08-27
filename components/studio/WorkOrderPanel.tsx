@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { H, primaryBtn, ghostBtn, inp, lbl, tag, fmtStamp, fmtDue, ago } from "@/lib/studio-theme";
-import { woState, woTypeLabel, newPinId, type BriefSpec, type DesignWorkOrder, type WoTarget } from "@/lib/design-work-orders";
+import { woState, woTypeLabel, woWho, newPinId, type BriefSpec, type DesignWorkOrder, type WoTarget } from "@/lib/design-work-orders";
 import { createClient } from "@/lib/supabase/client";
 import PinBrief from "@/components/studio/PinBrief";
 import Lightbox, { type LightboxItem } from "@/components/studio/Lightbox";
@@ -162,7 +162,7 @@ export default function WorkOrderPanel({ woId, target, notes = [], inline, onClo
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, padding: inline ? "12px 22px 4px" : "18px 22px 6px" }}>
         <div style={{ minWidth: 0 }}>
           {!inline && <div style={tag(H.faint, 9.5)}>Designer · Room 2</div>}
-          <div style={{ fontSize: inline ? 14 : 17, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", lineHeight: 1.2, marginTop: 2 }}>{woTypeLabel(wo.type)}{!inline && wo.title ? <span style={{ color: H.dim }}> · {wo.title}</span> : null}</div>
+          <div style={{ fontSize: inline ? 14 : 17, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", lineHeight: 1.2, marginTop: 2 }}>{inline ? <>{woWho(wo)} <span style={{ color: H.dim }}>· {woTypeLabel(wo.type)}</span></> : <>{woTypeLabel(wo.type)}{wo.title ? <span style={{ color: H.dim }}> · {wo.title}</span> : null}</>}</div>
           <div style={{ display: "flex", gap: 12, alignItems: "baseline", flexWrap: "wrap", marginTop: 5 }}>
             <span style={tag(st.color)}>{st.label}</span>
             {wo.due_by && <span style={{ fontSize: 10.5, fontFamily: H.mono, color: st.late ? H.red : H.faint }}>due {fmtDue(wo.due_by)}{st.late ? " · late" : ""}</span>}

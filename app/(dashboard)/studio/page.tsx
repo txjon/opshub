@@ -5,7 +5,7 @@ import ThumbIcon from "@/components/ThumbIcon";
 // @ts-ignore — plain-JS lib, no declarations
 import { uploadToDrive } from "@/lib/drive-upload-client";
 import { H, primaryBtn, ghostBtn, inp, lbl, tag, ago, fmtDue } from "@/lib/studio-theme";
-import { woState, woTypeLabel } from "@/lib/design-work-orders";
+import { woState, woTypeLabel, woShort, woWho } from "@/lib/design-work-orders";
 import WorkOrderBuilder from "@/components/studio/WorkOrderBuilder";
 import WorkOrderPanel from "@/components/studio/WorkOrderPanel";
 import { useConfirm } from "@/components/useConfirm";
@@ -529,9 +529,9 @@ function BriefSheet({ detail, onRefresh, onClose, openWoId, setOpenWoId, onDirty
       {(wos.length > 0 || b.state !== "killed") && (
         <div style={{ display: "flex", alignItems: "center", gap: 18, padding: "10px 22px 0", borderBottom: `1px solid ${H.line2}`, overflowX: "auto" }}>
           <button onClick={() => switchTab(null)} style={{ background: "none", border: "none", borderBottom: tab === "design" ? "2px solid #fff" : "2px solid transparent", color: tab === "design" ? H.text : H.faint, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font, padding: "6px 0 9px", whiteSpace: "nowrap" }}>Design</button>
-          {wos.map((w: any) => { const st = woState(w); const on = tab === w.id; return (
-            <button key={w.id} onClick={() => switchTab(w.id)} style={{ background: "none", border: "none", borderBottom: on ? "2px solid #fff" : "2px solid transparent", color: on ? H.text : H.faint, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font, padding: "6px 0 9px", whiteSpace: "nowrap", display: "inline-flex", gap: 8, alignItems: "baseline" }}>
-              <span>Designer · {woTypeLabel(w.type)}</span><span style={tag(st.color, 9)}>{st.unread ? "●" : ""} {st.label}</span>
+          {wos.map((w: any) => { const sh = woShort(w); const on = tab === w.id; return (
+            <button key={w.id} onClick={() => switchTab(w.id)} title={`${woTypeLabel(w.type)} · ${woState(w).label}`} style={{ background: "none", border: "none", borderBottom: on ? "2px solid #fff" : "2px solid transparent", color: on ? H.text : H.faint, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font, padding: "6px 0 9px", whiteSpace: "nowrap", display: "inline-flex", gap: 8, alignItems: "baseline", opacity: w.state === "killed" && !on ? 0.5 : 1 }}>
+              <span>{woWho(w)}</span><span style={tag(sh.color, 9)}>{sh.text}</span>
             </button>
           ); })}
           {b.state !== "killed" && <button onClick={() => setWoBuilder(true)} disabled={!images.length} title={images.length ? "Pin the brief on a reference and send it" : "Drop a reference in the thread first"} style={{ marginLeft: "auto", background: "none", border: "none", color: H.blue, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font, padding: "6px 0 9px", whiteSpace: "nowrap", opacity: images.length ? 1 : 0.4 }}>+ Hand to a designer</button>}
