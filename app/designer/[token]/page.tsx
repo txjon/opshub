@@ -33,8 +33,11 @@ export default function DesignerPage({ params }: { params: { token: string } }) 
     const j = await fetch(`/api/designer/${token}`).then(r => r.json()).catch(() => ({ error: true }));
     if (j.error) { setBad(true); return; }
     setWo(j.workOrder); setMsgs(j.messages || []); setFileBase(j.fileBase || "");
+    // "Your name": the order's designer first; the name remembered on this
+    // device only when the order was sent without one.
+    setName(prev => prev || j.workOrder?.designer_name || (() => { try { return localStorage.getItem("hpd_designer_name") || ""; } catch { return ""; } })());
   }
-  useEffect(() => { load(); try { setName(localStorage.getItem("hpd_designer_name") || ""); } catch {} /* eslint-disable-next-line */ }, [token]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [token]);
 
   const img = (id: string, size?: number) => `${fileBase}${id}?thumb=1&size=${size || 900}`;
   const dl = (id: string) => `${fileBase}${id}?dl=1`;
