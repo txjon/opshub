@@ -6,7 +6,7 @@
     },
     {
       "path": "/api/cron/costing-health",
-      "schedule": "30 12 * * *"
+      "schedule": "30 */6 * * *"
     },
     {
       "path": "/api/email/check-gmail",
