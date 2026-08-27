@@ -61,26 +61,49 @@ export async function proxyDriveFile(fileId: string, opts: DriveProxyOpts = {}):
         },
       });
     }
-    // Fall through to full-file path if the thumbnail fetch fails.
+    // Fall through to the full file only when it's renderable — never hand a
+    // browser a 78MB PSD because its thumbnail fetch hiccupped.
+  }
+  // A THUMBNAIL was asked for and Drive has none (layered PSD, huge TIFF): say
+  // so, small. Serving the raw file here blew Vercel's 4.5MB response cap and
+  // took the designer page's PDF/ZIP down with it (Aug 26).
+  if ((useThumbnail || mustUseThumbnail) && !forceDownload) {
+    return new Response("No preview", { status: 404, headers: { "Cache-Control": "public, max-age=3600" } });
   }
 
   const res = await fetch(
     `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
     { headers: { Authorization: `Bearer ${token}` } }
   );
-  if (!res.ok) return new Response("Not found", { status: 404 });
+  if (!res.ok || !res.body) return new Response("Not found", { status: 404 });
 
-  const buf = Buffer.from(await res.arrayBuffer());
+  // STREAM the bytes through — never buffer. Buffering capped every download
+  // at Vercel's 4.5MB function-response limit (print PSDs are 50MB+).
   const contentType = res.headers.get("content-type") || mimeType;
   // RFC 5987 filename encoding — Drive filenames can contain high-Unicode
   // chars (macOS screenshots use U+202F) that break a naked filename header.
   const asciiName = fileName.replace(/[^\x20-\x7E]/g, "_");
   const disposition = forceDownload ? "attachment" : "inline";
-  return new Response(buf, {
-    headers: {
-      "Content-Type": contentType,
-      "Content-Disposition": `${disposition}; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(fileName)}`,
-      "Cache-Control": forceDownload ? "no-store" : "public, max-age=3600, s-maxage=3600",
-    },
-  });
+  const headers: Record<string, string> = {
+    "Content-Type": contentType,
+    "Content-Disposition": `${disposition}; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(fileName)}`,
+    "Cache-Control": forceDownload ? "no-store" : "public, max-age=3600, s-maxage=3600",
+  };
+  const len = res.headers.get("content-length"); if (len) headers["Content-Length"] = len;
+  return new Response(res.body, { headers });
+}
+
+// Metadata + a byte stream for one Drive file (the ZIP builder). Callers own
+// authorization; this serves whatever id it's given.
+export async function driveFileMeta(fileId: string): Promise<{ name: string; mimeType: string; size: number | null } | null> {
+  const token = await getAccessToken();
+  const r = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?fields=name,mimeType,size`, { headers: { Authorization: `Bearer ${token}` } });
+  if (!r.ok) return null;
+  const m = await r.json().catch(() => null);
+  return m ? { name: m.name || fileId, mimeType: m.mimeType || "application/octet-stream", size: m.size ? Number(m.size) : null } : null;
+}
+export async function driveFileStream(fileId: string): Promise<ReadableStream<Uint8Array> | null> {
+  const token = await getAccessToken();
+  const r = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { headers: { Authorization: `Bearer ${token}` } });
+  return r.ok && r.body ? r.body : null;
 }

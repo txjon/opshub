@@ -3,13 +3,14 @@
 // conversation + file manifest) and a ZIP with every attachment at full res.
 // Server-only. Images ride inside the PDF as data URIs so Browserless never
 // needs to reach our proxy (which it can't on localhost anyway).
-import JSZip from "jszip";
+// @ts-ignore — plain-JS lib, no declarations
+import archiver from "archiver";
+import { Readable } from "stream";
 import { generatePDF } from "@/lib/pdf/browser";
-import { proxyDriveFile } from "@/lib/drive-proxy";
+import { proxyDriveFile, driveFileMeta, driveFileStream } from "@/lib/drive-proxy";
 import { woTypeLabel, type BriefSpec, type DesignWorkOrder } from "@/lib/design-work-orders";
 import type { ResolvedTarget } from "@/lib/design-work-orders-server";
 
-const ZIP_BUDGET = 400 * 1024 * 1024;   // in-memory cap; anything past it is listed in the manifest as "download from the link"
 
 export const safeName = (s: string | null | undefined, fallback = "file") => (String(s || fallback).replace(/[\/\\:*?"<>|]+/g, "-").replace(/\s+/g, " ").trim().slice(0, 120) || fallback);
 const esc = (s: any) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -106,32 +107,48 @@ export async function packetPdf(wo: DesignWorkOrder, t: ResolvedTarget, messages
   return generatePDF(await packetHtml(wo, t, messages));
 }
 
-// ── the ZIP: brief.pdf + every attachment, originals ────────────────────────
-export async function packageZip(wo: DesignWorkOrder, t: ResolvedTarget, messages: any[]): Promise<{ buf: Buffer; name: string }> {
+// ── the ZIP: brief.pdf + every attachment, originals — STREAMED ─────────────
+// Nothing is held in memory but the PDF: each Drive file streams straight into
+// the archive and the archive streams straight to the browser (Vercel's 4.5MB
+// cap only bites buffered responses). STORE, not DEFLATE — art is already
+// compressed and the designer wants it now.
+export async function packageZipStream(wo: DesignWorkOrder, t: ResolvedTarget, messages: any[]): Promise<{ stream: ReadableStream<Uint8Array>; name: string }> {
   const spec: BriefSpec = wo.brief || { canvases: [], extras: [] };
-  const zip = new JSZip();
-  const manifest: string[] = [`${t.title} — work order (${woTypeLabel(wo.type)})`, `Packaged ${new Date().toISOString().slice(0, 16).replace("T", " ")} UTC`, ""];
-  // the brief: PDF if the renderer's up, HTML otherwise (never an empty package)
   const html = await packetHtml(wo, t, messages);
-  try { zip.file("brief.pdf", await generatePDF(html)); manifest.push("brief.pdf — the design packet"); }
-  catch { zip.file("brief.html", html); manifest.push("brief.html — the design packet (open in a browser)"); }
-  // every attachment, deduped by Drive id, originals
+  let pdf: Buffer | null = null;
+  try { pdf = await generatePDF(html); } catch { pdf = null; }
   const want: { id: string; folder: string; label: string }[] = [];
   const seen = new Set<string>();
   const add = (id: string | null | undefined, folder: string, label: string) => { if (id && !seen.has(id)) { seen.add(id); want.push({ id, folder, label }); } };
   spec.canvases.forEach((c, i) => { add(c.driveId, "references", `reference ${i + 1}`); c.pins.forEach((p, n) => add(p.driveId, "pins", `pin ${n + 1} of reference ${i + 1}`)); });
   spec.extras.forEach(e => add(e.driveId, "files", e.label || "file"));
   for (const m of messages) if (m.sender_role === "hpd" && m._drive) add(m._drive, "thread", "reference from HPD");
-  let used = 0;
-  for (const w of want) {
-    const b = used < ZIP_BUDGET ? await driveBytes(w.id) : null;
-    if (!b) { manifest.push(`${w.folder}/ — ${w.label}: NOT INCLUDED (download it from the work order page)`); continue; }
-    used += b.buf.length;
-    const name = safeName(b.name, w.id);
-    zip.file(`${w.folder}/${name}`, b.buf);
-    manifest.push(`${w.folder}/${name} — ${w.label} (${(b.buf.length / 1048576).toFixed(1)} MB)`);
-  }
-  zip.file("manifest.txt", manifest.join("\n"));
-  const buf = await zip.generateAsync({ type: "nodebuffer", compression: "STORE" });
-  return { buf, name: `${safeName(t.title, "design")} - work order.zip` };
+  const metas = await Promise.all(want.map(async w => ({ ...w, meta: await driveFileMeta(w.id) })));
+
+  const archive = archiver("zip", { store: true });
+  const manifest: string[] = [`${t.title} — work order (${woTypeLabel(wo.type)})`, `Packaged ${new Date().toISOString().slice(0, 16).replace("T", " ")} UTC`, ""];
+  if (pdf) { archive.append(pdf, { name: "brief.pdf" }); manifest.push("brief.pdf — the design packet"); }
+  else { archive.append(Buffer.from(html, "utf8"), { name: "brief.html" }); manifest.push("brief.html — the design packet (open in a browser)"); }
+  const used = new Set<string>();
+  const uniq = (n: string) => { let k = n, i = 2; while (used.has(k)) { const dot = n.lastIndexOf("."); k = dot > 0 ? `${n.slice(0, dot)} (${i})${n.slice(dot)}` : `${n} (${i})`; i++; } used.add(k); return k; };
+  // Pump files sequentially in the background; the response starts streaming
+  // as soon as the first bytes hit the archive.
+  (async () => {
+    try {
+      for (const w of metas) {
+        const name = uniq(safeName(w.meta?.name, w.id));
+        const body = await driveFileStream(w.id);
+        if (!body) { manifest.push(`${w.folder}/${name} — ${w.label}: NOT INCLUDED (download it from the work order page)`); continue; }
+        manifest.push(`${w.folder}/${name} — ${w.label}${w.meta?.size ? ` (${(w.meta.size / 1048576).toFixed(1)} MB)` : ""}`);
+        await new Promise<void>((resolve, reject) => {
+          const src = Readable.fromWeb(body as any);
+          src.on("end", resolve); src.on("error", reject);
+          archive.append(src, { name: `${w.folder}/${name}` });
+        });
+      }
+      archive.append(Buffer.from(manifest.join("\n"), "utf8"), { name: "manifest.txt" });
+      await archive.finalize();
+    } catch (e) { archive.abort(); console.error("[designer-door] zip stream failed", (e as any)?.message || e); }
+  })();
+  return { stream: Readable.toWeb(archive as any) as ReadableStream<Uint8Array>, name: `${safeName(t.title, "design")} - work order.zip` };
 }

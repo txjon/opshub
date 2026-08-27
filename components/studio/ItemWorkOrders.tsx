@@ -71,7 +71,7 @@ export default function ItemWorkOrders({ open, job, onClose, openWoId }: Props) 
         {notice && <div style={{ margin: "8px 22px 0", fontSize: 12, color: H.green }}>{notice}</div>}
 
         {active && activeWo && activeItem ? (
-          <WorkOrderPanel key={active} woId={active} target={targetFor(activeItem)} inline onClose={() => setActive(null)} onChanged={load} />
+          <WorkOrderPanel key={active} woId={active} target={targetFor(activeItem)} images={imagesFor(activeItem.id)} inline onClose={() => setActive(null)} onChanged={load} />
         ) : (
           <div style={{ padding: "16px 22px 22px" }}>
             {loading && !wos.length ? <div style={{ fontSize: 13, color: H.faint }}>Loading…</div> : wos.filter(w => w.state !== "killed").length === 0 && !wos.some(w => w.state === "killed") ? (
