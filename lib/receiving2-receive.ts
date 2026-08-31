@@ -40,6 +40,11 @@ export async function returnReceivedLine(sb: any, args: { shipmentId: string; it
       .eq("shipment_id", args.shipmentId).eq("item_id", args.itemId);
     // any un-received line means the box is no longer fully received
     await sb.from("shipments").update({ status: "expected", received_at: null }).eq("id", args.shipmentId);
+    // Recompute AGAIN now that the line is cleared: the recompute inside
+    // reverseReceiptForShipment ran while shipment_lines still said received
+    // (receiveFinal true), which can leave received_at_hpd stale (Forward
+    // Bill Hat, Aug 31 — flag survived the undo).
+    await recomputeItemFromLedger(sb, args.itemId);
     await recalcJobPhase(sb, args.jobId);
     logJobActivity(args.jobId, `Returned ${args.itemName} to receiving`);
     return { ok: true };
