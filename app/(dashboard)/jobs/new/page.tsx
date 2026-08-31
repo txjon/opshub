@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
+import { similarClients } from "@/lib/client-match";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter, useSearchParams } from "next/navigation";
 import { T, font, mono } from "@/lib/theme";
@@ -298,6 +299,21 @@ export default function NewJobPage() {
                 <label style={s.label}>Company / Client Name *</label>
                 <input value={nc.company} onChange={e => setNc(p => ({ ...p, company: e.target.value }))}
                   style={{ ...s.input, fontSize: 14 }} autoFocus />
+                {/* Duplicate guard (Aug 27: Illicit Provisions existed twice) — a warning with the way out, never a block. */}
+                {similarClients(nc.company, clients).length > 0 && (
+                  <div style={{ marginTop: 8, padding: "9px 11px", borderLeft: `3px solid ${T.amber}`, background: T.surface, borderRadius: 6 }}>
+                    <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: T.amber, marginBottom: 4 }}>Looks like a client you already have</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {similarClients(nc.company, clients).slice(0, 4).map(c => (
+                        <button key={c.id} type="button" onClick={() => { selectClient(c); setShowNewClientModal(false); }}
+                          style={{ padding: "5px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>
+                          Use {c.name} →
+                        </button>
+                      ))}
+                    </div>
+                    <div style={{ fontSize: 11, color: T.muted, marginTop: 6 }}>Pick it above if it&rsquo;s the same company. Creating a second one splits their jobs, hub and QuickBooks link.</div>
+                  </div>
+                )}
               </div>
 
               {/* Primary contact */}
@@ -410,7 +426,7 @@ rows={2} style={{ ...s.input, resize: "vertical" as const, lineHeight: 1.5 }} />
               </button>
               <button type="button" onClick={saveNewClient} disabled={savingClient || !nc.company.trim()}
                 style={{ padding: "8px 20px", borderRadius: 6, border: "none", background: T.accent, color: "#0a0a0a", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: font, opacity: savingClient || !nc.company.trim() ? 0.5 : 1 }}>
-                {savingClient ? "Creating..." : "Create Client"}
+                {savingClient ? "Creating..." : similarClients(nc.company, clients).length ? "Create anyway" : "Create Client"}
               </button>
             </div>
           </div>
