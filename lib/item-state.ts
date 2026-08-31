@@ -112,6 +112,7 @@ export async function loadJobState(sb: Sb, jobId: string): Promise<JobState> {
 // into strips of one job × one vendor — the unit you ship from. A box is one
 // vendor, so a strip's selected items become one shipment.
 export type BoardItem = ItemView & {
+  letter: string;              // the PO's letter — full-job sorted position
   decoratorId: string | null;
   decoratorName: string | null;
   decoratorCode: string | null;
@@ -203,6 +204,17 @@ export async function loadProductionBoard(sb: Sb): Promise<BoardStrip[]> {
     .select("id, job_id, name, mockup_color, garment_type, shipping_route, ship_final, sort_order, pipeline_stage, pipeline_timestamps, expected_arrival, ship_est, buy_sheet_lines(size, qty_ordered), decorator_assignments(decorator_id, decorators(name, short_code))")
     .in("job_id", Array.from(jobById.keys()));
   if (!items?.length) return [];
+  // PO order. Without this the strip's rows (and their A/B/C letters in the
+  // Board) ride Postgres's arbitrary return order and can disagree with the
+  // PO's lettering (HPD-2608-023, Aug 31 — DB was fine, display wasn't).
+  items.sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || String(a.name || "").localeCompare(String(b.name || "")));
+  // The item's LETTER is the PO's letter: position in the FULL job's sorted
+  // list (the PO letters over all items even when it shows one vendor's
+  // subset). A strip is job×vendor, so an index within the strip would
+  // restart at A per vendor and lie on multi-vendor jobs.
+  const letterByItem = new Map<string, string>();
+  { const perJob = new Map<string, number>();
+    for (const it of items as any[]) { const n = perJob.get(it.job_id) || 0; letterByItem.set(it.id, String.fromCharCode(65 + n)); perJob.set(it.job_id, n + 1); } }
 
   // batch movements
   const ids = items.map((i: any) => i.id);
@@ -290,7 +302,7 @@ export async function loadProductionBoard(sb: Sb): Promise<BoardStrip[]> {
       });
     }
     strips.get(key)!.items.push({
-      ...state, itemId: item.id, jobId: item.job_id, name: item.name, mockupColor: item.mockup_color,
+      ...state, itemId: item.id, jobId: item.job_id, name: item.name, letter: letterByItem.get(item.id) || "", mockupColor: item.mockup_color,
       decoratorId, decoratorName, decoratorCode: assign.decorators?.short_code || null, garmentType: item.garment_type,
       embellishments: embellishmentsFor(item.garment_type, job.costing_data?.costProds || [], state.orderedTotal),
       mockupFileId: mockupById.get(item.id) || null,
@@ -665,6 +677,17 @@ export async function loadShippingBoard(sb: Sb): Promise<ShippingJob[]> {
     .select("id, job_id, name, mockup_color, shipping_route, ship_final, buy_sheet_lines(size, qty_ordered)")
     .in("job_id", Array.from(jobById.keys()));
   if (!items?.length) return [];
+  // PO order. Without this the strip's rows (and their A/B/C letters in the
+  // Board) ride Postgres's arbitrary return order and can disagree with the
+  // PO's lettering (HPD-2608-023, Aug 31 — DB was fine, display wasn't).
+  items.sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || String(a.name || "").localeCompare(String(b.name || "")));
+  // The item's LETTER is the PO's letter: position in the FULL job's sorted
+  // list (the PO letters over all items even when it shows one vendor's
+  // subset). A strip is job×vendor, so an index within the strip would
+  // restart at A per vendor and lie on multi-vendor jobs.
+  const letterByItem = new Map<string, string>();
+  { const perJob = new Map<string, number>();
+    for (const it of items as any[]) { const n = perJob.get(it.job_id) || 0; letterByItem.set(it.id, String.fromCharCode(65 + n)); perJob.set(it.job_id, n + 1); } }
   const ids = (items as any[]).map(i => i.id);
 
   const { data: allMoves } = await sb.from("movements").select("id, item_id, type, qtys, shipment_id, reverses_id").in("item_id", ids);
@@ -804,6 +827,17 @@ export async function loadStagingBoard(sb: Sb): Promise<StagingItem[]> {
     .select("id, job_id, name, mockup_color, shipping_route, ship_final, blank_vendor, blank_sku, buy_sheet_lines(size, qty_ordered)")
     .in("job_id", Array.from(jobById.keys()));
   if (!items?.length) return [];
+  // PO order. Without this the strip's rows (and their A/B/C letters in the
+  // Board) ride Postgres's arbitrary return order and can disagree with the
+  // PO's lettering (HPD-2608-023, Aug 31 — DB was fine, display wasn't).
+  items.sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || String(a.name || "").localeCompare(String(b.name || "")));
+  // The item's LETTER is the PO's letter: position in the FULL job's sorted
+  // list (the PO letters over all items even when it shows one vendor's
+  // subset). A strip is job×vendor, so an index within the strip would
+  // restart at A per vendor and lie on multi-vendor jobs.
+  const letterByItem = new Map<string, string>();
+  { const perJob = new Map<string, number>();
+    for (const it of items as any[]) { const n = perJob.get(it.job_id) || 0; letterByItem.set(it.id, String.fromCharCode(65 + n)); perJob.set(it.job_id, n + 1); } }
   const ids = (items as any[]).map(i => i.id);
 
   const { data: allMoves } = await sb.from("movements").select("id, item_id, type, qtys, shipment_id, reverses_id").in("item_id", ids);
