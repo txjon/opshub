@@ -292,7 +292,7 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
                         style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", borderTop: `1px solid ${T.border}`, cursor: blocked ? "not-allowed" : "pointer", opacity: blocked ? 0.4 : 1, background: "transparent", boxShadow: checked ? `inset 3px 0 0 0 ${T.text}` : "none" }}>
                         <input type="checkbox" checked={checked} disabled={blocked} onChange={() => toggle(it)}
                           style={{ width: 16, height: 16, accentColor: T.blue, cursor: blocked ? "not-allowed" : "pointer" }} />
-                        <span style={{ width: 16, textAlign: "center", flex: "none", color: T.muted, fontWeight: 700, fontSize: 12, fontFamily: mono }}>{String.fromCharCode(65 + idx)}</span>
+                        <span style={{ width: 16, textAlign: "center", flex: "none", color: T.muted, fontWeight: 700, fontSize: 12, fontFamily: mono }}>{it.letter || String.fromCharCode(65 + idx)}</span>
                         <ItemThumb fileId={it.mockupFileId} name={it.name} />
                         <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
                           <span style={{ fontSize: 13, fontWeight: 500 }}>{it.name}</span>
