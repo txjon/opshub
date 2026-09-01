@@ -348,7 +348,7 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
             <button onClick={() => pushToQB()} disabled={qbBusy} style={{ ...btnPrimary, opacity: qbBusy ? 0.6 : 1 }}>{qbBusy ? "Pushing…" : "Push to QuickBooks"}</button>
           )}
           {(hasQB || isManualInvoice) && !report.sent_at && (
-            <button onClick={() => setSendOpen(s => !s)} style={btnGreen}>{sendOpen ? "Close" : "Send to client"}</button>
+            <button onClick={() => setSendOpen(true)} style={btnGreen}>Send to client</button>
           )}
           <button onClick={() => setMenuOpen(v => !v)} aria-label="More actions"
             style={{ ...btnGhost, fontSize: 16, lineHeight: 1, padding: "8px 13px" }}>⋯</button>
@@ -445,10 +445,25 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
         </div>
       )}
 
+      {/* Send modal — DESIGN.md modal anatomy (eyebrow → title → summary
+          strip → body → footer). Was an inline card wedged mid-page. */}
       {sendOpen && (hasQB || isManualInvoice) && (
-        <div style={{ ...card, display: "flex", flexDirection: "column", gap: 10 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>Send report + Pay Online link</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <div onClick={() => !sendBusy && setSendOpen(false)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 100, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "9vh 16px", overflowY: "auto" }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 14, padding: 22, width: "100%", maxWidth: 560, fontFamily: font, color: T.text, display: "flex", flexDirection: "column", gap: 14 }}>
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 3 }}>{reportKindLabel} · {report.clients?.name || ""}</div>
+              <div style={{ display: "flex", alignItems: "baseline" }}>
+                <div style={{ fontSize: 16.5, fontWeight: 800 }}>Send to client</div>
+                <button onClick={() => setSendOpen(false)} disabled={sendBusy} style={{ marginLeft: "auto", background: "none", border: "none", color: T.faint, fontSize: 18, cursor: "pointer" }}>✕</button>
+              </div>
+            </div>
+            <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "9px 13px", display: "flex", alignItems: "baseline", gap: 14, fontSize: 12.5 }}>
+              <span style={{ fontFamily: mono, fontWeight: 800, color: T.accent }}>#{report.qb_invoice_number}</span>
+              <span style={{ fontFamily: mono, fontWeight: 700 }}>{fmtD(Number(report.qb_total_with_tax ?? billedAmount))}</span>
+              <span style={{ color: T.faint, fontSize: 11 }}>invoice PDF + Pay Online link attached</span>
+            </div>
             <div>
               <label style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 4 }}>To</label>
               <input value={toEmail} onChange={e => setToEmail(e.target.value)} placeholder="client@example.com" style={input} />
@@ -469,21 +484,19 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
               <label style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 4 }}>CC (comma-separated)</label>
               <input value={ccEmails} onChange={e => setCcEmails(e.target.value)} placeholder="optional" style={input} />
             </div>
-          </div>
-          <div>
-            <label style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 4 }}>Subject</label>
-            <input value={subject} onChange={e => setSubject(e.target.value)} style={input} />
-          </div>
-          {sendMsg && (
-            <div style={{ padding: "8px 12px", borderRadius: 6, background: sendMsg.ok ? T.green + "11" : T.red + "11", border: `1px solid ${sendMsg.ok ? T.green + "55" : T.red + "55"}`, color: sendMsg.ok ? T.green : T.red, fontSize: 12 }}>
-              {sendMsg.text}
+            <div>
+              <label style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 4 }}>Subject</label>
+              <input value={subject} onChange={e => setSubject(e.target.value)} style={input} />
             </div>
-          )}
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 6 }}>
-            <button onClick={() => setSendOpen(false)} style={btnGhost} disabled={sendBusy}>Cancel</button>
-            <button onClick={sendEmail} disabled={sendBusy || !toEmail.trim()} style={{ ...btnGreen, opacity: sendBusy || !toEmail.trim() ? 0.5 : 1 }}>
-              {sendBusy ? "Sending…" : "Send"}
-            </button>
+            {sendMsg && (
+              <div style={{ fontSize: 12, fontWeight: 700, color: sendMsg.ok ? T.green : T.red }}>{sendMsg.text}</div>
+            )}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, borderTop: `1px solid ${T.border}`, paddingTop: 14 }}>
+              <button onClick={() => setSendOpen(false)} style={btnGhost} disabled={sendBusy}>Cancel</button>
+              <button onClick={sendEmail} disabled={sendBusy || !toEmail.trim()} style={{ ...btnGreen, opacity: sendBusy || !toEmail.trim() ? 0.5 : 1 }}>
+                {sendBusy ? "Sending…" : "Send"}
+              </button>
+            </div>
           </div>
         </div>
       )}
