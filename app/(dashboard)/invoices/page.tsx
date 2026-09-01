@@ -55,9 +55,13 @@ export default function InvoicesPage() {
     const q = new URLSearchParams(window.location.search).get("stream");
     return q === "fulfillment" || q === "job" ? q : "all";
   });
-  const [agingFilter, setAgingFilter] = useState<ArAging | null>(null);
-  const [view, setView] = useState<"open" | "history">("open");
-  const [tab, setTab] = useState<"index" | "close">("index");
+  // "overdue" = the three overdue buckets combined (the headline tile).
+  const [agingFilter, setAgingFilter] = useState<ArAging | "overdue" | null>(null);
+  // One view axis: Open (chase list) · History (everything) · Closed (log).
+  const [view, setView] = useState<"open" | "history" | "closed">("open");
+  // Column sort — Jon's call (Sep 1), overriding the fixed-sort convention
+  // for this page only. null = the default chase order.
+  const [sort, setSort] = useState<{ k: string; dir: 1 | -1 } | null>(null);
   const [costCompleteByJob, setCostCompleteByJob] = useState<Record<string, boolean>>({});
   const [closing, setClosing] = useState<string | null>(null);
   const [menuFor, setMenuFor] = useState<string | null>(null);   // row key with ⋯ open
@@ -188,16 +192,34 @@ export default function InvoicesPage() {
     return Math.floor((Date.now() - new Date(anchor).getTime()) / 86400000);
   };
   const shown: InvoiceRow[] = useMemo(() => {
-    if (!ar) return [];
+    if (!ar || view === "closed") return [];
     const needle = q.trim().toLowerCase();
     const rows = ar.rows.filter(r =>
       (stream === "all" || r.stream === stream)
-      && (!agingFilter || r.aging === agingFilter)
+      && (!agingFilter || (agingFilter === "overdue" ? r.aging.startsWith("overdue") : r.aging === agingFilter))
       && (view === "history" || r.balance > 0.01)
       && (!needle || r.clientName.toLowerCase().includes(needle) || r.label.toLowerCase().includes(needle) || (r.invoiceNumber || "").toLowerCase().includes(needle))
     );
-    if (view === "open") {
-      // Chase order: most late first; not-yet-due below, soonest deadline first.
+    if (sort) {
+      const val = (r: InvoiceRow): number | string => {
+        switch (sort.k) {
+          case "client": return r.clientName.toLowerCase();
+          case "inv": return Number(r.invoiceNumber) || 0;
+          case "state": return stateMeta(r).label;
+          case "balance": return r.balance;
+          case "billed": return r.billed;
+          case "paid": return r.paid;
+          case "date": return r.date || "";
+          default: return daysLate(r); // due
+        }
+      };
+      rows.sort((a, b) => {
+        const A = val(a), B = val(b);
+        const c = typeof A === "number" && typeof B === "number" ? A - B : String(A).localeCompare(String(B));
+        return c * sort.dir;
+      });
+    } else if (view === "open") {
+      // Default chase order: most late first; not-yet-due below, soonest first.
       rows.sort((a, b) => {
         const la = daysLate(a), lb = daysLate(b);
         const aLate = la > 0, bLate = lb > 0;
@@ -207,13 +229,23 @@ export default function InvoicesPage() {
       });
     }
     return rows;
-  }, [ar, stream, agingFilter, view, q]);
+  }, [ar, stream, agingFilter, view, q, sort]);
 
-  const kpi = (label: string, value: string, color = T.text) => (
-    <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "14px 18px", minWidth: 150 }}>
-      <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: T.faint }}>{label}</div>
-      <div style={{ fontSize: 19, fontWeight: 800, color, fontFamily: mono, marginTop: 5 }}>{value}</div>
-    </div>
+  // ONE money strip (Sep 1 redesign): every tile is also the filter for what
+  // it counts. Clicking Outstanding clears; Overdue = the 3 overdue buckets.
+  const pickAging = (k: ArAging | "overdue" | null) => {
+    setAgingFilter(cur => (k === null ? null : cur === k ? null : k));
+    if (view === "closed") setView("open");
+  };
+  const tile = (label: string, amount: number, count: number | null, color: string, active: boolean, onClick: () => void) => (
+    <button key={label} onClick={onClick}
+      style={{ background: active ? T.surface : T.card, border: `1px solid ${active ? color : T.border}`, borderRadius: 10, padding: "11px 15px", minWidth: 118, textAlign: "left", cursor: "pointer", fontFamily: font }}>
+      <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color }}>{label}</div>
+      <div style={{ fontSize: 16.5, fontWeight: 800, fontFamily: mono, marginTop: 4, color: amount > 0 ? T.text : T.faint }}>
+        {amount > 0 ? money(amount) : "—"}
+        {count != null && count > 0 ? <span style={{ fontSize: 11, color: T.faint, fontWeight: 700 }}> · {count}</span> : null}
+      </div>
+    </button>
   );
 
   return (
@@ -241,23 +273,47 @@ export default function InvoicesPage() {
         <div style={{ color: T.faint, fontSize: 13, padding: "30px 0" }}>Loading the ledger…</div>
       ) : (
         <>
-          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
-            {kpi("Outstanding", money(ar.kpis.outstanding))}
-            {kpi("Overdue", money(ar.kpis.overdue), ar.kpis.overdue > 0 ? T.red : T.green)}
-            {kpi("On terms", money(ar.kpis.onTerms), T.muted)}
-            {kpi("Expected · 30d", money(ar.kpis.expected30), T.green)}
+          {/* THE money strip — headline + aging buckets in one clickable row
+              (replaced the stacked KPI row + tab row + aging row, which
+              repeated the same numbers three ways). */}
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+            {tile("Outstanding", ar.kpis.outstanding, null, T.faint, agingFilter === null, () => pickAging(null))}
+            {tile("Overdue", ar.kpis.overdue, (["overdue_30", "overdue_60", "overdue_90"] as ArAging[]).reduce((a, k) => a + ar.aging[k].count, 0), T.red, agingFilter === "overdue", () => pickAging("overdue"))}
+            {(Object.keys(AGING_META) as ArAging[]).map(k => {
+              const b = ar.aging[k]; const m = AGING_META[k];
+              return tile(m.label, b.total, b.count, m.color, agingFilter === k, () => pickAging(k));
+            })}
           </div>
 
-          <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
-            {(["index", "close"] as const).map(k => (
-              <button key={k} onClick={() => setTab(k)}
-                style={{ borderRadius: 8, border: `1px solid ${tab === k ? T.accent : T.border}`, background: tab === k ? T.surface : "transparent", color: tab === k ? T.text : T.muted, fontSize: 12.5, fontWeight: 800, padding: "9px 16px", cursor: "pointer", fontFamily: font }}>
-                {k === "index" ? "All invoices" : "Closed"}
-              </button>
-            ))}
+          {/* ONE control row: view · stream · search. */}
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 12 }}>
+            <div style={{ display: "flex", gap: 4, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 4 }}>
+              {(["open", "history", "closed"] as const).map(k => (
+                <button key={k} onClick={() => setView(k)}
+                  style={{ background: view === k ? T.accent : "transparent", color: view === k ? "#0a0a0a" : T.muted, border: "none", borderRadius: 7, padding: "7px 16px", fontSize: 12.5, fontWeight: 800, cursor: "pointer", fontFamily: font }}>
+                  {k === "open" ? `Open · ${ar.rows.filter(r => r.balance > 0.01 && (stream === "all" || r.stream === stream)).length}` : k === "history" ? "History" : "Closed"}
+                </button>
+              ))}
+            </div>
+            {view !== "closed" && (
+              <span style={{ display: "inline-flex", gap: 2, marginLeft: 6 }}>
+                {(["all", "job", "fulfillment"] as const).map(k => (
+                  <button key={k} onClick={() => setStream(k)}
+                    style={{ background: "none", border: "none", color: stream === k ? T.text : T.faint, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", padding: "4px 7px", cursor: "pointer", fontFamily: font, textDecoration: stream === k ? "underline" : "none", textUnderlineOffset: 4 }}>
+                    {k === "all" ? "All" : k === "job" ? "Jobs" : "Fulfillment"}
+                  </button>
+                ))}
+              </span>
+            )}
+            {view !== "closed" && (
+              <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search client, invoice #, title…"
+                style={{ marginLeft: "auto", minWidth: 220, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, fontSize: 12.5, padding: "9px 12px", outline: "none", fontFamily: font }} />
+            )}
           </div>
 
-          {tab === "close" ? (
+          {actMsg && <div style={{ fontSize: 12, fontWeight: 700, color: actMsg.includes("didn") || actMsg.includes("No contact") ? T.red : T.green, marginBottom: 10 }}>{actMsg}</div>}
+
+          {view === "closed" ? (
             <ClosedLog rows={ar.rows} closing={closing}
               onReopen={async (row) => {
                 setClosing(row.id);
@@ -269,54 +325,34 @@ export default function InvoicesPage() {
               }} />
           ) : (
           <>
-          {/* Aging strip — clickable buckets filter the chase list */}
-          {view === "open" && (
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
-            {(Object.keys(AGING_META) as ArAging[]).map(k => {
-              const b = ar.aging[k]; const m = AGING_META[k]; const on = agingFilter === k;
-              return (
-                <button key={k} onClick={() => setAgingFilter(on ? null : k)}
-                  style={{ background: on ? T.surface : "transparent", border: `1px solid ${on ? m.color : T.border}`, borderRadius: 8, padding: "8px 13px", cursor: "pointer", fontFamily: font, textAlign: "left" }}>
-                  <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: m.color, display: "block" }}>{m.label}</span>
-                  <span style={{ fontSize: 12.5, fontFamily: mono, color: b.total > 0 ? T.text : T.faint, fontWeight: 700 }}>{b.total > 0 ? money(b.total) : "—"}{b.count > 0 ? ` · ${b.count}` : ""}</span>
-                </button>
-              );
-            })}
-          </div>
-          )}
-
-          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 12 }}>
-            {(["open", "history"] as const).map(k => {
-              const openCount = ar.rows.filter(r => r.balance > 0.01 && (stream === "all" || r.stream === stream)).length;
-              return (
-                <button key={k} onClick={() => { setView(k); setAgingFilter(null); }}
-                  style={{ borderRadius: 6, border: `1px solid ${view === k ? T.accent : T.border}`, background: view === k ? T.surface : "transparent", color: view === k ? T.text : T.muted, fontSize: 12, fontWeight: 800, padding: "7px 14px", cursor: "pointer", fontFamily: font }}>
-                  {k === "open" ? `Open · ${openCount}` : "History"}
-                </button>
-              );
-            })}
-            <span style={{ display: "inline-flex", gap: 2, marginLeft: 6 }}>
-              {(["all", "job", "fulfillment"] as const).map(k => (
-                <button key={k} onClick={() => setStream(k)}
-                  style={{ background: "none", border: "none", color: stream === k ? T.text : T.faint, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", padding: "4px 7px", cursor: "pointer", fontFamily: font, textDecoration: stream === k ? "underline" : "none", textUnderlineOffset: 4 }}>
-                  {k === "all" ? "All" : k === "job" ? "Jobs" : "Fulfillment"}
-                </button>
-              ))}
-            </span>
-            <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search client, invoice #, title…"
-              style={{ marginLeft: "auto", minWidth: 220, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, fontSize: 12.5, padding: "9px 12px", outline: "none", fontFamily: font }} />
-          </div>
-
-          {actMsg && <div style={{ fontSize: 12, fontWeight: 700, color: actMsg.includes("didn") || actMsg.includes("No contact") ? T.red : T.green, marginBottom: 10 }}>{actMsg}</div>}
           <div style={{ border: `1px solid ${T.border}`, borderRadius: 10, overflowX: "auto", background: T.card }} onClick={() => menuFor && setMenuFor(null)}>
             <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 860, fontSize: 12.5 }}>
               <thead><tr>
+                {/* Sortable headers (Jon, Sep 1): click = high-first, again =
+                    low-first, third = back to the default chase order. */}
                 {(view === "open"
-                  ? ["Client", "Inv #", "", "State", "Balance", "Due / late", ""]
-                  : ["Date", "Client", "Inv #", "", "State", "Billed", "Paid", "Balance", "Status", ""]
-                ).map((h, i) => (
-                  <th key={i} style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.09em", textTransform: "uppercase", color: T.faint, textAlign: h === "Billed" || h === "Paid" || h === "Balance" ? "right" : "left", padding: "11px 14px", borderBottom: `1px solid ${T.border}` }}>{h}</th>
-                ))}
+                  ? [
+                      { h: "Client", k: "client" }, { h: "Inv #", k: "inv" }, { h: "", k: "" },
+                      { h: "State", k: "state" }, { h: "Balance", k: "balance", right: true },
+                      { h: "Due / late", k: "due" }, { h: "", k: "" },
+                    ]
+                  : [
+                      { h: "Date", k: "date" }, { h: "Client", k: "client" }, { h: "Inv #", k: "inv" }, { h: "", k: "" },
+                      { h: "State", k: "state" }, { h: "Billed", k: "billed", right: true },
+                      { h: "Paid", k: "paid", right: true }, { h: "Balance", k: "balance", right: true },
+                      { h: "Status", k: "" }, { h: "", k: "" },
+                    ]
+                ).map((c: any, i) => {
+                  const active = sort?.k === c.k && c.k;
+                  return (
+                    <th key={i}
+                      onClick={c.k ? () => setSort(s => (!s || s.k !== c.k ? { k: c.k, dir: -1 } : s.dir === -1 ? { k: c.k, dir: 1 } : null)) : undefined}
+                      title={c.k ? "Sort" : undefined}
+                      style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.09em", textTransform: "uppercase", color: active ? T.text : T.faint, textAlign: c.right ? "right" : "left", padding: "11px 14px", borderBottom: `1px solid ${T.border}`, cursor: c.k ? "pointer" : "default", userSelect: "none", whiteSpace: "nowrap" }}>
+                      {c.h}{active ? (sort!.dir === -1 ? " ▼" : " ▲") : ""}
+                    </th>
+                  );
+                })}
               </tr></thead>
               <tbody>
                 {shown.length === 0 && (
