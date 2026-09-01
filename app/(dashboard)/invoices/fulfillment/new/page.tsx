@@ -131,6 +131,7 @@ type PriorReport = {
   id: string;
   client_id: string;
   report_type: ReportType;
+  postage_mode: "per_shipment" | "bulk" | null;
   period_label: string | null;
   sales_period_label: string | null;
   postage_period_label: string | null;
@@ -210,7 +211,9 @@ export default function NewShipstationReportPage() {
   const [editLoading, setEditLoading] = useState<boolean>(!!editId);
   const [editError, setEditError] = useState<string>("");
 
-  const [reportType, setReportType] = useState<ReportType>("fulfillment");
+  // Postage is the default — it's what nearly every client is billed as;
+  // picking a client re-defaults to their last billed type anyway.
+  const [reportType, setReportType] = useState<ReportType>("postage");
   const [typeMenu, setTypeMenu] = useState(false);
   // Invoice period for Full Service, derived from the two halves.
   const derivePeriod = (a: string, b: string) => {
@@ -332,7 +335,7 @@ export default function NewShipstationReportPage() {
     (async () => {
       const { data } = await supabase
         .from("shipstation_reports")
-        .select("id, client_id, report_type, period_label, sales_period_label, postage_period_label, qb_invoice_number, sent_at, paid_at, created_at")
+        .select("id, client_id, report_type, postage_mode, period_label, sales_period_label, postage_period_label, qb_invoice_number, sent_at, paid_at, created_at")
         .order("created_at", { ascending: false });
       const by: Record<string, PriorReport[]> = {};
       for (const r of (data || []) as PriorReport[]) (by[r.client_id] ||= []).push(r);
@@ -340,13 +343,31 @@ export default function NewShipstationReportPage() {
     })();
   }, []);
 
-  // Picking a client pre-fills the next billing window from their last
-  // invoice (same label format), unless the user already typed a period.
-  function applyPeriodSuggestion(cid: string) {
+  // Picking a client: (1) re-default the invoice type to their last billed
+  // type (only when nothing's uploaded yet — never clear parsed rows under
+  // the user), then (2) pre-fill the next billing window from their last
+  // invoice, unless the user already typed a period.
+  function pickClient(cid: string) {
+    setClientId(cid);
+    setClientListOpen(false);
+    setClientSearch("");
+    let effType = reportType;
+    const prior = priorByClient[cid]?.[0];
+    const rowsLoaded = rawRows.length > 0 || rawPostageRows.length > 0 || rawBulkRows.length > 0;
+    if (!isEditing && prior && prior.report_type !== reportType && !rowsLoaded) {
+      onChangeType(prior.report_type);
+      effType = prior.report_type;
+    }
+    if (!isEditing && prior && !rowsLoaded) {
+      setPostageMode(prior.postage_mode === "bulk" ? "bulk" : "per_shipment");
+    }
+    applyPeriodSuggestion(cid, effType);
+  }
+  function applyPeriodSuggestion(cid: string, effType: ReportType = reportType) {
     if (isEditing || periodTouched) return;
     const prior = priorByClient[cid]?.[0];
     if (!prior) return;
-    if (isCombined) {
+    if (effType === "combined") {
       const ss = nextPeriodSuggestion(prior.sales_period_label || prior.period_label);
       const ps = nextPeriodSuggestion(prior.postage_period_label || prior.period_label);
       if (ss) setSalesPeriodLabel(ss);
@@ -1496,21 +1517,32 @@ export default function NewShipstationReportPage() {
         <div style={{ ...card, color: T.red, fontSize: 13 }}>{editError}</div>
       )}
 
-      {/* Report type toggle — only meaningful before rows are parsed; still
-          allowed to flip after, but parsed rows get cleared (see onChangeType).
-          Hidden in edit mode: changing type would invalidate the hydrated
-          rows since the source CSV isn't kept after generate. */}
-      {!isEditing && (() => {
-        // Fulfillment + Full Service are the two real scenarios (Jon,
-        // Aug 25); Sales-only and Postage-only live behind ⋯ — good to
-        // have, rarely needed. A rare type stays visible while selected.
+      {/* Stage pills lead — the wizard's spine (Jon, Aug 31: "more wizard
+          feeling"). In edit mode Stage 1 (CSV upload) is unreachable so it
+          stays grey; the 2/3/4 progression still applies. */}
+      <div style={{ display: "flex", gap: 8 }}>
+        {stagePill(1, isEditing ? "Upload (skipped)" : "Upload", stage === 1, stage > 1)}
+        {stagePill(2, isCombined ? "Select rows" : (isPostage || isFulfillment) ? "Select shipments" : "Select rows", stage === 2, stage > 2)}
+        {stagePill(3, isCombined ? "Pricing" : isFulfillment ? "Fulfillment fee" : isPostage ? "Markup %" : "Unit costs", stage === 3, stage > 3)}
+        {stagePill(4, isEditing ? "Review + save" : "Review + generate", stage === 4, false)}
+      </div>
+
+      {/* Invoice type — a stage-1 decision, so it only renders there (later
+          stages flipping it would clear parsed rows anyway; see onChangeType).
+          Hidden in edit mode: the saved report fixes the type. */}
+      {stage === 1 && !isEditing && (() => {
+        // Postage + Full Service are the two real scenarios (every invoice
+        // ever billed is one of them). Fulfillment-only (client pays their
+        // own postage — bills just the per-package fee) and Sales-only live
+        // behind ⋯ until the fulfillment-only offering has a signed client.
+        // A rare type stays visible while selected.
         const primary = [
-          { value: "fulfillment", label: "Fulfillment" },
+          { value: "postage", label: "Postage" },
           { value: "combined", label: "Full Service" },
         ] as const;
         const rare = [
+          { value: "fulfillment", label: "Fulfillment only" },
           { value: "sales", label: "Sales only" },
-          { value: "postage", label: "Postage only" },
         ] as const;
         const btn = (t: { value: ReportType; label: string }) => (
           <button key={t.value} onClick={() => { onChangeType(t.value); setTypeMenu(false); }}
@@ -1523,6 +1555,8 @@ export default function NewShipstationReportPage() {
             }}>{t.label}</button>
         );
         return (
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>Invoice type</span>
           <div style={{ display: "flex", gap: 6, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 4, width: "fit-content", position: "relative", alignItems: "center" }}>
             {primary.map(t => btn(t as any))}
             {rare.filter(t => reportType === t.value).map(t => btn(t as any))}
@@ -1539,6 +1573,7 @@ export default function NewShipstationReportPage() {
               </div>
             )}
           </div>
+          </div>
         );
       })()}
 
@@ -1546,7 +1581,7 @@ export default function NewShipstationReportPage() {
           or Full Service). Per-shipment is the original per-package report;
           Bulk is a pure pass-through reimbursement of bulk postage buys.
           Hidden in edit mode (mode is fixed by the saved report). */}
-      {!isEditing && showPostage && !isFulfillment && (
+      {stage === 1 && !isEditing && showPostage && !isFulfillment && (
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <span style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>Postage source</span>
           <div style={{ display: "flex", gap: 6, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 4, width: "fit-content" }}>
@@ -1575,15 +1610,6 @@ export default function NewShipstationReportPage() {
         </div>
       )}
 
-      {/* Stage pills — In edit mode Stage 1 (CSV upload) is unreachable
-          so it stays grey. The 2/3/4 progression still applies. */}
-      <div style={{ display: "flex", gap: 8 }}>
-        {stagePill(1, isEditing ? "Upload (skipped)" : "Upload", stage === 1, stage > 1)}
-        {stagePill(2, isCombined ? "Select rows" : (isPostage || isFulfillment) ? "Select shipments" : "Select rows", stage === 2, stage > 2)}
-        {stagePill(3, isCombined ? "Pricing" : isFulfillment ? "Fulfillment fee" : isPostage ? "Markup %" : "Unit costs", stage === 3, stage > 3)}
-        {stagePill(4, isEditing ? "Review + save" : "Review + generate", stage === 4, false)}
-      </div>
-
       {/* ── Stage 1 — Upload ── */}
       {stage === 1 && (
         <div style={{ ...card, display: "flex", flexDirection: "column", gap: 14, maxWidth: isCombined ? 760 : 640 }}>
@@ -1611,7 +1637,7 @@ export default function NewShipstationReportPage() {
                       const last = priorByClient[c.id]?.[0];
                       return (
                         <div key={c.id}
-                          onMouseDown={() => { setClientId(c.id); setClientListOpen(false); setClientSearch(""); applyPeriodSuggestion(c.id); }}
+                          onMouseDown={() => pickClient(c.id)}
                           style={{ display: "flex", alignItems: "baseline", gap: 10, padding: "8px 12px", fontSize: 13, color: c.id === clientId ? T.accent : T.text, cursor: "pointer", fontWeight: c.id === clientId ? 700 : 400 }}
                           onMouseEnter={e => (e.currentTarget.style.background = T.surface)}
                           onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
@@ -1691,6 +1717,11 @@ export default function NewShipstationReportPage() {
                     </div>
                   );
                 })}
+                {last.report_type !== reportType && (
+                  <div style={{ fontSize: 11, color: T.amber, fontWeight: 600, marginTop: 6 }}>
+                    Last billed as {PRIOR_TYPE_LABEL[last.report_type]} — this invoice is set to {PRIOR_TYPE_LABEL[reportType]}.
+                  </div>
+                )}
                 {(sug || ss || ps) && (
                   <div style={{ fontSize: 11, color: T.muted, marginTop: 8, paddingTop: 8, borderTop: `1px solid ${T.border}`, lineHeight: 1.6 }}>
                     {isCombined ? (
@@ -1717,7 +1748,10 @@ export default function NewShipstationReportPage() {
               Drop the ShipStation export{showSales && showPostage ? "s" : ""} here — or click to choose
             </div>
             <div style={{ fontSize: 11, color: T.faint, marginTop: 5, lineHeight: 1.5 }}>
-              {[showSales ? "sales CSV" : null, showPostage ? (isBulkPostage ? "postage-ledger CSV" : "shipments CSV") : null].filter(Boolean).join(" + ")} · each file is recognized automatically
+              {[
+                showSales ? "product sales CSV" : null,
+                showPostage ? (isBulkPostage ? "postage-ledger CSV (account transactions export)" : "Shipped Orders CSV (ShipStation → Data Exports → Shipping Cost)") : null,
+              ].filter(Boolean).join(" + ")} · each file is recognized automatically
             </div>
             <input id="ssr-file-input" type="file" accept=".csv,text/csv" multiple style={{ display: "none" }}
               onChange={e => { routeCsvFiles(e.target.files); (e.target as any).value = ""; }} />
