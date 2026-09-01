@@ -1777,17 +1777,15 @@ export default function NewShipstationReportPage() {
                 </span>
               )}
             </div>
-            <div style={{ display: "flex", gap: 6 }}>
-              <button onClick={selectAllSales} style={btnGhost}>Select all</button>
-              <button onClick={clearAllSales} style={btnGhost}>Clear all</button>
-            </div>
           </div>
 
           <div style={{ maxHeight: 500, overflow: "auto", border: `1px solid ${T.border}`, borderRadius: 8 }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead style={{ position: "sticky", top: 0, background: T.card, zIndex: 1 }}>
                 <tr>
-                  <th style={{ ...thStyle, width: 40 }}></th>
+                  <th style={{ ...thStyle, width: 40, textAlign: "center" }}>
+                    <MasterCheck count={rawRows.length} selected={selectedRows.length} onAll={selectAllSales} onNone={clearAllSales} />
+                  </th>
                   <th style={thStyle}>SKU</th>
                   <th style={thStyle}>Description</th>
                   <th style={{ ...thStyle, textAlign: "right" }}>Qty Sold</th>
@@ -1836,17 +1834,15 @@ export default function NewShipstationReportPage() {
               <span style={{ fontWeight: 700, color: T.text }}>{selectedPostageRows.length}</span> of {rawPostageRows.length} shipments included
               <span style={{ marginLeft: 10, fontSize: 11, color: T.faint }}>Shift-click to select a range</span>
             </div>
-            <div style={{ display: "flex", gap: 6 }}>
-              <button onClick={selectAllPostage} style={btnGhost}>Select all</button>
-              <button onClick={clearAllPostage} style={btnGhost}>Clear all</button>
-            </div>
           </div>
 
           <div style={{ maxHeight: 560, overflow: "auto", border: `1px solid ${T.border}`, borderRadius: 8 }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead style={{ position: "sticky", top: 0, background: T.card, zIndex: 1 }}>
                 <tr>
-                  <th style={{ ...thStyle, width: 36 }}></th>
+                  <th style={{ ...thStyle, width: 36, textAlign: "center" }}>
+                    <MasterCheck count={rawPostageRows.length} selected={selectedPostageRows.length} onAll={selectAllPostage} onNone={clearAllPostage} />
+                  </th>
                   <th style={thStyle}>Ship Date</th>
                   <th style={thStyle}>Recipient</th>
                   <th style={thStyle}>Order #</th>
@@ -1904,17 +1900,15 @@ export default function NewShipstationReportPage() {
               <span style={{ marginLeft: 10, fontSize: 11, color: T.faint }}>Shift-click to select a range</span>
               <span style={{ marginLeft: 10, fontSize: 11, color: T.green, fontFamily: mono }}>· {fmtD(bulkPostageTotals.total)} total</span>
             </div>
-            <div style={{ display: "flex", gap: 6 }}>
-              <button onClick={selectAllBulk} style={btnGhost}>Select all</button>
-              <button onClick={clearAllBulk} style={btnGhost}>Clear all</button>
-            </div>
           </div>
 
           <div style={{ maxHeight: 560, overflow: "auto", border: `1px solid ${T.border}`, borderRadius: 8 }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead style={{ position: "sticky", top: 0, background: T.card, zIndex: 1 }}>
                 <tr>
-                  <th style={{ ...thStyle, width: 36 }}></th>
+                  <th style={{ ...thStyle, width: 36, textAlign: "center" }}>
+                    <MasterCheck count={rawBulkRows.length} selected={selectedBulkRows.length} onAll={selectAllBulk} onNone={clearAllBulk} />
+                  </th>
                   <th style={thStyle}>Transaction Date</th>
                   <th style={{ ...thStyle, textAlign: "right" }}>Amount</th>
                 </tr>
@@ -2304,16 +2298,14 @@ export default function NewShipstationReportPage() {
                   </span>
                 )}
               </div>
-              <div style={{ display: "flex", gap: 6 }}>
-                <button onClick={selectAllSales} style={btnGhost}>Select all</button>
-                <button onClick={clearAllSales} style={btnGhost}>Clear all</button>
-              </div>
             </div>
             <div style={{ maxHeight: 360, overflow: "auto", border: `1px solid ${T.border}`, borderRadius: 8 }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead style={{ position: "sticky", top: 0, background: T.card, zIndex: 1 }}>
                   <tr>
-                    <th style={{ ...thStyle, width: 40 }}></th>
+                    <th style={{ ...thStyle, width: 40, textAlign: "center" }}>
+                      <MasterCheck count={rawRows.length} selected={selectedRows.length} onAll={selectAllSales} onNone={clearAllSales} />
+                    </th>
                     <th style={thStyle}>SKU</th>
                     <th style={thStyle}>Description</th>
                     <th style={{ ...thStyle, textAlign: "right" }}>Qty Sold</th>
@@ -2359,16 +2351,14 @@ export default function NewShipstationReportPage() {
                 <span style={{ fontWeight: 700, color: T.text }}>{selectedPostageRows.length}</span> of {rawPostageRows.length} shipments included
                 <span style={{ marginLeft: 10, fontSize: 11, color: T.faint }}>Shift-click to select a range</span>
               </div>
-              <div style={{ display: "flex", gap: 6 }}>
-                <button onClick={selectAllPostage} style={btnGhost}>Select all</button>
-                <button onClick={clearAllPostage} style={btnGhost}>Clear all</button>
-              </div>
             </div>
             <div style={{ maxHeight: 380, overflow: "auto", border: `1px solid ${T.border}`, borderRadius: 8 }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead style={{ position: "sticky", top: 0, background: T.card, zIndex: 1 }}>
                   <tr>
-                    <th style={{ ...thStyle, width: 36 }}></th>
+                    <th style={{ ...thStyle, width: 36, textAlign: "center" }}>
+                      <MasterCheck count={rawPostageRows.length} selected={selectedPostageRows.length} onAll={selectAllPostage} onNone={clearAllPostage} />
+                    </th>
                     <th style={thStyle}>Ship Date</th>
                     <th style={thStyle}>Recipient</th>
                     <th style={thStyle}>Order #</th>
@@ -2422,16 +2412,14 @@ export default function NewShipstationReportPage() {
                 <span style={{ marginLeft: 10, fontSize: 11, color: T.faint }}>Shift-click to select a range</span>
                 <span style={{ marginLeft: 10, fontSize: 11, color: T.green, fontFamily: mono }}>· {fmtD(bulkPostageTotals.total)} total</span>
               </div>
-              <div style={{ display: "flex", gap: 6 }}>
-                <button onClick={selectAllBulk} style={btnGhost}>Select all</button>
-                <button onClick={clearAllBulk} style={btnGhost}>Clear all</button>
-              </div>
             </div>
             <div style={{ maxHeight: 380, overflow: "auto", border: `1px solid ${T.border}`, borderRadius: 8 }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead style={{ position: "sticky", top: 0, background: T.card, zIndex: 1 }}>
                   <tr>
-                    <th style={{ ...thStyle, width: 36 }}></th>
+                    <th style={{ ...thStyle, width: 36, textAlign: "center" }}>
+                      <MasterCheck count={rawBulkRows.length} selected={selectedBulkRows.length} onAll={selectAllBulk} onNone={clearAllBulk} />
+                    </th>
                     <th style={thStyle}>Transaction Date</th>
                     <th style={{ ...thStyle, textAlign: "right" }}>Amount</th>
                   </tr>
@@ -2766,6 +2754,23 @@ export default function NewShipstationReportPage() {
         </>
       )}
     </div>
+  );
+}
+
+// Header master checkbox — replaces the Select all / Clear all buttons
+// (Jon, Aug 31). Checked = all included, unchecked = none, dash = partial;
+// clicking toggles between all and none.
+function MasterCheck({ count, selected, onAll, onNone }: { count: number; selected: number; onAll: () => void; onNone: () => void }) {
+  const all = count > 0 && selected === count;
+  return (
+    <input
+      type="checkbox"
+      checked={all}
+      ref={el => { if (el) el.indeterminate = selected > 0 && selected < count; }}
+      onChange={() => (all ? onNone() : onAll())}
+      title={all ? "Clear all" : "Select all"}
+      style={{ cursor: "pointer" }}
+    />
   );
 }
 
