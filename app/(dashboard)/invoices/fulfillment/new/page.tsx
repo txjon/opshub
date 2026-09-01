@@ -157,6 +157,7 @@ function nextPeriodSuggestion(label: string | null | undefined): string | null {
   const range = t.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s*[-–—]\s*(\d{1,2})\/(\d{1,2})\/(\d{4})\s*$/);
   if (range) {
     const padded = range[4].length === 2 && range[4][0] === "0";
+    // (shared regexes with parsePeriodRange below — keep in sync)
     // Numeric Date construction (local) — never bare-parse a date string.
     const end = new Date(Number(range[6]), Number(range[4]) - 1, Number(range[5]));
     const start = new Date(end.getFullYear(), end.getMonth(), end.getDate() + 1);
@@ -164,6 +165,27 @@ function nextPeriodSuggestion(label: string | null | undefined): string | null {
     const p = (n: number) => (padded ? String(n).padStart(2, "0") : String(n));
     const f = (d: Date) => `${p(d.getMonth() + 1)}/${p(d.getDate())}/${d.getFullYear()}`;
     return `${f(start)} - ${f(last)}`;
+  }
+  return null;
+}
+
+// Parse a period label into actual dates so the CSV's ship-date span can be
+// checked against it. Same two formats as nextPeriodSuggestion.
+function parsePeriodRange(label: string): { start: Date; end: Date } | null {
+  const t = (label || "").trim();
+  const monthly = t.match(/^([A-Za-z]+)\s+(\d{4})$/);
+  if (monthly) {
+    const idx = MONTH_NAMES.findIndex(m => m.toLowerCase() === monthly[1].toLowerCase());
+    if (idx < 0) return null;
+    const y = Number(monthly[2]);
+    return { start: new Date(y, idx, 1), end: new Date(y, idx + 1, 0) };
+  }
+  const range = t.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s*[-–—]\s*(\d{1,2})\/(\d{1,2})\/(\d{4})\s*$/);
+  if (range) {
+    return {
+      start: new Date(Number(range[3]), Number(range[1]) - 1, Number(range[2])),
+      end: new Date(Number(range[6]), Number(range[4]) - 1, Number(range[5])),
+    };
   }
   return null;
 }
@@ -822,6 +844,32 @@ export default function NewShipstationReportPage() {
       invoice_total: total,
     };
   }, [selectedBulkRows]);
+
+  // ── CSV date span ─────────────────────────────────────────────────────
+  // The shipments actually in the file are the truth about what window this
+  // invoice covers (Jon, Aug 31: exported Jul+Aug in one file while the
+  // period still said July). Offer the month-aligned range as a one-tap fix.
+  const csvSpan = useMemo(() => {
+    let min: Date | null = null, max: Date | null = null;
+    for (const r of rawPostageRows) {
+      const t = dateOnly(r.ship_date);
+      let d: Date | null = null;
+      const us = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      const iso = t.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (us) d = new Date(Number(us[3]), Number(us[1]) - 1, Number(us[2]));
+      else if (iso) d = new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
+      if (!d || isNaN(d.getTime())) continue;
+      if (!min || d < min) min = d;
+      if (!max || d > max) max = d;
+    }
+    if (!min || !max) return null;
+    const start = new Date(min.getFullYear(), min.getMonth(), 1);
+    const end = new Date(max.getFullYear(), max.getMonth() + 1, 0);
+    const p = (n: number) => String(n).padStart(2, "0");
+    const f = (d: Date) => `${p(d.getMonth() + 1)}/${p(d.getDate())}/${d.getFullYear()}`;
+    const short = (d: Date) => `${d.getMonth() + 1}/${d.getDate()}`;
+    return { first: short(min), last: short(max), minD: min, maxD: max, suggested: `${f(start)} - ${f(end)}` };
+  }, [rawPostageRows]);
 
   // ── Per-side selection handlers ───────────────────────────────────────
   // Combined mode renders both tables together, each with its own
@@ -1680,6 +1728,30 @@ export default function NewShipstationReportPage() {
               {showPostage && postageLoaded === 0 && <span style={{ fontSize: 12, color: T.faint, fontFamily: mono }}>waiting on {isBulkPostage ? "ledger" : "shipments"} CSV</span>}
             </div>
           </div>
+          {/* Ship-date span vs the typed period — the file is the truth about
+              what window this invoice covers. Outside the period → amber +
+              one-tap fix; period unparseable → neutral offer; matches → ✓. */}
+          {csvSpan && (() => {
+            const pr = parsePeriodRange(periodLabel);
+            const outside = !!pr && (csvSpan.minD < pr.start || csvSpan.maxD > pr.end);
+            const matches = !!pr && !outside;
+            return (
+              <div style={{ fontSize: 11.5, color: outside ? T.amber : T.muted, fontWeight: outside ? 600 : 400 }}>
+                Shipments in the file run <strong style={{ color: T.text, fontFamily: mono }}>{csvSpan.first} – {csvSpan.last}</strong>
+                {matches ? (
+                  <span style={{ color: T.green, fontWeight: 700 }}> — inside the period ✓</span>
+                ) : (
+                  <>
+                    {outside ? " — outside the period above. " : ". "}
+                    <button onClick={() => { setPeriodLabel(csvSpan.suggested); setPeriodTouched(true); }}
+                      style={{ background: "none", border: "none", color: outside ? T.amber : T.muted, fontWeight: 700, fontSize: 11.5, cursor: "pointer", fontFamily: font, padding: 0, textDecoration: "underline", textUnderlineOffset: 3 }}>
+                      Set period to {csvSpan.suggested}
+                    </button>
+                  </>
+                )}
+              </div>
+            );
+          })()}
           {(csvError || csvErrorPostage || dropError) && (
             <div style={{ fontSize: 12, color: T.red }}>{[dropError, csvError, csvErrorPostage].filter(Boolean).join(" · ")}</div>
           )}
