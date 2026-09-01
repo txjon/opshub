@@ -5,12 +5,13 @@
 // Rules (spec):
 // - Job-stream state = invoice-derive's rail step VERBATIM (imported).
 // - Uninvoiced jobs are NOT rows. pnlJobs policy applies. Cancelled excluded.
-// - Fulfillment stream = isInvoicedReport rows; both streams are equals.
+// - Fulfillment stream = every report incl. unsent drafts (the working
+//   queue); drafts stay out of the money KPIs. Both streams are equals.
 // - Aging is DERIVED, never read from stored payment status. Waiting inside
 //   net terms is on_terms — normal, not a problem.
 import { deriveInvoice, type InvoiceStep } from "@/lib/job/invoice-derive";
 import { pnlJobs } from "@/lib/revenue";
-import { isInvoicedReport, ssRevCost, ssReportLabel } from "@/lib/analytics";
+import { ssRevCost, ssReportLabel } from "@/lib/analytics";
 
 export type ArAging = "not_due" | "on_terms" | "overdue_30" | "overdue_60" | "overdue_90";
 
@@ -135,9 +136,14 @@ export function buildAr(opts: {
 
   // ── Fulfillment stream (ShipStation reports) ──
   for (const r of opts.ssReports || []) {
-    if (!isInvoicedReport(r)) continue;
+    // Drafts (no QB #, never sent — e.g. the bulk import's output) ARE the
+    // working queue, so they surface as rows (DRAFT · Not sent yet). They're
+    // excluded from the money KPIs below — nothing is owed until it's
+    // billed. No-billables markers ($0, bulk filler months) pass through to
+    // History only.
+    const noBillables = !!r.totals?.no_billables;
     const billed = r2(Number(r.qb_total_with_tax) || ssRevCost(r).revenue || 0);
-    if (billed <= 0) continue;
+    if (billed <= 0 && !noBillables) continue;
     const paid = r.paid_at ? r2(Number(r.paid_amount) || billed) : 0;
     const balance = r2(Math.max(0, billed - paid));
     const client = clientById[r.client_id];
@@ -169,7 +175,7 @@ export function buildAr(opts: {
       expectedDate: expected.toISOString().slice(0, 10),
       aging: agingOf(balance, null, expected, now),
       payLink: r.qb_payment_link || null,
-      noBillables: !!r.totals?.no_billables,
+      noBillables,
     });
   }
 
@@ -183,6 +189,9 @@ export function buildAr(opts: {
   const horizon = new Date(now.getTime() + 30 * MS_DAY).toISOString().slice(0, 10);
   for (const row of rows) {
     if (row.balance <= 0.01) continue;
+    // Unsent fulfillment drafts aren't receivables yet — visible in the
+    // list, absent from the AR money picture (KPIs, aging buckets).
+    if (row.stream === "fulfillment" && row.state === "draft") continue;
     outstanding += row.balance;
     aging[row.aging].count++;
     aging[row.aging].total = r2(aging[row.aging].total + row.balance);
