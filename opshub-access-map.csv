@@ -23,3 +23,4 @@ Other?,Warehouse (legacy),/warehouse,Old receiving page — superseded by Distro
 Other?,Templates,/templates,Project templates — confirm usage,OLD,?,,,,,,,
 Other?,References,/references,Confirm what this is / who needs it,,X,,X,X,X,,X,X
 ,,/billing,"Where Abigail will add bills, currently lives in reconciliation",,X,,,,X,,,
+Owner,Invoices (AR),/invoices,"AR index + fulfillment invoicing (wizard + detail). Goose: fulfillment billing",$$ OWNER,X,,,,X,,,X

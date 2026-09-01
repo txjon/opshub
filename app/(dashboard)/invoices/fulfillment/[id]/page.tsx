@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
 import { groupLineItems } from "@/lib/shipstation-group";
 import { QBCustomerChooser, type QBCandidate, type QBCurrent } from "@/components/QBCustomerChooser";
+import { useConfirm } from "@/components/useConfirm";
 
 const fmtD = (n: number) =>
   "$" + Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -83,6 +84,9 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
   const [report, setReport] = useState<Report | null>(null);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
+  const [confirm, confirmEl] = useConfirm();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [showManualQb, setShowManualQb] = useState(false);
 
   const [qbBusy, setQbBusy] = useState(false);
   const [qbMsg, setQbMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -146,7 +150,15 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
     }
     return Number(report.totals?.fee) || 0;
   }, [report, isPostage, isCombined, isFulfillment]);
-  const reportKindLabel = isCombined ? "Full Service Report" : isPostage ? "Postage Report" : isFulfillment ? "Fulfillment Report" : "Services Invoice";
+  const reportKindLabel = isCombined ? "Full Service Invoice" : isPostage ? "Postage Invoice" : isFulfillment ? "Fulfillment Invoice" : "Services Invoice";
+
+  // Out-of-sync detection (Sep 1: Jon edited the fee and nothing warned).
+  // Compare this page's computed total against QB's PRE-TAX subtotal
+  // (total_with_tax − tax_amount) so a taxed invoice never false-alarms.
+  const qbSubtotal = report?.qb_total_with_tax != null
+    ? Number(report.qb_total_with_tax) - (Number(report.qb_tax_amount) || 0)
+    : null;
+  const qbStale = !!report?.qb_invoice_id && qbSubtotal != null && Math.abs(billedAmount - qbSubtotal) > 0.01;
 
   useEffect(() => {
     if (!sendOpen || !report) return;
@@ -164,8 +176,9 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
       }
       if (!subject) {
         const n = report.qb_invoice_number;
-        const kind = isCombined ? "Full Service Invoice" : isPostage ? "Postage Report" : isFulfillment ? "Fulfillment Invoice" : "Services Invoice";
-        setSubject(`${kind} — ${report.clients?.name || ""} · ${report.period_label}${n ? ` · Invoice ${n}` : ""}`);
+        const kind = isCombined ? "Full Service Invoice" : isPostage ? "Postage Invoice" : isFulfillment ? "Fulfillment Invoice" : "Services Invoice";
+        // No em-dashes in client-facing copy (house rule).
+        setSubject(`${kind}${n ? ` ${n}` : ""} · ${report.clients?.name || ""} · ${report.period_label}`);
       }
     })();
   }, [sendOpen, report, isPostage]);
@@ -181,10 +194,18 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
   }
 
   async function onDelete() {
-    if (!window.confirm("Delete this report? This can't be undone.")) return;
+    const pushed = !!report?.qb_invoice_id;
+    const ok = await confirm({
+      title: "Delete this invoice?",
+      message: pushed
+        ? "Removes it from OpsHub permanently. The invoice already created in QuickBooks stays there — void it in QB separately if it shouldn't be billed."
+        : "Removes it from OpsHub permanently. This can't be undone.",
+      confirmLabel: "Delete invoice",
+    });
+    if (!ok) return;
     setDeleting(true);
     await supabase.from("shipstation_reports").delete().eq("id", params.id);
-    router.push("/reports");
+    router.push("/invoices?stream=fulfillment");
   }
 
   async function pushToQB(opts: { qbCustomerId?: string; forceCreate?: boolean } = {}) {
@@ -291,6 +312,7 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
   const btnGhost: React.CSSProperties = { background: T.surface, color: T.muted, border: `1px solid ${T.border}`, borderRadius: 6, padding: "8px 14px", fontSize: 12, fontFamily: font, fontWeight: 600, cursor: "pointer", textDecoration: "none", display: "inline-block" };
   const btnGreen: React.CSSProperties = { background: T.green, color: "#0a0e1a", border: "none", borderRadius: 6, padding: "8px 18px", fontSize: 13, fontFamily: font, fontWeight: 700, cursor: "pointer", textDecoration: "none", display: "inline-block" };
   const input: React.CSSProperties = { padding: "8px 12px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, outline: "none", fontFamily: font, boxSizing: "border-box", width: "100%" };
+  const menuItem: React.CSSProperties = { display: "block", width: "100%", textAlign: "left", background: "none", border: "none", color: T.text, fontSize: 12.5, fontWeight: 600, padding: "8px 12px", cursor: "pointer", borderRadius: 6, fontFamily: font, textDecoration: "none" };
 
   const created = new Date(report.created_at).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
   // Per-half periods. Only worth showing on the section when combined and
@@ -310,7 +332,7 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
         <div>
           <div style={{ fontSize: 11, color: T.muted, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>
-            <a href="/reports" style={{ color: T.muted, textDecoration: "none" }}>Reports</a> · ShipStation
+            <a href="/invoices?stream=fulfillment" style={{ color: T.muted, textDecoration: "none" }}>← Invoices</a> · Fulfillment
           </div>
           <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, letterSpacing: "-0.02em" }}>
             {reportKindLabel} — {report.clients?.name || "—"}
@@ -319,45 +341,56 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
             {report.period_label} · Generated {created}
           </div>
         </div>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {/* Edit — re-opens the wizard with this report's data hydrated.
-              Lets you adjust unit costs / markup / per-package fee / etc.
-              and save back without re-uploading the CSV. After saving,
-              click "Update QB Invoice" to push the changes to QB. */}
+        {/* ONE primary action, driven by the rail state (push → send); Edit
+            stays a first-class ghost; everything else demotes to ⋯. */}
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", position: "relative" }}>
           <a href={`/invoices/fulfillment/new?edit=${report.id}`} style={btnGhost}>Edit</a>
-          <a href={`/api/pdf/shipstation/${report.id}`} target="_blank" rel="noopener noreferrer" style={btnGhost}>Preview PDF</a>
-          <a href={`/api/pdf/shipstation/${report.id}?download=1`} style={btnGhost}>Download PDF</a>
-          {(isPostage || isCombined || isFulfillment) && (
-            <a href={`/api/excel/shipstation/${report.id}`} style={btnGhost}>Download Excel</a>
-          )}
-          {hasQB ? (
-            <button onClick={() => pushToQB()} disabled={qbBusy} style={{ ...btnGhost, borderColor: T.accent + "66", color: T.accent, opacity: qbBusy ? 0.6 : 1 }}>{qbBusy ? "Updating…" : "Update QB Invoice"}</button>
-          ) : isManualInvoice ? (
-            <button disabled style={{ ...btnGhost, borderColor: T.green + "66", color: T.green, cursor: "default", opacity: 1 }}>
-              ✓ QB #{report.qb_invoice_number} (manual)
-            </button>
-          ) : (
+          {!hasQB && !isManualInvoice && (
             <button onClick={() => pushToQB()} disabled={qbBusy} style={{ ...btnPrimary, opacity: qbBusy ? 0.6 : 1 }}>{qbBusy ? "Pushing…" : "Push to QuickBooks"}</button>
           )}
-          {/* QB customer linker — lets you verify or re-point the cached
-              QB customer for this client, especially after a duplicate
-              was accidentally created on a previous push. */}
-          <button
-            onClick={openChooserManual}
-            disabled={qbBusy}
-            style={{ ...btnGhost, opacity: qbBusy ? 0.6 : 1 }}
-            title="Verify or change which QuickBooks customer this client is linked to"
-          >
-            QB customer
-          </button>
-          {(hasQB || isManualInvoice) && (
-            <button onClick={() => setSendOpen(s => !s)} style={btnGreen}>{sendOpen ? "Close" : (sentDate ? "Re-send to client" : "Send to client")}</button>
+          {(hasQB || isManualInvoice) && !report.sent_at && (
+            <button onClick={() => setSendOpen(true)} style={btnGreen}>Send to client</button>
           )}
-          <button onClick={onDelete} disabled={deleting} style={{ ...btnGhost, color: T.red, borderColor: T.red + "44" }}>Delete</button>
+          <button onClick={() => setMenuOpen(v => !v)} aria-label="More actions"
+            style={{ ...btnGhost, fontSize: 16, lineHeight: 1, padding: "8px 13px" }}>⋯</button>
+          {menuOpen && (
+            <div style={{ position: "absolute", right: 0, top: "calc(100% + 6px)", zIndex: 40, background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 6, minWidth: 225, boxShadow: "0 8px 30px rgba(0,0,0,0.45)", display: "flex", flexDirection: "column" }}>
+              <a href={`/api/pdf/shipstation/${report.id}`} target="_blank" rel="noopener noreferrer" style={menuItem} onClick={() => setMenuOpen(false)}>Preview PDF</a>
+              <a href={`/api/pdf/shipstation/${report.id}?download=1`} style={menuItem} onClick={() => setMenuOpen(false)}>Download PDF</a>
+              {(isPostage || isCombined || isFulfillment) && (
+                <a href={`/api/excel/shipstation/${report.id}`} style={menuItem} onClick={() => setMenuOpen(false)}>Download Excel</a>
+              )}
+              {(hasQB || isManualInvoice) && report.sent_at && (
+                <button onClick={() => { setSendOpen(true); setMenuOpen(false); }} style={menuItem}>Re-send to client</button>
+              )}
+              {hasQB && (
+                <button disabled={qbBusy} onClick={() => { setMenuOpen(false); pushToQB(); }} style={menuItem}>
+                  {qbBusy ? "Updating…" : "Update QB invoice"}
+                </button>
+              )}
+              <button disabled={qbBusy} onClick={() => { setMenuOpen(false); openChooserManual(); }} style={menuItem}
+                title="Verify or change which QuickBooks customer this client is linked to">QB customer…</button>
+              {!hasQB && !isManualInvoice && (
+                <button onClick={() => { setShowManualQb(true); setMenuOpen(false); }} style={menuItem}>Link existing QB invoice #</button>
+              )}
+              <button disabled={deleting} onClick={() => { setMenuOpen(false); onDelete(); }} style={{ ...menuItem, color: T.red }}>Delete invoice</button>
+            </div>
+          )}
         </div>
       </div>
 
-      {!hasQB && (
+      {/* State rail — same pattern as the job Invoice surface. Teaches the
+          sequence: generate → get it into QB → send → collect. */}
+      <StateRail
+        inQB={hasQB || isManualInvoice}
+        sent={!!report.sent_at}
+        paid={!!report.paid_at}
+        onManualQb={!hasQB && !isManualInvoice && !showManualQb ? () => setShowManualQb(true) : undefined}
+      />
+
+      {/* Manual QB # — an edge case, so it hides until asked for (via the
+          rail hint or ⋯), or when a manual number is already linked. */}
+      {!hasQB && (showManualQb || isManualInvoice) && (
         <ManualInvoiceInput
           reportId={report.id}
           initial={report.qb_invoice_number}
@@ -365,66 +398,73 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
         />
       )}
 
+      {/* Push/QB feedback — a quiet text line, never a full-width wash; the
+          rail + fact row changing state is the real confirmation. */}
       {qbMsg && (
-        <div style={{ padding: "10px 14px", borderRadius: 8, background: qbMsg.ok ? T.green + "11" : T.red + "11", border: `1px solid ${qbMsg.ok ? T.green + "55" : T.red + "55"}`, color: qbMsg.ok ? T.green : T.red, fontSize: 12 }}>
-          {qbMsg.text}
-        </div>
+        <div style={{ fontSize: 12, fontWeight: 700, color: qbMsg.ok ? T.green : T.red }}>{qbMsg.text}</div>
       )}
 
+      {/* The QB fact row — one slim line: identity, amount, payment state,
+          links. (Was a sparse 5-column card that repeated the rail.) */}
       {(hasQB || isManualInvoice) && (
-        <div style={{ ...card, display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12 }}>
-          <div>
-            <div style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, marginBottom: 2 }}>QB Invoice</div>
-            <div style={{ fontSize: 15, fontWeight: 700, fontFamily: mono, color: T.accent }}>#{report.qb_invoice_number}</div>
-            {isManualInvoice && <div style={{ fontSize: 9, color: T.muted, marginTop: 2 }}>manual</div>}
-          </div>
-          <div>
-            <div style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, marginBottom: 2 }}>Billed</div>
-            <div style={{ fontSize: 15, fontWeight: 700, fontFamily: mono }}>{fmtD(Number(report.qb_total_with_tax ?? billedAmount))}</div>
-          </div>
-          <div>
-            <div style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, marginBottom: 2 }}>Status</div>
-            {report.paid_at ? (
-              <>
-                <div style={{ fontSize: 13, fontWeight: 700, color: T.green }}>✓ Paid</div>
-                <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>{new Date(report.paid_at).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric" })} · {fmtD(Number(report.paid_amount) || 0)}</div>
-                <button onClick={togglePaid} style={{ background: "none", border: "none", color: T.muted, fontSize: 10, cursor: "pointer", padding: 0, marginTop: 4, textDecoration: "underline", fontFamily: font }}>
-                  Mark unpaid
-                </button>
-              </>
-            ) : (
-              <>
-                <div style={{ fontSize: 13, fontWeight: 700, color: T.amber }}>Unpaid</div>
-                <button onClick={togglePaid} style={{ background: "none", border: `1px solid ${T.green}55`, color: T.green, fontSize: 10, cursor: "pointer", padding: "3px 8px", marginTop: 6, borderRadius: 4, fontFamily: font, fontWeight: 600 }}>
-                  Mark paid
-                </button>
-              </>
-            )}
-          </div>
-          <div>
-            <div style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, marginBottom: 2 }}>Pay Link</div>
-            {report.qb_payment_link ? (
-              <a href={report.qb_payment_link} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: T.green, wordBreak: "break-all" }}>Open payment page →</a>
-            ) : (
-              <span style={{ fontSize: 12, color: T.faint }}>—</span>
-            )}
-          </div>
-          <div>
-            <div style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, marginBottom: 2 }}>Email sent</div>
-            <div style={{ fontSize: 12, fontWeight: 600, color: sentDate ? T.green : T.faint }}>
-              {sentDate ? `✓ ${sentDate}` : "Not sent"}
-            </div>
-            {sentDate && report.sent_to && report.sent_to.length > 0 && (
-              <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>{report.sent_to.join(", ")}</div>
-            )}
-          </div>
+        <div style={{ ...card, display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap", padding: "12px 16px" }}>
+          <span style={{ fontFamily: mono, fontWeight: 800, fontSize: 15, color: T.accent }}>#{report.qb_invoice_number}</span>
+          {isManualInvoice && <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: T.faint }}>Manual</span>}
+          <span style={{ fontFamily: mono, fontWeight: 700, fontSize: 15 }}>{fmtD(Number(report.qb_total_with_tax ?? billedAmount))}</span>
+          {report.paid_at ? (
+            <span style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+              <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: T.green }}>Paid</span>
+              <span style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>{new Date(report.paid_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })} · {fmtD(Number(report.paid_amount) || 0)}</span>
+              <button onClick={togglePaid} style={{ background: "none", border: "none", color: T.faint, fontSize: 10.5, cursor: "pointer", fontFamily: font, textDecoration: "underline", textUnderlineOffset: 3, padding: 0 }}>mark unpaid</button>
+            </span>
+          ) : (
+            <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: T.amber }}>Unpaid</span>
+              <button onClick={togglePaid} style={{ background: "none", border: `1px solid ${T.green}55`, color: T.green, fontSize: 11, cursor: "pointer", padding: "4px 10px", borderRadius: 5, fontFamily: font, fontWeight: 700 }}>Mark paid</button>
+            </span>
+          )}
+          {report.qb_payment_link && (
+            <a href={report.qb_payment_link} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: T.blue, fontWeight: 700, textDecoration: "none" }}>Payment page ↗</a>
+          )}
+          {sentDate && (
+            <span style={{ marginLeft: "auto", fontSize: 11, color: T.muted }}>
+              <span style={{ color: T.green, fontWeight: 700 }}>✓ sent</span> {sentDate}{report.sent_to && report.sent_to.length > 0 ? ` · ${report.sent_to.join(", ")}` : ""}
+            </span>
+          )}
         </div>
       )}
 
+      {/* QB drift — this page's total no longer matches what's in QB. */}
+      {qbStale && (
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", fontSize: 12, color: T.amber, fontWeight: 600 }}>
+          <span>Out of sync with QuickBooks — this invoice now totals {fmtD(billedAmount)}, but QB #{report.qb_invoice_number} still has {fmtD(qbSubtotal!)}.</span>
+          <button onClick={() => pushToQB()} disabled={qbBusy}
+            style={{ background: "none", border: `1px solid ${T.amber}66`, color: T.amber, fontSize: 11.5, fontWeight: 700, padding: "5px 12px", borderRadius: 5, cursor: "pointer", fontFamily: font, opacity: qbBusy ? 0.6 : 1 }}>
+            {qbBusy ? "Updating…" : "Update QB invoice"}
+          </button>
+          {report.sent_at && <span style={{ color: T.muted, fontWeight: 400 }}>The client already got the old total — re-send after updating.</span>}
+        </div>
+      )}
+
+      {/* Send modal — DESIGN.md modal anatomy (eyebrow → title → summary
+          strip → body → footer). Was an inline card wedged mid-page. */}
       {sendOpen && (hasQB || isManualInvoice) && (
-        <div style={{ ...card, display: "flex", flexDirection: "column", gap: 10 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>Send report + Pay Online link</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <div onClick={() => !sendBusy && setSendOpen(false)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 100, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "9vh 16px", overflowY: "auto" }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 14, padding: 22, width: "100%", maxWidth: 560, fontFamily: font, color: T.text, display: "flex", flexDirection: "column", gap: 14 }}>
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 3 }}>{reportKindLabel} · {report.clients?.name || ""}</div>
+              <div style={{ display: "flex", alignItems: "baseline" }}>
+                <div style={{ fontSize: 16.5, fontWeight: 800 }}>Send to client</div>
+                <button onClick={() => setSendOpen(false)} disabled={sendBusy} style={{ marginLeft: "auto", background: "none", border: "none", color: T.faint, fontSize: 18, cursor: "pointer" }}>✕</button>
+              </div>
+            </div>
+            <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "9px 13px", display: "flex", alignItems: "baseline", gap: 14, fontSize: 12.5 }}>
+              <span style={{ fontFamily: mono, fontWeight: 800, color: T.accent }}>#{report.qb_invoice_number}</span>
+              <span style={{ fontFamily: mono, fontWeight: 700 }}>{fmtD(Number(report.qb_total_with_tax ?? billedAmount))}</span>
+              <span style={{ color: T.faint, fontSize: 11 }}>invoice PDF + Pay Online link attached</span>
+            </div>
             <div>
               <label style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 4 }}>To</label>
               <input value={toEmail} onChange={e => setToEmail(e.target.value)} placeholder="client@example.com" style={input} />
@@ -445,21 +485,19 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
               <label style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 4 }}>CC (comma-separated)</label>
               <input value={ccEmails} onChange={e => setCcEmails(e.target.value)} placeholder="optional" style={input} />
             </div>
-          </div>
-          <div>
-            <label style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 4 }}>Subject</label>
-            <input value={subject} onChange={e => setSubject(e.target.value)} style={input} />
-          </div>
-          {sendMsg && (
-            <div style={{ padding: "8px 12px", borderRadius: 6, background: sendMsg.ok ? T.green + "11" : T.red + "11", border: `1px solid ${sendMsg.ok ? T.green + "55" : T.red + "55"}`, color: sendMsg.ok ? T.green : T.red, fontSize: 12 }}>
-              {sendMsg.text}
+            <div>
+              <label style={{ fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 4 }}>Subject</label>
+              <input value={subject} onChange={e => setSubject(e.target.value)} style={input} />
             </div>
-          )}
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 6 }}>
-            <button onClick={() => setSendOpen(false)} style={btnGhost} disabled={sendBusy}>Cancel</button>
-            <button onClick={sendEmail} disabled={sendBusy || !toEmail.trim()} style={{ ...btnGreen, opacity: sendBusy || !toEmail.trim() ? 0.5 : 1 }}>
-              {sendBusy ? "Sending…" : "Send"}
-            </button>
+            {sendMsg && (
+              <div style={{ fontSize: 12, fontWeight: 700, color: sendMsg.ok ? T.green : T.red }}>{sendMsg.text}</div>
+            )}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, borderTop: `1px solid ${T.border}`, paddingTop: 14 }}>
+              <button onClick={() => setSendOpen(false)} style={btnGhost} disabled={sendBusy}>Cancel</button>
+              <button onClick={sendEmail} disabled={sendBusy || !toEmail.trim()} style={{ ...btnGreen, opacity: sendBusy || !toEmail.trim() ? 0.5 : 1 }}>
+                {sendBusy ? "Sending…" : "Send"}
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -474,6 +512,7 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
             : <PostageTotalsStrip
                 totals={(report.postage_totals || {}) as PostageTotals}
                 lines={(report.postage_line_items || []) as PostageLineItem[]}
+                showTotal={false}
               />}
           <CombinedInvoiceBreakdown report={report} isBulkPostage={isBulkPostage} />
         </>
@@ -510,6 +549,7 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
         <LineItemsTable report={report} />
       )}
 
+      {confirmEl}
       <QBCustomerChooser
         open={chooserOpen}
         mode="push"
@@ -521,6 +561,45 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
         onAction={handleChooserAction}
         onClose={() => setChooserOpen(false)}
       />
+    </div>
+  );
+}
+
+// The invoice's life in four steps, current step lit, with a plain-language
+// "what happens next" line — so the page itself teaches the workflow.
+function StateRail({ inQB, sent, paid, onManualQb }: { inQB: boolean; sent: boolean; paid: boolean; onManualQb?: () => void }) {
+  const steps = [
+    { label: "Generated", done: true },
+    { label: "In QuickBooks", done: inQB },
+    { label: "Sent to client", done: sent },
+    { label: "Paid", done: paid },
+  ];
+  const curIdx = steps.findIndex(s => !s.done); // -1 → all done
+  const hint = !inQB
+    ? <>Next: Push to QuickBooks — creates the invoice in QB and brings back the invoice # and Pay Online link.{onManualQb && <> Already invoiced by hand in QB? <button onClick={onManualQb} style={{ background: "none", border: "none", color: T.blue, fontWeight: 700, fontSize: 11.5, cursor: "pointer", fontFamily: font, padding: 0, textDecoration: "underline", textUnderlineOffset: 3 }}>enter its #</button>.</>}</>
+    : !sent
+    ? "Next: Send to client — emails the invoice with the Pay Online link."
+    : !paid
+    ? "Waiting on payment. Marks itself paid when the client pays through QuickBooks — use Mark paid only for a check or wire."
+    : "Settled — nothing left to do here.";
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 4 }}>
+        {steps.map((s, i) => {
+          const active = i === curIdx;
+          const bg = active ? T.accent : s.done ? T.greenDim : T.surface;
+          const fg = active ? "#0a0a0a" : s.done ? T.green : T.faint;
+          return (
+            <span key={s.label} style={{ display: "flex", alignItems: "center" }}>
+              <span style={{ fontSize: 10, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.04em", padding: "6px 12px", borderRadius: 8, background: bg, color: fg }}>
+                {s.done && !active ? "✓ " : ""}{s.label}
+              </span>
+              {i < steps.length - 1 && <span style={{ color: T.faint, padding: "0 6px" }}>→</span>}
+            </span>
+          );
+        })}
+      </div>
+      <div style={{ fontSize: 11.5, color: T.muted, marginTop: 8 }}>{hint}</div>
     </div>
   );
 }
@@ -546,7 +625,7 @@ function SalesTotalsStrip({ totals, feePct }: { totals: SalesTotals; feePct: num
   );
 }
 
-function PostageTotalsStrip({ totals, lines, fulfillmentOnly = false }: { totals: PostageTotals; lines: PostageLineItem[]; fulfillmentOnly?: boolean }) {
+function PostageTotalsStrip({ totals, lines, fulfillmentOnly = false, showTotal = true }: { totals: PostageTotals; lines: PostageLineItem[]; fulfillmentOnly?: boolean; showTotal?: boolean }) {
   // Older postage reports were saved before totals.items existed — fall
   // back to summing items_count off the line items so historical reports
   // still show the KPI. Same defensive default for fulfillment (added
@@ -565,23 +644,26 @@ function PostageTotalsStrip({ totals, lines, fulfillmentOnly = false }: { totals
   };
   // Fulfillment-only: no postage is billed, so show just the invoiced
   // figures (shipments, items, the fee, the total).
+  // Slimmed Aug 31 (Jon: "a disaster of buttons and info") — lead with the
+  // number that matters (Total Invoice), keep what's billed + the client's
+  // profit story; income/cost/insurance live in the table + Excel. Combined
+  // reports pass showTotal=false (the true total = sales fee + postage, shown
+  // in the Invoice Breakdown card instead).
   const tiles = fulfillmentOnly ? [
     { label: "Shipments", value: fmtN(safe.shipments), color: T.text },
     { label: "Items Shipped", value: fmtN(safe.items), color: T.text },
     { label: "Fulfillment Fee", value: fmtD(safe.fulfillment), color: T.amber },
     { label: "Total Invoice", value: fmtD(safe.fulfillment), color: T.green },
   ] : [
+    ...(showTotal ? [{ label: "Total Invoice", value: fmtD(safe.billed + safe.fulfillment), color: T.green }] : []),
     { label: "Shipments", value: fmtN(safe.shipments), color: T.text },
     { label: "Items Shipped", value: fmtN(safe.items), color: T.text },
-    { label: "Shipping Income", value: fmtD(safe.paid), color: T.text },
-    { label: "Shipping Cost", value: fmtD(safe.cost), color: T.muted },
-    { label: "Insurance", value: fmtD(safe.insurance), color: T.muted },
-    { label: "Billed Amount", value: fmtD(safe.billed), color: T.amber },
+    { label: "Postage Billed", value: fmtD(safe.billed), color: T.amber },
+    { label: "Fulfillment Fee", value: fmtD(safe.fulfillment), color: T.amber },
     { label: "Client Profit", value: fmtD(safe.margin), color: safe.margin >= 0 ? T.green : T.red },
-    { label: "Fulfillment", value: fmtD(safe.fulfillment), color: T.amber },
   ];
   return (
-    <div style={{ display: "grid", gridTemplateColumns: `repeat(${fulfillmentOnly ? 4 : 8}, 1fr)`, gap: 8 }}>
+    <div style={{ display: "grid", gridTemplateColumns: `repeat(${tiles.length}, 1fr)`, gap: 8 }}>
       {tiles.map(i => (
         <div key={i.label} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 12px" }}>
           <div style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, marginBottom: 2 }}>{i.label}</div>

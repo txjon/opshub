@@ -80,6 +80,13 @@ function parseMoney(raw: unknown): number {
   return isFinite(n) ? n : 0;
 }
 
+// The percent inputs hold WHOLE percentages ("10" = 10%) — humans don't
+// type 0.1 (Jon, Aug 31). The DB keeps storing decimal rates (0.1), so
+// every downstream reader (QB push, PDFs, edit hydration) is unchanged;
+// these two convert at the boundary only.
+const pctToRate = (s: string) => parseMoney(s) / 100;
+const rateToPctStr = (r: unknown) => String(Math.round((Number(r) || 0) * 10000) / 100);
+
 // Tiny CSV parser. Handles quoted fields w/ embedded commas + the BOM
 // prefix ShipStation adds. Not RFC 4180-strict but covers these exports.
 function parseCsv(text: string): string[][] {
@@ -124,6 +131,73 @@ function findCol(header: string[], aliases: string[]): number {
 type Client = { id: string; name: string; hpd_fee_pct: number | null; hpd_per_package_fee: number | null };
 type ReportType = "sales" | "postage" | "combined" | "fulfillment";
 
+// Prior invoices per client — powers the scoped picker, the stage-1
+// "previously billed" card, and the next-period suggestion (Jon, Aug 31:
+// "this is where I'd open the invoices page in another tab").
+type PriorReport = {
+  id: string;
+  client_id: string;
+  report_type: ReportType;
+  postage_mode: "per_shipment" | "bulk" | null;
+  period_label: string | null;
+  sales_period_label: string | null;
+  postage_period_label: string | null;
+  qb_invoice_number: string | null;
+  sent_at: string | null;
+  paid_at: string | null;
+  created_at: string;
+};
+const PRIOR_TYPE_LABEL: Record<ReportType, string> = { sales: "Sales", postage: "Postage", combined: "Full Service", fulfillment: "Fulfillment" };
+
+const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+// Given the last invoice's period label, suggest the next billing window in
+// the SAME format. Handles the two formats in the wild: "July 2026" and
+// "7/1/2026 - 7/31/2026" (zero-padded or not). Anything else → no suggestion.
+function nextPeriodSuggestion(label: string | null | undefined): string | null {
+  const t = (label || "").trim();
+  const monthly = t.match(/^([A-Za-z]+)\s+(\d{4})$/);
+  if (monthly) {
+    const idx = MONTH_NAMES.findIndex(m => m.toLowerCase() === monthly[1].toLowerCase());
+    if (idx < 0) return null;
+    const y = Number(monthly[2]) + (idx === 11 ? 1 : 0);
+    return `${MONTH_NAMES[(idx + 1) % 12]} ${y}`;
+  }
+  const range = t.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s*[-–—]\s*(\d{1,2})\/(\d{1,2})\/(\d{4})\s*$/);
+  if (range) {
+    const padded = range[4].length === 2 && range[4][0] === "0";
+    // (shared regexes with parsePeriodRange below — keep in sync)
+    // Numeric Date construction (local) — never bare-parse a date string.
+    const end = new Date(Number(range[6]), Number(range[4]) - 1, Number(range[5]));
+    const start = new Date(end.getFullYear(), end.getMonth(), end.getDate() + 1);
+    const last = new Date(start.getFullYear(), start.getMonth() + 1, 0);
+    const p = (n: number) => (padded ? String(n).padStart(2, "0") : String(n));
+    const f = (d: Date) => `${p(d.getMonth() + 1)}/${p(d.getDate())}/${d.getFullYear()}`;
+    return `${f(start)} - ${f(last)}`;
+  }
+  return null;
+}
+
+// Parse a period label into actual dates so the CSV's ship-date span can be
+// checked against it. Same two formats as nextPeriodSuggestion.
+function parsePeriodRange(label: string): { start: Date; end: Date } | null {
+  const t = (label || "").trim();
+  const monthly = t.match(/^([A-Za-z]+)\s+(\d{4})$/);
+  if (monthly) {
+    const idx = MONTH_NAMES.findIndex(m => m.toLowerCase() === monthly[1].toLowerCase());
+    if (idx < 0) return null;
+    const y = Number(monthly[2]);
+    return { start: new Date(y, idx, 1), end: new Date(y, idx + 1, 0) };
+  }
+  const range = t.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s*[-–—]\s*(\d{1,2})\/(\d{1,2})\/(\d{4})\s*$/);
+  if (range) {
+    return {
+      start: new Date(Number(range[3]), Number(range[1]) - 1, Number(range[2])),
+      end: new Date(Number(range[6]), Number(range[4]) - 1, Number(range[5])),
+    };
+  }
+  return null;
+}
+
 // "Full Service" combines a Sales report and a Postage report into one
 // shipstation_reports row → one PDF, one QB invoice, one email. The
 // combined flow keeps both halves' parsing, selection, and pricing UI
@@ -144,7 +218,9 @@ export default function NewShipstationReportPage() {
   const [editLoading, setEditLoading] = useState<boolean>(!!editId);
   const [editError, setEditError] = useState<string>("");
 
-  const [reportType, setReportType] = useState<ReportType>("fulfillment");
+  // Postage is the default — it's what nearly every client is billed as;
+  // picking a client re-defaults to their last billed type anyway.
+  const [reportType, setReportType] = useState<ReportType>("postage");
   const [typeMenu, setTypeMenu] = useState(false);
   // Invoice period for Full Service, derived from the two halves.
   const derivePeriod = (a: string, b: string) => {
@@ -181,14 +257,27 @@ export default function NewShipstationReportPage() {
   const [clients, setClients] = useState<Client[]>([]);
   const [clientId, setClientId] = useState<string>("");
   const selectedClient = clients.find(c => c.id === clientId) || null;
-  const filteredClients = clientSearch.trim()
-    ? clients.filter(c => c.name.toLowerCase().includes(clientSearch.trim().toLowerCase()))
-    : clients;
+  // Prior invoices, newest-first per client. Scopes the picker to clients
+  // who've been billed before (most-recently-billed first) and feeds the
+  // "previously billed" card + next-period suggestion.
+  const [priorByClient, setPriorByClient] = useState<Record<string, PriorReport[]>>({});
+  const [showAllClients, setShowAllClients] = useState(false);
+  const pickerClients = useMemo(() => {
+    const billed = clients
+      .filter(c => priorByClient[c.id]?.length)
+      .sort((a, b) => priorByClient[b.id][0].created_at.localeCompare(priorByClient[a.id][0].created_at));
+    const base = showAllClients ? clients : billed;
+    const needle = clientSearch.trim().toLowerCase();
+    return needle ? base.filter(c => c.name.toLowerCase().includes(needle)) : base;
+  }, [clients, priorByClient, showAllClients, clientSearch]);
   const [periodLabel, setPeriodLabel] = useState<string>(() => {
     const d = new Date();
     d.setMonth(d.getMonth() - 1);
     return d.toLocaleDateString("en-US", { month: "long", year: "numeric" });
   });
+  // Once the user types a period by hand, picking a client stops
+  // auto-filling the suggestion over it.
+  const [periodTouched, setPeriodTouched] = useState(false);
   // Per-half period overrides (combined only). Blank → inherit periodLabel.
   // The main periodLabel stays the invoice period (title, QB memo, email).
   const [salesPeriodLabel, setSalesPeriodLabel] = useState<string>("");
@@ -201,11 +290,11 @@ export default function NewShipstationReportPage() {
   const [mergedCount, setMergedCount] = useState(0);
   const [groupCosts, setGroupCosts] = useState<Record<string, string>>({});
   const [savedCosts, setSavedCosts] = useState<Record<string, number>>({});
-  const [feePct, setFeePct] = useState<string>("0.20");
+  const [feePct, setFeePct] = useState<string>("20");
 
   // Postage-specific
   const [rawPostageRows, setRawPostageRows] = useState<ParsedPostageRow[]>([]);
-  const [markupPct, setMarkupPct] = useState<string>("0.10");
+  const [markupPct, setMarkupPct] = useState<string>("10");
   // Flat per-package fulfillment fee — separate from the markup. Billed
   // additively as (rate × shipments) and reported on its own KPI tile so
   // it doesn't muddy the client's postage performance numbers.
@@ -245,6 +334,57 @@ export default function NewShipstationReportPage() {
       setClients(data || []);
     })();
   }, [editId]);
+
+  // Billing history — one query, grouped per client (newest first via the
+  // order). Every report type counts: a client billed for anything here is
+  // a fulfillment-billing client.
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase
+        .from("shipstation_reports")
+        .select("id, client_id, report_type, postage_mode, period_label, sales_period_label, postage_period_label, qb_invoice_number, sent_at, paid_at, created_at")
+        .order("created_at", { ascending: false });
+      const by: Record<string, PriorReport[]> = {};
+      for (const r of (data || []) as PriorReport[]) (by[r.client_id] ||= []).push(r);
+      setPriorByClient(by);
+    })();
+  }, []);
+
+  // Picking a client: (1) re-default the invoice type to their last billed
+  // type (only when nothing's uploaded yet — never clear parsed rows under
+  // the user), then (2) pre-fill the next billing window from their last
+  // invoice, unless the user already typed a period.
+  function pickClient(cid: string) {
+    setClientId(cid);
+    setClientListOpen(false);
+    setClientSearch("");
+    let effType = reportType;
+    const prior = priorByClient[cid]?.[0];
+    const rowsLoaded = rawRows.length > 0 || rawPostageRows.length > 0 || rawBulkRows.length > 0;
+    if (!isEditing && prior && prior.report_type !== reportType && !rowsLoaded) {
+      onChangeType(prior.report_type);
+      effType = prior.report_type;
+    }
+    if (!isEditing && prior && !rowsLoaded) {
+      setPostageMode(prior.postage_mode === "bulk" ? "bulk" : "per_shipment");
+    }
+    applyPeriodSuggestion(cid, effType);
+  }
+  function applyPeriodSuggestion(cid: string, effType: ReportType = reportType) {
+    if (isEditing || periodTouched) return;
+    const prior = priorByClient[cid]?.[0];
+    if (!prior) return;
+    if (effType === "combined") {
+      const ss = nextPeriodSuggestion(prior.sales_period_label || prior.period_label);
+      const ps = nextPeriodSuggestion(prior.postage_period_label || prior.period_label);
+      if (ss) setSalesPeriodLabel(ss);
+      if (ps) setPostagePeriodLabel(ps);
+      if (ss || ps) setPeriodLabel(derivePeriod(ss || "", ps || ""));
+      return;
+    }
+    const s = nextPeriodSuggestion(prior.period_label);
+    if (s) setPeriodLabel(s);
+  }
 
   // Edit mode hydration — load the existing report and populate state
   // so the user can adjust prices / drop rows / etc. and re-save.
@@ -368,12 +508,12 @@ export default function NewShipstationReportPage() {
         // and as the markup for postage-only. postage_markup_pct only
         // exists on combined rows.
         if (isPostageOnly) {
-          setMarkupPct(String(Number(r.hpd_fee_pct) || 0));
+          setMarkupPct(rateToPctStr(r.hpd_fee_pct));
         } else if (isCombinedSaved) {
-          setFeePct(String(Number(r.hpd_fee_pct) || 0));
-          setMarkupPct(String(Number(r.postage_markup_pct) || 0));
+          setFeePct(rateToPctStr(r.hpd_fee_pct));
+          setMarkupPct(rateToPctStr(r.postage_markup_pct));
         } else {
-          setFeePct(String(Number(r.hpd_fee_pct) || 0));
+          setFeePct(rateToPctStr(r.hpd_fee_pct));
         }
         setPerPackageFee(String(Number(r.per_package_fee) || 0));
 
@@ -412,7 +552,7 @@ export default function NewShipstationReportPage() {
       // markup column on clients yet, so combined reports inherit the
       // last sales fee + last postage markup independently and the user
       // confirms both at stage 3.
-      if (c?.hpd_fee_pct != null) setFeePct(String(c.hpd_fee_pct));
+      if (c?.hpd_fee_pct != null) setFeePct(rateToPctStr(c.hpd_fee_pct));
     })();
   }, [clientId, clients, showSales]);
 
@@ -428,7 +568,7 @@ export default function NewShipstationReportPage() {
     // still seed markup from hpd_fee_pct but the user will set both
     // rates explicitly at stage 3. (The sales effect above already
     // handled the fee rate for combined.)
-    if (reportType === "postage" && c.hpd_fee_pct != null) setMarkupPct(String(c.hpd_fee_pct));
+    if (reportType === "postage" && c.hpd_fee_pct != null) setMarkupPct(rateToPctStr(c.hpd_fee_pct));
     if (c.hpd_per_package_fee != null) setPerPackageFee(String(c.hpd_per_package_fee));
   }, [clientId, clients, showPostage, reportType]);
 
@@ -650,7 +790,7 @@ export default function NewShipstationReportPage() {
     return m;
   }, [groups, groupCosts]);
   const salesTotals = useMemo(() => {
-    const feeRate = parseMoney(feePct);
+    const feeRate = pctToRate(feePct);
     let qty = 0, sales = 0, cost = 0;
     for (const r of selectedRows) {
       const uc = costByRowIdx[r.idx] || 0;
@@ -679,7 +819,7 @@ export default function NewShipstationReportPage() {
   const selectedPostageRows = useMemo(() => rawPostageRows.filter(r => r.included), [rawPostageRows]);
   const round2 = (n: number) => Math.round(n * 100) / 100;
   const postageTotals = useMemo(() => {
-    const mk = parseMoney(markupPct);
+    const mk = pctToRate(markupPct);
     const perPkg = parseMoney(perPackageFee);
     let shipments = 0, items = 0, paid = 0, cost_raw = 0, cost = 0, insurance = 0, billed = 0;
     for (const r of selectedPostageRows) {
@@ -732,6 +872,32 @@ export default function NewShipstationReportPage() {
       invoice_total: total,
     };
   }, [selectedBulkRows]);
+
+  // ── CSV date span ─────────────────────────────────────────────────────
+  // The shipments actually in the file are the truth about what window this
+  // invoice covers (Jon, Aug 31: exported Jul+Aug in one file while the
+  // period still said July). Offer the month-aligned range as a one-tap fix.
+  const csvSpan = useMemo(() => {
+    let min: Date | null = null, max: Date | null = null;
+    for (const r of rawPostageRows) {
+      const t = dateOnly(r.ship_date);
+      let d: Date | null = null;
+      const us = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      const iso = t.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (us) d = new Date(Number(us[3]), Number(us[1]) - 1, Number(us[2]));
+      else if (iso) d = new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
+      if (!d || isNaN(d.getTime())) continue;
+      if (!min || d < min) min = d;
+      if (!max || d > max) max = d;
+    }
+    if (!min || !max) return null;
+    const start = new Date(min.getFullYear(), min.getMonth(), 1);
+    const end = new Date(max.getFullYear(), max.getMonth() + 1, 0);
+    const p = (n: number) => String(n).padStart(2, "0");
+    const f = (d: Date) => `${p(d.getMonth() + 1)}/${p(d.getDate())}/${d.getFullYear()}`;
+    const short = (d: Date) => `${d.getMonth() + 1}/${d.getDate()}`;
+    return { first: short(min), last: short(max), minD: min, maxD: max, suggested: `${f(start)} - ${f(end)}` };
+  }, [rawPostageRows]);
 
   // ── Per-side selection handlers ───────────────────────────────────────
   // Combined mode renders both tables together, each with its own
@@ -881,7 +1047,7 @@ export default function NewShipstationReportPage() {
       const { data: user } = await supabase.auth.getUser();
 
       if (reportType === "sales") {
-        const feeRate = parseMoney(feePct);
+        const feeRate = pctToRate(feePct);
         // 1. Upsert per-SKU unit costs so next month pre-fills.
         const upsertsMap = new Map<string, any>();
         for (const r of selectedRows) {
@@ -998,7 +1164,7 @@ export default function NewShipstationReportPage() {
         // Postage insert — reuses hpd_fee_pct column to store markup %.
         // per_package_fee is its own column so it can be queried/edited
         // independently from totals JSONB.
-        const markup = parseMoney(markupPct);
+        const markup = pctToRate(markupPct);
         const perPkg = parseMoney(perPackageFee);
         // Round each line value to 2 decimals so the saved JSON matches
         // what the totals strip / Excel SUM / QB invoice all roll up to.
@@ -1163,10 +1329,10 @@ export default function NewShipstationReportPage() {
         // Mirrors single-type generators line-for-line so combined
         // inherits every fix (rounding, dedupe, sku-cost persistence,
         // client-rate save-back).
-        const feeRate = parseMoney(feePct);
+        const feeRate = pctToRate(feePct);
         // Bulk postage is pure pass-through — markup + per-package don't
         // apply, so both persist as 0 on a bulk combined report.
-        const markup = isBulkPostage ? 0 : parseMoney(markupPct);
+        const markup = isBulkPostage ? 0 : pctToRate(markupPct);
         const perPkg = isBulkPostage ? 0 : parseMoney(perPackageFee);
         const postageModeToSave = isBulkPostage ? "bulk" : "per_shipment";
 
@@ -1257,35 +1423,31 @@ export default function NewShipstationReportPage() {
   // ── UI ──────────────────────────────────────────────────────────────────────
   const card: React.CSSProperties = { background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "14px 16px" };
   const input: React.CSSProperties = { padding: "8px 12px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, outline: "none", fontFamily: font, boxSizing: "border-box" };
-  const btnPrimary: React.CSSProperties = { background: T.accent, color: "#0a0a0a", border: "none", borderRadius: 6, padding: "8px 18px", fontSize: 13, fontFamily: font, fontWeight: 700, cursor: "pointer" };
+  const btnPrimary: React.CSSProperties = { background: T.accent, color: "#0a0a0a", border: "none", borderRadius: 7, padding: "11px 28px", fontSize: 13.5, fontFamily: font, fontWeight: 700, cursor: "pointer" };
   const btnGhost: React.CSSProperties = { background: T.surface, color: T.muted, border: `1px solid ${T.border}`, borderRadius: 6, padding: "8px 14px", fontSize: 12, fontFamily: font, fontWeight: 600, cursor: "pointer" };
   const thStyle: React.CSSProperties = { padding: "8px 10px", textAlign: "left", fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", borderBottom: `1px solid ${T.border}` };
   const tdStyle: React.CSSProperties = { padding: "6px 10px", fontSize: 12, borderBottom: `1px solid ${T.border}`, fontFamily: mono };
 
+  // Slim centered step line — a 4-step wizard needs orientation and jump-
+  // back, not four full-width pill bars (Jon, Aug 31). Completed steps click
+  // to jump back; forward nav stays gated by the Next buttons. Stage 1 stays
+  // locked in edit mode because the source CSV isn't kept after generate.
   const stagePill = (n: number, label: string, active: boolean, done: boolean) => {
-    // Completed steps are clickable to jump back (e.g. Edit lands on Pricing,
-    // click "Select shipments" to drop a line). Forward nav stays gated by the
-    // Next buttons so validation isn't skipped. Stage 1 stays locked in edit
-    // mode because the source CSV isn't kept after generate.
     const canJump = n < stage && !(isEditing && n === 1);
     return (
-      <div
-        key={n}
-        onClick={canJump ? () => setStage(n as 1 | 2 | 3 | 4) : undefined}
-        title={canJump ? `Back to ${label}` : undefined}
-        style={{
-          display: "flex", alignItems: "center", gap: 8, flex: 1,
-          padding: "8px 12px", borderRadius: 8,
-          background: active ? T.accent + "22" : done ? T.surface : "transparent",
-          border: `1px solid ${active ? T.accent : done ? T.border : T.border}`,
-          cursor: canJump ? "pointer" : "default",
-        }}
-      >
-        <span style={{ width: 22, height: 22, borderRadius: 11, background: active ? T.accent : done ? T.green : T.surface, color: active ? "#0a0a0a" : done ? "#0a0e1a" : T.muted, fontSize: 11, fontWeight: 700, display: "grid", placeItems: "center", fontFamily: mono }}>
-          {done ? "✓" : n}
+      <span key={n} style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        {n > 1 && <span style={{ width: 30, height: 1, background: T.border }} />}
+        <span
+          onClick={canJump ? () => setStage(n as 1 | 2 | 3 | 4) : undefined}
+          title={canJump ? `Back to ${label}` : undefined}
+          style={{ display: "flex", alignItems: "center", gap: 7, cursor: canJump ? "pointer" : "default" }}
+        >
+          <span style={{ width: 20, height: 20, borderRadius: 10, background: active ? T.accent : done ? T.green : "transparent", border: `1px solid ${active ? T.accent : done ? T.green : T.border}`, color: active ? "#0a0a0a" : done ? "#0a0e1a" : T.faint, fontSize: 10.5, fontWeight: 700, display: "grid", placeItems: "center", fontFamily: mono }}>
+            {done ? "✓" : n}
+          </span>
+          <span style={{ fontSize: 12, fontWeight: active ? 800 : 600, color: active ? T.text : done ? T.muted : T.faint }}>{label}</span>
         </span>
-        <span style={{ fontSize: 12, fontWeight: 600, color: active ? T.text : T.muted }}>{label}</span>
-      </div>
+      </span>
     );
   };
 
@@ -1333,18 +1495,22 @@ export default function NewShipstationReportPage() {
   const isEditing = !!editId;
   const generateBtnLabel = saving
     ? (isEditing ? "Saving..." : "Generating...")
-    : (isEditing ? "Save Changes" : "Generate Report");
+    : (isEditing ? "Save Changes" : "Generate Invoice");
 
   return (
-    <div style={{ fontFamily: font, color: T.text, display: "flex", flexDirection: "column", gap: 14 }}>
-      <div>
-        <div style={{ fontSize: 11, color: T.muted, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>Reports · ShipStation</div>
-        <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, letterSpacing: "-0.02em" }}>
-          {isEditing ? `Edit ${typeLabel} Report` : `Create ${typeLabel} Report`}
+    <div style={{ fontFamily: font, color: T.text, display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
+      <div style={{ width: "100%", maxWidth: 1040 }}>
+        <div style={{ fontSize: 11, color: T.muted, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+          <a href="/invoices?stream=fulfillment" style={{ color: T.muted, textDecoration: "none" }}>← Invoices</a> · Fulfillment
+        </div>
+      </div>
+      <div style={{ textAlign: "center" }}>
+        <h1 style={{ fontSize: 25, fontWeight: 700, margin: 0, letterSpacing: "-0.02em" }}>
+          {isEditing ? `Edit ${typeLabel} Invoice` : `New ${typeLabel} Invoice`}
         </h1>
         {isEditing && (
-          <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>
-            Adjust pricing, drop rows, or update the period. Changes save back to this report — push to QuickBooks afterwards from the report page to update the invoice.
+          <div style={{ fontSize: 11, color: T.muted, marginTop: 6, maxWidth: "62ch" }}>
+            Adjust pricing, drop rows, or update the period. Changes save back to this invoice — then use Update QB Invoice on the invoice page to push them to QuickBooks.
           </div>
         )}
       </div>
@@ -1356,88 +1522,8 @@ export default function NewShipstationReportPage() {
         <div style={{ ...card, color: T.red, fontSize: 13 }}>{editError}</div>
       )}
 
-      {/* Report type toggle — only meaningful before rows are parsed; still
-          allowed to flip after, but parsed rows get cleared (see onChangeType).
-          Hidden in edit mode: changing type would invalidate the hydrated
-          rows since the source CSV isn't kept after generate. */}
-      {!isEditing && (() => {
-        // Fulfillment + Full Service are the two real scenarios (Jon,
-        // Aug 25); Sales-only and Postage-only live behind ⋯ — good to
-        // have, rarely needed. A rare type stays visible while selected.
-        const primary = [
-          { value: "fulfillment", label: "Fulfillment Report" },
-          { value: "combined", label: "Full Service" },
-        ] as const;
-        const rare = [
-          { value: "sales", label: "Sales Report" },
-          { value: "postage", label: "Postage Report" },
-        ] as const;
-        const btn = (t: { value: ReportType; label: string }) => (
-          <button key={t.value} onClick={() => { onChangeType(t.value); setTypeMenu(false); }}
-            style={{
-              background: reportType === t.value ? T.accent : "transparent",
-              color: reportType === t.value ? "#0a0a0a" : T.muted,
-              border: "none", borderRadius: 6,
-              padding: "6px 18px", fontSize: 12, fontWeight: 700,
-              fontFamily: font, cursor: "pointer",
-            }}>{t.label}</button>
-        );
-        return (
-          <div style={{ display: "flex", gap: 6, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 4, width: "fit-content", position: "relative", alignItems: "center" }}>
-            {primary.map(t => btn(t as any))}
-            {rare.filter(t => reportType === t.value).map(t => btn(t as any))}
-            <button onClick={() => setTypeMenu(v => !v)} aria-label="More report types"
-              style={{ background: "transparent", border: "none", color: T.muted, fontSize: 15, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: font }}>⋯</button>
-            {typeMenu && (
-              <div style={{ position: "absolute", left: "100%", top: 0, marginLeft: 8, zIndex: 30, background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 6, minWidth: 170, boxShadow: "0 8px 30px rgba(0,0,0,0.45)", display: "flex", flexDirection: "column" }}>
-                {rare.map(t => (
-                  <button key={t.value} onClick={() => { onChangeType(t.value as ReportType); setTypeMenu(false); }}
-                    style={{ textAlign: "left", background: "none", border: "none", color: reportType === t.value ? T.text : T.muted, fontSize: 12.5, fontWeight: 700, padding: "8px 12px", cursor: "pointer", borderRadius: 6, fontFamily: font }}>
-                    {t.label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        );
-      })()}
-
-      {/* Postage source toggle — only when there's a postage half (Postage
-          or Full Service). Per-shipment is the original per-package report;
-          Bulk is a pure pass-through reimbursement of bulk postage buys.
-          Hidden in edit mode (mode is fixed by the saved report). */}
-      {!isEditing && showPostage && !isFulfillment && (
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>Postage source</span>
-          <div style={{ display: "flex", gap: 6, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 4, width: "fit-content" }}>
-            {([
-              { value: "per_shipment", label: "Per-shipment" },
-              { value: "bulk", label: "Bulk purchase" },
-            ] as const).map(m => (
-              <button
-                key={m.value}
-                onClick={() => onChangePostageMode(m.value)}
-                style={{
-                  background: postageMode === m.value ? T.amber : "transparent",
-                  color: postageMode === m.value ? "#0a0e1a" : T.muted,
-                  border: "none", borderRadius: 6,
-                  padding: "5px 14px", fontSize: 12, fontWeight: 700,
-                  fontFamily: font, cursor: "pointer",
-                }}
-              >
-                {m.label}
-              </button>
-            ))}
-          </div>
-          <span style={{ fontSize: 10, color: T.faint }}>
-            {isBulkPostage ? "Bulk: pass-through reimbursement of postage purchases (no markup)." : "Per-shipment: one row per package, markup + per-package fee."}
-          </span>
-        </div>
-      )}
-
-      {/* Stage pills — In edit mode Stage 1 (CSV upload) is unreachable
-          so it stays grey. The 2/3/4 progression still applies. */}
-      <div style={{ display: "flex", gap: 8 }}>
+      {/* The step line — the wizard's spine, centered under the title. */}
+      <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 12, flexWrap: "wrap", padding: "2px 0 6px" }}>
         {stagePill(1, isEditing ? "Upload (skipped)" : "Upload", stage === 1, stage > 1)}
         {stagePill(2, isCombined ? "Select rows" : (isPostage || isFulfillment) ? "Select shipments" : "Select rows", stage === 2, stage > 2)}
         {stagePill(3, isCombined ? "Pricing" : isFulfillment ? "Fulfillment fee" : isPostage ? "Markup %" : "Unit costs", stage === 3, stage > 3)}
@@ -1446,7 +1532,7 @@ export default function NewShipstationReportPage() {
 
       {/* ── Stage 1 — Upload ── */}
       {stage === 1 && (
-        <div style={{ ...card, display: "flex", flexDirection: "column", gap: 14, maxWidth: isCombined ? 760 : 640 }}>
+        <div style={{ ...card, display: "flex", flexDirection: "column", gap: 16, width: "100%", maxWidth: isCombined ? 880 : 760, padding: "20px 22px" }}>
           <div style={{ display: "grid", gridTemplateColumns: isCombined ? "1.2fr 1fr 1fr" : "1fr 1fr", gap: 12 }}>
             <div>
               <label style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, display: "block" }}>Client</label>
@@ -1461,18 +1547,34 @@ export default function NewShipstationReportPage() {
                   style={{ ...input, width: "100%" }}
                 />
                 {clientListOpen && (
-                  <div style={{ position: "absolute", top: "100%", left: 0, right: 0, marginTop: 4, background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, maxHeight: 260, overflowY: "auto", zIndex: 30, boxShadow: "0 8px 24px rgba(0,0,0,0.45)" }}>
-                    {filteredClients.length === 0 ? (
-                      <div style={{ padding: "10px 12px", fontSize: 12, color: T.faint }}>No clients match "{clientSearch}"</div>
-                    ) : filteredClients.map(c => (
-                      <div key={c.id}
-                        onMouseDown={() => { setClientId(c.id); setClientListOpen(false); setClientSearch(""); }}
-                        style={{ padding: "8px 12px", fontSize: 13, color: c.id === clientId ? T.accent : T.text, cursor: "pointer", fontWeight: c.id === clientId ? 700 : 400 }}
+                  <div style={{ position: "absolute", top: "100%", left: 0, right: 0, marginTop: 4, background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, maxHeight: 300, overflowY: "auto", zIndex: 30, boxShadow: "0 8px 24px rgba(0,0,0,0.45)" }}>
+                    {pickerClients.length === 0 && (
+                      <div style={{ padding: "10px 12px", fontSize: 12, color: T.faint }}>
+                        {showAllClients ? `No clients match "${clientSearch}"` : clientSearch.trim() ? `No billed clients match "${clientSearch}" — show all below.` : "No fulfillment invoices yet — show all clients below."}
+                      </div>
+                    )}
+                    {pickerClients.map(c => {
+                      const last = priorByClient[c.id]?.[0];
+                      return (
+                        <div key={c.id}
+                          onMouseDown={() => pickClient(c.id)}
+                          style={{ display: "flex", alignItems: "baseline", gap: 10, padding: "8px 12px", fontSize: 13, color: c.id === clientId ? T.accent : T.text, cursor: "pointer", fontWeight: c.id === clientId ? 700 : 400 }}
+                          onMouseEnter={e => (e.currentTarget.style.background = T.surface)}
+                          onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
+                          <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</span>
+                          {last && <span style={{ marginLeft: "auto", fontSize: 10.5, color: T.faint, fontFamily: mono, whiteSpace: "nowrap" }}>{last.period_label || "billed"}</span>}
+                        </div>
+                      );
+                    })}
+                    {!showAllClients && (
+                      <div
+                        onMouseDown={e => { e.preventDefault(); setShowAllClients(true); }}
+                        style={{ padding: "9px 12px", fontSize: 11.5, fontWeight: 700, color: T.muted, cursor: "pointer", borderTop: `1px solid ${T.border}` }}
                         onMouseEnter={e => (e.currentTarget.style.background = T.surface)}
                         onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
-                        {c.name}
+                        Show all clients → <span style={{ fontWeight: 400, color: T.faint }}>(first invoice for a new client)</span>
                       </div>
-                    ))}
+                    )}
                   </div>
                 )}
               </div>
@@ -1484,20 +1586,171 @@ export default function NewShipstationReportPage() {
               <>
                 <div>
                   <label style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, display: "block" }}>Sales period</label>
-                  <input value={salesPeriodLabel} onChange={e => { setSalesPeriodLabel(e.target.value); setPeriodLabel(derivePeriod(e.target.value, postagePeriodLabel)); }} placeholder="e.g. April 2026" style={input} />
+                  <input value={salesPeriodLabel} onChange={e => { setPeriodTouched(true); setSalesPeriodLabel(e.target.value); setPeriodLabel(derivePeriod(e.target.value, postagePeriodLabel)); }} placeholder="e.g. April 2026" style={input} />
                 </div>
                 <div>
                   <label style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, display: "block" }}>Postage period</label>
-                  <input value={postagePeriodLabel} onChange={e => { setPostagePeriodLabel(e.target.value); setPeriodLabel(derivePeriod(salesPeriodLabel, e.target.value)); }} placeholder="e.g. April 2026" style={input} />
+                  <input value={postagePeriodLabel} onChange={e => { setPeriodTouched(true); setPostagePeriodLabel(e.target.value); setPeriodLabel(derivePeriod(salesPeriodLabel, e.target.value)); }} placeholder="e.g. April 2026" style={input} />
                 </div>
               </>
             ) : (
               <div>
                 <label style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, display: "block" }}>Period</label>
-                <input value={periodLabel} onChange={e => setPeriodLabel(e.target.value)} placeholder="e.g. April 2026" style={input} />
+                <input value={periodLabel} onChange={e => { setPeriodTouched(true); setPeriodLabel(e.target.value); }} placeholder="e.g. April 2026" style={input} />
               </div>
             )}
           </div>
+          {/* Invoice type + postage source — stage-1 decisions, so they live
+              IN the stage-1 card (flipping either resets parsed rows; see
+              onChangeType). Hidden in edit mode: the saved report fixes both. */}
+          {!isEditing && (
+            <div style={{ display: "flex", gap: 32, flexWrap: "wrap", alignItems: "flex-start" }}>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, display: "block" }}>Invoice type</label>
+                {(() => {
+                  // Postage + Full Service are the two real scenarios (every
+                  // invoice ever billed is one of them). Fulfillment-only
+                  // (client pays their own postage — bills just the per-package
+                  // fee) and Sales-only live behind ⋯ until the fulfillment-only
+                  // offering has a signed client. A rare type stays visible
+                  // while selected.
+                  const primary = [
+                    { value: "postage", label: "Postage" },
+                    { value: "combined", label: "Full Service" },
+                  ] as const;
+                  const rare = [
+                    { value: "fulfillment", label: "Fulfillment only" },
+                    { value: "sales", label: "Sales only" },
+                  ] as const;
+                  const btn = (t: { value: ReportType; label: string }) => (
+                    <button key={t.value} onClick={() => { onChangeType(t.value); setTypeMenu(false); }}
+                      style={{
+                        background: reportType === t.value ? T.accent : "transparent",
+                        color: reportType === t.value ? "#0a0a0a" : T.muted,
+                        border: "none", borderRadius: 6,
+                        padding: "6px 18px", fontSize: 12, fontWeight: 700,
+                        fontFamily: font, cursor: "pointer",
+                      }}>{t.label}</button>
+                  );
+                  return (
+                    <div style={{ display: "flex", gap: 6, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 4, width: "fit-content", position: "relative", alignItems: "center" }}>
+                      {primary.map(t => btn(t as any))}
+                      {rare.filter(t => reportType === t.value).map(t => btn(t as any))}
+                      <button onClick={() => setTypeMenu(v => !v)} aria-label="More report types"
+                        style={{ background: "transparent", border: "none", color: T.muted, fontSize: 15, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: font }}>⋯</button>
+                      {typeMenu && (
+                        <div style={{ position: "absolute", left: 0, top: "100%", marginTop: 6, zIndex: 30, background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 6, minWidth: 170, boxShadow: "0 8px 30px rgba(0,0,0,0.45)", display: "flex", flexDirection: "column" }}>
+                          {rare.map(t => (
+                            <button key={t.value} onClick={() => { onChangeType(t.value as ReportType); setTypeMenu(false); }}
+                              style={{ textAlign: "left", background: "none", border: "none", color: reportType === t.value ? T.text : T.muted, fontSize: 12.5, fontWeight: 700, padding: "8px 12px", cursor: "pointer", borderRadius: 6, fontFamily: font }}>
+                              {t.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+              {showPostage && !isFulfillment && (
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, display: "block" }}>Postage source</label>
+                  <div style={{ display: "flex", gap: 6, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 4, width: "fit-content" }}>
+                    {([
+                      { value: "per_shipment", label: "Per-shipment" },
+                      { value: "bulk", label: "Bulk purchase" },
+                    ] as const).map(m => (
+                      <button
+                        key={m.value}
+                        onClick={() => onChangePostageMode(m.value)}
+                        style={{
+                          background: postageMode === m.value ? T.amber : "transparent",
+                          color: postageMode === m.value ? "#0a0e1a" : T.muted,
+                          border: "none", borderRadius: 6,
+                          padding: "5px 14px", fontSize: 12, fontWeight: 700,
+                          fontFamily: font, cursor: "pointer",
+                        }}
+                      >
+                        {m.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div style={{ fontSize: 10, color: T.faint, marginTop: 6 }}>
+                    {isBulkPostage ? "Pass-through reimbursement of postage purchases (no markup)." : "One row per package · markup + per-package fee."}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Previously billed — the context that used to live in a second
+              /invoices tab: this client's last invoices, and the exact date
+              range to punch into ShipStation for the next one. */}
+          {selectedClient && (() => {
+            const prior = priorByClient[clientId] || [];
+            if (prior.length === 0) return (
+              <div style={{ fontSize: 11, color: T.faint }}>
+                First fulfillment invoice for {selectedClient.name} — no billing history.
+              </div>
+            );
+            const last = prior[0];
+            const sug = isCombined ? null : nextPeriodSuggestion(last.period_label);
+            const ss = isCombined ? nextPeriodSuggestion(last.sales_period_label || last.period_label) : null;
+            const ps = isCombined ? nextPeriodSuggestion(last.postage_period_label || last.period_label) : null;
+            return (
+              <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 14px" }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>
+                  Previously billed
+                </div>
+                {prior.slice(0, 3).map(r => {
+                  const state = r.paid_at ? { label: "Paid", color: T.green } : r.sent_at ? { label: "Sent", color: T.accent } : { label: "Draft", color: T.faint };
+                  const halvesDiffer = r.report_type === "combined" && !!(r.sales_period_label || r.postage_period_label) && r.sales_period_label !== r.postage_period_label;
+                  return (
+                    <div key={r.id} style={{ display: "flex", alignItems: "baseline", gap: 10, fontSize: 12, padding: "3px 0" }}>
+                      <span style={{ color: T.text, fontWeight: 600, whiteSpace: "nowrap" }}>{PRIOR_TYPE_LABEL[r.report_type]}</span>
+                      {halvesDiffer ? (
+                        <span style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>sales {r.sales_period_label || r.period_label} · postage {r.postage_period_label || r.period_label}</span>
+                      ) : (
+                        <span style={{ fontFamily: mono, color: T.muted, whiteSpace: "nowrap" }}>{r.period_label || "—"}</span>
+                      )}
+                      <span style={{ fontFamily: mono, color: r.qb_invoice_number ? T.text : T.faint, whiteSpace: "nowrap" }}>{r.qb_invoice_number ? `#${r.qb_invoice_number}` : "no QB #"}</span>
+                      <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: state.color }}>{state.label}</span>
+                      <a href={`/invoices/fulfillment/${r.id}`} target="_blank" rel="noreferrer" style={{ marginLeft: "auto", fontSize: 11, color: T.faint, textDecoration: "none", whiteSpace: "nowrap" }}>open ↗</a>
+                    </div>
+                  );
+                })}
+                {last.report_type !== reportType && (
+                  <div style={{ fontSize: 11, color: T.amber, fontWeight: 600, marginTop: 6 }}>
+                    Last billed as {PRIOR_TYPE_LABEL[last.report_type]} — this invoice is set to {PRIOR_TYPE_LABEL[reportType]}.
+                  </div>
+                )}
+                {(sug || ss || ps) && (
+                  <div style={{ fontSize: 11, color: T.muted, marginTop: 8, paddingTop: 8, borderTop: `1px solid ${T.border}`, lineHeight: 1.6 }}>
+                    {isCombined ? (
+                      <>Next windows — {ss && <>sales <strong style={{ color: T.text, fontFamily: mono }}>{ss}</strong></>}{ss && ps ? " · " : null}{ps && <>postage <strong style={{ color: T.text, fontFamily: mono }}>{ps}</strong></>}. Use these date ranges for the ShipStation exports.</>
+                    ) : (
+                      <>Next window: <strong style={{ color: T.text, fontFamily: mono }}>{sug}</strong> — use this date range for the ShipStation export.</>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* Direct line to the ShipStation report that produces the file —
+              one click from here to the export screen (Jon, Aug 31). */}
+          {showPostage && !isBulkPostage && (
+            <div style={{ fontSize: 11.5, color: T.muted }}>
+              Get the file:{" "}
+              <a href="https://ship11.shipstation.com/dashboard/reports/ShippingCosts" target="_blank" rel="noopener noreferrer"
+                style={{ color: T.blue, fontWeight: 700, textDecoration: "none" }}
+                onMouseEnter={e => (e.currentTarget.style.textDecoration = "underline")}
+                onMouseLeave={e => (e.currentTarget.style.textDecoration = "none")}>
+                ShipStation → Insights → Reports → Shipping Cost ↗
+              </a>
+              {" "}— set the date range, store and select all providers/services - Export to CSV
+            </div>
+          )}
 
           {/* ONE dropzone (Jon, Aug 25: "feels very government website") —
               drop every export at once; each file is classified by its
@@ -1507,12 +1760,15 @@ export default function NewShipstationReportPage() {
             onDragLeave={() => setDropHot(false)}
             onDrop={e => { e.preventDefault(); setDropHot(false); routeCsvFiles(e.dataTransfer.files); }}
             onClick={() => document.getElementById("ssr-file-input")?.click()}
-            style={{ border: `1.5px dashed ${dropHot ? T.accent : T.border}`, borderRadius: 12, padding: "26px 18px", background: dropHot ? T.surface : "transparent", textAlign: "center", cursor: "pointer" }}>
-            <div style={{ fontSize: 13.5, fontWeight: 700, color: T.text }}>
+            style={{ border: `1.5px dashed ${dropHot ? T.accent : T.border}`, borderRadius: 12, padding: "48px 20px", background: dropHot ? T.surface : "transparent", textAlign: "center", cursor: "pointer" }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>
               Drop the ShipStation export{showSales && showPostage ? "s" : ""} here — or click to choose
             </div>
             <div style={{ fontSize: 11, color: T.faint, marginTop: 5, lineHeight: 1.5 }}>
-              {[showSales ? "sales CSV" : null, showPostage ? (isBulkPostage ? "postage-ledger CSV" : "shipments CSV") : null].filter(Boolean).join(" + ")} · each file is recognized automatically
+              {[
+                showSales ? "product sales CSV" : null,
+                showPostage ? (isBulkPostage ? "postage-ledger CSV (account transactions export)" : "Shipping Cost CSV") : null,
+              ].filter(Boolean).join(" + ")} · each file is recognized automatically
             </div>
             <input id="ssr-file-input" type="file" accept=".csv,text/csv" multiple style={{ display: "none" }}
               onChange={e => { routeCsvFiles(e.target.files); (e.target as any).value = ""; }} />
@@ -1523,6 +1779,30 @@ export default function NewShipstationReportPage() {
               {showPostage && postageLoaded === 0 && <span style={{ fontSize: 12, color: T.faint, fontFamily: mono }}>waiting on {isBulkPostage ? "ledger" : "shipments"} CSV</span>}
             </div>
           </div>
+          {/* Ship-date span vs the typed period — the file is the truth about
+              what window this invoice covers. Outside the period → amber +
+              one-tap fix; period unparseable → neutral offer; matches → ✓. */}
+          {csvSpan && (() => {
+            const pr = parsePeriodRange(periodLabel);
+            const outside = !!pr && (csvSpan.minD < pr.start || csvSpan.maxD > pr.end);
+            const matches = !!pr && !outside;
+            return (
+              <div style={{ fontSize: 11.5, color: outside ? T.amber : T.muted, fontWeight: outside ? 600 : 400 }}>
+                Shipments in the file run <strong style={{ color: T.text, fontFamily: mono }}>{csvSpan.first} – {csvSpan.last}</strong>
+                {matches ? (
+                  <span style={{ color: T.green, fontWeight: 700 }}> — inside the period ✓</span>
+                ) : (
+                  <>
+                    {outside ? " — outside the period above. " : ". "}
+                    <button onClick={() => { setPeriodLabel(csvSpan.suggested); setPeriodTouched(true); }}
+                      style={{ background: "none", border: "none", color: outside ? T.amber : T.muted, fontWeight: 700, fontSize: 11.5, cursor: "pointer", fontFamily: font, padding: 0, textDecoration: "underline", textUnderlineOffset: 3 }}>
+                      Set period to {csvSpan.suggested}
+                    </button>
+                  </>
+                )}
+              </div>
+            );
+          })()}
           {(csvError || csvErrorPostage || dropError) && (
             <div style={{ fontSize: 12, color: T.red }}>{[dropError, csvError, csvErrorPostage].filter(Boolean).join(" · ")}</div>
           )}
@@ -1537,7 +1817,7 @@ export default function NewShipstationReportPage() {
 
       {/* ── Stage 2 — Select rows (sales-only) ── */}
       {stage === 2 && isSales && (
-        <div style={card}>
+        <div style={{ ...card, width: "100%", maxWidth: 1040 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 12, flexWrap: "wrap" }}>
             <div style={{ fontSize: 12, color: T.muted }}>
               <span style={{ fontWeight: 700, color: T.text }}>{selectedRows.length}</span> of {rawRows.length} rows included
@@ -1548,17 +1828,15 @@ export default function NewShipstationReportPage() {
                 </span>
               )}
             </div>
-            <div style={{ display: "flex", gap: 6 }}>
-              <button onClick={selectAllSales} style={btnGhost}>Select all</button>
-              <button onClick={clearAllSales} style={btnGhost}>Clear all</button>
-            </div>
           </div>
 
           <div style={{ maxHeight: 500, overflow: "auto", border: `1px solid ${T.border}`, borderRadius: 8 }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead style={{ position: "sticky", top: 0, background: T.card, zIndex: 1 }}>
                 <tr>
-                  <th style={{ ...thStyle, width: 40 }}></th>
+                  <th style={{ ...thStyle, width: 40, textAlign: "center" }}>
+                    <MasterCheck count={rawRows.length} selected={selectedRows.length} onAll={selectAllSales} onNone={clearAllSales} />
+                  </th>
                   <th style={thStyle}>SKU</th>
                   <th style={thStyle}>Description</th>
                   <th style={{ ...thStyle, textAlign: "right" }}>Qty Sold</th>
@@ -1601,15 +1879,11 @@ export default function NewShipstationReportPage() {
 
       {/* ── Stage 2 — Select shipments (postage-only, per-shipment) ── */}
       {stage === 2 && (isPostage || isFulfillment) && !isBulkPostage && (
-        <div style={card}>
+        <div style={{ ...card, width: "100%", maxWidth: 1040 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 12, flexWrap: "wrap" }}>
             <div style={{ fontSize: 12, color: T.muted }}>
               <span style={{ fontWeight: 700, color: T.text }}>{selectedPostageRows.length}</span> of {rawPostageRows.length} shipments included
               <span style={{ marginLeft: 10, fontSize: 11, color: T.faint }}>Shift-click to select a range</span>
-            </div>
-            <div style={{ display: "flex", gap: 6 }}>
-              <button onClick={selectAllPostage} style={btnGhost}>Select all</button>
-              <button onClick={clearAllPostage} style={btnGhost}>Clear all</button>
             </div>
           </div>
 
@@ -1617,7 +1891,9 @@ export default function NewShipstationReportPage() {
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead style={{ position: "sticky", top: 0, background: T.card, zIndex: 1 }}>
                 <tr>
-                  <th style={{ ...thStyle, width: 36 }}></th>
+                  <th style={{ ...thStyle, width: 36, textAlign: "center" }}>
+                    <MasterCheck count={rawPostageRows.length} selected={selectedPostageRows.length} onAll={selectAllPostage} onNone={clearAllPostage} />
+                  </th>
                   <th style={thStyle}>Ship Date</th>
                   <th style={thStyle}>Recipient</th>
                   <th style={thStyle}>Order #</th>
@@ -1668,16 +1944,12 @@ export default function NewShipstationReportPage() {
 
       {/* ── Stage 2 — Select purchases (postage-only, bulk) ── */}
       {stage === 2 && isPostage && isBulkPostage && (
-        <div style={card}>
+        <div style={{ ...card, width: "100%", maxWidth: 1040 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 12, flexWrap: "wrap" }}>
             <div style={{ fontSize: 12, color: T.muted }}>
               <span style={{ fontWeight: 700, color: T.text }}>{selectedBulkRows.length}</span> of {rawBulkRows.length} purchases included
               <span style={{ marginLeft: 10, fontSize: 11, color: T.faint }}>Shift-click to select a range</span>
               <span style={{ marginLeft: 10, fontSize: 11, color: T.green, fontFamily: mono }}>· {fmtD(bulkPostageTotals.total)} total</span>
-            </div>
-            <div style={{ display: "flex", gap: 6 }}>
-              <button onClick={selectAllBulk} style={btnGhost}>Select all</button>
-              <button onClick={clearAllBulk} style={btnGhost}>Clear all</button>
             </div>
           </div>
 
@@ -1685,7 +1957,9 @@ export default function NewShipstationReportPage() {
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead style={{ position: "sticky", top: 0, background: T.card, zIndex: 1 }}>
                 <tr>
-                  <th style={{ ...thStyle, width: 36 }}></th>
+                  <th style={{ ...thStyle, width: 36, textAlign: "center" }}>
+                    <MasterCheck count={rawBulkRows.length} selected={selectedBulkRows.length} onAll={selectAllBulk} onNone={clearAllBulk} />
+                  </th>
                   <th style={thStyle}>Transaction Date</th>
                   <th style={{ ...thStyle, textAlign: "right" }}>Amount</th>
                 </tr>
@@ -1721,7 +1995,7 @@ export default function NewShipstationReportPage() {
       {stage === 3 && isSales && (
         <>
           <SalesTotalsStrip totals={salesTotals} />
-          <div style={card}>
+          <div style={{ ...card, width: "100%", maxWidth: 1040 }}>
             <div style={{ fontSize: 11, color: T.muted, marginBottom: 10 }}>
               One unit cost per product. Variants with different sizes share the same cost. Costs save per client so next month pre-fills.
             </div>
@@ -1804,7 +2078,7 @@ export default function NewShipstationReportPage() {
       {stage === 3 && (isPostage || isFulfillment) && !isBulkPostage && (
         <>
           <PostageTotalsStrip totals={postageTotals} fulfillmentOnly={isFulfillment} />
-          <div style={{ ...card, display: "flex", flexDirection: "column", gap: 18 }}>
+          <div style={{ ...card, display: "flex", flexDirection: "column", gap: 18, width: "100%", maxWidth: 1040 }}>
             {isFulfillment && (
               <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.6 }}>
                 This client runs their own ShipStation and pays their own postage. We bill <strong style={{ color: T.text }}>only the per-package fulfillment fee</strong> — no postage cost or markup appears on their invoice.
@@ -1828,7 +2102,7 @@ export default function NewShipstationReportPage() {
                   style={{ ...input, fontSize: 16, fontWeight: 700, width: 140, fontFamily: mono, textAlign: "right" }}
                 />
                 <span style={{ fontSize: 13, color: T.muted, fontFamily: mono }}>
-                  = {(parseMoney(markupPct) * 100).toFixed(1)}% markup on raw ShipStation cost
+                  = {parseMoney(markupPct).toFixed(1)}% markup on raw ShipStation cost
                 </span>
               </div>
               <div style={{ fontSize: 11, color: T.faint, marginTop: 8, lineHeight: 1.5 }}>
@@ -1865,6 +2139,12 @@ export default function NewShipstationReportPage() {
               </div>
             </div>
 
+            {isFulfillment && parseMoney(perPackageFee) === 0 && (
+              <div style={{ fontSize: 12, color: T.amber, fontWeight: 600 }}>
+                The per-package fee is $0 — this would generate a $0.00 invoice. This client has no saved rate yet; check their agreement before continuing.
+              </div>
+            )}
+
             <div style={{ display: "flex", justifyContent: "space-between" }}>
               <button onClick={() => setStage(2)} style={btnGhost}>← Back</button>
               <button disabled={!canNextFrom3} onClick={() => setStage(4)} style={{ ...btnPrimary, opacity: canNextFrom3 ? 1 : 0.4, cursor: canNextFrom3 ? "pointer" : "not-allowed" }}>Next →</button>
@@ -1877,7 +2157,7 @@ export default function NewShipstationReportPage() {
       {stage === 3 && isPostage && isBulkPostage && (
         <>
           <BulkPostageTotalsStrip totals={bulkPostageTotals} />
-          <div style={{ ...card, display: "flex", flexDirection: "column", gap: 14 }}>
+          <div style={{ ...card, display: "flex", flexDirection: "column", gap: 14, width: "100%", maxWidth: 1040 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Pass-through reimbursement</div>
             <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.6 }}>
               No markup or per-package fee applies to bulk postage. The client is billed exactly what HPD spent on postage —
@@ -1895,7 +2175,7 @@ export default function NewShipstationReportPage() {
       {stage === 4 && isSales && (
         <>
           <SalesTotalsStrip totals={salesTotals} />
-          <div style={{ ...card, display: "flex", flexDirection: "column", gap: 14 }}>
+          <div style={{ ...card, display: "flex", flexDirection: "column", gap: 14, width: "100%", maxWidth: 1040 }}>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
               <div>
                 <div style={{ fontSize: 10, color: T.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Client</div>
@@ -1915,7 +2195,7 @@ export default function NewShipstationReportPage() {
                     onFocus={e => e.target.select()}
                     style={{ ...input, fontSize: 13, fontWeight: 700, width: 90, fontFamily: mono, textAlign: "right" }}
                   />
-                  <span style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>({(parseMoney(feePct) * 100).toFixed(1)}%)</span>
+                  <span style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>({parseMoney(feePct).toFixed(1)}%)</span>
                 </div>
               </div>
             </div>
@@ -1940,7 +2220,7 @@ export default function NewShipstationReportPage() {
       {stage === 4 && (isPostage || isFulfillment) && !isBulkPostage && (
         <>
           <PostageTotalsStrip totals={postageTotals} fulfillmentOnly={isFulfillment} />
-          <div style={{ ...card, display: "flex", flexDirection: "column", gap: 14 }}>
+          <div style={{ ...card, display: "flex", flexDirection: "column", gap: 14, width: "100%", maxWidth: 1040 }}>
             <div style={{ display: "grid", gridTemplateColumns: `repeat(${isFulfillment ? 3 : 4}, 1fr)`, gap: 12 }}>
               <div>
                 <div style={{ fontSize: 10, color: T.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Client</div>
@@ -1961,7 +2241,7 @@ export default function NewShipstationReportPage() {
                     onFocus={e => e.target.select()}
                     style={{ ...input, fontSize: 13, fontWeight: 700, width: 80, fontFamily: mono, textAlign: "right" }}
                   />
-                  <span style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>({(parseMoney(markupPct) * 100).toFixed(1)}%)</span>
+                  <span style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>({parseMoney(markupPct).toFixed(1)}%)</span>
                 </div>
               </div>
               )}
@@ -1995,6 +2275,12 @@ export default function NewShipstationReportPage() {
               )}
             </div>
 
+            {isFulfillment && parseMoney(perPackageFee) === 0 && (
+              <div style={{ fontSize: 12, color: T.amber, fontWeight: 600 }}>
+                Per-package fee is $0 — this generates a $0.00 invoice. Set the client's rate before generating.
+              </div>
+            )}
+
             {saveError && <div style={{ fontSize: 12, color: T.red, background: T.red + "11", padding: "8px 12px", borderRadius: 6 }}>{saveError}</div>}
 
             <div style={{ display: "flex", justifyContent: "space-between" }}>
@@ -2011,7 +2297,7 @@ export default function NewShipstationReportPage() {
       {stage === 4 && isPostage && isBulkPostage && (
         <>
           <BulkPostageTotalsStrip totals={bulkPostageTotals} />
-          <div style={{ ...card, display: "flex", flexDirection: "column", gap: 14 }}>
+          <div style={{ ...card, display: "flex", flexDirection: "column", gap: 14, width: "100%", maxWidth: 1040 }}>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
               <div>
                 <div style={{ fontSize: 10, color: T.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Client</div>
@@ -2049,7 +2335,7 @@ export default function NewShipstationReportPage() {
           same counter / select-all / clear-all / shift-range behavior
           as the single-type flows. */}
       {stage === 2 && isCombined && (
-        <div style={{ ...card, display: "flex", flexDirection: "column", gap: 18 }}>
+        <div style={{ ...card, display: "flex", flexDirection: "column", gap: 18, width: "100%", maxWidth: 1040 }}>
           {/* Sales rows */}
           <div>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 12, flexWrap: "wrap" }}>
@@ -2063,16 +2349,14 @@ export default function NewShipstationReportPage() {
                   </span>
                 )}
               </div>
-              <div style={{ display: "flex", gap: 6 }}>
-                <button onClick={selectAllSales} style={btnGhost}>Select all</button>
-                <button onClick={clearAllSales} style={btnGhost}>Clear all</button>
-              </div>
             </div>
             <div style={{ maxHeight: 360, overflow: "auto", border: `1px solid ${T.border}`, borderRadius: 8 }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead style={{ position: "sticky", top: 0, background: T.card, zIndex: 1 }}>
                   <tr>
-                    <th style={{ ...thStyle, width: 40 }}></th>
+                    <th style={{ ...thStyle, width: 40, textAlign: "center" }}>
+                      <MasterCheck count={rawRows.length} selected={selectedRows.length} onAll={selectAllSales} onNone={clearAllSales} />
+                    </th>
                     <th style={thStyle}>SKU</th>
                     <th style={thStyle}>Description</th>
                     <th style={{ ...thStyle, textAlign: "right" }}>Qty Sold</th>
@@ -2118,16 +2402,14 @@ export default function NewShipstationReportPage() {
                 <span style={{ fontWeight: 700, color: T.text }}>{selectedPostageRows.length}</span> of {rawPostageRows.length} shipments included
                 <span style={{ marginLeft: 10, fontSize: 11, color: T.faint }}>Shift-click to select a range</span>
               </div>
-              <div style={{ display: "flex", gap: 6 }}>
-                <button onClick={selectAllPostage} style={btnGhost}>Select all</button>
-                <button onClick={clearAllPostage} style={btnGhost}>Clear all</button>
-              </div>
             </div>
             <div style={{ maxHeight: 380, overflow: "auto", border: `1px solid ${T.border}`, borderRadius: 8 }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead style={{ position: "sticky", top: 0, background: T.card, zIndex: 1 }}>
                   <tr>
-                    <th style={{ ...thStyle, width: 36 }}></th>
+                    <th style={{ ...thStyle, width: 36, textAlign: "center" }}>
+                      <MasterCheck count={rawPostageRows.length} selected={selectedPostageRows.length} onAll={selectAllPostage} onNone={clearAllPostage} />
+                    </th>
                     <th style={thStyle}>Ship Date</th>
                     <th style={thStyle}>Recipient</th>
                     <th style={thStyle}>Order #</th>
@@ -2181,16 +2463,14 @@ export default function NewShipstationReportPage() {
                 <span style={{ marginLeft: 10, fontSize: 11, color: T.faint }}>Shift-click to select a range</span>
                 <span style={{ marginLeft: 10, fontSize: 11, color: T.green, fontFamily: mono }}>· {fmtD(bulkPostageTotals.total)} total</span>
               </div>
-              <div style={{ display: "flex", gap: 6 }}>
-                <button onClick={selectAllBulk} style={btnGhost}>Select all</button>
-                <button onClick={clearAllBulk} style={btnGhost}>Clear all</button>
-              </div>
             </div>
             <div style={{ maxHeight: 380, overflow: "auto", border: `1px solid ${T.border}`, borderRadius: 8 }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead style={{ position: "sticky", top: 0, background: T.card, zIndex: 1 }}>
                   <tr>
-                    <th style={{ ...thStyle, width: 36 }}></th>
+                    <th style={{ ...thStyle, width: 36, textAlign: "center" }}>
+                      <MasterCheck count={rawBulkRows.length} selected={selectedBulkRows.length} onAll={selectAllBulk} onNone={clearAllBulk} />
+                    </th>
                     <th style={thStyle}>Transaction Date</th>
                     <th style={{ ...thStyle, textAlign: "right" }}>Amount</th>
                   </tr>
@@ -2234,7 +2514,7 @@ export default function NewShipstationReportPage() {
           {isBulkPostage
             ? <BulkPostageTotalsStrip totals={bulkPostageTotals} />
             : <PostageTotalsStrip totals={postageTotals} />}
-          <div style={{ ...card, display: "flex", flexDirection: "column", gap: 18 }}>
+          <div style={{ ...card, display: "flex", flexDirection: "column", gap: 18, width: "100%", maxWidth: 1040 }}>
 
             {/* Sales pricing */}
             <div>
@@ -2254,7 +2534,7 @@ export default function NewShipstationReportPage() {
                   }}
                   style={{ ...input, fontSize: 14, fontWeight: 700, width: 100, fontFamily: mono, textAlign: "right" }}
                 />
-                <span style={{ fontSize: 12, color: T.muted, fontFamily: mono }}>= {(parseMoney(feePct) * 100).toFixed(1)}% of Product Net</span>
+                <span style={{ fontSize: 12, color: T.muted, fontFamily: mono }}>= {parseMoney(feePct).toFixed(1)}% of Product Net</span>
               </div>
               <div style={{ fontSize: 10, color: T.faint, marginBottom: 10 }}>
                 One unit cost per product. Variants with different sizes share the same cost. Costs save per client so next month pre-fills.
@@ -2351,7 +2631,7 @@ export default function NewShipstationReportPage() {
                     style={{ ...input, fontSize: 14, fontWeight: 700, width: 120, fontFamily: mono, textAlign: "right" }}
                   />
                   <span style={{ fontSize: 12, color: T.muted, fontFamily: mono }}>
-                    = {(parseMoney(markupPct) * 100).toFixed(1)}% markup on raw ShipStation cost
+                    = {parseMoney(markupPct).toFixed(1)}% markup on raw ShipStation cost
                   </span>
                 </div>
                 <div style={{ fontSize: 10, color: T.faint, marginTop: 6, lineHeight: 1.5 }}>
@@ -2413,7 +2693,7 @@ export default function NewShipstationReportPage() {
           {isBulkPostage
             ? <BulkPostageTotalsStrip totals={bulkPostageTotals} />
             : <PostageTotalsStrip totals={postageTotals} />}
-          <div style={{ ...card, display: "flex", flexDirection: "column", gap: 14 }}>
+          <div style={{ ...card, display: "flex", flexDirection: "column", gap: 14, width: "100%", maxWidth: 1040 }}>
             <div style={{ display: "grid", gridTemplateColumns: isBulkPostage ? "repeat(3, 1fr)" : "repeat(5, 1fr)", gap: 12 }}>
               <div>
                 <div style={{ fontSize: 10, color: T.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Client</div>
@@ -2433,7 +2713,7 @@ export default function NewShipstationReportPage() {
                     onFocus={e => e.target.select()}
                     style={{ ...input, fontSize: 13, fontWeight: 700, width: 80, fontFamily: mono, textAlign: "right" }}
                   />
-                  <span style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>({(parseMoney(feePct) * 100).toFixed(1)}%)</span>
+                  <span style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>({parseMoney(feePct).toFixed(1)}%)</span>
                 </div>
               </div>
               {!isBulkPostage && (<>
@@ -2447,7 +2727,7 @@ export default function NewShipstationReportPage() {
                     onFocus={e => e.target.select()}
                     style={{ ...input, fontSize: 13, fontWeight: 700, width: 80, fontFamily: mono, textAlign: "right" }}
                   />
-                  <span style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>({(parseMoney(markupPct) * 100).toFixed(1)}%)</span>
+                  <span style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>({parseMoney(markupPct).toFixed(1)}%)</span>
                 </div>
               </div>
               <div>
@@ -2485,7 +2765,7 @@ export default function NewShipstationReportPage() {
               <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>Invoice Breakdown</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 4, fontFamily: mono }}>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-                  <span style={{ color: T.muted }}>Service Fee ({(parseMoney(feePct) * 100).toFixed(1)}% of {fmtD(salesTotals.net)} net sales)</span>
+                  <span style={{ color: T.muted }}>Service Fee ({parseMoney(feePct).toFixed(1)}% of {fmtD(salesTotals.net)} net sales)</span>
                   <span style={{ color: T.text, fontWeight: 600 }}>{fmtD(salesTotals.fee)}</span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
@@ -2528,6 +2808,23 @@ export default function NewShipstationReportPage() {
   );
 }
 
+// Header master checkbox — replaces the Select all / Clear all buttons
+// (Jon, Aug 31). Checked = all included, unchecked = none, dash = partial;
+// clicking toggles between all and none.
+function MasterCheck({ count, selected, onAll, onNone }: { count: number; selected: number; onAll: () => void; onNone: () => void }) {
+  const all = count > 0 && selected === count;
+  return (
+    <input
+      type="checkbox"
+      checked={all}
+      ref={el => { if (el) el.indeterminate = selected > 0 && selected < count; }}
+      onChange={() => (all ? onNone() : onAll())}
+      title={all ? "Clear all" : "Select all"}
+      style={{ cursor: "pointer" }}
+    />
+  );
+}
+
 function SalesTotalsStrip({ totals }: { totals: { qty: number; sales: number; cost: number; net: number; fee: number; profit: number } }) {
   const fmt = (n: number) => "$" + Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const items: { label: string; value: string; color?: string }[] = [
@@ -2539,7 +2836,7 @@ function SalesTotalsStrip({ totals }: { totals: { qty: number; sales: number; co
     { label: "Net Profit", value: fmt(totals.profit), color: T.green },
   ];
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 8 }}>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 8, width: "100%", maxWidth: 1040 }}>
       {items.map(i => (
         <div key={i.label} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 10px" }}>
           <div style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, marginBottom: 2 }}>{i.label}</div>
@@ -2570,7 +2867,7 @@ function PostageTotalsStrip({ totals, fulfillmentOnly = false }: { totals: { shi
     { label: "Fulfillment", value: fmt(totals.fulfillment), color: T.amber },
   ];
   return (
-    <div style={{ display: "grid", gridTemplateColumns: `repeat(${fulfillmentOnly ? 4 : 8}, 1fr)`, gap: 8 }}>
+    <div style={{ display: "grid", gridTemplateColumns: `repeat(${fulfillmentOnly ? 4 : 8}, 1fr)`, gap: 8, width: "100%", maxWidth: 1040 }}>
       {tiles.map(i => (
         <div key={i.label} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 10px" }}>
           <div style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, marginBottom: 2 }}>{i.label}</div>
@@ -2593,7 +2890,7 @@ function BulkPostageTotalsStrip({ totals }: { totals: { purchases: number; total
     { label: "Reimbursement", value: fmt(totals.total), color: T.green },
   ];
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, width: "100%", maxWidth: 1040 }}>
       {tiles.map(i => (
         <div key={i.label} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 10px" }}>
           <div style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, marginBottom: 2 }}>{i.label}</div>
