@@ -22,7 +22,7 @@ export type InvoiceRow = {
   clientName: string;
   label: string;
   invoiceNumber: string | null;
-  state: InvoiceStep | "invoiced" | "ss_paid";
+  state: InvoiceStep | "ss_paid";
   billed: number;
   paid: number;
   balance: number;
@@ -138,8 +138,13 @@ export function buildAr(opts: {
     const paid = r.paid_at ? r2(Number(r.paid_amount) || billed) : 0;
     const balance = r2(Math.max(0, billed - paid));
     const client = clientById[r.client_id];
-    const delay = TERMS_DAYS[(client?.default_terms) as string] ?? 30;
-    const expected = new Date(new Date(r.created_at).getTime() + delay * MS_DAY);
+    // Terms offsets are for the job forecast chain (anchored on ship dates);
+    // negative ones (prepaid −14) are nonsense against a report's own date —
+    // a period invoice can't be expected before it exists. Clamp to ≥0 and
+    // anchor on the send when there's been one (the clock starts when the
+    // client is actually billed).
+    const delay = Math.max(0, TERMS_DAYS[(client?.default_terms) as string] ?? 30);
+    const expected = new Date(new Date(r.sent_at || r.created_at).getTime() + delay * MS_DAY);
     rows.push({
       stream: "fulfillment",
       id: r.id,
@@ -148,7 +153,9 @@ export function buildAr(opts: {
       clientName: client?.name || "—",
       label: `${ssReportLabel(r.report_type)}${r.period_label ? ` · ${r.period_label}` : ""}`,
       invoiceNumber: r.qb_invoice_number || null,
-      state: r.paid_at ? "ss_paid" : "invoiced",
+      // sent_at is what separates a generated-but-unsent invoice from a
+      // billed one — without it every unpaid report read as SENT (Sep 1).
+      state: r.paid_at ? "ss_paid" : r.sent_at ? "sent" : "draft",
       billed,
       paid,
       balance,
