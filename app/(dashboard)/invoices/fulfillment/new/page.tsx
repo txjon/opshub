@@ -1730,6 +1730,21 @@ export default function NewShipstationReportPage() {
             );
           })()}
 
+          {/* Direct line to the ShipStation report that produces the file —
+              one click from here to the export screen (Jon, Aug 31). */}
+          {showPostage && !isBulkPostage && (
+            <div style={{ fontSize: 11.5, color: T.muted }}>
+              Get the file:{" "}
+              <a href="https://ship11.shipstation.com/dashboard/reports/ShippingCosts" target="_blank" rel="noopener noreferrer"
+                style={{ color: T.blue, fontWeight: 700, textDecoration: "none" }}
+                onMouseEnter={e => (e.currentTarget.style.textDecoration = "underline")}
+                onMouseLeave={e => (e.currentTarget.style.textDecoration = "none")}>
+                ShipStation → Insights → Reports → Shipping Cost ↗
+              </a>
+              {" "}— set the date range{selectedClient ? ` and Store = ${selectedClient.name}` : " and the client's Store"}, all providers/services, Export to CSV.
+            </div>
+          )}
+
           {/* ONE dropzone (Jon, Aug 25: "feels very government website") —
               drop every export at once; each file is classified by its
               header row and routed to the right parser. */}
@@ -1745,7 +1760,7 @@ export default function NewShipstationReportPage() {
             <div style={{ fontSize: 11, color: T.faint, marginTop: 5, lineHeight: 1.5 }}>
               {[
                 showSales ? "product sales CSV" : null,
-                showPostage ? (isBulkPostage ? "postage-ledger CSV (account transactions export)" : "Shipped Orders CSV (ShipStation → Data Exports → Shipping Cost)") : null,
+                showPostage ? (isBulkPostage ? "postage-ledger CSV (account transactions export)" : "Shipping Cost CSV") : null,
               ].filter(Boolean).join(" + ")} · each file is recognized automatically
             </div>
             <input id="ssr-file-input" type="file" accept=".csv,text/csv" multiple style={{ display: "none" }}
