@@ -342,6 +342,9 @@ export default function InvoicesPage() {
                       {view === "open" ? (
                       <td style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}33`, whiteSpace: "nowrap" }}>
                         {(() => {
+                          // A draft was never billed — no due date exists yet,
+                          // so chase math would only mislead.
+                          if (r.state === "draft") return <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: T.faint }}>Not sent yet</span>;
                           const late = daysLate(r);
                           return late > 0
                             ? <span><span style={{ fontFamily: mono, fontWeight: 800, color: am.color }}>{late}d late</span><span style={{ fontFamily: mono, color: T.faint, marginLeft: 8, fontSize: 11 }}>{r.dueDate ? `due ${fmtDay(r.dueDate)}` : `expected ${fmtDay(r.expectedDate)}`}</span></span>
