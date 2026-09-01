@@ -585,6 +585,7 @@ function ClosedLog({ rows, closing, onReopen }: {
         <div key={r.id} style={{ display: "flex", gap: 12, alignItems: "center", fontSize: 12, color: T.muted, padding: "6px 0", borderBottom: `1px solid ${T.border}33` }}>
           <span style={{ color: T.green, fontWeight: 800, fontSize: 10, letterSpacing: "0.06em" }}>CLOSED</span>
           <span style={{ fontWeight: 700, color: T.text }}>{r.clientName}</span>
+          <span style={{ fontFamily: mono, color: r.invoiceNumber ? T.muted : T.faint, whiteSpace: "nowrap" }}>{r.invoiceNumber ? `#${r.invoiceNumber}` : "no QB #"}</span>
           <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.label}</span>
           <span style={{ fontFamily: mono, color: T.faint }}>{fmtDay(r.financialClosedAt || null)}</span>
           <span style={{ fontFamily: mono, color: T.faint, marginLeft: "auto" }}>{money(r.billed)}</span>
