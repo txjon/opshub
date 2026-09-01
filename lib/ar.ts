@@ -37,6 +37,9 @@ export type InvoiceRow = {
   financialClosedAt?: string | null;
   payLink?: string | null;      // QB hosted pay page (reminder/copy actions)
   waived?: number;              // closed-short residual
+  // Bulk-import marker row: a month with zero shipments for a billed client
+  // (totals.no_billables). History-only filler; never chased, never aged.
+  noBillables?: boolean;
 };
 
 export type ArSummary = {
@@ -151,7 +154,9 @@ export function buildAr(opts: {
       href: `/invoices/fulfillment/${r.id}`, // moves to /invoices/fulfillment in 1d
       clientId: r.client_id,
       clientName: client?.name || "—",
-      label: `${ssReportLabel(r.report_type)}${r.period_label ? ` · ${r.period_label}` : ""}`,
+      label: r.totals?.no_billables
+        ? `No billables${r.period_label ? ` · ${r.period_label}` : ""}`
+        : `${ssReportLabel(r.report_type)}${r.period_label ? ` · ${r.period_label}` : ""}`,
       invoiceNumber: r.qb_invoice_number || null,
       // sent_at is what separates a generated-but-unsent invoice from a
       // billed one — without it every unpaid report read as SENT (Sep 1).
@@ -164,6 +169,7 @@ export function buildAr(opts: {
       expectedDate: expected.toISOString().slice(0, 10),
       aging: agingOf(balance, null, expected, now),
       payLink: r.qb_payment_link || null,
+      noBillables: !!r.totals?.no_billables,
     });
   }
 
