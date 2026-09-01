@@ -124,6 +124,50 @@ function findCol(header: string[], aliases: string[]): number {
 type Client = { id: string; name: string; hpd_fee_pct: number | null; hpd_per_package_fee: number | null };
 type ReportType = "sales" | "postage" | "combined" | "fulfillment";
 
+// Prior invoices per client — powers the scoped picker, the stage-1
+// "previously billed" card, and the next-period suggestion (Jon, Aug 31:
+// "this is where I'd open the invoices page in another tab").
+type PriorReport = {
+  id: string;
+  client_id: string;
+  report_type: ReportType;
+  period_label: string | null;
+  sales_period_label: string | null;
+  postage_period_label: string | null;
+  qb_invoice_number: string | null;
+  sent_at: string | null;
+  paid_at: string | null;
+  created_at: string;
+};
+const PRIOR_TYPE_LABEL: Record<ReportType, string> = { sales: "Sales", postage: "Postage", combined: "Full Service", fulfillment: "Fulfillment" };
+
+const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+// Given the last invoice's period label, suggest the next billing window in
+// the SAME format. Handles the two formats in the wild: "July 2026" and
+// "7/1/2026 - 7/31/2026" (zero-padded or not). Anything else → no suggestion.
+function nextPeriodSuggestion(label: string | null | undefined): string | null {
+  const t = (label || "").trim();
+  const monthly = t.match(/^([A-Za-z]+)\s+(\d{4})$/);
+  if (monthly) {
+    const idx = MONTH_NAMES.findIndex(m => m.toLowerCase() === monthly[1].toLowerCase());
+    if (idx < 0) return null;
+    const y = Number(monthly[2]) + (idx === 11 ? 1 : 0);
+    return `${MONTH_NAMES[(idx + 1) % 12]} ${y}`;
+  }
+  const range = t.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s*[-–—]\s*(\d{1,2})\/(\d{1,2})\/(\d{4})\s*$/);
+  if (range) {
+    const padded = range[4].length === 2 && range[4][0] === "0";
+    // Numeric Date construction (local) — never bare-parse a date string.
+    const end = new Date(Number(range[6]), Number(range[4]) - 1, Number(range[5]));
+    const start = new Date(end.getFullYear(), end.getMonth(), end.getDate() + 1);
+    const last = new Date(start.getFullYear(), start.getMonth() + 1, 0);
+    const p = (n: number) => (padded ? String(n).padStart(2, "0") : String(n));
+    const f = (d: Date) => `${p(d.getMonth() + 1)}/${p(d.getDate())}/${d.getFullYear()}`;
+    return `${f(start)} - ${f(last)}`;
+  }
+  return null;
+}
+
 // "Full Service" combines a Sales report and a Postage report into one
 // shipstation_reports row → one PDF, one QB invoice, one email. The
 // combined flow keeps both halves' parsing, selection, and pricing UI
@@ -181,14 +225,27 @@ export default function NewShipstationReportPage() {
   const [clients, setClients] = useState<Client[]>([]);
   const [clientId, setClientId] = useState<string>("");
   const selectedClient = clients.find(c => c.id === clientId) || null;
-  const filteredClients = clientSearch.trim()
-    ? clients.filter(c => c.name.toLowerCase().includes(clientSearch.trim().toLowerCase()))
-    : clients;
+  // Prior invoices, newest-first per client. Scopes the picker to clients
+  // who've been billed before (most-recently-billed first) and feeds the
+  // "previously billed" card + next-period suggestion.
+  const [priorByClient, setPriorByClient] = useState<Record<string, PriorReport[]>>({});
+  const [showAllClients, setShowAllClients] = useState(false);
+  const pickerClients = useMemo(() => {
+    const billed = clients
+      .filter(c => priorByClient[c.id]?.length)
+      .sort((a, b) => priorByClient[b.id][0].created_at.localeCompare(priorByClient[a.id][0].created_at));
+    const base = showAllClients ? clients : billed;
+    const needle = clientSearch.trim().toLowerCase();
+    return needle ? base.filter(c => c.name.toLowerCase().includes(needle)) : base;
+  }, [clients, priorByClient, showAllClients, clientSearch]);
   const [periodLabel, setPeriodLabel] = useState<string>(() => {
     const d = new Date();
     d.setMonth(d.getMonth() - 1);
     return d.toLocaleDateString("en-US", { month: "long", year: "numeric" });
   });
+  // Once the user types a period by hand, picking a client stops
+  // auto-filling the suggestion over it.
+  const [periodTouched, setPeriodTouched] = useState(false);
   // Per-half period overrides (combined only). Blank → inherit periodLabel.
   // The main periodLabel stays the invoice period (title, QB memo, email).
   const [salesPeriodLabel, setSalesPeriodLabel] = useState<string>("");
@@ -245,6 +302,39 @@ export default function NewShipstationReportPage() {
       setClients(data || []);
     })();
   }, [editId]);
+
+  // Billing history — one query, grouped per client (newest first via the
+  // order). Every report type counts: a client billed for anything here is
+  // a fulfillment-billing client.
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase
+        .from("shipstation_reports")
+        .select("id, client_id, report_type, period_label, sales_period_label, postage_period_label, qb_invoice_number, sent_at, paid_at, created_at")
+        .order("created_at", { ascending: false });
+      const by: Record<string, PriorReport[]> = {};
+      for (const r of (data || []) as PriorReport[]) (by[r.client_id] ||= []).push(r);
+      setPriorByClient(by);
+    })();
+  }, []);
+
+  // Picking a client pre-fills the next billing window from their last
+  // invoice (same label format), unless the user already typed a period.
+  function applyPeriodSuggestion(cid: string) {
+    if (isEditing || periodTouched) return;
+    const prior = priorByClient[cid]?.[0];
+    if (!prior) return;
+    if (isCombined) {
+      const ss = nextPeriodSuggestion(prior.sales_period_label || prior.period_label);
+      const ps = nextPeriodSuggestion(prior.postage_period_label || prior.period_label);
+      if (ss) setSalesPeriodLabel(ss);
+      if (ps) setPostagePeriodLabel(ps);
+      if (ss || ps) setPeriodLabel(derivePeriod(ss || "", ps || ""));
+      return;
+    }
+    const s = nextPeriodSuggestion(prior.period_label);
+    if (s) setPeriodLabel(s);
+  }
 
   // Edit mode hydration — load the existing report and populate state
   // so the user can adjust prices / drop rows / etc. and re-save.
@@ -1463,18 +1553,34 @@ export default function NewShipstationReportPage() {
                   style={{ ...input, width: "100%" }}
                 />
                 {clientListOpen && (
-                  <div style={{ position: "absolute", top: "100%", left: 0, right: 0, marginTop: 4, background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, maxHeight: 260, overflowY: "auto", zIndex: 30, boxShadow: "0 8px 24px rgba(0,0,0,0.45)" }}>
-                    {filteredClients.length === 0 ? (
-                      <div style={{ padding: "10px 12px", fontSize: 12, color: T.faint }}>No clients match "{clientSearch}"</div>
-                    ) : filteredClients.map(c => (
-                      <div key={c.id}
-                        onMouseDown={() => { setClientId(c.id); setClientListOpen(false); setClientSearch(""); }}
-                        style={{ padding: "8px 12px", fontSize: 13, color: c.id === clientId ? T.accent : T.text, cursor: "pointer", fontWeight: c.id === clientId ? 700 : 400 }}
+                  <div style={{ position: "absolute", top: "100%", left: 0, right: 0, marginTop: 4, background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, maxHeight: 300, overflowY: "auto", zIndex: 30, boxShadow: "0 8px 24px rgba(0,0,0,0.45)" }}>
+                    {pickerClients.length === 0 && (
+                      <div style={{ padding: "10px 12px", fontSize: 12, color: T.faint }}>
+                        {showAllClients ? `No clients match "${clientSearch}"` : clientSearch.trim() ? `No billed clients match "${clientSearch}" — show all below.` : "No fulfillment invoices yet — show all clients below."}
+                      </div>
+                    )}
+                    {pickerClients.map(c => {
+                      const last = priorByClient[c.id]?.[0];
+                      return (
+                        <div key={c.id}
+                          onMouseDown={() => { setClientId(c.id); setClientListOpen(false); setClientSearch(""); applyPeriodSuggestion(c.id); }}
+                          style={{ display: "flex", alignItems: "baseline", gap: 10, padding: "8px 12px", fontSize: 13, color: c.id === clientId ? T.accent : T.text, cursor: "pointer", fontWeight: c.id === clientId ? 700 : 400 }}
+                          onMouseEnter={e => (e.currentTarget.style.background = T.surface)}
+                          onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
+                          <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</span>
+                          {last && <span style={{ marginLeft: "auto", fontSize: 10.5, color: T.faint, fontFamily: mono, whiteSpace: "nowrap" }}>{last.period_label || "billed"}</span>}
+                        </div>
+                      );
+                    })}
+                    {!showAllClients && (
+                      <div
+                        onMouseDown={e => { e.preventDefault(); setShowAllClients(true); }}
+                        style={{ padding: "9px 12px", fontSize: 11.5, fontWeight: 700, color: T.muted, cursor: "pointer", borderTop: `1px solid ${T.border}` }}
                         onMouseEnter={e => (e.currentTarget.style.background = T.surface)}
                         onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
-                        {c.name}
+                        Show all clients → <span style={{ fontWeight: 400, color: T.faint }}>(first invoice for a new client)</span>
                       </div>
-                    ))}
+                    )}
                   </div>
                 )}
               </div>
@@ -1486,20 +1592,69 @@ export default function NewShipstationReportPage() {
               <>
                 <div>
                   <label style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, display: "block" }}>Sales period</label>
-                  <input value={salesPeriodLabel} onChange={e => { setSalesPeriodLabel(e.target.value); setPeriodLabel(derivePeriod(e.target.value, postagePeriodLabel)); }} placeholder="e.g. April 2026" style={input} />
+                  <input value={salesPeriodLabel} onChange={e => { setPeriodTouched(true); setSalesPeriodLabel(e.target.value); setPeriodLabel(derivePeriod(e.target.value, postagePeriodLabel)); }} placeholder="e.g. April 2026" style={input} />
                 </div>
                 <div>
                   <label style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, display: "block" }}>Postage period</label>
-                  <input value={postagePeriodLabel} onChange={e => { setPostagePeriodLabel(e.target.value); setPeriodLabel(derivePeriod(salesPeriodLabel, e.target.value)); }} placeholder="e.g. April 2026" style={input} />
+                  <input value={postagePeriodLabel} onChange={e => { setPeriodTouched(true); setPostagePeriodLabel(e.target.value); setPeriodLabel(derivePeriod(salesPeriodLabel, e.target.value)); }} placeholder="e.g. April 2026" style={input} />
                 </div>
               </>
             ) : (
               <div>
                 <label style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, display: "block" }}>Period</label>
-                <input value={periodLabel} onChange={e => setPeriodLabel(e.target.value)} placeholder="e.g. April 2026" style={input} />
+                <input value={periodLabel} onChange={e => { setPeriodTouched(true); setPeriodLabel(e.target.value); }} placeholder="e.g. April 2026" style={input} />
               </div>
             )}
           </div>
+
+          {/* Previously billed — the context that used to live in a second
+              /invoices tab: this client's last invoices, and the exact date
+              range to punch into ShipStation for the next one. */}
+          {selectedClient && (() => {
+            const prior = priorByClient[clientId] || [];
+            if (prior.length === 0) return (
+              <div style={{ fontSize: 11, color: T.faint }}>
+                First fulfillment invoice for {selectedClient.name} — no billing history.
+              </div>
+            );
+            const last = prior[0];
+            const sug = isCombined ? null : nextPeriodSuggestion(last.period_label);
+            const ss = isCombined ? nextPeriodSuggestion(last.sales_period_label || last.period_label) : null;
+            const ps = isCombined ? nextPeriodSuggestion(last.postage_period_label || last.period_label) : null;
+            return (
+              <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 14px" }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>
+                  Previously billed
+                </div>
+                {prior.slice(0, 3).map(r => {
+                  const state = r.paid_at ? { label: "Paid", color: T.green } : r.sent_at ? { label: "Sent", color: T.accent } : { label: "Draft", color: T.faint };
+                  const halvesDiffer = r.report_type === "combined" && !!(r.sales_period_label || r.postage_period_label) && r.sales_period_label !== r.postage_period_label;
+                  return (
+                    <div key={r.id} style={{ display: "flex", alignItems: "baseline", gap: 10, fontSize: 12, padding: "3px 0" }}>
+                      <span style={{ color: T.text, fontWeight: 600, whiteSpace: "nowrap" }}>{PRIOR_TYPE_LABEL[r.report_type]}</span>
+                      {halvesDiffer ? (
+                        <span style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>sales {r.sales_period_label || r.period_label} · postage {r.postage_period_label || r.period_label}</span>
+                      ) : (
+                        <span style={{ fontFamily: mono, color: T.muted, whiteSpace: "nowrap" }}>{r.period_label || "—"}</span>
+                      )}
+                      <span style={{ fontFamily: mono, color: r.qb_invoice_number ? T.text : T.faint, whiteSpace: "nowrap" }}>{r.qb_invoice_number ? `#${r.qb_invoice_number}` : "no QB #"}</span>
+                      <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: state.color }}>{state.label}</span>
+                      <a href={`/invoices/fulfillment/${r.id}`} target="_blank" rel="noreferrer" style={{ marginLeft: "auto", fontSize: 11, color: T.faint, textDecoration: "none", whiteSpace: "nowrap" }}>open ↗</a>
+                    </div>
+                  );
+                })}
+                {(sug || ss || ps) && (
+                  <div style={{ fontSize: 11, color: T.muted, marginTop: 8, paddingTop: 8, borderTop: `1px solid ${T.border}`, lineHeight: 1.6 }}>
+                    {isCombined ? (
+                      <>Next windows — {ss && <>sales <strong style={{ color: T.text, fontFamily: mono }}>{ss}</strong></>}{ss && ps ? " · " : null}{ps && <>postage <strong style={{ color: T.text, fontFamily: mono }}>{ps}</strong></>}. Use these date ranges for the ShipStation exports.</>
+                    ) : (
+                      <>Next window: <strong style={{ color: T.text, fontFamily: mono }}>{sug}</strong> — use this date range for the ShipStation export.</>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {/* ONE dropzone (Jon, Aug 25: "feels very government website") —
               drop every export at once; each file is classified by its
