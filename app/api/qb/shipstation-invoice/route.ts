@@ -246,7 +246,7 @@ export async function POST(req: NextRequest) {
     if (existingInvoiceId) {
       // Update path — same self-heal-payment-link behavior the jobs flow has.
       const updated = await updateInvoice(existingInvoiceId, lineItems, {
-        memo,
+        statementMemo: memo,
         shipAddress: shipAddr,
         allowCC,
         allowACH,
@@ -276,7 +276,7 @@ export async function POST(req: NextRequest) {
     // Create path
     const result = await createInvoice(customerId, lineItems, {
       terms: (client.default_terms as string) || undefined,
-      memo,
+      statementMemo: memo,
       shipAddress: shipAddr,
       allowCC,
       allowACH,

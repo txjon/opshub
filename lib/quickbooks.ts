@@ -377,7 +377,8 @@ export async function createInvoice(
   options: {
     terms?: string;
     shipAddress?: string;
-    memo?: string;
+    memo?: string;            // CustomerMemo — "Note to customer", shows ON the invoice
+    statementMemo?: string;   // PrivateNote — "Memo on statement", hidden from the invoice
     email?: string;
     allowCC?: boolean;       // defaults true
     allowACH?: boolean;      // defaults true
@@ -453,6 +454,9 @@ export async function createInvoice(
 
   if (options.memo) {
     body.CustomerMemo = { value: options.memo };
+  }
+  if (options.statementMemo) {
+    body.PrivateNote = options.statementMemo;
   }
 
   // Set BillEmail to internal hello@ — required for /send to mint the
@@ -590,7 +594,7 @@ export async function refreshPaymentLink(invoiceId: string, customerEmail?: stri
 export async function updateInvoice(
   invoiceId: string,
   lineItems: QBLineItem[],
-  options: { memo?: string; shipAddress?: string; email?: string; allowCC?: boolean; allowACH?: boolean } = {}
+  options: { memo?: string; statementMemo?: string; shipAddress?: string; email?: string; allowCC?: boolean; allowACH?: boolean } = {}
 ): Promise<{ taxAmount: number; totalWithTax: number; paymentLink: string }> {
   // Fetch existing invoice to get SyncToken (required for updates)
   const existing = await qbFetch(`/invoice/${invoiceId}`);
@@ -636,6 +640,13 @@ export async function updateInvoice(
   if (options.allowCC !== undefined) body.AllowOnlineCreditCardPayment = options.allowCC;
   if (options.allowACH !== undefined) body.AllowOnlineACHPayment = options.allowACH;
   if (options.memo) body.CustomerMemo = { value: options.memo };
+  if (options.statementMemo) {
+    body.PrivateNote = options.statementMemo;
+    // The period label used to go out as CustomerMemo; scrub it on update so
+    // older invoices migrate to statement-only when re-pushed. Only the
+    // shipstation route passes statementMemo, so job invoices are untouched.
+    if (!options.memo) body.CustomerMemo = { value: "" };
+  }
   if (options.shipAddress) {
     const parts = options.shipAddress.split(",").map(s => s.trim());
     body.ShipAddr = {
