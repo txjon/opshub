@@ -401,9 +401,10 @@ export default function BulkFulfillmentImportPage() {
                       <td style={{ ...tdStyle, textAlign: "right", fontWeight: 700 }}>{fmtD(g.inv.totals.invoice_total)}</td>
                       <td style={{ ...tdStyle, fontFamily: font }}>
                         {g.overlap ? (
-                          <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: T.amber }}>
-                            Already billed{g.overlap.qb_invoice_number ? ` · #${g.overlap.qb_invoice_number}` : " · draft exists"}
-                          </span>
+                          <a href={`/invoices/fulfillment/${g.overlap.id}`}
+                            style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: T.amber, textDecoration: "underline", textUnderlineOffset: 3 }}>
+                            {g.overlap.qb_invoice_number ? `Already billed · #${g.overlap.qb_invoice_number}` : "Draft exists — open it →"}
+                          </a>
                         ) : g.fullService ? (
                           <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: T.amber }}>
                             Full Service client — needs its sales report too. <a href="/invoices/fulfillment/new" style={{ color: T.amber, textDecoration: "underline", textUnderlineOffset: 3 }}>Bill from + Fulfillment invoice</a>
