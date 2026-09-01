@@ -20,7 +20,7 @@ const fmtN = (n: number) => Number(n || 0).toLocaleString("en-US");
 
 type Client = { id: string; name: string; hpd_fee_pct: number | null; hpd_per_package_fee: number | null };
 type MapRow = { store_name: string; client_id: string | null; skip: boolean };
-type PriorReport = { id: string; client_id: string; report_type: string; period_label: string | null; qb_invoice_number: string | null; totals: any };
+type PriorReport = { id: string; client_id: string; report_type: string; period_label: string | null; qb_invoice_number: string | null; totals: any; created_at: string };
 
 function shipDateAsDate(raw: string): Date | null {
   const t = dateOnly(raw);
@@ -58,7 +58,7 @@ export default function BulkFulfillmentImportPage() {
       const [c, m, r] = await Promise.all([
         supabase.from("clients").select("id, name, hpd_fee_pct, hpd_per_package_fee").order("name"),
         supabase.from("shipstation_store_map").select("store_name, client_id, skip"),
-        supabase.from("shipstation_reports").select("id, client_id, report_type, period_label, qb_invoice_number, totals"),
+        supabase.from("shipstation_reports").select("id, client_id, report_type, period_label, qb_invoice_number, totals, created_at").order("created_at", { ascending: false }),
       ]);
       setClients((c.data || []) as Client[]);
       const byStore: Record<string, MapRow> = {};
@@ -165,8 +165,17 @@ export default function BulkFulfillmentImportPage() {
     const perPkg = Number(g.client.hpd_per_package_fee) || 0;
     const noRates = g.client.hpd_fee_pct == null && g.client.hpd_per_package_fee == null;
     const overlap = overlapFor(g.client.id);
+    // What KIND of client is this? A Full Service client's real invoice is
+    // sales fee + postage TOGETHER — a postage-only draft from here would be
+    // a wrong invoice (Jon, Sep 1: Superior Defense). Judge by their last
+    // REAL invoice (pushed to QB or sent) so a stray unsent draft can't
+    // disguise the client's type; fall back to newest anything.
+    const priors = reports.filter(r => r.client_id === g.client.id && !r.totals?.no_billables);
+    const lastType = (priors.find(r => r.qb_invoice_number || (r as any).sent_at) || priors[0])?.report_type || null;
+    const fullService = lastType === "combined";
+    const fulfillmentOnly = lastType === "fulfillment";
     const inv = buildPostageInvoice(g.rows, markup, perPkg);
-    return { ...g, markup, perPkg, noRates, overlap, inv };
+    return { ...g, markup, perPkg, noRates, overlap, fullService, fulfillmentOnly, inv };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [clientGroups, reports, window_]);
 
@@ -180,7 +189,7 @@ export default function BulkFulfillmentImportPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clients, reports, clientGroups, window_, rows.length]);
 
-  const included = groupCalcs.filter(g => !g.overlap && (checks[g.client.id] ?? true));
+  const included = groupCalcs.filter(g => !g.overlap && !g.fullService && !g.fulfillmentOnly && (checks[g.client.id] ?? true));
   const markers = noBillableClients.filter(c => markerChecks[c.id] ?? true);
 
   async function createDrafts() {
@@ -377,7 +386,7 @@ export default function BulkFulfillmentImportPage() {
               </thead>
               <tbody>
                 {groupCalcs.map(g => {
-                  const locked = !!g.overlap;
+                  const locked = !!g.overlap || g.fullService || g.fulfillmentOnly;
                   const on = !locked && (checks[g.client.id] ?? true);
                   return (
                     <tr key={g.client.id} style={{ opacity: locked ? 0.55 : 1 }}>
@@ -391,9 +400,17 @@ export default function BulkFulfillmentImportPage() {
                       <td style={{ ...tdStyle, textAlign: "right", color: T.muted }}>{fmtD(g.inv.totals.cost_raw)}</td>
                       <td style={{ ...tdStyle, textAlign: "right", fontWeight: 700 }}>{fmtD(g.inv.totals.invoice_total)}</td>
                       <td style={{ ...tdStyle, fontFamily: font }}>
-                        {locked ? (
+                        {g.overlap ? (
                           <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: T.amber }}>
-                            Already billed{g.overlap!.qb_invoice_number ? ` · #${g.overlap!.qb_invoice_number}` : " · draft exists"}
+                            Already billed{g.overlap.qb_invoice_number ? ` · #${g.overlap.qb_invoice_number}` : " · draft exists"}
+                          </span>
+                        ) : g.fullService ? (
+                          <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: T.amber }}>
+                            Full Service client — needs its sales report too. <a href="/invoices/fulfillment/new" style={{ color: T.amber, textDecoration: "underline", textUnderlineOffset: 3 }}>Bill from + Fulfillment invoice</a>
+                          </span>
+                        ) : g.fulfillmentOnly ? (
+                          <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: T.amber }}>
+                            Fulfillment-only client — billed from their own ShipStation export
                           </span>
                         ) : g.noRates ? (
                           <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: T.amber }}>No saved rates · drafts at $0</span>
