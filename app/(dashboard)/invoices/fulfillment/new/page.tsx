@@ -80,6 +80,13 @@ function parseMoney(raw: unknown): number {
   return isFinite(n) ? n : 0;
 }
 
+// The percent inputs hold WHOLE percentages ("10" = 10%) — humans don't
+// type 0.1 (Jon, Aug 31). The DB keeps storing decimal rates (0.1), so
+// every downstream reader (QB push, PDFs, edit hydration) is unchanged;
+// these two convert at the boundary only.
+const pctToRate = (s: string) => parseMoney(s) / 100;
+const rateToPctStr = (r: unknown) => String(Math.round((Number(r) || 0) * 10000) / 100);
+
 // Tiny CSV parser. Handles quoted fields w/ embedded commas + the BOM
 // prefix ShipStation adds. Not RFC 4180-strict but covers these exports.
 function parseCsv(text: string): string[][] {
@@ -283,11 +290,11 @@ export default function NewShipstationReportPage() {
   const [mergedCount, setMergedCount] = useState(0);
   const [groupCosts, setGroupCosts] = useState<Record<string, string>>({});
   const [savedCosts, setSavedCosts] = useState<Record<string, number>>({});
-  const [feePct, setFeePct] = useState<string>("0.20");
+  const [feePct, setFeePct] = useState<string>("20");
 
   // Postage-specific
   const [rawPostageRows, setRawPostageRows] = useState<ParsedPostageRow[]>([]);
-  const [markupPct, setMarkupPct] = useState<string>("0.10");
+  const [markupPct, setMarkupPct] = useState<string>("10");
   // Flat per-package fulfillment fee — separate from the markup. Billed
   // additively as (rate × shipments) and reported on its own KPI tile so
   // it doesn't muddy the client's postage performance numbers.
@@ -501,12 +508,12 @@ export default function NewShipstationReportPage() {
         // and as the markup for postage-only. postage_markup_pct only
         // exists on combined rows.
         if (isPostageOnly) {
-          setMarkupPct(String(Number(r.hpd_fee_pct) || 0));
+          setMarkupPct(rateToPctStr(r.hpd_fee_pct));
         } else if (isCombinedSaved) {
-          setFeePct(String(Number(r.hpd_fee_pct) || 0));
-          setMarkupPct(String(Number(r.postage_markup_pct) || 0));
+          setFeePct(rateToPctStr(r.hpd_fee_pct));
+          setMarkupPct(rateToPctStr(r.postage_markup_pct));
         } else {
-          setFeePct(String(Number(r.hpd_fee_pct) || 0));
+          setFeePct(rateToPctStr(r.hpd_fee_pct));
         }
         setPerPackageFee(String(Number(r.per_package_fee) || 0));
 
@@ -545,7 +552,7 @@ export default function NewShipstationReportPage() {
       // markup column on clients yet, so combined reports inherit the
       // last sales fee + last postage markup independently and the user
       // confirms both at stage 3.
-      if (c?.hpd_fee_pct != null) setFeePct(String(c.hpd_fee_pct));
+      if (c?.hpd_fee_pct != null) setFeePct(rateToPctStr(c.hpd_fee_pct));
     })();
   }, [clientId, clients, showSales]);
 
@@ -561,7 +568,7 @@ export default function NewShipstationReportPage() {
     // still seed markup from hpd_fee_pct but the user will set both
     // rates explicitly at stage 3. (The sales effect above already
     // handled the fee rate for combined.)
-    if (reportType === "postage" && c.hpd_fee_pct != null) setMarkupPct(String(c.hpd_fee_pct));
+    if (reportType === "postage" && c.hpd_fee_pct != null) setMarkupPct(rateToPctStr(c.hpd_fee_pct));
     if (c.hpd_per_package_fee != null) setPerPackageFee(String(c.hpd_per_package_fee));
   }, [clientId, clients, showPostage, reportType]);
 
@@ -783,7 +790,7 @@ export default function NewShipstationReportPage() {
     return m;
   }, [groups, groupCosts]);
   const salesTotals = useMemo(() => {
-    const feeRate = parseMoney(feePct);
+    const feeRate = pctToRate(feePct);
     let qty = 0, sales = 0, cost = 0;
     for (const r of selectedRows) {
       const uc = costByRowIdx[r.idx] || 0;
@@ -812,7 +819,7 @@ export default function NewShipstationReportPage() {
   const selectedPostageRows = useMemo(() => rawPostageRows.filter(r => r.included), [rawPostageRows]);
   const round2 = (n: number) => Math.round(n * 100) / 100;
   const postageTotals = useMemo(() => {
-    const mk = parseMoney(markupPct);
+    const mk = pctToRate(markupPct);
     const perPkg = parseMoney(perPackageFee);
     let shipments = 0, items = 0, paid = 0, cost_raw = 0, cost = 0, insurance = 0, billed = 0;
     for (const r of selectedPostageRows) {
@@ -1040,7 +1047,7 @@ export default function NewShipstationReportPage() {
       const { data: user } = await supabase.auth.getUser();
 
       if (reportType === "sales") {
-        const feeRate = parseMoney(feePct);
+        const feeRate = pctToRate(feePct);
         // 1. Upsert per-SKU unit costs so next month pre-fills.
         const upsertsMap = new Map<string, any>();
         for (const r of selectedRows) {
@@ -1157,7 +1164,7 @@ export default function NewShipstationReportPage() {
         // Postage insert — reuses hpd_fee_pct column to store markup %.
         // per_package_fee is its own column so it can be queried/edited
         // independently from totals JSONB.
-        const markup = parseMoney(markupPct);
+        const markup = pctToRate(markupPct);
         const perPkg = parseMoney(perPackageFee);
         // Round each line value to 2 decimals so the saved JSON matches
         // what the totals strip / Excel SUM / QB invoice all roll up to.
@@ -1322,10 +1329,10 @@ export default function NewShipstationReportPage() {
         // Mirrors single-type generators line-for-line so combined
         // inherits every fix (rounding, dedupe, sku-cost persistence,
         // client-rate save-back).
-        const feeRate = parseMoney(feePct);
+        const feeRate = pctToRate(feePct);
         // Bulk postage is pure pass-through — markup + per-package don't
         // apply, so both persist as 0 on a bulk combined report.
-        const markup = isBulkPostage ? 0 : parseMoney(markupPct);
+        const markup = isBulkPostage ? 0 : pctToRate(markupPct);
         const perPkg = isBulkPostage ? 0 : parseMoney(perPackageFee);
         const postageModeToSave = isBulkPostage ? "bulk" : "per_shipment";
 
@@ -2095,7 +2102,7 @@ export default function NewShipstationReportPage() {
                   style={{ ...input, fontSize: 16, fontWeight: 700, width: 140, fontFamily: mono, textAlign: "right" }}
                 />
                 <span style={{ fontSize: 13, color: T.muted, fontFamily: mono }}>
-                  = {(parseMoney(markupPct) * 100).toFixed(1)}% markup on raw ShipStation cost
+                  = {parseMoney(markupPct).toFixed(1)}% markup on raw ShipStation cost
                 </span>
               </div>
               <div style={{ fontSize: 11, color: T.faint, marginTop: 8, lineHeight: 1.5 }}>
@@ -2188,7 +2195,7 @@ export default function NewShipstationReportPage() {
                     onFocus={e => e.target.select()}
                     style={{ ...input, fontSize: 13, fontWeight: 700, width: 90, fontFamily: mono, textAlign: "right" }}
                   />
-                  <span style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>({(parseMoney(feePct) * 100).toFixed(1)}%)</span>
+                  <span style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>({parseMoney(feePct).toFixed(1)}%)</span>
                 </div>
               </div>
             </div>
@@ -2234,7 +2241,7 @@ export default function NewShipstationReportPage() {
                     onFocus={e => e.target.select()}
                     style={{ ...input, fontSize: 13, fontWeight: 700, width: 80, fontFamily: mono, textAlign: "right" }}
                   />
-                  <span style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>({(parseMoney(markupPct) * 100).toFixed(1)}%)</span>
+                  <span style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>({parseMoney(markupPct).toFixed(1)}%)</span>
                 </div>
               </div>
               )}
@@ -2527,7 +2534,7 @@ export default function NewShipstationReportPage() {
                   }}
                   style={{ ...input, fontSize: 14, fontWeight: 700, width: 100, fontFamily: mono, textAlign: "right" }}
                 />
-                <span style={{ fontSize: 12, color: T.muted, fontFamily: mono }}>= {(parseMoney(feePct) * 100).toFixed(1)}% of Product Net</span>
+                <span style={{ fontSize: 12, color: T.muted, fontFamily: mono }}>= {parseMoney(feePct).toFixed(1)}% of Product Net</span>
               </div>
               <div style={{ fontSize: 10, color: T.faint, marginBottom: 10 }}>
                 One unit cost per product. Variants with different sizes share the same cost. Costs save per client so next month pre-fills.
@@ -2624,7 +2631,7 @@ export default function NewShipstationReportPage() {
                     style={{ ...input, fontSize: 14, fontWeight: 700, width: 120, fontFamily: mono, textAlign: "right" }}
                   />
                   <span style={{ fontSize: 12, color: T.muted, fontFamily: mono }}>
-                    = {(parseMoney(markupPct) * 100).toFixed(1)}% markup on raw ShipStation cost
+                    = {parseMoney(markupPct).toFixed(1)}% markup on raw ShipStation cost
                   </span>
                 </div>
                 <div style={{ fontSize: 10, color: T.faint, marginTop: 6, lineHeight: 1.5 }}>
@@ -2706,7 +2713,7 @@ export default function NewShipstationReportPage() {
                     onFocus={e => e.target.select()}
                     style={{ ...input, fontSize: 13, fontWeight: 700, width: 80, fontFamily: mono, textAlign: "right" }}
                   />
-                  <span style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>({(parseMoney(feePct) * 100).toFixed(1)}%)</span>
+                  <span style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>({parseMoney(feePct).toFixed(1)}%)</span>
                 </div>
               </div>
               {!isBulkPostage && (<>
@@ -2720,7 +2727,7 @@ export default function NewShipstationReportPage() {
                     onFocus={e => e.target.select()}
                     style={{ ...input, fontSize: 13, fontWeight: 700, width: 80, fontFamily: mono, textAlign: "right" }}
                   />
-                  <span style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>({(parseMoney(markupPct) * 100).toFixed(1)}%)</span>
+                  <span style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>({parseMoney(markupPct).toFixed(1)}%)</span>
                 </div>
               </div>
               <div>
@@ -2758,7 +2765,7 @@ export default function NewShipstationReportPage() {
               <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>Invoice Breakdown</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 4, fontFamily: mono }}>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-                  <span style={{ color: T.muted }}>Service Fee ({(parseMoney(feePct) * 100).toFixed(1)}% of {fmtD(salesTotals.net)} net sales)</span>
+                  <span style={{ color: T.muted }}>Service Fee ({parseMoney(feePct).toFixed(1)}% of {fmtD(salesTotals.net)} net sales)</span>
                   <span style={{ color: T.text, fontWeight: 600 }}>{fmtD(salesTotals.fee)}</span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
