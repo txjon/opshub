@@ -13,6 +13,7 @@ import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
 import { parseShipmentsCsv, buildPostageInvoice, dateOnly, type ShipmentRow } from "@/lib/shipstation-csv";
 import { parsePeriodRange, monthAlignedLabel, rangesOverlap } from "@/lib/billing-period";
+import { similarClients } from "@/lib/client-match";
 
 const fmtD = (n: number) => "$" + Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtN = (n: number) => Number(n || 0).toLocaleString("en-US");
@@ -42,6 +43,12 @@ export default function BulkFulfillmentImportPage() {
   const [checks, setChecks] = useState<Record<string, boolean>>({});          // clientId → include
   const [markerChecks, setMarkerChecks] = useState<Record<string, boolean>>({}); // clientId → create $0 marker
   const [expandedStore, setExpandedStore] = useState<string | null>(null);
+  // Inline new-client creation — a store for a client that doesn't exist in
+  // OpsHub yet (onboarding). Name prefills from the store name.
+  const [newClientFor, setNewClientFor] = useState<string | null>(null);
+  const [newClientName, setNewClientName] = useState("");
+  const [newClientBusy, setNewClientBusy] = useState(false);
+  const [newClientErr, setNewClientErr] = useState("");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState("");
   const [created, setCreated] = useState<{ clientName: string; id: string | null; noBillables: boolean; total: number }[] | null>(null);
@@ -80,6 +87,28 @@ export default function BulkFulfillmentImportPage() {
     setStoreMap(m => ({ ...m, [storeName]: row }));
     await (supabase.from("shipstation_store_map") as any)
       .upsert({ ...row, updated_at: new Date().toISOString() }, { onConflict: "store_name" });
+  }
+
+  // Create a brand-new client from a store (onboarding) and map it in one
+  // motion. Rates stay unset — the first invoice review sets and saves them.
+  async function createClientForStore(storeName: string) {
+    const name = newClientName.trim();
+    if (!name) return;
+    setNewClientBusy(true); setNewClientErr("");
+    try {
+      const { data, error } = await (supabase.from("clients") as any)
+        .insert({ name })
+        .select("id, name, hpd_fee_pct, hpd_per_package_fee")
+        .single();
+      if (error) throw new Error(error.message);
+      setClients(cs => [...cs, data as Client].sort((a, b) => a.name.localeCompare(b.name)));
+      await assignStore(storeName, data.id, false);
+      setNewClientFor(null); setNewClientName("");
+    } catch (e: any) {
+      setNewClientErr(e.message || "Failed to create client");
+    } finally {
+      setNewClientBusy(false);
+    }
   }
 
   // ── Derivations ─────────────────────────────────────────────────────────
@@ -287,17 +316,46 @@ export default function BulkFulfillmentImportPage() {
             <div style={{ ...card, borderColor: T.amber + "66" }}>
               {label("New stores — tell me who these are (remembered for every future run)")}
               {unmappedStores.map(u => (
-                <div key={u.store} style={{ display: "flex", alignItems: "center", gap: 12, padding: "7px 0", fontSize: 13, flexWrap: "wrap" }}>
-                  <span style={{ fontWeight: 700, minWidth: 180 }}>{u.store}</span>
-                  <span style={{ fontFamily: mono, fontSize: 11.5, color: T.muted }}>{fmtN(u.rows.length)} shipments</span>
-                  <select defaultValue="" style={select} onChange={e => { if (e.target.value) assignStore(u.store, e.target.value, false); }}>
-                    <option value="" disabled>Assign to client…</option>
-                    {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
-                  <button onClick={() => assignStore(u.store, null, true)}
-                    style={{ background: "none", border: `1px solid ${T.border}`, color: T.muted, fontSize: 11.5, fontWeight: 700, padding: "5px 12px", borderRadius: 5, cursor: "pointer", fontFamily: font }}>
-                    Skip — internal / not billable
-                  </button>
+                <div key={u.store}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "7px 0", fontSize: 13, flexWrap: "wrap" }}>
+                    <span style={{ fontWeight: 700, minWidth: 180 }}>{u.store}</span>
+                    <span style={{ fontFamily: mono, fontSize: 11.5, color: T.muted }}>{fmtN(u.rows.length)} shipments</span>
+                    <select defaultValue="" style={select} onChange={e => { if (e.target.value) assignStore(u.store, e.target.value, false); }}>
+                      <option value="" disabled>Assign to client…</option>
+                      {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                    <button onClick={() => { setNewClientFor(newClientFor === u.store ? null : u.store); setNewClientName(u.store); setNewClientErr(""); }}
+                      style={{ background: "none", border: `1px solid ${T.border}`, color: T.text, fontSize: 11.5, fontWeight: 700, padding: "5px 12px", borderRadius: 5, cursor: "pointer", fontFamily: font }}>
+                      + New client
+                    </button>
+                    <button onClick={() => assignStore(u.store, null, true)}
+                      style={{ background: "none", border: `1px solid ${T.border}`, color: T.muted, fontSize: 11.5, fontWeight: 700, padding: "5px 12px", borderRadius: 5, cursor: "pointer", fontFamily: font }}>
+                      Skip — internal / not billable
+                    </button>
+                  </div>
+                  {newClientFor === u.store && (
+                    <div style={{ margin: "4px 0 10px 180px", display: "flex", flexDirection: "column", gap: 8, maxWidth: 460 }}>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <input value={newClientName} onChange={e => setNewClientName(e.target.value)} autoFocus
+                          onKeyDown={e => { if (e.key === "Enter") createClientForStore(u.store); }}
+                          placeholder="Client name"
+                          style={{ ...select, flex: 1, padding: "7px 10px", fontSize: 12.5 }} />
+                        <button disabled={newClientBusy || !newClientName.trim()} onClick={() => createClientForStore(u.store)}
+                          style={{ background: T.accent, color: "#0a0a0a", border: "none", borderRadius: 5, padding: "6px 16px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font, opacity: newClientBusy || !newClientName.trim() ? 0.5 : 1 }}>
+                          {newClientBusy ? "Creating…" : "Create + assign"}
+                        </button>
+                      </div>
+                      {similarClients(newClientName, clients).length > 0 && (
+                        <div style={{ fontSize: 11, color: T.amber, fontWeight: 600 }}>
+                          Looks like a client you already have: {similarClients(newClientName, clients).map(c => c.name).join(", ")} — assign from the dropdown instead if it's them.
+                        </div>
+                      )}
+                      <div style={{ fontSize: 10.5, color: T.faint }}>
+                        Creates the client record with just a name — contacts, terms, and rates get set as you work their first invoice. Full profile on the client page.
+                      </div>
+                      {newClientErr && <div style={{ fontSize: 11.5, color: T.red, fontWeight: 700 }}>{newClientErr}</div>}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
