@@ -152,6 +152,14 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
   }, [report, isPostage, isCombined, isFulfillment]);
   const reportKindLabel = isCombined ? "Full Service Invoice" : isPostage ? "Postage Invoice" : isFulfillment ? "Fulfillment Invoice" : "Services Invoice";
 
+  // Out-of-sync detection (Sep 1: Jon edited the fee and nothing warned).
+  // Compare this page's computed total against QB's PRE-TAX subtotal
+  // (total_with_tax − tax_amount) so a taxed invoice never false-alarms.
+  const qbSubtotal = report?.qb_total_with_tax != null
+    ? Number(report.qb_total_with_tax) - (Number(report.qb_tax_amount) || 0)
+    : null;
+  const qbStale = !!report?.qb_invoice_id && qbSubtotal != null && Math.abs(billedAmount - qbSubtotal) > 0.01;
+
   useEffect(() => {
     if (!sendOpen || !report) return;
     (async () => {
@@ -422,6 +430,18 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
               <span style={{ color: T.green, fontWeight: 700 }}>✓ sent</span> {sentDate}{report.sent_to && report.sent_to.length > 0 ? ` · ${report.sent_to.join(", ")}` : ""}
             </span>
           )}
+        </div>
+      )}
+
+      {/* QB drift — this page's total no longer matches what's in QB. */}
+      {qbStale && (
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", fontSize: 12, color: T.amber, fontWeight: 600 }}>
+          <span>Out of sync with QuickBooks — this invoice now totals {fmtD(billedAmount)}, but QB #{report.qb_invoice_number} still has {fmtD(qbSubtotal!)}.</span>
+          <button onClick={() => pushToQB()} disabled={qbBusy}
+            style={{ background: "none", border: `1px solid ${T.amber}66`, color: T.amber, fontSize: 11.5, fontWeight: 700, padding: "5px 12px", borderRadius: 5, cursor: "pointer", fontFamily: font, opacity: qbBusy ? 0.6 : 1 }}>
+            {qbBusy ? "Updating…" : "Update QB invoice"}
+          </button>
+          {report.sent_at && <span style={{ color: T.muted, fontWeight: 400 }}>The client already got the old total — re-send after updating.</span>}
         </div>
       )}
 
