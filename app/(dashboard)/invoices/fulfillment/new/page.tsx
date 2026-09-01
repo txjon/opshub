@@ -1333,18 +1333,20 @@ export default function NewShipstationReportPage() {
   const isEditing = !!editId;
   const generateBtnLabel = saving
     ? (isEditing ? "Saving..." : "Generating...")
-    : (isEditing ? "Save Changes" : "Generate Report");
+    : (isEditing ? "Save Changes" : "Generate Invoice");
 
   return (
     <div style={{ fontFamily: font, color: T.text, display: "flex", flexDirection: "column", gap: 14 }}>
       <div>
-        <div style={{ fontSize: 11, color: T.muted, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>Reports · ShipStation</div>
+        <div style={{ fontSize: 11, color: T.muted, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>
+          <a href="/invoices?stream=fulfillment" style={{ color: T.muted, textDecoration: "none" }}>← Invoices</a> · Fulfillment
+        </div>
         <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, letterSpacing: "-0.02em" }}>
-          {isEditing ? `Edit ${typeLabel} Report` : `Create ${typeLabel} Report`}
+          {isEditing ? `Edit ${typeLabel} Invoice` : `New ${typeLabel} Invoice`}
         </h1>
         {isEditing && (
           <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>
-            Adjust pricing, drop rows, or update the period. Changes save back to this report — push to QuickBooks afterwards from the report page to update the invoice.
+            Adjust pricing, drop rows, or update the period. Changes save back to this invoice — then use Update QB Invoice on the invoice page to push them to QuickBooks.
           </div>
         )}
       </div>
@@ -1365,12 +1367,12 @@ export default function NewShipstationReportPage() {
         // Aug 25); Sales-only and Postage-only live behind ⋯ — good to
         // have, rarely needed. A rare type stays visible while selected.
         const primary = [
-          { value: "fulfillment", label: "Fulfillment Report" },
+          { value: "fulfillment", label: "Fulfillment" },
           { value: "combined", label: "Full Service" },
         ] as const;
         const rare = [
-          { value: "sales", label: "Sales Report" },
-          { value: "postage", label: "Postage Report" },
+          { value: "sales", label: "Sales only" },
+          { value: "postage", label: "Postage only" },
         ] as const;
         const btn = (t: { value: ReportType; label: string }) => (
           <button key={t.value} onClick={() => { onChangeType(t.value); setTypeMenu(false); }}
@@ -1865,6 +1867,12 @@ export default function NewShipstationReportPage() {
               </div>
             </div>
 
+            {isFulfillment && parseMoney(perPackageFee) === 0 && (
+              <div style={{ fontSize: 12, color: T.amber, fontWeight: 600 }}>
+                The per-package fee is $0 — this would generate a $0.00 invoice. This client has no saved rate yet; check their agreement before continuing.
+              </div>
+            )}
+
             <div style={{ display: "flex", justifyContent: "space-between" }}>
               <button onClick={() => setStage(2)} style={btnGhost}>← Back</button>
               <button disabled={!canNextFrom3} onClick={() => setStage(4)} style={{ ...btnPrimary, opacity: canNextFrom3 ? 1 : 0.4, cursor: canNextFrom3 ? "pointer" : "not-allowed" }}>Next →</button>
@@ -1994,6 +2002,12 @@ export default function NewShipstationReportPage() {
                 </>
               )}
             </div>
+
+            {isFulfillment && parseMoney(perPackageFee) === 0 && (
+              <div style={{ fontSize: 12, color: T.amber, fontWeight: 600 }}>
+                Per-package fee is $0 — this generates a $0.00 invoice. Set the client's rate before generating.
+              </div>
+            )}
 
             {saveError && <div style={{ fontSize: 12, color: T.red, background: T.red + "11", padding: "8px 12px", borderRadius: 6 }}>{saveError}</div>}
 

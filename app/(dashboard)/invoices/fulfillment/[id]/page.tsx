@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
 import { groupLineItems } from "@/lib/shipstation-group";
 import { QBCustomerChooser, type QBCandidate, type QBCurrent } from "@/components/QBCustomerChooser";
+import { useConfirm } from "@/components/useConfirm";
 
 const fmtD = (n: number) =>
   "$" + Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -83,6 +84,7 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
   const [report, setReport] = useState<Report | null>(null);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
+  const [confirm, confirmEl] = useConfirm();
 
   const [qbBusy, setQbBusy] = useState(false);
   const [qbMsg, setQbMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -146,7 +148,7 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
     }
     return Number(report.totals?.fee) || 0;
   }, [report, isPostage, isCombined, isFulfillment]);
-  const reportKindLabel = isCombined ? "Full Service Report" : isPostage ? "Postage Report" : isFulfillment ? "Fulfillment Report" : "Services Invoice";
+  const reportKindLabel = isCombined ? "Full Service Invoice" : isPostage ? "Postage Invoice" : isFulfillment ? "Fulfillment Invoice" : "Services Invoice";
 
   useEffect(() => {
     if (!sendOpen || !report) return;
@@ -164,7 +166,7 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
       }
       if (!subject) {
         const n = report.qb_invoice_number;
-        const kind = isCombined ? "Full Service Invoice" : isPostage ? "Postage Report" : isFulfillment ? "Fulfillment Invoice" : "Services Invoice";
+        const kind = isCombined ? "Full Service Invoice" : isPostage ? "Postage Invoice" : isFulfillment ? "Fulfillment Invoice" : "Services Invoice";
         setSubject(`${kind} — ${report.clients?.name || ""} · ${report.period_label}${n ? ` · Invoice ${n}` : ""}`);
       }
     })();
@@ -181,10 +183,18 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
   }
 
   async function onDelete() {
-    if (!window.confirm("Delete this report? This can't be undone.")) return;
+    const pushed = !!report?.qb_invoice_id;
+    const ok = await confirm({
+      title: "Delete this invoice?",
+      message: pushed
+        ? "Removes it from OpsHub permanently. The invoice already created in QuickBooks stays there — void it in QB separately if it shouldn't be billed."
+        : "Removes it from OpsHub permanently. This can't be undone.",
+      confirmLabel: "Delete invoice",
+    });
+    if (!ok) return;
     setDeleting(true);
     await supabase.from("shipstation_reports").delete().eq("id", params.id);
-    router.push("/reports");
+    router.push("/invoices?stream=fulfillment");
   }
 
   async function pushToQB(opts: { qbCustomerId?: string; forceCreate?: boolean } = {}) {
@@ -310,7 +320,7 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
         <div>
           <div style={{ fontSize: 11, color: T.muted, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>
-            <a href="/reports" style={{ color: T.muted, textDecoration: "none" }}>Reports</a> · ShipStation
+            <a href="/invoices?stream=fulfillment" style={{ color: T.muted, textDecoration: "none" }}>← Invoices</a> · Fulfillment
           </div>
           <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, letterSpacing: "-0.02em" }}>
             {reportKindLabel} — {report.clients?.name || "—"}
@@ -356,6 +366,14 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
           <button onClick={onDelete} disabled={deleting} style={{ ...btnGhost, color: T.red, borderColor: T.red + "44" }}>Delete</button>
         </div>
       </div>
+
+      {/* State rail — same pattern as the job Invoice surface. Teaches the
+          sequence: generate → get it into QB → send → collect. */}
+      <StateRail
+        inQB={hasQB || isManualInvoice}
+        sent={!!report.sent_at}
+        paid={!!report.paid_at}
+      />
 
       {!hasQB && (
         <ManualInvoiceInput
@@ -510,6 +528,7 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
         <LineItemsTable report={report} />
       )}
 
+      {confirmEl}
       <QBCustomerChooser
         open={chooserOpen}
         mode="push"
@@ -521,6 +540,45 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
         onAction={handleChooserAction}
         onClose={() => setChooserOpen(false)}
       />
+    </div>
+  );
+}
+
+// The invoice's life in four steps, current step lit, with a plain-language
+// "what happens next" line — so the page itself teaches the workflow.
+function StateRail({ inQB, sent, paid }: { inQB: boolean; sent: boolean; paid: boolean }) {
+  const steps = [
+    { label: "Generated", done: true },
+    { label: "In QuickBooks", done: inQB },
+    { label: "Sent to client", done: sent },
+    { label: "Paid", done: paid },
+  ];
+  const curIdx = steps.findIndex(s => !s.done); // -1 → all done
+  const hint = !inQB
+    ? "Next: Push to QuickBooks — creates the invoice in QB and brings back the invoice # and Pay Online link. (Already invoiced by hand in QB? Enter its # below instead.)"
+    : !sent
+    ? "Next: Send to client — emails the invoice with the Pay Online link."
+    : !paid
+    ? "Waiting on payment. Marks itself paid when the client pays through QuickBooks — use Mark paid only for a check or wire."
+    : "Settled — nothing left to do here.";
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 4 }}>
+        {steps.map((s, i) => {
+          const active = i === curIdx;
+          const bg = active ? T.accent : s.done ? T.greenDim : T.surface;
+          const fg = active ? "#0a0a0a" : s.done ? T.green : T.faint;
+          return (
+            <span key={s.label} style={{ display: "flex", alignItems: "center" }}>
+              <span style={{ fontSize: 10, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.04em", padding: "6px 12px", borderRadius: 8, background: bg, color: fg }}>
+                {s.done && !active ? "✓ " : ""}{s.label}
+              </span>
+              {i < steps.length - 1 && <span style={{ color: T.faint, padding: "0 6px" }}>→</span>}
+            </span>
+          );
+        })}
+      </div>
+      <div style={{ fontSize: 11.5, color: T.muted, marginTop: 8 }}>{hint}</div>
     </div>
   );
 }
