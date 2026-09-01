@@ -389,59 +389,39 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
         />
       )}
 
+      {/* Push/QB feedback — a quiet text line, never a full-width wash; the
+          rail + fact row changing state is the real confirmation. */}
       {qbMsg && (
-        <div style={{ padding: "10px 14px", borderRadius: 8, background: qbMsg.ok ? T.green + "11" : T.red + "11", border: `1px solid ${qbMsg.ok ? T.green + "55" : T.red + "55"}`, color: qbMsg.ok ? T.green : T.red, fontSize: 12 }}>
-          {qbMsg.text}
-        </div>
+        <div style={{ fontSize: 12, fontWeight: 700, color: qbMsg.ok ? T.green : T.red }}>{qbMsg.text}</div>
       )}
 
+      {/* The QB fact row — one slim line: identity, amount, payment state,
+          links. (Was a sparse 5-column card that repeated the rail.) */}
       {(hasQB || isManualInvoice) && (
-        <div style={{ ...card, display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12 }}>
-          <div>
-            <div style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, marginBottom: 2 }}>QB Invoice</div>
-            <div style={{ fontSize: 15, fontWeight: 700, fontFamily: mono, color: T.accent }}>#{report.qb_invoice_number}</div>
-            {isManualInvoice && <div style={{ fontSize: 9, color: T.muted, marginTop: 2 }}>manual</div>}
-          </div>
-          <div>
-            <div style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, marginBottom: 2 }}>Billed</div>
-            <div style={{ fontSize: 15, fontWeight: 700, fontFamily: mono }}>{fmtD(Number(report.qb_total_with_tax ?? billedAmount))}</div>
-          </div>
-          <div>
-            <div style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, marginBottom: 2 }}>Status</div>
-            {report.paid_at ? (
-              <>
-                <div style={{ fontSize: 13, fontWeight: 700, color: T.green }}>✓ Paid</div>
-                <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>{new Date(report.paid_at).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric" })} · {fmtD(Number(report.paid_amount) || 0)}</div>
-                <button onClick={togglePaid} style={{ background: "none", border: "none", color: T.muted, fontSize: 10, cursor: "pointer", padding: 0, marginTop: 4, textDecoration: "underline", fontFamily: font }}>
-                  Mark unpaid
-                </button>
-              </>
-            ) : (
-              <>
-                <div style={{ fontSize: 13, fontWeight: 700, color: T.amber }}>Unpaid</div>
-                <button onClick={togglePaid} style={{ background: "none", border: `1px solid ${T.green}55`, color: T.green, fontSize: 10, cursor: "pointer", padding: "3px 8px", marginTop: 6, borderRadius: 4, fontFamily: font, fontWeight: 600 }}>
-                  Mark paid
-                </button>
-              </>
-            )}
-          </div>
-          <div>
-            <div style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, marginBottom: 2 }}>Pay Link</div>
-            {report.qb_payment_link ? (
-              <a href={report.qb_payment_link} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: T.green, wordBreak: "break-all" }}>Open payment page →</a>
-            ) : (
-              <span style={{ fontSize: 12, color: T.faint }}>—</span>
-            )}
-          </div>
-          <div>
-            <div style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, marginBottom: 2 }}>Email sent</div>
-            <div style={{ fontSize: 12, fontWeight: 600, color: sentDate ? T.green : T.faint }}>
-              {sentDate ? `✓ ${sentDate}` : "Not sent"}
-            </div>
-            {sentDate && report.sent_to && report.sent_to.length > 0 && (
-              <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>{report.sent_to.join(", ")}</div>
-            )}
-          </div>
+        <div style={{ ...card, display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap", padding: "12px 16px" }}>
+          <span style={{ fontFamily: mono, fontWeight: 800, fontSize: 15, color: T.accent }}>#{report.qb_invoice_number}</span>
+          {isManualInvoice && <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: T.faint }}>Manual</span>}
+          <span style={{ fontFamily: mono, fontWeight: 700, fontSize: 15 }}>{fmtD(Number(report.qb_total_with_tax ?? billedAmount))}</span>
+          {report.paid_at ? (
+            <span style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+              <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: T.green }}>Paid</span>
+              <span style={{ fontSize: 11, color: T.muted, fontFamily: mono }}>{new Date(report.paid_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })} · {fmtD(Number(report.paid_amount) || 0)}</span>
+              <button onClick={togglePaid} style={{ background: "none", border: "none", color: T.faint, fontSize: 10.5, cursor: "pointer", fontFamily: font, textDecoration: "underline", textUnderlineOffset: 3, padding: 0 }}>mark unpaid</button>
+            </span>
+          ) : (
+            <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: T.amber }}>Unpaid</span>
+              <button onClick={togglePaid} style={{ background: "none", border: `1px solid ${T.green}55`, color: T.green, fontSize: 11, cursor: "pointer", padding: "4px 10px", borderRadius: 5, fontFamily: font, fontWeight: 700 }}>Mark paid</button>
+            </span>
+          )}
+          {report.qb_payment_link && (
+            <a href={report.qb_payment_link} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: T.blue, fontWeight: 700, textDecoration: "none" }}>Payment page ↗</a>
+          )}
+          {sentDate && (
+            <span style={{ marginLeft: "auto", fontSize: 11, color: T.muted }}>
+              <span style={{ color: T.green, fontWeight: 700 }}>✓ sent</span> {sentDate}{report.sent_to && report.sent_to.length > 0 ? ` · ${report.sent_to.join(", ")}` : ""}
+            </span>
+          )}
         </div>
       )}
 
