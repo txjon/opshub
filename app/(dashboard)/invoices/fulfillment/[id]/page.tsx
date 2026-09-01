@@ -177,7 +177,8 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
       if (!subject) {
         const n = report.qb_invoice_number;
         const kind = isCombined ? "Full Service Invoice" : isPostage ? "Postage Invoice" : isFulfillment ? "Fulfillment Invoice" : "Services Invoice";
-        setSubject(`${kind} — ${report.clients?.name || ""} · ${report.period_label}${n ? ` · Invoice ${n}` : ""}`);
+        // No em-dashes in client-facing copy (house rule).
+        setSubject(`${kind}${n ? ` ${n}` : ""} · ${report.clients?.name || ""} · ${report.period_label}`);
       }
     })();
   }, [sendOpen, report, isPostage]);

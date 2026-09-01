@@ -100,7 +100,8 @@ export async function POST(req: NextRequest) {
     }
 
     const fromAddress = process.env.EMAIL_FROM_QUOTES || "onboarding@resend.dev";
-    const defaultSubject = subject || `${reportKind} — ${clientName} · ${report.period_label}${invoiceNum ? ` · Invoice ${invoiceNum}` : ""}`;
+    // No em-dashes in client-facing copy (house rule); mirror the modal's prefill.
+    const defaultSubject = subject || `${reportKind}${invoiceNum ? ` ${invoiceNum}` : ""} · ${clientName} · ${report.period_label}`;
 
     // If the client is on the Client Hub, add a "View in Portal" CTA so they
     // can see all their fulfillment invoices + pay status in one place.
@@ -118,16 +119,16 @@ export async function POST(req: NextRequest) {
       ...(ccEmails?.length > 0 ? { cc: ccEmails } : {}),
       subject: defaultSubject,
       html: renderBrandedEmail({
-        heading: `${reportKind} — ${report.period_label}`,
+        heading: `${reportKind} · ${report.period_label}`,
         greeting: `Hi ${greetingName},`,
         bodyHtml: customBody
           || (isCombined
-            ? `Attached is your Full Service invoice for <strong>${report.period_label}</strong>${invoiceNum ? ` — Invoice #${invoiceNum}` : ""}. The cover page shows the amount due (HPD service fee + postage + fulfillment), with the per-product sales breakdown on page 2 and the postage summary on page 3. The shipment-level spreadsheet is attached as well.`
+            ? `Attached is your Full Service invoice for <strong>${report.period_label}</strong>${invoiceNum ? ` (Invoice ${invoiceNum})` : ""}. The cover page shows the amount due (HPD service fee + postage + fulfillment), with the per-product sales breakdown on page 2 and the postage summary on page 3. The shipment-level spreadsheet is attached as well.`
             : isFulfillment
-              ? `Attached is your fulfillment invoice for <strong>${report.period_label}</strong>${invoiceNum ? ` — Invoice #${invoiceNum}` : ""}. The PDF summarizes the amount due; the accompanying spreadsheet itemizes every shipment we fulfilled.`
+              ? `Attached is your fulfillment invoice for <strong>${report.period_label}</strong>${invoiceNum ? ` (Invoice ${invoiceNum})` : ""}. The PDF summarizes the amount due; the accompanying spreadsheet itemizes every shipment we fulfilled.`
               : isPostage
-                ? `Attached is your fulfillment invoice for <strong>${report.period_label}</strong>${invoiceNum ? ` — Invoice #${invoiceNum}` : ""}. The PDF summarizes the amount due; the accompanying spreadsheet itemizes every shipment with carrier cost and insurance.`
-                : `Attached is your services invoice for <strong>${report.period_label}</strong>${invoiceNum ? ` — Invoice #${invoiceNum}` : ""}. The cover page shows the amount due (HPD service fee) and a line-item sales breakdown follows on the inside pages.`),
+                ? `Attached is your fulfillment invoice for <strong>${report.period_label}</strong>${invoiceNum ? ` (Invoice ${invoiceNum})` : ""}. The PDF summarizes the amount due; the accompanying spreadsheet itemizes every shipment with carrier cost and insurance.`
+                : `Attached is your services invoice for <strong>${report.period_label}</strong>${invoiceNum ? ` (Invoice ${invoiceNum})` : ""}. The cover page shows the amount due (HPD service fee) and a line-item sales breakdown follows on the inside pages.`),
         cta: paymentLink ? { label: "Pay Online", url: paymentLink, style: "green" } : undefined,
         secondaryCta: portalUrl ? { label: "View in Portal", url: portalUrl } : undefined,
       }),
