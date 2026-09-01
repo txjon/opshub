@@ -1526,6 +1526,73 @@ export default function NewShipstationReportPage() {
       {/* ── Stage 1 — Upload ── */}
       {stage === 1 && (
         <div style={{ ...card, display: "flex", flexDirection: "column", gap: 16, width: "100%", maxWidth: isCombined ? 880 : 760, padding: "20px 22px" }}>
+          <div style={{ display: "grid", gridTemplateColumns: isCombined ? "1.2fr 1fr 1fr" : "1fr 1fr", gap: 12 }}>
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, display: "block" }}>Client</label>
+              <div style={{ position: "relative" }}>
+                <input
+                  value={clientListOpen ? clientSearch : (selectedClient?.name || "")}
+                  onChange={e => { setClientSearch(e.target.value); setClientListOpen(true); }}
+                  onFocus={e => { setClientSearch(""); setClientListOpen(true); e.target.select(); }}
+                  onBlur={() => setTimeout(() => setClientListOpen(false), 150)}
+                  placeholder="Search clients…"
+                  autoComplete="off"
+                  style={{ ...input, width: "100%" }}
+                />
+                {clientListOpen && (
+                  <div style={{ position: "absolute", top: "100%", left: 0, right: 0, marginTop: 4, background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, maxHeight: 300, overflowY: "auto", zIndex: 30, boxShadow: "0 8px 24px rgba(0,0,0,0.45)" }}>
+                    {pickerClients.length === 0 && (
+                      <div style={{ padding: "10px 12px", fontSize: 12, color: T.faint }}>
+                        {showAllClients ? `No clients match "${clientSearch}"` : clientSearch.trim() ? `No billed clients match "${clientSearch}" — show all below.` : "No fulfillment invoices yet — show all clients below."}
+                      </div>
+                    )}
+                    {pickerClients.map(c => {
+                      const last = priorByClient[c.id]?.[0];
+                      return (
+                        <div key={c.id}
+                          onMouseDown={() => pickClient(c.id)}
+                          style={{ display: "flex", alignItems: "baseline", gap: 10, padding: "8px 12px", fontSize: 13, color: c.id === clientId ? T.accent : T.text, cursor: "pointer", fontWeight: c.id === clientId ? 700 : 400 }}
+                          onMouseEnter={e => (e.currentTarget.style.background = T.surface)}
+                          onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
+                          <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</span>
+                          {last && <span style={{ marginLeft: "auto", fontSize: 10.5, color: T.faint, fontFamily: mono, whiteSpace: "nowrap" }}>{last.period_label || "billed"}</span>}
+                        </div>
+                      );
+                    })}
+                    {!showAllClients && (
+                      <div
+                        onMouseDown={e => { e.preventDefault(); setShowAllClients(true); }}
+                        style={{ padding: "9px 12px", fontSize: 11.5, fontWeight: 700, color: T.muted, cursor: "pointer", borderTop: `1px solid ${T.border}` }}
+                        onMouseEnter={e => (e.currentTarget.style.background = T.surface)}
+                        onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
+                        Show all clients → <span style={{ fontWeight: 400, color: T.faint }}>(first invoice for a new client)</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+            {isCombined ? (
+              /* Full Service: sales + postage can run on different timelines,
+                 so each half gets its own period; the invoice period derives
+                 from the pair (same -> one label, different -> "a / b"). */
+              <>
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, display: "block" }}>Sales period</label>
+                  <input value={salesPeriodLabel} onChange={e => { setPeriodTouched(true); setSalesPeriodLabel(e.target.value); setPeriodLabel(derivePeriod(e.target.value, postagePeriodLabel)); }} placeholder="e.g. April 2026" style={input} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, display: "block" }}>Postage period</label>
+                  <input value={postagePeriodLabel} onChange={e => { setPeriodTouched(true); setPostagePeriodLabel(e.target.value); setPeriodLabel(derivePeriod(salesPeriodLabel, e.target.value)); }} placeholder="e.g. April 2026" style={input} />
+                </div>
+              </>
+            ) : (
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, display: "block" }}>Period</label>
+                <input value={periodLabel} onChange={e => { setPeriodTouched(true); setPeriodLabel(e.target.value); }} placeholder="e.g. April 2026" style={input} />
+              </div>
+            )}
+          </div>
           {/* Invoice type + postage source — stage-1 decisions, so they live
               IN the stage-1 card (flipping either resets parsed rows; see
               onChangeType). Hidden in edit mode: the saved report fixes both. */}
@@ -1608,73 +1675,6 @@ export default function NewShipstationReportPage() {
               )}
             </div>
           )}
-          <div style={{ display: "grid", gridTemplateColumns: isCombined ? "1.2fr 1fr 1fr" : "1fr 1fr", gap: 12 }}>
-            <div>
-              <label style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, display: "block" }}>Client</label>
-              <div style={{ position: "relative" }}>
-                <input
-                  value={clientListOpen ? clientSearch : (selectedClient?.name || "")}
-                  onChange={e => { setClientSearch(e.target.value); setClientListOpen(true); }}
-                  onFocus={e => { setClientSearch(""); setClientListOpen(true); e.target.select(); }}
-                  onBlur={() => setTimeout(() => setClientListOpen(false), 150)}
-                  placeholder="Search clients…"
-                  autoComplete="off"
-                  style={{ ...input, width: "100%" }}
-                />
-                {clientListOpen && (
-                  <div style={{ position: "absolute", top: "100%", left: 0, right: 0, marginTop: 4, background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, maxHeight: 300, overflowY: "auto", zIndex: 30, boxShadow: "0 8px 24px rgba(0,0,0,0.45)" }}>
-                    {pickerClients.length === 0 && (
-                      <div style={{ padding: "10px 12px", fontSize: 12, color: T.faint }}>
-                        {showAllClients ? `No clients match "${clientSearch}"` : clientSearch.trim() ? `No billed clients match "${clientSearch}" — show all below.` : "No fulfillment invoices yet — show all clients below."}
-                      </div>
-                    )}
-                    {pickerClients.map(c => {
-                      const last = priorByClient[c.id]?.[0];
-                      return (
-                        <div key={c.id}
-                          onMouseDown={() => pickClient(c.id)}
-                          style={{ display: "flex", alignItems: "baseline", gap: 10, padding: "8px 12px", fontSize: 13, color: c.id === clientId ? T.accent : T.text, cursor: "pointer", fontWeight: c.id === clientId ? 700 : 400 }}
-                          onMouseEnter={e => (e.currentTarget.style.background = T.surface)}
-                          onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
-                          <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</span>
-                          {last && <span style={{ marginLeft: "auto", fontSize: 10.5, color: T.faint, fontFamily: mono, whiteSpace: "nowrap" }}>{last.period_label || "billed"}</span>}
-                        </div>
-                      );
-                    })}
-                    {!showAllClients && (
-                      <div
-                        onMouseDown={e => { e.preventDefault(); setShowAllClients(true); }}
-                        style={{ padding: "9px 12px", fontSize: 11.5, fontWeight: 700, color: T.muted, cursor: "pointer", borderTop: `1px solid ${T.border}` }}
-                        onMouseEnter={e => (e.currentTarget.style.background = T.surface)}
-                        onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
-                        Show all clients → <span style={{ fontWeight: 400, color: T.faint }}>(first invoice for a new client)</span>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-            {isCombined ? (
-              /* Full Service: sales + postage can run on different timelines,
-                 so each half gets its own period; the invoice period derives
-                 from the pair (same -> one label, different -> "a / b"). */
-              <>
-                <div>
-                  <label style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, display: "block" }}>Sales period</label>
-                  <input value={salesPeriodLabel} onChange={e => { setPeriodTouched(true); setSalesPeriodLabel(e.target.value); setPeriodLabel(derivePeriod(e.target.value, postagePeriodLabel)); }} placeholder="e.g. April 2026" style={input} />
-                </div>
-                <div>
-                  <label style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, display: "block" }}>Postage period</label>
-                  <input value={postagePeriodLabel} onChange={e => { setPeriodTouched(true); setPostagePeriodLabel(e.target.value); setPeriodLabel(derivePeriod(salesPeriodLabel, e.target.value)); }} placeholder="e.g. April 2026" style={input} />
-                </div>
-              </>
-            ) : (
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, display: "block" }}>Period</label>
-                <input value={periodLabel} onChange={e => { setPeriodTouched(true); setPeriodLabel(e.target.value); }} placeholder="e.g. April 2026" style={input} />
-              </div>
-            )}
-          </div>
 
           {/* Previously billed — the context that used to live in a second
               /invoices tab: this client's last invoices, and the exact date
