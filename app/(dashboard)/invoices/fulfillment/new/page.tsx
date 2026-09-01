@@ -1416,35 +1416,31 @@ export default function NewShipstationReportPage() {
   // ── UI ──────────────────────────────────────────────────────────────────────
   const card: React.CSSProperties = { background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "14px 16px" };
   const input: React.CSSProperties = { padding: "8px 12px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, outline: "none", fontFamily: font, boxSizing: "border-box" };
-  const btnPrimary: React.CSSProperties = { background: T.accent, color: "#0a0a0a", border: "none", borderRadius: 6, padding: "8px 18px", fontSize: 13, fontFamily: font, fontWeight: 700, cursor: "pointer" };
+  const btnPrimary: React.CSSProperties = { background: T.accent, color: "#0a0a0a", border: "none", borderRadius: 7, padding: "11px 28px", fontSize: 13.5, fontFamily: font, fontWeight: 700, cursor: "pointer" };
   const btnGhost: React.CSSProperties = { background: T.surface, color: T.muted, border: `1px solid ${T.border}`, borderRadius: 6, padding: "8px 14px", fontSize: 12, fontFamily: font, fontWeight: 600, cursor: "pointer" };
   const thStyle: React.CSSProperties = { padding: "8px 10px", textAlign: "left", fontSize: 10, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", borderBottom: `1px solid ${T.border}` };
   const tdStyle: React.CSSProperties = { padding: "6px 10px", fontSize: 12, borderBottom: `1px solid ${T.border}`, fontFamily: mono };
 
+  // Slim centered step line — a 4-step wizard needs orientation and jump-
+  // back, not four full-width pill bars (Jon, Aug 31). Completed steps click
+  // to jump back; forward nav stays gated by the Next buttons. Stage 1 stays
+  // locked in edit mode because the source CSV isn't kept after generate.
   const stagePill = (n: number, label: string, active: boolean, done: boolean) => {
-    // Completed steps are clickable to jump back (e.g. Edit lands on Pricing,
-    // click "Select shipments" to drop a line). Forward nav stays gated by the
-    // Next buttons so validation isn't skipped. Stage 1 stays locked in edit
-    // mode because the source CSV isn't kept after generate.
     const canJump = n < stage && !(isEditing && n === 1);
     return (
-      <div
-        key={n}
-        onClick={canJump ? () => setStage(n as 1 | 2 | 3 | 4) : undefined}
-        title={canJump ? `Back to ${label}` : undefined}
-        style={{
-          display: "flex", alignItems: "center", gap: 8, flex: 1,
-          padding: "8px 12px", borderRadius: 8,
-          background: active ? T.accent + "22" : done ? T.surface : "transparent",
-          border: `1px solid ${active ? T.accent : done ? T.border : T.border}`,
-          cursor: canJump ? "pointer" : "default",
-        }}
-      >
-        <span style={{ width: 22, height: 22, borderRadius: 11, background: active ? T.accent : done ? T.green : T.surface, color: active ? "#0a0a0a" : done ? "#0a0e1a" : T.muted, fontSize: 11, fontWeight: 700, display: "grid", placeItems: "center", fontFamily: mono }}>
-          {done ? "✓" : n}
+      <span key={n} style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        {n > 1 && <span style={{ width: 30, height: 1, background: T.border }} />}
+        <span
+          onClick={canJump ? () => setStage(n as 1 | 2 | 3 | 4) : undefined}
+          title={canJump ? `Back to ${label}` : undefined}
+          style={{ display: "flex", alignItems: "center", gap: 7, cursor: canJump ? "pointer" : "default" }}
+        >
+          <span style={{ width: 20, height: 20, borderRadius: 10, background: active ? T.accent : done ? T.green : "transparent", border: `1px solid ${active ? T.accent : done ? T.green : T.border}`, color: active ? "#0a0a0a" : done ? "#0a0e1a" : T.faint, fontSize: 10.5, fontWeight: 700, display: "grid", placeItems: "center", fontFamily: mono }}>
+            {done ? "✓" : n}
+          </span>
+          <span style={{ fontSize: 12, fontWeight: active ? 800 : 600, color: active ? T.text : done ? T.muted : T.faint }}>{label}</span>
         </span>
-        <span style={{ fontSize: 12, fontWeight: 600, color: active ? T.text : T.muted }}>{label}</span>
-      </div>
+      </span>
     );
   };
 
@@ -1495,16 +1491,18 @@ export default function NewShipstationReportPage() {
     : (isEditing ? "Save Changes" : "Generate Invoice");
 
   return (
-    <div style={{ fontFamily: font, color: T.text, display: "flex", flexDirection: "column", gap: 14 }}>
-      <div>
-        <div style={{ fontSize: 11, color: T.muted, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>
+    <div style={{ fontFamily: font, color: T.text, display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
+      <div style={{ width: "100%", maxWidth: 1040 }}>
+        <div style={{ fontSize: 11, color: T.muted, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase" }}>
           <a href="/invoices?stream=fulfillment" style={{ color: T.muted, textDecoration: "none" }}>← Invoices</a> · Fulfillment
         </div>
-        <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, letterSpacing: "-0.02em" }}>
+      </div>
+      <div style={{ textAlign: "center" }}>
+        <h1 style={{ fontSize: 25, fontWeight: 700, margin: 0, letterSpacing: "-0.02em" }}>
           {isEditing ? `Edit ${typeLabel} Invoice` : `New ${typeLabel} Invoice`}
         </h1>
         {isEditing && (
-          <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>
+          <div style={{ fontSize: 11, color: T.muted, marginTop: 6, maxWidth: "62ch" }}>
             Adjust pricing, drop rows, or update the period. Changes save back to this invoice — then use Update QB Invoice on the invoice page to push them to QuickBooks.
           </div>
         )}
@@ -1517,102 +1515,99 @@ export default function NewShipstationReportPage() {
         <div style={{ ...card, color: T.red, fontSize: 13 }}>{editError}</div>
       )}
 
-      {/* Stage pills lead — the wizard's spine (Jon, Aug 31: "more wizard
-          feeling"). In edit mode Stage 1 (CSV upload) is unreachable so it
-          stays grey; the 2/3/4 progression still applies. */}
-      <div style={{ display: "flex", gap: 8 }}>
+      {/* The step line — the wizard's spine, centered under the title. */}
+      <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 12, flexWrap: "wrap", padding: "2px 0 6px" }}>
         {stagePill(1, isEditing ? "Upload (skipped)" : "Upload", stage === 1, stage > 1)}
         {stagePill(2, isCombined ? "Select rows" : (isPostage || isFulfillment) ? "Select shipments" : "Select rows", stage === 2, stage > 2)}
         {stagePill(3, isCombined ? "Pricing" : isFulfillment ? "Fulfillment fee" : isPostage ? "Markup %" : "Unit costs", stage === 3, stage > 3)}
         {stagePill(4, isEditing ? "Review + save" : "Review + generate", stage === 4, false)}
       </div>
 
-      {/* Invoice type — a stage-1 decision, so it only renders there (later
-          stages flipping it would clear parsed rows anyway; see onChangeType).
-          Hidden in edit mode: the saved report fixes the type. */}
-      {stage === 1 && !isEditing && (() => {
-        // Postage + Full Service are the two real scenarios (every invoice
-        // ever billed is one of them). Fulfillment-only (client pays their
-        // own postage — bills just the per-package fee) and Sales-only live
-        // behind ⋯ until the fulfillment-only offering has a signed client.
-        // A rare type stays visible while selected.
-        const primary = [
-          { value: "postage", label: "Postage" },
-          { value: "combined", label: "Full Service" },
-        ] as const;
-        const rare = [
-          { value: "fulfillment", label: "Fulfillment only" },
-          { value: "sales", label: "Sales only" },
-        ] as const;
-        const btn = (t: { value: ReportType; label: string }) => (
-          <button key={t.value} onClick={() => { onChangeType(t.value); setTypeMenu(false); }}
-            style={{
-              background: reportType === t.value ? T.accent : "transparent",
-              color: reportType === t.value ? "#0a0a0a" : T.muted,
-              border: "none", borderRadius: 6,
-              padding: "6px 18px", fontSize: 12, fontWeight: 700,
-              fontFamily: font, cursor: "pointer",
-            }}>{t.label}</button>
-        );
-        return (
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>Invoice type</span>
-          <div style={{ display: "flex", gap: 6, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 4, width: "fit-content", position: "relative", alignItems: "center" }}>
-            {primary.map(t => btn(t as any))}
-            {rare.filter(t => reportType === t.value).map(t => btn(t as any))}
-            <button onClick={() => setTypeMenu(v => !v)} aria-label="More report types"
-              style={{ background: "transparent", border: "none", color: T.muted, fontSize: 15, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: font }}>⋯</button>
-            {typeMenu && (
-              <div style={{ position: "absolute", left: "100%", top: 0, marginLeft: 8, zIndex: 30, background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 6, minWidth: 170, boxShadow: "0 8px 30px rgba(0,0,0,0.45)", display: "flex", flexDirection: "column" }}>
-                {rare.map(t => (
-                  <button key={t.value} onClick={() => { onChangeType(t.value as ReportType); setTypeMenu(false); }}
-                    style={{ textAlign: "left", background: "none", border: "none", color: reportType === t.value ? T.text : T.muted, fontSize: 12.5, fontWeight: 700, padding: "8px 12px", cursor: "pointer", borderRadius: 6, fontFamily: font }}>
-                    {t.label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-          </div>
-        );
-      })()}
-
-      {/* Postage source toggle — only when there's a postage half (Postage
-          or Full Service). Per-shipment is the original per-package report;
-          Bulk is a pure pass-through reimbursement of bulk postage buys.
-          Hidden in edit mode (mode is fixed by the saved report). */}
-      {stage === 1 && !isEditing && showPostage && !isFulfillment && (
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>Postage source</span>
-          <div style={{ display: "flex", gap: 6, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 4, width: "fit-content" }}>
-            {([
-              { value: "per_shipment", label: "Per-shipment" },
-              { value: "bulk", label: "Bulk purchase" },
-            ] as const).map(m => (
-              <button
-                key={m.value}
-                onClick={() => onChangePostageMode(m.value)}
-                style={{
-                  background: postageMode === m.value ? T.amber : "transparent",
-                  color: postageMode === m.value ? "#0a0e1a" : T.muted,
-                  border: "none", borderRadius: 6,
-                  padding: "5px 14px", fontSize: 12, fontWeight: 700,
-                  fontFamily: font, cursor: "pointer",
-                }}
-              >
-                {m.label}
-              </button>
-            ))}
-          </div>
-          <span style={{ fontSize: 10, color: T.faint }}>
-            {isBulkPostage ? "Bulk: pass-through reimbursement of postage purchases (no markup)." : "Per-shipment: one row per package, markup + per-package fee."}
-          </span>
-        </div>
-      )}
-
       {/* ── Stage 1 — Upload ── */}
       {stage === 1 && (
-        <div style={{ ...card, display: "flex", flexDirection: "column", gap: 14, maxWidth: isCombined ? 760 : 640 }}>
+        <div style={{ ...card, display: "flex", flexDirection: "column", gap: 16, width: "100%", maxWidth: isCombined ? 880 : 760, padding: "20px 22px" }}>
+          {/* Invoice type + postage source — stage-1 decisions, so they live
+              IN the stage-1 card (flipping either resets parsed rows; see
+              onChangeType). Hidden in edit mode: the saved report fixes both. */}
+          {!isEditing && (
+            <div style={{ display: "flex", gap: 32, flexWrap: "wrap", alignItems: "flex-start" }}>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, display: "block" }}>Invoice type</label>
+                {(() => {
+                  // Postage + Full Service are the two real scenarios (every
+                  // invoice ever billed is one of them). Fulfillment-only
+                  // (client pays their own postage — bills just the per-package
+                  // fee) and Sales-only live behind ⋯ until the fulfillment-only
+                  // offering has a signed client. A rare type stays visible
+                  // while selected.
+                  const primary = [
+                    { value: "postage", label: "Postage" },
+                    { value: "combined", label: "Full Service" },
+                  ] as const;
+                  const rare = [
+                    { value: "fulfillment", label: "Fulfillment only" },
+                    { value: "sales", label: "Sales only" },
+                  ] as const;
+                  const btn = (t: { value: ReportType; label: string }) => (
+                    <button key={t.value} onClick={() => { onChangeType(t.value); setTypeMenu(false); }}
+                      style={{
+                        background: reportType === t.value ? T.accent : "transparent",
+                        color: reportType === t.value ? "#0a0a0a" : T.muted,
+                        border: "none", borderRadius: 6,
+                        padding: "6px 18px", fontSize: 12, fontWeight: 700,
+                        fontFamily: font, cursor: "pointer",
+                      }}>{t.label}</button>
+                  );
+                  return (
+                    <div style={{ display: "flex", gap: 6, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 4, width: "fit-content", position: "relative", alignItems: "center" }}>
+                      {primary.map(t => btn(t as any))}
+                      {rare.filter(t => reportType === t.value).map(t => btn(t as any))}
+                      <button onClick={() => setTypeMenu(v => !v)} aria-label="More report types"
+                        style={{ background: "transparent", border: "none", color: T.muted, fontSize: 15, fontWeight: 700, padding: "4px 10px", cursor: "pointer", fontFamily: font }}>⋯</button>
+                      {typeMenu && (
+                        <div style={{ position: "absolute", left: 0, top: "100%", marginTop: 6, zIndex: 30, background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 6, minWidth: 170, boxShadow: "0 8px 30px rgba(0,0,0,0.45)", display: "flex", flexDirection: "column" }}>
+                          {rare.map(t => (
+                            <button key={t.value} onClick={() => { onChangeType(t.value as ReportType); setTypeMenu(false); }}
+                              style={{ textAlign: "left", background: "none", border: "none", color: reportType === t.value ? T.text : T.muted, fontSize: 12.5, fontWeight: 700, padding: "8px 12px", cursor: "pointer", borderRadius: 6, fontFamily: font }}>
+                              {t.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+              {showPostage && !isFulfillment && (
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, display: "block" }}>Postage source</label>
+                  <div style={{ display: "flex", gap: 6, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: 4, width: "fit-content" }}>
+                    {([
+                      { value: "per_shipment", label: "Per-shipment" },
+                      { value: "bulk", label: "Bulk purchase" },
+                    ] as const).map(m => (
+                      <button
+                        key={m.value}
+                        onClick={() => onChangePostageMode(m.value)}
+                        style={{
+                          background: postageMode === m.value ? T.amber : "transparent",
+                          color: postageMode === m.value ? "#0a0e1a" : T.muted,
+                          border: "none", borderRadius: 6,
+                          padding: "5px 14px", fontSize: 12, fontWeight: 700,
+                          fontFamily: font, cursor: "pointer",
+                        }}
+                      >
+                        {m.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div style={{ fontSize: 10, color: T.faint, marginTop: 6 }}>
+                    {isBulkPostage ? "Pass-through reimbursement of postage purchases (no markup)." : "One row per package · markup + per-package fee."}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
           <div style={{ display: "grid", gridTemplateColumns: isCombined ? "1.2fr 1fr 1fr" : "1fr 1fr", gap: 12 }}>
             <div>
               <label style={{ fontSize: 11, fontWeight: 600, color: T.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, display: "block" }}>Client</label>
@@ -1743,8 +1738,8 @@ export default function NewShipstationReportPage() {
             onDragLeave={() => setDropHot(false)}
             onDrop={e => { e.preventDefault(); setDropHot(false); routeCsvFiles(e.dataTransfer.files); }}
             onClick={() => document.getElementById("ssr-file-input")?.click()}
-            style={{ border: `1.5px dashed ${dropHot ? T.accent : T.border}`, borderRadius: 12, padding: "26px 18px", background: dropHot ? T.surface : "transparent", textAlign: "center", cursor: "pointer" }}>
-            <div style={{ fontSize: 13.5, fontWeight: 700, color: T.text }}>
+            style={{ border: `1.5px dashed ${dropHot ? T.accent : T.border}`, borderRadius: 12, padding: "48px 20px", background: dropHot ? T.surface : "transparent", textAlign: "center", cursor: "pointer" }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>
               Drop the ShipStation export{showSales && showPostage ? "s" : ""} here — or click to choose
             </div>
             <div style={{ fontSize: 11, color: T.faint, marginTop: 5, lineHeight: 1.5 }}>
@@ -1800,7 +1795,7 @@ export default function NewShipstationReportPage() {
 
       {/* ── Stage 2 — Select rows (sales-only) ── */}
       {stage === 2 && isSales && (
-        <div style={card}>
+        <div style={{ ...card, width: "100%", maxWidth: 1040 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 12, flexWrap: "wrap" }}>
             <div style={{ fontSize: 12, color: T.muted }}>
               <span style={{ fontWeight: 700, color: T.text }}>{selectedRows.length}</span> of {rawRows.length} rows included
@@ -1862,7 +1857,7 @@ export default function NewShipstationReportPage() {
 
       {/* ── Stage 2 — Select shipments (postage-only, per-shipment) ── */}
       {stage === 2 && (isPostage || isFulfillment) && !isBulkPostage && (
-        <div style={card}>
+        <div style={{ ...card, width: "100%", maxWidth: 1040 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 12, flexWrap: "wrap" }}>
             <div style={{ fontSize: 12, color: T.muted }}>
               <span style={{ fontWeight: 700, color: T.text }}>{selectedPostageRows.length}</span> of {rawPostageRows.length} shipments included
@@ -1927,7 +1922,7 @@ export default function NewShipstationReportPage() {
 
       {/* ── Stage 2 — Select purchases (postage-only, bulk) ── */}
       {stage === 2 && isPostage && isBulkPostage && (
-        <div style={card}>
+        <div style={{ ...card, width: "100%", maxWidth: 1040 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 12, flexWrap: "wrap" }}>
             <div style={{ fontSize: 12, color: T.muted }}>
               <span style={{ fontWeight: 700, color: T.text }}>{selectedBulkRows.length}</span> of {rawBulkRows.length} purchases included
@@ -1978,7 +1973,7 @@ export default function NewShipstationReportPage() {
       {stage === 3 && isSales && (
         <>
           <SalesTotalsStrip totals={salesTotals} />
-          <div style={card}>
+          <div style={{ ...card, width: "100%", maxWidth: 1040 }}>
             <div style={{ fontSize: 11, color: T.muted, marginBottom: 10 }}>
               One unit cost per product. Variants with different sizes share the same cost. Costs save per client so next month pre-fills.
             </div>
@@ -2061,7 +2056,7 @@ export default function NewShipstationReportPage() {
       {stage === 3 && (isPostage || isFulfillment) && !isBulkPostage && (
         <>
           <PostageTotalsStrip totals={postageTotals} fulfillmentOnly={isFulfillment} />
-          <div style={{ ...card, display: "flex", flexDirection: "column", gap: 18 }}>
+          <div style={{ ...card, display: "flex", flexDirection: "column", gap: 18, width: "100%", maxWidth: 1040 }}>
             {isFulfillment && (
               <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.6 }}>
                 This client runs their own ShipStation and pays their own postage. We bill <strong style={{ color: T.text }}>only the per-package fulfillment fee</strong> — no postage cost or markup appears on their invoice.
@@ -2140,7 +2135,7 @@ export default function NewShipstationReportPage() {
       {stage === 3 && isPostage && isBulkPostage && (
         <>
           <BulkPostageTotalsStrip totals={bulkPostageTotals} />
-          <div style={{ ...card, display: "flex", flexDirection: "column", gap: 14 }}>
+          <div style={{ ...card, display: "flex", flexDirection: "column", gap: 14, width: "100%", maxWidth: 1040 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Pass-through reimbursement</div>
             <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.6 }}>
               No markup or per-package fee applies to bulk postage. The client is billed exactly what HPD spent on postage —
@@ -2158,7 +2153,7 @@ export default function NewShipstationReportPage() {
       {stage === 4 && isSales && (
         <>
           <SalesTotalsStrip totals={salesTotals} />
-          <div style={{ ...card, display: "flex", flexDirection: "column", gap: 14 }}>
+          <div style={{ ...card, display: "flex", flexDirection: "column", gap: 14, width: "100%", maxWidth: 1040 }}>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
               <div>
                 <div style={{ fontSize: 10, color: T.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Client</div>
@@ -2203,7 +2198,7 @@ export default function NewShipstationReportPage() {
       {stage === 4 && (isPostage || isFulfillment) && !isBulkPostage && (
         <>
           <PostageTotalsStrip totals={postageTotals} fulfillmentOnly={isFulfillment} />
-          <div style={{ ...card, display: "flex", flexDirection: "column", gap: 14 }}>
+          <div style={{ ...card, display: "flex", flexDirection: "column", gap: 14, width: "100%", maxWidth: 1040 }}>
             <div style={{ display: "grid", gridTemplateColumns: `repeat(${isFulfillment ? 3 : 4}, 1fr)`, gap: 12 }}>
               <div>
                 <div style={{ fontSize: 10, color: T.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Client</div>
@@ -2280,7 +2275,7 @@ export default function NewShipstationReportPage() {
       {stage === 4 && isPostage && isBulkPostage && (
         <>
           <BulkPostageTotalsStrip totals={bulkPostageTotals} />
-          <div style={{ ...card, display: "flex", flexDirection: "column", gap: 14 }}>
+          <div style={{ ...card, display: "flex", flexDirection: "column", gap: 14, width: "100%", maxWidth: 1040 }}>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
               <div>
                 <div style={{ fontSize: 10, color: T.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Client</div>
@@ -2318,7 +2313,7 @@ export default function NewShipstationReportPage() {
           same counter / select-all / clear-all / shift-range behavior
           as the single-type flows. */}
       {stage === 2 && isCombined && (
-        <div style={{ ...card, display: "flex", flexDirection: "column", gap: 18 }}>
+        <div style={{ ...card, display: "flex", flexDirection: "column", gap: 18, width: "100%", maxWidth: 1040 }}>
           {/* Sales rows */}
           <div>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 12, flexWrap: "wrap" }}>
@@ -2497,7 +2492,7 @@ export default function NewShipstationReportPage() {
           {isBulkPostage
             ? <BulkPostageTotalsStrip totals={bulkPostageTotals} />
             : <PostageTotalsStrip totals={postageTotals} />}
-          <div style={{ ...card, display: "flex", flexDirection: "column", gap: 18 }}>
+          <div style={{ ...card, display: "flex", flexDirection: "column", gap: 18, width: "100%", maxWidth: 1040 }}>
 
             {/* Sales pricing */}
             <div>
@@ -2676,7 +2671,7 @@ export default function NewShipstationReportPage() {
           {isBulkPostage
             ? <BulkPostageTotalsStrip totals={bulkPostageTotals} />
             : <PostageTotalsStrip totals={postageTotals} />}
-          <div style={{ ...card, display: "flex", flexDirection: "column", gap: 14 }}>
+          <div style={{ ...card, display: "flex", flexDirection: "column", gap: 14, width: "100%", maxWidth: 1040 }}>
             <div style={{ display: "grid", gridTemplateColumns: isBulkPostage ? "repeat(3, 1fr)" : "repeat(5, 1fr)", gap: 12 }}>
               <div>
                 <div style={{ fontSize: 10, color: T.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Client</div>
@@ -2819,7 +2814,7 @@ function SalesTotalsStrip({ totals }: { totals: { qty: number; sales: number; co
     { label: "Net Profit", value: fmt(totals.profit), color: T.green },
   ];
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 8 }}>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 8, width: "100%", maxWidth: 1040 }}>
       {items.map(i => (
         <div key={i.label} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 10px" }}>
           <div style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, marginBottom: 2 }}>{i.label}</div>
@@ -2850,7 +2845,7 @@ function PostageTotalsStrip({ totals, fulfillmentOnly = false }: { totals: { shi
     { label: "Fulfillment", value: fmt(totals.fulfillment), color: T.amber },
   ];
   return (
-    <div style={{ display: "grid", gridTemplateColumns: `repeat(${fulfillmentOnly ? 4 : 8}, 1fr)`, gap: 8 }}>
+    <div style={{ display: "grid", gridTemplateColumns: `repeat(${fulfillmentOnly ? 4 : 8}, 1fr)`, gap: 8, width: "100%", maxWidth: 1040 }}>
       {tiles.map(i => (
         <div key={i.label} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 10px" }}>
           <div style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, marginBottom: 2 }}>{i.label}</div>
@@ -2873,7 +2868,7 @@ function BulkPostageTotalsStrip({ totals }: { totals: { purchases: number; total
     { label: "Reimbursement", value: fmt(totals.total), color: T.green },
   ];
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, width: "100%", maxWidth: 1040 }}>
       {tiles.map(i => (
         <div key={i.label} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 10px" }}>
           <div style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, marginBottom: 2 }}>{i.label}</div>
