@@ -1741,7 +1741,7 @@ export default function NewShipstationReportPage() {
                 onMouseLeave={e => (e.currentTarget.style.textDecoration = "none")}>
                 ShipStation → Insights → Reports → Shipping Cost ↗
               </a>
-              {" "}— set the date range{selectedClient ? ` and Store = ${selectedClient.name}` : " and the client's Store"}, all providers/services, Export to CSV.
+              {" "}— set the date range, store and select all providers/services - Export to CSV
             </div>
           )}
 
