@@ -30,6 +30,7 @@ const menuBtn: any = { display: "block", width: "100%", textAlign: "left", backg
 // it reads as done on a chase list, so here it renders as its payment state;
 // the job's invoice rail still says Final where the workflow meaning lives.
 function stateMeta(r: InvoiceRow): { label: string; color: string } {
+  if (r.noBillables) return { label: "—", color: T.faint }; // marker row, not an invoice
   if (r.state === "reconcile") return { label: "Reconcile", color: T.amber };
   if (r.state === "draft") return { label: "Draft", color: T.faint };
   if (r.state === "paid" || r.state === "ss_paid" || r.balance <= 0.01) return { label: "Paid", color: T.green };
@@ -223,6 +224,10 @@ export default function InvoicesPage() {
           style={{ marginLeft: "auto", background: "transparent", color: T.text, border: `1px solid ${T.border}`, borderRadius: 6, padding: "8px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: font }}>
           Send statement
         </button>
+        <a href="/invoices/fulfillment/bulk"
+          style={{ background: "transparent", color: T.text, border: `1px solid ${T.border}`, borderRadius: 6, padding: "8px 16px", fontSize: 13, fontWeight: 700, textDecoration: "none", fontFamily: font }}>
+          Bulk import
+        </a>
         <a href="/invoices/fulfillment/new"
           style={{ background: T.accent, color: "#0a0a0a", borderRadius: 6, padding: "8px 16px", fontSize: 13, fontWeight: 700, textDecoration: "none", fontFamily: font }}>
           + Fulfillment invoice
@@ -353,7 +358,9 @@ export default function InvoicesPage() {
                       </td>
                       ) : (
                       <td style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}33`, whiteSpace: "nowrap" }}>
-                        {r.financialClosedAt
+                        {r.noBillables
+                          ? <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: T.faint }}>No billables</span>
+                          : r.financialClosedAt
                           ? <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: T.green }}>Closed</span>
                           : (r.waived || 0) > 0.01 && r.balance <= 0.01
                           ? <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: T.amber }}>Closed short · {money(r.waived || 0)} waived</span>

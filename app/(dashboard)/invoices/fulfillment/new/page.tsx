@@ -4,6 +4,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
 import { groupLineItems } from "@/lib/shipstation-group";
+import { parseCsv, findCol, parseMoney, dateOnly, normalizeProvider } from "@/lib/shipstation-csv";
+import { nextPeriodSuggestion, parsePeriodRange } from "@/lib/billing-period";
 
 // ── Sales CSV row shape ───────────────────────────────────────────────────
 // ShipStation product-sales export: Store, SKU, Description, Category, QtySold, TotalSales
@@ -54,12 +56,6 @@ type ParsedBulkRow = {
 const fmtD = (n: number) =>
   "$" + Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtN = (n: number) => Number(n || 0).toLocaleString("en-US");
-// ShipStation's ship date frequently carries a time component we don't
-// want to display. Strip anything after the first space or T separator.
-function dateOnly(raw: string): string {
-  if (!raw) return "";
-  return raw.trim().split(/[\sT]/)[0];
-}
 // Bulk ledger TransactionTime looks like "March 27, 2026 11:05 AM" — the
 // date itself contains spaces, so dateOnly() can't be used. Strip just the
 // trailing clock time, keeping the human-readable date.
@@ -68,17 +64,6 @@ function stripTime(raw: string): string {
   return raw.replace(/\s+\d{1,2}:\d{2}(:\d{2})?\s*([AP]\.?M\.?)?\s*$/i, "").trim();
 }
 
-// Unit costs / money inputs are often copy-pasted from Excel — the raw
-// string can include currency symbols, thousands commas, whitespace, or
-// a stray trailing newline. parseFloat silently returns NaN on any of
-// those and real values get dropped. Strip the noise first.
-function parseMoney(raw: unknown): number {
-  if (raw == null) return 0;
-  const cleaned = String(raw).replace(/[\$,\s]/g, "").trim();
-  if (!cleaned) return 0;
-  const n = parseFloat(cleaned);
-  return isFinite(n) ? n : 0;
-}
 
 // The percent inputs hold WHOLE percentages ("10" = 10%) — humans don't
 // type 0.1 (Jon, Aug 31). The DB keeps storing decimal rates (0.1), so
@@ -86,47 +71,6 @@ function parseMoney(raw: unknown): number {
 // these two convert at the boundary only.
 const pctToRate = (s: string) => parseMoney(s) / 100;
 const rateToPctStr = (r: unknown) => String(Math.round((Number(r) || 0) * 10000) / 100);
-
-// Tiny CSV parser. Handles quoted fields w/ embedded commas + the BOM
-// prefix ShipStation adds. Not RFC 4180-strict but covers these exports.
-function parseCsv(text: string): string[][] {
-  if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
-  const rows: string[][] = [];
-  let row: string[] = [];
-  let field = "";
-  let inQuotes = false;
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
-    if (inQuotes) {
-      if (c === '"') {
-        if (text[i + 1] === '"') { field += '"'; i++; }
-        else inQuotes = false;
-      } else field += c;
-    } else {
-      if (c === '"') inQuotes = true;
-      else if (c === ",") { row.push(field); field = ""; }
-      else if (c === "\n" || c === "\r") {
-        if (c === "\r" && text[i + 1] === "\n") i++;
-        row.push(field); field = "";
-        if (row.length > 1 || row[0] !== "") rows.push(row);
-        row = [];
-      } else field += c;
-    }
-  }
-  if (field !== "" || row.length) { row.push(field); rows.push(row); }
-  return rows;
-}
-
-// Match header by trying multiple aliases — ShipStation field names drift
-// slightly between exports. Returns -1 if nothing matches.
-function findCol(header: string[], aliases: string[]): number {
-  const h = header.map(s => s.trim().toLowerCase());
-  for (const alias of aliases) {
-    const i = h.indexOf(alias.toLowerCase());
-    if (i >= 0) return i;
-  }
-  return -1;
-}
 
 type Client = { id: string; name: string; hpd_fee_pct: number | null; hpd_per_package_fee: number | null };
 type ReportType = "sales" | "postage" | "combined" | "fulfillment";
@@ -149,54 +93,6 @@ type PriorReport = {
 };
 const PRIOR_TYPE_LABEL: Record<ReportType, string> = { sales: "Sales", postage: "Postage", combined: "Full Service", fulfillment: "Fulfillment" };
 
-const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-// Given the last invoice's period label, suggest the next billing window in
-// the SAME format. Handles the two formats in the wild: "July 2026" and
-// "7/1/2026 - 7/31/2026" (zero-padded or not). Anything else → no suggestion.
-function nextPeriodSuggestion(label: string | null | undefined): string | null {
-  const t = (label || "").trim();
-  const monthly = t.match(/^([A-Za-z]+)\s+(\d{4})$/);
-  if (monthly) {
-    const idx = MONTH_NAMES.findIndex(m => m.toLowerCase() === monthly[1].toLowerCase());
-    if (idx < 0) return null;
-    const y = Number(monthly[2]) + (idx === 11 ? 1 : 0);
-    return `${MONTH_NAMES[(idx + 1) % 12]} ${y}`;
-  }
-  const range = t.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s*[-–—]\s*(\d{1,2})\/(\d{1,2})\/(\d{4})\s*$/);
-  if (range) {
-    const padded = range[4].length === 2 && range[4][0] === "0";
-    // (shared regexes with parsePeriodRange below — keep in sync)
-    // Numeric Date construction (local) — never bare-parse a date string.
-    const end = new Date(Number(range[6]), Number(range[4]) - 1, Number(range[5]));
-    const start = new Date(end.getFullYear(), end.getMonth(), end.getDate() + 1);
-    const last = new Date(start.getFullYear(), start.getMonth() + 1, 0);
-    const p = (n: number) => (padded ? String(n).padStart(2, "0") : String(n));
-    const f = (d: Date) => `${p(d.getMonth() + 1)}/${p(d.getDate())}/${d.getFullYear()}`;
-    return `${f(start)} - ${f(last)}`;
-  }
-  return null;
-}
-
-// Parse a period label into actual dates so the CSV's ship-date span can be
-// checked against it. Same two formats as nextPeriodSuggestion.
-function parsePeriodRange(label: string): { start: Date; end: Date } | null {
-  const t = (label || "").trim();
-  const monthly = t.match(/^([A-Za-z]+)\s+(\d{4})$/);
-  if (monthly) {
-    const idx = MONTH_NAMES.findIndex(m => m.toLowerCase() === monthly[1].toLowerCase());
-    if (idx < 0) return null;
-    const y = Number(monthly[2]);
-    return { start: new Date(y, idx, 1), end: new Date(y, idx + 1, 0) };
-  }
-  const range = t.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s*[-–—]\s*(\d{1,2})\/(\d{1,2})\/(\d{4})\s*$/);
-  if (range) {
-    return {
-      start: new Date(Number(range[3]), Number(range[1]) - 1, Number(range[2])),
-      end: new Date(Number(range[6]), Number(range[4]) - 1, Number(range[5])),
-    };
-  }
-  return null;
-}
 
 // "Full Service" combines a Sales report and a Postage report into one
 // shipstation_reports row → one PDF, one QB invoice, one email. The
@@ -613,17 +509,6 @@ export default function NewShipstationReportPage() {
     return { rows, merged };
   }
 
-  // Normalize ShipStation's internal provider names to the clean carrier
-  // label we show to clients. Hides the tooling we use from the client-
-  // facing invoice and keeps the provider column from wrapping.
-  function normalizeProvider(raw: string): string {
-    const s = (raw || "").trim();
-    if (!s) return "";
-    const lower = s.toLowerCase();
-    if (lower.startsWith("stamps.com") || lower === "stamps") return "USPS";
-    if (lower.startsWith("ups by shipstation") || lower === "ups by ss") return "UPS";
-    return s;
-  }
 
   async function parsePostageCsv(text: string) {
     const parsed = parseCsv(text);
