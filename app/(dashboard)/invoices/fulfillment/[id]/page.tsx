@@ -85,6 +85,8 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
   const [confirm, confirmEl] = useConfirm();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [showManualQb, setShowManualQb] = useState(false);
 
   const [qbBusy, setQbBusy] = useState(false);
   const [qbMsg, setQbMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -301,6 +303,7 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
   const btnGhost: React.CSSProperties = { background: T.surface, color: T.muted, border: `1px solid ${T.border}`, borderRadius: 6, padding: "8px 14px", fontSize: 12, fontFamily: font, fontWeight: 600, cursor: "pointer", textDecoration: "none", display: "inline-block" };
   const btnGreen: React.CSSProperties = { background: T.green, color: "#0a0e1a", border: "none", borderRadius: 6, padding: "8px 18px", fontSize: 13, fontFamily: font, fontWeight: 700, cursor: "pointer", textDecoration: "none", display: "inline-block" };
   const input: React.CSSProperties = { padding: "8px 12px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, outline: "none", fontFamily: font, boxSizing: "border-box", width: "100%" };
+  const menuItem: React.CSSProperties = { display: "block", width: "100%", textAlign: "left", background: "none", border: "none", color: T.text, fontSize: 12.5, fontWeight: 600, padding: "8px 12px", cursor: "pointer", borderRadius: 6, fontFamily: font, textDecoration: "none" };
 
   const created = new Date(report.created_at).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
   // Per-half periods. Only worth showing on the section when combined and
@@ -329,41 +332,41 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
             {report.period_label} · Generated {created}
           </div>
         </div>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {/* Edit — re-opens the wizard with this report's data hydrated.
-              Lets you adjust unit costs / markup / per-package fee / etc.
-              and save back without re-uploading the CSV. After saving,
-              click "Update QB Invoice" to push the changes to QB. */}
+        {/* ONE primary action, driven by the rail state (push → send); Edit
+            stays a first-class ghost; everything else demotes to ⋯. */}
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", position: "relative" }}>
           <a href={`/invoices/fulfillment/new?edit=${report.id}`} style={btnGhost}>Edit</a>
-          <a href={`/api/pdf/shipstation/${report.id}`} target="_blank" rel="noopener noreferrer" style={btnGhost}>Preview PDF</a>
-          <a href={`/api/pdf/shipstation/${report.id}?download=1`} style={btnGhost}>Download PDF</a>
-          {(isPostage || isCombined || isFulfillment) && (
-            <a href={`/api/excel/shipstation/${report.id}`} style={btnGhost}>Download Excel</a>
-          )}
-          {hasQB ? (
-            <button onClick={() => pushToQB()} disabled={qbBusy} style={{ ...btnGhost, borderColor: T.accent + "66", color: T.accent, opacity: qbBusy ? 0.6 : 1 }}>{qbBusy ? "Updating…" : "Update QB Invoice"}</button>
-          ) : isManualInvoice ? (
-            <button disabled style={{ ...btnGhost, borderColor: T.green + "66", color: T.green, cursor: "default", opacity: 1 }}>
-              ✓ QB #{report.qb_invoice_number} (manual)
-            </button>
-          ) : (
+          {!hasQB && !isManualInvoice && (
             <button onClick={() => pushToQB()} disabled={qbBusy} style={{ ...btnPrimary, opacity: qbBusy ? 0.6 : 1 }}>{qbBusy ? "Pushing…" : "Push to QuickBooks"}</button>
           )}
-          {/* QB customer linker — lets you verify or re-point the cached
-              QB customer for this client, especially after a duplicate
-              was accidentally created on a previous push. */}
-          <button
-            onClick={openChooserManual}
-            disabled={qbBusy}
-            style={{ ...btnGhost, opacity: qbBusy ? 0.6 : 1 }}
-            title="Verify or change which QuickBooks customer this client is linked to"
-          >
-            QB customer
-          </button>
-          {(hasQB || isManualInvoice) && (
-            <button onClick={() => setSendOpen(s => !s)} style={btnGreen}>{sendOpen ? "Close" : (sentDate ? "Re-send to client" : "Send to client")}</button>
+          {(hasQB || isManualInvoice) && !report.sent_at && (
+            <button onClick={() => setSendOpen(s => !s)} style={btnGreen}>{sendOpen ? "Close" : "Send to client"}</button>
           )}
-          <button onClick={onDelete} disabled={deleting} style={{ ...btnGhost, color: T.red, borderColor: T.red + "44" }}>Delete</button>
+          <button onClick={() => setMenuOpen(v => !v)} aria-label="More actions"
+            style={{ ...btnGhost, fontSize: 16, lineHeight: 1, padding: "8px 13px" }}>⋯</button>
+          {menuOpen && (
+            <div style={{ position: "absolute", right: 0, top: "calc(100% + 6px)", zIndex: 40, background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 6, minWidth: 225, boxShadow: "0 8px 30px rgba(0,0,0,0.45)", display: "flex", flexDirection: "column" }}>
+              <a href={`/api/pdf/shipstation/${report.id}`} target="_blank" rel="noopener noreferrer" style={menuItem} onClick={() => setMenuOpen(false)}>Preview PDF</a>
+              <a href={`/api/pdf/shipstation/${report.id}?download=1`} style={menuItem} onClick={() => setMenuOpen(false)}>Download PDF</a>
+              {(isPostage || isCombined || isFulfillment) && (
+                <a href={`/api/excel/shipstation/${report.id}`} style={menuItem} onClick={() => setMenuOpen(false)}>Download Excel</a>
+              )}
+              {(hasQB || isManualInvoice) && report.sent_at && (
+                <button onClick={() => { setSendOpen(true); setMenuOpen(false); }} style={menuItem}>Re-send to client</button>
+              )}
+              {hasQB && (
+                <button disabled={qbBusy} onClick={() => { setMenuOpen(false); pushToQB(); }} style={menuItem}>
+                  {qbBusy ? "Updating…" : "Update QB invoice"}
+                </button>
+              )}
+              <button disabled={qbBusy} onClick={() => { setMenuOpen(false); openChooserManual(); }} style={menuItem}
+                title="Verify or change which QuickBooks customer this client is linked to">QB customer…</button>
+              {!hasQB && !isManualInvoice && (
+                <button onClick={() => { setShowManualQb(true); setMenuOpen(false); }} style={menuItem}>Link existing QB invoice #</button>
+              )}
+              <button disabled={deleting} onClick={() => { setMenuOpen(false); onDelete(); }} style={{ ...menuItem, color: T.red }}>Delete invoice</button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -373,9 +376,12 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
         inQB={hasQB || isManualInvoice}
         sent={!!report.sent_at}
         paid={!!report.paid_at}
+        onManualQb={!hasQB && !isManualInvoice && !showManualQb ? () => setShowManualQb(true) : undefined}
       />
 
-      {!hasQB && (
+      {/* Manual QB # — an edge case, so it hides until asked for (via the
+          rail hint or ⋯), or when a manual number is already linked. */}
+      {!hasQB && (showManualQb || isManualInvoice) && (
         <ManualInvoiceInput
           reportId={report.id}
           initial={report.qb_invoice_number}
@@ -492,6 +498,7 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
             : <PostageTotalsStrip
                 totals={(report.postage_totals || {}) as PostageTotals}
                 lines={(report.postage_line_items || []) as PostageLineItem[]}
+                showTotal={false}
               />}
           <CombinedInvoiceBreakdown report={report} isBulkPostage={isBulkPostage} />
         </>
@@ -546,7 +553,7 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
 
 // The invoice's life in four steps, current step lit, with a plain-language
 // "what happens next" line — so the page itself teaches the workflow.
-function StateRail({ inQB, sent, paid }: { inQB: boolean; sent: boolean; paid: boolean }) {
+function StateRail({ inQB, sent, paid, onManualQb }: { inQB: boolean; sent: boolean; paid: boolean; onManualQb?: () => void }) {
   const steps = [
     { label: "Generated", done: true },
     { label: "In QuickBooks", done: inQB },
@@ -555,7 +562,7 @@ function StateRail({ inQB, sent, paid }: { inQB: boolean; sent: boolean; paid: b
   ];
   const curIdx = steps.findIndex(s => !s.done); // -1 → all done
   const hint = !inQB
-    ? "Next: Push to QuickBooks — creates the invoice in QB and brings back the invoice # and Pay Online link. (Already invoiced by hand in QB? Enter its # below instead.)"
+    ? <>Next: Push to QuickBooks — creates the invoice in QB and brings back the invoice # and Pay Online link.{onManualQb && <> Already invoiced by hand in QB? <button onClick={onManualQb} style={{ background: "none", border: "none", color: T.blue, fontWeight: 700, fontSize: 11.5, cursor: "pointer", fontFamily: font, padding: 0, textDecoration: "underline", textUnderlineOffset: 3 }}>enter its #</button>.</>}</>
     : !sent
     ? "Next: Send to client — emails the invoice with the Pay Online link."
     : !paid
@@ -604,7 +611,7 @@ function SalesTotalsStrip({ totals, feePct }: { totals: SalesTotals; feePct: num
   );
 }
 
-function PostageTotalsStrip({ totals, lines, fulfillmentOnly = false }: { totals: PostageTotals; lines: PostageLineItem[]; fulfillmentOnly?: boolean }) {
+function PostageTotalsStrip({ totals, lines, fulfillmentOnly = false, showTotal = true }: { totals: PostageTotals; lines: PostageLineItem[]; fulfillmentOnly?: boolean; showTotal?: boolean }) {
   // Older postage reports were saved before totals.items existed — fall
   // back to summing items_count off the line items so historical reports
   // still show the KPI. Same defensive default for fulfillment (added
@@ -623,23 +630,26 @@ function PostageTotalsStrip({ totals, lines, fulfillmentOnly = false }: { totals
   };
   // Fulfillment-only: no postage is billed, so show just the invoiced
   // figures (shipments, items, the fee, the total).
+  // Slimmed Aug 31 (Jon: "a disaster of buttons and info") — lead with the
+  // number that matters (Total Invoice), keep what's billed + the client's
+  // profit story; income/cost/insurance live in the table + Excel. Combined
+  // reports pass showTotal=false (the true total = sales fee + postage, shown
+  // in the Invoice Breakdown card instead).
   const tiles = fulfillmentOnly ? [
     { label: "Shipments", value: fmtN(safe.shipments), color: T.text },
     { label: "Items Shipped", value: fmtN(safe.items), color: T.text },
     { label: "Fulfillment Fee", value: fmtD(safe.fulfillment), color: T.amber },
     { label: "Total Invoice", value: fmtD(safe.fulfillment), color: T.green },
   ] : [
+    ...(showTotal ? [{ label: "Total Invoice", value: fmtD(safe.billed + safe.fulfillment), color: T.green }] : []),
     { label: "Shipments", value: fmtN(safe.shipments), color: T.text },
     { label: "Items Shipped", value: fmtN(safe.items), color: T.text },
-    { label: "Shipping Income", value: fmtD(safe.paid), color: T.text },
-    { label: "Shipping Cost", value: fmtD(safe.cost), color: T.muted },
-    { label: "Insurance", value: fmtD(safe.insurance), color: T.muted },
-    { label: "Billed Amount", value: fmtD(safe.billed), color: T.amber },
+    { label: "Postage Billed", value: fmtD(safe.billed), color: T.amber },
+    { label: "Fulfillment Fee", value: fmtD(safe.fulfillment), color: T.amber },
     { label: "Client Profit", value: fmtD(safe.margin), color: safe.margin >= 0 ? T.green : T.red },
-    { label: "Fulfillment", value: fmtD(safe.fulfillment), color: T.amber },
   ];
   return (
-    <div style={{ display: "grid", gridTemplateColumns: `repeat(${fulfillmentOnly ? 4 : 8}, 1fr)`, gap: 8 }}>
+    <div style={{ display: "grid", gridTemplateColumns: `repeat(${tiles.length}, 1fr)`, gap: 8 }}>
       {tiles.map(i => (
         <div key={i.label} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 12px" }}>
           <div style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, marginBottom: 2 }}>{i.label}</div>
