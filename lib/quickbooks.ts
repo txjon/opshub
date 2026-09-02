@@ -319,8 +319,15 @@ export async function getCustomerById(id: string): Promise<any | null> {
   try {
     const data = await qbFetch(`/customer/${id}`);
     return data?.Customer || null;
-  } catch {
-    return null;
+  } catch (e: any) {
+    // ONLY a definitive "this customer doesn't exist" may return null — the
+    // invoice route treats null as deleted-in-QB and severs the job's invoice
+    // refs (destructive self-heal). A transport failure must THROW: on Sep 1
+    // an Intuit 504 here read as "customer deleted", wiped HPD-2605-047's
+    // link to invoice #4284, and the next push minted duplicate #4483.
+    const msg = String(e?.message || "");
+    if (/object not found|"610"|has been deleted/i.test(msg)) return null;
+    throw e;
   }
 }
 
