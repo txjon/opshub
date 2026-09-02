@@ -29,7 +29,14 @@ export function itemClientPhase(it: {
     : route === "stage" ? !!it.webstoreEnteredAt
     : !!it.forwardedAt;
   if (done) return { label: "Delivered", tone: "done" };
-  if (it.receivedAtHpd) return { label: "Shipping", tone: "move" };
+  if (it.receivedAtHpd) {
+    // Stage-route goods received at HPD ARE the client's inventory — say
+    // "In stock" (matching the Pipeline sheet; POMG's samples read
+    // "Shipping" for 3 months, Sep 2). A ship_through hop keeps "Shipping":
+    // that warehouse stop is transient and not part of the client's story.
+    if (route === "stage") return { label: "In stock", tone: "done" };
+    return { label: "Shipping", tone: "move" };
+  }
   if (it.pipelineStage === "shipped") return { label: "Shipping", tone: "move" };
   if (it.pipelineStage === "in_production") return { label: "In production", tone: "move" };
 
