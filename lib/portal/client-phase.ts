@@ -28,8 +28,18 @@ export function itemClientPhase(it: {
     route === "drop_ship" ? it.pipelineStage === "shipped"
     : route === "stage" ? !!it.webstoreEnteredAt
     : !!it.forwardedAt;
-  if (done) return { label: "Delivered", tone: "done" };
-  if (it.receivedAtHpd) return { label: "Shipping", tone: "move" };
+  // "Shipped", not "Delivered" — forwarded/drop-shipped means WE sent it;
+  // we don't confirm arrival. Stage-route done isn't a shipment at all:
+  // the item went live in the client's webstore program (Jon, Sep 2).
+  if (done) return { label: route === "stage" ? "Entered in webstore" : "Shipped", tone: "done" };
+  if (it.receivedAtHpd) {
+    // Stage-route goods received at HPD ARE the client's inventory — say
+    // "In stock" (matching the Pipeline sheet; POMG's samples read
+    // "Shipping" for 3 months, Sep 2). A ship_through hop keeps "Shipping":
+    // that warehouse stop is transient and not part of the client's story.
+    if (route === "stage") return { label: "In stock", tone: "done" };
+    return { label: "Shipping", tone: "move" };
+  }
   if (it.pipelineStage === "shipped") return { label: "Shipping", tone: "move" };
   if (it.pipelineStage === "in_production") return { label: "In production", tone: "move" };
 

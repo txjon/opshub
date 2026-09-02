@@ -288,7 +288,10 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
       const isPricingVisible = !!typeMeta.quote_sent_at || isInvoiceSent;
       const visibleTotal = isPricingVisible ? total : 0;
       const visiblePaidAmount = isPricingVisible ? paidAmount : 0;
-      const balance = Math.max(0, visibleTotal - visiblePaidAmount);
+      // Close-short waivers settle the balance (matches the invoices index) —
+      // never show the client money we've already forgiven.
+      const waived = isPricingVisible ? (Number(typeMeta.invoice_waived_amount) || 0) : 0;
+      const balance = Math.max(0, visibleTotal - visiblePaidAmount - waived);
 
       let paymentStatus: "paid" | "unpaid" | "partial" | "deposit" | "none" = "none";
       // Resolve payment status. Zero-total orders need special
