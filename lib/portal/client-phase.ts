@@ -28,7 +28,10 @@ export function itemClientPhase(it: {
     route === "drop_ship" ? it.pipelineStage === "shipped"
     : route === "stage" ? !!it.webstoreEnteredAt
     : !!it.forwardedAt;
-  if (done) return { label: "Delivered", tone: "done" };
+  // "Shipped", not "Delivered" — forwarded/drop-shipped means WE sent it;
+  // we don't confirm arrival (Jon, Sep 2). Stage-route done means the item
+  // entered the webstore program, which isn't a shipment at all.
+  if (done) return { label: route === "stage" ? "Delivered" : "Shipped", tone: "done" };
   if (it.receivedAtHpd) {
     // Stage-route goods received at HPD ARE the client's inventory — say
     // "In stock" (matching the Pipeline sheet; POMG's samples read
