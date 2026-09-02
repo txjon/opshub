@@ -218,15 +218,27 @@ async function qbFetch(
   const sep = endpoint.includes("?") ? "&" : "?";
   const url = `${QB_BASE_URL}/v3/company/${realmId}${endpoint}${sep}minorversion=${QB_MINOR_VERSION}`;
 
-  const res = await fetch(url, {
-    method: options.method || "GET",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
-    body: options.body ? JSON.stringify(options.body) : undefined,
-  });
+  // 25s per-call cap: when Intuit is degraded (Sep 1: companyinfo itself hung
+  // 4+ min → Vercel killed the function at 60s with a plain-text error the UI
+  // couldn't parse), fail FAST with a clean message instead.
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: options.method || "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: options.body ? JSON.stringify(options.body) : undefined,
+      signal: AbortSignal.timeout(25000),
+    });
+  } catch (e: any) {
+    if (e?.name === "TimeoutError" || e?.name === "AbortError") {
+      throw new Error("QuickBooks isn't responding (Intuit API timeout) — try again in a few minutes.");
+    }
+    throw e;
+  }
 
   // Log intuit_tid for debugging
   const tid = res.headers.get("intuit_tid");
@@ -244,6 +256,7 @@ async function qbFetch(
         Accept: "application/json",
       },
       body: options.body ? JSON.stringify(options.body) : undefined,
+      signal: AbortSignal.timeout(25000),
     });
     if (!retry.ok) {
       const text = await retry.text();
