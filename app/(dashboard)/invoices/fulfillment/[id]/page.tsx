@@ -219,7 +219,10 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      const data = await res.json();
+      // Platform failures return plain text — don't let a parse error mask them.
+      const data = await res.json().catch(() => ({
+        error: `QuickBooks push failed (server ${res.status}) — QB may be slow or down; try again in a few minutes.`,
+      }));
       if (res.status === 409 && data?.error === "ambiguous_customer") {
         // Open the chooser instead of creating a duplicate. Caller picks
         // the right QB customer (or explicitly "Create new"); we retry

@@ -50,7 +50,10 @@ export default function ProjectsBoard() {
   const [query, setQuery] = useState("");
   const [stageFilter, setStageFilter] = useState("");
   const [clientFilter, setClientFilter] = useState("");
-  const [sortBy, setSortBy] = useState<"due" | "invoice" | "newest">("due"); // default: next item due
+  // Default: newest first (Jon, Sep 1) — Drake/Taylor open this page to work
+  // the newest jobs to completion; once a job's in production, the
+  // production board owns the due-date view.
+  const [sortBy, setSortBy] = useState<"due" | "invoice" | "newest">("newest");
   const [unpaidOnly, setUnpaidOnly] = useState(false); // completed tab: only jobs with money outstanding
   const returnRef = useRef<BoardReturn>(null); // strip we left through, for scroll-back
   const [flashId, setFlashId] = useState<string | null>(null); // strip to ink-outline after return
@@ -218,9 +221,9 @@ export default function ProjectsBoard() {
           <style>{`@keyframes projChipPop{from{transform:translateY(2px);opacity:.35}to{transform:none;opacity:1}}.proj-chip{animation:projChipPop .13s ease-out}`}</style>
           <SliceSortRow>
             <select value={sortBy} onChange={e => setSortBy(e.target.value as any)} style={selStyle}>
+              <option value="newest">Newest</option>
               <option value="due">Next item due</option>
               <option value="invoice">Invoice #</option>
-              <option value="newest">Newest</option>
             </select>
             <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
               <select value={clientFilter} onChange={e => setClientFilter(e.target.value)} style={selStyle}>

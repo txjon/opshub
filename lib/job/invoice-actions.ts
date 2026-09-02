@@ -26,7 +26,12 @@ export async function pushInvoiceToQB(job: any, opts: { qbCustomerId?: string; f
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  const data = await res.json();
+  // A platform-level failure (Vercel timeout/crash) returns a plain-text
+  // page — parsing it as JSON produced "Unexpected token 'A'…" gibberish
+  // in the UI (Sep 1). Guard the parse and say what actually happened.
+  const data = await res.json().catch(() => ({
+    error: `QuickBooks push failed (server ${res.status}) — QB may be slow or down; try again in a few minutes.`,
+  }));
   if (res.status === 409 && data?.error === "ambiguous_customer") {
     return { ok: false, ambiguous: data.candidates || [] };
   }
