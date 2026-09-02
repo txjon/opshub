@@ -292,7 +292,10 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         // Total — prefer QB total_with_tax, fall back to costing grossRev.
         const total = Number(typeMeta.qb_total_with_tax) || (Number(typeMeta.stripe_total_cents) ? Number(typeMeta.stripe_total_cents) / 100 : 0) || Number(costingSummary.grossRev) || 0;
         const paidAmount = jobPays.filter((p: any) => p.status === "paid").reduce((a: number, p: any) => a + (Number(p.amount) || 0), 0);
-        const balance = total - paidAmount;
+        // Close-short waivers settle the balance (the invoices index agrees) —
+        // never show a client money we've already forgiven.
+        const waived = Number(typeMeta.invoice_waived_amount) || 0;
+        const balance = total - paidAmount - waived;
         if (balance > 0.01) unpaidCount++;
       }
     }
