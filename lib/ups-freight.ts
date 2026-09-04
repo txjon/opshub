@@ -7,6 +7,7 @@
 // from the distro warehouse is a separate UPS account / feed.
 import { resolvePoRef, buildPoRefIndex, type JobLite, type PoRefIndex } from "@/lib/po-ref-match";
 import { effectiveShipRate } from "@/lib/pricing";
+import { overlayQtysOnly } from "@/lib/costing-summary";
 
 export interface UpsCharge {
   invoiceNumber: string;   // UPS invoice # (dedup key) — column on 32-col, from filename on 10-col
@@ -148,8 +149,11 @@ export function shippingVarianceNet(
 
 // Calculated (estimated) inbound shipping for a job = sum over costProds of the
 // per-unit ship rate × qty (effectiveShipRate, the costing's freight buffer).
-export function calculatedShipping(costingData: any): number {
-  const cps = costingData?.costProds || [];
+// Phase 4a: pass the job's items to derive qty from buy_sheet_lines (the
+// owner) instead of the stored copy; without items, legacy raw behavior.
+export function calculatedShipping(costingData: any, items?: any[]): number {
+  const raw = costingData?.costProds || [];
+  const cps = items?.length ? overlayQtysOnly(raw, items) : raw;
   let total = 0;
   for (const cp of cps) {
     const qty = cp.totalQty || Object.values(cp.qtys || {}).reduce((a: number, v: any) => a + (Number(v) || 0), 0);

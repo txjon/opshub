@@ -64,12 +64,12 @@ export function VarianceView({ queue, jobsRaw, items, printers, freightEntries =
     const rows = Object.entries(byJob).map(([jid, actual]) => {
       const job = jobsRaw[jid];
       const cl = job ? (Array.isArray(job.clients) ? job.clients[0]?.name : job.clients?.name) : "";
-      const calc = job ? calculatedShipping(job.costing_data) : 0;
+      const calc = job ? calculatedShipping(job.costing_data, items.filter((it: any) => it.job_id === jid)) : 0;
       return { jobNumber: job?.job_number || jid, client: cl || "", actual: Math.round(actual * 100) / 100, calc, margin: Math.round((calc - actual) * 100) / 100 };
     }).sort((a, b) => b.margin - a.margin);
     const captured = Math.round((rows.reduce((s, r) => s + r.margin, 0) - pool) * 100) / 100;
     return { rows, pool, captured };
-  }, [freightEntries, jobsRaw]);
+  }, [freightEntries, jobsRaw, items]);
 
   // Projected cost plan = decorator expected + blank calc (when ordered) + freight calc.
   // Margin impact % = net variance ÷ plan (negative net = under plan = margin gained).
