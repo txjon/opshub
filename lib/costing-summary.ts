@@ -49,6 +49,28 @@ async function loadItemTruth(sb: Sb, jobId: string): Promise<any[]> {
   return data || [];
 }
 
+// ── THE one-line assembler (single-source Phase 4, Sep 4 2026) ─────────────
+// Any consumer feeding lib/pricing.calcCostProduct must run costProds through
+// the overlay first — qty ← buy_sheet_lines, blankCosts ← items.blank_costs,
+// pricing ← costProds. Single-job consumers call this; batch consumers
+// (variance, freight) fetch item truth themselves and call overlayCostProds
+// per job. Raw costing_data reads are the 2608-023 bug class.
+export async function assembleCostProds(sb: Sb, jobId: string, costProds: any[]): Promise<any[]> {
+  return overlayCostProds(costProds || [], await loadItemTruth(sb, jobId));
+}
+
+// Phase 4a: quantity flip ONLY — buy-sheet qtys in, STORED blank costs kept
+// byte-untouched. The blank-cost half (4b) ships separately behind its own
+// per-job reconciliation (parity harness found 35 jobs where the two homes
+// disagree; scripts/verify-qty-single-source.ts).
+export function overlayQtysOnly(costProds: any[], items: any[]): any[] {
+  const stored = new Map((costProds || []).map((p: any) => [p.id, p]));
+  return overlayCostProds(costProds, items).map(p => {
+    const s: any = stored.get(p.id);
+    return s ? { ...p, blankCosts: s.blankCosts } : p;
+  });
+}
+
 // Split Additional charges into HPD revenue vs $0-margin passthrough —
 // identical to CostingTab's computeExtraSummary.
 export function computeExtraSummary(lines: any[] | null | undefined): { feeRevenue: number; passthruTotal: number } {

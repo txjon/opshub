@@ -3,6 +3,7 @@
 // Variances tab (/reconciliation) and the god-mode owner tile.
 
 import { calcCostProduct } from "@/lib/pricing";
+import { overlayCostProds } from "@/lib/costing-summary";
 import type { BillingQueue } from "@/lib/billing-queue";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -35,6 +36,8 @@ export function computeVarianceSummary({ queue, jobsRaw, items, printers }: {
 }): VarianceSummary {
   // blank actuals by job (exclude "NA"/"N/A" — no blank purchased)
   const blankActualByJob: Record<string, number> = {};
+  const itemsByJob: Record<string, any[]> = {};
+  for (const it of items) (itemsByJob[it.job_id] ||= []).push(it);
   for (const it of items) {
     if (naRe.test(String(it.blanks_order_number || "").trim())) continue;
     const a = Number(it.blanks_order_cost); if (a > 0) blankActualByJob[it.job_id] = r2((blankActualByJob[it.job_id] || 0) + a);
@@ -46,11 +49,20 @@ export function computeVarianceSummary({ queue, jobsRaw, items, printers }: {
     let decoExp = 0, decoBilled = 0; const vrows: VarianceJobRow["vendors"] = [];
     for (const v of j.vendors) {
       if (v.billed <= 0.01 && !v.complete) continue; // awaiting = pending, not a variance
+      // Marked fully billed with ZERO bills logged = a no-data close-out
+      // (early-OpsHub POs billed before AP existed — Jon, Sep 4). No data,
+      // no variance claim: a −$expected row here is fiction, not a saving.
+      if (v.complete && v.billed <= 0.01) continue;
       const capped = v.complete && v.reason === "over_accept" && v.billed > v.expected ? v.expected : v.billed;
       decoExp = r2(decoExp + v.expected); decoBilled = r2(decoBilled + capped);
       vrows.push({ name: v.name, expected: v.expected, billed: capped, variance: r2(capped - v.expected) });
     }
-    const cps = jobsRaw[j.id]?.costing_data?.costProds || [];
+    // Phase 4a+4b (Sep 4 2026): full single-source overlay — qty ←
+    // buy_sheet_lines (2608-023's $17.5K phantom), blankCosts ←
+    // items.blank_costs (2608-043 projected $0 while the items carried
+    // $2,957; Jon ruled item records = truth three times running: 2608-032,
+    // -036, -043). Stored copies are fallback-only via overlayCostProds.
+    const cps = overlayCostProds(jobsRaw[j.id]?.costing_data?.costProds || [], itemsByJob[j.id] || []);
     const margin = String(jobsRaw[j.id]?.costing_data?.margin ?? 0);
     const blankCalc = r2(cps.reduce((s: number, c: any) => { const calc = calcCostProduct(c, margin, false, false, cps, printers); return s + (calc ? Number(calc.blankCost || 0) : 0); }, 0));
     const blankActual = blankActualByJob[j.id] || 0;
