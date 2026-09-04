@@ -3,7 +3,7 @@
 // Variances tab (/reconciliation) and the god-mode owner tile.
 
 import { calcCostProduct } from "@/lib/pricing";
-import { overlayQtysOnly } from "@/lib/costing-summary";
+import { overlayCostProds } from "@/lib/costing-summary";
 import type { BillingQueue } from "@/lib/billing-queue";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -53,11 +53,12 @@ export function computeVarianceSummary({ queue, jobsRaw, items, printers }: {
       decoExp = r2(decoExp + v.expected); decoBilled = r2(decoBilled + capped);
       vrows.push({ name: v.name, expected: v.expected, billed: capped, variance: r2(capped - v.expected) });
     }
-    // Phase 4a (Sep 4 2026): quantities come from buy_sheet_lines via the
-    // qty-only overlay — projecting from stored costing copies is what made
-    // 2608-023 read $17.5K over when it was $4.5K under. Blank costs stay on
-    // the stored copy until 4b's per-job reconciliation clears.
-    const cps = overlayQtysOnly(jobsRaw[j.id]?.costing_data?.costProds || [], itemsByJob[j.id] || []);
+    // Phase 4a+4b (Sep 4 2026): full single-source overlay — qty ←
+    // buy_sheet_lines (2608-023's $17.5K phantom), blankCosts ←
+    // items.blank_costs (2608-043 projected $0 while the items carried
+    // $2,957; Jon ruled item records = truth three times running: 2608-032,
+    // -036, -043). Stored copies are fallback-only via overlayCostProds.
+    const cps = overlayCostProds(jobsRaw[j.id]?.costing_data?.costProds || [], itemsByJob[j.id] || []);
     const margin = String(jobsRaw[j.id]?.costing_data?.margin ?? 0);
     const blankCalc = r2(cps.reduce((s: number, c: any) => { const calc = calcCostProduct(c, margin, false, false, cps, printers); return s + (calc ? Number(calc.blankCost || 0) : 0); }, 0));
     const blankActual = blankActualByJob[j.id] || 0;
