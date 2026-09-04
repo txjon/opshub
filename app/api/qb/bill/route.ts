@@ -40,6 +40,11 @@ export async function POST(req: NextRequest) {
     const cc = entries.find((e: any) => e.bill_method === "credit_card");
     if (cc) return NextResponse.json({ error: "Card charges don't push to QB — the expense arrives via the card feed. This entry is recorded for job costing only." }, { status: 400 });
 
+    // Pre-OpsHub close-outs NEVER push — the money settled years ago,
+    // before AP existed; the entry exists for margin truth only (Sep 4).
+    const pre = entries.find((e: any) => e.source === "pre_opshub");
+    if (pre) return NextResponse.json({ error: "This is a pre-OpsHub close-out (billed and paid before AP existed) — recorded for job costing only, never pushed to QB." }, { status: 400 });
+
     // Guard: refuse to double-push
     const already = entries.find((e: any) => e.qb_bill_id);
     if (already) return NextResponse.json({ error: `Already pushed to QB (bill #${already.qb_bill_id})` }, { status: 409 });

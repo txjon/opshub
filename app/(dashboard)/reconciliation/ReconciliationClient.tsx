@@ -475,6 +475,29 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
     await supabase.from("cost_vendor_status").upsert({ job_id: jobId, vendor_id: apVendorId, status: "complete", reason }, { onConflict: "job_id,vendor_id" } as any);
     loadAll();
   }
+  // Pre-OpsHub close-out (Jon, Sep 4): marking "fully billed" with ZERO bills
+  // logged used to close the vendor at $0 — the decorator then read as FREE
+  // in margin and variance claimed the full PO as phantom savings. These are
+  // real early POs billed before AP existed, so record the bill AT the PO
+  // amount: source "pre_opshub" (never pushed to QB — the money settled
+  // years ago), matched, then mark complete as a clean match.
+  const [preOpsArm, setPreOpsArm] = useState<string | null>(null); // `${jobId}::${vendorId}` two-tap
+  async function markFullyBilledPreOps(jobId: string, v: any) {
+    if (!v.apVendorId) return;
+    await supabase.from("cost_entries").insert({
+      source: "pre_opshub",
+      vendor_id: v.apVendorId, vendor_name: v.name,
+      vendor_invoice_number: null,
+      po_ref: null,
+      job_id: jobId,
+      amount: v.expected, expected_amount: v.expected,
+      charge_type: "production",
+      status: "matched",
+      bill_method: vendorMethod(v.apVendorId),
+    } as any);
+    await markComplete(jobId, v.apVendorId, "matches");
+    setPreOpsArm(null);
+  }
   async function reopenVendor(jobId: string, apVendorId: string | null) {
     if (!apVendorId) return;
     await supabase.from("cost_vendor_status").delete().eq("job_id", jobId).eq("vendor_id", apVendorId);
@@ -588,8 +611,22 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
                     </select>
                     <button onClick={() => reopenVendor(j.id, v.apVendorId)} className="bq-ghost">Reopen</button>
                   </> : <>
-                    <button onClick={() => markComplete(j.id, v.apVendorId, autoReason(v.billed, v.expected))} style={{ background: T.green, color: "#fff", border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>Mark fully billed</button>
-                    <span style={{ fontSize: 11, color: T.faint }}>confirm no more invoices coming{v.outstanding > 0 ? ` · clears ${money(v.outstanding)} from Open PO` : ""}</span>
+                    {v.billed <= 0.01 ? (
+                      // No bills logged — an early PO billed before OpsHub AP.
+                      // Two-tap: records the bill AT the PO amount (pre_opshub,
+                      // never pushed to QB) so margin stays honest, then closes.
+                      <button onClick={() => {
+                        const key = `${j.id}::${v.apVendorId}`;
+                        if (preOpsArm !== key) { setPreOpsArm(key); return; }
+                        markFullyBilledPreOps(j.id, v);
+                      }}
+                        style={{ background: preOpsArm === `${j.id}::${v.apVendorId}` ? T.amber : T.green, color: "#fff", border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>
+                        {preOpsArm === `${j.id}::${v.apVendorId}` ? `Tap again — record ${money(v.expected)} bill (billed before OpsHub) + close` : "Mark fully billed"}
+                      </button>
+                    ) : (
+                      <button onClick={() => markComplete(j.id, v.apVendorId, autoReason(v.billed, v.expected))} style={{ background: T.green, color: "#fff", border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: font }}>Mark fully billed</button>
+                    )}
+                    <span style={{ fontSize: 11, color: T.faint }}>{v.billed <= 0.01 ? "no bills logged — records it as billed at the PO amount" : "confirm no more invoices coming"}{v.outstanding > 0 && v.billed > 0.01 ? ` · clears ${money(v.outstanding)} from Open PO` : ""}</span>
                   </>}
                 </div>
                 )}
