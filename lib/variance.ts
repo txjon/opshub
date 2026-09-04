@@ -49,6 +49,10 @@ export function computeVarianceSummary({ queue, jobsRaw, items, printers }: {
     let decoExp = 0, decoBilled = 0; const vrows: VarianceJobRow["vendors"] = [];
     for (const v of j.vendors) {
       if (v.billed <= 0.01 && !v.complete) continue; // awaiting = pending, not a variance
+      // Marked fully billed with ZERO bills logged = a no-data close-out
+      // (early-OpsHub POs billed before AP existed — Jon, Sep 4). No data,
+      // no variance claim: a −$expected row here is fiction, not a saving.
+      if (v.complete && v.billed <= 0.01) continue;
       const capped = v.complete && v.reason === "over_accept" && v.billed > v.expected ? v.expected : v.billed;
       decoExp = r2(decoExp + v.expected); decoBilled = r2(decoBilled + capped);
       vrows.push({ name: v.name, expected: v.expected, billed: capped, variance: r2(capped - v.expected) });
