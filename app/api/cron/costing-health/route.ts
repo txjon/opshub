@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
     const sb = admin();
     const { data: jobs, error } = await sb
       .from("jobs")
-      .select("id, job_number, phase, costing_data, costing_summary, items(id, name, is_fleece, sell_per_unit, buy_sheet_lines(qty_ordered))")
+      .select("id, job_number, phase, financial_closed_at, costing_data, costing_summary, items(id, name, is_fleece, archived_at, sell_per_unit, buy_sheet_lines(size, qty_ordered))")
       .not("costing_summary", "is", null);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
@@ -89,6 +89,59 @@ export async function GET(req: NextRequest) {
       drift.push({ job: j.job_number, phase: j.phase, grossRev: gr, target, delta });
     }
 
+    // ── Qty tripwire: costing_data per-size qtys vs buy_sheet_lines (the
+    //    owner). Reorder clones + worksheet qty edits drifted these silently
+    //    for weeks and poisoned variance projections (HPD-2608-023, Sep 4:
+    //    $17.5K phantom overage that was really $4.5K under). Costing
+    //    UNDERCOUNTING the buy sheet is the stale-seed class → heal on sight
+    //    (mirrors CostingTabWrapper's sync: match by item id, only when the
+    //    item has real lines, qtys/totalQty/sizes only, stamp _savedAt).
+    //    Costing OVERCOUNTING is the pre-order/wave shape (FOG) → report
+    //    only, humans decide. Financially closed books are never touched.
+    const SIZE_ORDER = ["XS", "S", "M", "L", "XL", "2XL", "3XL", "4XL", "5XL"];
+    const qtyHealed: { job: string; detail: string }[] = [];
+    const qtyDrift: { job: string; phase: string; cpQty: number; bsQty: number }[] = [];
+    for (const j of jobs || []) {
+      const cps: any[] = (j.costing_data as any)?.costProds || [];
+      if (!cps.length) continue;
+      const linesById: Record<string, Record<string, number>> = {};
+      for (const it of (j.items as any[]) || []) {
+        if (it.archived_at) continue;
+        const q: Record<string, number> = {};
+        for (const l of it.buy_sheet_lines || []) if (l.size) q[l.size] = (q[l.size] || 0) + (Number(l.qty_ordered) || 0);
+        if (Object.keys(q).length) linesById[it.id] = q;
+      }
+      const cpQty = cps.reduce((a, p) => a + Object.values(p.qtys || {}).reduce((x: number, y: any) => x + (Number(y) || 0), 0), 0);
+      const bsQty = Object.values(linesById).reduce((a, q) => a + Object.values(q).reduce((x, y) => x + y, 0), 0);
+      if (bsQty === 0 || Math.abs(cpQty - bsQty) <= Math.max(2, bsQty * 0.05)) continue;
+      if (cpQty > bsQty || (j as any).financial_closed_at) {
+        qtyDrift.push({ job: j.job_number, phase: j.phase, cpQty, bsQty });
+        continue;
+      }
+      try {
+        const changes: string[] = [];
+        for (const cp of cps) {
+          const q = linesById[cp.id];
+          if (!q) continue;
+          if (JSON.stringify(cp.qtys) === JSON.stringify(q)) continue;
+          const cur = Object.values(cp.qtys || {}).reduce((x: number, y: any) => x + (Number(y) || 0), 0);
+          const total = Object.values(q).reduce((x, y) => x + y, 0);
+          cp.qtys = q;
+          cp.totalQty = total;
+          cp.sizes = Object.keys(q).sort((a, b) => (SIZE_ORDER.indexOf(a) + 100 * +(SIZE_ORDER.indexOf(a) < 0)) - (SIZE_ORDER.indexOf(b) + 100 * +(SIZE_ORDER.indexOf(b) < 0)));
+          changes.push(`${cp.name || "?"} ${cur}→${total}u`);
+        }
+        if (!changes.length) { qtyDrift.push({ job: j.job_number, phase: j.phase, cpQty, bsQty }); continue; }
+        (j.costing_data as any)._savedAt = new Date().toISOString();
+        const { error: wErr } = await sb.from("jobs").update({ costing_data: j.costing_data }).eq("id", (j as any).id);
+        if (wErr) throw wErr;
+        await refreshJobFinancials(sb, (j as any).id);
+        qtyHealed.push({ job: j.job_number, detail: changes.join(" · ") });
+      } catch {
+        qtyDrift.push({ job: j.job_number, phase: j.phase, cpQty, bsQty });
+      }
+    }
+
     drift.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
 
     // ── Phase tripwire: stored jobs.phase vs the canonical dry-run recompute ──
@@ -107,7 +160,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Email the owner ONLY when something is wrong. Silent when clean.
-    if ((drift.length || healed.length || fleeceGaps.length || phaseDrift.length) && process.env.OWNER_EMAIL) {
+    if ((drift.length || healed.length || fleeceGaps.length || phaseDrift.length || qtyHealed.length || qtyDrift.length) && process.env.OWNER_EMAIL) {
       try {
         const resend = resendForSlug("hpd");
         const driftRows = drift.map(d =>
@@ -123,12 +176,14 @@ export async function GET(req: NextRequest) {
   ${drift.length ? `<h3 style="color:#ef4444;margin:16px 0 8px">Revenue drift — summary out of step with item prices (${drift.length})</h3><ul style="margin:0;padding-left:20px">${driftRows}</ul>` : ""}
   ${fleeceGaps.length ? `<h3 style="color:#d97706;margin:16px 0 8px">Fleece not applied in costing (${fleeceGaps.length})</h3><ul style="margin:0;padding-left:20px">${fleeceRows}</ul>` : ""}
   ${phaseDrift.length ? `<h3 style="color:#ef4444;margin:16px 0 8px">Phase drift — stored phase ≠ recomputed (${phaseDrift.length})</h3><ul style="margin:0;padding-left:20px">${phaseRows}</ul>` : ""}
+  ${qtyHealed.length ? `<h3 style="color:#16a34a;margin:16px 0 8px">Costing qtys re-synced from the buy sheet (${qtyHealed.length})</h3><ul style="margin:0;padding-left:20px">${qtyHealed.map(h => `<li style="margin:4px 0;font-size:14px"><b>${h.job}</b> — ${h.detail}</li>`).join("")}</ul>` : ""}
+  ${qtyDrift.length ? `<h3 style="color:#d97706;margin:16px 0 8px">Costing qtys ≠ buy sheet — needs eyes (${qtyDrift.length})</h3><ul style="margin:0;padding-left:20px">${qtyDrift.map(d => `<li style="margin:4px 0;font-size:14px"><b>${d.job}</b> (${d.phase}) — costing ${d.cpQty}u vs buy sheet ${d.bsQty}u${d.cpQty > d.bsQty ? " · costing overcounts (pre-order/wave shape — review, not auto-healed)" : " · closed or unhealable"}</li>`).join("")}</ul>` : ""}
   <p style="margin:20px 0 0;font-size:12px;color:#999">Costing: re-save the job's costing tab. Phase: open the job (V2 heals on load). — OpsHub tripwire</p>
 </div>`;
         await resend.emails.send({
           from: process.env.EMAIL_FROM_QUOTES || "onboarding@resend.dev",
           to: process.env.OWNER_EMAIL,
-          subject: `OpsHub · ⚠️ ${drift.length + fleeceGaps.length + phaseDrift.length} health issue${drift.length + fleeceGaps.length + phaseDrift.length !== 1 ? "s" : ""} (${drift.length} rev · ${phaseDrift.length} phase)`,
+          subject: `OpsHub · ⚠️ ${drift.length + fleeceGaps.length + phaseDrift.length + qtyDrift.length} health issue${drift.length + fleeceGaps.length + phaseDrift.length + qtyDrift.length !== 1 ? "s" : ""} (${drift.length} rev · ${phaseDrift.length} phase · ${qtyDrift.length} qty)`,
           html,
         });
       } catch (emailErr) {
@@ -136,7 +191,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ consistent, drifted: drift.length, healed: healed.length, fleeceGaps: fleeceGaps.length, phaseDrift: phaseDrift.length, jobs: drift.map(d => d.job), healedJobs: healed.map(h => h.job), phaseJobs: phaseDrift.map(p => p.job) });
+    return NextResponse.json({ consistent, drifted: drift.length, healed: healed.length, fleeceGaps: fleeceGaps.length, phaseDrift: phaseDrift.length, qtyHealed: qtyHealed.length, qtyDrift: qtyDrift.length, jobs: drift.map(d => d.job), healedJobs: healed.map(h => h.job), phaseJobs: phaseDrift.map(p => p.job), qtyHealedJobs: qtyHealed.map(h => h.job), qtyDriftJobs: qtyDrift.map(d => d.job) });
   } catch (e: any) {
     console.error("Costing-health cron error:", e);
     return NextResponse.json({ error: e.message }, { status: 500 });
