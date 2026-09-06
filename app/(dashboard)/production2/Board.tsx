@@ -864,7 +864,7 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
               fileId: up.fileId, webViewLink: up.webViewLink, folderLink: up.folderLink,
               fileName: file.name, mimeType: file.type, fileSize: file.size,
               itemId: it.itemId, stage: "packing_slip", notes: up.folderLink,
-            });
+            } as any);
             if (!packingSlipFileId && reg?.id) packingSlipFileId = reg.id;
           }
         }

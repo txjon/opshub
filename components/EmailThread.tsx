@@ -82,7 +82,7 @@ export function EmailThread({ jobId, onCompose, channel, decoratorId, title = "E
     const { data } = await query
       .order("created_at", { ascending: false })
       .limit(50);
-    setEmails(data || []);
+    setEmails((data || []) as any);
   }
 
   const formatTime = (iso: string) => {

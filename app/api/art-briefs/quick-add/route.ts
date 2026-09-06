@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
       state: "working",
       assigned_designer_id: finalDesignerId,
       created_by: user.id,
-    }).select("*").single();
+    } as any).select("*").single();
 
     if (briefErr || !brief) return NextResponse.json({ error: briefErr?.message || "Brief create failed" }, { status: 500 });
 

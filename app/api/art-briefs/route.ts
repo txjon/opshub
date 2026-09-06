@@ -55,7 +55,7 @@ export async function GET(req: NextRequest) {
         : { data: [] as any[] };
       // Per-kind 1-based ordinal so the file badge can render "REF 3" /
       // "2nd Draft" instead of just "REF" / "REV".
-      const ordinals = computeFileOrdinals(filesRes.data || []);
+      const ordinals = computeFileOrdinals((filesRes.data || []) as any);
       // Per-file chat comments — needed by ArtReferencesGrid for the
       // chat thread on each file card. Service-role read (see top).
       const fileIds = (filesRes.data || []).map((f: any) => f.id);
@@ -267,7 +267,7 @@ export async function POST(req: NextRequest) {
       assigned_designer_id: finalDesignerId,
       state: state || "working",
       created_by: user.id,
-    }).select("*").single();
+    } as any).select("*").single();
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ brief: data });

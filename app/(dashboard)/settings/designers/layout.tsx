@@ -6,6 +6,6 @@ export default async function DesignersLayout({ children }: { children: React.Re
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
   const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
-  if (!["manager", "owner"].includes(profile?.role)) redirect("/dashboard");
+  if (!["manager", "owner"].includes(profile?.role as any)) redirect("/dashboard");
   return <>{children}</>;
 }

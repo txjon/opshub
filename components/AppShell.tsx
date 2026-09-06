@@ -114,7 +114,7 @@ export function AppShell({
   const grantedGroups = new Set(grantedCatalog.map(p => p.group));
   const navByGroup: Record<string, { href: string; label: string }[]> = {};
   for (const p of grantedCatalog) (navByGroup[p.group] ||= []).push({ href: p.href, label: p.label });
-  const hasDept = (d: string) => usePerUser ? grantedGroups.has(d) : departments.includes(d);
+  const hasDept = (d: string) => usePerUser ? grantedGroups.has(d as any) : departments.includes(d as any);
   const hasExtra = (page: string) => extraAccess.includes(page);
   // A user can land (via bookmark/URL) on a page whose department they don't
   // have — e.g. a contractor on /hours, which lives under "owner". Resolve to

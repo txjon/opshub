@@ -549,7 +549,7 @@ export async function POST(
       if (ctx) {
         const carrierText = carrier ? ` via ${carrier}` : "";
         await sb.from("job_activity").insert({
-          job_id: ctx.job.id, user_id: null, type: "auto",
+          job_id: ctx.job!.id, user_id: null, type: "auto",
           message: `Shipped by ${decorator.name}${carrierText} — ${ctx.item.name} · Tracking: ${tracking}`,
         });
 
@@ -606,7 +606,7 @@ export async function POST(
       const ctx = await getItemContext(itemId);
       if (ctx) {
         await sb.from("job_activity").insert({
-          job_id: ctx.job.id, user_id: null, type: "auto",
+          job_id: ctx.job!.id, user_id: null, type: "auto",
           message: `Issue flagged by ${decorator.name} for ${ctx.item.name}: "${note}"`,
         });
 
@@ -619,7 +619,7 @@ export async function POST(
           if (resend) {
             const baseUrl = process.env.NEXT_PUBLIC_SITE_URL
               || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
-            const projectRef = ctx.job.job_number || ctx.job.title;
+            const projectRef = ctx.job!.job_number || ctx.job!.title;
             await resend.emails.send({
               from: process.env.EMAIL_FROM_PO || "production@housepartydistro.com",
               to: "production@housepartydistro.com",
@@ -627,7 +627,7 @@ export async function POST(
               html: renderBrandedEmail({
                 heading: `Vendor flagged a discrepancy`,
                 bodyHtml: `<strong>${decorator.name}</strong> reported an issue on <strong>${ctx.item.name}</strong> (${projectRef}):<br/><br/><em>"${note.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}"</em>`,
-                cta: { label: "Open project", url: `${baseUrl}/jobs/${ctx.job.id}`, style: "dark" },
+                cta: { label: "Open project", url: `${baseUrl}/jobs/${ctx.job!.id}`, style: "dark" },
                 hint: "Reply directly to this thread to follow up with the vendor on next steps.",
                 closing: "House Party Distro",
                 align: "left",

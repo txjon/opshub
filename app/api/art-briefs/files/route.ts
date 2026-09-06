@@ -101,7 +101,7 @@ export async function DELETE(req: NextRequest) {
           .from("art_brief_files")
           .select("kind")
           .eq("brief_id", file.brief_id);
-        const newState = recomputeBriefState((brief as any).state, remaining || []);
+        const newState = recomputeBriefState((brief as any).state, (remaining || []) as any);
         if (newState && newState !== (brief as any).state) {
           await supabase.from("art_briefs")
             .update({ state: newState, updated_at: new Date().toISOString() })

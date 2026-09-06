@@ -191,7 +191,7 @@ export default function NewItemPage({ params }: { params: { id: string } }) {
         job_id: params.id, name: form.name, blank_vendor: form.blank_vendor || null,
         blank_sku: form.blank_sku || null, garment_type: form.garment_type || null,
         status: form.status, artwork_status: form.artwork_status, notes: form.notes || null, sort_order: 0,
-      }).select("id").single();
+      } as any).select("id").single();
       if (itemError) throw itemError;
       if (selectedSizes.length > 0) {
         const { error: lineError } = await supabase.from("buy_sheet_lines").insert(

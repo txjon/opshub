@@ -1039,7 +1039,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     const filename = `HPD-${isCombined ? "Full-Service-Invoice" : isFulfillment ? "Fulfillment-Invoice" : isPostage ? (isBulkPostage ? "Postage-Invoice" : "Fulfillment-Invoice") : "Services-Invoice"}-${slug}.pdf`;
 
     const isDownload = req.nextUrl.searchParams.get("download");
-    return new NextResponse(pdfBuffer, {
+    return new NextResponse(pdfBuffer as any, {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",

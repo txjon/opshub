@@ -43,14 +43,14 @@ export function PartyLine({ currentUserId }: { currentUserId: string }) {
       .select("*")
       .order("created_at", { ascending: true })
       .limit(100);
-    setMessages(data || []);
+    setMessages((data || []) as any);
     setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
   }
 
   async function send() {
     if (!draft.trim() || sending) return;
     setSending(true);
-    await supabase.from("messages").insert({ user_id: currentUserId, message: draft.trim() });
+    await supabase.from("messages").insert({ user_id: currentUserId, message: draft.trim() } as any);
     setDraft("");
     setSending(false);
     loadMessages();

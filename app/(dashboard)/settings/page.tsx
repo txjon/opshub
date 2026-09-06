@@ -10,7 +10,7 @@ export default async function SettingsPage() {
   if (!user) redirect("/login");
 
   const { data: profile } = await supabase.from("profiles").select("*").eq("id", user.id).single();
-  if (!["manager", "owner"].includes(profile?.role)) redirect("/dashboard");
+  if (!["manager", "owner"].includes(profile?.role as any)) redirect("/dashboard");
 
   const company = await getActiveCompany();
 

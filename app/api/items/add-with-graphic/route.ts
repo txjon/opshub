@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
         name,
         drive_link,
         sort_order: count || 0,
-      })
+      } as any)
       .select("id")
       .single();
     if (itemErr) return NextResponse.json({ error: itemErr.message }, { status: 500 });

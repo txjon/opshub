@@ -69,7 +69,7 @@ export async function unlinkQBCustomer(job: any): Promise<void> {
 // (recording a payment is implicit approval — unblocks Send PO / Order Blanks).
 export async function recordPayment(job: any, p: { type: string; amount: number; invoice_number: string | null; paid_date: string }): Promise<void> {
   const supabase = createClient();
-  await supabase.from("payment_records").insert({ job_id: job.id, type: p.type, amount: p.amount, invoice_number: p.invoice_number, status: "paid", paid_date: p.paid_date });
+  await supabase.from("payment_records").insert({ job_id: job.id, type: p.type, amount: p.amount, invoice_number: p.invoice_number, status: "paid", paid_date: p.paid_date } as any);
   logJobActivity(job.id, `Payment received: ${p.type.replace(/_/g, " ")} — $${p.amount.toLocaleString()}${p.invoice_number ? ` (${p.invoice_number})` : ""}`);
   notifyTeam(`Payment received — $${p.amount.toLocaleString()} · ${job.clients?.name || ""} · ${job.title}`, "payment", job.id, "job");
   await autoApproveViaPayment(job);

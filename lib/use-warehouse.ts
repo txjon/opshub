@@ -328,6 +328,8 @@ export function useWarehouse() {
     const { data: jobItems } = await supabase.from("items").select("id, pipeline_stage, blanks_order_number, blanks_order_cost, ship_tracking, received_at_hpd, artwork_status, garment_type, shipping_route, webstore_entered_at, forwarded_at, archived_at").eq("job_id", jobId);
     const { data: payments } = await supabase.from("payment_records").select("amount, status").eq("job_id", jobId);
     const { data: proofFiles } = await supabase.from("item_files").select("item_id, approval").eq("stage", "proof").is("superseded_at", null).in("item_id", (jobItems || []).map(it => it.id));
+    const cd = (jobData.costing_data ?? {}) as any;
+    const tm = (jobData.type_meta ?? {}) as any;
     const proofStatus: Record<string, { allApproved: boolean }> = {};
     for (const it of (jobItems || [])) {
       const manualApproved = !needsProof(it) || it.artwork_status === "approved";
@@ -335,15 +337,15 @@ export function useWarehouse() {
       proofStatus[it.id] = { allApproved: manualApproved || (proofs.length > 0 && proofs.every(f => f.approval === "approved")) };
     }
     const result = calculatePhase({
-      job: { job_type: jobData.job_type, shipping_route: jobData.shipping_route || "ship_through", payment_terms: jobData.payment_terms, quote_approved: jobData.quote_approved || false, phase: jobData.phase, fulfillment_status: jobData.fulfillment_status || null },
-      items: (jobItems || []).map(it => ({ id: it.id, pipeline_stage: it.pipeline_stage, po_sent: poSentToItem({ printVendor: (jobData.costing_data?.costProds || []).find((cp: any) => cp.id === it.id)?.printVendor, poSentVendors: jobData.type_meta?.po_sent_vendors }), blanks_order_number: it.blanks_order_number, blanks_order_cost: (it as any).blanks_order_cost ?? null, ship_tracking: it.ship_tracking, received_at_hpd: it.received_at_hpd || false, artwork_status: it.artwork_status, garment_type: it.garment_type, shipping_route: (it as any).shipping_route || null, webstore_entered_at: (it as any).webstore_entered_at || null, forwarded_at: (it as any).forwarded_at || null, archived_at: (it as any).archived_at || null })),
-      payments: (payments || []).map(p => ({ amount: p.amount, status: p.status })),
+      job: { job_type: jobData.job_type, shipping_route: jobData.shipping_route || "ship_through", payment_terms: jobData.payment_terms, quote_approved: jobData.quote_approved || false, phase: jobData.phase || "", fulfillment_status: jobData.fulfillment_status || null },
+      items: (jobItems || []).map(it => ({ id: it.id, pipeline_stage: it.pipeline_stage, po_sent: poSentToItem({ printVendor: (cd.costProds || []).find((cp: any) => cp.id === it.id)?.printVendor, poSentVendors: tm.po_sent_vendors }), blanks_order_number: it.blanks_order_number, blanks_order_cost: (it as any).blanks_order_cost ?? null, ship_tracking: it.ship_tracking, received_at_hpd: it.received_at_hpd || false, artwork_status: it.artwork_status, garment_type: it.garment_type, shipping_route: (it as any).shipping_route || null, webstore_entered_at: (it as any).webstore_entered_at || null, forwarded_at: (it as any).forwarded_at || null, archived_at: (it as any).archived_at || null })),
+      payments: (payments || []).map(p => ({ amount: p.amount ?? 0, status: p.status ?? "" })),
       proofStatus,
-      poSentVendors: jobData.type_meta?.po_sent_vendors || [],
-      costingVendors: [...new Set((jobData.costing_data?.costProds || []).map((cp: any) => cp.printVendor).filter(Boolean))],
+      poSentVendors: tm.po_sent_vendors || [],
+      costingVendors: [...new Set<string>((cd.costProds || []).map((cp: any) => cp.printVendor).filter(Boolean))],
     });
     if (result.phase !== jobData.phase) {
-      const timestamps = jobData.phase_timestamps || {};
+      const timestamps = (jobData.phase_timestamps || {}) as Record<string, string>;
       timestamps[result.phase] = new Date().toISOString();
       await supabase.from("jobs").update({ phase: result.phase, phase_timestamps: timestamps }).eq("id", jobId);
     }
@@ -439,9 +441,9 @@ export function useWarehouse() {
     const { data: fwdItems } = await supabase.from("items")
       .select("id, name, received_qtys, ship_qtys, sample_qtys").in("id", itemIds);
     for (const it of fwdItems || []) {
-      const base = (it.received_qtys && Object.keys(it.received_qtys).length) ? it.received_qtys : (it.ship_qtys || {});
+      const base = ((it.received_qtys && Object.keys(it.received_qtys).length) ? it.received_qtys : (it.ship_qtys || {})) as Record<string, number>;
       await recordOutbound(supabase, {
-        itemId: it.id, jobId, type: "forward", qtys: outboundQtys(base, it.sample_qtys),
+        itemId: it.id, jobId, type: "forward", qtys: outboundQtys(base, it.sample_qtys as Record<string, number> | null),
         tracking, description: it.name,
       });
     }
@@ -783,7 +785,7 @@ export function useWarehouse() {
     await removeShipmentLineForItem(supabase, item.id);
     logJobActivity(item.job_id, `${item.name} returned to production from receiving`);
     setJobs(prev => prev.map(j => ({
-      ...j, items: j.items.map(it => it.id === item.id ? { ...it, pipeline_stage: "in_production", received_at_hpd: false, received_at_hpd_at: null, received_qtys: null } : it),
+      ...j, items: j.items.map(it => it.id === item.id ? { ...it, pipeline_stage: "in_production", received_at_hpd: false, received_at_hpd_at: null, received_qtys: null as any } : it),
     })));
     setTimeout(() => recalcJobPhase(item.job_id), 300);
   }

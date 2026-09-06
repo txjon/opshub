@@ -44,7 +44,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
   // Invisible system message for unread-flag tracking (the thread UI is
   // gone — this row just moves the role's "last activity" timestamp).
   async function postSystemMarker(message: string) {
-    await ctx.db.from("art_brief_messages").insert({
+    await ctx!.db.from("art_brief_messages").insert({
       brief_id: brief.id,
       sender_role: "client",
       sender_name: clientName,

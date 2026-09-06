@@ -381,7 +381,7 @@ export default async function DashboardPage() {
       const hasAsap = poShipDates.includes("ASAP");
       const calendarDates = poShipDates.filter(d => d !== "ASAP");
       const earliestShipDate = hasAsap ? "ASAP" : (calendarDates.length > 0 ? calendarDates.sort()[0] : j.target_ship_date);
-      if (earliestShipDate && !["receiving","shipping","fulfillment","complete","cancelled"].includes(j.phase)) {
+      if (earliestShipDate && !["receiving","shipping","fulfillment","complete","cancelled"].includes(j.phase as any)) {
         if (earliestShipDate === "ASAP") {
           alerts.push({ ...base, priority: 2, type: "shipping_soon", color: T.amber,
             action: `Ships ASAP — verify status`, href: `/jobs/${j.id}`, column: "production" });

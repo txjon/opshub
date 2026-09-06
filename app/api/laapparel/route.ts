@@ -223,7 +223,7 @@ export async function GET(request: NextRequest) {
           fetchProductList().then(async ids => {
             if (!ids.length) return; // upstream error/empty — never cache empty over good data
             let dbProducts: Record<string, any> = {};
-            const { data: catalog } = await admin().from("la_apparel_catalog").select("style_code, description, category").order("style_code");
+            const { data: catalog } = await admin()!.from("la_apparel_catalog").select("style_code, description, category").order("style_code");
             if (catalog) for (const row of catalog) dbProducts[row.style_code] = { name: row.description, category: row.category };
             const products = ids.map(id => ({ styleCode: id, name: dbProducts[id]?.name || "", category: dbProducts[id]?.category || "", colors: [] }));
             await setCache("laapparel_products", products);

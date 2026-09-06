@@ -355,7 +355,7 @@ export async function GET(_req: NextRequest, { params }: { params: { jobId: stri
     const rawName = `HPD-Quote-${qNum}${clientSlug ? `-${clientSlug}` : ""}.pdf`;
     const isDownload = _req.nextUrl.searchParams.get("download");
 
-    return new NextResponse(pdfBuffer, {
+    return new NextResponse(pdfBuffer as any, {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",
