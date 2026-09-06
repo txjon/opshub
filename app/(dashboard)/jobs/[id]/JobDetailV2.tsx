@@ -26,7 +26,7 @@ import {
   applyBlankToItem, fleeceFlag, FLEECE_GARMENTS, distribute, DEFAULT_CURVE,
 } from "./BuySheetTab";
 import { parsePsd } from "./ProcessingTab";
-import { EditSizesModal as EditSizesModalRaw } from "./ProductBuilder";
+import { EditSizesModal as EditSizesModalRaw } from "./EditSizesModal";
 import SizeGrid from "@/components/SizeGrid";
 import RfqModalRaw from "@/components/RfqModal";
 import ItemWorkOrders from "@/components/studio/ItemWorkOrders";
