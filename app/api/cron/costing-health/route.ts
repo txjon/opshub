@@ -111,8 +111,15 @@ export async function GET(req: NextRequest) {
         for (const l of it.buy_sheet_lines || []) if (l.size) q[l.size] = (q[l.size] || 0) + (Number(l.qty_ordered) || 0);
         if (Object.keys(q).length) linesById[it.id] = q;
       }
-      const cpQty = cps.reduce((a, p) => a + Object.values(p.qtys || {}).reduce((x: number, y: any) => x + (Number(y) || 0), 0), 0);
-      const bsQty = Object.values(linesById).reduce((a, q) => a + Object.values(q).reduce((x, y) => x + y, 0), 0);
+      // S3 (Sep 5): saves no longer persist qtys into costProds — ABSENT
+      // copies are the clean single-sourced state, not drift. Only costProds
+      // still CARRYING a qtys map can be stale; compare (and heal) those
+      // alone, and never re-seed a stripped one.
+      const carriers = cps.filter((p) => p.qtys && Object.keys(p.qtys).length > 0);
+      if (!carriers.length) continue;
+      const carrierIds = new Set(carriers.map((p) => p.id));
+      const cpQty = carriers.reduce((a, p) => a + Object.values(p.qtys || {}).reduce((x: number, y: any) => x + (Number(y) || 0), 0), 0);
+      const bsQty = Object.entries(linesById).filter(([id]) => carrierIds.has(id)).reduce((a, [, q]) => a + Object.values(q).reduce((x, y) => x + y, 0), 0);
       if (bsQty === 0 || Math.abs(cpQty - bsQty) <= Math.max(2, bsQty * 0.05)) continue;
       if (cpQty > bsQty || (j as any).financial_closed_at) {
         qtyDrift.push({ job: j.job_number, phase: j.phase, cpQty, bsQty });
@@ -121,6 +128,7 @@ export async function GET(req: NextRequest) {
       try {
         const changes: string[] = [];
         for (const cp of cps) {
+          if (!cp.qtys || !Object.keys(cp.qtys).length) continue; // stripped = clean, never re-seed
           const q = linesById[cp.id];
           if (!q) continue;
           if (JSON.stringify(cp.qtys) === JSON.stringify(q)) continue;

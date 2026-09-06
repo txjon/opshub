@@ -2082,12 +2082,19 @@ export function CostingTabWrapper({ project, buyItems = [], contacts = [], onUpd
         const { feeRevenue, passthruTotal: extraPassthru } = computeExtraSummary(invoiceExtraLines);
         const passthruTotal = Math.round((extraPassthru + passthruProducts) * 100) / 100;
         const costingSummary = { grossRev, totalCost, netProfit, margin, avgPerUnit, totalQty, feeRevenue, passthruTotal };
+        // Single-source S3 (Sep 5 2026): quantities are NEVER persisted into
+        // costing_data — buy_sheet_lines owns them and every money surface
+        // overlays from there. Persisting the in-memory copy (synced once at
+        // open, frozen after) is what stranded stale curves (2608-023's
+        // $17.5K phantom). In-memory costProds keep qtys for live math; the
+        // wrapper sync re-fills them from buyItems on every load.
+        const persistProds = costProds.map(({ qtys, totalQty: _tq, ...rest }) => rest);
         await supabase.from("jobs").update({
-          costing_data: { costProds, costMargin, inclShip, inclCC, orderInfo, _savedAt: costingStamp },
+          costing_data: { costProds: persistProds, costMargin, inclShip, inclCC, orderInfo, _savedAt: costingStamp },
           costing_summary: costingSummary
         }).eq("id", project.id);
         costingStampRef.current = costingStamp;
-        if (onSaved) onSaved({ costing_data: { costProds, costMargin, inclShip, inclCC, orderInfo, _savedAt: costingStamp }, costing_summary: costingSummary });
+        if (onSaved) onSaved({ costing_data: { costProds: persistProds, costMargin, inclShip, inclCC, orderInfo, _savedAt: costingStamp }, costing_summary: costingSummary });
         // Write refined blank costs + decorator assignments back to items
         // Use the already-calculated results array (same data, no second calcCostProduct call)
         for (let cpIdx = 0; cpIdx < costProds.length; cpIdx++) {

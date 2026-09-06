@@ -192,7 +192,10 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     // shows pricing immediately on the duplicate.
     const costing = ((srcJob as any).costing_data || null) as any;
     if (costing && Array.isArray(costing.costProds)) {
-      const remapped = costing.costProds.map((cp: any) => ({
+      // Single-source S3 (Sep 5 2026): never clone quantity copies — the new
+      // job's buy_sheet_lines own its quantities, and every money surface
+      // overlays from there. Cloned stale curves were the 2608-023 landmine.
+      const remapped = costing.costProds.map(({ qtys, totalQty, ...cp }: any) => ({
         ...cp,
         id: idMap[cp.id] || cp.id,
       }));
