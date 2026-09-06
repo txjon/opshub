@@ -91,11 +91,16 @@ export default function IntakePage() {
 
   return (
     <div style={{ maxWidth: 1080, margin: "0 auto", fontFamily: font, color: T.text, paddingBottom: 80 }}>
-      <header style={{ marginBottom: 24 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em", marginBottom: 4 }}>Intake</h1>
-        <p style={{ fontSize: 12, color: T.faint }}>
-          Leads from /start on the public site. Review, convert to a client, or decline.
-        </p>
+      <header style={{ marginBottom: 24, display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+        <div>
+          <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em", marginBottom: 4 }}>Intake</h1>
+          <p style={{ fontSize: 12, color: T.faint }}>
+            Leads from /start on the public site. Review, convert to a client, or decline.
+          </p>
+        </div>
+        <a href="/intake/menu" style={{ fontSize: 12, color: T.blue, textDecoration: "none", borderBottom: `1px dotted ${T.blue}`, whiteSpace: "nowrap", marginTop: 6 }}>
+          Menu pricing
+        </a>
       </header>
 
       <StatStrip
