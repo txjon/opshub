@@ -21,6 +21,7 @@ const lbl = { fontSize: 9.5, fontWeight: 700, letterSpacing: "0.07em", textTrans
 export function ShippingView({ companyId, billingOnly = false }: { companyId: string; billingOnly?: boolean }) {
   const supabase = createClient();
   const [jobs, setJobs] = useState<JobFull[]>([]);
+  const [jobItems, setJobItems] = useState<any[]>([]); // qty overlay truth for calculatedShipping (S3)
   const [existing, setExisting] = useState<FreightEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [staged, setStaged] = useState<Staged[]>([]);
@@ -38,12 +39,15 @@ export function ShippingView({ companyId, billingOnly = false }: { companyId: st
 
   async function loadAll() {
     setLoading(true);
-    const [{ data: js }, { data: es }] = await Promise.all([
+    const [{ data: js }, { data: es }, { data: its }] = await Promise.all([
       supabase.from("jobs").select("id, job_number, type_meta, costing_data, clients(name)").eq("company_id", companyId),
       supabase.from("cost_entries").select("id, job_id, amount, ext_tracking, ext_date, vendor_invoice_number, vendor_name, po_ref, not_job_specific, created_at, source, status").in("source", FREIGHT_SOURCES),
+      // Single-source S3: freight calc overlays qty from buy_sheet_lines.
+      supabase.from("items").select("id, job_id, name, sort_order, blank_costs, buy_sheet_lines(size, qty_ordered)"),
     ]);
     setJobs(((js as any[]) || []).map(j => ({ id: j.id, job_number: j.job_number, qb_invoice_number: j.type_meta?.qb_invoice_number ?? null, client_name: (j.clients as any)?.name ?? null, costing_data: j.costing_data })));
     setExisting((es as any[]) || []);
+    setJobItems(((its as any[]) || []));
     setLoading(false);
   }
   useEffect(() => { loadAll(); }, [companyId]); // eslint-disable-line
@@ -160,10 +164,10 @@ export function ShippingView({ companyId, billingOnly = false }: { companyId: st
     const m: Record<string, { actual: number; n: number }> = {};
     for (const e of existing) { if (!e.job_id) continue; (m[e.job_id] ??= { actual: 0, n: 0 }); m[e.job_id].actual += Number(e.amount || 0); m[e.job_id].n++; }
     return Object.entries(m).map(([id, v]) => {
-      const job = jobById[id]; const calc = job ? calculatedShipping(job.costing_data) : 0;
+      const job = jobById[id]; const calc = job ? calculatedShipping(job.costing_data, jobItems.filter((it: any) => it.job_id === id)) : 0;
       return { id, job, n: v.n, actual: Math.round(v.actual * 100) / 100, calc, variance: Math.round((v.actual - calc) * 100) / 100 };
     }).sort((a, b) => b.actual - a.actual);
-  }, [existing, jobById]);
+  }, [existing, jobById, jobItems]);
   const totalActual = perJob.reduce((a, r) => a + r.actual, 0);
   const totalCalc = perJob.filter(r => r.job).reduce((a, r) => a + r.calc, 0);
 
