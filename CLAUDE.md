@@ -83,26 +83,34 @@ app/api/
 
 ### Project Detail Page (`jobs/[id]/`)
 
-The central hub. Horizontal pill tabs across the top, content below. Tabs ordered to match the actual workflow:
+**V2 IS THE ONLY JOB DETAIL (classic decommissioned Sep 5 2026).** `page.tsx`
+is a thin loader (fetch job/items/payments/contacts + thumbnails, phase
+machinery) that renders `JobDetailV2.tsx` — the tabless, stage-ordered canvas
+that has been the daily driver since the Jul 28 cutover. `?classic=1` /
+`?v2=1` params are retired; there is no tab UI.
 
-| Tab | Component | Owns |
-|---|---|---|
-| Overview | Inline in page.tsx | Project info + shipping details (top row), contacts + invoice/payments (left), items + activity stats (right) |
-| Product Builder | ProductBuilder.jsx (tab key `builder`) | The merged Buy Sheet + Art surface: item creation, size/qty, S&S + manual catalog pickers, drag-to-reorder, and per-item art/mockups. Reuses `BuySheetTab.jsx` (items) + `ArtTab.jsx` (art) internally — those are NOT dead, they're sub-components now. |
-| Proofs & Invoice | ApprovalsTab.jsx (tab key `proofs`) | Proof review + approval workflow, revised-proof re-send nudge, invoice/payments; uses ProofModal from `ArtTab.jsx`. NOTE: "Approvals" is only the component filename — the UI label is **Proofs & Invoice** |
-| Costing | CostingTab.jsx (tab key `costing`) | Decoration pricing, margin calc, auto-save, share groups |
-| Client Quote | CostingTab.jsx (quote sub-tab) | Quote preview + PDF download/email + quote approval + post-approval next-step links |
-| Blanks | BlanksTab.jsx | Per-item S&S order # + cost entry with 3-gate checklist |
-| Purchase Order | POTab.jsx | PO preview, PDF export/email, per-item fields + copy-to-all, blanks warning, PO sent tracker |
-| Production | Read-only status strip (inline) + "Ship in Production →" link | Read-only now — **all shipping moved to the /production board** (`ProductionTab.jsx` was deleted, commit 20cb08bc). The job page shows in_production / "✓ Shipped · tracking" status only. |
+JobDetailV2 owns: header (state hero + money strip), item gallery → item
+worksheet (Build qty→buy_sheet_lines · Cost via the single-source assembler ·
+Art files/proofs), Purchasing & Production (blank CC purchases + per-vendor PO
+send), the Client block (quote/proofs/invoice/payment), Logistics, Activity.
 
-NOTE (updated 2026-07-17 — legacy tab exhumation): the old separate "Buy Sheet" / "Art Files" /
-"Processing" / "Warehouse" tab components are **deleted** (full bodies in git history, pre-2026-07-17).
-The surviving files are **helper modules only**: `BuySheetTab.jsx` exports the supplier pickers +
-size/curve helpers ProductBuilder imports; `ArtTab.jsx` exports collectFiles / FileCard / ProofModal
-(ApprovalsTab uses ProofModal); `ProcessingTab.jsx` exports parsePsd + placement maps. There is NO
-legacy tab UI anywhere — do not reference BuySheetTab/ArtTab/ProcessingTab/WarehouseTab as rendered
-surfaces. ProductBuilder owns its own save/assignBlank logic.
+Files in `jobs/[id]/` and what they are:
+- `JobDetailV2.tsx` — the page.
+- `page.tsx` — thin loader only.
+- `BuySheetTab.jsx` — HELPER MODULE (supplier pickers, size/curve helpers,
+  `applyBlankToItem`, FLEECE_GARMENTS). Never rendered.
+- `ArtTab.jsx` — HELPER MODULE (collectFiles / FileCard / `ProofModal`).
+- `ProcessingTab.jsx` — HELPER MODULE (`parsePsd` + placement maps).
+- `DecorationPanel.jsx` — the vendor/print-locations/share-groups editor V2
+  renders in the worksheet Cost tab.
+- `EditSizesModal.jsx` — add/remove sizes + qtys (extracted from the deleted
+  ProductBuilder at decommission).
+
+DELETED at the Sep 5 decommission (bodies in git history): ProductBuilder,
+CostingTab (+CostingTabWrapper), ApprovalsTab, BlanksTab, POTab,
+JobItemsList, InvoiceSurface, StripePaymentTab, MobileBlankPicker,
+SettingsModal, components/JobFlowBar, and page.tsx's ~1,460-line classic
+render. Do not reference any of these as live surfaces.
 
 **Progress checklist**: Shown at top of every active project (hidden on complete/cancelled). Shows ✓/→/○ for each workflow step. Clicking a step navigates to that tab. Progress bar shows overall percentage.
 
