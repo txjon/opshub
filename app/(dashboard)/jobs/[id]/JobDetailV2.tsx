@@ -48,6 +48,13 @@ import { calculatePriority } from "@/lib/dates";
 import { SHIP_METHODS } from "@/lib/ship-methods";
 import { proofCounts, needsProof, proofPdfMissing, carriedApproved, carriedFrom } from "@/lib/proof-gate";
 import { suggestPoField, poSuggestionsFor, type PoFieldKey } from "@/lib/po-suggest";
+
+// Single-source S3 (Sep 5 2026): quantities are NEVER persisted into
+// costing_data — buy_sheet_lines owns them and every money surface overlays
+// from there (a stored copy frozen at write time was the 2608-023 drift
+// class). Stored blankCosts remain (fallback-only) until their retirement.
+const stripQtyCopies = (cps: any[]) => (cps || []).map(({ qtys, totalQty, ...rest }: any) => rest);
+
 const DecorationPanel: any = DecorationPanelRaw; // .jsx — bypass narrow inferred prop types
 const ProofModal: any = ProofModalRaw;           // .jsx — same
 const EditSizesModal: any = EditSizesModalRaw;   // .jsx — same
@@ -716,7 +723,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
         const { data: fresh }: any = await supabase.from("jobs").select("costing_data").eq("id", job.id).single();
         const cd = fresh?.costing_data;
         if (cd?.costProds?.some((p: any) => p.id === item.id)) {
-          await (supabase.from("jobs") as any).update({ costing_data: { ...cd, costProds: cd.costProds.filter((p: any) => p.id !== item.id), _savedAt: new Date().toISOString() } }).eq("id", job.id);
+          await (supabase.from("jobs") as any).update({ costing_data: { ...cd, costProds: stripQtyCopies(cd.costProds.filter((p: any) => p.id !== item.id)), _savedAt: new Date().toISOString() } }).eq("id", job.id);
         }
       } catch (e) { console.error("[JobV2] costProd prune failed", e); }
       setItems(prev => prev.filter(x => x.id !== item.id));
@@ -1363,7 +1370,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
         else cps.push(p);
         if (Object.keys(printers).length) { try { const r: any = calcCostProduct(p, costMargin, inclShip, inclCC, allNow, printers); if (r) sellUpdates.push({ id, sell: Math.round((r.sellPerUnit || 0) * 100) / 100 }); } catch {} }
       }
-      await (supabase.from("jobs") as any).update({ costing_data: { ...cd, costProds: cps, _savedAt: new Date().toISOString() } }).eq("id", job.id);
+      await (supabase.from("jobs") as any).update({ costing_data: { ...cd, costProds: stripQtyCopies(cps), _savedAt: new Date().toISOString() } }).eq("id", job.id);
       for (const u of sellUpdates) await (supabase.from("items") as any).update({ sell_per_unit: u.sell }).eq("id", u.id);
       // Auto-create/update decorator assignments for flushed items with a
       // vendor — classic CostingTab did this on save; the vendor portal, PO
@@ -1520,6 +1527,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     try {
       const { data: fresh }: any = await supabase.from("jobs").select("costing_data").eq("id", job.id).single();
       const cd = { ...(fresh?.costing_data || job.costing_data || {}), costMargin: nextMargin, inclShip: nextInclShip, inclCC: nextInclCC, _savedAt: new Date().toISOString() };
+      if (Array.isArray((cd as any).costProds)) (cd as any).costProds = stripQtyCopies((cd as any).costProds);
       await (supabase.from("jobs") as any).update({ costing_data: cd }).eq("id", job.id);
       for (const [id, sell] of Object.entries(sells)) await (supabase.from("items") as any).update({ sell_per_unit: sell }).eq("id", id);
       refreshFinancials();
@@ -1590,7 +1598,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       let idx = cps.findIndex((c: any) => c.id === item.id);
       if (idx < 0) idx = cps.findIndex((c: any) => (c.name || "").trim().toLowerCase() === (item.name || "").trim().toLowerCase());
       if (idx >= 0) { if (override == null) delete cps[idx].sellOverride; else cps[idx].sellOverride = override; }
-      await (supabase.from("jobs") as any).update({ costing_data: { ...cd, costProds: cps, _savedAt: new Date().toISOString() } }).eq("id", job.id);
+      await (supabase.from("jobs") as any).update({ costing_data: { ...cd, costProds: stripQtyCopies(cps), _savedAt: new Date().toISOString() } }).eq("id", job.id);
       await (supabase.from("items") as any).update({ sell_per_unit: sell }).eq("id", item.id);
       refreshFinancials();
     } catch (e) { failed("Override save failed — not saved", e); }
