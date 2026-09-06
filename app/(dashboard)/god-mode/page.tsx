@@ -115,18 +115,21 @@ export default async function GodModePage() {
   const jobById: Record<string, any> = Object.fromEntries(jobs.map(j => [j.id, j]));
   const itemsByJob: Record<string, any[]> = {};
   for (const it of items) {
-    if (!itemsByJob[it.job_id]) itemsByJob[it.job_id] = [];
-    itemsByJob[it.job_id].push(it);
+    const k = String(it.job_id);
+    if (!itemsByJob[k]) itemsByJob[k] = [];
+    itemsByJob[k].push(it);
   }
   const paymentsByJob: Record<string, any[]> = {};
   for (const p of payments) {
-    if (!paymentsByJob[p.job_id]) paymentsByJob[p.job_id] = [];
-    paymentsByJob[p.job_id].push(p);
+    const k = String(p.job_id);
+    if (!paymentsByJob[k]) paymentsByJob[k] = [];
+    paymentsByJob[k].push(p);
   }
   const proofsByItem: Record<string, any[]> = {};
   for (const pf of proofFiles) {
-    if (!proofsByItem[pf.item_id]) proofsByItem[pf.item_id] = [];
-    proofsByItem[pf.item_id].push(pf);
+    const k = String(pf.item_id);
+    if (!proofsByItem[k]) proofsByItem[k] = [];
+    proofsByItem[k].push(pf);
   }
 
   const now = new Date();
@@ -158,8 +161,8 @@ export default async function GodModePage() {
     }
     const daysSinceLastJob = lastJobAt ? daysBetween(lastJobAt, now) : null;
 
-    const activeJobs = clientJobs.filter(j => !["complete", "cancelled"].includes(j.phase)).length;
-    const ytdJobs = clientJobs.filter(j => new Date(j.created_at) >= ytdCutoff).length;
+    const activeJobs = clientJobs.filter(j => !["complete", "cancelled"].includes(j.phase as any)).length;
+    const ytdJobs = clientJobs.filter(j => new Date(j.created_at as any) >= ytdCutoff).length;
 
     const paidPayments: number[] = [];
     for (const j of clientJobs) {
@@ -216,7 +219,7 @@ export default async function GodModePage() {
   const clientJobsDetail: Record<string, any[]> = {};
   for (const c of clientStats) {
     const clientJobs = revenueJobs.filter(j => j.client_id === c.clientId).sort((a, b) =>
-      new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      new Date(b.created_at as any).getTime() - new Date(a.created_at as any).getTime()
     );
     clientJobsDetail[c.clientId] = [
       ...clientJobs.map(j => {
@@ -285,7 +288,7 @@ export default async function GodModePage() {
           const revs = proofs.filter((p: any) => p.approval === "revision_requested").length;
           revisionCounts.push(revs);
 
-          const job = jobById[it.job_id];
+          const job = jobById[String(it.job_id)];
           itemDetails.push({
             itemId: it.id,
             name: it.name,
@@ -324,11 +327,11 @@ export default async function GodModePage() {
     prepaid: -14, deposit_balance: -7, due_on_receipt: 0,
   };
 
-  const active = jobs.filter(j => !["complete", "cancelled", "on_hold", "intake"].includes(j.phase));
+  const active = jobs.filter(j => !["complete", "cancelled", "on_hold", "intake"].includes(j.phase as any));
   const forecast: CashRow[] & { _date: Date }[] = [] as any;
 
   for (const j of active) {
-    const clientName = clientById[j.client_id]?.name || "Unknown";
+    const clientName = clientById[String(j.client_id)]?.name || "Unknown";
     const meta = (j.type_meta as any) || {};
     const qbTotal = meta.qb_total_with_tax || (j.costing_summary as any)?.grossRev || 0;
     if (qbTotal <= 0) continue;
@@ -341,7 +344,7 @@ export default async function GodModePage() {
     const unpaidWithDue = js_payments.filter(p => p.status !== "paid" && p.status !== "void" && p.due_date);
     let expectedDate: Date;
     if (unpaidWithDue.length > 0) {
-      expectedDate = new Date(unpaidWithDue.sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime())[0].due_date);
+      expectedDate = new Date(unpaidWithDue.sort((a, b) => new Date(a.due_date as any).getTime() - new Date(b.due_date as any).getTime())[0].due_date);
     } else if (j.target_ship_date) {
       const tsd = new Date(j.target_ship_date);
       const delay = termsDays[j.payment_terms as string] ?? 30;
@@ -469,7 +472,7 @@ export default async function GodModePage() {
     const billedRev = effectiveRevenue(j);
     const revScale = jobRevSum > 0 && billedRev > 0 ? billedRev / jobRevSum : 1;
 
-    const clientName = clientById[j.client_id]?.name || "—";
+    const clientName = clientById[String(j.client_id)]?.name || "—";
 
     for (const { it, rev, exact } of perItem) {
       const type = it.garment_type || "uncategorized";
@@ -528,7 +531,7 @@ export default async function GodModePage() {
   }
 
   // ── 6. OPERATIONS (merged in from the old Insights page) ──────────────
-  const opsActive = jobs.filter(j => !["complete", "cancelled"].includes(j.phase));
+  const opsActive = jobs.filter(j => !["complete", "cancelled"].includes(j.phase as any));
   const completedJobs = jobs.filter(j => j.phase === "complete");
 
   // AR aging — lib/ar (Financial V2 1e swap, Aug 24 2026). Verified against
@@ -538,7 +541,7 @@ export default async function GodModePage() {
   // overdue). The cash-forecast block below still carries its own copy of
   // the expected-date chain — dedup deferred, logic already identical.
   const arSummary = buildAr({
-    jobs, itemsByJob: (() => { const m: Record<string, any[]> = {}; for (const it of items) (m[it.job_id] ||= []).push(it); return m; })(),
+    jobs, itemsByJob: (() => { const m: Record<string, any[]> = {}; for (const it of items) (m[String(it.job_id)] ||= []).push(it); return m; })(),
     paymentsByJob, clients: clients as any[], ssReports, now,
   });
   const arBuckets = {
@@ -570,18 +573,18 @@ export default async function GodModePage() {
   const bnEntry = Object.entries(avgPhaseTimes).sort((a, b) => b[1] - a[1])[0];
   const bottleneck = bnEntry ? { phase: bnEntry[0], days: bnEntry[1] } : null;
   const phaseCounts: Record<string, number> = {};
-  for (const j of opsActive) phaseCounts[j.phase] = (phaseCounts[j.phase] || 0) + 1;
+  for (const j of opsActive) { const k = String(j.phase); phaseCounts[k] = (phaseCounts[k] || 0) + 1; }
   const stalled = items
     .filter(it => {
       const ts = (it.pipeline_timestamps as any) || {};
       return it.pipeline_stage && ts[it.pipeline_stage] && daysBetween(ts[it.pipeline_stage], now) >= 7;
     })
     .map(it => {
-      const job = jobById[it.job_id];
+      const job = jobById[String(it.job_id)];
       return {
         itemId: it.id, name: it.name, jobId: it.job_id, jobTitle: job?.title || "—",
         clientName: job ? (clientById[job.client_id]?.name || "—") : "—",
-        stage: it.pipeline_stage, days: daysBetween(((it.pipeline_timestamps as any) || {})[it.pipeline_stage], now),
+        stage: it.pipeline_stage, days: daysBetween(((it.pipeline_timestamps as any) || {})[String(it.pipeline_stage)], now),
       };
     })
     .sort((a, b) => b.days - a.days);
@@ -599,11 +602,11 @@ export default async function GodModePage() {
   };
   const overduePayments = payments
     .filter(p => p.due_date && p.status !== "paid" && p.status !== "void" && p.due_date < todayStr)
-    .sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime())
-    .map(p => ({ ...mapPay(p), daysOver: daysBetween(p.due_date, now) }));
+    .sort((a, b) => new Date(a.due_date as any).getTime() - new Date(b.due_date as any).getTime())
+    .map(p => ({ ...mapPay(p), daysOver: daysBetween(p.due_date as any, now) }));
   const upcomingDue = payments
     .filter(p => p.due_date && p.status !== "paid" && p.status !== "void" && p.due_date >= todayStr && p.due_date <= in30Str)
-    .sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime())
+    .sort((a, b) => new Date(a.due_date as any).getTime() - new Date(b.due_date as any).getTime())
     .map(mapPay);
 
   const operations = {
@@ -649,7 +652,7 @@ export default async function GodModePage() {
       upcomingPayments={upcomingPayments}
       pareto={{ top: top8020, restCount, restProfit, totalProfit }}
       categories={categories}
-      operations={operations}
+      operations={operations as any}
       details={{
         clientJobs: clientJobsDetail,
         decoratorItems: decoratorItemsDetail,

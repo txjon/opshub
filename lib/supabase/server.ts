@@ -1,8 +1,9 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies, headers } from "next/headers";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/database";
 
-export async function createClient() {
+export async function createClient(): Promise<SupabaseClient<Database>> {
   const cookieStore = await cookies();
   // Forward the active tenant slug (set by middleware) to Supabase so
   // RLS can narrow gods + non-gods to the active subdomain. Without
@@ -21,7 +22,7 @@ export async function createClient() {
     {
       cookies: {
         getAll() { return cookieStore.getAll(); },
-        setAll(cookiesToSet) {
+        setAll(cookiesToSet: { name: string; value: string; options?: any }[]) {
           try {
             cookiesToSet.forEach(({ name, value, options }) =>
               cookieStore.set(name, value, options)
@@ -31,5 +32,7 @@ export async function createClient() {
       },
       ...(activeSlug ? { global: { headers: { "x-company-slug": activeSlug } } } : {}),
     }
-  );
+    // Same @supabase/ssr 0.5.1 generics degradation as the browser client —
+    // assert to the properly-typed client (zero runtime change).
+  ) as unknown as SupabaseClient<Database>;
 }

@@ -588,7 +588,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     // so match either. maybeSingle avoids throwing on no/multiple rows.
     const { data: decoratorRecord } = await supabase
       .from("decorators").select("*").or(`name.ilike.${vendorName},short_code.ilike.${vendorName}`).limit(1).maybeSingle()
-      .then((r: any) => r).catch(() => ({ data: null, error: null }));
+      .then((r: any) => r, () => ({ data: null, error: null }));
     // The vendor's default route — only an override on DROP-SHIP jobs (stage/
     // ship_through already route to HPD). From the looked-up record, falling
     // back to the decorator joined on the items (which always matched).
@@ -683,7 +683,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     const filename = `HPD-PO-${numCore}${itemLetters}-${vendorSlug}${isRevised ? "-revised" : ""}.pdf`;
 
     const isDownload = req.nextUrl.searchParams.get("download");
-    return new NextResponse(pdfBuffer, {
+    return new NextResponse(pdfBuffer as any, {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",

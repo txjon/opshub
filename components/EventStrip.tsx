@@ -86,7 +86,7 @@ export function EventStrip({ userId }: { userId: string }) {
       .eq("user_id", userId)
       .order("created_at", { ascending: false })
       .limit(10);
-    if (data?.length) setEvents(data);
+    if (data?.length) setEvents(data as any);
   }
 
   if (events.length === 0) return null;

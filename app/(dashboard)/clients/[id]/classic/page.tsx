@@ -233,7 +233,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
     saveTimer.current = setTimeout(async () => {
       const merged = pendingClientUpdates.current;
       pendingClientUpdates.current = {};
-      try { await supabase.from("clients").update(merged).eq("id", params.id); }
+      try { await supabase.from("clients").update(merged as any).eq("id", params.id); }
       catch (e) { console.error("Client save failed:", e); }
       // If client name was edited and a Drive folder exists, rename
       // it in place so future uploads stay in the same folder.
@@ -416,7 +416,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
       payment_terms: client!.default_terms || null,
       client_id: client!.id,
       job_number: "",
-    }).select("id").single();
+    } as any).select("id").single();
     if (!newJob) return;
 
     // Create the item
@@ -430,7 +430,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
       status: "tbd",
       artwork_status: "not_started",
       sort_order: 0,
-    }).select("id").single();
+    } as any).select("id").single();
 
     // Copy sizes with zero qtys
     if (newItem && item.sizes?.length > 0) {
@@ -758,7 +758,7 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                       const email=(document.getElementById("cc-email") as HTMLInputElement).value.trim()||null;
                       const phone=(document.getElementById("cc-phone") as HTMLInputElement).value.trim()||null;
                       const role_label=(document.getElementById("cc-role") as HTMLInputElement).value.trim()||null;
-                      await supabase.from("contacts").insert({name,email,phone,role_label,client_id:params.id});
+                      await supabase.from("contacts").insert({name,email,phone,role_label,client_id:params.id} as any);
                       setAddingContact(false);
                       load();
                     }} style={{background:T.green,border:"none",borderRadius:5,color:"#fff",fontSize:11,fontWeight:600,padding:"5px 12px",cursor:"pointer"}}>Save</button>

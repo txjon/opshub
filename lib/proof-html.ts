@@ -62,7 +62,7 @@ export async function renderProofHtml(opts: {
     : null;
 
   const body = renderToStaticMarkup(
-    React.createElement(ProofDocBody, {
+    React.createElement(ProofDocBody as any, {
       spec: specForRender,
       mockupSlot,
       clientName,

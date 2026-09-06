@@ -43,7 +43,7 @@ export default function ClientsPage() {
   async function createClientRow(name: string) {
     const { data } = await supabase
       .from("clients")
-      .insert({ name })
+      .insert({ name } as any)
       .select("*, contacts(id), jobs(id)")
       .single();
     if (data) {

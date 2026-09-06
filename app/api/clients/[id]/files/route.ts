@@ -47,7 +47,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       kind,
       notes,
       uploaded_by: user.id,
-    }).select("*").single();
+    } as any).select("*").single();
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ file: data });

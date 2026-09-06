@@ -33,7 +33,7 @@ export async function logJobActivityServer(jobId: string, message: string, metad
       type: "auto",
       message,
       metadata: metadata || {},
-    });
+    } as any);
   } catch {
     // swallow
   }

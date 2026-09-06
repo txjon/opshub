@@ -214,7 +214,7 @@ async function qbFetch(
 ): Promise<any> {
   const token = await getAccessToken();
   const tokens = await getTokens();
-  const realmId = tokens?.realm_id || process.env.QB_REALM_ID;
+  const realmId = (tokens as any)?.realm_id || process.env.QB_REALM_ID;
   const sep = endpoint.includes("?") ? "&" : "?";
   const url = `${QB_BASE_URL}/v3/company/${realmId}${endpoint}${sep}minorversion=${QB_MINOR_VERSION}`;
 

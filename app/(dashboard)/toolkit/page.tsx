@@ -198,7 +198,7 @@ function MockupTool() {
         notes: undefined,
         tenantSlug: branding.slug,
         tenantName: branding.name,
-      });
+      } as any);
       doc.save(`${itemName || "Item"} — Product Proof.pdf`);
     } catch (err: any) {
       setError(err.message);

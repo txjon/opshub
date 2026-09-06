@@ -64,7 +64,7 @@ export function JobActivityPanel({ jobId, currentUserId, profiles }: {
       .eq("job_id", jobId)
       .order("created_at", { ascending: true })
       .limit(200);
-    setActivities(data || []);
+    setActivities((data || []) as any);
   }
 
   async function send() {

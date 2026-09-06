@@ -301,7 +301,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     const vendorName = vendorFilter || mappedItems[0]?.printVendor || "Decorator";
     const { data: decoratorRecord } = await supabase
       .from("decorators").select("*").ilike("name", vendorName).single()
-      .then((r: any) => r).catch(() => ({ data: null, error: null }));
+      .then((r: any) => r, () => ({ data: null, error: null }));
 
     const itemLetters = mappedItems.map((it: any) => it.letter).join("");
 
@@ -340,7 +340,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     const filename = `HPD-RFQ-${job.job_number || jobId}${itemLetters ? `-${itemLetters}` : ""}-${vendorSlug}-${slug}.pdf`;
 
     const isDownload = req.nextUrl.searchParams.get("download");
-    return new NextResponse(pdfBuffer, {
+    return new NextResponse(pdfBuffer as any, {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",

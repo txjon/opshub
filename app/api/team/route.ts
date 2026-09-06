@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
-    if (!["manager", "owner"].includes(profile?.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    if (!["manager", "owner"].includes(profile?.role as any)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
     const { email, fullName, role } = await req.json();
     if (!email) return NextResponse.json({ error: "Email is required" }, { status: 400 });
@@ -84,7 +84,7 @@ export async function PATCH(req: NextRequest) {
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
-    if (!["manager", "owner"].includes(profile?.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    if (!["manager", "owner"].includes(profile?.role as any)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
     const { profileId, role, fullName } = await req.json();
     if (!profileId) return NextResponse.json({ error: "Missing profileId" }, { status: 400 });

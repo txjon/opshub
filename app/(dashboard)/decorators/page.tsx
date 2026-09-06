@@ -10,6 +10,7 @@ type PricingData = {
   qtys: number[];
   prices: Record<number, number[]>;
   tagPrices: number[];
+  minimums?: { print?: number; tagPrint?: number };
   packaging: Record<string, number>;
   finishing: Record<string, number>;
   setup: Record<string, number>;
@@ -423,7 +424,7 @@ export default function DecoratorsPage() {
 
   async function load() {
     const { data } = await supabase.from("decorators").select("*").order("name");
-    setDecorators((data || []) as Decorator[]);
+    setDecorators((data || []) as any as Decorator[]);
   }
 
   function updateDecorator(id: string, updates: Partial<Decorator>) {
@@ -436,14 +437,14 @@ export default function DecoratorsPage() {
       const merged = pendingUpdates.current[id];
       delete pendingUpdates.current[id];
       try {
-        await supabase.from("decorators").update(merged).eq("id", id);
+        await supabase.from("decorators").update(merged as any).eq("id", id);
       } catch (e) { console.error("Decorator save failed:", e); }
       setSaving(p => ({...p, [id]: false}));
     }, 800);
   }
 
   async function addDecorator() {
-    const { data } = await supabase.from("decorators").insert({ name: "New Decorator" }).select("id").single();
+    const { data } = await supabase.from("decorators").insert({ name: "New Decorator" } as any).select("id").single();
     if (data) {
       await load();
       setExpanded(data.id);

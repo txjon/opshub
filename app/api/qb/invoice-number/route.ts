@@ -14,8 +14,9 @@ export async function POST(req: NextRequest) {
     const { data: job } = await supabase.from("jobs").select("type_meta").eq("id", jobId).single();
     if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
 
-    const prevNumber = (job.type_meta || {}).qb_invoice_number;
-    const typeMeta = { ...(job.type_meta || {}), qb_invoice_number: invoiceNumber || null };
+    const tm = (job.type_meta || {}) as any;
+    const prevNumber = tm.qb_invoice_number;
+    const typeMeta = { ...tm, qb_invoice_number: invoiceNumber || null };
     await supabase.from("jobs").update({ type_meta: typeMeta }).eq("id", jobId);
 
     // Log activity (only if the number changed)

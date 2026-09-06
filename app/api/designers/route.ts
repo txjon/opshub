@@ -25,7 +25,7 @@ async function requireOwner() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Unauthorized", status: 401 as const };
   const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
-  if (!["owner", "manager"].includes(profile?.role)) return { error: "Forbidden", status: 403 as const };
+  if (!["owner", "manager"].includes(profile?.role as any)) return { error: "Forbidden", status: 403 as const };
   // Use service-role client for writes — avoids RLS gotchas on a settings-only table.
   return { supabase: admin(), user };
 }

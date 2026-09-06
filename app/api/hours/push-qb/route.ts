@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
     // Authorize: must be able to manage AP (owner/manager/god/billing) — mirrors can_manage_ap().
     const { data: prof } = await admin.from("profiles").select("is_god, page_access").eq("id", user.id).single();
     let role: any = null;
-    try { role = (await supabase.rpc("get_user_role")).data; } catch { /* rpc unavailable → fall back to is_god/page_access */ }
+    try { role = (await (supabase.rpc as any)("get_user_role")).data; } catch { /* rpc unavailable → fall back to is_god/page_access */ }
     const ok = prof?.is_god || ["owner", "manager"].includes(role) || ((prof?.page_access as any[]) || []).includes("/billing");
     if (!ok) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 

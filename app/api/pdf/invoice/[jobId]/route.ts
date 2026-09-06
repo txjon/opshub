@@ -382,7 +382,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     const filename = `HPD-Invoice-${displayNum}${clientSlug ? `-${clientSlug}` : ""}.pdf`;
 
     const isDownload = req.nextUrl.searchParams.get("download");
-    return new NextResponse(pdfBuffer, {
+    return new NextResponse(pdfBuffer as any, {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",

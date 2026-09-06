@@ -307,7 +307,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     const pdfBuffer = await generatePDF(html);
     const filename = `HPD-PackingSlip-${invoiceNum}.pdf`;
 
-    return new NextResponse(pdfBuffer, {
+    return new NextResponse(pdfBuffer as any, {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": contentDisposition(filename, false),

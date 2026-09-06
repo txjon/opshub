@@ -32,7 +32,7 @@ export async function GET(req: NextRequest, { params }: { params: { clientId: st
     const pdfBuffer = await generatePDF(html);
     const clientSlug = data.clientName.replace(/[^\w\s-]/g, "").trim().replace(/\s+/g, "-");
     const filename = `${clientSlug}-Statement-${new Date().toISOString().slice(0, 10)}.pdf`;
-    return new NextResponse(pdfBuffer, {
+    return new NextResponse(pdfBuffer as any, {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",

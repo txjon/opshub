@@ -119,7 +119,7 @@ export default function NewJobPage() {
     // Retry without new fields if columns don't exist yet
     if (err && err.message?.includes("column")) {
       const fallback = { name: nc.company.trim(), default_terms: nc.defaultTerms || null, notes: nc.notes || null };
-      const retry = await supabase.from("clients").insert(fallback).select("id, name, default_terms").single();
+      const retry = await supabase.from("clients").insert(fallback as any).select("id, name, default_terms").single();
       data = retry.data; err = retry.error;
     }
     if (err || !data) { setSavingClient(false); setError(err?.message || "Failed to create client"); return; }
@@ -132,7 +132,7 @@ export default function NewJobPage() {
         email: nc.email.trim() || null,
         phone: nc.phone.trim() || null,
         is_primary: true,
-      });
+      } as any);
     }
     // Create extra contacts
     const extras = nc.extraContacts.filter(c => c.name.trim() || c.email.trim());
@@ -143,7 +143,7 @@ export default function NewJobPage() {
         email: c.email.trim() || null,
         phone: c.phone.trim() || null,
         is_primary: false,
-      })));
+      })) as any);
     }
 
     setSavingClient(false);
@@ -173,7 +173,7 @@ export default function NewJobPage() {
           notes: form.notes || null,
           client_id: selectedClient.id,
           job_number: "",
-        })
+        } as any)
         .select("id")
         .single();
 

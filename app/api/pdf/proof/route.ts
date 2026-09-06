@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
     if (!body?.spec) return NextResponse.json({ error: "Missing spec" }, { status: 400 });
     const html = await renderProofHtml(body);
     const pdf = await generatePDF(html);
-    return new NextResponse(pdf, {
+    return new NextResponse(pdf as any, {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": 'inline; filename="proof.pdf"',

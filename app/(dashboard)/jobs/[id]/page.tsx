@@ -463,7 +463,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       jobSaveTimer.current = null;
       const u = pendingJobUpdates.current;
       pendingJobUpdates.current = {};
-      if (Object.keys(u).length > 0) await supabase.from("jobs").update(u).eq("id", job.id);
+      if (Object.keys(u).length > 0) await supabase.from("jobs").update(u).eq("id", job!.id);
     }
   }
 
@@ -557,10 +557,10 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
     // Refresh data for tabs that read from DB
     if (["quote","overview","proofs","invoice"].includes(t)) {
       const { data: fresh } = await supabase.from("jobs").select("quote_approved, quote_approved_at, type_meta").eq("id", job!.id).single();
-      if (fresh) setJob(j => j ? {...j, quote_approved: fresh.quote_approved, quote_approved_at: fresh.quote_approved_at, type_meta: {...(j as any).type_meta, ...fresh.type_meta}} as any : j);
+      if (fresh) setJob(j => j ? {...j, quote_approved: fresh.quote_approved, quote_approved_at: fresh.quote_approved_at, type_meta: {...(j as any).type_meta, ...(fresh.type_meta as any)}} as any : j);
       if (t === "proofs" || t === "overview" || t === "invoice") {
         const { data: freshPay } = await supabase.from("payment_records").select("*").eq("job_id", job!.id).order("created_at");
-        if (freshPay) setPayments(freshPay);
+        if (freshPay) setPayments(freshPay as any);
       }
       // The Overview production strip groups by items' decorator_assignments join.
       // A costing vendor change rewrites that join in the DB, but onUpdateBuyItems
@@ -651,7 +651,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       payments: payments.map(p => ({ amount: p.amount, status: p.status })),
       proofStatus,
       poSentVendors,
-      costingVendors: [...new Set(costProds.map((cp: any) => cp.printVendor).filter(Boolean))],
+      costingVendors: [...new Set<string>(costProds.map((cp: any) => cp.printVendor).filter(Boolean))],
     });
     if (result.phase !== job.phase) {
       const timestamps = (job as any).phase_timestamps || {};
@@ -685,7 +685,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
     if (initialLoadDone.current && job && items.length > 0) {
       recalcPhase();
     }
-  }, [job?.quote_approved, items.length, payments.length, proofStatus, recalcPhase]);
+  }, [(job as any)?.quote_approved, items.length, payments.length, proofStatus, recalcPhase]);
 
   // Load the NEW phase model (additive) — ledger-derived, read-only. Same triggers
   // as the legacy recalc so it stays in step without touching jobs.phase.
