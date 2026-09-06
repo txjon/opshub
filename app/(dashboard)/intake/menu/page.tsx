@@ -22,10 +22,12 @@ type Rate = {
   seeded_hi: number | null;
   seed_meta: {
     source?: string;
-    lines?: number;
-    units?: number;
     cost_basis?: number | null;
+    cost_items?: number;
+    hist_lo?: number | null;
+    hist_hi?: number | null;
     flagged?: boolean;
+    flag_reasons?: string[];
   } | null;
   edited_at: string | null;
   active: boolean;
@@ -139,9 +141,10 @@ export default function MenuRatesPage() {
       <header style={{ marginBottom: 8 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em", marginBottom: 4 }}>Menu pricing</h1>
         <p style={{ fontSize: 12, color: T.faint, maxWidth: 640, lineHeight: 1.5 }}>
-          Per-shirt price ranges the public menu shows, by style and quantity. Seeded from our
-          own job history and live items — click any range to edit it. Edited cells stick;
-          re-seeding only refreshes untouched cells.
+          Per-shirt price ranges the public menu shows, by style and quantity. Cost-plus:
+          25–35% margin on sell over our all-in cost (blank + decoration, from live items).
+          The faint line under each price is the cost basis and what history actually paid.
+          Click any range to edit it — edited cells stick; re-seeding only refreshes untouched cells.
         </p>
       </header>
 
@@ -162,7 +165,6 @@ export default function MenuRatesPage() {
                   {BANDS.map((b) => (
                     <th key={b} style={{ ...th, textAlign: "right" }}>{b === 500 ? "500+" : `${b}–${b === 48 ? 99 : b === 100 ? 249 : 499}`}</th>
                   ))}
-                  <th style={{ ...th, textAlign: "right" }}>BLANK COST</th>
                   <th style={th}></th>
                 </tr>
               </thead>
@@ -171,7 +173,6 @@ export default function MenuRatesPage() {
                   .filter(([k]) => k.startsWith(group + "|"))
                   .map(([k, rates]) => {
                     const first = rates[0];
-                    const cost = first.seed_meta?.cost_basis;
                     return (
                       <tr key={k} style={{ borderBottom: `1px solid ${T.border}`, opacity: first.active ? 1 : 0.4 }}>
                         <td style={{ ...td, whiteSpace: "nowrap" }}>
@@ -209,10 +210,15 @@ export default function MenuRatesPage() {
                                   >
                                     {r.price_lo === null ? "set price" : `${money(r.price_lo)}–${money(r.price_hi)}`}
                                   </span>
-                                  <span style={{ display: "block", fontSize: 10, color: T.faint, fontFamily: mono, marginTop: 3 }}>
+                                  <span
+                                    title={r.seed_meta?.flag_reasons?.join(", ") || undefined}
+                                    style={{ display: "block", fontSize: 10, color: T.faint, fontFamily: mono, marginTop: 3 }}
+                                  >
                                     {r.seed_meta?.source === "no-data"
-                                      ? "no data"
-                                      : `${r.seed_meta?.lines ?? 0} sales · ${(r.seed_meta?.units ?? 0).toLocaleString()}u${r.seed_meta?.source === "curve-fallback" ? " · est" : ""}`}
+                                      ? "no cost data"
+                                      : `cost ${money(r.seed_meta?.cost_basis)}${r.seed_meta?.source === "cost-curve" ? " est" : ""} · hist ${
+                                          r.seed_meta?.hist_lo != null ? `${money(r.seed_meta.hist_lo)}–${money(r.seed_meta.hist_hi)}` : "—"
+                                        }`}
                                     {flagged ? " ⚑" : ""}
                                   </span>
                                   {r.edited_at && (
@@ -225,9 +231,6 @@ export default function MenuRatesPage() {
                             </td>
                           );
                         })}
-                        <td style={{ ...td, textAlign: "right", fontFamily: mono, color: T.muted, fontVariantNumeric: "tabular-nums" }}>
-                          {cost ? money(cost) : "—"}
-                        </td>
                         <td style={{ ...td, textAlign: "right" }}>
                           <span onClick={() => toggleActive(rates)} style={{ fontSize: 10, fontFamily: mono, fontWeight: 700, letterSpacing: "0.08em", cursor: "pointer", color: first.active ? T.green : T.faint }}>
                             {first.active ? "SHOWN" : "HIDDEN"}
@@ -243,9 +246,10 @@ export default function MenuRatesPage() {
       ))}
 
       <p style={{ fontSize: 11, color: T.faint, maxWidth: 640, lineHeight: 1.6 }}>
-        ⚑ = seeded price sits under 1.4× the style&apos;s average blank cost, or the style has thin
-        data — eyeball before the menu goes live. &quot;est&quot; = extrapolated from the style&apos;s overall
-        average via the quantity curve (not enough sales in that band). Re-seed anytime with{" "}
+        ⚑ = eyeball before the menu goes live (hover for why): no or thin cost data, seeded
+        below what history paid (leaving money), or 15%+ above anything history ever paid.
+        &quot;est&quot; = cost extrapolated via the group cost curve (not enough costed items in that
+        band). Re-seed anytime with{" "}
         <span style={{ fontFamily: mono }}>npx tsx scripts/seed-menu-rates.ts</span>.
       </p>
     </div>

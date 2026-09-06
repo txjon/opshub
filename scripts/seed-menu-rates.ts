@@ -1,16 +1,24 @@
-// Seed menu_rates from job history + live items. Run: npx tsx scripts/seed-menu-rates.ts
+// Seed menu_rates: COST-PLUS pricing (Jon, Sep 6 2026) — 25–35% margin on
+// sell over all-in cost. Run: npx tsx scripts/seed-menu-rates.ts [--dry]
 //
-// The script PROPOSES — it writes seeded_lo/seeded_hi (+ seed_meta) on every
-// run, and copies them into the live price_lo/price_hi ONLY while a row has
-// never been hand-edited (edited_at is null). Jon's edits always win.
+// price_lo = all-in cost / 0.75   (25% gross margin)
+// price_hi = all-in cost / 0.65   (35% gross margin)
 //
-// Sources, blended per style × qty band:
-//   history_sales lines (blank_style match; 2025+ lines weighted 2×, live-item
-//   prices weighted 3× — most current wins) and live items (blank_vendor
-//   match, sell_per_unit, qty = summed buy_sheet_lines).
-// A band with fewer than 3 lines or 150 units falls back to the style's
-// overall average scaled by the global qty-curve ratio for its product group.
-// A style with no usable data is left null + flagged for Jon to fill by hand.
+// Cost basis per style × qty band = qty-weighted avg of live items'
+// cost_per_unit_all_in (blank + decoration), band from summed
+// buy_sheet_lines. Bands with <2 costed items are filled from the style's
+// overall all-in cost scaled by the product group's cost-vs-qty curve.
+// A style with no costed items at all is left null + flagged for hand entry.
+//
+// History realized prices (the old seed basis) are computed the same way as
+// before and stored in seed_meta.hist_lo/hist_hi as a REFERENCE — the grid
+// shows them so divergence from what the market actually paid is visible.
+// Flags: no cost data · thin cost data (<3 items) · below history (leaving
+// money) · >15% above history hi (uncompetitive vs anything ever paid).
+//
+// The script PROPOSES — it always rewrites seeded_lo/seeded_hi + seed_meta,
+// but copies them into live price_lo/price_hi only while edited_at is null.
+// Jon's edits always win.
 import { config } from "dotenv";
 config({ path: ".env.local" });
 import { createClient } from "@supabase/supabase-js";
@@ -20,6 +28,9 @@ const sb = createClient<Database>(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
+
+const MARGIN_LO = 0.25; // price_lo = cost / (1 - MARGIN_LO)
+const MARGIN_HI = 0.35;
 
 type StyleDef = {
   code: string;
@@ -49,6 +60,7 @@ const BANDS = [48, 100, 250, 500];
 const HIST_GROUP: Record<string, string> = { tee: "Tees", hoodie: "Hoodies" };
 
 type Line = { qty: number; price: number; weight: number };
+type CostPoint = { qty: number; cost: number };
 
 const bandFor = (qty: number) =>
   qty >= 500 ? 500 : qty >= 250 ? 250 : qty >= 100 ? 100 : qty >= 48 ? 48 : null;
@@ -71,6 +83,11 @@ function weightedQuantile(lines: Line[], q: number) {
 }
 
 const round25 = (n: number) => Math.round(n * 4) / 4;
+const qwAvg = (pts: CostPoint[]) => {
+  let wq = 0, wc = 0;
+  for (const p of pts) { wq += p.qty; wc += p.qty * p.cost; }
+  return wq > 0 ? wc / wq : null;
+};
 
 async function all<T>(query: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: any }>) {
   const rows: T[] = [];
@@ -89,8 +106,8 @@ async function main() {
   const hist = await all<{ blank_style: string | null; product_group: string | null; qty: number | null; unit_price: number | null; txn_date: string | null }>(
     (a, b) => sb.from("history_sales").select("blank_style,product_group,qty,unit_price,txn_date").range(a, b)
   );
-  const items = await all<{ id: string; blank_vendor: string | null; sell_per_unit: number | null; cost_per_unit: number | null }>(
-    (a, b) => sb.from("items").select("id,blank_vendor,sell_per_unit,cost_per_unit").range(a, b)
+  const items = await all<{ id: string; blank_vendor: string | null; sell_per_unit: number | null; cost_per_unit_all_in: number | null }>(
+    (a, b) => sb.from("items").select("id,blank_vendor,sell_per_unit,cost_per_unit_all_in").range(a, b)
   );
   const bsl = await all<{ item_id: string | null; qty_ordered: number | null }>(
     (a, b) => sb.from("buy_sheet_lines").select("item_id,qty_ordered").range(a, b)
@@ -101,111 +118,144 @@ async function main() {
     qtyByItem.set(l.item_id, (qtyByItem.get(l.item_id) || 0) + (l.qty_ordered || 0));
   }
 
-  // Global qty-curve ratios per product group (fallback scaler).
-  const curveRatio: Record<string, Record<number, number>> = {};
-  for (const group of ["tee", "hoodie"] as const) {
-    const lines: Line[] = [];
-    for (const h of hist) {
-      if (h.product_group !== HIST_GROUP[group]) continue;
-      const qty = h.qty || 0, price = h.unit_price || 0;
-      if (qty < 1 || price <= 0) continue;
-      const band = bandFor(qty);
-      if (band === null) continue;
-      lines.push({ qty, price, weight: (h.txn_date || "") >= "2025-01-01" ? 2 : 1 });
-    }
-    const overall = weightedMean(lines)!;
-    curveRatio[group] = {};
-    for (const band of BANDS) {
-      const bandLines = lines.filter((l) => bandFor(l.qty) === band);
-      const m = weightedMean(bandLines);
-      curveRatio[group][band] = m ? m / overall : 1;
+  // Per-style cost points from live items with all-in cost.
+  const costPointsByStyle = new Map<string, CostPoint[]>();
+  for (const st of STYLES) costPointsByStyle.set(st.code, []);
+  for (const it of items) {
+    const bv = it.blank_vendor?.trim();
+    if (!bv || !it.cost_per_unit_all_in || it.cost_per_unit_all_in <= 0) continue;
+    const qty = qtyByItem.get(it.id) || 0;
+    if (qty < 1) continue;
+    for (const st of STYLES) {
+      if (st.live.test(bv)) {
+        costPointsByStyle.get(st.code)!.push({ qty, cost: it.cost_per_unit_all_in });
+        break;
+      }
     }
   }
-  console.log("curve ratios:", JSON.stringify(curveRatio));
+
+  // Group cost-vs-qty curve (all menu styles in the group pooled): how much
+  // cheaper does a unit get as the run grows. Used to fill bands a style has
+  // no costed items in.
+  const costCurve: Record<string, Record<number, number>> = {};
+  for (const group of ["tee", "hoodie"] as const) {
+    const pts = STYLES.filter((s) => s.group === group).flatMap((s) => costPointsByStyle.get(s.code)!);
+    // Normalize each point by its style's own overall cost so cheap and
+    // expensive styles mix without bias.
+    const overallByStyle = new Map<string, number>();
+    for (const s of STYLES.filter((s) => s.group === group)) {
+      const o = qwAvg(costPointsByStyle.get(s.code)!);
+      if (o) overallByStyle.set(s.code, o);
+    }
+    const norm: { qty: number; ratio: number }[] = [];
+    for (const s of STYLES.filter((s) => s.group === group)) {
+      const o = overallByStyle.get(s.code);
+      if (!o) continue;
+      for (const p of costPointsByStyle.get(s.code)!) norm.push({ qty: p.qty, ratio: p.cost / o });
+    }
+    costCurve[group] = {};
+    for (const band of BANDS) {
+      const bandPts = norm.filter((p) => bandFor(p.qty) === band);
+      let wq = 0, wr = 0;
+      for (const p of bandPts) { wq += p.qty; wr += p.qty * p.ratio; }
+      costCurve[group][band] = wq > 0 ? wr / wq : 1;
+    }
+    // Enforce monotone non-increasing cost as qty grows.
+    for (let i = 1; i < BANDS.length; i++) {
+      const prev = costCurve[group][BANDS[i - 1]], cur = costCurve[group][BANDS[i]];
+      if (cur > prev) costCurve[group][BANDS[i]] = prev;
+    }
+    console.log(`${group} cost curve:`, BANDS.map((b) => `${b}:${costCurve[group][b].toFixed(3)}`).join(" "));
+  }
+  // A group with too few banded cost points collapses to a flat curve (the
+  // hoodie shape today) — a menu with no qty discount reads broken. Borrow
+  // the tee curve, which has the volume.
+  for (const group of ["hoodie"] as const) {
+    const vals = BANDS.map((b) => costCurve[group][b]);
+    if (Math.max(...vals) - Math.min(...vals) < 0.05) {
+      costCurve[group] = { ...costCurve.tee };
+      console.log(`${group} curve degenerate — using tee curve`);
+    }
+  }
 
   for (const st of STYLES) {
-    const lines: Line[] = [];
-    let histLines = 0, liveLines = 0;
+    const pts = costPointsByStyle.get(st.code)!;
+    const overallCost = qwAvg(pts);
 
+    // History reference lines (same recipe as the old seed).
+    const histLines: Line[] = [];
     for (const h of hist) {
       const bs = h.blank_style?.trim();
       if (!bs || !st.hist.test(bs)) continue;
       const qty = h.qty || 0, price = h.unit_price || 0;
       if (qty < 1 || price <= 0) continue;
-      lines.push({ qty, price, weight: (h.txn_date || "") >= "2025-01-01" ? 2 : 1 });
-      histLines++;
+      histLines.push({ qty, price, weight: (h.txn_date || "") >= "2025-01-01" ? 2 : 1 });
     }
-    const costSamples: number[] = [];
-    for (const it of items) {
-      const bv = it.blank_vendor?.trim();
-      if (!bv || !st.live.test(bv)) continue;
-      if (it.cost_per_unit && it.cost_per_unit > 0) costSamples.push(it.cost_per_unit);
-      const qty = qtyByItem.get(it.id) || 0;
-      const price = it.sell_per_unit || 0;
-      if (qty < 1 || price <= 0) continue;
-      lines.push({ qty, price, weight: 3 });
-      liveLines++;
-    }
-    const costBasis = costSamples.length
-      ? costSamples.reduce((s, c) => s + c, 0) / costSamples.length
-      : null;
-    const overall = weightedMean(lines.filter((l) => bandFor(l.qty) !== null));
+    const histOverall = weightedMean(histLines.filter((l) => bandFor(l.qty) !== null));
 
-    console.log(`\n${st.name} — ${histLines} history lines, ${liveLines} live items, cost basis ${costBasis ? "$" + costBasis.toFixed(2) : "n/a"}`);
+    console.log(`\n${st.name} — ${pts.length} costed items, overall all-in ${overallCost ? "$" + overallCost.toFixed(2) : "n/a"}, ${histLines.length} history lines`);
 
-    // Compute every band first, then enforce monotonicity (a larger qty may
-    // never price above a smaller one — walk from 500 down, pulling smaller
-    // bands UP; low-qty bands collect junk cheap lines and a menu showing
-    // "48 costs less than 100" reads broken).
-    const computed: { band: number; lo: number | null; hi: number | null; source: string; bandLines: Line[]; units: number }[] = [];
+    // Band costs first (direct or curve-filled), then monotone clamp.
+    const bandCost: { band: number; cost: number | null; source: string; n: number; units: number }[] = [];
     for (const band of BANDS) {
-      const bandLines = lines.filter((l) => bandFor(l.qty) === band);
-      const units = bandLines.reduce((s, l) => s + l.qty, 0);
-      let lo: number | null = null, hi: number | null = null, source = "";
-
-      if (bandLines.length >= 3 && units >= 150) {
-        lo = weightedQuantile(bandLines, 0.3);
-        hi = weightedQuantile(bandLines, 0.7);
-        source = "direct";
-      } else if (overall !== null) {
-        const scaled = overall * curveRatio[st.group][band];
-        lo = scaled * 0.94;
-        hi = scaled * 1.06;
-        source = "curve-fallback";
+      const bandPts = pts.filter((p) => bandFor(p.qty) === band);
+      const units = bandPts.reduce((s, p) => s + p.qty, 0);
+      if (bandPts.length >= 2) {
+        bandCost.push({ band, cost: qwAvg(bandPts), source: "direct", n: bandPts.length, units });
+      } else if (overallCost !== null) {
+        bandCost.push({ band, cost: overallCost * costCurve[st.group][band], source: "cost-curve", n: bandPts.length, units });
       } else {
-        source = "no-data";
+        bandCost.push({ band, cost: null, source: "no-data", n: 0, units: 0 });
       }
-      if (lo !== null && hi !== null && hi < lo) [lo, hi] = [hi, lo];
-      computed.push({ band, lo, hi, source, bandLines, units });
     }
-    for (let i = computed.length - 2; i >= 0; i--) {
-      const larger = computed[i + 1], cur = computed[i];
-      if (larger.lo !== null && cur.lo !== null && cur.lo < larger.lo) cur.lo = larger.lo;
-      if (larger.hi !== null && cur.hi !== null && cur.hi < larger.hi) cur.hi = larger.hi;
+    for (let i = 1; i < bandCost.length; i++) {
+      const prev = bandCost[i - 1].cost, cur = bandCost[i].cost;
+      if (prev !== null && cur !== null && cur > prev) bandCost[i].cost = prev;
     }
 
-    for (const c of computed) {
-      const { band, source, bandLines, units } = c;
-      const lo = c.lo !== null ? round25(c.lo) : null;
-      const hi = c.hi !== null ? round25(c.hi) : null;
+    for (const bc of bandCost) {
+      const { band, cost, source } = bc;
+      const lo = cost !== null ? round25(cost / (1 - MARGIN_LO)) : null;
+      const hi = cost !== null ? round25(cost / (1 - MARGIN_HI)) : null;
 
-      const flagged =
-        source === "no-data" ||
-        histLines + liveLines < 8 ||
-        (costBasis !== null && lo !== null && lo < costBasis * 1.4);
+      // History reference for this band.
+      const bandHist = histLines.filter((l) => bandFor(l.qty) === band);
+      const histUnits = bandHist.reduce((s, l) => s + l.qty, 0);
+      let histLo: number | null = null, histHi: number | null = null;
+      if (bandHist.length >= 3 && histUnits >= 150) {
+        histLo = weightedQuantile(bandHist, 0.3);
+        histHi = weightedQuantile(bandHist, 0.7);
+      } else if (histOverall !== null) {
+        // Light fallback: overall history avg (unscaled) — reference only.
+        histLo = histOverall * 0.94;
+        histHi = histOverall * 1.06;
+      }
+      if (histLo !== null) histLo = round25(histLo);
+      if (histHi !== null) histHi = round25(histHi);
+
+      const reasons: string[] = [];
+      if (source === "no-data") reasons.push("no cost data");
+      if (pts.length > 0 && pts.length < 3) reasons.push("thin cost data");
+      if (lo !== null && histLo !== null && lo < histLo) reasons.push("below history");
+      if (lo !== null && histHi !== null && lo > histHi * 1.15) reasons.push("above history");
+      const flagged = reasons.length > 0;
 
       const meta = {
         source,
-        lines: bandLines.length,
-        units,
-        hist_lines: histLines,
-        live_items: liveLines,
-        cost_basis: costBasis ? Number(costBasis.toFixed(2)) : null,
+        basis: "cost-plus",
+        margin: `${MARGIN_LO * 100}-${MARGIN_HI * 100}% on sell`,
+        cost_basis: cost !== null ? Number(cost.toFixed(2)) : null,
+        cost_items: bc.n,
+        cost_units: bc.units,
+        hist_lo: histLo,
+        hist_hi: histHi,
+        hist_lines: bandHist.length,
         flagged,
+        flag_reasons: reasons,
         seeded_at: new Date().toISOString(),
       };
 
-      console.log(`   ${String(band).padStart(3)}+  ${lo !== null ? `$${lo.toFixed(2)}–$${hi!.toFixed(2)}` : "— no data —"}  (${source}, ${bandLines.length} lines / ${units}u${flagged ? " ⚑" : ""})`);
+      console.log(`   ${String(band).padStart(3)}+  ${lo !== null ? `$${lo.toFixed(2)}–$${hi!.toFixed(2)}` : "— no data —"}  (cost ${cost !== null ? "$" + cost.toFixed(2) : "n/a"} ${source}; hist ${histLo !== null ? `$${histLo.toFixed(2)}–$${histHi!.toFixed(2)}` : "n/a"}${flagged ? " ⚑ " + reasons.join(", ") : ""})`);
       if (dry) continue;
 
       const { data: existing, error: exErr } = await sb
@@ -236,7 +286,7 @@ async function main() {
       }
     }
   }
-  console.log(dry ? "\nDRY RUN — nothing written." : "\nmenu_rates seeded.");
+  console.log(dry ? "\nDRY RUN — nothing written." : "\nmenu_rates seeded (cost-plus).");
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });
