@@ -43,6 +43,29 @@ type Submission = {
 
 type ClientRow = { id: string; name: string };
 
+// Menu leads (mig 172) — people who knocked at the /start email gate.
+// quote_requested = the actionable queue (1-business-day promise);
+// browsed = window shoppers, collapsed, light-touch follow-up only.
+type MenuLead = {
+  id: string;
+  email: string;
+  status: string;
+  picks: {
+    styleCode?: string | null;
+    qty?: number | null;
+    notSure?: boolean;
+    budget?: number | null;
+    colorways?: number;
+    artStatus?: string | null;
+    notes?: string;
+  } | null;
+  contact: { name?: string; phone?: string | null; neededBy?: string | null; notes?: string | null } | null;
+  client_match: string | null;
+  quote_requested_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 const PROJECT_TYPE_LABEL: Record<string, string> = {
   brand: "Brand",
   tour: "Tour / Artist",
@@ -60,6 +83,8 @@ export default function IntakePage() {
   const supabase = createClient();
   const [rows, setRows] = useState<Submission[] | null>(null);
   const [open, setOpen] = useState<Submission | null>(null);
+  const [menuLeads, setMenuLeads] = useState<MenuLead[]>([]);
+  const [matchNames, setMatchNames] = useState<Record<string, string>>({});
 
   async function load() {
     // Scope to the active tenant. intake_submissions uses company_slug (text,
@@ -71,6 +96,19 @@ export default function IntakePage() {
       .eq("company_slug", activeSlug)
       .order("created_at", { ascending: false });
     setRows(data || []);
+
+    const { data: leads } = await supabase
+      .from("menu_leads")
+      .select("id,email,status,picks,contact,client_match,quote_requested_at,created_at,updated_at")
+      .order("quote_requested_at", { ascending: false, nullsFirst: false })
+      .order("updated_at", { ascending: false });
+    const leadRows = (leads as unknown as MenuLead[]) || [];
+    setMenuLeads(leadRows);
+    const matchIds = [...new Set(leadRows.map(l => l.client_match).filter(Boolean))] as string[];
+    if (matchIds.length) {
+      const { data: cl } = await supabase.from("clients").select("id,name").in("id", matchIds);
+      setMatchNames(Object.fromEntries(((cl as unknown as ClientRow[]) || []).map(c => [c.id, c.name])));
+    }
   }
 
   useEffect(() => { load(); }, []);
@@ -110,6 +148,15 @@ export default function IntakePage() {
         d={buckets.declined.length}
       />
 
+      <MenuLeadBucket
+        label="Menu · quote requests"
+        color={T.purple}
+        leads={menuLeads.filter(l => l.status === "quote_requested")}
+        matchNames={matchNames}
+        onChanged={load}
+        emptyText="No open quote requests from the menu."
+      />
+
       <Bucket
         label="New"
         color={T.accent}
@@ -135,6 +182,15 @@ export default function IntakePage() {
         color={T.faint}
         items={buckets.declined}
         onClick={setOpen}
+        collapsedByDefault
+      />
+
+      <MenuLeadBucket
+        label="Menu · browsing"
+        color={T.faint}
+        leads={menuLeads.filter(l => l.status !== "quote_requested")}
+        matchNames={matchNames}
+        onChanged={load}
         collapsedByDefault
       />
 
@@ -746,3 +802,129 @@ const inputStyle: React.CSSProperties = {
   background: T.surface,
   boxSizing: "border-box",
 };
+
+// ─── Menu leads (the /start email gate → unlisted menu) ─────────────
+
+function summarizePicks(l: MenuLead): string {
+  const p = l.picks || {};
+  const bits: string[] = [];
+  if (p.styleCode) bits.push(p.styleCode);
+  if (p.notSure) bits.push("qty unsure");
+  else if (p.qty) bits.push(`${p.qty}u`);
+  if (p.budget) bits.push(`$${Number(p.budget).toLocaleString()} budget`);
+  if (p.colorways && p.colorways > 1) bits.push(`${p.colorways} colorways`);
+  if (p.artStatus === "need_help") bits.push("needs design");
+  return bits.length ? bits.join(" · ") : "no picks yet";
+}
+
+function MenuLeadBucket({
+  label, color, leads, matchNames, onChanged, emptyText, collapsedByDefault,
+}: {
+  label: string;
+  color: string;
+  leads: MenuLead[];
+  matchNames: Record<string, string>;
+  onChanged: () => void;
+  emptyText?: string;
+  collapsedByDefault?: boolean;
+}) {
+  const supabase = createClient();
+  const [collapsed, setCollapsed] = useState(!!collapsedByDefault);
+  if (leads.length === 0 && !emptyText) return null;
+
+  async function setStatus(l: MenuLead, status: string) {
+    await supabase.from("menu_leads").update({ status, updated_at: new Date().toISOString() } as never).eq("id", l.id);
+    onChanged();
+  }
+
+  return (
+    <section style={{ marginBottom: 24 }}>
+      <div
+        style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, cursor: leads.length > 0 ? "pointer" : "default" }}
+        onClick={() => leads.length > 0 && setCollapsed(c => !c)}
+      >
+        <span style={{ width: 8, height: 8, borderRadius: 99, background: color }} />
+        <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: T.muted }}>
+          {label} · {leads.length}
+        </span>
+        {leads.length > 0 && (
+          <span style={{ fontSize: 10, color: T.faint }}>{collapsed ? "▸" : "▾"}</span>
+        )}
+      </div>
+      {leads.length === 0 && emptyText && (
+        <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 16, fontSize: 12, color: T.faint }}>
+          {emptyText}
+        </div>
+      )}
+      {!collapsed && leads.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {leads.map(l => {
+            const isQuote = l.status === "quote_requested";
+            const anchor = isQuote && l.quote_requested_at ? l.quote_requested_at : l.updated_at;
+            const ageHrs = (Date.now() - new Date(anchor).getTime()) / 3600000;
+            const ageText = ageHrs < 1 ? "just now" : ageHrs < 24 ? `${Math.floor(ageHrs)}h ago` : `${Math.floor(ageHrs / 24)}d ago`;
+            // The 1-business-day promise: amber past 24h on the actionable queue.
+            const overdue = isQuote && ageHrs > 24;
+            return (
+              <div
+                key={l.id}
+                style={{
+                  background: T.card, border: `1px solid ${T.border}`, borderRadius: 10,
+                  padding: "14px 16px",
+                  display: "grid", gridTemplateColumns: "4px 1fr auto", gap: 12, alignItems: "center",
+                }}
+              >
+                <div style={{ width: 4, alignSelf: "stretch", background: overdue ? T.amber : color, borderRadius: 2 }} />
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 14, fontWeight: 700 }}>
+                      {l.contact?.name || l.email}
+                    </span>
+                    {l.contact?.name && (
+                      <a href={`mailto:${l.email}`} style={{ fontSize: 12, color: T.blue, textDecoration: "none" }}>{l.email}</a>
+                    )}
+                    {l.client_match && (
+                      <span style={{ fontSize: 10, fontWeight: 700, color: T.blue, textTransform: "uppercase", letterSpacing: "0.07em" }}>
+                        EXISTING CLIENT{matchNames[l.client_match] ? ` · ${matchNames[l.client_match]}` : ""}
+                      </span>
+                    )}
+                    {!isQuote && (
+                      <span style={{ fontSize: 10, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em" }}>
+                        {l.status}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 12, color: T.muted, marginTop: 4, fontFamily: mono }}>
+                    {summarizePicks(l)}
+                    {l.contact?.neededBy ? ` · needed ${l.contact.neededBy}` : ""}
+                    {l.contact?.phone ? ` · ${l.contact.phone}` : ""}
+                  </div>
+                  {(l.picks?.notes || l.contact?.notes) && (
+                    <div style={{ fontSize: 12, color: T.faint, marginTop: 4, whiteSpace: "pre-wrap" }}>
+                      {[l.picks?.notes, l.contact?.notes].filter(Boolean).join(" — ")}
+                    </div>
+                  )}
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+                  <span style={{ fontSize: 11, color: overdue ? T.amber : T.faint, fontFamily: mono }}>
+                    {overdue ? `⚠ ${ageText}` : ageText}
+                  </span>
+                  {isQuote && (
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <span onClick={() => setStatus(l, "responded")} style={{ fontSize: 11, color: T.green, cursor: "pointer", borderBottom: `1px dotted ${T.green}` }}>
+                        Mark responded
+                      </span>
+                      <span onClick={() => setStatus(l, "declined")} style={{ fontSize: 11, color: T.faint, cursor: "pointer", borderBottom: `1px dotted ${T.faint}` }}>
+                        Decline
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}

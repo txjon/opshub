@@ -156,6 +156,9 @@ export default function StartPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  // Two doors (Sep 7 2026): null = the door screen; "intake" = the classic
+  // 6-step wizard. The other door is the email gate → /menu/[token].
+  const [door, setDoor] = useState<"intake" | null>(null);
   const sessionRef = useRef<string>(`s-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
 
   // Scroll-to-top on step change so the next step's content is fully
@@ -463,7 +466,7 @@ export default function StartPage() {
             textTransform: "uppercase",
             lineHeight: 1.1,
           }}>
-            Tell us what you need.
+            {door === "intake" ? "Tell us what you need." : "Start a project."}
           </h1>
           <p style={{
             fontSize: 14,
@@ -471,12 +474,15 @@ export default function StartPage() {
             marginTop: 12,
             lineHeight: 1.55,
           }}>
-            Six quick steps. We&apos;ll take it from there.
+            {door === "intake" ? "Six quick steps. We'll take it from there." : "Two ways in. Pick yours."}
           </p>
         </div>
       </section>
 
+      {door === null && <DoorScreen onIntake={() => setDoor("intake")} />}
+
       {/* Form body */}
+      {door === "intake" && (
       <section style={{ padding: "48px 32px 96px", background: "#fff" }}>
         <div style={{ maxWidth: 680, margin: "0 auto" }}>
           {/* Progress bar */}
@@ -585,7 +591,91 @@ export default function StartPage() {
           </p>
         </div>
       </section>
+      )}
     </>
+  );
+}
+
+// ─── The door screen ────────────────────────────────────────────
+// Door 1: email gate → the unlisted menu (instant reveal — the lead is
+// captured the moment they knock; the email is just the return key).
+// Door 2: the classic 6-step intake wizard.
+function DoorScreen({ onIntake }: { onIntake: () => void }) {
+  const [email, setEmail] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function knock() {
+    if (busy) return;
+    if (!/\S+@\S+\.\S+/.test(email)) { setErr("Enter a valid email address."); return; }
+    setBusy(true);
+    setErr(null);
+    try {
+      const res = await fetch("/api/menu/gate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const d = await res.json().catch(() => null);
+      if (res.ok && d?.token) {
+        window.location.href = `/menu/${d.token}`;
+        return;
+      }
+      setErr(d?.error || "Something went wrong. Try again.");
+    } catch {
+      setErr("Something went wrong. Try again.");
+    }
+    setBusy(false);
+  }
+
+  const card: React.CSSProperties = {
+    background: "#fff", border: "1px solid #e0e0e4", borderRadius: 14,
+    padding: "32px 30px", flex: "1 1 280px", minWidth: 280,
+  };
+  return (
+    <section style={{ padding: "48px 32px 96px", background: "#fff" }}>
+      <div style={{ maxWidth: 760, margin: "0 auto", display: "flex", gap: 16, flexWrap: "wrap" }}>
+        <div style={card}>
+          <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.16em", color: "#a0a0ad", marginBottom: 10 }}>
+            New here?
+          </div>
+          <h2 style={{ fontSize: 20, fontWeight: 800, color: "#1a1a1a", margin: "0 0 8px", letterSpacing: "-0.01em" }}>
+            Show me what House Party can do
+          </h2>
+          <p style={{ fontSize: 13, color: "#6b6b78", lineHeight: 1.55, margin: "0 0 18px" }}>
+            The menu: real styles, real prices, no forms. Drop your email and it opens now — we send your personal link too.
+          </p>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <input
+              type="email"
+              value={email}
+              onChange={e => { setEmail(e.target.value); setErr(null); }}
+              onKeyDown={e => e.key === "Enter" && knock()}
+              placeholder="you@yourbrand.com"
+              style={{ flex: "1 1 170px", border: "1px solid #e0e0e4", borderRadius: 8, padding: "11px 13px", fontSize: 14, fontFamily: "inherit", color: "#1a1a1a" }}
+            />
+            <button type="button" onClick={knock} disabled={busy} style={{ background: "#1a1a1a", color: "#fff", border: "none", borderRadius: 8, padding: "11px 20px", fontSize: 14, fontWeight: 700, cursor: "pointer", opacity: busy ? 0.6 : 1 }}>
+              {busy ? "Opening..." : "Open the menu"}
+            </button>
+          </div>
+          {err && <div style={{ fontSize: 12, color: "#c43030", marginTop: 8 }}>{err}</div>}
+        </div>
+        <div style={card}>
+          <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.16em", color: "#a0a0ad", marginBottom: 10 }}>
+            Ready to roll?
+          </div>
+          <h2 style={{ fontSize: 20, fontWeight: 800, color: "#1a1a1a", margin: "0 0 8px", letterSpacing: "-0.01em" }}>
+            I know what I need
+          </h2>
+          <p style={{ fontSize: 13, color: "#6b6b78", lineHeight: 1.55, margin: "0 0 18px" }}>
+            Products, quantities, files, dates — the full intake. Six quick steps and it lands with our production team.
+          </p>
+          <button type="button" onClick={onIntake} style={{ background: "transparent", color: "#1a1a1a", border: "1.5px solid #1a1a1a", borderRadius: 8, padding: "11px 20px", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
+            Start the intake →
+          </button>
+        </div>
+      </div>
+    </section>
   );
 }
 
