@@ -13,6 +13,7 @@ import { useParams } from "next/navigation";
 // Picks). Prices come live from menu_rates (lo/hi only; cost basis never
 // leaves the building).
 
+type MenuColor = { name: string; hex: string | null; image: string | null };
 type StyleRow = {
   code: string;
   name: string;
@@ -20,6 +21,9 @@ type StyleRow = {
   group: string;
   sort: number;
   bands: Record<string, { lo: number | null; hi: number | null }>;
+  hero: string | null;
+  colors: MenuColor[];
+  moreColors: number;
 };
 
 type Picks = {
@@ -84,6 +88,8 @@ export default function MenuPage() {
   const [picks, setPicks] = useState<Picks>(DEFAULT_PICKS);
   const [status, setStatus] = useState<string>("browsed");
   const [quoteOpen, setQuoteOpen] = useState(false);
+  // Per-card colorway preview: styleCode → the tapped color's image.
+  const [colorPreview, setColorPreview] = useState<Record<string, string>>({});
   const [qName, setQName] = useState("");
   const [qPhone, setQPhone] = useState("");
   const [qNeeded, setQNeeded] = useState("");
@@ -227,26 +233,67 @@ export default function MenuPage() {
                   const on = picks.styleCode === s.code;
                   const r = s.bands[band];
                   const meta = STYLE_META[s.code];
+                  const shownImg = colorPreview[s.code] || s.hero;
                   return (
-                    <button
+                    <div
                       key={s.code}
                       onClick={() => setPicks((p) => ({ ...p, styleCode: on ? null : s.code }))}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => e.key === "Enter" && setPicks((p) => ({ ...p, styleCode: on ? null : s.code }))}
                       style={{
                         textAlign: "left", cursor: "pointer", background: "#fff",
                         border: on ? `2px solid ${ink}` : `1.5px solid ${line}`,
                         borderRadius: 14, padding: 16, fontFamily: "inherit",
                       }}
                     >
-                      <div style={{ height: 84, borderRadius: 9, background: "linear-gradient(160deg,#efece5,#dedacf)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: faint, letterSpacing: "0.06em", marginBottom: 12, fontFamily: monoFont }}>
-                        {s.code}
-                      </div>
+                      {shownImg ? (
+                        <div style={{ height: 170, borderRadius: 9, background: "#f2f0ea", marginBottom: 12, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          <img src={shownImg} alt={s.name} loading="lazy" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+                        </div>
+                      ) : (
+                        <div style={{ height: 170, borderRadius: 9, background: "linear-gradient(160deg,#efece5,#dedacf)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: faint, letterSpacing: "0.06em", marginBottom: 12, fontFamily: monoFont }}>
+                          {s.code} · photo coming
+                        </div>
+                      )}
                       <div style={{ fontSize: 14.5, fontWeight: 800, color: ink }}>{s.name}</div>
                       <div style={{ fontSize: 11, color: faint, fontFamily: monoFont, margin: "3px 0 7px" }}>{meta?.spec}</div>
                       <div style={{ fontSize: 12, color: muted, lineHeight: 1.45, marginBottom: 10 }}>{meta?.blurb}</div>
+                      {s.colors.length > 0 && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 10, flexWrap: "wrap" }}>
+                          {s.colors.map((c) => (
+                            c.hex || c.image ? (
+                              <span
+                                key={c.name}
+                                title={c.name}
+                                onClick={(e) => {
+                                  if (!c.image) return;
+                                  e.stopPropagation();
+                                  setColorPreview((m) => ({ ...m, [s.code]: c.image! }));
+                                }}
+                                style={{
+                                  width: 20, height: 20, borderRadius: 99, display: "inline-block",
+                                  border: `1px solid ${line}`, cursor: c.image ? "pointer" : "default",
+                                  background: c.hex ? c.hex : undefined, overflow: "hidden", flexShrink: 0,
+                                }}
+                              >
+                                {!c.hex && c.image && (
+                                  <img src={c.image} alt={c.name} loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover", transform: "scale(2.4)" }} />
+                                )}
+                              </span>
+                            ) : (
+                              <span key={c.name} style={{ fontSize: 10, color: faint, fontFamily: monoFont }}>{c.name}</span>
+                            )
+                          ))}
+                          {s.moreColors > 0 && (
+                            <span style={{ fontSize: 10.5, color: faint, fontFamily: monoFont }}>+{s.moreColors} colors</span>
+                          )}
+                        </div>
+                      )}
                       <div style={{ fontSize: 15, fontWeight: 700, color: ink, fontFamily: monoFont }}>
                         {r?.lo != null ? <>{money(r.lo)}–{money(r.hi)}<span style={{ fontSize: 11, color: faint, fontWeight: 400 }}> / shirt at {band}+</span></> : <span style={{ fontSize: 12, color: faint }}>ask us</span>}
                       </div>
-                    </button>
+                    </div>
                   );
                 })}
               </div>
