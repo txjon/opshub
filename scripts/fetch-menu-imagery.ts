@@ -22,7 +22,7 @@ const BUCKET = "menu-assets";
 const FEATURED = 6;
 const CONCURRENCY = 5;
 
-type MenuStyle = { code: string; vendor: "ss" | "ascolour" | "la"; ssSearch?: string; ssStyleName?: string; laHandle?: string; hist: RegExp };
+type MenuStyle = { code: string; vendor: "ss" | "ascolour" | "la"; ssSearch?: string; ssStyleName?: string; laHandle?: string; scrapeUrl?: string; hist: RegExp };
 const STYLES: MenuStyle[] = [
   { code: "NL6210",  vendor: "ss", ssSearch: "Next Level 6210", ssStyleName: "6210", hist: /^(NL|NEXTLEVEL)6210/i },
   { code: "NL3600",  vendor: "ss", ssSearch: "Next Level 3600", ssStyleName: "3600", hist: /^(NL|NEXTLEVEL)3600/i },
@@ -30,10 +30,15 @@ const STYLES: MenuStyle[] = [
   { code: "IND4000", vendor: "ss", ssSearch: "IND4000", ssStyleName: "IND4000", hist: /IND4000/i },
   { code: "5001",    vendor: "ascolour", hist: /^(AS|ASCOLOUR)5001/i },
   { code: "5026",    vendor: "ascolour", hist: /^(AS|ASCOLOUR)5026/i },
-  { code: "5082",    vendor: "ascolour", hist: /^(AS|ASCOLOUR)5082/i },
+  // 5082's API variant image URLs are ALL dead on their CDN — the live
+  // product page (Jon-supplied) carries fresh per-color stencil URLs.
+  { code: "5082",    vendor: "ascolour", scrapeUrl: "https://ascolour.com/mens-heavy-faded-tee-5082/", hist: /^(AS|ASCOLOUR)5082/i },
   { code: "5101",    vendor: "ascolour", hist: /^(AS|ASCOLOUR)5101/i },
   { code: "1801GD",  vendor: "la", laHandle: "the-1801-garment-dye", hist: /1801GD/i },
-  { code: "1801MW",  vendor: "la", hist: /1801MW/i },
+  // 1801MW is wholesale-only (absent from their 1,653-product retail
+  // catalog) — imagery comes from their imprintable wholesale page
+  // (Jon-supplied): per-color garment shots in the alt-view carousel.
+  { code: "1801MW",  vendor: "la", scrapeUrl: "https://www.losangelesapparel-imprintable.net/product/1801MW/SS-Mineral-Wash-Crew-65oz.html", hist: /1801MW/i },
   { code: "HF-09",   vendor: "la", laHandle: "hf09-heavy-fleece-hoodie-garment-dye", hist: /HF.?09/i },
 ];
 
@@ -116,6 +121,47 @@ async function pool<T, R>(items: T[], n: number, fn: (item: T) => Promise<R>): P
   return results;
 }
 
+// AS Colour public product page (BigCommerce): per-color stencil URLs like
+// .../products/790/25639/5082_HEAVY_FADED_TEE_FADED_BLACK__83817...jpg —
+// front views only ({:size} template → 1280x1280), _BACK/_THUMB skipped.
+async function scrapeAsColourPage(url: string, styleCode: string): Promise<{ name: string; urls: string[]; vendorHex: string | null }[]> {
+  const html = await (await fetch(url, { headers: uaHeaders })).text();
+  const re = new RegExp(`https://cdn11\\.bigcommerce\\.com/[^"'\\s\\\\]+/products/[^"'\\s\\\\]+${styleCode}[^"'\\s\\\\]*\\.jpg\\?c=1`, "g");
+  const urls = new Set(html.match(re) || []);
+  const byColor = new Map<string, string>();
+  for (const u of urls) {
+    const m = u.match(new RegExp(`${styleCode}_(?:HEAVY_FADED|FADED_HEAVY)?_?TEE_([A-Z_]+?)(?:_THUMB)?__`));
+    const raw = m?.[1];
+    if (!raw || /(^|_)(FRONT|BACK|SIDE|TURN|MAIN|LOOSE)$/.test(raw)) continue;
+    if (raw.endsWith("_BACK")) continue;
+    const name = titleCase(raw.replace(/_/g, " "));
+    const full = u.replace("{:size}", "1280x1280");
+    if (!byColor.has(name) || byColor.get(name)!.includes("_THUMB__")) byColor.set(name, full);
+  }
+  return [...byColor.entries()].map(([name, u]) => ({ name, urls: [u], vendorHex: null }));
+}
+
+// LA Apparel imprintable (wholesale) page: alt-view carousel has one
+// garment shot per color at images/thumb/<style><CODE>_<ts>.png with the
+// color name in the img alt text.
+async function scrapeLaImprintable(url: string): Promise<{ name: string; urls: string[]; vendorHex: string | null }[]> {
+  let html = await (await fetch(url, { headers: uaHeaders })).text();
+  html = html
+    .replace(/&#58;/g, ":").replace(/&#47;/g, "/").replace(/&#45;/g, "-")
+    .replace(/&#46;/g, ".").replace(/&#44;/g, ",").replace(/&amp;/g, "&");
+  const out: { name: string; urls: string[]; vendorHex: string | null }[] = [];
+  const seen = new Set<string>();
+  const re = /(https:\/\/www\.losangelesapparel-imprintable\.net\/images\/thumb\/[A-Za-z0-9]+_\d+\.png)'\s+alt="([^"]+)"/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html)) !== null) {
+    const name = m[2].replace(/^.*?\d+(?:\.\d+)?oz/i, "").trim();
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    out.push({ name, urls: [m[1]], vendorHex: null });
+  }
+  return out;
+}
+
 async function laStub(code: string): Promise<string | null> {
   const { data } = await sb.storage.from(BUCKET).list("la");
   const file = (data || []).find((f) => f.name.toLowerCase().startsWith(code.toLowerCase().replace(/[^a-z0-9]/gi, "")) || f.name.toLowerCase().startsWith(code.toLowerCase()));
@@ -190,10 +236,17 @@ async function main() {
         if (!list.includes(v.imageUrl)) list.push(v.imageUrl);
         urlsByColor.set(v.colour, list);
       }
-      const ranked = [...urlsByColor.entries()]
+      let ranked = [...urlsByColor.entries()]
         .sort((a, b) => printedQty(printed, b[0]) - printedQty(printed, a[0]))
-        .map(([name, urls]) => ({ name: titleCase(name), urls, vendorHex: null }));
-      const allColors = await buildColors(st.code, ranked);
+        .map(([name, urls]) => ({ name: titleCase(name), urls, vendorHex: null as string | null }));
+      let allColors = await buildColors(st.code, ranked);
+      if (allColors.every((c) => !c.image) && st.scrapeUrl) {
+        // API variant URLs all dead — the live product page has fresh ones.
+        const scraped = await scrapeAsColourPage(st.scrapeUrl, st.code);
+        ranked = scraped.sort((a, b) => printedQty(printed, b.name) - printedQty(printed, a.name));
+        allColors = await buildColors(st.code, ranked);
+        console.log(`  page-scrape fallback: ${allColors.filter((c) => c.image).length}/${allColors.length} imaged`);
+      }
       let hero = allColors.find((c) => c.image)?.image || null;
       if (!hero) {
         // Whole line's CDN images dead (5082's shape): og:image off the
@@ -222,15 +275,24 @@ async function main() {
     } else {
       const dropped = await laStub(st.code);
       if (!st.laHandle) {
-        // No retail listing (1801MW). History color names only, junk rows
-        // (size-breakdown text) filtered.
+        // No retail listing (1801MW) — scrape the imprintable wholesale
+        // page when one is configured; else history color names only.
+        if (st.scrapeUrl) {
+          const scraped = await scrapeLaImprintable(st.scrapeUrl);
+          const ranked = scraped.sort((a, b) => printedQty(printed, b.name) - printedQty(printed, a.name));
+          const allColors = await buildColors(st.code, ranked);
+          const hero = dropped || allColors.find((c) => c.image)?.image || null;
+          manifest[st.code] = { hero, stub: hero === null, colors: allColors.slice(0, FEATURED), allColors, moreCount: Math.max(allColors.length - FEATURED, 0) };
+          console.log(`  hero ${hero ? (dropped ? "hand-dropped (override)" : "ok") : "MISSING"} · ${allColors.filter((c) => c.image).length}/${allColors.length} colors imaged (imprintable scrape)`);
+          continue;
+        }
         const colors = [...printed.values()]
           .filter((c) => c.display.length <= 24 && !/[•\d]/.test(c.display))
           .sort((a, b) => b.qty - a.qty)
           .slice(0, FEATURED)
           .map((c) => ({ name: titleCase(c.display), hex: null, image: null }));
         manifest[st.code] = { hero: dropped, stub: dropped === null, colors, allColors: colors, moreCount: 0 };
-        console.log(`  ${dropped ? "hand-dropped hero found" : `STUB — no retail listing; drop la/${st.code}.jpg in the ${BUCKET} bucket and rerun`}`);
+        console.log(`  ${dropped ? "hand-dropped hero found" : `STUB — drop la/${st.code}.jpg in the ${BUCKET} bucket and rerun`}`);
         continue;
       }
       const res = await fetch(`https://losangelesapparel.net/products/${st.laHandle}.js`, { headers: uaHeaders });
