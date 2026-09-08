@@ -7,7 +7,6 @@ import { useState } from "react";
 
 const FOOTER_MENU: { label: string; href: string; external?: boolean }[] = [
   { label: "Home", href: "/" },
-  { label: "Services", href: "/services" },
   { label: "Start a Project", href: "/start" },
   { label: "Contact", href: "/contact" },
   { label: "Client Portal", href: "/client-portal" },

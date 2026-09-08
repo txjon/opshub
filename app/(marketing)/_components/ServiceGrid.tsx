@@ -13,16 +13,17 @@ import { SERVICE_IMAGES } from "./_placeholder-images";
 // parent section is tall enough to give the user 200vw of vertical
 // scroll while the sticky child stays pinned — height: calc(100vh + 200vw).
 //
-// Tile list mirrors /services exactly: 4 production services + a
-// merged Warehousing & Fulfillment tile (no separate E-Commerce, no
-// split warehouse/fulfillment).
+// 4 production services + a merged Warehousing & Fulfillment tile.
+// /services is retired (said too much for the exclusive positioning) —
+// this grid IS the services pitch now, and every tile routes to /start,
+// where the two doors do the heavy lifting.
 
 const SERVICES: { label: string; href: string; image: string }[] = [
-  { label: "Screen Printing",              href: "/services#screen",                    image: SERVICE_IMAGES["Screen Printing"] },
-  { label: "Embroidery",                   href: "/services#embroidery",                image: SERVICE_IMAGES["Embroidery"] },
-  { label: "Product Sourcing",             href: "/services#sourcing",                  image: SERVICE_IMAGES["Product Sourcing"] },
-  { label: "Design & Product Development", href: "/services#design",                    image: SERVICE_IMAGES["Design"] },
-  { label: "Warehousing & Fulfillment",    href: "/services#warehousing-fulfillment",   image: SERVICE_IMAGES["Fulfillment"] },
+  { label: "Screen Printing",              href: "/start", image: SERVICE_IMAGES["Screen Printing"] },
+  { label: "Embroidery",                   href: "/start", image: SERVICE_IMAGES["Embroidery"] },
+  { label: "Product Sourcing",             href: "/start", image: SERVICE_IMAGES["Product Sourcing"] },
+  { label: "Design & Product Development", href: "/start", image: SERVICE_IMAGES["Design"] },
+  { label: "Warehousing & Fulfillment",    href: "/start", image: SERVICE_IMAGES["Fulfillment"] },
 ];
 
 export function ServiceGrid() {
