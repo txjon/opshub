@@ -22,6 +22,11 @@ type Rate = {
   seeded_hi: number | null;
   seed_meta: {
     source?: string;
+    spec?: string;
+    blank?: number | null;
+    blank_source?: string;
+    vendor_blank?: number | null;
+    deco?: number | null;
     cost_basis?: number | null;
     cost_items?: number;
     hist_lo?: number | null;
@@ -140,11 +145,13 @@ export default function MenuRatesPage() {
     <div style={{ maxWidth: 1080, margin: "0 auto", fontFamily: font, color: T.text, paddingBottom: 80 }}>
       <header style={{ marginBottom: 8 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em", marginBottom: 4 }}>Menu pricing</h1>
-        <p style={{ fontSize: 12, color: T.faint, maxWidth: 640, lineHeight: 1.5 }}>
-          Per-shirt price ranges the public menu shows, by style and quantity. Cost-plus:
-          25–35% margin on sell over our all-in cost (blank + decoration, from live items).
-          The faint line under each price is the cost basis and what history actually paid.
-          Click any range to edit it — edited cells stick; re-seeding only refreshes untouched cells.
+        <p style={{ fontSize: 12, color: T.faint, maxWidth: 660, lineHeight: 1.5 }}>
+          Per-shirt ranges the public menu shows. THE PRICED SPEC: screen print, 1–2 locations,
+          standard inks, blanks included. Every cell = (blank + print) at 25–35% margin on sell —
+          the faint line shows the decomposition and what history actually paid. Blank comes from
+          our real buys (or the vendor&apos;s current price where our history is thin); print is the
+          clean decoration curve by quantity, samples excluded. Click any range to edit — edited
+          cells stick; re-seeding only refreshes untouched cells.
         </p>
       </header>
 
@@ -214,9 +221,9 @@ export default function MenuRatesPage() {
                                     title={r.seed_meta?.flag_reasons?.join(", ") || undefined}
                                     style={{ display: "block", fontSize: 10, color: T.faint, fontFamily: mono, marginTop: 3 }}
                                   >
-                                    {r.seed_meta?.source === "no-data"
+                                    {r.seed_meta?.blank == null
                                       ? "no cost data"
-                                      : `cost ${money(r.seed_meta?.cost_basis)}${r.seed_meta?.source === "cost-curve" ? " est" : ""} · hist ${
+                                      : `${money(r.seed_meta.blank)} blank + ${money(r.seed_meta.deco)} print · hist ${
                                           r.seed_meta?.hist_lo != null ? `${money(r.seed_meta.hist_lo)}–${money(r.seed_meta.hist_hi)}` : "—"
                                         }`}
                                     {flagged ? " ⚑" : ""}
@@ -245,12 +252,11 @@ export default function MenuRatesPage() {
         </section>
       ))}
 
-      <p style={{ fontSize: 11, color: T.faint, maxWidth: 640, lineHeight: 1.6 }}>
-        ⚑ = eyeball before the menu goes live (hover for why): no or thin cost data, seeded
-        below what history paid (leaving money), or 15%+ above anything history ever paid.
-        &quot;est&quot; = cost extrapolated via the group cost curve (not enough costed items in that
-        band). Re-seed anytime with{" "}
-        <span style={{ fontFamily: mono }}>npx tsx scripts/seed-menu-rates.ts</span>.
+      <p style={{ fontSize: 11, color: T.faint, maxWidth: 660, lineHeight: 1.6 }}>
+        ⚑ = eyeball before the menu goes live (hover for why): blank from vendor price (thin
+        history), our paid blank drifting 15%+ from the vendor&apos;s current price, seeded below
+        what history paid (leaving money), or 15%+ above anything history ever paid. Re-seed
+        anytime with <span style={{ fontFamily: mono }}>npx tsx scripts/seed-menu-rates.ts</span>.
       </p>
     </div>
   );
