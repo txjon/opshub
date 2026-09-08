@@ -20,7 +20,7 @@ const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPAB
 const BUCKET = "menu-assets";
 const FEATURED = 6;
 
-type MenuStyle = { code: string; vendor: "ss" | "ascolour" | "la"; ssSearch?: string; ssStyleName?: string; hist: RegExp };
+type MenuStyle = { code: string; vendor: "ss" | "ascolour" | "la"; ssSearch?: string; ssStyleName?: string; laHandle?: string; hist: RegExp };
 const STYLES: MenuStyle[] = [
   { code: "NL6210",  vendor: "ss", ssSearch: "Next Level 6210", ssStyleName: "6210", hist: /^(NL|NEXTLEVEL)6210/i },
   { code: "NL3600",  vendor: "ss", ssSearch: "Next Level 3600", ssStyleName: "3600", hist: /^(NL|NEXTLEVEL)3600/i },
@@ -30,9 +30,12 @@ const STYLES: MenuStyle[] = [
   { code: "5026",    vendor: "ascolour", hist: /^(AS|ASCOLOUR)5026/i },
   { code: "5082",    vendor: "ascolour", hist: /^(AS|ASCOLOUR)5082/i },
   { code: "5101",    vendor: "ascolour", hist: /^(AS|ASCOLOUR)5101/i },
-  { code: "1801GD",  vendor: "la", hist: /1801GD/i },
+  // LA Apparel retail site is Shopify — product .js JSON has per-color
+  // variant featured images. 1801MW (mineral wash) is wholesale-only, not
+  // on the site: stays a stub until Jon drops la/1801MW.jpg in the bucket.
+  { code: "1801GD",  vendor: "la", laHandle: "the-1801-garment-dye", hist: /1801GD/i },
   { code: "1801MW",  vendor: "la", hist: /1801MW/i },
-  { code: "HF-09",   vendor: "la", hist: /HF.?09/i },
+  { code: "HF-09",   vendor: "la", laHandle: "hf09-heavy-fleece-hoodie-garment-dye", hist: /HF.?09/i },
 ];
 
 const SS_CDN = "https://cdn.ssactivewear.com/";
@@ -186,14 +189,47 @@ async function main() {
       console.log(`  hero ${hero ? "ok" : "MISSING"} · ${colors.length} featured / ${colorsAll.length} colors`);
 
     } else {
-      // LA stub — promote hand-dropped assets when they exist.
-      const hero = await laStub(st.code);
-      const colors = [...printed.values()]
-        .sort((a, b) => b.qty - a.qty)
-        .slice(0, FEATURED)
-        .map((c) => ({ name: titleCase(c.display), hex: null, image: null }));
-      manifest[st.code] = { hero, stub: hero === null, colors, moreCount: 0 };
-      console.log(`  ${hero ? "hand-dropped hero found" : `STUB — drop la/${st.code}.jpg in the ${BUCKET} bucket and rerun`} · ${colors.length} printed colors listed`);
+      // LA Apparel via their Shopify retail site. A hand-dropped
+      // la/<STYLE>.jpg in the bucket OVERRIDES the scraped hero (that's
+      // the slot for HPD's own photography).
+      const dropped = await laStub(st.code);
+      if (!st.laHandle) {
+        // History's color column carries junk on some rows (size breakdowns,
+        // notes) — keep only short clean names.
+        const colors = [...printed.values()]
+          .filter((c) => c.display.length <= 24 && !/[•\d]/.test(c.display))
+          .sort((a, b) => b.qty - a.qty)
+          .slice(0, FEATURED)
+          .map((c) => ({ name: titleCase(c.display), hex: null, image: null }));
+        manifest[st.code] = { hero: dropped, stub: dropped === null, colors, moreCount: 0 };
+        console.log(`  ${dropped ? "hand-dropped hero found" : `STUB — no retail listing; drop la/${st.code}.jpg in the ${BUCKET} bucket and rerun`} · ${colors.length} printed colors listed`);
+        continue;
+      }
+      const res = await fetch(`https://losangelesapparel.net/products/${st.laHandle}.js`, { headers: { "User-Agent": "Mozilla/5.0" } });
+      if (!res.ok) {
+        console.warn(`  ! shopify ${res.status} for ${st.laHandle}`);
+        manifest[st.code] = { hero: dropped, stub: dropped === null, colors: [], moreCount: 0 };
+        continue;
+      }
+      const prod = (await res.json()) as any;
+      const colorIdx = (prod.options || []).findIndex((o: any) => String(o.name).toLowerCase() === "color");
+      const imgByColor = new Map<string, string>();
+      for (const v of prod.variants || []) {
+        const color = colorIdx === 0 ? v.option1 : colorIdx === 1 ? v.option2 : v.option3;
+        const src = v.featured_image?.src;
+        if (color && src && !imgByColor.has(color)) imgByColor.set(color, src);
+      }
+      const colorsAll = [...imgByColor.keys()];
+      const ranked = colorsAll.sort((a, b) => printedQty(printed, b) - printedQty(printed, a));
+      const featured = ranked.slice(0, FEATURED);
+      const colors: { name: string; hex: string | null; image: string | null }[] = [];
+      for (const colour of featured) {
+        const img = await storeImage(`${st.code}/${norm(colour)}.jpg`, imgByColor.get(colour)!, { "User-Agent": "Mozilla/5.0" });
+        colors.push({ name: titleCase(colour), hex: null, image: img });
+      }
+      const hero = dropped || colors.find((c) => c.image)?.image || null;
+      manifest[st.code] = { hero, stub: hero === null, colors, moreCount: Math.max(colorsAll.length - featured.length, 0) };
+      console.log(`  hero ${hero ? (dropped ? "hand-dropped (override)" : "ok") : "MISSING"} · ${colors.length} featured / ${colorsAll.length} colors`);
     }
   }
 
