@@ -62,6 +62,9 @@ type MenuLead = {
   contact: { name?: string; phone?: string | null; neededBy?: string | null; notes?: string | null } | null;
   client_match: string | null;
   quote_requested_at: string | null;
+  rates_snapshot: { style_code: string; style_name: string; band_min: number; price_lo: number | null; price_hi: number | null }[] | null;
+  responded_at: string | null;
+  response: { subject?: string; body?: string; by?: string; sent_at?: string } | null;
   created_at: string;
   updated_at: string;
 };
@@ -99,7 +102,7 @@ export default function IntakePage() {
 
     const { data: leads } = await supabase
       .from("menu_leads")
-      .select("id,email,status,picks,contact,client_match,quote_requested_at,created_at,updated_at")
+      .select("id,email,status,picks,contact,client_match,quote_requested_at,rates_snapshot,responded_at,response,created_at,updated_at")
       .order("quote_requested_at", { ascending: false, nullsFirst: false })
       .order("updated_at", { ascending: false });
     const leadRows = (leads as unknown as MenuLead[]) || [];
@@ -817,6 +820,37 @@ function summarizePicks(l: MenuLead): string {
   return bits.length ? bits.join(" · ") : "no picks yet";
 }
 
+// Prefilled tailored-response draft. Taylor edits before sending — the
+// bracketed line is where the real number goes.
+function buildResponseDraft(l: MenuLead): { subject: string; body: string } {
+  const p = l.picks || {};
+  const firstName = (l.contact?.name || "").trim().split(/\s+/)[0] || "there";
+  const qty = p.notSure ? 100 : (p.qty || 100);
+  const band = qty >= 500 ? 500 : qty >= 250 ? 250 : qty >= 100 ? 100 : 48;
+  const snap = (l.rates_snapshot || []).find(r => r.style_code === p.styleCode && r.band_min === band);
+  const styleName = snap?.style_name || p.styleCode || "your style";
+  const lines: string[] = [];
+  lines.push(`Hi ${firstName},`);
+  lines.push("");
+  lines.push("Thanks for knocking. Here is where your picks landed:");
+  lines.push("");
+  const recap: string[] = [];
+  if (p.styleCode) recap.push(`- ${styleName}${p.notSure ? " (quantity TBD, priced at 100 for now)" : `, ${qty} pieces`}`);
+  if (snap?.price_lo != null) recap.push(`- Menu range at that quantity: $${Number(snap.price_lo).toFixed(2)} to $${Number(snap.price_hi).toFixed(2)} per shirt`);
+  if (p.colorways && p.colorways > 1) recap.push(`- ${p.colorways} colorways. Each colorway carries its own 48 piece minimum`);
+  if (p.artStatus === "need_help") recap.push("- Design help: our in-house team can take your logo and vibe to a finished drop");
+  if (recap.length === 0) recap.push("- (no picks on file yet, they were browsing)");
+  lines.push(...recap);
+  lines.push("");
+  lines.push("Your exact quote: [$ ___ per shirt, $ ___ total]");
+  lines.push("");
+  lines.push("If that works, reply here and we will get sizes, art, and timeline locked. Typical turnaround is [X weeks] from art approval.");
+  return {
+    subject: `Your House Party quote${p.styleCode ? ` for the ${styleName}` : ""}`,
+    body: lines.join("\n"),
+  };
+}
+
 function MenuLeadBucket({
   label, color, leads, matchNames, onChanged, emptyText, collapsedByDefault,
 }: {
@@ -830,6 +864,7 @@ function MenuLeadBucket({
 }) {
   const supabase = createClient();
   const [collapsed, setCollapsed] = useState(!!collapsedByDefault);
+  const [composing, setComposing] = useState<MenuLead | null>(null);
   if (leads.length === 0 && !emptyText) return null;
 
   async function setStatus(l: MenuLead, status: string) {
@@ -911,6 +946,9 @@ function MenuLeadBucket({
                   </span>
                   {isQuote && (
                     <div style={{ display: "flex", gap: 10 }}>
+                      <span onClick={() => setComposing(l)} style={{ fontSize: 11, color: T.blue, cursor: "pointer", borderBottom: `1px dotted ${T.blue}`, fontWeight: 700 }}>
+                        Respond
+                      </span>
                       <span onClick={() => setStatus(l, "responded")} style={{ fontSize: 11, color: T.green, cursor: "pointer", borderBottom: `1px dotted ${T.green}` }}>
                         Mark responded
                       </span>
@@ -919,12 +957,87 @@ function MenuLeadBucket({
                       </span>
                     </div>
                   )}
+                  {l.response?.sent_at && (
+                    <span title={l.response.body} style={{ fontSize: 10, color: T.faint, fontFamily: mono }}>
+                      responded {new Date(l.response.sent_at).toLocaleDateString()} by {l.response.by?.split("@")[0]}
+                    </span>
+                  )}
                 </div>
               </div>
             );
           })}
         </div>
       )}
+      {composing && (
+        <ComposeResponseModal
+          lead={composing}
+          onClose={() => setComposing(null)}
+          onSent={() => { setComposing(null); onChanged(); }}
+        />
+      )}
     </section>
+  );
+}
+
+function ComposeResponseModal({ lead, onClose, onSent }: { lead: MenuLead; onClose: () => void; onSent: () => void }) {
+  const draft = useMemo(() => buildResponseDraft(lead), [lead]);
+  const [subject, setSubject] = useState(draft.subject);
+  const [body, setBody] = useState(draft.body);
+  const [sending, setSending] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const hasPlaceholder = /\[\$?\s?_+|\[X /.test(body);
+
+  async function send() {
+    if (sending) return;
+    setSending(true);
+    setErr(null);
+    const res = await fetch("/api/menu/respond", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ leadId: lead.id, subject, body }),
+    }).catch(() => null);
+    setSending(false);
+    if (res?.ok) { onSent(); return; }
+    const d = await res?.json().catch(() => null);
+    setErr(d?.error || "Send failed. Try again.");
+  }
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", zIndex: 60, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 24, width: "100%", maxWidth: 560, fontFamily: font, color: T.text }}>
+        <h3 style={{ margin: "0 0 2px", fontSize: 17, fontWeight: 700 }}>Response to {lead.contact?.name || lead.email}</h3>
+        <p style={{ margin: "0 0 16px", fontSize: 12, color: T.faint }}>
+          Prefilled from their picks and the ranges they were shown. Fill the bracketed number, tweak, send. Goes from hello@ with their menu link attached.
+        </p>
+        <input
+          value={subject}
+          onChange={e => setSubject(e.target.value)}
+          style={{ width: "100%", boxSizing: "border-box", background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, fontSize: 13, padding: "9px 11px", marginBottom: 10, fontFamily: font }}
+        />
+        <textarea
+          value={body}
+          onChange={e => setBody(e.target.value)}
+          style={{ width: "100%", boxSizing: "border-box", background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, fontSize: 13, padding: "10px 11px", minHeight: 260, lineHeight: 1.55, fontFamily: font, resize: "vertical" }}
+        />
+        {hasPlaceholder && (
+          <div style={{ fontSize: 11, color: T.amber, marginTop: 8 }}>
+            Draft still has a bracketed placeholder — fill in the real number before sending.
+          </div>
+        )}
+        {err && <div style={{ fontSize: 12, color: T.red, marginTop: 8 }}>{err}</div>}
+        <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
+          <button onClick={onClose} style={{ background: "transparent", border: `1px solid ${T.border}`, borderRadius: 8, color: T.muted, fontSize: 13, padding: "9px 16px", cursor: "pointer", fontFamily: font }}>
+            Cancel
+          </button>
+          <button
+            onClick={send}
+            disabled={sending || hasPlaceholder || !subject.trim() || !body.trim()}
+            style={{ background: T.accent, border: "none", borderRadius: 8, color: "#111", fontSize: 13, fontWeight: 700, padding: "9px 18px", cursor: "pointer", fontFamily: font, opacity: sending || hasPlaceholder || !subject.trim() || !body.trim() ? 0.5 : 1 }}
+          >
+            {sending ? "Sending..." : "Send response"}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

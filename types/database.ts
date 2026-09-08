@@ -3113,6 +3113,8 @@ export type Database = {
           quote_requested_at: string | null;
           created_at: string;
           updated_at: string;
+          responded_at: string | null;
+          response: Json | null;
         };
         Insert: {
           id?: string;
@@ -3127,6 +3129,8 @@ export type Database = {
           quote_requested_at?: string | null;
           created_at?: string;
           updated_at?: string;
+          responded_at?: string | null;
+          response?: Json | null;
         };
         Update: {
           id?: string;
@@ -3141,6 +3145,8 @@ export type Database = {
           quote_requested_at?: string | null;
           created_at?: string;
           updated_at?: string;
+          responded_at?: string | null;
+          response?: Json | null;
         };
         Relationships: [
           { foreignKeyName: "menu_leads_company_id_fkey"; columns: ["company_id"]; isOneToOne: false; referencedRelation: "companies"; referencedColumns: ["id"] },
