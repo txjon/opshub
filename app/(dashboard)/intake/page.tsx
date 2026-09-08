@@ -51,13 +51,17 @@ type MenuLead = {
   email: string;
   status: string;
   picks: {
+    // Order-builder shape (Sep 8): a basket of items + art files.
+    items?: { styleCode: string; qty: number; colors: string[] }[];
+    files?: { filename: string; path: string; size: number; url?: string | null }[];
+    budget?: number | null;
+    artStatus?: string | null;
+    notes?: string;
+    // Legacy single-pick fields (pre-basket leads)
     styleCode?: string | null;
     qty?: number | null;
     notSure?: boolean;
-    budget?: number | null;
     colorways?: number;
-    artStatus?: string | null;
-    notes?: string;
   } | null;
   contact: { name?: string; phone?: string | null; neededBy?: string | null; notes?: string | null } | null;
   client_match: string | null;
@@ -811,12 +815,18 @@ const inputStyle: React.CSSProperties = {
 function summarizePicks(l: MenuLead): string {
   const p = l.picks || {};
   const bits: string[] = [];
-  if (p.styleCode) bits.push(p.styleCode);
-  if (p.notSure) bits.push("qty unsure");
-  else if (p.qty) bits.push(`${p.qty}u`);
+  if (Array.isArray(p.items) && p.items.length) {
+    for (const it of p.items) bits.push(`${it.styleCode}×${it.qty}${it.colors?.length ? ` (${it.colors.length}cw)` : ""}`);
+  } else {
+    // Legacy single-pick leads
+    if (p.styleCode) bits.push(p.styleCode);
+    if (p.notSure) bits.push("qty unsure");
+    else if (p.qty) bits.push(`${p.qty}u`);
+    if (p.colorways && p.colorways > 1) bits.push(`${p.colorways} colorways`);
+  }
   if (p.budget) bits.push(`$${Number(p.budget).toLocaleString()} budget`);
-  if (p.colorways && p.colorways > 1) bits.push(`${p.colorways} colorways`);
   if (p.artStatus === "need_help") bits.push("needs design");
+  if (p.files?.length) bits.push(`${p.files.length} art file${p.files.length > 1 ? "s" : ""}`);
   return bits.length ? bits.join(" · ") : "no picks yet";
 }
 
@@ -825,28 +835,46 @@ function summarizePicks(l: MenuLead): string {
 function buildResponseDraft(l: MenuLead): { subject: string; body: string } {
   const p = l.picks || {};
   const firstName = (l.contact?.name || "").trim().split(/\s+/)[0] || "there";
-  const qty = p.notSure ? 100 : (p.qty || 100);
-  const band = qty >= 500 ? 500 : qty >= 250 ? 250 : qty >= 100 ? 100 : 48;
-  const snap = (l.rates_snapshot || []).find(r => r.style_code === p.styleCode && r.band_min === band);
-  const styleName = snap?.style_name || p.styleCode || "your style";
+  const snapFor = (styleCode: string, qty: number) => {
+    const band = qty >= 500 ? 500 : qty >= 250 ? 250 : qty >= 100 ? 100 : 48;
+    return (l.rates_snapshot || []).find(r => r.style_code === styleCode && r.band_min === band);
+  };
+  // Normalize legacy single-pick leads into the basket shape.
+  const items = Array.isArray(p.items) && p.items.length
+    ? p.items
+    : p.styleCode
+      ? [{ styleCode: p.styleCode, qty: p.notSure ? 100 : (p.qty || 100), colors: [] as string[] }]
+      : [];
+
   const lines: string[] = [];
   lines.push(`Hi ${firstName},`);
   lines.push("");
   lines.push("Thanks for knocking. Here is where your picks landed:");
   lines.push("");
   const recap: string[] = [];
-  if (p.styleCode) recap.push(`- ${styleName}${p.notSure ? " (quantity TBD, priced at 100 for now)" : `, ${qty} pieces`}`);
-  if (snap?.price_lo != null) recap.push(`- Menu range at that quantity: $${Number(snap.price_lo).toFixed(2)} to $${Number(snap.price_hi).toFixed(2)} per shirt`);
-  if (p.colorways && p.colorways > 1) recap.push(`- ${p.colorways} colorways. Each colorway carries its own 48 piece minimum`);
+  let anyColorways = false;
+  for (const it of items) {
+    const snap = snapFor(it.styleCode, it.qty);
+    const styleName = snap?.style_name || it.styleCode;
+    const colorBit = it.colors?.length ? ` in ${it.colors.join(", ")}` : "";
+    const rangeBit = snap?.price_lo != null ? ` (menu range $${Number(snap.price_lo).toFixed(2)} to $${Number(snap.price_hi).toFixed(2)} per piece)` : "";
+    recap.push(`- ${styleName}, ${it.qty} pieces${colorBit}${rangeBit}`);
+    if ((it.colors?.length || 0) > 1) anyColorways = true;
+  }
+  if (anyColorways) recap.push("- Reminder: each colorway carries its own 48 piece minimum");
   if (p.artStatus === "need_help") recap.push("- Design help: our in-house team can take your logo and vibe to a finished drop");
+  if (p.files?.length) recap.push(`- Got your ${p.files.length} art file${p.files.length > 1 ? "s" : ""} — thank you`);
   if (recap.length === 0) recap.push("- (no picks on file yet, they were browsing)");
   lines.push(...recap);
   lines.push("");
-  lines.push("Your exact quote: [$ ___ per shirt, $ ___ total]");
+  lines.push(items.length > 1 ? "Your exact quote: [$ ___ total — per-style breakdown below]" : "Your exact quote: [$ ___ per piece, $ ___ total]");
   lines.push("");
   lines.push("If that works, reply here and we will get sizes, art, and timeline locked. Typical turnaround is [X weeks] from art approval.");
+  const firstSnap = items[0] ? snapFor(items[0].styleCode, items[0].qty) : null;
   return {
-    subject: `Your House Party quote${p.styleCode ? ` for the ${styleName}` : ""}`,
+    subject: items.length === 1
+      ? `Your House Party quote for the ${firstSnap?.style_name || items[0].styleCode}`
+      : "Your House Party quote",
     body: lines.join("\n"),
   };
 }
@@ -937,6 +965,15 @@ function MenuLeadBucket({
                   {(l.picks?.notes || l.contact?.notes) && (
                     <div style={{ fontSize: 12, color: T.faint, marginTop: 4, whiteSpace: "pre-wrap" }}>
                       {[l.picks?.notes, l.contact?.notes].filter(Boolean).join(" — ")}
+                    </div>
+                  )}
+                  {(l.picks?.files || []).filter(f => f.url).length > 0 && (
+                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 5 }}>
+                      {l.picks!.files!.filter(f => f.url).map(f => (
+                        <a key={f.path} href={f.url!} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: T.blue, textDecoration: "none", borderBottom: `1px dotted ${T.blue}`, fontFamily: mono }}>
+                          📎 {f.filename}
+                        </a>
+                      ))}
                     </div>
                   )}
                 </div>

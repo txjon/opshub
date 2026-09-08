@@ -42,9 +42,9 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ tok
 
   // Self-hosted product imagery (scripts/fetch-menu-imagery.ts).
   const { data: imgCache } = await sb.from("api_cache").select("data").eq("key", "menu_imagery").maybeSingle();
-  const imagery = ((imgCache?.data as any)?.styles || {}) as Record<string, { hero: string | null; colors: { name: string; hex: string | null; image: string | null }[]; moreCount: number }>;
+  const imagery = ((imgCache?.data as any)?.styles || {}) as Record<string, { hero: string | null; colors: { name: string; hex: string | null; image: string | null }[]; allColors?: { name: string; hex: string | null }[]; moreCount: number }>;
 
-  const styles: Record<string, { code: string; name: string; lane: string; group: string; sort: number; bands: Record<number, { lo: number | null; hi: number | null }>; hero: string | null; colors: { name: string; hex: string | null; image: string | null }[]; moreColors: number }> = {};
+  const styles: Record<string, { code: string; name: string; lane: string; group: string; sort: number; bands: Record<number, { lo: number | null; hi: number | null }>; hero: string | null; colors: { name: string; hex: string | null; image: string | null }[]; allColors: { name: string; hex: string | null }[]; moreColors: number }> = {};
   for (const r of rates || []) {
     if (!styles[r.style_code]) {
       const img = imagery[r.style_code];
@@ -52,6 +52,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ tok
         code: r.style_code, name: r.style_name, lane: r.lane, group: r.product_group, sort: r.sort, bands: {},
         hero: img?.hero ?? null,
         colors: img?.colors ?? [],
+        allColors: img?.allColors ?? [],
         moreColors: img?.moreCount ?? 0,
       };
     }

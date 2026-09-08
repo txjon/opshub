@@ -53,11 +53,25 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
     .select("product_group,lane,style_code,style_name,band_min,price_lo,price_hi")
     .eq("active", true);
 
+  // Sign 30-day download URLs for any art the customer attached (paths in
+  // the private intake-uploads bucket) so /intake and the notify email can
+  // link straight to the files.
+  const picks = (lead.picks || {}) as Record<string, any>;
+  const FILE_URL_TTL = 60 * 60 * 24 * 30;
+  if (Array.isArray(picks.files) && picks.files.length) {
+    picks.files = await Promise.all(picks.files.map(async (f: any) => {
+      if (!f?.path) return f;
+      const { data } = await sb.storage.from("intake-uploads").createSignedUrl(f.path, FILE_URL_TTL);
+      return { ...f, url: data?.signedUrl || f.url || null };
+    }));
+  }
+
   const { error } = await sb
     .from("menu_leads")
     .update({
       status: "quote_requested",
       contact,
+      picks,
       rates_snapshot: rates || [],
       quote_requested_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -68,15 +82,22 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
   // Ring the bell. Send-and-forget — the customer's confirmation never
   // waits on internal mail.
   try {
-    const picks = (lead.picks || {}) as Record<string, unknown>;
+    const items = Array.isArray(picks.items) ? picks.items : [];
+    const itemLines = items.length
+      ? items.map((it: any) => `- ${it.styleCode} x ${it.qty}${Array.isArray(it.colors) && it.colors.length ? ` (${it.colors.join(", ")})` : ""}`)
+      : ["- no styles picked (browsing / needs guidance)"];
+    const fileLines = Array.isArray(picks.files)
+      ? picks.files.filter((f: any) => f?.url).map((f: any) => `- ${f.filename}: ${f.url}`)
+      : [];
     const summary = [
-      `Style: ${picks.styleCode || "not picked"}`,
-      `Qty: ${picks.qty || picks.qtyBand || "not set"}`,
-      picks.budget ? `Budget: ${picks.budget}` : null,
-      picks.colorways ? `Colorways: ${picks.colorways}` : null,
-      picks.artStatus ? `Art: ${picks.artStatus}` : null,
+      "Picks:",
+      ...itemLines,
+      picks.budget ? `Budget: $${Number(picks.budget).toLocaleString()}` : null,
+      picks.artStatus ? `Art: ${picks.artStatus === "need_help" ? "needs design help" : "ready"}` : null,
+      picks.notes ? `Notes: ${picks.notes}` : null,
       contact.neededBy ? `Needed by: ${contact.neededBy}` : null,
-      contact.notes ? `Notes: ${contact.notes}` : null,
+      contact.notes ? `Extra: ${contact.notes}` : null,
+      ...(fileLines.length ? ["Art files:", ...fileLines] : []),
       lead.client_match ? "MATCHES AN EXISTING CLIENT — check before quoting rack rates" : null,
     ].filter(Boolean).join("\n");
     await resendForSlug("hpd").emails.send({

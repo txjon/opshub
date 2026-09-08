@@ -102,7 +102,9 @@ async function main() {
     console.log(`created public bucket ${BUCKET}`);
   }
 
-  const manifest: Record<string, { hero: string | null; stub: boolean; colors: { name: string; hex: string | null; image: string | null }[]; moreCount: number }> = {};
+  // colors = featured (self-hosted photos, history-ranked); allColors = the
+  // complete palette as name + hex-where-known chips for the style modal.
+  const manifest: Record<string, { hero: string | null; stub: boolean; colors: { name: string; hex: string | null; image: string | null }[]; allColors: { name: string; hex: string | null }[]; moreCount: number }> = {};
 
   for (const st of STYLES) {
     console.log(`\n${st.code} (${st.vendor})`);
@@ -112,7 +114,7 @@ async function main() {
       const sres = await fetch(`https://api.ssactivewear.com/v2/styles?search=${encodeURIComponent(st.ssSearch!)}`, { headers: ssHeaders });
       const found = (await sres.json()) as any[];
       const style = Array.isArray(found) ? found.find((s) => norm(s.styleName) === norm(st.ssStyleName!)) || found[0] : null;
-      if (!style) { console.warn("  ! style not found on S&S"); manifest[st.code] = { hero: null, stub: true, colors: [], moreCount: 0 }; continue; }
+      if (!style) { console.warn("  ! style not found on S&S"); manifest[st.code] = { hero: null, stub: true, colors: [], allColors: [], moreCount: 0 }; continue; }
       const pres = await fetch(`https://api.ssactivewear.com/v2/products?styleid=${style.styleID}`, { headers: ssHeaders });
       const products = (await pres.json()) as any[];
       const byColor = new Map<string, any>();
@@ -126,7 +128,11 @@ async function main() {
         const img = p.colorFrontImage ? await storeImage(`${st.code}/${norm(p.colorName)}.jpg`, SS_CDN + p.colorFrontImage, ssHeaders) : null;
         colors.push({ name: p.colorName, hex: p.color1 || null, image: img });
       }
-      manifest[st.code] = { hero, stub: false, colors, moreCount: Math.max(all.length - featured.length, 0) };
+      manifest[st.code] = {
+        hero, stub: false, colors,
+        allColors: ranked.map((p) => ({ name: p.colorName, hex: p.color1 || null })),
+        moreCount: Math.max(all.length - featured.length, 0),
+      };
       console.log(`  hero ${hero ? "ok" : "MISSING"} · ${colors.length} featured / ${all.length} colors`);
 
     } else if (st.vendor === "ascolour") {
@@ -185,7 +191,11 @@ async function main() {
         } catch { /* stub stays */ }
         console.log(`  og:image fallback ${hero ? "ok" : "failed"}`);
       }
-      manifest[st.code] = { hero, stub: false, colors, moreCount: Math.max(colorsAll.length - featured.length, 0) };
+      manifest[st.code] = {
+        hero, stub: false, colors,
+        allColors: ranked.map((n) => ({ name: titleCase(n), hex: null })),
+        moreCount: Math.max(colorsAll.length - featured.length, 0),
+      };
       console.log(`  hero ${hero ? "ok" : "MISSING"} · ${colors.length} featured / ${colorsAll.length} colors`);
 
     } else {
@@ -201,14 +211,14 @@ async function main() {
           .sort((a, b) => b.qty - a.qty)
           .slice(0, FEATURED)
           .map((c) => ({ name: titleCase(c.display), hex: null, image: null }));
-        manifest[st.code] = { hero: dropped, stub: dropped === null, colors, moreCount: 0 };
+        manifest[st.code] = { hero: dropped, stub: dropped === null, colors, allColors: colors.map((c) => ({ name: c.name, hex: null })), moreCount: 0 };
         console.log(`  ${dropped ? "hand-dropped hero found" : `STUB — no retail listing; drop la/${st.code}.jpg in the ${BUCKET} bucket and rerun`} · ${colors.length} printed colors listed`);
         continue;
       }
       const res = await fetch(`https://losangelesapparel.net/products/${st.laHandle}.js`, { headers: { "User-Agent": "Mozilla/5.0" } });
       if (!res.ok) {
         console.warn(`  ! shopify ${res.status} for ${st.laHandle}`);
-        manifest[st.code] = { hero: dropped, stub: dropped === null, colors: [], moreCount: 0 };
+        manifest[st.code] = { hero: dropped, stub: dropped === null, colors: [], allColors: [], moreCount: 0 };
         continue;
       }
       const prod = (await res.json()) as any;
@@ -228,7 +238,11 @@ async function main() {
         colors.push({ name: titleCase(colour), hex: null, image: img });
       }
       const hero = dropped || colors.find((c) => c.image)?.image || null;
-      manifest[st.code] = { hero, stub: hero === null, colors, moreCount: Math.max(colorsAll.length - featured.length, 0) };
+      manifest[st.code] = {
+        hero, stub: hero === null, colors,
+        allColors: ranked.map((n) => ({ name: titleCase(n), hex: null })),
+        moreCount: Math.max(colorsAll.length - featured.length, 0),
+      };
       console.log(`  hero ${hero ? (dropped ? "hand-dropped (override)" : "ok") : "MISSING"} · ${colors.length} featured / ${colorsAll.length} colors`);
     }
   }
