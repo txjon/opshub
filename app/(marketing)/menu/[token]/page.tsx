@@ -13,7 +13,7 @@ import { useParams } from "next/navigation";
 // square image wells, uppercase headings, teal/amber accents.
 
 type MenuColor = { name: string; hex: string | null; image: string | null };
-type PaletteColor = { name: string; hex: string | null };
+type PaletteColor = { name: string; hex: string | null; image?: string | null };
 type StyleRow = {
   code: string;
   name: string;
@@ -390,12 +390,13 @@ function StyleModal({ style, existing, onClose, onSave, onRemove }: {
   const colorways = Math.max(colors.length, 1);
   const minPieces = colorways * 48;
   const underMin = qty < minPieces;
-  const featuredByName = Object.fromEntries(style.colors.map((c) => [c.name.toLowerCase(), c]));
 
-  function toggleColor(name: string) {
-    setColors((cs) => cs.includes(name) ? cs.filter((c) => c !== name) : [...cs, name]);
-    const f = featuredByName[name.toLowerCase()];
-    if (f?.image) setPreviewImg(f.image);
+  // One tap = select the color AND show its garment photo. Tapping a
+  // selected color deselects it (preview stays put so nothing flashes).
+  function toggleColor(c: PaletteColor) {
+    const selecting = !colors.includes(c.name);
+    setColors((cs) => selecting ? [...cs, c.name] : cs.filter((x) => x !== c.name));
+    if (selecting && c.image) setPreviewImg(c.image);
   }
 
   const img = previewImg || style.hero;
@@ -433,11 +434,10 @@ function StyleModal({ style, existing, onClose, onSave, onRemove }: {
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6, maxHeight: 150, overflowY: "auto", paddingRight: 4 }}>
                   {style.allColors.map((c) => {
                     const sel = colors.includes(c.name);
-                    const f = featuredByName[c.name.toLowerCase()];
                     return (
                       <button
                         key={c.name}
-                        onClick={() => toggleColor(c.name)}
+                        onClick={() => toggleColor(c)}
                         title={c.name}
                         style={{
                           display: "inline-flex", alignItems: "center", gap: 6,
@@ -447,15 +447,7 @@ function StyleModal({ style, existing, onClose, onSave, onRemove }: {
                           cursor: "pointer", fontFamily: "inherit",
                         }}
                       >
-                        {c.hex ? (
-                          <span style={{ width: 14, height: 14, borderRadius: 99, background: c.hex, border: `1px solid ${LINE}`, flexShrink: 0 }} />
-                        ) : f?.image ? (
-                          <span style={{ width: 14, height: 14, borderRadius: 99, overflow: "hidden", border: `1px solid ${LINE}`, flexShrink: 0 }}>
-                            <img src={f.image} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", transform: "scale(2.4)" }} />
-                          </span>
-                        ) : (
-                          <span style={{ width: 14, height: 14, borderRadius: 99, background: "#2a2a30", border: `1px solid ${LINE}`, flexShrink: 0 }} />
-                        )}
+                        <span style={{ width: 14, height: 14, borderRadius: 99, background: c.hex || "#2a2a30", border: `1px solid ${LINE}`, flexShrink: 0 }} />
                         {c.name}
                       </button>
                     );

@@ -1,24 +1,26 @@
-// Pull product imagery for the intake-menu styles from S&S + AS Colour,
-// self-host it in the public `menu-assets` storage bucket, and write a
+// Pull product imagery for the intake-menu styles from S&S, AS Colour, and
+// LA Apparel's retail Shopify site; self-host EVERY colorway's photo in the
+// public `menu-assets` bucket (resized to 700px jpeg via sharp) and write a
 // manifest to api_cache (key "menu_imagery") that /api/menu/lead serves.
 // Run: npx tsx scripts/fetch-menu-imagery.ts
 //
-// Self-hosted on purpose: vendor CDN URLs churn and their uptime is not
-// ours; one download gives the public menu stable, consistently-sized
-// assets. Featured colors are seeded from what we actually printed
-// (history_sales.color per style), topped up from the vendor list to 6.
-//
-// LA Apparel has no API imagery (PromoStandards media service errors;
-// product data carries no URLs) — LA styles are STUBS: drop files into
-// the bucket at la/<STYLE>.jpg (e.g. la/1801GD.jpg), rerun this script,
-// and it promotes them to heroes automatically.
+// Every color in allColors carries BOTH an image and a hex: S&S provides
+// hex natively (color1); for AS Colour + LA Apparel the hex is computed by
+// sampling the center of the garment photo (sharp) — one download feeds
+// the stored image and the swatch color. Featured = the 6 most-printed
+// colors per style (history_sales volume). A hand-dropped la/<STYLE>.jpg
+// in the bucket OVERRIDES the scraped hero (the slot for HPD's own
+// photography). 1801MW is wholesale-only (no retail listing anywhere in
+// their 1,653-product catalog) — stays a stub until a photo is dropped.
 import { config } from "dotenv";
 config({ path: ".env.local" });
 import { createClient } from "@supabase/supabase-js";
+import sharp from "sharp";
 
 const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 const BUCKET = "menu-assets";
 const FEATURED = 6;
+const CONCURRENCY = 5;
 
 type MenuStyle = { code: string; vendor: "ss" | "ascolour" | "la"; ssSearch?: string; ssStyleName?: string; laHandle?: string; hist: RegExp };
 const STYLES: MenuStyle[] = [
@@ -30,9 +32,6 @@ const STYLES: MenuStyle[] = [
   { code: "5026",    vendor: "ascolour", hist: /^(AS|ASCOLOUR)5026/i },
   { code: "5082",    vendor: "ascolour", hist: /^(AS|ASCOLOUR)5082/i },
   { code: "5101",    vendor: "ascolour", hist: /^(AS|ASCOLOUR)5101/i },
-  // LA Apparel retail site is Shopify — product .js JSON has per-color
-  // variant featured images. 1801MW (mineral wash) is wholesale-only, not
-  // on the site: stays a stub until Jon drops la/1801MW.jpg in the bucket.
   { code: "1801GD",  vendor: "la", laHandle: "the-1801-garment-dye", hist: /1801GD/i },
   { code: "1801MW",  vendor: "la", hist: /1801MW/i },
   { code: "HF-09",   vendor: "la", laHandle: "hf09-heavy-fleece-hoodie-garment-dye", hist: /HF.?09/i },
@@ -44,8 +43,10 @@ const ssHeaders = {
   "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
   Accept: "application/json",
 };
+const uaHeaders = { "User-Agent": "Mozilla/5.0" };
 
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+const titleCase = (s: string) => s.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
 
 type ColorCount = { qty: number; display: string };
 async function histColorCounts(hist: RegExp): Promise<Map<string, ColorCount>> {
@@ -67,44 +68,84 @@ async function histColorCounts(hist: RegExp): Promise<Map<string, ColorCount>> {
 }
 const printedQty = (m: Map<string, ColorCount>, name: string) => m.get(norm(name))?.qty || 0;
 
-async function storeImage(path: string, srcUrl: string, headers?: Record<string, string>): Promise<string | null> {
-  try {
-    const res = await fetch(srcUrl, { headers });
-    if (!res.ok) { console.warn(`  ! fetch ${res.status} ${srcUrl}`); return null; }
-    const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.length < 1000) { console.warn(`  ! tiny payload ${srcUrl}`); return null; }
-    const { error } = await sb.storage.from(BUCKET).upload(path, buf, {
-      contentType: res.headers.get("content-type") || "image/jpeg",
-      upsert: true,
-    });
-    if (error) { console.warn(`  ! upload ${path}: ${error.message}`); return null; }
-    return `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/${BUCKET}/${path}`;
-  } catch (e: any) {
-    console.warn(`  ! ${srcUrl}: ${e.message}`);
-    return null;
+// Download once → resize to 700px jpeg, upload, AND sample the garment for
+// a swatch hex (center 40% region average — the garment fills the middle
+// of every vendor's product shot).
+async function processAndStore(
+  path: string,
+  candidateUrls: string[],
+  headers?: Record<string, string>
+): Promise<{ url: string; hex: string } | null> {
+  for (const srcUrl of candidateUrls) {
+    try {
+      const res = await fetch(srcUrl, { headers });
+      if (!res.ok) continue;
+      const raw = Buffer.from(await res.arrayBuffer());
+      if (raw.length < 1000) continue;
+
+      const img = sharp(raw).rotate();
+      const meta = await img.metadata();
+      const w = meta.width || 700, h = meta.height || 700;
+      const region = {
+        left: Math.floor(w * 0.3), top: Math.floor(h * 0.3),
+        width: Math.max(Math.floor(w * 0.4), 1), height: Math.max(Math.floor(h * 0.4), 1),
+      };
+      const px = await sharp(raw).rotate().extract(region).resize(1, 1, { fit: "fill" }).removeAlpha().raw().toBuffer();
+      const hex = "#" + [px[0], px[1], px[2]].map((n) => n.toString(16).padStart(2, "0")).join("");
+
+      const out = await sharp(raw).rotate().resize(700, 700, { fit: "inside", withoutEnlargement: true }).flatten({ background: "#ffffff" }).jpeg({ quality: 78 }).toBuffer();
+      const { error } = await sb.storage.from(BUCKET).upload(path, out, { contentType: "image/jpeg", upsert: true });
+      if (error) { console.warn(`  ! upload ${path}: ${error.message}`); return null; }
+      return { url: `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/${BUCKET}/${path}`, hex };
+    } catch (e: any) {
+      console.warn(`  ! ${srcUrl.slice(0, 80)}: ${e.message}`);
+    }
   }
+  return null;
+}
+
+async function pool<T, R>(items: T[], n: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let i = 0;
+  await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => {
+    while (i < items.length) {
+      const idx = i++;
+      results[idx] = await fn(items[idx]);
+    }
+  }));
+  return results;
 }
 
 async function laStub(code: string): Promise<string | null> {
-  // Promote a hand-dropped la/<STYLE>.jpg (or .png) to hero if present.
   const { data } = await sb.storage.from(BUCKET).list("la");
   const file = (data || []).find((f) => f.name.toLowerCase().startsWith(code.toLowerCase().replace(/[^a-z0-9]/gi, "")) || f.name.toLowerCase().startsWith(code.toLowerCase()));
   if (!file) return null;
   return `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/${BUCKET}/la/${file.name}`;
 }
 
+type ManifestColor = { name: string; hex: string | null; image: string | null };
+type ManifestStyle = { hero: string | null; stub: boolean; colors: ManifestColor[]; allColors: ManifestColor[]; moreCount: number };
+
+// Build allColors: ranked color names → candidate source URLs; download all.
+async function buildColors(
+  code: string,
+  ranked: { name: string; urls: string[]; vendorHex: string | null }[],
+  headers?: Record<string, string>
+): Promise<ManifestColor[]> {
+  return pool(ranked, CONCURRENCY, async (c) => {
+    const stored = await processAndStore(`${code}/${norm(c.name)}.jpg`, c.urls, headers);
+    return { name: c.name, hex: c.vendorHex || stored?.hex || null, image: stored?.url || null };
+  });
+}
+
 async function main() {
-  // Bucket (public) — idempotent.
   const { data: buckets } = await sb.storage.listBuckets();
   if (!(buckets || []).some((b) => b.name === BUCKET)) {
     const { error } = await sb.storage.createBucket(BUCKET, { public: true });
     if (error) throw new Error(`createBucket: ${error.message}`);
-    console.log(`created public bucket ${BUCKET}`);
   }
 
-  // colors = featured (self-hosted photos, history-ranked); allColors = the
-  // complete palette as name + hex-where-known chips for the style modal.
-  const manifest: Record<string, { hero: string | null; stub: boolean; colors: { name: string; hex: string | null; image: string | null }[]; allColors: { name: string; hex: string | null }[]; moreCount: number }> = {};
+  const manifest: Record<string, ManifestStyle> = {};
 
   for (const st of STYLES) {
     console.log(`\n${st.code} (${st.vendor})`);
@@ -119,21 +160,14 @@ async function main() {
       const products = (await pres.json()) as any[];
       const byColor = new Map<string, any>();
       for (const p of products || []) if (p.colorName && !byColor.has(p.colorName)) byColor.set(p.colorName, p);
-      const all = [...byColor.values()];
-      const ranked = all.sort((a, b) => printedQty(printed, b.colorName) - printedQty(printed, a.colorName));
-      const featured = ranked.slice(0, FEATURED);
-      const hero = style.styleImage ? await storeImage(`${st.code}/hero.jpg`, SS_CDN + style.styleImage, ssHeaders) : null;
-      const colors: { name: string; hex: string | null; image: string | null }[] = [];
-      for (const p of featured) {
-        const img = p.colorFrontImage ? await storeImage(`${st.code}/${norm(p.colorName)}.jpg`, SS_CDN + p.colorFrontImage, ssHeaders) : null;
-        colors.push({ name: p.colorName, hex: p.color1 || null, image: img });
-      }
-      manifest[st.code] = {
-        hero, stub: false, colors,
-        allColors: ranked.map((p) => ({ name: p.colorName, hex: p.color1 || null })),
-        moreCount: Math.max(all.length - featured.length, 0),
-      };
-      console.log(`  hero ${hero ? "ok" : "MISSING"} · ${colors.length} featured / ${all.length} colors`);
+      const ranked = [...byColor.values()]
+        .sort((a, b) => printedQty(printed, b.colorName) - printedQty(printed, a.colorName))
+        .map((p) => ({ name: p.colorName as string, urls: p.colorFrontImage ? [SS_CDN + p.colorFrontImage] : [], vendorHex: (p.color1 as string) || null }));
+      const allColors = await buildColors(st.code, ranked, ssHeaders);
+      const heroStored = style.styleImage ? await processAndStore(`${st.code}/hero.jpg`, [SS_CDN + style.styleImage], ssHeaders) : null;
+      const hero = heroStored?.url || allColors.find((c) => c.image)?.image || null;
+      manifest[st.code] = { hero, stub: false, colors: allColors.slice(0, FEATURED), allColors, moreCount: Math.max(allColors.length - FEATURED, 0) };
+      console.log(`  hero ${hero ? "ok" : "MISSING"} · ${allColors.filter((c) => c.image).length}/${allColors.length} colors imaged`);
 
     } else if (st.vendor === "ascolour") {
       const h = { Accept: "application/json", "Content-Type": "application/json", "Subscription-Key": process.env.ASCOLOUR_SUBSCRIPTION_KEY || "" };
@@ -147,8 +181,8 @@ async function main() {
         all.push(...items);
         if (items.length < 250) break;
       }
-      // Some variants carry stale imageUrls (404) — collect every size's URL
-      // per colour and try them in order until one downloads.
+      // Stale imageUrls (404) are common — every size's URL per colour goes
+      // in as a candidate; processAndStore tries them in order.
       const urlsByColor = new Map<string, string[]>();
       for (const v of all) {
         if (!v.colour || v.discontinued || !v.imageUrl) continue;
@@ -156,23 +190,14 @@ async function main() {
         if (!list.includes(v.imageUrl)) list.push(v.imageUrl);
         urlsByColor.set(v.colour, list);
       }
-      const colorsAll = [...urlsByColor.keys()];
-      const ranked = colorsAll.sort((a, b) => printedQty(printed, b) - printedQty(printed, a));
-      const featured = ranked.slice(0, FEATURED);
-      const colors: { name: string; hex: string | null; image: string | null }[] = [];
-      for (const colour of featured) {
-        let img: string | null = null;
-        for (const url of urlsByColor.get(colour)!) {
-          img = await storeImage(`${st.code}/${norm(colour)}.jpg`, url);
-          if (img) break;
-        }
-        colors.push({ name: titleCase(colour), hex: null, image: img });
-      }
-      // Hero = the most-printed colour's shot (black is almost always #1 anyway).
-      let hero = colors.find((c) => c.image)?.image || null;
+      const ranked = [...urlsByColor.entries()]
+        .sort((a, b) => printedQty(printed, b[0]) - printedQty(printed, a[0]))
+        .map(([name, urls]) => ({ name: titleCase(name), urls, vendorHex: null }));
+      const allColors = await buildColors(st.code, ranked);
+      let hero = allColors.find((c) => c.image)?.image || null;
       if (!hero) {
-        // Every variant URL dead (5082's shape — their CDN retired the line's
-        // images): fall back to og:image on the style's public product page.
+        // Whole line's CDN images dead (5082's shape): og:image off the
+        // style's public product page.
         try {
           let prod: any = null;
           for (let page = 1; page <= 8 && !prod; page++) {
@@ -184,38 +209,31 @@ async function main() {
             if (items.length < 250) break;
           }
           if (prod?.websiteURL) {
-            const page = await (await fetch(prod.websiteURL)).text();
+            const page = await (await fetch(prod.websiteURL, { headers: uaHeaders })).text();
             const og = page.match(/property="og:image"\s+content="([^"]+)"/i) || page.match(/content="([^"]+)"\s+property="og:image"/i);
-            if (og) hero = await storeImage(`${st.code}/hero.jpg`, og[1]);
+            if (og) hero = (await processAndStore(`${st.code}/hero.jpg`, [og[1]]))?.url || null;
           }
         } catch { /* stub stays */ }
         console.log(`  og:image fallback ${hero ? "ok" : "failed"}`);
       }
-      manifest[st.code] = {
-        hero, stub: false, colors,
-        allColors: ranked.map((n) => ({ name: titleCase(n), hex: null })),
-        moreCount: Math.max(colorsAll.length - featured.length, 0),
-      };
-      console.log(`  hero ${hero ? "ok" : "MISSING"} · ${colors.length} featured / ${colorsAll.length} colors`);
+      manifest[st.code] = { hero, stub: false, colors: allColors.slice(0, FEATURED), allColors, moreCount: Math.max(allColors.length - FEATURED, 0) };
+      console.log(`  hero ${hero ? "ok" : "MISSING"} · ${allColors.filter((c) => c.image).length}/${allColors.length} colors imaged`);
 
     } else {
-      // LA Apparel via their Shopify retail site. A hand-dropped
-      // la/<STYLE>.jpg in the bucket OVERRIDES the scraped hero (that's
-      // the slot for HPD's own photography).
       const dropped = await laStub(st.code);
       if (!st.laHandle) {
-        // History's color column carries junk on some rows (size breakdowns,
-        // notes) — keep only short clean names.
+        // No retail listing (1801MW). History color names only, junk rows
+        // (size-breakdown text) filtered.
         const colors = [...printed.values()]
           .filter((c) => c.display.length <= 24 && !/[•\d]/.test(c.display))
           .sort((a, b) => b.qty - a.qty)
           .slice(0, FEATURED)
           .map((c) => ({ name: titleCase(c.display), hex: null, image: null }));
-        manifest[st.code] = { hero: dropped, stub: dropped === null, colors, allColors: colors.map((c) => ({ name: c.name, hex: null })), moreCount: 0 };
-        console.log(`  ${dropped ? "hand-dropped hero found" : `STUB — no retail listing; drop la/${st.code}.jpg in the ${BUCKET} bucket and rerun`} · ${colors.length} printed colors listed`);
+        manifest[st.code] = { hero: dropped, stub: dropped === null, colors, allColors: colors, moreCount: 0 };
+        console.log(`  ${dropped ? "hand-dropped hero found" : `STUB — no retail listing; drop la/${st.code}.jpg in the ${BUCKET} bucket and rerun`}`);
         continue;
       }
-      const res = await fetch(`https://losangelesapparel.net/products/${st.laHandle}.js`, { headers: { "User-Agent": "Mozilla/5.0" } });
+      const res = await fetch(`https://losangelesapparel.net/products/${st.laHandle}.js`, { headers: uaHeaders });
       if (!res.ok) {
         console.warn(`  ! shopify ${res.status} for ${st.laHandle}`);
         manifest[st.code] = { hero: dropped, stub: dropped === null, colors: [], allColors: [], moreCount: 0 };
@@ -229,35 +247,23 @@ async function main() {
         const src = v.featured_image?.src;
         if (color && src && !imgByColor.has(color)) imgByColor.set(color, src);
       }
-      const colorsAll = [...imgByColor.keys()];
-      const ranked = colorsAll.sort((a, b) => printedQty(printed, b) - printedQty(printed, a));
-      const featured = ranked.slice(0, FEATURED);
-      const colors: { name: string; hex: string | null; image: string | null }[] = [];
-      for (const colour of featured) {
-        const img = await storeImage(`${st.code}/${norm(colour)}.jpg`, imgByColor.get(colour)!, { "User-Agent": "Mozilla/5.0" });
-        colors.push({ name: titleCase(colour), hex: null, image: img });
-      }
-      const hero = dropped || colors.find((c) => c.image)?.image || null;
-      manifest[st.code] = {
-        hero, stub: hero === null, colors,
-        allColors: ranked.map((n) => ({ name: titleCase(n), hex: null })),
-        moreCount: Math.max(colorsAll.length - featured.length, 0),
-      };
-      console.log(`  hero ${hero ? (dropped ? "hand-dropped (override)" : "ok") : "MISSING"} · ${colors.length} featured / ${colorsAll.length} colors`);
+      const ranked = [...imgByColor.entries()]
+        .sort((a, b) => printedQty(printed, b[0]) - printedQty(printed, a[0]))
+        .map(([name, url]) => ({ name: titleCase(name), urls: [url], vendorHex: null }));
+      const allColors = await buildColors(st.code, ranked, uaHeaders);
+      const hero = dropped || allColors.find((c) => c.image)?.image || null;
+      manifest[st.code] = { hero, stub: hero === null, colors: allColors.slice(0, FEATURED), allColors, moreCount: Math.max(allColors.length - FEATURED, 0) };
+      console.log(`  hero ${hero ? (dropped ? "hand-dropped (override)" : "ok") : "MISSING"} · ${allColors.filter((c) => c.image).length}/${allColors.length} colors imaged`);
     }
   }
 
   const { error } = await sb.from("api_cache").upsert({
     key: "menu_imagery",
-    data: { version: 1, generatedAt: new Date().toISOString(), styles: manifest },
+    data: { version: 2, generatedAt: new Date().toISOString(), styles: manifest },
     updated_at: new Date().toISOString(),
   } as never);
   if (error) throw error;
   console.log("\nmanifest written to api_cache key menu_imagery.");
-}
-
-function titleCase(s: string) {
-  return s.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });
