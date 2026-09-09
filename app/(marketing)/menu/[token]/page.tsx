@@ -119,6 +119,17 @@ const eyebrowStyle: React.CSSProperties = {
   letterSpacing: "0.16em", color: TEAL,
 };
 
+// The card's "From $X" = the best per-piece price on the style's ladder
+// (highest volume tier). Honest, and it leads with the number that makes
+// volume feel like the customer's lever instead of a wall.
+function fromPrice(style: StyleRow): number | null {
+  let best: number | null = null;
+  for (const r of Object.values(style.bands)) {
+    if (r?.lo != null && (best === null || r.lo < best)) best = r.lo;
+  }
+  return best;
+}
+
 function itemRange(style: StyleRow, qty: number): { lo: number; hi: number } | null {
   const min = bandsFor(style.group)[0];
   const r = style.bands[bandFor(Math.max(qty, min), style.group)];
@@ -351,7 +362,11 @@ export default function MenuPage() {
                           <div style={{ fontSize: 12, color: FAINT, lineHeight: 1.45, marginBottom: 10 }}>{meta?.blurb}</div>
                           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                             <span style={{ fontSize: 13.5, fontWeight: 600, color: "rgba(255,255,255,0.82)", fontFamily: monoFont }}>
-                              {r ? <>{money(r.lo)}–{money(r.hi)}<span style={{ fontSize: 11, color: FAINT, fontWeight: 400 }}>/pc</span></> : <span style={{ fontSize: 12, color: FAINT }}>ask us</span>}
+                              {inQuote && r
+                                ? <>{money(r.lo)}–{money(r.hi)}<span style={{ fontSize: 11, color: FAINT, fontWeight: 400 }}>/pc</span></>
+                                : fromPrice(s) !== null
+                                  ? <><span style={{ fontSize: 11, color: FAINT, fontWeight: 400 }}>from </span>{money(fromPrice(s))}<span style={{ fontSize: 11, color: FAINT, fontWeight: 400 }}>/pc</span></>
+                                  : <span style={{ fontSize: 12, color: FAINT }}>ask us</span>}
                             </span>
                             <span style={{ fontSize: 10.5, color: FAINT, fontFamily: monoFont }}>
                               {s.allColors.length > 0 ? `${s.allColors.length} colors` : ""}
@@ -384,7 +399,8 @@ export default function MenuPage() {
           <p style={{ fontSize: 12, color: FAINT, lineHeight: 1.6, maxWidth: 620 }}>
             Prices include a 1–2 location print and are shown as ranges on purpose — the real
             quote is exact, comes from a human, and lands within 1 business day of asking.
-            48 piece minimum per design for garments (hats start at 24); each colorway runs its own minimum. Specialty inks,
+            48 piece minimum per design for screen-printed garments (hats start at 24; small
+            batches of 25–47 run as DTF); each colorway runs its own minimum. Specialty inks,
             extra locations, and rush timelines move the number.
           </p>
         </div>
@@ -581,20 +597,60 @@ function StyleModal({ style, existing, files, placements, onUpload, onRemoveFile
               {underMin && (
                 <div style={{ fontSize: 11.5, color: AMBER, marginTop: 8 }}>
                   Minimum for this setup is {minPieces} pieces{colors.length > 1 ? ` (${colors.length} colorways)` : ` (${groupMin} per design)`}.
+                  {(style.group === "tee" || style.group === "hoodie") && qty >= 25 ? " Batches of 25–47 run as DTF — we will quote it that way." : ""}
                 </div>
               )}
             </div>
 
-            {/* Live math */}
-            <div style={{ borderTop: `1px solid ${LINE_SOFT}`, paddingTop: 14, marginBottom: 16 }}>
-              {r ? (
-                <div style={{ fontSize: 14, fontFamily: monoFont }}>
-                  {money(r.lo)}–{money(r.hi)}<span style={{ fontSize: 11, color: FAINT }}> /pc at {bandFor(Math.max(qty, groupMin), style.group)}+</span>
-                  <span style={{ color: FAINT }}> · </span>
-                  <span style={{ color: TEAL }}>≈ ${Math.round(r.lo * Math.max(qty, groupMin)).toLocaleString()}–${Math.round(r.hi * Math.max(qty, groupMin)).toLocaleString()}</span>
+            {/* The price ladder — volume is the customer's lever, shown, not told */}
+            <div style={{ borderTop: `1px solid ${LINE_SOFT}`, paddingTop: 14, marginBottom: 14 }}>
+              <div style={{ ...eyebrowStyle, color: FAINT, marginBottom: 8 }}>Pricing · per piece</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 0, border: `1px solid ${LINE_SOFT}`, marginBottom: 10 }}>
+                {qtyChips.map((band, i) => {
+                  const br = style.bands[band];
+                  const active = bandFor(Math.max(qty, groupMin), style.group) === band;
+                  const next = qtyChips[i + 1];
+                  return (
+                    <button
+                      key={band}
+                      onClick={() => setQty(band)}
+                      style={{
+                        display: "flex", justifyContent: "space-between", alignItems: "center",
+                        padding: "8px 12px", cursor: "pointer", fontFamily: "inherit", textAlign: "left",
+                        background: active ? "rgba(115,182,201,0.1)" : "transparent",
+                        border: "none",
+                        borderLeft: active ? `2px solid ${TEAL}` : "2px solid transparent",
+                        borderBottom: i < qtyChips.length - 1 ? `1px solid ${LINE_SOFT}` : "none",
+                        color: active ? TEXT : MUTED,
+                      }}
+                    >
+                      <span style={{ fontSize: 12, fontFamily: monoFont }}>{next ? `${band}–${next - 1}` : `${band}+`} pieces</span>
+                      <span style={{ fontSize: 12.5, fontFamily: monoFont, fontWeight: active ? 700 : 400 }}>
+                        {br?.lo != null ? `${money(br.lo)}–${money(br.hi)}` : "ask us"}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              {r && (
+                <div style={{ fontSize: 13, fontFamily: monoFont, marginBottom: 10 }}>
+                  <span style={{ color: FAINT }}>Your {Math.max(qty, groupMin)} pieces ≈ </span>
+                  <span style={{ color: TEAL, fontWeight: 700 }}>${Math.round(r.lo * Math.max(qty, groupMin)).toLocaleString()}–${Math.round(r.hi * Math.max(qty, groupMin)).toLocaleString()}</span>
                 </div>
-              ) : (
-                <div style={{ fontSize: 13, color: FAINT }}>No menu price for this one yet — ask and a human quotes it.</div>
+              )}
+              {/* What moves the number — Taylor's explanation, printed */}
+              <div style={{ fontSize: 11.5, color: FAINT, lineHeight: 1.6 }}>
+                What moves your price: <span style={{ color: MUTED }}>volume</span> (every tier drops
+                the per-piece), <span style={{ color: MUTED }}>the blank</span> (a premium garment costs
+                more before ink ever touches it), and <span style={{ color: MUTED }}>the print</span>{" "}
+                (1–2 locations included — extra locations, specialty inks, and rush move it).
+                The exact number comes from a human, and it lives inside this range.
+              </div>
+              {(style.group === "tee" || style.group === "hoodie") && (
+                <div style={{ fontSize: 11.5, color: MUTED, lineHeight: 1.6, marginTop: 8, borderLeft: `2px solid ${AMBER}`, paddingLeft: 10 }}>
+                  Under 48 pieces? We run small batches of 25+ as DTF prints — say so in the
+                  notes and we will quote it that way.
+                </div>
               )}
             </div>
 
