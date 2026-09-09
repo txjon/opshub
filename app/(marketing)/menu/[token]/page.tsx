@@ -43,9 +43,7 @@ const GROUPS: { key: string; label: string }[] = [
   { key: "tee", label: "Tees" },
   { key: "hoodie", label: "Hoodies" },
   { key: "hat", label: "Hats" },
-  { key: "patch", label: "Patches" },
-  { key: "flag", label: "Flags" },
-  { key: "sticker", label: "Stickers" },
+  { key: "accessory", label: "Accessories" },
 ];
 
 const GARMENT_LANES: { key: string; label: string; blurb: string }[] = [
@@ -57,14 +55,19 @@ const LANES_BY_GROUP: Record<string, { key: string; label: string; blurb: string
   tee: GARMENT_LANES,
   hoodie: GARMENT_LANES,
   hat: [{ key: "headwear", label: "Headwear", blurb: "Embroidered staples. The caps we run every week." }],
-  patch: [{ key: "gear", label: "Patches", blurb: "Sew-on or heat-seal, up to about 3.5 inches." }],
-  flag: [{ key: "gear", label: "Flags", blurb: "Full-color 3x5. The wall piece." }],
-  sticker: [{ key: "gear", label: "Stickers", blurb: "Die-cut vinyl. The handout that travels." }],
+  accessory: [
+    { key: "patches", label: "Patches", blurb: "Sew-on or heat-seal, up to about 3.5 inches. From 50." },
+    { key: "flags", label: "Flags", blurb: "Full-color 3x5. The wall piece. From 50." },
+    { key: "stickers", label: "Stickers", blurb: "Die-cut vinyl. The handout that travels. From 25." },
+  ],
 };
-// Hats sell in smaller runs — they carry a 24 band; everything else starts at 48.
-const GROUP_BANDS: Record<string, number[]> = { hat: [24, 48, 100, 250, 500] };
-const DEFAULT_BANDS = [48, 100, 250, 500];
-const bandsFor = (group: string) => GROUP_BANDS[group] || DEFAULT_BANDS;
+// Minimums and tiers derive from each style's own rate rows — the
+// Accessories tab mixes minimums (patches/flags 50, stickers 25), so
+// per-group band config would lie. Apparel additionally opens a 25–49
+// DTF small-batch zone BELOW its screen-print minimum of 50.
+const styleBands = (s: StyleRow): number[] =>
+  Object.keys(s.bands).map(Number).filter((n) => !isNaN(n)).sort((a, b) => a - b);
+const styleMin = (s: StyleRow): number => styleBands(s)[0] ?? 50;
 
 const STYLE_META: Record<string, { displayName: string; spec: string; blurb: string }> = {
   "1801GD": { displayName: "The LA Heavyweight", spec: "6.5 oz · garment dyed", blurb: "The heavyweight with the lived-in fade." },
@@ -90,13 +93,6 @@ const STYLE_META: Record<string, { displayName: string; spec: string; blurb: str
   "PATCH-WVN":  { displayName: "Woven Patch", spec: "woven · fine detail", blurb: "Holds small text and tight lines." },
   "FLAG-3X5":   { displayName: "3x5 Flag", spec: "3 x 5 ft · full color", blurb: "The wall piece for the true fans." },
   "STICKER-DC": { displayName: "Die-Cut Stickers", spec: "die-cut vinyl · to 4 in", blurb: "The handout that ends up everywhere." },
-};
-
-const bandFor = (qty: number, group?: string) => {
-  const bands = group ? bandsFor(group) : DEFAULT_BANDS;
-  let out = bands[0];
-  for (const b of bands) if (qty >= b) out = b;
-  return out;
 };
 
 const money = (n: number | null | undefined) =>
@@ -135,8 +131,7 @@ function fromPrice(style: StyleRow): number | null {
 // artifact of the table, not the math. Below the group minimum (the DTF
 // small-batch zone for garments) there is deliberately no price.
 function itemRange(style: StyleRow, qty: number): { lo: number; hi: number } | null {
-  const bands = bandsFor(style.group);
-  const anchors = bands
+  const anchors = styleBands(style)
     .map((b) => ({ q: b, r: style.bands[b] }))
     .filter((a) => a.r?.lo != null && a.r?.hi != null);
   if (!anchors.length) return null;
@@ -262,18 +257,15 @@ export default function MenuPage() {
   const budgetEstimate = useMemo(() => {
     if (!picks.budget || visible.length === 0) return null;
     const st = byCode[picks.items[0]?.styleCode] || visible[0];
-    let b = 100;
-    for (let i = 0; i < 3; i++) {
-      const r = st.bands[b];
-      if (!r?.lo || !r?.hi) return null;
-      const units = Math.floor(picks.budget / ((r.lo + r.hi) / 2));
-      const nb = bandFor(Math.max(units, 48), st.group);
-      if (nb === b) return { units, style: st };
-      b = nb;
+    let units = 100;
+    for (let i = 0; i < 4; i++) {
+      const r = itemRange(st, Math.max(units, styleMin(st)));
+      if (!r) return null;
+      const next = Math.floor(picks.budget / ((r.lo + r.hi) / 2));
+      if (Math.abs(next - units) < 5) { units = next; break; }
+      units = next;
     }
-    const r = st.bands[b];
-    if (!r?.lo || !r?.hi) return null;
-    return { units: Math.floor(picks.budget / ((r.lo + r.hi) / 2)), style: st };
+    return units >= styleMin(st) ? { units, style: st } : null;
   }, [picks.budget, picks.items, visible, byCode]);
 
   function upsertItem(item: QuoteItem) {
@@ -424,8 +416,8 @@ export default function MenuPage() {
           <p style={{ fontSize: 12, color: FAINT, lineHeight: 1.6, maxWidth: 620 }}>
             Prices include a 1–2 location print and are shown as ranges on purpose — the real
             quote is exact, comes from a human, and lands within 1 business day of asking.
-            48 piece minimum per design for screen-printed garments (hats start at 24; small
-            batches of 25–47 run as DTF); each colorway runs its own minimum. Specialty inks,
+            Minimums: apparel 50 per design screen-printed (25–49 runs as DTF), hats 25,
+            patches and flags 50, stickers 25. Each colorway runs its own minimum. Specialty inks,
             extra locations, and rush timelines move the number.
           </p>
         </div>
@@ -517,7 +509,7 @@ function StyleModal({ style, existing, files, placements, onUpload, onRemoveFile
   const fileInput = useRef<HTMLInputElement>(null);
   const meta = STYLE_META[style.code];
   const r = itemRange(style, qty);
-  const groupMin = bandsFor(style.group)[0];
+  const groupMin = styleMin(style); // the style's real minimum (apparel screen-print = 50)
   const colorways = Math.max(colors.length, 1);
   const minPieces = colorways * groupMin;
   const underMin = qty >= groupMin && qty < minPieces;
@@ -525,7 +517,7 @@ function StyleModal({ style, existing, files, placements, onUpload, onRemoveFile
   const sliderMin = isGarment ? 25 : groupMin;   // garments open the 25+ DTF small-batch zone
   const sliderMax = 1000;
   const inDtfZone = isGarment && qty < groupMin;
-  const tickMarks = bandsFor(style.group).filter((b) => b >= sliderMin && b <= sliderMax);
+  const tickMarks = styleBands(style).filter((b) => b >= sliderMin && b <= sliderMax);
   const groupLabel = GROUPS.find((g) => g.key === style.group)?.label || style.group;
   const laneLabel = (LANES_BY_GROUP[style.group] || []).find((l) => l.key === style.lane)?.label;
 
@@ -651,9 +643,9 @@ function StyleModal({ style, existing, files, placements, onUpload, onRemoveFile
 
               {inDtfZone ? (
                 <div style={{ fontSize: 12.5, color: AMBER, lineHeight: 1.55, marginTop: 10 }}>
-                  <b>{qty} pieces = small batch.</b> Under {groupMin} we print DTF instead of
-                  screens — no per-piece menu price; we quote it per design. Keep going and
-                  send it, or slide up for screen-print pricing.
+                  <b>{qty} pieces = small batch.</b> 25–49 pieces run as DTF prints instead
+                  of screens — no per-piece menu price; we quote it per design. Send it as is,
+                  or slide up to {groupMin}+ for screen-print pricing.
                 </div>
               ) : r ? (
                 <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginTop: 10, flexWrap: "wrap" }}>

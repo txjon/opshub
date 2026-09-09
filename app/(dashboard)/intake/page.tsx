@@ -836,8 +836,8 @@ function buildResponseDraft(l: MenuLead): { subject: string; body: string } {
   const p = l.picks || {};
   const firstName = (l.contact?.name || "").trim().split(/\s+/)[0] || "there";
   const snapFor = (styleCode: string, qty: number) => {
-    const band = qty >= 500 ? 500 : qty >= 250 ? 250 : qty >= 100 ? 100 : 48;
-    return (l.rates_snapshot || []).find(r => r.style_code === styleCode && r.band_min === band);
+    const rows = (l.rates_snapshot || []).filter(r => r.style_code === styleCode).sort((a, b) => b.band_min - a.band_min);
+    return rows.find(r => r.band_min <= qty) || rows[rows.length - 1];
   };
   // Normalize legacy single-pick leads into the basket shape.
   const items = Array.isArray(p.items) && p.items.length

@@ -89,17 +89,20 @@ type HistStyle = {
 const pg = (h: any, g: string) => h.product_group === g;
 const txt = (h: any) => `${h.blank_style || ""} ${h.description || ""}`.toLowerCase();
 const HIST_STYLES: HistStyle[] = [
-  { code: "YP6245CM",   name: "Yupoong 6245 Dad Hat",  group: "hat", lane: "headwear", sort: 50, bands: [24, 48, 100, 250, 500], match: (h) => pg(h, "Hats") && /^YP6245/.test((h.blank_style || "").trim()) },
-  { code: "474700",     name: "'47 Brand Clean Up",    group: "hat", lane: "headwear", sort: 51, bands: [24, 48, 100, 250, 500], match: (h) => pg(h, "Hats") && /^(474700|47BRAND)/.test((h.blank_style || "").trim()) },
-  { code: "RICHARDSON", name: "Richardson Trucker",    group: "hat", lane: "headwear", sort: 52, bands: [24, 48, 100, 250, 500], match: (h) => pg(h, "Hats") && /^RICHARDSON/.test((h.blank_style || "").trim()) },
-  { code: "PATCH-EMB",  name: "Embroidered Patch",     group: "patch", lane: "gear", sort: 60, bands: [48, 100, 250, 500], match: (h) => pg(h, "Patches") && /embroider/.test(txt(h)) && !/pvc|woven|leather/.test(txt(h)) },
-  { code: "PATCH-PVC",  name: "PVC Patch",             group: "patch", lane: "gear", sort: 61, bands: [48, 100, 250, 500], match: (h) => pg(h, "Patches") && /pvc/.test(txt(h)) },
-  { code: "PATCH-WVN",  name: "Woven Patch",           group: "patch", lane: "gear", sort: 62, bands: [48, 100, 250, 500], match: (h) => pg(h, "Patches") && /woven/.test(txt(h)) },
-  { code: "FLAG-3X5",   name: "3x5 Flag",              group: "flag", lane: "gear", sort: 70, bands: [48, 100, 250, 500], match: (h) => pg(h, "Flags") },
-  { code: "STICKER-DC", name: "Die-Cut Stickers",      group: "sticker", lane: "gear", sort: 80, bands: [48, 100, 250, 500], match: (h) => pg(h, "Stickers") },
+  // Minimums per Jon (Sep 9): hats 25 · patches 50 · flags 50 · stickers 25.
+  // Patches/flags/stickers consolidate into ONE 'accessory' group; the old
+  // per-type groups become lanes inside it.
+  { code: "YP6245CM",   name: "Yupoong 6245 Dad Hat",  group: "hat", lane: "headwear", sort: 50, bands: [25, 50, 100, 250, 500], match: (h) => pg(h, "Hats") && /^YP6245/.test((h.blank_style || "").trim()) },
+  { code: "474700",     name: "'47 Brand Clean Up",    group: "hat", lane: "headwear", sort: 51, bands: [25, 50, 100, 250, 500], match: (h) => pg(h, "Hats") && /^(474700|47BRAND)/.test((h.blank_style || "").trim()) },
+  { code: "RICHARDSON", name: "Richardson Trucker",    group: "hat", lane: "headwear", sort: 52, bands: [25, 50, 100, 250, 500], match: (h) => pg(h, "Hats") && /^RICHARDSON/.test((h.blank_style || "").trim()) },
+  { code: "PATCH-EMB",  name: "Embroidered Patch",     group: "accessory", lane: "patches", sort: 60, bands: [50, 100, 250, 500], match: (h) => pg(h, "Patches") && /embroider/.test(txt(h)) && !/pvc|woven|leather/.test(txt(h)) },
+  { code: "PATCH-PVC",  name: "PVC Patch",             group: "accessory", lane: "patches", sort: 61, bands: [50, 100, 250, 500], match: (h) => pg(h, "Patches") && /pvc/.test(txt(h)) },
+  { code: "PATCH-WVN",  name: "Woven Patch",           group: "accessory", lane: "patches", sort: 62, bands: [50, 100, 250, 500], match: (h) => pg(h, "Patches") && /woven/.test(txt(h)) },
+  { code: "FLAG-3X5",   name: "3x5 Flag",              group: "accessory", lane: "flags", sort: 70, bands: [50, 100, 250, 500], match: (h) => pg(h, "Flags") },
+  { code: "STICKER-DC", name: "Die-Cut Stickers",      group: "accessory", lane: "stickers", sort: 80, bands: [25, 50, 100, 250, 500], match: (h) => pg(h, "Stickers") },
 ];
 
-const BANDS = [48, 100, 250, 500];
+const BANDS = [50, 100, 250, 500]; // screen-print minimum = 50 (Jon, Sep 9)
 const HIST_GROUP: Record<string, string> = { tee: "Tees", hoodie: "Hoodies" };
 const DECO_GT: Record<string, string[]> = { tee: ["tee", "longsleeve"], hoodie: ["hoodie", "crewneck"] };
 const DECO_CAP: Record<string, number> = { tee: 12, hoodie: 15 };
@@ -107,7 +110,7 @@ const DECO_CAP: Record<string, number> = { tee: 12, hoodie: 15 };
 type Line = { qty: number; price: number; weight: number };
 
 const bandFor = (qty: number) =>
-  qty >= 500 ? 500 : qty >= 250 ? 250 : qty >= 100 ? 100 : qty >= 48 ? 48 : null;
+  qty >= 500 ? 500 : qty >= 250 ? 250 : qty >= 100 ? 100 : qty >= 50 ? 50 : null;
 
 function weightedMean(lines: Line[]) {
   let wq = 0, wp = 0;
@@ -203,6 +206,21 @@ async function asPrices(): Promise<Record<string, number>> {
 async function main() {
   const dry = process.argv.includes("--dry");
 
+  // Band re-anchor cleanup (48→50, hat 24→25): rows whose band_min is no
+  // longer in the style's band list are stale — delete so the grid and
+  // menu don't show ghost tiers. (No Jon-edited cells existed at cutover.)
+  if (!dry) {
+    const keep: Record<string, number[]> = {};
+    for (const s of STYLES) keep[s.code] = BANDS;
+    for (const s of HIST_STYLES) keep[s.code] = s.bands;
+    const { data: existing } = await sb.from("menu_rates").select("id,style_code,band_min");
+    const stale = (existing || []).filter((r) => keep[r.style_code] && !keep[r.style_code].includes(r.band_min));
+    if (stale.length) {
+      await sb.from("menu_rates").delete().in("id", stale.map((r) => r.id));
+      console.log(`deleted ${stale.length} stale band rows (48/24 anchors)`);
+    }
+  }
+
   const hist = await all<{ blank_style: string | null; product_group: string | null; qty: number | null; unit_price: number | null; txn_date: string | null }>(
     (a, b) => sb.from("history_sales").select("blank_style,product_group,qty,unit_price,txn_date").range(a, b)
   );
@@ -231,7 +249,7 @@ async function main() {
   const decoCurve: Record<string, Record<number, number | null>> = {};
   for (const group of ["tee", "hoodie"] as const) {
     decoCurve[group] = {};
-    const bands: Record<number, { wq: number; wd: number; n: number }> = { 48: { wq: 0, wd: 0, n: 0 }, 100: { wq: 0, wd: 0, n: 0 }, 250: { wq: 0, wd: 0, n: 0 }, 500: { wq: 0, wd: 0, n: 0 } };
+    const bands: Record<number, { wq: number; wd: number; n: number }> = Object.fromEntries(BANDS.map((b) => [b, { wq: 0, wd: 0, n: 0 }]));
     for (const i of items) {
       if (!DECO_GT[group].includes(i.garment_type || "")) continue;
       const q = qtyByItem.get(i.id) || 0;

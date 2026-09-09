@@ -42,22 +42,27 @@ type Rate = {
   sort: number;
 };
 
-const BANDS = [24, 48, 100, 250, 500]; // columns render only the bands a group has rows for
+// Band columns derive from the data — minimums are per style now
+// (apparel 50, hats 25, patches/flags 50, stickers 25).
 const LANE_LABEL: Record<string, string> = {
   la_apparel: "LA APPAREL",
   as_colour: "AS COLOUR",
   popular: "POPULAR PICKS",
   headwear: "HEADWEAR",
-  gear: "GEAR",
+  patches: "PATCHES",
+  flags: "FLAGS",
+  stickers: "STICKERS",
 };
 const LANE_COLOR: Record<string, string> = {
   la_apparel: T.blue,
   as_colour: T.purple,
   popular: T.green,
   headwear: T.amber,
-  gear: T.blue,
+  patches: T.blue,
+  flags: T.blue,
+  stickers: T.blue,
 };
-const GROUP_LABEL: Record<string, string> = { tee: "Tees", hoodie: "Hoodies", hat: "Hats", patch: "Patches", flag: "Flags", sticker: "Stickers" };
+const GROUP_LABEL: Record<string, string> = { tee: "Tees", hoodie: "Hoodies", hat: "Hats", accessory: "Accessories" };
 
 const money = (n: number | null | undefined) =>
   n === null || n === undefined ? "—" : `$${n.toFixed(2)}`;
@@ -172,7 +177,7 @@ export default function MenuRatesPage() {
         const min = (g: string) => Math.min(...rows.filter((r) => r.product_group === g).map((r) => r.sort));
         return min(a) - min(b);
       }).map((group) => {
-        const groupBands = BANDS.filter((b) => rows.some((r) => r.product_group === group && r.band_min === b));
+        const groupBands = [...new Set(rows.filter((r) => r.product_group === group).map((r) => r.band_min))].sort((a, b) => a - b);
         return (
         <section key={group} style={{ marginBottom: 34 }}>
           <h2 style={{ fontSize: 15, fontWeight: 700, marginBottom: 10 }}>{GROUP_LABEL[group] || group}</h2>
