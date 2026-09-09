@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
+import { distributeCurve, gridKey, SIZE_ORDER, type Quote, type PunchPoint, type QuoteLine } from "@/lib/menu-quote";
 
 // /menu/[token] — the unlisted menu, shaped like the shop it sits next to.
 // Cards open a style modal (full palette, qty, live math) and picks
@@ -162,6 +163,8 @@ export default function MenuPage() {
   const [styles, setStyles] = useState<StyleRow[] | null>(null);
   const [picks, setPicks] = useState<Picks>(DEFAULT_PICKS);
   const [status, setStatus] = useState<string>("browsed");
+  const [quote, setQuote] = useState<Quote | null>(null);
+  const [view, setView] = useState<"menu" | "quote">("menu");
   const [openStyle, setOpenStyle] = useState<string | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [justSent, setJustSent] = useState(false);
@@ -176,6 +179,7 @@ export default function MenuPage() {
       .then((d) => {
         setStyles(d.styles || []);
         setStatus(d.status || "browsed");
+        if (d.quote) { setQuote(d.quote); setView("quote"); }
         const p = d.picks || {};
         setPicks({
           ...DEFAULT_PICKS,
@@ -312,10 +316,27 @@ export default function MenuPage() {
         </p>
       </section>
 
+      {quote && (
+        <div style={{ display: "flex", gap: 8, justifyContent: "center", marginBottom: 26 }}>
+          <Chip on={view === "quote"} onClick={() => setView("quote")}>Your quote</Chip>
+          <Chip on={view === "menu"} onClick={() => setView("menu")}>Browse the menu</Chip>
+        </div>
+      )}
+
+      {quote && view === "quote" ? (
+        <QuoteView
+          token={token}
+          quote={quote}
+          setQuote={setQuote}
+          status={status}
+          setStatus={setStatus}
+          byCode={byCode}
+        />
+      ) : (
       <section style={{ padding: "8px 32px 170px" }}>
         <div style={{ maxWidth: 1100, margin: "0 auto" }}>
 
-          {(status === "quote_requested" || status === "responded" || justSent) && (
+          {(status === "quote_requested" || status === "responded" || justSent) && !quote && (
             <div style={{ border: `1px solid ${TEAL}`, background: CARD, padding: "14px 18px", marginBottom: 28 }}>
               <div style={{ fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 3 }}>
                 {justSent ? "Got it. A human replies within 1 business day." : "Quote requested. We are on it."}
@@ -423,7 +444,10 @@ export default function MenuPage() {
         </div>
       </section>
 
+      )}
+
       {/* Sticky basket bar */}
+      {view === "menu" && (
       <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, background: "rgba(10,10,12,0.92)", backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", borderTop: `1px solid ${LINE}`, padding: "12px 20px", zIndex: 40 }}>
         <div style={{ maxWidth: 1100, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14, flexWrap: "wrap" }}>
           <div style={{ fontSize: 13, color: MUTED, minWidth: 200 }}>
@@ -452,6 +476,8 @@ export default function MenuPage() {
           </button>
         </div>
       </div>
+
+      )}
 
       {openStyleRow && (
         <StyleModal
@@ -934,5 +960,284 @@ function Field({ label, value, onChange, placeholder, textarea, autoFocus }: { l
         ? <textarea value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} style={{ ...common, minHeight: 60, resize: "vertical" }} />
         : <input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} autoFocus={autoFocus} style={common} />}
     </label>
+  );
+}
+
+// ─── The client's quote view ────────────────────────────────────
+// Exact prices (ranges die when Taylor quotes), a punch list the client
+// COMPLETES on the page instead of answering by email, and one Accept
+// button. Reads like checkout because psychologically it is.
+
+function QuoteView({ token, quote, setQuote, status, setStatus, byCode }: {
+  token: string;
+  quote: Quote;
+  setQuote: (q: Quote) => void;
+  status: string;
+  setStatus: (s: string) => void;
+  byCode: Record<string, StyleRow>;
+}) {
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [accepting, setAccepting] = useState(false);
+  const accepted = status === "accepted" || !!quote.acceptedAt;
+  const doneCount = quote.punch.filter((p) => p.status === "done").length;
+  const requiredOpen = quote.punch.filter((p) => p.required && p.status !== "done");
+
+  async function savePunch(key: string, body: Record<string, unknown>) {
+    setBusyKey(key);
+    const res = await fetch(`/api/menu/lead/${token}/punch`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key, ...body }),
+    }).catch(() => null);
+    setBusyKey(null);
+    if (res?.ok) {
+      const d = await res.json();
+      if (d?.quote) setQuote(d.quote);
+    }
+  }
+
+  async function accept() {
+    if (accepting) return;
+    setAccepting(true);
+    const res = await fetch(`/api/menu/lead/${token}/accept`, { method: "POST" }).catch(() => null);
+    setAccepting(false);
+    if (res?.ok) {
+      setStatus("accepted");
+      setQuote({ ...quote, acceptedAt: new Date().toISOString() });
+    }
+  }
+
+  return (
+    <section style={{ padding: "8px 24px 120px" }}>
+      <div style={{ maxWidth: 640, margin: "0 auto" }}>
+        {accepted && (
+          <div style={{ border: `1px solid ${TEAL}`, background: "rgba(115,182,201,0.08)", padding: "14px 18px", marginBottom: 24 }}>
+            <div style={{ fontSize: 13, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 3 }}>You&apos;re in. We&apos;re rolling.</div>
+            <div style={{ fontSize: 12.5, color: MUTED, lineHeight: 1.55 }}>
+              {requiredOpen.length
+                ? `Finish the ${requiredOpen.length} open point${requiredOpen.length > 1 ? "s" : ""} below whenever you can — we start on our side now.`
+                : "Everything we need is here."} You approve the final proof before anything prints.
+            </div>
+          </div>
+        )}
+
+        {/* Lines */}
+        <div style={{ border: `1px solid ${LINE_SOFT}`, marginBottom: 8 }}>
+          {quote.lines.map((l, i) => {
+            const st = l.styleCode ? byCode[l.styleCode] : null;
+            return (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", borderBottom: i < quote.lines.length - 1 ? `1px solid ${LINE_SOFT}` : "none" }}>
+                {st?.hero && (
+                  <span style={{ width: 44, height: 44, background: "#fff", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: 3 }}>
+                    <img src={st.hero} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+                  </span>
+                )}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, textTransform: "uppercase" }}>{l.label}</div>
+                  <div style={{ fontSize: 11, color: FAINT, fontFamily: monoFont }}>
+                    {l.qty} pcs{l.colors.length ? ` · ${l.colors.join(", ")}` : ""}
+                  </div>
+                </div>
+                <div style={{ textAlign: "right", fontFamily: monoFont }}>
+                  {l.unitPrice != null ? (
+                    <>
+                      <div style={{ fontSize: 13.5, fontWeight: 700 }}>${(l.unitPrice * l.qty).toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
+                      <div style={{ fontSize: 10.5, color: FAINT }}>${l.unitPrice.toFixed(2)}/pc</div>
+                    </>
+                  ) : (
+                    <div style={{ fontSize: 11, color: AMBER }}>quoted on art</div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
+          <span style={{ fontSize: 11, color: FAINT }}>Good through {quote.validUntil}</span>
+          <span style={{ fontSize: 20, fontWeight: 800, fontFamily: monoFont }}>${Number(quote.total || 0).toLocaleString()}</span>
+        </div>
+        <p style={{ fontSize: 11, color: FAINT, margin: "0 0 26px" }}>
+          Exact pricing from a human, based on your picks. Nothing prints without your approval on the final proof.
+        </p>
+
+        {/* Punch list */}
+        <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 10 }}>
+          <span style={eyebrowStyle}>Before we can print</span>
+          <span style={{ fontSize: 11, color: FAINT, fontFamily: monoFont }}>{doneCount}/{quote.punch.length} done</span>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 28 }}>
+          {quote.punch.map((pt) => (
+            <PunchItem
+              key={pt.key}
+              token={token}
+              point={pt}
+              lines={quote.lines}
+              byCode={byCode}
+              busy={busyKey === pt.key}
+              onSave={(body) => savePunch(pt.key, body)}
+            />
+          ))}
+        </div>
+
+        {!accepted && (
+          <button
+            onClick={accept}
+            disabled={accepting}
+            style={{ width: "100%", background: TEXT, color: BG, border: "none", padding: "16px 0", fontSize: 14, fontWeight: 800, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.08em", opacity: accepting ? 0.6 : 1 }}
+          >
+            {accepting ? "One second..." : "Accept quote"}
+          </button>
+        )}
+        {!accepted && requiredOpen.length > 0 && (
+          <p style={{ fontSize: 11, color: FAINT, textAlign: "center", marginTop: 8 }}>
+            You can accept now and finish the checklist after — we start on our side either way.
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function PunchItem({ token, point, lines, byCode, busy, onSave }: {
+  token: string;
+  point: PunchPoint;
+  lines: QuoteLine[];
+  byCode: Record<string, StyleRow>;
+  busy: boolean;
+  onSave: (body: Record<string, unknown>) => void;
+}) {
+  const done = point.status === "done";
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [text, setText] = useState<string>(((point.payload as any)?.value as string) || "");
+  const payload = point.payload as any;
+
+  // Size grids only make sense for garment lines (an item per colorway is
+  // how HPD jobs model reality — these grids become the buy sheet).
+  const garmentLines = lines
+    .map((l, idx) => ({ l, idx }))
+    .filter(({ l }) => l.styleCode && ["tee", "hoodie"].includes(byCode[l.styleCode!]?.group || ""));
+  const [grids, setGrids] = useState<Record<string, Record<string, number>>>(payload?.grids || {});
+
+  async function uploadPunchFile(list: FileList | null) {
+    if (!list?.length) return;
+    setUploading(true);
+    for (const file of Array.from(list).slice(0, 6)) {
+      try {
+        const init = await fetch("/api/onboard/upload", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ filename: file.name, session: `menu-${token.slice(0, 16)}` }),
+        }).then((r) => r.json());
+        if (!init?.uploadUrl) continue;
+        const put = await fetch(init.uploadUrl, { method: "PUT", body: file, headers: { "Content-Type": file.type || "application/octet-stream" } });
+        if (put.ok) onSave({ add: { filename: file.name, path: init.path, size: file.size } });
+      } catch { /* skip file */ }
+    }
+    setUploading(false);
+  }
+
+  return (
+    <div style={{ border: `1px solid ${done ? "rgba(115,182,201,0.4)" : LINE_SOFT}`, padding: "14px 16px" }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+        <span style={{ fontSize: 14, color: done ? TEAL : FAINT }}>{done ? "✓" : "○"}</span>
+        <span style={{ fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.02em" }}>{point.label}</span>
+        {!point.required && <span style={{ fontSize: 10, color: FAINT, fontFamily: monoFont }}>optional</span>}
+      </div>
+      {point.desc && <p style={{ fontSize: 12, color: MUTED, lineHeight: 1.5, margin: "6px 0 0 22px" }}>{point.desc}</p>}
+
+      <div style={{ margin: "10px 0 0 22px" }}>
+        {point.kind === "files" && (
+          <>
+            {(payload?.files || []).map((f: any) => (
+              <div key={f.path} style={{ fontSize: 11.5, fontFamily: monoFont, color: MUTED, marginBottom: 4 }}>📎 {f.filename}</div>
+            ))}
+            <input ref={fileInput} type="file" multiple accept="image/*,.pdf,.ai,.psd,.eps,.svg,.zip" hidden onChange={(e) => { uploadPunchFile(e.target.files); e.target.value = ""; }} />
+            <button onClick={() => fileInput.current?.click()} disabled={uploading} style={{ background: "transparent", border: `1px dashed ${LINE}`, color: MUTED, fontSize: 12, padding: "8px 14px", cursor: "pointer", fontFamily: "inherit" }}>
+              {uploading ? "Uploading..." : "+ Upload files"}
+            </button>
+          </>
+        )}
+
+        {point.kind === "sizes" && (
+          <>
+            {garmentLines.length === 0 ? (
+              <textarea value={text} onChange={(e) => setText(e.target.value.slice(0, 1200))} placeholder="Tell us the breakdown..." style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${LINE}`, padding: "8px 10px", fontSize: 12.5, minHeight: 48, fontFamily: "inherit", color: TEXT, background: BG }} />
+            ) : garmentLines.map(({ l, idx }) => {
+              const cws = l.colors.length ? l.colors : [null];
+              return cws.map((cw) => {
+                const k = gridKey(idx, cw);
+                const g = grids[k] || {};
+                const sum = SIZE_ORDER.reduce((s, sz) => s + (g[sz] || 0), 0);
+                const target = Math.round(l.qty / cws.length);
+                return (
+                  <div key={k} style={{ marginBottom: 12 }}>
+                    <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 11.5, fontWeight: 700 }}>{l.label}{cw ? ` · ${cw}` : ""}</span>
+                      <span style={{ fontSize: 10.5, color: sum === target ? TEAL : FAINT, fontFamily: monoFont }}>{sum}/{target}</span>
+                      <button
+                        onClick={() => setGrids((gs) => ({ ...gs, [k]: distributeCurve(target) }))}
+                        style={{ background: "transparent", border: "none", color: TEAL, fontSize: 10.5, cursor: "pointer", fontFamily: monoFont, textDecoration: "underline", padding: 0 }}
+                      >
+                        use our standard curve
+                      </button>
+                    </div>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      {SIZE_ORDER.map((sz) => (
+                        <label key={sz} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                          <span style={{ fontSize: 9.5, color: FAINT, fontFamily: monoFont }}>{sz}</span>
+                          <input
+                            type="number" min={0}
+                            value={g[sz] || ""}
+                            onChange={(e) => setGrids((gs) => ({ ...gs, [k]: { ...gs[k], [sz]: Number(e.target.value) || 0 } }))}
+                            style={{ width: 46, border: `1px solid ${LINE}`, padding: "5px 4px", fontSize: 12, fontFamily: monoFont, color: TEXT, background: BG, textAlign: "center" }}
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                );
+              });
+            })}
+            <button
+              onClick={() => onSave({ payload: garmentLines.length === 0 ? { value: text } : { grids } })}
+              disabled={busy}
+              style={{ background: "transparent", border: `1px solid ${TEAL}`, color: TEAL, fontSize: 12, padding: "7px 16px", cursor: "pointer", fontFamily: "inherit", marginTop: 4 }}
+            >
+              {busy ? "Saving..." : done ? "Update sizes" : "Save sizes"}
+            </button>
+          </>
+        )}
+
+        {point.kind === "date" && (
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <input type="date" value={/^\d{4}-\d{2}-\d{2}$/.test(text) ? text : ""} onChange={(e) => setText(e.target.value)} style={{ border: `1px solid ${LINE}`, padding: "7px 10px", fontSize: 13, fontFamily: monoFont, color: TEXT, background: BG, colorScheme: "dark" }} />
+            <button onClick={() => text && onSave({ payload: { value: text } })} disabled={busy || !text} style={{ background: "transparent", border: `1px solid ${TEAL}`, color: TEAL, fontSize: 12, padding: "7px 16px", cursor: "pointer", fontFamily: "inherit" }}>
+              {busy ? "Saving..." : done ? "Update" : "Save"}
+            </button>
+          </div>
+        )}
+
+        {(point.kind === "address" || point.kind === "text") && (
+          <>
+            <textarea
+              value={text}
+              onChange={(e) => setText(e.target.value.slice(0, 1200))}
+              placeholder={point.kind === "address" ? "Ship-to address — or 'hold at House Party for fulfillment'" : "Your answer..."}
+              style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${LINE}`, padding: "8px 10px", fontSize: 12.5, minHeight: 48, fontFamily: "inherit", color: TEXT, background: BG, resize: "vertical" }}
+            />
+            <button onClick={() => text.trim() && onSave({ payload: { value: text.trim() } })} disabled={busy || !text.trim()} style={{ background: "transparent", border: `1px solid ${TEAL}`, color: TEAL, fontSize: 12, padding: "7px 16px", cursor: "pointer", fontFamily: "inherit", marginTop: 6 }}>
+              {busy ? "Saving..." : done ? "Update" : "Save"}
+            </button>
+          </>
+        )}
+
+        {point.kind === "confirm" && !done && (
+          <button onClick={() => onSave({ payload: { confirmed: true } })} disabled={busy} style={{ background: "transparent", border: `1px solid ${TEAL}`, color: TEAL, fontSize: 12, padding: "7px 16px", cursor: "pointer", fontFamily: "inherit" }}>
+            {busy ? "Saving..." : "Confirmed"}
+          </button>
+        )}
+      </div>
+    </div>
   );
 }

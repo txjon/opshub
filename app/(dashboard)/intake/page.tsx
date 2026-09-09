@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { resolveSlugFromHost, DEFAULT_SLUG } from "@/lib/tenants";
 import { T, font, mono } from "@/lib/theme";
+import { snapshotMid, defaultPunch, quoteTotal, type Quote, type QuoteLine, type PunchPoint } from "@/lib/menu-quote";
 
 // /intake — leads inbox. Submissions from the public /start form land
 // here. Team triages by:
@@ -65,6 +66,9 @@ type MenuLead = {
   } | null;
   contact: { name?: string; phone?: string | null; neededBy?: string | null; notes?: string | null } | null;
   client_match: string | null;
+  quote: import("@/lib/menu-quote").Quote | null;
+  quoted_at: string | null;
+  accepted_at: string | null;
   quote_requested_at: string | null;
   rates_snapshot: { style_code: string; style_name: string; band_min: number; price_lo: number | null; price_hi: number | null }[] | null;
   responded_at: string | null;
@@ -106,7 +110,7 @@ export default function IntakePage() {
 
     const { data: leads } = await supabase
       .from("menu_leads")
-      .select("id,email,status,picks,contact,client_match,quote_requested_at,rates_snapshot,responded_at,response,created_at,updated_at")
+      .select("id,email,status,picks,contact,client_match,quote,quoted_at,accepted_at,quote_requested_at,rates_snapshot,responded_at,response,created_at,updated_at")
       .order("quote_requested_at", { ascending: false, nullsFirst: false })
       .order("updated_at", { ascending: false });
     const leadRows = (leads as unknown as MenuLead[]) || [];
@@ -156,9 +160,9 @@ export default function IntakePage() {
       />
 
       <MenuLeadBucket
-        label="Menu · quote requests"
+        label="Menu · quote pipeline"
         color={T.purple}
-        leads={menuLeads.filter(l => l.status === "quote_requested")}
+        leads={menuLeads.filter(l => ["quote_requested", "quoted", "accepted"].includes(l.status))}
         matchNames={matchNames}
         onChanged={load}
         emptyText="No open quote requests from the menu."
@@ -195,7 +199,7 @@ export default function IntakePage() {
       <MenuLeadBucket
         label="Menu · browsing"
         color={T.faint}
-        leads={menuLeads.filter(l => l.status !== "quote_requested")}
+        leads={menuLeads.filter(l => !["quote_requested", "quoted", "accepted"].includes(l.status))}
         matchNames={matchNames}
         onChanged={load}
         collapsedByDefault
@@ -893,6 +897,7 @@ function MenuLeadBucket({
   const supabase = createClient();
   const [collapsed, setCollapsed] = useState(!!collapsedByDefault);
   const [composing, setComposing] = useState<MenuLead | null>(null);
+  const [quoting, setQuoting] = useState<MenuLead | null>(null);
   if (leads.length === 0 && !emptyText) return null;
 
   async function setStatus(l: MenuLead, status: string) {
@@ -981,18 +986,26 @@ function MenuLeadBucket({
                   <span style={{ fontSize: 11, color: overdue ? T.amber : T.faint, fontFamily: mono }}>
                     {overdue ? `⚠ ${ageText}` : ageText}
                   </span>
-                  {isQuote && (
-                    <div style={{ display: "flex", gap: 10 }}>
-                      <span onClick={() => setComposing(l)} style={{ fontSize: 11, color: T.blue, cursor: "pointer", borderBottom: `1px dotted ${T.blue}`, fontWeight: 700 }}>
+                  {["quote_requested", "quoted", "accepted"].includes(l.status) && (
+                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                      <span onClick={() => setQuoting(l)} style={{ fontSize: 11, color: T.purple, cursor: "pointer", borderBottom: `1px dotted ${T.purple}`, fontWeight: 700 }}>
+                        {l.quote ? "Edit quote" : "Build quote"}
+                      </span>
+                      <span onClick={() => setComposing(l)} style={{ fontSize: 11, color: T.blue, cursor: "pointer", borderBottom: `1px dotted ${T.blue}` }}>
                         Respond
                       </span>
-                      <span onClick={() => setStatus(l, "responded")} style={{ fontSize: 11, color: T.green, cursor: "pointer", borderBottom: `1px dotted ${T.green}` }}>
-                        Mark responded
-                      </span>
-                      <span onClick={() => setStatus(l, "declined")} style={{ fontSize: 11, color: T.faint, cursor: "pointer", borderBottom: `1px dotted ${T.faint}` }}>
-                        Decline
-                      </span>
+                      {l.status === "quote_requested" && (
+                        <span onClick={() => setStatus(l, "declined")} style={{ fontSize: 11, color: T.faint, cursor: "pointer", borderBottom: `1px dotted ${T.faint}` }}>
+                          Decline
+                        </span>
+                      )}
                     </div>
+                  )}
+                  {l.quote && (
+                    <span style={{ fontSize: 10, fontFamily: mono, color: l.status === "accepted" ? T.green : T.purple, fontWeight: 700, letterSpacing: "0.06em" }}>
+                      {l.status === "accepted" ? "ACCEPTED" : "QUOTED"} ${Number(l.quote.total || 0).toLocaleString()} ·{" "}
+                      {l.quote.punch.filter(pt => pt.status === "done").length}/{l.quote.punch.length} points
+                    </span>
                   )}
                   {l.response?.sent_at && (
                     <span title={l.response.body} style={{ fontSize: 10, color: T.faint, fontFamily: mono }}>
@@ -1010,6 +1023,13 @@ function MenuLeadBucket({
           lead={composing}
           onClose={() => setComposing(null)}
           onSent={() => { setComposing(null); onChanged(); }}
+        />
+      )}
+      {quoting && (
+        <QuoteBuilderModal
+          lead={quoting}
+          onClose={() => setQuoting(null)}
+          onSent={() => { setQuoting(null); onChanged(); }}
         />
       )}
     </section>
@@ -1072,6 +1092,180 @@ function ComposeResponseModal({ lead, onClose, onSent }: { lead: MenuLead; onClo
             style={{ background: T.accent, border: "none", borderRadius: 8, color: "#111", fontSize: 13, fontWeight: 700, padding: "9px 18px", cursor: "pointer", fontFamily: font, opacity: sending || hasPlaceholder || !subject.trim() || !body.trim() ? 0.5 : 1 }}
           >
             {sending ? "Sending..." : "Send response"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Quick Quote builder ────────────────────────────────────────
+// Prefilled from the lead's picks + the FROZEN snapshot (interpolated
+// midpoint — the same math the customer's slider showed), so Taylor
+// adjusts numbers instead of assembling a quote. Line prices become
+// items.sell_per_unit on accept→job; punch 'sizes' grids become
+// buy_sheet_lines — the single-source spine starts here.
+
+function QuoteBuilderModal({ lead, onClose, onSent }: { lead: MenuLead; onClose: () => void; onSent: () => void }) {
+  const initial = useMemo<{ lines: QuoteLine[]; punch: PunchPoint[]; validUntil: string }>(() => {
+    if (lead.quote) {
+      return { lines: lead.quote.lines, punch: lead.quote.punch, validUntil: lead.quote.validUntil };
+    }
+    const snap = lead.rates_snapshot || [];
+    const items = lead.picks?.items || [];
+    const lines: QuoteLine[] = items.map(it => {
+      const mid = snapshotMid(snap as any, it.styleCode, it.qty);
+      const name = (snap as any[]).find(r => r.style_code === it.styleCode)?.style_name || it.styleCode;
+      return {
+        styleCode: it.styleCode,
+        label: name,
+        qty: it.qty,
+        colors: it.colors || [],
+        unitPrice: mid != null ? Number(mid.toFixed(2)) : null,
+        note: (it as any).notes || undefined,
+      };
+    });
+    const punch = defaultPunch({
+      lines,
+      hasArtFiles: (lead.picks?.files || []).length > 0,
+      artStatus: lead.picks?.artStatus || null,
+      neededBy: lead.contact?.neededBy || null,
+    });
+    const vu = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+    return { lines, punch, validUntil: vu };
+  }, [lead]);
+
+  const [lines, setLines] = useState<QuoteLine[]>(initial.lines);
+  const [punch, setPunch] = useState<PunchPoint[]>(initial.punch);
+  const [validUntil, setValidUntil] = useState(initial.validUntil);
+  const [customPoint, setCustomPoint] = useState("");
+  const [sending, setSending] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const total = quoteTotal(lines);
+  const unpriced = lines.filter(l => l.unitPrice == null).length;
+
+  function setLine(i: number, patch: Partial<QuoteLine>) {
+    setLines(ls => ls.map((l, x) => (x === i ? { ...l, ...patch } : l)));
+  }
+
+  async function send() {
+    if (sending) return;
+    setSending(true);
+    setErr(null);
+    const res = await fetch("/api/menu/quote-send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ leadId: lead.id, lines, punch, validUntil }),
+    }).catch(() => null);
+    setSending(false);
+    if (res?.ok) { onSent(); return; }
+    const d = await res?.json().catch(() => null);
+    setErr(d?.error || "Send failed. Try again.");
+  }
+
+  const inp: React.CSSProperties = { background: T.card, border: `1px solid ${T.border}`, borderRadius: 7, color: T.text, fontSize: 12.5, padding: "7px 9px", fontFamily: font };
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", zIndex: 60, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 24, width: "100%", maxWidth: 640, maxHeight: "92vh", overflowY: "auto", fontFamily: font, color: T.text }}>
+        <h3 style={{ margin: "0 0 2px", fontSize: 17, fontWeight: 700 }}>
+          Quote for {lead.contact?.name || lead.email}
+        </h3>
+        <p style={{ margin: "0 0 16px", fontSize: 12, color: T.faint }}>
+          Prices prefill from the exact ranges they were shown (snapshot midpoint). The customer
+          completes the checklist on their quote page — re-sending never wipes their progress.
+        </p>
+
+        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: T.muted, marginBottom: 6 }}>LINES</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 10 }}>
+          {lines.map((l, i) => (
+            <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 72px 92px 24px", gap: 8, alignItems: "center" }}>
+              <div style={{ minWidth: 0 }}>
+                <input value={l.label} onChange={e => setLine(i, { label: e.target.value })} style={{ ...inp, width: "100%", boxSizing: "border-box" }} />
+                {(l.colors.length > 0 || l.note) && (
+                  <div style={{ fontSize: 10.5, color: T.faint, fontFamily: mono, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {l.colors.join(", ")}{l.note ? ` · "${l.note}"` : ""}
+                  </div>
+                )}
+              </div>
+              <input type="number" value={l.qty || ""} onChange={e => setLine(i, { qty: Number(e.target.value) || 0 })} style={{ ...inp, textAlign: "right", fontFamily: mono }} />
+              <div style={{ position: "relative" }}>
+                <span style={{ position: "absolute", left: 8, top: 8, fontSize: 12, color: T.faint }}>$</span>
+                <input
+                  type="number" step="0.05"
+                  value={l.unitPrice ?? ""}
+                  placeholder="price"
+                  onChange={e => setLine(i, { unitPrice: e.target.value === "" ? null : Number(e.target.value) })}
+                  style={{ ...inp, width: "100%", boxSizing: "border-box", paddingLeft: 18, textAlign: "right", fontFamily: mono, borderColor: l.unitPrice == null ? T.amber : T.border }}
+                />
+              </div>
+              <span onClick={() => setLines(ls => ls.filter((_, x) => x !== i))} style={{ color: T.faint, cursor: "pointer", textAlign: "center" }}>×</span>
+            </div>
+          ))}
+        </div>
+        <span
+          onClick={() => setLines(ls => [...ls, { styleCode: null, label: "", qty: 1, colors: [], unitPrice: null }])}
+          style={{ fontSize: 11.5, color: T.blue, cursor: "pointer", borderBottom: `1px dotted ${T.blue}` }}
+        >
+          + Add line (setup fee, art services, shipping...)
+        </span>
+
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", margin: "14px 0 18px", paddingTop: 10, borderTop: `1px solid ${T.border}` }}>
+          <span style={{ fontSize: 12, color: T.muted }}>
+            Total{unpriced ? <span style={{ color: T.amber }}> · {unpriced} unpriced line{unpriced > 1 ? "s" : ""} (shows as &quot;quoted on art&quot;)</span> : ""}
+          </span>
+          <span style={{ fontSize: 17, fontWeight: 800, fontFamily: mono }}>${total.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+        </div>
+
+        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: T.muted, marginBottom: 6 }}>
+          CHECKLIST · what the customer completes on their page
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
+          {punch.map((pt, i) => (
+            <label key={pt.key} style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12.5, cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                checked
+                onChange={() => setPunch(ps => ps.filter((_, x) => x !== i))}
+                style={{ marginTop: 2 }}
+              />
+              <span>
+                <b>{pt.label}</b>{pt.status === "done" ? <span style={{ color: T.green, fontFamily: mono, fontSize: 10.5 }}> · already done</span> : ""}
+                <span style={{ display: "block", color: T.faint, fontSize: 11.5 }}>{pt.desc}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+          <input
+            value={customPoint}
+            onChange={e => setCustomPoint(e.target.value)}
+            placeholder="Add a custom point (e.g. confirm neck label text)"
+            style={{ ...inp, flex: 1 }}
+            onKeyDown={e => {
+              if (e.key === "Enter" && customPoint.trim()) {
+                setPunch(ps => [...ps, { key: `custom-${Date.now()}`, label: customPoint.trim(), desc: "", kind: "text", required: false, status: "needed" }]);
+                setCustomPoint("");
+              }
+            }}
+          />
+        </div>
+
+        <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12.5, marginBottom: 18 }}>
+          <span style={{ color: T.muted }}>Quote good through</span>
+          <input type="date" value={validUntil} onChange={e => setValidUntil(e.target.value)} style={inp} />
+        </label>
+
+        {err && <div style={{ fontSize: 12, color: T.red, marginBottom: 8 }}>{err}</div>}
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+          <button onClick={onClose} style={{ background: "transparent", border: `1px solid ${T.border}`, borderRadius: 8, color: T.muted, fontSize: 13, padding: "9px 16px", cursor: "pointer", fontFamily: font }}>
+            Cancel
+          </button>
+          <button
+            onClick={send}
+            disabled={sending || lines.length === 0}
+            style={{ background: T.accent, border: "none", borderRadius: 8, color: "#111", fontSize: 13, fontWeight: 700, padding: "9px 18px", cursor: "pointer", fontFamily: font, opacity: sending || lines.length === 0 ? 0.5 : 1 }}
+          >
+            {sending ? "Sending..." : lead.quote ? "Re-send quote" : "Send quote"}
           </button>
         </div>
       </div>
