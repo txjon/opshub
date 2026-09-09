@@ -130,11 +130,36 @@ function fromPrice(style: StyleRow): number | null {
   return best;
 }
 
+// Smooth price: piecewise-linear interpolation between band anchors.
+// Margin-based pricing scales continuously — stair-stepped tiers were an
+// artifact of the table, not the math. Below the group minimum (the DTF
+// small-batch zone for garments) there is deliberately no price.
 function itemRange(style: StyleRow, qty: number): { lo: number; hi: number } | null {
-  const min = bandsFor(style.group)[0];
-  const r = style.bands[bandFor(Math.max(qty, min), style.group)];
-  return r?.lo != null && r?.hi != null ? { lo: r.lo, hi: r.hi } : null;
+  const bands = bandsFor(style.group);
+  const anchors = bands
+    .map((b) => ({ q: b, r: style.bands[b] }))
+    .filter((a) => a.r?.lo != null && a.r?.hi != null);
+  if (!anchors.length) return null;
+  if (qty < anchors[0].q) return null;
+  let prev = anchors[0];
+  for (const a of anchors) {
+    if (qty <= a.q) {
+      if (a.q === prev.q) return { lo: a.r!.lo!, hi: a.r!.hi! };
+      const t = (qty - prev.q) / (a.q - prev.q);
+      return { lo: prev.r!.lo! + (a.r!.lo! - prev.r!.lo!) * t, hi: prev.r!.hi! + (a.r!.hi! - prev.r!.hi!) * t };
+    }
+    prev = a;
+  }
+  return { lo: prev.r!.lo!, hi: prev.r!.hi! };
 }
+
+// Log-scaled slider mapping — real control resolution where orders actually
+// live (25–250) instead of half the track being 500–1000.
+const SLIDER_STEPS = 300;
+const posToQty = (pos: number, sMin: number, sMax: number) =>
+  Math.round(sMin * Math.pow(sMax / sMin, pos / SLIDER_STEPS));
+const qtyToPos = (q: number, sMin: number, sMax: number) =>
+  Math.round((Math.log(Math.min(Math.max(q, sMin), sMax) / sMin) / Math.log(sMax / sMin)) * SLIDER_STEPS);
 
 export default function MenuPage() {
   const { token } = useParams<{ token: string }>();
@@ -495,8 +520,12 @@ function StyleModal({ style, existing, files, placements, onUpload, onRemoveFile
   const groupMin = bandsFor(style.group)[0];
   const colorways = Math.max(colors.length, 1);
   const minPieces = colorways * groupMin;
-  const underMin = qty < minPieces;
-  const qtyChips = bandsFor(style.group);
+  const underMin = qty >= groupMin && qty < minPieces;
+  const isGarment = style.group === "tee" || style.group === "hoodie";
+  const sliderMin = isGarment ? 25 : groupMin;   // garments open the 25+ DTF small-batch zone
+  const sliderMax = 1000;
+  const inDtfZone = isGarment && qty < groupMin;
+  const tickMarks = bandsFor(style.group).filter((b) => b >= sliderMin && b <= sliderMax);
   const groupLabel = GROUPS.find((g) => g.key === style.group)?.label || style.group;
   const laneLabel = (LANES_BY_GROUP[style.group] || []).find((l) => l.key === style.lane)?.label;
 
@@ -588,80 +617,75 @@ function StyleModal({ style, existing, files, placements, onUpload, onRemoveFile
               </div>
             )}
 
-            {/* Qty */}
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ ...eyebrowStyle, color: FAINT, marginBottom: 8 }}>How many</div>
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-                {qtyChips.map((q) => (
-                  <Chip key={q} small on={qty === q} onClick={() => setQty(q)}>{q}</Chip>
-                ))}
+            {/* How many — ONE control: drag (or type) and watch the price move.
+                Tiers are tick marks, not buttons; the DTF small-batch zone is
+                the marked stretch below the screen-print minimum. */}
+            <div style={{ borderTop: `1px solid ${LINE_SOFT}`, paddingTop: 14, marginBottom: 16 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                <span style={{ ...eyebrowStyle, color: FAINT }}>How many</span>
                 <input
                   type="number"
                   min={1}
-                  placeholder="exact"
-                  value={qtyChips.includes(qty) ? "" : qty || ""}
-                  onChange={(e) => setQty(e.target.value ? Number(e.target.value) : 100)}
-                  style={{ width: 76, border: `1px solid ${LINE}`, borderRadius: 999, padding: "6px 12px", fontSize: 12, fontFamily: monoFont, color: TEXT, background: BG }}
+                  value={qty || ""}
+                  onChange={(e) => setQty(e.target.value ? Number(e.target.value) : sliderMin)}
+                  style={{ width: 82, border: `1px solid ${LINE}`, borderRadius: 999, padding: "6px 12px", fontSize: 13, fontFamily: monoFont, color: TEXT, background: BG, textAlign: "center" }}
                 />
               </div>
-              {underMin && (
-                <div style={{ fontSize: 11.5, color: AMBER, marginTop: 8 }}>
-                  Minimum for this setup is {minPieces} pieces{colors.length > 1 ? ` (${colors.length} colorways)` : ` (${groupMin} per design)`}.
-                  {(style.group === "tee" || style.group === "hoodie") && qty >= 25 ? " Batches of 25–47 run as DTF — we will quote it that way." : ""}
-                </div>
-              )}
-            </div>
 
-            {/* The price ladder — volume is the customer's lever, shown, not told */}
-            <div style={{ borderTop: `1px solid ${LINE_SOFT}`, paddingTop: 14, marginBottom: 14 }}>
-              <div style={{ ...eyebrowStyle, color: FAINT, marginBottom: 8 }}>Pricing · per piece</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 0, border: `1px solid ${LINE_SOFT}`, marginBottom: 10 }}>
-                {qtyChips.map((band, i) => {
-                  const br = style.bands[band];
-                  const active = bandFor(Math.max(qty, groupMin), style.group) === band;
-                  const next = qtyChips[i + 1];
-                  return (
-                    <button
-                      key={band}
-                      onClick={() => setQty(band)}
-                      style={{
-                        display: "flex", justifyContent: "space-between", alignItems: "center",
-                        padding: "8px 12px", cursor: "pointer", fontFamily: "inherit", textAlign: "left",
-                        background: active ? "rgba(115,182,201,0.1)" : "transparent",
-                        border: "none",
-                        borderLeft: active ? `2px solid ${TEAL}` : "2px solid transparent",
-                        borderBottom: i < qtyChips.length - 1 ? `1px solid ${LINE_SOFT}` : "none",
-                        color: active ? TEXT : MUTED,
-                      }}
-                    >
-                      <span style={{ fontSize: 12, fontFamily: monoFont }}>{next ? `${band}–${next - 1}` : `${band}+`} pieces</span>
-                      <span style={{ fontSize: 12.5, fontFamily: monoFont, fontWeight: active ? 700 : 400 }}>
-                        {br?.lo != null ? `${money(br.lo)}–${money(br.hi)}` : "ask us"}
-                      </span>
-                    </button>
-                  );
-                })}
+              <input
+                type="range"
+                min={0}
+                max={SLIDER_STEPS}
+                value={qtyToPos(qty, sliderMin, sliderMax)}
+                onChange={(e) => setQty(posToQty(Number(e.target.value), sliderMin, sliderMax))}
+                aria-label="Quantity"
+                style={{ width: "100%", accentColor: TEAL, cursor: "pointer" }}
+              />
+              <div style={{ position: "relative", height: 16, marginTop: 2 }}>
+                {tickMarks.map((t) => (
+                  <span key={t} style={{ position: "absolute", left: `${(qtyToPos(t, sliderMin, sliderMax) / SLIDER_STEPS) * 100}%`, transform: "translateX(-50%)", fontSize: 9.5, color: FAINT, fontFamily: monoFont }}>
+                    {t}
+                  </span>
+                ))}
               </div>
-              {r && (
-                <div style={{ fontSize: 13, fontFamily: monoFont, marginBottom: 10 }}>
-                  <span style={{ color: FAINT }}>Your {Math.max(qty, groupMin)} pieces ≈ </span>
-                  <span style={{ color: TEAL, fontWeight: 700 }}>${Math.round(r.lo * Math.max(qty, groupMin)).toLocaleString()}–${Math.round(r.hi * Math.max(qty, groupMin)).toLocaleString()}</span>
+
+              {inDtfZone ? (
+                <div style={{ fontSize: 12.5, color: AMBER, lineHeight: 1.55, marginTop: 10 }}>
+                  <b>{qty} pieces = small batch.</b> Under {groupMin} we print DTF instead of
+                  screens — no per-piece menu price; we quote it per design. Keep going and
+                  send it, or slide up for screen-print pricing.
+                </div>
+              ) : r ? (
+                <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 19, fontWeight: 700, fontFamily: monoFont }}>
+                    {money(r.lo)}–{money(r.hi)}<span style={{ fontSize: 11.5, color: FAINT, fontWeight: 400 }}> /piece</span>
+                  </span>
+                  {fromPrice(style) !== null && r.lo > fromPrice(style)! + 0.011 && (
+                    <span style={{ fontSize: 11, color: FAINT, fontFamily: monoFont }}>
+                      slides to {money(fromPrice(style))} at volume
+                    </span>
+                  )}
+                </div>
+              ) : (
+                <div style={{ fontSize: 13, color: FAINT, marginTop: 10 }}>No menu price for this one yet — ask and a human quotes it.</div>
+              )}
+
+              {underMin && !inDtfZone && (
+                <div style={{ fontSize: 11.5, color: AMBER, marginTop: 8 }}>
+                  {colors.length > 1
+                    ? `${colors.length} colorways = ${colors.length} × ${groupMin} piece minimums (${minPieces}+ total).`
+                    : `Minimum is ${groupMin} per design.`}
                 </div>
               )}
+
               {/* What moves the number — Taylor's explanation, printed */}
-              <div style={{ fontSize: 11.5, color: FAINT, lineHeight: 1.6 }}>
-                What moves your price: <span style={{ color: MUTED }}>volume</span> (every tier drops
-                the per-piece), <span style={{ color: MUTED }}>the blank</span> (a premium garment costs
+              <div style={{ fontSize: 11.5, color: FAINT, lineHeight: 1.6, marginTop: 12 }}>
+                What moves your price: <span style={{ color: MUTED }}>volume</span> (slide it and
+                watch), <span style={{ color: MUTED }}>the blank</span> (a premium garment costs
                 more before ink ever touches it), and <span style={{ color: MUTED }}>the print</span>{" "}
                 (1–2 locations included — extra locations, specialty inks, and rush move it).
                 The exact number comes from a human, and it lives inside this range.
               </div>
-              {(style.group === "tee" || style.group === "hoodie") && (
-                <div style={{ fontSize: 11.5, color: MUTED, lineHeight: 1.6, marginTop: 8, borderLeft: `2px solid ${AMBER}`, paddingLeft: 10 }}>
-                  Under 48 pieces? We run small batches of 25+ as DTF prints — say so in the
-                  notes and we will quote it that way.
-                </div>
-              )}
             </div>
 
             {/* Artwork for THIS style */}
@@ -715,11 +739,15 @@ function StyleModal({ style, existing, files, placements, onUpload, onRemoveFile
 
         {/* Sticky CTA — never below the fold */}
         <div style={{ borderTop: `1px solid ${LINE}`, background: CARD, padding: "12px 16px" }}>
-          {r && (
+          {r ? (
             <div style={{ fontSize: 11.5, fontFamily: monoFont, color: FAINT, marginBottom: 8 }}>
-              {Math.max(qty, groupMin)} pieces · <span style={{ color: TEAL }}>≈ ${Math.round(r.lo * Math.max(qty, groupMin)).toLocaleString()}–${Math.round(r.hi * Math.max(qty, groupMin)).toLocaleString()}</span>
+              {qty} pieces · <span style={{ color: TEAL }}>≈ ${Math.round(r.lo * qty).toLocaleString()}–${Math.round(r.hi * qty).toLocaleString()}</span>
             </div>
-          )}
+          ) : inDtfZone ? (
+            <div style={{ fontSize: 11.5, fontFamily: monoFont, color: AMBER, marginBottom: 8 }}>
+              {qty} pieces · small batch DTF — quoted per design
+            </div>
+          ) : null}
           <div style={{ display: "flex", gap: 10 }}>
             <button
               onClick={() => onSave({ styleCode: style.code, qty: Math.max(qty, 1), colors, notes: notes.trim() || undefined })}
