@@ -96,7 +96,7 @@ export function ProcessFlow() {
         </div>
       </div>
 
-      <style>{`
+      <style dangerouslySetInnerHTML={{ __html: `
         @media (max-width: 900px) {
           .hpd-process {
             grid-template-columns: 1fr 1fr !important;
@@ -115,7 +115,7 @@ export function ProcessFlow() {
             grid-template-columns: 1fr !important;
           }
         }
-      `}</style>
+      ` }} />
     </section>
   );
 }

@@ -89,7 +89,10 @@ export function MarketingFooter() {
         </div>
       </div>
 
-      <style>{`
+      {/* dangerouslySetInnerHTML on purpose: the `>` child combinator gets
+          server-escaped to &gt; inside a text-node <style>, and React flags
+          the hydration mismatch against the client's raw `>`. */}
+      <style dangerouslySetInnerHTML={{ __html: `
         @media (max-width: 768px) {
           .hpd-footer-grid {
             grid-template-columns: 1fr 1fr !important;
@@ -99,7 +102,7 @@ export function MarketingFooter() {
             grid-column: 1 / -1;
           }
         }
-      `}</style>
+      ` }} />
 
       {openModal && (
         <LegalModal which={openModal} onClose={() => setOpenModal(null)} />
