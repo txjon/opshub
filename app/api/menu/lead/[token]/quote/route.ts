@@ -84,10 +84,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
   try {
     const items = Array.isArray(picks.items) ? picks.items : [];
     const itemLines = items.length
-      ? items.map((it: any) => `- ${it.styleCode} x ${it.qty}${Array.isArray(it.colors) && it.colors.length ? ` (${it.colors.join(", ")})` : ""}`)
+      ? items.map((it: any) => `- ${it.styleCode} x ${it.qty}${Array.isArray(it.colors) && it.colors.length ? ` (${it.colors.join(", ")})` : ""}${it.notes ? ` — "${it.notes}"` : ""}`)
       : ["- no styles picked (browsing / needs guidance)"];
     const fileLines = Array.isArray(picks.files)
-      ? picks.files.filter((f: any) => f?.url).map((f: any) => `- ${f.filename}: ${f.url}`)
+      ? picks.files.filter((f: any) => f?.url).map((f: any) => `- ${f.filename}${f.styleCode ? ` (${f.styleCode}${f.placement ? `, ${f.placement}` : ""})` : ""}: ${f.url}`)
       : [];
     const summary = [
       "Picks:",

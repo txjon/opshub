@@ -214,9 +214,22 @@ async function main() {
       const products = (await pres.json()) as any[];
       const byColor = new Map<string, any>();
       for (const p of products || []) if (p.colorName && !byColor.has(p.colorName)) byColor.set(p.colorName, p);
+      // Prefer ON-MODEL shots (the expensive look) over flat garment shots,
+      // and the _fl (large) rendition over _fm (medium), falling back down
+      // the candidate list per color.
+      const ssUrls = (p: any): string[] => {
+        const out: string[] = [];
+        for (const field of ["colorOnModelFrontImage", "colorFrontImage"]) {
+          const v = p[field];
+          if (!v) continue;
+          if (/_fm\.jpg$/i.test(v)) out.push(SS_CDN + v.replace(/_fm\.jpg$/i, "_fl.jpg"));
+          out.push(SS_CDN + v);
+        }
+        return out;
+      };
       const ranked = [...byColor.values()]
         .sort((a, b) => printedQty(printed, b.colorName) - printedQty(printed, a.colorName))
-        .map((p) => ({ name: p.colorName as string, urls: p.colorFrontImage ? [SS_CDN + p.colorFrontImage] : [], vendorHex: (p.color1 as string) || null }));
+        .map((p) => ({ name: p.colorName as string, urls: ssUrls(p), vendorHex: (p.color1 as string) || null }));
       const allColors = await buildColors(st.code, ranked, ssHeaders);
       const heroStored = style.styleImage ? await processAndStore(`${st.code}/hero.jpg`, [SS_CDN + style.styleImage], ssHeaders) : null;
       const hero = heroStored?.url || allColors.find((c) => c.image)?.image || null;

@@ -27,8 +27,8 @@ type StyleRow = {
   moreColors: number;
 };
 
-type QuoteItem = { styleCode: string; qty: number; colors: string[] };
-type FileRef = { filename: string; path: string; size: number; uploading?: boolean; url?: string };
+type QuoteItem = { styleCode: string; qty: number; colors: string[]; notes?: string };
+type FileRef = { filename: string; path: string; size: number; uploading?: boolean; url?: string; styleCode?: string | null; placement?: string | null };
 type Picks = {
   items: QuoteItem[];
   budget: number | null;
@@ -66,30 +66,30 @@ const GROUP_BANDS: Record<string, number[]> = { hat: [24, 48, 100, 250, 500] };
 const DEFAULT_BANDS = [48, 100, 250, 500];
 const bandsFor = (group: string) => GROUP_BANDS[group] || DEFAULT_BANDS;
 
-const STYLE_META: Record<string, { spec: string; blurb: string }> = {
-  "1801GD": { spec: "6.5 oz · garment dyed", blurb: "The heavyweight with the lived-in fade." },
-  "1801MW": { spec: "6.5 oz · mineral wash", blurb: "Every piece washes a little different." },
-  "5001":   { spec: "midweight · clean fit", blurb: "The modern staple. Huge color range." },
-  "5026":   { spec: "heavyweight · boxy", blurb: "Heavy, structured, streetwear cut." },
-  "5082":   { spec: "extra heavy · oversized", blurb: "The heaviest tee on the menu." },
-  "NL6210": { spec: "CVC blend · soft", blurb: "Soft, durable, and the best value here." },
-  "NL3600": { spec: "lightweight cotton", blurb: "Clean lightweight staple." },
-  "CC1717": { spec: "6.1 oz · garment dyed", blurb: "The vintage-fade classic everyone knows." },
-  "HF-09":  { spec: "14 oz heavy fleece", blurb: "Serious hoodie weight, garment dyed." },
-  "5101":   { spec: "midweight fleece", blurb: "The clean everyday hood." },
-  "5161":   { spec: "heavy fleece · boxy", blurb: "The AS hood we run the most." },
-  "5166":   { spec: "oversized heavy fleece", blurb: "Drop-shoulder, streetwear cut." },
-  "IND4000": { spec: "10 oz fleece", blurb: "Our most printed hoodie." },
-  "CHAMPS700": { spec: "9 oz eco fleece", blurb: "The classic C-logo staple." },
-  "CC1567":  { spec: "garment dyed fleece", blurb: "The vintage-fade hood, built like the 1717." },
-  "YP6245CM":   { spec: "classic dad hat · embroidered", blurb: "The everyday shape everyone wears." },
-  "474700":     { spec: "'47 brand · retail grade", blurb: "The licensed-look upgrade." },
-  "RICHARDSON": { spec: "trucker · embroidered", blurb: "The mesh-back workhorse." },
-  "PATCH-EMB":  { spec: "embroidered · to 3.5 in", blurb: "The classic stitched look." },
-  "PATCH-PVC":  { spec: "pvc rubber · to 3.5 in", blurb: "Molded, tactical, durable." },
-  "PATCH-WVN":  { spec: "woven · fine detail", blurb: "Holds small text and tight lines." },
-  "FLAG-3X5":   { spec: "3 x 5 ft · full color", blurb: "The wall piece for the true fans." },
-  "STICKER-DC": { spec: "die-cut vinyl · to 4 in", blurb: "The handout that ends up everywhere." },
+const STYLE_META: Record<string, { displayName: string; spec: string; blurb: string }> = {
+  "1801GD": { displayName: "The LA Heavyweight", spec: "6.5 oz · garment dyed", blurb: "The heavyweight with the lived-in fade." },
+  "1801MW": { displayName: "Mineral Wash Tee", spec: "6.5 oz · mineral wash", blurb: "Every piece washes a little different." },
+  "5001":   { displayName: "The Staple Tee", spec: "midweight · clean fit", blurb: "The modern staple. Huge color range." },
+  "5026":   { displayName: "Classic Heavy Tee", spec: "heavyweight · boxy", blurb: "Heavy, structured, streetwear cut." },
+  "5082":   { displayName: "Heavy Faded Tee", spec: "extra heavy · oversized", blurb: "The heaviest tee on the menu." },
+  "NL6210": { displayName: "CVC Everyday Tee", spec: "CVC blend · soft", blurb: "Soft, durable, and the best value here." },
+  "NL3600": { displayName: "Lightweight Cotton Tee", spec: "lightweight cotton", blurb: "Clean lightweight staple." },
+  "CC1717": { displayName: "Garment-Dyed Tee", spec: "6.1 oz · garment dyed", blurb: "The vintage-fade classic everyone knows." },
+  "HF-09":  { displayName: "Heavy Fleece Hoodie", spec: "14 oz heavy fleece", blurb: "Serious hoodie weight, garment dyed." },
+  "5101":   { displayName: "Supply Hood", spec: "midweight fleece", blurb: "The clean everyday hood." },
+  "5161":   { displayName: "Heavy Hood", spec: "heavy fleece · boxy", blurb: "The AS hood we run the most." },
+  "5166":   { displayName: "Oversized Faded Hood", spec: "oversized heavy fleece", blurb: "Drop-shoulder, streetwear cut." },
+  "IND4000": { displayName: "The Workhorse Hoodie", spec: "10 oz fleece", blurb: "Our most printed hoodie." },
+  "CHAMPS700": { displayName: "Champion Eco Hoodie", spec: "9 oz eco fleece", blurb: "The classic C-logo staple." },
+  "CC1567":  { displayName: "Garment-Dyed Hoodie", spec: "garment dyed fleece", blurb: "The vintage-fade hood, built like the 1717." },
+  "YP6245CM":   { displayName: "Classic Dad Hat", spec: "unstructured · embroidered", blurb: "The everyday shape everyone wears." },
+  "474700":     { displayName: "'47 Clean Up Cap", spec: "'47 brand · retail grade", blurb: "The licensed-look upgrade." },
+  "RICHARDSON": { displayName: "Trucker Cap", spec: "mesh back · embroidered", blurb: "The mesh-back workhorse." },
+  "PATCH-EMB":  { displayName: "Embroidered Patch", spec: "embroidered · to 3.5 in", blurb: "The classic stitched look." },
+  "PATCH-PVC":  { displayName: "PVC Patch", spec: "pvc rubber · to 3.5 in", blurb: "Molded, tactical, durable." },
+  "PATCH-WVN":  { displayName: "Woven Patch", spec: "woven · fine detail", blurb: "Holds small text and tight lines." },
+  "FLAG-3X5":   { displayName: "3x5 Flag", spec: "3 x 5 ft · full color", blurb: "The wall piece for the true fans." },
+  "STICKER-DC": { displayName: "Die-Cut Stickers", spec: "die-cut vinyl · to 4 in", blurb: "The handout that ends up everywhere." },
 };
 
 const bandFor = (qty: number, group?: string) => {
@@ -164,6 +164,40 @@ export default function MenuPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ picks: clean }),
     }).catch(() => {});
+  }
+
+  const PLACEMENTS = ["front", "back", "left chest", "right chest", "sleeve", "other"];
+
+  async function uploadFiles(list: FileList | null, styleCode: string | null) {
+    if (!list) return;
+    for (const file of Array.from(list).slice(0, 6)) {
+      if (file.size > 100 * 1024 * 1024) continue;
+      const temp: FileRef = { filename: file.name, path: "", size: file.size, uploading: true, styleCode, placement: "front" };
+      setPicks((p) => ({ ...p, files: [...p.files, temp] }));
+      try {
+        const init = await fetch("/api/onboard/upload", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ filename: file.name, session: `menu-${token.slice(0, 16)}` }),
+        }).then((r) => r.json());
+        if (!init?.uploadUrl) throw new Error("no upload url");
+        const put = await fetch(init.uploadUrl, { method: "PUT", body: file, headers: { "Content-Type": file.type || "application/octet-stream" } });
+        if (!put.ok) throw new Error(`upload ${put.status}`);
+        setPicks((p) => ({
+          ...p,
+          files: p.files.map((f) => (f.filename === file.name && f.uploading ? { ...f, path: init.path, uploading: false } : f)),
+        }));
+      } catch {
+        setPicks((p) => ({ ...p, files: p.files.filter((f) => !(f.filename === file.name && f.uploading)) }));
+      }
+    }
+  }
+  function removeFileRef(f: FileRef) {
+    setPicks((p) => ({ ...p, files: p.files.filter((x) => x.path !== f.path || x.filename !== f.filename) }));
+    if (f.path) fetch("/api/onboard/upload", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path: f.path }) }).catch(() => {});
+  }
+  function setFilePlacement(f: FileRef, placement: string) {
+    setPicks((p) => ({ ...p, files: p.files.map((x) => (x.path === f.path ? { ...x, placement } : x)) }));
   }
 
   // Autosave (debounced) — the return link reopens right here.
@@ -312,7 +346,8 @@ export default function MenuPage() {
                         )}
                         <div style={{ padding: "14px 16px 16px" }}>
                           <div style={{ ...eyebrowStyle, color: inQuote ? TEAL : FAINT, marginBottom: 6 }}>{meta?.spec}</div>
-                          <div style={{ fontSize: 14, fontWeight: 700, textTransform: "uppercase", lineHeight: 1.25, marginBottom: 4 }}>{s.name}</div>
+                          <div style={{ fontSize: 14.5, fontWeight: 700, textTransform: "uppercase", lineHeight: 1.25 }}>{meta?.displayName || s.name}</div>
+                          <div style={{ fontSize: 10.5, color: FAINT, fontFamily: monoFont, marginBottom: 4 }}>{s.name}</div>
                           <div style={{ fontSize: 12, color: FAINT, lineHeight: 1.45, marginBottom: 10 }}>{meta?.blurb}</div>
                           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                             <span style={{ fontSize: 13.5, fontWeight: 600, color: "rgba(255,255,255,0.82)", fontFamily: monoFont }}>
@@ -389,6 +424,11 @@ export default function MenuPage() {
         <StyleModal
           style={openStyleRow}
           existing={picks.items.find((i) => i.styleCode === openStyleRow.code) || null}
+          files={picks.files.filter((f) => f.styleCode === openStyleRow.code)}
+          placements={PLACEMENTS}
+          onUpload={(list) => uploadFiles(list, openStyleRow.code)}
+          onRemoveFile={removeFileRef}
+          onPlacement={setFilePlacement}
           onClose={() => setOpenStyle(null)}
           onSave={(item) => { upsertItem(item); setOpenStyle(null); }}
           onRemove={() => { removeItem(openStyleRow.code); setOpenStyle(null); }}
@@ -403,6 +443,8 @@ export default function MenuPage() {
           byCode={byCode}
           onEditItem={(code) => { setReviewOpen(false); setOpenStyle(code); }}
           onRemoveItem={removeItem}
+          onUpload={(list) => uploadFiles(list, null)}
+          onRemoveFile={removeFileRef}
           onClose={() => setReviewOpen(false)}
           savePicksNow={savePicksNow}
           onSent={() => { setReviewOpen(false); setStatus("quote_requested"); setJustSent(true); }}
@@ -414,16 +456,24 @@ export default function MenuPage() {
 
 // ─── Style modal (the product view) ─────────────────────────────
 
-function StyleModal({ style, existing, onClose, onSave, onRemove }: {
+function StyleModal({ style, existing, files, placements, onUpload, onRemoveFile, onPlacement, onClose, onSave, onRemove }: {
   style: StyleRow;
   existing: QuoteItem | null;
+  files: FileRef[];
+  placements: string[];
+  onUpload: (list: FileList | null) => void;
+  onRemoveFile: (f: FileRef) => void;
+  onPlacement: (f: FileRef, placement: string) => void;
   onClose: () => void;
   onSave: (item: QuoteItem) => void;
   onRemove: () => void;
 }) {
   const [qty, setQty] = useState<number>(existing?.qty ?? 100);
   const [colors, setColors] = useState<string[]>(existing?.colors ?? []);
+  const [notes, setNotes] = useState<string>(existing?.notes ?? "");
   const [previewImg, setPreviewImg] = useState<string | null>(null);
+  const [previewName, setPreviewName] = useState<string | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
   const meta = STYLE_META[style.code];
   const r = itemRange(style, qty);
   const groupMin = bandsFor(style.group)[0];
@@ -431,27 +481,30 @@ function StyleModal({ style, existing, onClose, onSave, onRemove }: {
   const minPieces = colorways * groupMin;
   const underMin = qty < minPieces;
   const qtyChips = bandsFor(style.group);
+  const groupLabel = GROUPS.find((g) => g.key === style.group)?.label || style.group;
+  const laneLabel = (LANES_BY_GROUP[style.group] || []).find((l) => l.key === style.lane)?.label;
 
   // One tap = select the color AND show its garment photo. Tapping a
   // selected color deselects it (preview stays put so nothing flashes).
   function toggleColor(c: PaletteColor) {
     const selecting = !colors.includes(c.name);
     setColors((cs) => selecting ? [...cs, c.name] : cs.filter((x) => x !== c.name));
-    if (selecting && c.image) setPreviewImg(c.image);
+    if (selecting) { if (c.image) setPreviewImg(c.image); setPreviewName(c.name); }
   }
 
   const img = previewImg || style.hero;
+  const uploadsPending = files.some((f) => f.uploading);
 
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: CARD, border: `1px solid ${LINE}`, width: "100%", maxWidth: 760, maxHeight: "92vh", overflowY: "auto" }}>
-        <div className="hpd-menu-modal-grid" style={{ display: "grid", gridTemplateColumns: "minmax(220px,1fr) minmax(280px,1.2fr)" }}>
-          <style>{`@media (max-width: 640px){ .hpd-menu-modal-grid { grid-template-columns: 1fr !important; } }`}</style>
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.78)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: CARD, border: `1px solid ${LINE}`, width: "100%", maxWidth: 860, maxHeight: "92vh", overflowY: "auto" }}>
+        <div className="hpd-menu-modal-grid" style={{ display: "grid", gridTemplateColumns: "minmax(260px,1fr) minmax(300px,1.1fr)" }}>
+          <style>{`@media (max-width: 680px){ .hpd-menu-modal-grid { grid-template-columns: 1fr !important; } }`}</style>
 
           {/* Image well */}
-          <div style={{ background: "#fff", minHeight: 260, display: "flex", alignItems: "center", justifyContent: "center", padding: 18 }}>
+          <div style={{ background: "#fff", minHeight: 320, display: "flex", alignItems: "center", justifyContent: "center", padding: 20, position: "sticky", top: 0, alignSelf: "start" }}>
             {img
-              ? <img src={img} alt={style.name} style={{ width: "100%", maxHeight: 420, objectFit: "contain", display: "block" }} />
+              ? <img src={img} alt={style.name} style={{ width: "100%", maxHeight: 480, objectFit: "contain", display: "block" }} />
               : <span style={{ fontSize: 11, color: "#999", fontFamily: monoFont, textTransform: "uppercase", letterSpacing: "0.1em" }}>{style.code} · photo coming</span>}
           </div>
 
@@ -459,20 +512,27 @@ function StyleModal({ style, existing, onClose, onSave, onRemove }: {
           <div style={{ padding: "22px 22px 18px", color: TEXT }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
               <div>
-                <div style={{ ...eyebrowStyle, marginBottom: 6 }}>{meta?.spec}</div>
-                <h3 style={{ margin: 0, fontSize: 19, fontWeight: 900, textTransform: "uppercase", lineHeight: 1.2 }}>{style.name}</h3>
+                <div style={{ fontSize: 10, fontFamily: monoFont, letterSpacing: "0.08em", color: FAINT, textTransform: "uppercase", marginBottom: 8 }}>
+                  {groupLabel}{laneLabel ? ` / ${laneLabel}` : ""} / <span style={{ color: TEAL }}>{style.name}</span>
+                </div>
+                <h3 style={{ margin: 0, fontSize: 22, fontWeight: 900, textTransform: "uppercase", lineHeight: 1.15, letterSpacing: "-0.01em" }}>{meta?.displayName || style.name}</h3>
+                <div style={{ ...eyebrowStyle, color: FAINT, marginTop: 6 }}>{meta?.spec}</div>
               </div>
               <button onClick={onClose} aria-label="Close" style={{ background: "transparent", border: "none", color: FAINT, fontSize: 22, cursor: "pointer", lineHeight: 1, padding: 4 }}>×</button>
             </div>
-            <p style={{ fontSize: 12.5, color: MUTED, lineHeight: 1.5, margin: "8px 0 16px" }}>{meta?.blurb}</p>
+            <p style={{ fontSize: 12.5, color: MUTED, lineHeight: 1.5, margin: "10px 0 16px" }}>{meta?.blurb}</p>
 
-            {/* Palette */}
+            {/* Palette — swatch dot grid, name of the active color above */}
             {style.allColors.length > 0 && (
               <div style={{ marginBottom: 18 }}>
-                <div style={{ ...eyebrowStyle, color: FAINT, marginBottom: 8 }}>
-                  Colors · pick what you are feeling {colors.length > 0 ? `(${colors.length} selected)` : "(optional)"}
+                <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 8 }}>
+                  <span style={{ ...eyebrowStyle, color: FAINT }}>Colors</span>
+                  <span style={{ fontSize: 12.5, fontWeight: 700 }}>
+                    {previewName || (colors.length ? colors[colors.length - 1] : "")}
+                  </span>
+                  {colors.length > 0 && <span style={{ fontSize: 11, color: FAINT }}>({colors.length} selected)</span>}
                 </div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, maxHeight: 150, overflowY: "auto", paddingRight: 4 }}>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 7, maxHeight: 132, overflowY: "auto", paddingRight: 4 }}>
                   {style.allColors.map((c) => {
                     const sel = colors.includes(c.name);
                     return (
@@ -480,17 +540,15 @@ function StyleModal({ style, existing, onClose, onSave, onRemove }: {
                         key={c.name}
                         onClick={() => toggleColor(c)}
                         title={c.name}
+                        aria-label={c.name}
                         style={{
-                          display: "inline-flex", alignItems: "center", gap: 6,
-                          background: sel ? "rgba(115,182,201,0.15)" : "transparent",
-                          border: sel ? `1px solid ${TEAL}` : `1px solid ${LINE_SOFT}`,
-                          color: sel ? TEXT : MUTED, fontSize: 11, padding: "4px 9px 4px 5px",
-                          cursor: "pointer", fontFamily: "inherit",
+                          width: 24, height: 24, borderRadius: 99, padding: 0, cursor: "pointer",
+                          background: c.hex || "#2a2a30",
+                          border: sel ? `2px solid ${TEAL}` : `1px solid ${LINE}`,
+                          boxShadow: sel ? `0 0 0 1.5px ${BG}, 0 0 0 3px ${TEAL}` : "none",
+                          flexShrink: 0,
                         }}
-                      >
-                        <span style={{ width: 14, height: 14, borderRadius: 99, background: c.hex || "#2a2a30", border: `1px solid ${LINE}`, flexShrink: 0 }} />
-                        {c.name}
-                      </button>
+                      />
                     );
                   })}
                 </div>
@@ -526,7 +584,7 @@ function StyleModal({ style, existing, onClose, onSave, onRemove }: {
             </div>
 
             {/* Live math */}
-            <div style={{ borderTop: `1px solid ${LINE_SOFT}`, paddingTop: 14, marginBottom: 18 }}>
+            <div style={{ borderTop: `1px solid ${LINE_SOFT}`, paddingTop: 14, marginBottom: 16 }}>
               {r ? (
                 <div style={{ fontSize: 14, fontFamily: monoFont }}>
                   {money(r.lo)}–{money(r.hi)}<span style={{ fontSize: 11, color: FAINT }}> /pc at {bandFor(Math.max(qty, groupMin), style.group)}+</span>
@@ -538,15 +596,62 @@ function StyleModal({ style, existing, onClose, onSave, onRemove }: {
               )}
             </div>
 
+            {/* Artwork for THIS style */}
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ ...eyebrowStyle, color: FAINT, marginBottom: 8 }}>Artwork</div>
+              <input ref={fileInput} type="file" multiple accept="image/*,.pdf,.ai,.psd,.eps,.svg,.zip" hidden onChange={(e) => { onUpload(e.target.files); e.target.value = ""; }} />
+              {files.length > 0 && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
+                  {files.map((f, i) => (
+                    <div key={`${f.path || f.filename}-${i}`} style={{ display: "flex", alignItems: "center", gap: 8, border: `1px solid ${LINE_SOFT}`, padding: "7px 10px" }}>
+                      <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 11.5, fontFamily: monoFont, color: MUTED }}>{f.filename}</span>
+                      {f.uploading ? (
+                        <span style={{ fontSize: 11, color: TEAL, fontFamily: monoFont }}>uploading...</span>
+                      ) : (
+                        <>
+                          <select
+                            value={f.placement || "front"}
+                            onChange={(e) => onPlacement(f, e.target.value)}
+                            style={{ background: BG, color: MUTED, border: `1px solid ${LINE}`, fontSize: 11, padding: "3px 6px", fontFamily: "inherit" }}
+                          >
+                            {placements.map((pl) => <option key={pl} value={pl}>{pl}</option>)}
+                          </select>
+                          <button onClick={() => onRemoveFile(f)} aria-label="Remove file" style={{ background: "transparent", border: "none", color: FAINT, fontSize: 14, cursor: "pointer" }}>×</button>
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+              <button onClick={() => fileInput.current?.click()} style={{ background: "transparent", border: `1px dashed ${LINE}`, color: MUTED, fontSize: 12, padding: "9px 14px", cursor: "pointer", width: "100%", fontFamily: "inherit" }}>
+                + Add artwork (optional — we take it from here)
+              </button>
+            </div>
+
+            {/* Design notes */}
+            <textarea
+              placeholder="Design notes for this piece (placement details, color of ink, the vibe...)"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value.slice(0, 800))}
+              style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${LINE}`, padding: "9px 11px", fontSize: 12.5, minHeight: 52, fontFamily: "inherit", color: TEXT, background: BG, resize: "vertical", marginBottom: 12 }}
+            />
+
+            {/* Trust banner — true, because the proof flow exists */}
+            <div style={{ borderLeft: `2px solid ${TEAL}`, background: "rgba(115,182,201,0.07)", padding: "10px 12px", fontSize: 12, color: MUTED, lineHeight: 1.5, marginBottom: 16 }}>
+              Worried about your artwork? Don&apos;t be. Our team reviews every design and you
+              approve the final proof before anything prints.
+            </div>
+
             <div style={{ display: "flex", gap: 10 }}>
               <button
-                onClick={() => onSave({ styleCode: style.code, qty: Math.max(qty, 1), colors })}
-                style={{ flex: 1, background: TEXT, color: BG, border: "none", padding: "13px 0", fontSize: 12.5, fontWeight: 800, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.08em" }}
+                onClick={() => onSave({ styleCode: style.code, qty: Math.max(qty, 1), colors, notes: notes.trim() || undefined })}
+                disabled={uploadsPending}
+                style={{ flex: 1, background: TEXT, color: BG, border: "none", padding: "14px 0", fontSize: 13, fontWeight: 800, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.08em", opacity: uploadsPending ? 0.6 : 1 }}
               >
-                {existing ? "Update quote" : "Add to quote"}
+                {uploadsPending ? "Waiting on upload..." : existing ? "Update quote" : "Add to quote"}
               </button>
               {existing && (
-                <button onClick={onRemove} style={{ background: "transparent", color: FAINT, border: `1px solid ${LINE}`, padding: "13px 16px", fontSize: 12.5, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                <button onClick={onRemove} style={{ background: "transparent", color: FAINT, border: `1px solid ${LINE}`, padding: "14px 16px", fontSize: 12.5, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.06em" }}>
                   Remove
                 </button>
               )}
@@ -560,13 +665,15 @@ function StyleModal({ style, existing, onClose, onSave, onRemove }: {
 
 // ─── Review modal (basket → request) ────────────────────────────
 
-function ReviewModal({ token, picks, setPicks, byCode, onEditItem, onRemoveItem, onClose, savePicksNow, onSent }: {
+function ReviewModal({ token, picks, setPicks, byCode, onEditItem, onRemoveItem, onUpload, onRemoveFile, onClose, savePicksNow, onSent }: {
   token: string;
   picks: Picks;
   setPicks: React.Dispatch<React.SetStateAction<Picks>>;
   byCode: Record<string, StyleRow>;
   onEditItem: (code: string) => void;
   onRemoveItem: (code: string) => void;
+  onUpload: (list: FileList | null) => void;
+  onRemoveFile: (f: FileRef) => void;
   onClose: () => void;
   savePicksNow: (p: Picks) => Promise<void>;
   onSent: () => void;
@@ -578,37 +685,6 @@ function ReviewModal({ token, picks, setPicks, byCode, onEditItem, onRemoveItem,
   const [err, setErr] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const uploadsPending = picks.files.some((f) => f.uploading);
-
-  async function addFiles(list: FileList | null) {
-    if (!list) return;
-    for (const file of Array.from(list).slice(0, 6)) {
-      if (file.size > 100 * 1024 * 1024) continue;
-      const temp: FileRef = { filename: file.name, path: "", size: file.size, uploading: true };
-      setPicks((p) => ({ ...p, files: [...p.files, temp] }));
-      try {
-        const init = await fetch("/api/onboard/upload", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ filename: file.name, session: `menu-${token.slice(0, 16)}` }),
-        }).then((r) => r.json());
-        if (!init?.uploadUrl) throw new Error("no upload url");
-        const put = await fetch(init.uploadUrl, { method: "PUT", body: file, headers: { "Content-Type": file.type || "application/octet-stream" } });
-        if (!put.ok) throw new Error(`upload ${put.status}`);
-        setPicks((p) => ({
-          ...p,
-          files: p.files.map((f) => (f === temp || (f.filename === file.name && f.uploading) ? { filename: file.name, path: init.path, size: file.size, uploading: false } : f)),
-        }));
-      } catch {
-        setPicks((p) => ({ ...p, files: p.files.filter((f) => !(f.filename === file.name && f.uploading)) }));
-        setErr(`Upload failed for ${file.name}.`);
-      }
-    }
-  }
-
-  async function removeFile(f: FileRef) {
-    setPicks((p) => ({ ...p, files: p.files.filter((x) => x.path !== f.path) }));
-    if (f.path) fetch("/api/onboard/upload", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path: f.path }) }).catch(() => {});
-  }
 
   async function send() {
     if (!name.trim() || sending || uploadsPending) return;
@@ -658,6 +734,7 @@ function ReviewModal({ token, picks, setPicks, byCode, onEditItem, onRemoveItem,
                       {it.qty} pcs{it.colors.length ? ` · ${it.colors.slice(0, 3).join(", ")}${it.colors.length > 3 ? ` +${it.colors.length - 3}` : ""}` : ""}
                       {r ? ` · ≈ $${Math.round(r.lo * it.qty).toLocaleString()}–$${Math.round(r.hi * it.qty).toLocaleString()}` : ""}
                     </div>
+                    {it.notes && <div style={{ fontSize: 11, color: FAINT, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>&ldquo;{it.notes}&rdquo;</div>}
                   </div>
                   <button onClick={() => onRemoveItem(it.styleCode)} aria-label="Remove" style={{ background: "transparent", border: "none", color: FAINT, fontSize: 16, cursor: "pointer" }}>×</button>
                 </div>
@@ -677,7 +754,7 @@ function ReviewModal({ token, picks, setPicks, byCode, onEditItem, onRemoveItem,
             <Chip small on={picks.artStatus === "ready"} onClick={() => setPicks((p) => ({ ...p, artStatus: p.artStatus === "ready" ? null : "ready" }))}>Art is ready</Chip>
             <Chip small on={picks.artStatus === "need_help"} onClick={() => setPicks((p) => ({ ...p, artStatus: p.artStatus === "need_help" ? null : "need_help" }))}>I need design help</Chip>
           </div>
-          <input ref={fileInput} type="file" multiple accept="image/*,.pdf,.ai,.psd,.eps,.svg,.zip" hidden onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }} />
+          <input ref={fileInput} type="file" multiple accept="image/*,.pdf,.ai,.psd,.eps,.svg,.zip" hidden onChange={(e) => { onUpload(e.target.files); e.target.value = ""; }} />
           <button onClick={() => fileInput.current?.click()} style={{ background: "transparent", border: `1px dashed ${LINE}`, color: MUTED, fontSize: 12, padding: "9px 14px", cursor: "pointer", width: "100%", fontFamily: "inherit" }}>
             + Attach art files if you have them (optional)
           </button>
@@ -685,10 +762,13 @@ function ReviewModal({ token, picks, setPicks, byCode, onEditItem, onRemoveItem,
             <div style={{ display: "flex", flexDirection: "column", gap: 5, marginTop: 8 }}>
               {picks.files.map((f, i) => (
                 <div key={`${f.path || f.filename}-${i}`} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11.5, color: MUTED, fontFamily: monoFont }}>
-                  <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.filename}</span>
+                  <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {f.filename}
+                    <span style={{ color: FAINT }}>{f.styleCode ? ` · ${f.styleCode}` : ""}{f.placement ? ` · ${f.placement}` : ""}</span>
+                  </span>
                   {f.uploading
                     ? <span style={{ color: TEAL }}>uploading...</span>
-                    : <button onClick={() => removeFile(f)} style={{ background: "transparent", border: "none", color: FAINT, cursor: "pointer", fontSize: 13 }}>×</button>}
+                    : <button onClick={() => onRemoveFile(f)} style={{ background: "transparent", border: "none", color: FAINT, cursor: "pointer", fontSize: 13 }}>×</button>}
                 </div>
               ))}
             </div>

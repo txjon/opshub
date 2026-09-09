@@ -53,7 +53,7 @@ type MenuLead = {
   picks: {
     // Order-builder shape (Sep 8): a basket of items + art files.
     items?: { styleCode: string; qty: number; colors: string[] }[];
-    files?: { filename: string; path: string; size: number; url?: string | null }[];
+    files?: { filename: string; path: string; size: number; url?: string | null; styleCode?: string | null; placement?: string | null }[];
     budget?: number | null;
     artStatus?: string | null;
     notes?: string;
@@ -971,7 +971,7 @@ function MenuLeadBucket({
                     <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 5 }}>
                       {l.picks!.files!.filter(f => f.url).map(f => (
                         <a key={f.path} href={f.url!} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: T.blue, textDecoration: "none", borderBottom: `1px dotted ${T.blue}`, fontFamily: mono }}>
-                          📎 {f.filename}
+                          📎 {f.filename}{f.styleCode ? ` (${f.styleCode}${f.placement ? ` · ${f.placement}` : ""})` : ""}
                         </a>
                       ))}
                     </div>
