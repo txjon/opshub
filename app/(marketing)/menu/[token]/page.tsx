@@ -136,7 +136,8 @@ export default function MenuPage() {
     return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
   }, [picks, token]);
 
-  const tees = useMemo(() => (styles || []).filter((s) => s.group === "tee"), [styles]);
+  const [group, setGroup] = useState<"tee" | "hoodie">("tee");
+  const visible = useMemo(() => (styles || []).filter((s) => s.group === group), [styles, group]);
   const byCode = useMemo(() => Object.fromEntries((styles || []).map((s) => [s.code, s])), [styles]);
 
   const basket = useMemo(() => {
@@ -151,8 +152,8 @@ export default function MenuPage() {
   }, [picks.items, byCode]);
 
   const budgetEstimate = useMemo(() => {
-    if (!picks.budget || tees.length === 0) return null;
-    const st = byCode[picks.items[0]?.styleCode] || tees[0];
+    if (!picks.budget || visible.length === 0) return null;
+    const st = byCode[picks.items[0]?.styleCode] || visible[0];
     let b = 100;
     for (let i = 0; i < 3; i++) {
       const r = st.bands[b];
@@ -165,7 +166,7 @@ export default function MenuPage() {
     const r = st.bands[b];
     if (!r?.lo || !r?.hi) return null;
     return { units: Math.floor(picks.budget / ((r.lo + r.hi) / 2)), style: st };
-  }, [picks.budget, picks.items, tees, byCode]);
+  }, [picks.budget, picks.items, visible, byCode]);
 
   function upsertItem(item: QuoteItem) {
     setPicks((p) => {
@@ -224,13 +225,13 @@ export default function MenuPage() {
           )}
 
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 34, justifyContent: "center" }}>
-            <Chip on>Tees</Chip>
-            <Chip dim>Hoodies · soon</Chip>
+            <Chip on={group === "tee"} onClick={() => setGroup("tee")}>Tees</Chip>
+            <Chip on={group === "hoodie"} onClick={() => setGroup("hoodie")}>Hoodies</Chip>
             <Chip dim>Headwear · soon</Chip>
           </div>
 
           {LANES.map((lane) => {
-            const laneStyles = tees.filter((s) => s.lane === lane.key);
+            const laneStyles = visible.filter((s) => s.lane === lane.key);
             if (laneStyles.length === 0) return null;
             return (
               <section key={lane.key} style={{ marginBottom: 44 }}>
