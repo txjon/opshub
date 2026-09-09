@@ -69,6 +69,7 @@ type MenuLead = {
   quote: import("@/lib/menu-quote").Quote | null;
   quoted_at: string | null;
   accepted_at: string | null;
+  job_id: string | null;
   quote_requested_at: string | null;
   rates_snapshot: { style_code: string; style_name: string; band_min: number; price_lo: number | null; price_hi: number | null }[] | null;
   responded_at: string | null;
@@ -110,7 +111,7 @@ export default function IntakePage() {
 
     const { data: leads } = await supabase
       .from("menu_leads")
-      .select("id,email,status,picks,contact,client_match,quote,quoted_at,accepted_at,quote_requested_at,rates_snapshot,responded_at,response,created_at,updated_at")
+      .select("id,email,status,picks,contact,client_match,quote,quoted_at,accepted_at,job_id,quote_requested_at,rates_snapshot,responded_at,response,created_at,updated_at")
       .order("quote_requested_at", { ascending: false, nullsFirst: false })
       .order("updated_at", { ascending: false });
     const leadRows = (leads as unknown as MenuLead[]) || [];
@@ -162,7 +163,7 @@ export default function IntakePage() {
       <MenuLeadBucket
         label="Menu · quote pipeline"
         color={T.purple}
-        leads={menuLeads.filter(l => ["quote_requested", "quoted", "accepted"].includes(l.status))}
+        leads={menuLeads.filter(l => ["quote_requested", "quoted", "accepted", "converted"].includes(l.status))}
         matchNames={matchNames}
         onChanged={load}
         emptyText="No open quote requests from the menu."
@@ -199,7 +200,7 @@ export default function IntakePage() {
       <MenuLeadBucket
         label="Menu · browsing"
         color={T.faint}
-        leads={menuLeads.filter(l => !["quote_requested", "quoted", "accepted"].includes(l.status))}
+        leads={menuLeads.filter(l => !["quote_requested", "quoted", "accepted", "converted"].includes(l.status))}
         matchNames={matchNames}
         onChanged={load}
         collapsedByDefault
@@ -898,7 +899,31 @@ function MenuLeadBucket({
   const [collapsed, setCollapsed] = useState(!!collapsedByDefault);
   const [composing, setComposing] = useState<MenuLead | null>(null);
   const [quoting, setQuoting] = useState<MenuLead | null>(null);
+  const [converting, setConverting] = useState<string | null>(null);
+  const [convertErr, setConvertErr] = useState<string | null>(null);
   if (leads.length === 0 && !emptyText) return null;
+
+  async function convertLead(l: MenuLead) {
+    if (converting) return;
+    let clientName: string | undefined;
+    if (!l.client_match) {
+      const suggested = l.contact?.name || l.email.split("@")[0];
+      const answer = window.prompt("New client name (their brand, not the person):", suggested);
+      if (answer === null) return;
+      clientName = answer.trim() || suggested;
+    }
+    setConverting(l.id);
+    setConvertErr(null);
+    const res = await fetch("/api/menu/lead-convert", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ leadId: l.id, clientName }),
+    }).catch(() => null);
+    setConverting(null);
+    if (res?.ok) { onChanged(); return; }
+    const d = await res?.json().catch(() => null);
+    setConvertErr(d?.error || "Convert failed.");
+  }
 
   async function setStatus(l: MenuLead, status: string) {
     await supabase.from("menu_leads").update({ status, updated_at: new Date().toISOString() } as never).eq("id", l.id);
@@ -988,6 +1013,11 @@ function MenuLeadBucket({
                   </span>
                   {["quote_requested", "quoted", "accepted"].includes(l.status) && (
                     <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                      {l.quote && !l.job_id && (
+                        <span onClick={() => convertLead(l)} style={{ fontSize: 11, color: T.green, cursor: "pointer", borderBottom: `1px dotted ${T.green}`, fontWeight: 700 }}>
+                          {converting === l.id ? "Creating..." : "Create job"}
+                        </span>
+                      )}
                       <span onClick={() => setQuoting(l)} style={{ fontSize: 11, color: T.purple, cursor: "pointer", borderBottom: `1px dotted ${T.purple}`, fontWeight: 700 }}>
                         {l.quote ? "Edit quote" : "Build quote"}
                       </span>
@@ -1002,10 +1032,14 @@ function MenuLeadBucket({
                     </div>
                   )}
                   {l.quote && (
-                    <span style={{ fontSize: 10, fontFamily: mono, color: l.status === "accepted" ? T.green : T.purple, fontWeight: 700, letterSpacing: "0.06em" }}>
-                      {l.status === "accepted" ? "ACCEPTED" : "QUOTED"} ${Number(l.quote.total || 0).toLocaleString()} ·{" "}
+                    <span style={{ fontSize: 10, fontFamily: mono, color: l.status === "converted" || l.job_id ? T.green : l.status === "accepted" ? T.green : T.purple, fontWeight: 700, letterSpacing: "0.06em" }}>
+                      {l.job_id ? "CONVERTED" : l.status === "accepted" ? "ACCEPTED" : "QUOTED"} ${Number(l.quote.total || 0).toLocaleString()} ·{" "}
                       {l.quote.punch.filter(pt => pt.status === "done").length}/{l.quote.punch.length} points
+                      {l.job_id && <a href={`/jobs/${l.job_id}`} style={{ color: T.blue, marginLeft: 8, textDecoration: "none", borderBottom: `1px dotted ${T.blue}` }}>open job →</a>}
                     </span>
+                  )}
+                  {convertErr && converting === null && (
+                    <span style={{ fontSize: 10.5, color: T.red }}>{convertErr}</span>
                   )}
                   {l.response?.sent_at && (
                     <span title={l.response.body} style={{ fontSize: 10, color: T.faint, fontFamily: mono }}>

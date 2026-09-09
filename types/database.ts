@@ -3118,6 +3118,7 @@ export type Database = {
           quote: Json | null;
           quoted_at: string | null;
           accepted_at: string | null;
+          job_id: string | null;
         };
         Insert: {
           id?: string;
@@ -3137,6 +3138,7 @@ export type Database = {
           quote?: Json | null;
           quoted_at?: string | null;
           accepted_at?: string | null;
+          job_id?: string | null;
         };
         Update: {
           id?: string;
@@ -3156,10 +3158,12 @@ export type Database = {
           quote?: Json | null;
           quoted_at?: string | null;
           accepted_at?: string | null;
+          job_id?: string | null;
         };
         Relationships: [
           { foreignKeyName: "menu_leads_company_id_fkey"; columns: ["company_id"]; isOneToOne: false; referencedRelation: "companies"; referencedColumns: ["id"] },
-          { foreignKeyName: "menu_leads_client_match_fkey"; columns: ["client_match"]; isOneToOne: false; referencedRelation: "clients"; referencedColumns: ["id"] }
+          { foreignKeyName: "menu_leads_client_match_fkey"; columns: ["client_match"]; isOneToOne: false; referencedRelation: "clients"; referencedColumns: ["id"] },
+          { foreignKeyName: "menu_leads_job_id_fkey"; columns: ["job_id"]; isOneToOne: false; referencedRelation: "jobs"; referencedColumns: ["id"] }
         ];
       };
       menu_rates: {
