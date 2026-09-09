@@ -63,11 +63,18 @@ const STYLES: StyleDef[] = [
   { code: "CC1717",  name: "Comfort Colors 1717", group: "tee",    lane: "popular",    sort: 32, hist: /^(CC|COMFORTCOLORS)1717/i, live: /Comfort Colors 1717/i },
   { code: "HF-09",   name: "LA Apparel HF-09",    group: "hoodie", lane: "la_apparel", sort: 40, hist: /HF.?09/i,            live: /LA Apparel HF.?09/i },
   { code: "5101",    name: "AS Colour 5101",      group: "hoodie", lane: "as_colour",  sort: 41, hist: /^(AS|ASCOLOUR)5101/i, live: /AS Colour 5101/i, asCode: "5101" },
-  { code: "IND4000", name: "Independent IND4000", group: "hoodie", lane: "popular",    sort: 42, hist: /IND4000/i,           live: /IND4000/i },
+  // Sep 8 (Jon): the hoodies history actually ran — AS 5161/5166 (the AS
+  // hoods we sold, unlike 5101), Champion S700, and the CC 1567
+  // garment-dyed hood (a proven ~$45 premium price point).
+  { code: "5161",    name: "AS Colour 5161",      group: "hoodie", lane: "as_colour",  sort: 42, hist: /^(AS|ASCOLOUR)5161/i, live: /AS Colour 5161/i, asCode: "5161" },
+  { code: "5166",    name: "AS Colour 5166",      group: "hoodie", lane: "as_colour",  sort: 43, hist: /^(AS|ASCOLOUR)5166/i, live: /AS Colour 5166/i, asCode: "5166" },
+  { code: "IND4000", name: "Independent IND4000", group: "hoodie", lane: "popular",    sort: 44, hist: /IND4000/i,           live: /IND4000/i },
+  { code: "CHAMPS700", name: "Champion S700",     group: "hoodie", lane: "popular",    sort: 45, hist: /^CHAMPIONS700/i,     live: /Champion S700/i },
+  { code: "CC1567",  name: "Comfort Colors 1567", group: "hoodie", lane: "popular",    sort: 46, hist: /^(CC|COMFORTCOLORS)1567/i, live: /Comfort Colors 1567/i },
 ];
 
 // S&S styleIDs not hardcoded above get looked up by search at runtime.
-const SS_SEARCH: Record<string, string> = { NL3600: "Next Level 3600", CC1717: "Comfort Colors 1717", IND4000: "IND4000" };
+const SS_SEARCH: Record<string, string> = { NL3600: "Next Level 3600", CC1717: "Comfort Colors 1717", IND4000: "IND4000", CHAMPS700: "Champion S700", CC1567: "Comfort Colors 1567" };
 
 // ─── History-priced groups (Sep 8) ──────────────────────────────
 // Hats, patches, flags, stickers: commodity/outsourced products where the

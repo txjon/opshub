@@ -38,6 +38,10 @@ const STYLES: MenuStyle[] = [
   // product page (Jon-supplied) carries fresh per-color stencil URLs.
   { code: "5082",    vendor: "ascolour", scrapeUrl: "https://ascolour.com/mens-heavy-faded-tee-5082/", hist: /^(AS|ASCOLOUR)5082/i },
   { code: "5101",    vendor: "ascolour", hist: /^(AS|ASCOLOUR)5101/i },
+  { code: "5161",    vendor: "ascolour", hist: /^(AS|ASCOLOUR)5161/i },
+  { code: "5166",    vendor: "ascolour", hist: /^(AS|ASCOLOUR)5166/i },
+  { code: "CHAMPS700", vendor: "ss", ssSearch: "Champion S700", ssStyleName: "S700", hist: /^CHAMPIONS700/i },
+  { code: "CC1567",  vendor: "ss", ssSearch: "Comfort Colors 1567", ssStyleName: "1567", hist: /^(CC|COMFORTCOLORS)1567/i },
   { code: "1801GD",  vendor: "la", laHandle: "the-1801-garment-dye", hist: /1801GD/i },
   // 1801MW is wholesale-only (absent from their 1,653-product retail
   // catalog) — imagery comes from their imprintable wholesale page
