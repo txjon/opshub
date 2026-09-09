@@ -22,6 +22,9 @@ type Rate = {
   seeded_hi: number | null;
   seed_meta: {
     source?: string;
+    basis?: string;
+    hist_lines?: number;
+    hist_units?: number;
     spec?: string;
     blank?: number | null;
     blank_source?: string;
@@ -39,18 +42,22 @@ type Rate = {
   sort: number;
 };
 
-const BANDS = [48, 100, 250, 500];
+const BANDS = [24, 48, 100, 250, 500]; // columns render only the bands a group has rows for
 const LANE_LABEL: Record<string, string> = {
   la_apparel: "LA APPAREL",
   as_colour: "AS COLOUR",
   popular: "POPULAR PICKS",
+  headwear: "HEADWEAR",
+  gear: "GEAR",
 };
 const LANE_COLOR: Record<string, string> = {
   la_apparel: T.blue,
   as_colour: T.purple,
   popular: T.green,
+  headwear: T.amber,
+  gear: T.blue,
 };
-const GROUP_LABEL: Record<string, string> = { tee: "Tees", hoodie: "Hoodies" };
+const GROUP_LABEL: Record<string, string> = { tee: "Tees", hoodie: "Hoodies", hat: "Hats", patch: "Patches", flag: "Flags", sticker: "Stickers" };
 
 const money = (n: number | null | undefined) =>
   n === null || n === undefined ? "—" : `$${n.toFixed(2)}`;
@@ -161,16 +168,21 @@ export default function MenuRatesPage() {
         <span style={{ color: flaggedCount ? T.amber : T.faint }}>{flaggedCount} flagged for review</span>
       </div>
 
-      {(["tee", "hoodie"] as const).map((group) => (
+      {[...new Set(rows.map((r) => r.product_group))].sort((a, b) => {
+        const min = (g: string) => Math.min(...rows.filter((r) => r.product_group === g).map((r) => r.sort));
+        return min(a) - min(b);
+      }).map((group) => {
+        const groupBands = BANDS.filter((b) => rows.some((r) => r.product_group === group && r.band_min === b));
+        return (
         <section key={group} style={{ marginBottom: 34 }}>
-          <h2 style={{ fontSize: 15, fontWeight: 700, marginBottom: 10 }}>{GROUP_LABEL[group]}</h2>
+          <h2 style={{ fontSize: 15, fontWeight: 700, marginBottom: 10 }}>{GROUP_LABEL[group] || group}</h2>
           <div style={{ overflowX: "auto", border: `1px solid ${T.border}`, borderRadius: 10 }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
                 <tr style={{ borderBottom: `1px solid ${T.border}` }}>
                   <th style={th}>STYLE</th>
-                  {BANDS.map((b) => (
-                    <th key={b} style={{ ...th, textAlign: "right" }}>{b === 500 ? "500+" : `${b}–${b === 48 ? 99 : b === 100 ? 249 : 499}`}</th>
+                  {groupBands.map((b) => (
+                    <th key={b} style={{ ...th, textAlign: "right" }}>{b === 500 ? "500+" : `${b}–${groupBands[groupBands.indexOf(b) + 1] ? groupBands[groupBands.indexOf(b) + 1] - 1 : "+"}`}</th>
                   ))}
                   <th style={th}></th>
                 </tr>
@@ -188,7 +200,7 @@ export default function MenuRatesPage() {
                           </span>
                           <span style={{ fontWeight: 600 }}>{first.style_name}</span>
                         </td>
-                        {BANDS.map((band) => {
+                        {groupBands.map((band) => {
                           const r = rates.find((x) => x.band_min === band);
                           if (!r) return <td key={band} style={td}>—</td>;
                           const isEditing = editing === r.id;
@@ -221,11 +233,13 @@ export default function MenuRatesPage() {
                                     title={r.seed_meta?.flag_reasons?.join(", ") || undefined}
                                     style={{ display: "block", fontSize: 10, color: T.faint, fontFamily: mono, marginTop: 3 }}
                                   >
-                                    {r.seed_meta?.blank == null
-                                      ? "no cost data"
-                                      : `${money(r.seed_meta.blank)} blank + ${money(r.seed_meta.deco)} print · hist ${
-                                          r.seed_meta?.hist_lo != null ? `${money(r.seed_meta.hist_lo)}–${money(r.seed_meta.hist_hi)}` : "—"
-                                        }`}
+                                    {r.seed_meta?.basis === "history"
+                                      ? `${r.seed_meta?.hist_lines ?? 0} sales · hist-priced`
+                                      : r.seed_meta?.blank == null
+                                        ? "no cost data"
+                                        : `${money(r.seed_meta.blank)} blank + ${money(r.seed_meta.deco)} print · hist ${
+                                            r.seed_meta?.hist_lo != null ? `${money(r.seed_meta.hist_lo)}–${money(r.seed_meta.hist_hi)}` : "—"
+                                          }`}
                                     {flagged ? " ⚑" : ""}
                                   </span>
                                   {r.edited_at && (
@@ -250,7 +264,8 @@ export default function MenuRatesPage() {
             </table>
           </div>
         </section>
-      ))}
+        );
+      })}
 
       <p style={{ fontSize: 11, color: T.faint, maxWidth: 660, lineHeight: 1.6 }}>
         ⚑ = eyeball before the menu goes live (hover for why): blank from vendor price (thin

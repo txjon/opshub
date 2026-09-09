@@ -39,11 +39,32 @@ type Picks = {
 
 const DEFAULT_PICKS: Picks = { items: [], budget: null, artStatus: null, notes: "", files: [] };
 
-const LANES: { key: string; label: string; blurb: string }[] = [
+const GROUPS: { key: string; label: string }[] = [
+  { key: "tee", label: "Tees" },
+  { key: "hoodie", label: "Hoodies" },
+  { key: "hat", label: "Hats" },
+  { key: "patch", label: "Patches" },
+  { key: "flag", label: "Flags" },
+  { key: "sticker", label: "Stickers" },
+];
+
+const GARMENT_LANES: { key: string; label: string; blurb: string }[] = [
   { key: "la_apparel", label: "LA Apparel", blurb: "Made in Los Angeles. The premium washed look our drops are known for." },
   { key: "as_colour", label: "AS Colour", blurb: "Boxy, heavy, consistent. The modern brand standard." },
   { key: "popular", label: "Popular Picks", blurb: "Our most printed blanks. Dependable and priced right." },
 ];
+const LANES_BY_GROUP: Record<string, { key: string; label: string; blurb: string }[]> = {
+  tee: GARMENT_LANES,
+  hoodie: GARMENT_LANES,
+  hat: [{ key: "headwear", label: "Headwear", blurb: "Embroidered staples. The caps we run every week." }],
+  patch: [{ key: "gear", label: "Patches", blurb: "Sew-on or heat-seal, up to about 3.5 inches." }],
+  flag: [{ key: "gear", label: "Flags", blurb: "Full-color 3x5. The wall piece." }],
+  sticker: [{ key: "gear", label: "Stickers", blurb: "Die-cut vinyl. The handout that travels." }],
+};
+// Hats sell in smaller runs — they carry a 24 band; everything else starts at 48.
+const GROUP_BANDS: Record<string, number[]> = { hat: [24, 48, 100, 250, 500] };
+const DEFAULT_BANDS = [48, 100, 250, 500];
+const bandsFor = (group: string) => GROUP_BANDS[group] || DEFAULT_BANDS;
 
 const STYLE_META: Record<string, { spec: string; blurb: string }> = {
   "1801GD": { spec: "6.5 oz · garment dyed", blurb: "The heavyweight with the lived-in fade." },
@@ -57,10 +78,22 @@ const STYLE_META: Record<string, { spec: string; blurb: string }> = {
   "HF-09":  { spec: "14 oz heavy fleece", blurb: "Serious hoodie weight, garment dyed." },
   "5101":   { spec: "midweight fleece", blurb: "The clean everyday hood." },
   "IND4000": { spec: "10 oz fleece", blurb: "Our most printed hoodie." },
+  "YP6245CM":   { spec: "classic dad hat · embroidered", blurb: "The everyday shape everyone wears." },
+  "474700":     { spec: "'47 brand · retail grade", blurb: "The licensed-look upgrade." },
+  "RICHARDSON": { spec: "trucker · embroidered", blurb: "The mesh-back workhorse." },
+  "PATCH-EMB":  { spec: "embroidered · to 3.5 in", blurb: "The classic stitched look." },
+  "PATCH-PVC":  { spec: "pvc rubber · to 3.5 in", blurb: "Molded, tactical, durable." },
+  "PATCH-WVN":  { spec: "woven · fine detail", blurb: "Holds small text and tight lines." },
+  "FLAG-3X5":   { spec: "3 x 5 ft · full color", blurb: "The wall piece for the true fans." },
+  "STICKER-DC": { spec: "die-cut vinyl · to 4 in", blurb: "The handout that ends up everywhere." },
 };
 
-const bandFor = (qty: number) =>
-  qty >= 500 ? 500 : qty >= 250 ? 250 : qty >= 100 ? 100 : 48;
+const bandFor = (qty: number, group?: string) => {
+  const bands = group ? bandsFor(group) : DEFAULT_BANDS;
+  let out = bands[0];
+  for (const b of bands) if (qty >= b) out = b;
+  return out;
+};
 
 const money = (n: number | null | undefined) =>
   n === null || n === undefined ? "—" : `$${n.toFixed(2)}`;
@@ -83,7 +116,8 @@ const eyebrowStyle: React.CSSProperties = {
 };
 
 function itemRange(style: StyleRow, qty: number): { lo: number; hi: number } | null {
-  const r = style.bands[bandFor(Math.max(qty, 48))];
+  const min = bandsFor(style.group)[0];
+  const r = style.bands[bandFor(Math.max(qty, min), style.group)];
   return r?.lo != null && r?.hi != null ? { lo: r.lo, hi: r.hi } : null;
 }
 
@@ -136,7 +170,7 @@ export default function MenuPage() {
     return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
   }, [picks, token]);
 
-  const [group, setGroup] = useState<"tee" | "hoodie">("tee");
+  const [group, setGroup] = useState<string>("tee");
   const visible = useMemo(() => (styles || []).filter((s) => s.group === group), [styles, group]);
   const byCode = useMemo(() => Object.fromEntries((styles || []).map((s) => [s.code, s])), [styles]);
 
@@ -159,7 +193,7 @@ export default function MenuPage() {
       const r = st.bands[b];
       if (!r?.lo || !r?.hi) return null;
       const units = Math.floor(picks.budget / ((r.lo + r.hi) / 2));
-      const nb = bandFor(Math.max(units, 48));
+      const nb = bandFor(Math.max(units, 48), st.group);
       if (nb === b) return { units, style: st };
       b = nb;
     }
@@ -225,12 +259,12 @@ export default function MenuPage() {
           )}
 
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 34, justifyContent: "center" }}>
-            <Chip on={group === "tee"} onClick={() => setGroup("tee")}>Tees</Chip>
-            <Chip on={group === "hoodie"} onClick={() => setGroup("hoodie")}>Hoodies</Chip>
-            <Chip dim>Headwear · soon</Chip>
+            {GROUPS.filter((g) => (styles || []).some((s) => s.group === g.key)).map((g) => (
+              <Chip key={g.key} on={group === g.key} onClick={() => setGroup(g.key)}>{g.label}</Chip>
+            ))}
           </div>
 
-          {LANES.map((lane) => {
+          {(LANES_BY_GROUP[group] || []).map((lane) => {
             const laneStyles = visible.filter((s) => s.lane === lane.key);
             if (laneStyles.length === 0) return null;
             return (
@@ -311,7 +345,7 @@ export default function MenuPage() {
           <p style={{ fontSize: 12, color: FAINT, lineHeight: 1.6, maxWidth: 620 }}>
             Prices include a 1–2 location print and are shown as ranges on purpose — the real
             quote is exact, comes from a human, and lands within 1 business day of asking.
-            48 piece minimum per design; each colorway runs its own minimum. Specialty inks,
+            48 piece minimum per design for garments (hats start at 24); each colorway runs its own minimum. Specialty inks,
             extra locations, and rush timelines move the number.
           </p>
         </div>
@@ -388,9 +422,11 @@ function StyleModal({ style, existing, onClose, onSave, onRemove }: {
   const [previewImg, setPreviewImg] = useState<string | null>(null);
   const meta = STYLE_META[style.code];
   const r = itemRange(style, qty);
+  const groupMin = bandsFor(style.group)[0];
   const colorways = Math.max(colors.length, 1);
-  const minPieces = colorways * 48;
+  const minPieces = colorways * groupMin;
   const underMin = qty < minPieces;
+  const qtyChips = bandsFor(style.group);
 
   // One tap = select the color AND show its garment photo. Tapping a
   // selected color deselects it (preview stays put so nothing flashes).
@@ -456,7 +492,7 @@ function StyleModal({ style, existing, onClose, onSave, onRemove }: {
                 </div>
                 {colors.length > 1 && (
                   <div style={{ fontSize: 11.5, color: AMBER, marginTop: 8 }}>
-                    {colors.length} colorways = {colors.length} × 48 piece minimums ({minPieces}+ total).
+                    {colors.length} colorways = {colors.length} × {groupMin} piece minimums ({minPieces}+ total).
                   </div>
                 )}
               </div>
@@ -466,21 +502,21 @@ function StyleModal({ style, existing, onClose, onSave, onRemove }: {
             <div style={{ marginBottom: 16 }}>
               <div style={{ ...eyebrowStyle, color: FAINT, marginBottom: 8 }}>How many</div>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-                {[48, 100, 250, 500].map((q) => (
+                {qtyChips.map((q) => (
                   <Chip key={q} small on={qty === q} onClick={() => setQty(q)}>{q}</Chip>
                 ))}
                 <input
                   type="number"
                   min={1}
                   placeholder="exact"
-                  value={[48, 100, 250, 500].includes(qty) ? "" : qty || ""}
+                  value={qtyChips.includes(qty) ? "" : qty || ""}
                   onChange={(e) => setQty(e.target.value ? Number(e.target.value) : 100)}
                   style={{ width: 76, border: `1px solid ${LINE}`, borderRadius: 999, padding: "6px 12px", fontSize: 12, fontFamily: monoFont, color: TEXT, background: BG }}
                 />
               </div>
               {underMin && (
                 <div style={{ fontSize: 11.5, color: AMBER, marginTop: 8 }}>
-                  Minimum for this setup is {minPieces} pieces{colors.length > 1 ? ` (${colors.length} colorways)` : " (48 per design)"}.
+                  Minimum for this setup is {minPieces} pieces{colors.length > 1 ? ` (${colors.length} colorways)` : ` (${groupMin} per design)`}.
                 </div>
               )}
             </div>
@@ -489,9 +525,9 @@ function StyleModal({ style, existing, onClose, onSave, onRemove }: {
             <div style={{ borderTop: `1px solid ${LINE_SOFT}`, paddingTop: 14, marginBottom: 18 }}>
               {r ? (
                 <div style={{ fontSize: 14, fontFamily: monoFont }}>
-                  {money(r.lo)}–{money(r.hi)}<span style={{ fontSize: 11, color: FAINT }}> /pc at {bandFor(Math.max(qty, 48))}+</span>
+                  {money(r.lo)}–{money(r.hi)}<span style={{ fontSize: 11, color: FAINT }}> /pc at {bandFor(Math.max(qty, groupMin), style.group)}+</span>
                   <span style={{ color: FAINT }}> · </span>
-                  <span style={{ color: TEAL }}>≈ ${Math.round(r.lo * Math.max(qty, 48)).toLocaleString()}–${Math.round(r.hi * Math.max(qty, 48)).toLocaleString()}</span>
+                  <span style={{ color: TEAL }}>≈ ${Math.round(r.lo * Math.max(qty, groupMin)).toLocaleString()}–${Math.round(r.hi * Math.max(qty, groupMin)).toLocaleString()}</span>
                 </div>
               ) : (
                 <div style={{ fontSize: 13, color: FAINT }}>No menu price for this one yet — ask and a human quotes it.</div>

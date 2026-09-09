@@ -28,6 +28,10 @@ const STYLES: MenuStyle[] = [
   { code: "NL3600",  vendor: "ss", ssSearch: "Next Level 3600", ssStyleName: "3600", hist: /^(NL|NEXTLEVEL)3600/i },
   { code: "CC1717",  vendor: "ss", ssSearch: "Comfort Colors 1717", ssStyleName: "1717", hist: /^(CC|COMFORTCOLORS)1717/i },
   { code: "IND4000", vendor: "ss", ssSearch: "IND4000", ssStyleName: "IND4000", hist: /IND4000/i },
+  // Hats (Sep 8 expansion). '47 Brand sells direct (not on S&S) — no
+  // imagery source; the dark placeholder card carries it.
+  { code: "YP6245CM",   vendor: "ss", ssSearch: "6245CM", ssStyleName: "6245CM", hist: /^YP6245/i },
+  { code: "RICHARDSON", vendor: "ss", ssSearch: "Richardson 112", ssStyleName: "112", hist: /^RICHARDSON/i },
   { code: "5001",    vendor: "ascolour", hist: /^(AS|ASCOLOUR)5001/i },
   { code: "5026",    vendor: "ascolour", hist: /^(AS|ASCOLOUR)5026/i },
   // 5082's API variant image URLs are ALL dead on their CDN — the live

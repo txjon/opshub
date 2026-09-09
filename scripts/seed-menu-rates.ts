@@ -69,6 +69,29 @@ const STYLES: StyleDef[] = [
 // S&S styleIDs not hardcoded above get looked up by search at runtime.
 const SS_SEARCH: Record<string, string> = { NL3600: "Next Level 3600", CC1717: "Comfort Colors 1717", IND4000: "IND4000" };
 
+// ─── History-priced groups (Sep 8) ──────────────────────────────
+// Hats, patches, flags, stickers: commodity/outsourced products where the
+// realized history price IS the market rate — no blank+print decomposition.
+// Seeded from history_sales quantiles per band (2025+ weighted 2×).
+// Hats carry a 24 band (a third of hat orders run sub-48).
+type HistStyle = {
+  code: string; name: string; group: string; lane: string; sort: number;
+  bands: number[];
+  match: (h: { product_group: string | null; blank_style: string | null; description: string | null }) => boolean;
+};
+const pg = (h: any, g: string) => h.product_group === g;
+const txt = (h: any) => `${h.blank_style || ""} ${h.description || ""}`.toLowerCase();
+const HIST_STYLES: HistStyle[] = [
+  { code: "YP6245CM",   name: "Yupoong 6245 Dad Hat",  group: "hat", lane: "headwear", sort: 50, bands: [24, 48, 100, 250, 500], match: (h) => pg(h, "Hats") && /^YP6245/.test((h.blank_style || "").trim()) },
+  { code: "474700",     name: "'47 Brand Clean Up",    group: "hat", lane: "headwear", sort: 51, bands: [24, 48, 100, 250, 500], match: (h) => pg(h, "Hats") && /^(474700|47BRAND)/.test((h.blank_style || "").trim()) },
+  { code: "RICHARDSON", name: "Richardson Trucker",    group: "hat", lane: "headwear", sort: 52, bands: [24, 48, 100, 250, 500], match: (h) => pg(h, "Hats") && /^RICHARDSON/.test((h.blank_style || "").trim()) },
+  { code: "PATCH-EMB",  name: "Embroidered Patch",     group: "patch", lane: "gear", sort: 60, bands: [48, 100, 250, 500], match: (h) => pg(h, "Patches") && /embroider/.test(txt(h)) && !/pvc|woven|leather/.test(txt(h)) },
+  { code: "PATCH-PVC",  name: "PVC Patch",             group: "patch", lane: "gear", sort: 61, bands: [48, 100, 250, 500], match: (h) => pg(h, "Patches") && /pvc/.test(txt(h)) },
+  { code: "PATCH-WVN",  name: "Woven Patch",           group: "patch", lane: "gear", sort: 62, bands: [48, 100, 250, 500], match: (h) => pg(h, "Patches") && /woven/.test(txt(h)) },
+  { code: "FLAG-3X5",   name: "3x5 Flag",              group: "flag", lane: "gear", sort: 70, bands: [48, 100, 250, 500], match: (h) => pg(h, "Flags") },
+  { code: "STICKER-DC", name: "Die-Cut Stickers",      group: "sticker", lane: "gear", sort: 80, bands: [48, 100, 250, 500], match: (h) => pg(h, "Stickers") },
+];
+
 const BANDS = [48, 100, 250, 500];
 const HIST_GROUP: Record<string, string> = { tee: "Tees", hoodie: "Hoodies" };
 const DECO_GT: Record<string, string[]> = { tee: ["tee", "longsleeve"], hoodie: ["hoodie", "crewneck"] };
@@ -338,7 +361,91 @@ async function main() {
       }
     }
   }
-  console.log(dry ? "\nDRY RUN — nothing written." : "\nmenu_rates seeded (spec-anchored cost-plus).");
+  // ─── History-priced groups ────────────────────────────────────
+  const histAll = await all<{ product_group: string | null; blank_style: string | null; description: string | null; qty: number | null; unit_price: number | null; txn_date: string | null }>(
+    (a, b) => sb.from("history_sales").select("product_group,blank_style,description,qty,unit_price,txn_date").range(a, b)
+  );
+  // Small unit prices (stickers, patches) round to $0.05, not $0.25.
+  const roundPrice = (n: number) => n < 5 ? Math.round(n * 20) / 20 : round25(n);
+  const bandOf = (bands: number[], qty: number) => {
+    let out: number | null = null;
+    for (const b of bands) if (qty >= b) out = b;
+    return out;
+  };
+  for (const st of HIST_STYLES) {
+    const lines: Line[] = [];
+    for (const h of histAll) {
+      if (!st.match(h)) continue;
+      const qty = h.qty || 0, price = h.unit_price || 0;
+      if (qty < 1 || price <= 0) continue;
+      lines.push({ qty, price, weight: (h.txn_date || "") >= "2025-01-01" ? 2 : 1 });
+    }
+    const inBand = lines.filter((l) => bandOf(st.bands, l.qty) !== null);
+    const overall = weightedMean(inBand);
+    console.log(`\n${st.name} — ${lines.length} history lines / ${lines.reduce((s, l) => s + l.qty, 0).toLocaleString()}u (history-priced)`);
+
+    const computed: { band: number; lo: number | null; hi: number | null; n: number; units: number; source: string }[] = [];
+    for (const band of st.bands) {
+      const bandLines = inBand.filter((l) => bandOf(st.bands, l.qty) === band);
+      const units = bandLines.reduce((s, l) => s + l.qty, 0);
+      if (bandLines.length >= 3 && units >= 100) {
+        computed.push({ band, lo: weightedQuantile(bandLines, 0.3), hi: weightedQuantile(bandLines, 0.7), n: bandLines.length, units, source: "direct" });
+      } else if (overall !== null) {
+        computed.push({ band, lo: overall * 0.92, hi: overall * 1.08, n: bandLines.length, units, source: "overall-est" });
+      } else {
+        computed.push({ band, lo: null, hi: null, n: 0, units: 0, source: "no-data" });
+      }
+    }
+    // Larger qty never prices above smaller — pull smaller bands UP.
+    for (let i = computed.length - 2; i >= 0; i--) {
+      const larger = computed[i + 1], cur = computed[i];
+      if (larger.lo !== null && cur.lo !== null && cur.lo < larger.lo) cur.lo = larger.lo;
+      if (larger.hi !== null && cur.hi !== null && cur.hi < larger.hi) cur.hi = larger.hi;
+    }
+    for (const c of computed) {
+      const lo = c.lo !== null ? roundPrice(c.lo) : null;
+      const hi = c.hi !== null ? roundPrice(c.hi) : null;
+      const reasons: string[] = [];
+      if (c.source === "no-data") reasons.push("no history");
+      if (c.source === "overall-est") reasons.push("thin band (est from overall)");
+      const meta = {
+        basis: "history",
+        spec: st.group === "hat" ? "embroidered, one location" : st.group === "patch" ? "up to ~3.5 inch, sew-on" : st.group === "flag" ? "3x5 ft, full color" : "die-cut vinyl, up to ~4 inch",
+        margin: null,
+        hist_lines: c.n,
+        hist_units: c.units,
+        source: c.source,
+        flagged: reasons.length > 0,
+        flag_reasons: reasons,
+        seeded_at: new Date().toISOString(),
+      };
+      console.log(`   ${String(c.band).padStart(3)}+  ${lo !== null ? `$${lo.toFixed(2)}–$${hi!.toFixed(2)}` : "— no data —"}  (${c.source}, ${c.n} lines / ${c.units}u)`);
+      if (dry) continue;
+      const { data: existing, error: exErr } = await sb
+        .from("menu_rates").select("id,edited_at").eq("style_code", st.code).eq("band_min", c.band).maybeSingle();
+      if (exErr) throw exErr;
+      if (existing) {
+        const patch: Record<string, unknown> = {
+          seeded_lo: lo, seeded_hi: hi, seed_meta: meta,
+          style_name: st.name, product_group: st.group, lane: st.lane, sort: st.sort,
+          updated_at: new Date().toISOString(),
+        };
+        if (!existing.edited_at) { patch.price_lo = lo; patch.price_hi = hi; }
+        const { error } = await sb.from("menu_rates").update(patch as never).eq("id", existing.id);
+        if (error) throw error;
+      } else {
+        const { error } = await sb.from("menu_rates").insert({
+          product_group: st.group, lane: st.lane, style_code: st.code,
+          style_name: st.name, band_min: c.band,
+          price_lo: lo, price_hi: hi, seeded_lo: lo, seeded_hi: hi,
+          seed_meta: meta, sort: st.sort,
+        } as never);
+        if (error) throw error;
+      }
+    }
+  }
+
+  console.log(dry ? "\nDRY RUN — nothing written." : "\nmenu_rates seeded (spec-anchored cost-plus + history-priced groups).");
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });
