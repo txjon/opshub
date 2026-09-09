@@ -532,7 +532,7 @@ function StyleModal({ style, existing, files, placements, onUpload, onRemoveFile
                   </span>
                   {colors.length > 0 && <span style={{ fontSize: 11, color: FAINT }}>({colors.length} selected)</span>}
                 </div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 7, maxHeight: 132, overflowY: "auto", paddingRight: 4 }}>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 7, maxHeight: 132, overflowY: "auto", padding: 2 }}>
                   {style.allColors.map((c) => {
                     const sel = colors.includes(c.name);
                     return (
@@ -544,8 +544,10 @@ function StyleModal({ style, existing, files, placements, onUpload, onRemoveFile
                         style={{
                           width: 24, height: 24, borderRadius: 99, padding: 0, cursor: "pointer",
                           background: c.hex || "#2a2a30",
+                          // Selection ring drawn INSIDE the dot (inset gap ring) —
+                          // outer shadows clip against the scroll container edges.
                           border: sel ? `2px solid ${TEAL}` : `1px solid ${LINE}`,
-                          boxShadow: sel ? `0 0 0 1.5px ${BG}, 0 0 0 3px ${TEAL}` : "none",
+                          boxShadow: sel ? `inset 0 0 0 2px ${CARD}` : "none",
                           flexShrink: 0,
                         }}
                       />

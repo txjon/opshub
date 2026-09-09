@@ -28,10 +28,11 @@ const STYLES: MenuStyle[] = [
   { code: "NL3600",  vendor: "ss", ssSearch: "Next Level 3600", ssStyleName: "3600", hist: /^(NL|NEXTLEVEL)3600/i },
   { code: "CC1717",  vendor: "ss", ssSearch: "Comfort Colors 1717", ssStyleName: "1717", hist: /^(CC|COMFORTCOLORS)1717/i },
   { code: "IND4000", vendor: "ss", ssSearch: "IND4000", ssStyleName: "IND4000", hist: /IND4000/i },
-  // Hats (Sep 8 expansion). '47 Brand sells direct (not on S&S) — no
-  // imagery source; the dark placeholder card carries it.
+  // Hats (Sep 8 expansion).
   { code: "YP6245CM",   vendor: "ss", ssSearch: "6245CM", ssStyleName: "6245CM", hist: /^YP6245/i },
   { code: "RICHARDSON", vendor: "ss", ssSearch: "Richardson 112", ssStyleName: "112", hist: /^RICHARDSON/i },
+  // '47 Brand 4700 Clean Up IS on S&S (initial assumption wrong).
+  { code: "474700",     vendor: "ss", ssSearch: "4700 clean up", ssStyleName: "4700", hist: /^(474700|47BRAND)/i },
   { code: "5001",    vendor: "ascolour", hist: /^(AS|ASCOLOUR)5001/i },
   { code: "5026",    vendor: "ascolour", hist: /^(AS|ASCOLOUR)5026/i },
   // 5082's API variant image URLs are ALL dead on their CDN — the live
@@ -170,11 +171,42 @@ async function scrapeLaImprintable(url: string): Promise<{ name: string; urls: s
   return out;
 }
 
-async function laStub(code: string): Promise<string | null> {
-  const { data } = await sb.storage.from(BUCKET).list("la");
-  const file = (data || []).find((f) => f.name.toLowerCase().startsWith(code.toLowerCase().replace(/[^a-z0-9]/gi, "")) || f.name.toLowerCase().startsWith(code.toLowerCase()));
-  if (!file) return null;
-  return `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/${BUCKET}/la/${file.name}`;
+// Hand-dropped hero override: override/<CODE>.jpg works for ANY style
+// (la/<CODE>.jpg kept for back-compat) — the slot for HPD's own
+// photography or a vendor grab we can't automate ('47 sells direct).
+async function droppedHero(code: string): Promise<string | null> {
+  for (const folder of ["override", "la"]) {
+    const { data } = await sb.storage.from(BUCKET).list(folder);
+    const file = (data || []).find((f) => f.name.toLowerCase().startsWith(code.toLowerCase().replace(/[^a-z0-9]/gi, "")) || f.name.toLowerCase().startsWith(code.toLowerCase()));
+    if (file) return `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/${BUCKET}/${folder}/${file.name}`;
+  }
+  return null;
+}
+
+// Swatch hexes for styles with NO imagery source — common blank-color
+// names mapped by hand so the palette still renders as real dots.
+const NAME_HEX: [RegExp, string][] = [
+  [/black/i, "#1c1c1e"], [/white/i, "#f4f4f2"], [/navy/i, "#1f2a44"],
+  [/charcoal/i, "#3f4145"], [/gr[ae]y|heather/i, "#8e9294"], [/red|cardinal|scarlet/i, "#a32638"],
+  [/royal/i, "#1e4f9c"], [/forest|dark green/i, "#2e5339"], [/olive|od green|military/i, "#5b6236"],
+  [/green/i, "#3a7d44"], [/tan|sand/i, "#d2b48c"], [/khaki/i, "#c3b091"],
+  [/brown|chocolate|walnut/i, "#5c4633"], [/orange/i, "#d4692b"], [/maroon|burgundy/i, "#6b1f2c"],
+  [/purple/i, "#5b4a86"], [/pink/i, "#d98fa4"], [/yellow|gold/i, "#d4a72c"],
+  [/blue/i, "#4a7bb5"], [/camo/i, "#6b6f52"], [/natural|cream|bone|ivory/i, "#e8e0cd"],
+];
+const hexForName = (name: string): string | null => {
+  for (const [re, hex] of NAME_HEX) if (re.test(name)) return hex;
+  return null;
+};
+
+// History-derived palette (names + mapped hexes, no photos) for styles
+// with no imagery source. Junk rows (size breakdowns) filtered.
+function historyColors(printed: Map<string, ColorCount>): { name: string; hex: string | null; image: string | null }[] {
+  return [...printed.values()]
+    .filter((c) => c.display.length <= 24 && !/[•\d]/.test(c.display))
+    .sort((a, b) => b.qty - a.qty)
+    .slice(0, 12)
+    .map((c) => ({ name: titleCase(c.display), hex: hexForName(c.display), image: null }));
 }
 
 type ManifestColor = { name: string; hex: string | null; image: string | null };
@@ -209,7 +241,13 @@ async function main() {
       const sres = await fetch(`https://api.ssactivewear.com/v2/styles?search=${encodeURIComponent(st.ssSearch!)}`, { headers: ssHeaders });
       const found = (await sres.json()) as any[];
       const style = Array.isArray(found) ? found.find((s) => norm(s.styleName) === norm(st.ssStyleName!)) || found[0] : null;
-      if (!style) { console.warn("  ! style not found on S&S"); manifest[st.code] = { hero: null, stub: true, colors: [], allColors: [], moreCount: 0 }; continue; }
+      if (!style) {
+        const hero = await droppedHero(st.code);
+        const hc = historyColors(printed);
+        manifest[st.code] = { hero, stub: hero === null, colors: hc.slice(0, FEATURED), allColors: hc, moreCount: 0 };
+        console.warn(`  ! not on S&S — ${hero ? "hand-dropped hero" : `stub (drop override/${st.code}.jpg in ${BUCKET})`} · ${hc.length} history colors mapped`);
+        continue;
+      }
       const pres = await fetch(`https://api.ssactivewear.com/v2/products?styleid=${style.styleID}`, { headers: ssHeaders });
       const products = (await pres.json()) as any[];
       const byColor = new Map<string, any>();
@@ -294,7 +332,7 @@ async function main() {
       console.log(`  hero ${hero ? "ok" : "MISSING"} · ${allColors.filter((c) => c.image).length}/${allColors.length} colors imaged`);
 
     } else {
-      const dropped = await laStub(st.code);
+      const dropped = await droppedHero(st.code);
       if (!st.laHandle) {
         // No retail listing (1801MW) — scrape the imprintable wholesale
         // page when one is configured; else history color names only.
