@@ -512,20 +512,31 @@ function StyleModal({ style, existing, files, placements, onUpload, onRemoveFile
   const uploadsPending = files.some((f) => f.uploading);
 
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.78)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: CARD, border: `1px solid ${LINE}`, width: "100%", maxWidth: 860, maxHeight: "92vh", overflowY: "auto" }}>
-        <div className="hpd-menu-modal-grid" style={{ display: "grid", gridTemplateColumns: "minmax(260px,1fr) minmax(300px,1.1fr)" }}>
-          <style>{`@media (max-width: 680px){ .hpd-menu-modal-grid { grid-template-columns: 1fr !important; } }`}</style>
-
-          {/* Image well */}
-          <div style={{ background: "#fff", minHeight: 320, display: "flex", alignItems: "center", justifyContent: "center", padding: 20, position: "sticky", top: 0, alignSelf: "start" }}>
+    // Slide-over drawer (the quick-shop pattern): full height, natural
+    // scroll, sticky CTA at the bottom — a centered modal clips against
+    // maxHeight and loses the CTA below the fold. z 300 clears the fixed
+    // nav (z 100) and its mobile menu (z 200).
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 300 }}>
+      <style dangerouslySetInnerHTML={{ __html: `@keyframes hpdSlideIn { from { transform: translateX(48px); opacity: 0.4; } to { transform: none; opacity: 1; } }` }} />
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          position: "fixed", top: 0, right: 0, bottom: 0,
+          width: "min(460px, 100vw)", background: CARD, borderLeft: `1px solid ${LINE}`,
+          display: "flex", flexDirection: "column", animation: "hpdSlideIn 0.22s ease-out",
+        }}
+      >
+        <div style={{ flex: 1, overflowY: "auto", overscrollBehavior: "contain" }}>
+          {/* Image well — close floats over it */}
+          <div style={{ position: "relative", background: "#fff", height: 300, display: "flex", alignItems: "center", justifyContent: "center", padding: 18 }}>
+            <button onClick={onClose} aria-label="Close" style={{ position: "absolute", top: 12, right: 12, width: 32, height: 32, borderRadius: 99, background: "rgba(10,10,12,0.85)", color: "#fff", border: "none", fontSize: 17, cursor: "pointer", lineHeight: 1 }}>×</button>
             {img
-              ? <img src={img} alt={style.name} style={{ width: "100%", maxHeight: 480, objectFit: "contain", display: "block" }} />
+              ? <img src={img} alt={style.name} style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }} />
               : <span style={{ fontSize: 11, color: "#999", fontFamily: monoFont, textTransform: "uppercase", letterSpacing: "0.1em" }}>{style.code} · photo coming</span>}
           </div>
 
           {/* Details */}
-          <div style={{ padding: "22px 22px 18px", color: TEXT }}>
+          <div style={{ padding: "20px 20px 24px", color: TEXT }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
               <div>
                 <div style={{ fontSize: 10, fontFamily: monoFont, letterSpacing: "0.08em", color: FAINT, textTransform: "uppercase", marginBottom: 8 }}>
@@ -534,7 +545,6 @@ function StyleModal({ style, existing, files, placements, onUpload, onRemoveFile
                 <h3 style={{ margin: 0, fontSize: 22, fontWeight: 900, textTransform: "uppercase", lineHeight: 1.15, letterSpacing: "-0.01em" }}>{meta?.displayName || style.name}</h3>
                 <div style={{ ...eyebrowStyle, color: FAINT, marginTop: 6 }}>{meta?.spec}</div>
               </div>
-              <button onClick={onClose} aria-label="Close" style={{ background: "transparent", border: "none", color: FAINT, fontSize: 22, cursor: "pointer", lineHeight: 1, padding: 4 }}>×</button>
             </div>
             <p style={{ fontSize: 12.5, color: MUTED, lineHeight: 1.5, margin: "10px 0 16px" }}>{meta?.blurb}</p>
 
@@ -700,20 +710,29 @@ function StyleModal({ style, existing, files, placements, onUpload, onRemoveFile
               approve the final proof before anything prints.
             </div>
 
-            <div style={{ display: "flex", gap: 10 }}>
-              <button
-                onClick={() => onSave({ styleCode: style.code, qty: Math.max(qty, 1), colors, notes: notes.trim() || undefined })}
-                disabled={uploadsPending}
-                style={{ flex: 1, background: TEXT, color: BG, border: "none", padding: "14px 0", fontSize: 13, fontWeight: 800, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.08em", opacity: uploadsPending ? 0.6 : 1 }}
-              >
-                {uploadsPending ? "Waiting on upload..." : existing ? "Update quote" : "Add to quote"}
-              </button>
-              {existing && (
-                <button onClick={onRemove} style={{ background: "transparent", color: FAINT, border: `1px solid ${LINE}`, padding: "14px 16px", fontSize: 12.5, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                  Remove
-                </button>
-              )}
+          </div>
+        </div>
+
+        {/* Sticky CTA — never below the fold */}
+        <div style={{ borderTop: `1px solid ${LINE}`, background: CARD, padding: "12px 16px" }}>
+          {r && (
+            <div style={{ fontSize: 11.5, fontFamily: monoFont, color: FAINT, marginBottom: 8 }}>
+              {Math.max(qty, groupMin)} pieces · <span style={{ color: TEAL }}>≈ ${Math.round(r.lo * Math.max(qty, groupMin)).toLocaleString()}–${Math.round(r.hi * Math.max(qty, groupMin)).toLocaleString()}</span>
             </div>
+          )}
+          <div style={{ display: "flex", gap: 10 }}>
+            <button
+              onClick={() => onSave({ styleCode: style.code, qty: Math.max(qty, 1), colors, notes: notes.trim() || undefined })}
+              disabled={uploadsPending}
+              style={{ flex: 1, background: TEXT, color: BG, border: "none", padding: "14px 0", fontSize: 13, fontWeight: 800, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.08em", opacity: uploadsPending ? 0.6 : 1 }}
+            >
+              {uploadsPending ? "Waiting on upload..." : existing ? "Update quote" : "Add to quote"}
+            </button>
+            {existing && (
+              <button onClick={onRemove} style={{ background: "transparent", color: FAINT, border: `1px solid ${LINE}`, padding: "14px 16px", fontSize: 12.5, cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                Remove
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -760,8 +779,17 @@ function ReviewModal({ token, picks, setPicks, byCode, onEditItem, onRemoveItem,
   }
 
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: CARD, border: `1px solid ${LINE}`, padding: 26, width: "100%", maxWidth: 520, maxHeight: "92vh", overflowY: "auto", color: TEXT }}>
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 300 }}>
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          position: "fixed", top: 0, right: 0, bottom: 0,
+          width: "min(460px, 100vw)", background: CARD, borderLeft: `1px solid ${LINE}`,
+          padding: 24, overflowY: "auto", overscrollBehavior: "contain", color: TEXT,
+          animation: "hpdSlideIn 0.22s ease-out",
+        }}
+      >
+        <style dangerouslySetInnerHTML={{ __html: `@keyframes hpdSlideIn { from { transform: translateX(48px); opacity: 0.4; } to { transform: none; opacity: 1; } }` }} />
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
           <div>
             <div style={{ ...eyebrowStyle, marginBottom: 8 }}>The real number</div>
