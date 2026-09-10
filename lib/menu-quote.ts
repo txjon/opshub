@@ -13,6 +13,10 @@ export type QuoteLine = {
   colors: string[];
   unitPrice: number | null;   // null = Taylor hasn't priced it yet (DTF small batch)
   note?: string;
+  // The mini costing engine behind the price: blank + print at this qty,
+  // margin on sell. Carries into the job on convert (items.cost_per_unit =
+  // blank; all_in = blank + print) so costing starts from quote truth.
+  costing?: { blank: number | null; print: number | null; margin: number | null } | null;
 };
 
 export type PunchKind = "files" | "sizes" | "date" | "address" | "text" | "confirm";

@@ -829,7 +829,7 @@ function summarizePicks(l: MenuLead): string {
     else if (p.qty) bits.push(`${p.qty}u`);
     if (p.colorways && p.colorways > 1) bits.push(`${p.colorways} colorways`);
   }
-  if (p.budget) bits.push(`$${Number(p.budget).toLocaleString()} budget`);
+  if (p.budget) bits.push(`browsed at $${Number(p.budget).toLocaleString()} budget`);
   if (p.artStatus === "need_help") bits.push("needs design");
   if (p.files?.length) bits.push(`${p.files.length} art file${p.files.length > 1 ? "s" : ""}`);
   return bits.length ? bits.join(" · ") : "no picks yet";
@@ -1156,7 +1156,40 @@ function ComposeResponseModal({ lead, onClose, onSent }: { lead: MenuLead; onClo
 // items.sell_per_unit on accept→job; punch 'sizes' grids become
 // buy_sheet_lines — the single-source spine starts here.
 
+// Interpolate the print (decoration) cost between band anchors, same
+// shape as the seed's curve.
+function decoAt(rows: { band_min: number; deco: number | null }[], qty: number): number | null {
+  const anchors = rows.filter(r => r.deco != null).sort((a, b) => a.band_min - b.band_min);
+  if (!anchors.length) return null;
+  if (qty <= anchors[0].band_min) return anchors[0].deco!;
+  let prev = anchors[0];
+  for (const a of anchors) {
+    if (qty <= a.band_min) {
+      const t = (qty - prev.band_min) / (a.band_min - prev.band_min);
+      return prev.deco! + (a.deco! - prev.deco!) * t;
+    }
+    prev = a;
+  }
+  return prev.deco!;
+}
+
 function QuoteBuilderModal({ lead, onClose, onSent }: { lead: MenuLead; onClose: () => void; onSent: () => void }) {
+  const supabase = createClient();
+  // Live rate meta: each style's blank cost + print curve (the same
+  // spec-anchored engine behind the public prices).
+  const [rateMeta, setRateMeta] = useState<Record<string, { blank: number | null; bands: { band_min: number; deco: number | null }[] }>>({});
+  useEffect(() => {
+    supabase.from("menu_rates").select("style_code,band_min,seed_meta").eq("active", true).then(({ data }) => {
+      const m: Record<string, { blank: number | null; bands: { band_min: number; deco: number | null }[] }> = {};
+      for (const r of (data as any[]) || []) {
+        const meta = r.seed_meta || {};
+        if (!m[r.style_code]) m[r.style_code] = { blank: meta.blank ?? null, bands: [] };
+        m[r.style_code].bands.push({ band_min: r.band_min, deco: meta.deco ?? null });
+        if (m[r.style_code].blank == null && meta.blank != null) m[r.style_code].blank = meta.blank;
+      }
+      setRateMeta(m);
+    });
+  }, []);
   const initial = useMemo<{ lines: QuoteLine[]; punch: PunchPoint[]; validUntil: string }>(() => {
     if (lead.quote) {
       return { lines: lead.quote.lines, punch: lead.quote.punch, validUntil: lead.quote.validUntil };
@@ -1186,6 +1219,20 @@ function QuoteBuilderModal({ lead, onClose, onSent }: { lead: MenuLead; onClose:
   }, [lead]);
 
   const [lines, setLines] = useState<QuoteLine[]>(initial.lines);
+  // Prefill each styled line's costing from the live engine once (skip
+  // lines that already carry costing from a saved quote).
+  useEffect(() => {
+    if (!Object.keys(rateMeta).length) return;
+    setLines(ls => ls.map(l => {
+      if (!l.styleCode || l.costing) return l;
+      const meta = rateMeta[l.styleCode];
+      if (!meta || meta.blank == null) return l;
+      const print = decoAt(meta.bands, l.qty);
+      const margin = 0.3;
+      const price = print != null ? Math.round(((meta.blank + print) / (1 - margin)) * 20) / 20 : l.unitPrice;
+      return { ...l, costing: { blank: meta.blank, print: print != null ? Number(print.toFixed(2)) : null, margin }, unitPrice: price ?? l.unitPrice };
+    }));
+  }, [rateMeta]);
   const [punch, setPunch] = useState<PunchPoint[]>(initial.punch);
   const [validUntil, setValidUntil] = useState(initial.validUntil);
   const [customPoint, setCustomPoint] = useState("");
@@ -1196,6 +1243,18 @@ function QuoteBuilderModal({ lead, onClose, onSent }: { lead: MenuLead; onClose:
 
   function setLine(i: number, patch: Partial<QuoteLine>) {
     setLines(ls => ls.map((l, x) => (x === i ? { ...l, ...patch } : l)));
+  }
+  // Editing blank/print/margin recomputes the sell; typing the price
+  // directly leaves the costing as reference.
+  function setCosting(i: number, patch: Partial<NonNullable<QuoteLine["costing"]>>) {
+    setLines(ls => ls.map((l, x) => {
+      if (x !== i) return l;
+      const c = { blank: null, print: null, margin: 0.3, ...(l.costing || {}), ...patch };
+      const price = c.blank != null && c.print != null && c.margin != null
+        ? Math.round(((c.blank + c.print) / (1 - c.margin)) * 20) / 20
+        : l.unitPrice;
+      return { ...l, costing: c, unitPrice: price };
+    }));
   }
 
   async function send() {
@@ -1221,8 +1280,9 @@ function QuoteBuilderModal({ lead, onClose, onSent }: { lead: MenuLead; onClose:
           Quote for {lead.contact?.name || lead.email}
         </h3>
         <p style={{ margin: "0 0 16px", fontSize: 12, color: T.faint }}>
-          Prices prefill from the exact ranges they were shown (snapshot midpoint). The customer
-          completes the checklist on their quote page — re-sending never wipes their progress.
+          Same engine as costing: blank + print at their quantity, margin on sell (defaults 30%).
+          Edit any input and the price recomputes; type a price directly to override. These
+          costs carry into the job on convert. Re-sending never wipes the customer&apos;s progress.
         </p>
 
         <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: T.muted, marginBottom: 6 }}>LINES</div>
@@ -1234,6 +1294,23 @@ function QuoteBuilderModal({ lead, onClose, onSent }: { lead: MenuLead; onClose:
                 {(l.colors.length > 0 || l.note) && (
                   <div style={{ fontSize: 10.5, color: T.faint, fontFamily: mono, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {l.colors.join(", ")}{l.note ? ` · "${l.note}"` : ""}
+                  </div>
+                )}
+                {l.costing && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, fontSize: 10.5, fontFamily: mono, color: T.muted, flexWrap: "wrap" }}>
+                    <span>blank $</span>
+                    <input type="number" step="0.05" value={l.costing.blank ?? ""} onChange={e => setCosting(i, { blank: e.target.value === "" ? null : Number(e.target.value) })}
+                      style={{ ...inp, width: 62, padding: "2px 5px", fontSize: 10.5, fontFamily: mono }} />
+                    <span>+ print $</span>
+                    <input type="number" step="0.05" value={l.costing.print ?? ""} onChange={e => setCosting(i, { print: e.target.value === "" ? null : Number(e.target.value) })}
+                      style={{ ...inp, width: 62, padding: "2px 5px", fontSize: 10.5, fontFamily: mono }} />
+                    <span>· margin</span>
+                    <input type="number" step="1" value={l.costing.margin != null ? Math.round(l.costing.margin * 100) : ""} onChange={e => setCosting(i, { margin: e.target.value === "" ? null : Number(e.target.value) / 100 })}
+                      style={{ ...inp, width: 48, padding: "2px 5px", fontSize: 10.5, fontFamily: mono }} />
+                    <span>%</span>
+                    {l.costing.blank != null && l.costing.print != null && (
+                      <span style={{ color: T.faint }}>cost ${(l.costing.blank + l.costing.print).toFixed(2)}/pc</span>
+                    )}
                   </div>
                 )}
               </div>
@@ -1392,7 +1469,7 @@ function MenuLeadDetailModal({ lead, matchNames, onClose, onBuildQuote, onRespon
           )) : <div style={{ ...box, color: T.faint }}>No styles picked; they were browsing.</div>}
           {(p.budget || p.artStatus || p.notes || lead.contact?.neededBy) && (
             <div style={{ ...box, color: T.muted }}>
-              {p.budget ? `Budget $${Number(p.budget).toLocaleString()} · ` : ""}
+              {p.budget ? `Browsed at a $${Number(p.budget).toLocaleString()} budget · ` : ""}
               {p.artStatus === "need_help" ? "Needs design help · " : p.artStatus === "ready" ? "Art ready · " : ""}
               {lead.contact?.neededBy ? `Needed ${lead.contact.neededBy}` : ""}
               {p.notes && <div style={{ color: T.faint, marginTop: 3 }}>&ldquo;{p.notes}&rdquo;</div>}

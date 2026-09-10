@@ -148,6 +148,12 @@ export async function POST(req: NextRequest) {
           blank_vendor: line.styleCode ? line.label : null,
           mockup_color: cw,
           sell_per_unit: line.unitPrice,
+          // Quote costing carries into the job (Jon: "blank costs didn't
+          // carry over") — real costing refines later, same fields.
+          cost_per_unit: line.costing?.blank ?? null,
+          cost_per_unit_all_in: line.costing?.blank != null && line.costing?.print != null
+            ? Number((line.costing.blank + line.costing.print).toFixed(2))
+            : null,
           sort_order: sortOrder++,
           notes: [line.note, curved ? "Sizes: standard curve seeded — client had not filled the grid; true up in the worksheet." : null]
             .filter(Boolean).join(" · ") || null,
