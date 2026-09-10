@@ -638,7 +638,8 @@ function DoorScreen({ onIntake }: { onIntake: (email: string) => void }) {
     return (
       <section style={{ padding: "48px 32px 120px", background: D.bg }}>
         <div style={{ maxWidth: 520, margin: "0 auto", textAlign: "center" }}>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
+          <style dangerouslySetInnerHTML={{ __html: `.hpd-door input:focus-visible { outline: 2px solid ${D.teal}; outline-offset: 1px; }` }} />
+          <div className="hpd-door" style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
             <input
               type="email"
               value={email}
