@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/client";
 import { resolveSlugFromHost, DEFAULT_SLUG } from "@/lib/tenants";
 import { T, font, mono } from "@/lib/theme";
 import { snapshotMid, defaultPunch, quoteTotal, type Quote, type QuoteLine, type PunchPoint } from "@/lib/menu-quote";
-import { buildPrintersMap, calcCostProduct } from "@/lib/pricing";
+import { buildPrintersMap, calcCostProduct, lookupPrintPrice } from "@/lib/pricing";
 
 // /intake — leads inbox. Submissions from the public /start form land
 // here. Team triages by:
@@ -1161,7 +1161,8 @@ function ComposeResponseModal({ lead, onClose, onSent }: { lead: MenuLead; onClo
 // blank + vendor rate card at the line's qty, per-location color counts,
 // margin on sell. Same math as the Costing tab, blanks and decoration only
 // (no ship/CC buffers).
-const PRINT_LOCATIONS = ["Front", "Back", "Left Chest", "Right Chest", "Sleeve", "Nape"];
+// Same presets as the in-job DecorationPanel — cohesion for Taylor.
+const PRINT_LOCATIONS = ["Front", "Back", "Left Sleeve", "Right Sleeve", "Left Chest", "Right Chest", "Neck", "Hood", "Pocket"];
 
 function QuoteBuilderModal({ lead, onClose, onSent }: { lead: MenuLead; onClose: () => void; onSent: () => void }) {
   const supabase = createClient();
@@ -1315,63 +1316,83 @@ function QuoteBuilderModal({ lead, onClose, onSent }: { lead: MenuLead; onClose:
                     {l.colors.join(", ")}{l.note ? ` · "${l.note}"` : ""}
                   </div>
                 )}
-                {l.costing && (
-                  <div style={{ marginTop: 6, padding: "8px 10px", background: T.card, border: `1px solid ${T.border}`, borderRadius: 7, display: "flex", flexDirection: "column", gap: 6 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 10.5, fontFamily: mono, color: T.muted }}>
-                      <select
-                        value={l.costing.vendor || ""}
-                        onChange={e => setCosting(i, { vendor: e.target.value || null })}
-                        style={{ ...inp, padding: "3px 6px", fontSize: 11, minWidth: 120 }}
-                      >
-                        <option value="">pick vendor...</option>
-                        {vendorOpts.map(v => <option key={v.key} value={v.key}>{v.name}</option>)}
-                      </select>
-                      <span>blank $</span>
-                      <input type="number" step="0.05" value={l.costing.blank ?? ""} onChange={e => setCosting(i, { blank: e.target.value === "" ? null : Number(e.target.value) })}
-                        style={{ ...inp, width: 62, padding: "3px 5px", fontSize: 10.5, fontFamily: mono }} />
-                      <span>margin</span>
-                      <input type="number" step="1" value={l.costing.margin != null ? Math.round(l.costing.margin * 100) : ""} onChange={e => setCosting(i, { margin: e.target.value === "" ? null : Number(e.target.value) / 100 })}
-                        style={{ ...inp, width: 46, padding: "3px 5px", fontSize: 10.5, fontFamily: mono }} />
-                      <span>%</span>
-                    </div>
-                    {l.costing.locations.map((loc, li2) => (
-                      <div key={li2} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10.5, fontFamily: mono, color: T.muted }}>
+                {l.costing && (() => {
+                  const c = l.costing!;
+                  // Filled rows + one trailing empty slot, min 2 shown — the
+                  // same auto-grow rhythm as the job's DecorationPanel.
+                  const rows = [...c.locations];
+                  if (rows.length < 6 && (rows.length < 2 || rows[rows.length - 1].location)) rows.push({ location: "", colors: 0 });
+                  const setLoc = (idx: number, patch: Partial<{ location: string; colors: number }>) => {
+                    const next = rows.map((x, y) => (y === idx ? { ...x, ...patch } : x)).filter((x, y) => x.location || x.colors || y < c.locations.length);
+                    setCosting(i, { locations: next.filter(x => x.location || x.colors) });
+                  };
+                  const eng = runEngine(l);
+                  return (
+                    <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
+                      {/* Vendor + blank + margin — single row, DecorationPanel select styling */}
+                      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                         <select
-                          value={loc.location}
-                          onChange={e => setCosting(i, { locations: l.costing!.locations.map((x, y) => y === li2 ? { ...x, location: e.target.value } : x) })}
-                          style={{ ...inp, padding: "3px 6px", fontSize: 11 }}
+                          value={c.vendor || ""}
+                          onChange={e => setCosting(i, { vendor: e.target.value || null })}
+                          style={{ background: T.surface, border: "1px solid " + (c.vendor ? T.accent + "66" : T.border), borderRadius: 6, color: c.vendor ? T.text : T.muted, fontFamily: font, fontSize: 12, padding: "6px 10px", outline: "none", cursor: "pointer", minWidth: 140 }}
                         >
-                          {PRINT_LOCATIONS.map(pl => <option key={pl} value={pl}>{pl}</option>)}
+                          <option value="">Vendor</option>
+                          {vendorOpts.map(v => <option key={v.key} value={v.key}>{v.name}</option>)}
                         </select>
-                        <input type="number" min={0} max={12} value={loc.colors || ""} placeholder="colors"
-                          onChange={e => setCosting(i, { locations: l.costing!.locations.map((x, y) => y === li2 ? { ...x, colors: Number(e.target.value) || 0 } : x) })}
-                          style={{ ...inp, width: 56, padding: "3px 5px", fontSize: 10.5, fontFamily: mono }} />
-                        <span>colors</span>
-                        {l.costing!.locations.length > 1 && (
-                          <span onClick={() => setCosting(i, { locations: l.costing!.locations.filter((_, y) => y !== li2) })} style={{ color: T.faint, cursor: "pointer" }}>×</span>
-                        )}
+                        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                          <span style={{ fontSize: 10, color: T.muted }}>blank $</span>
+                          <input type="text" inputMode="decimal" value={c.blank ?? ""} onChange={e => setCosting(i, { blank: e.target.value === "" ? null : Number(e.target.value) || 0 })}
+                            style={{ width: 52, textAlign: "center", background: T.card, border: `1px solid ${T.border}`, borderRadius: 5, color: T.text, fontSize: 13, fontWeight: 700, fontFamily: mono, outline: "none", padding: "3px 4px" }} />
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                          <span style={{ fontSize: 10, color: T.muted }}>margin</span>
+                          <input type="text" inputMode="numeric" value={c.margin != null ? Math.round(c.margin * 100) : ""} onChange={e => setCosting(i, { margin: e.target.value === "" ? null : (Number(e.target.value) || 0) / 100 })}
+                            style={{ width: 38, textAlign: "center", background: T.card, border: `1px solid ${T.border}`, borderRadius: 5, color: T.text, fontSize: 13, fontWeight: 700, fontFamily: mono, outline: "none", padding: "3px 4px" }} />
+                          <span style={{ fontSize: 10, color: T.muted }}>%</span>
+                        </div>
                       </div>
-                    ))}
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-                      <span
-                        onClick={() => setCosting(i, { locations: [...l.costing!.locations, { location: "Back", colors: 1 }] })}
-                        style={{ fontSize: 10.5, color: T.blue, cursor: "pointer", borderBottom: `1px dotted ${T.blue}`, fontFamily: mono }}
-                      >
-                        + location
-                      </span>
-                      {(() => {
-                        const r = runEngine(l);
-                        if (!r) return <span style={{ fontSize: 10.5, color: T.amber, fontFamily: mono }}>{l.costing!.vendor ? "no rate match" : "pick a vendor to price the print"}</span>;
+
+                      {!c.vendor ? (
+                        <div style={{ padding: "10px 0", textAlign: "center", fontSize: 11, color: T.faint }}>Select a vendor to set up decoration</div>
+                      ) : rows.map((loc, li2) => {
+                        const isActive = !!loc.location && loc.colors > 0;
+                        const unitCost = isActive ? lookupPrintPrice(printers, c.vendor!, l.qty, loc.colors) : 0;
                         return (
-                          <span style={{ fontSize: 10.5, color: T.faint, fontFamily: mono }}>
-                            print ${r.printPerPc.toFixed(2)}/pc · screens ${r.setup.toFixed(0)} flat · cost ${r.costPerPc.toFixed(2)}/pc
-                            {l.costing!.manual ? " · manual price" : ` → $${r.sell.toFixed(2)}/pc`}
-                          </span>
+                          <div key={li2} style={{ background: isActive ? T.surface : "transparent", border: `1px solid ${isActive ? T.border : T.border + "66"}`, borderRadius: 8, padding: "6px 10px", display: "flex", alignItems: "center", gap: 10, minHeight: 38 }}>
+                            <div style={{ flex: "1 1 200px", minWidth: 140, position: "relative" }}>
+                              <input value={loc.location || ""} onChange={e => setLoc(li2, { location: e.target.value })}
+                                list={`qq-loc-${i}-${li2}`}
+                                style={{ background: "transparent", border: "none", outline: "none", color: T.text, fontSize: 13, fontWeight: 700, fontFamily: font, width: "100%", padding: 0 }}
+                                placeholder="Location..." />
+                              <datalist id={`qq-loc-${i}-${li2}`}>{PRINT_LOCATIONS.map(pl => <option key={pl} value={pl} />)}</datalist>
+                            </div>
+                            {!!loc.location && (
+                              <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+                                <input type="text" inputMode="numeric" value={loc.colors || ""} onChange={e => setLoc(li2, { colors: parseInt(e.target.value) || 0 })}
+                                  placeholder="0"
+                                  style={{ width: 34, textAlign: "center", background: T.card, border: `1px solid ${T.border}`, borderRadius: 5, color: T.text, fontSize: 13, fontWeight: 700, fontFamily: mono, outline: "none", padding: "3px 4px" }} />
+                                <span style={{ fontSize: 10, color: T.muted }}>colors</span>
+                              </div>
+                            )}
+                            {isActive && (
+                              <span style={{ marginLeft: "auto", fontSize: 11, color: T.faint, fontFamily: mono, flexShrink: 0 }}>
+                                ${unitCost.toFixed(2)}/pc
+                              </span>
+                            )}
+                          </div>
                         );
-                      })()}
+                      })}
+
+                      {c.vendor && (
+                        <div style={{ display: "flex", justifyContent: "flex-end", fontSize: 10.5, color: eng ? T.faint : T.amber, fontFamily: mono }}>
+                          {eng
+                            ? <>print ${eng.printPerPc.toFixed(2)}/pc · screens ${eng.setup.toFixed(0)} · cost ${eng.costPerPc.toFixed(2)}/pc{c.manual ? " · manual price" : <> → <span style={{ color: T.text, fontWeight: 700 }}>${eng.sell.toFixed(2)}/pc</span></>}</>
+                            : "add a location with colors to price the print"}
+                        </div>
+                      )}
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
               </div>
               <input type="number" value={l.qty || ""} onChange={e => setLine(i, { qty: Number(e.target.value) || 0 })} style={{ ...inp, textAlign: "right", fontFamily: mono }} />
               <div style={{ position: "relative" }}>
