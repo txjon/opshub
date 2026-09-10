@@ -638,10 +638,6 @@ function DoorScreen({ onIntake }: { onIntake: (email: string) => void }) {
     return (
       <section style={{ padding: "48px 32px 120px", background: D.bg }}>
         <div style={{ maxWidth: 520, margin: "0 auto", textAlign: "center" }}>
-          <p style={{ fontSize: 14, color: D.muted, lineHeight: 1.6, margin: "0 0 22px" }}>
-            It unlocks the goods, keeps everything you do saved to you, and gets you real
-            prices — no forms, no phone calls, no chasing.
-          </p>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
             <input
               type="email"
