@@ -466,7 +466,7 @@ export default function StartPage() {
             textTransform: "uppercase",
             lineHeight: 1.1,
           }}>
-            {door === "intake" ? "Tell us what you need." : "Start a project."}
+            {door === "intake" ? "Tell us what you need." : "Every drop starts at the door."}
           </h1>
           <p style={{
             fontSize: 14,
@@ -474,7 +474,7 @@ export default function StartPage() {
             marginTop: 12,
             lineHeight: 1.55,
           }}>
-            {door === "intake" ? "Five quick steps. We'll take it from there." : "Your email opens everything."}
+            {door === "intake" ? "Five quick steps. We'll take it from there." : "One email gets you in."}
           </p>
         </div>
       </section>
@@ -639,7 +639,8 @@ function DoorScreen({ onIntake }: { onIntake: (email: string) => void }) {
       <section style={{ padding: "48px 32px 120px", background: D.bg }}>
         <div style={{ maxWidth: 520, margin: "0 auto", textAlign: "center" }}>
           <p style={{ fontSize: 14, color: D.muted, lineHeight: 1.6, margin: "0 0 22px" }}>
-            Drop your email — it opens everything and saves as you go. No forms until you want them.
+            That&apos;s the whole ask. It unlocks the goods, keeps everything you do saved to you,
+            and gets you real prices — no forms, no phone calls, no chasing.
           </p>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
             <input
@@ -652,7 +653,7 @@ function DoorScreen({ onIntake }: { onIntake: (email: string) => void }) {
               style={{ flex: "1 1 240px", maxWidth: 320, border: `1px solid ${D.line}`, borderRadius: 8, padding: "13px 15px", fontSize: 15, fontFamily: "inherit", color: D.text, background: D.card, colorScheme: "dark" }}
             />
             <button type="button" onClick={knock} disabled={busy} style={{ background: "#fff", color: D.bg, border: "none", borderRadius: 8, padding: "13px 26px", fontSize: 15, fontWeight: 800, cursor: "pointer", opacity: busy ? 0.6 : 1 }}>
-              {busy ? "One sec..." : "Let's go"}
+              {busy ? "Opening..." : "Open the door"}
             </button>
           </div>
           {err && <div style={{ fontSize: 12, color: "#ff8a96", marginTop: 10 }}>{err}</div>}
@@ -668,19 +669,20 @@ function DoorScreen({ onIntake }: { onIntake: (email: string) => void }) {
     <section style={{ padding: "48px 32px 120px", background: D.bg }}>
       <div style={{ maxWidth: 760, margin: "0 auto" }}>
         <p style={{ textAlign: "center", fontSize: 13, color: D.muted, margin: "0 0 22px" }}>
-          You&apos;re in — we sent your personal link to <b style={{ color: D.text }}>{email}</b>. Two ways to roll:
+          You&apos;re in — welcome to the party. Your personal link is on its way to{" "}
+          <b style={{ color: D.text }}>{email}</b>. Where to first?
         </p>
         <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
           <div style={card}>
             <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.16em", color: D.teal, marginBottom: 10 }}>
-              Explore first
+              Browse the goods
             </div>
             <h2 style={{ fontSize: 20, fontWeight: 800, color: D.text, margin: "0 0 8px", letterSpacing: "-0.01em" }}>
               Build your drop
             </h2>
             <p style={{ fontSize: 13, color: D.muted, lineHeight: 1.55, margin: "0 0 18px" }}>
-              Real styles, real prices — build it piece by piece and ask for the exact quote
-              when it feels right.
+              The pieces we actually print, at the prices we actually charge. Put your drop
+              together and ask for the real number when it feels right.
             </p>
             <a href={`/build/${token}`} style={{ display: "inline-block", background: "#fff", color: D.bg, borderRadius: 8, padding: "11px 20px", fontSize: 14, fontWeight: 800, textDecoration: "none" }}>
               Open The Build →
@@ -688,17 +690,17 @@ function DoorScreen({ onIntake }: { onIntake: (email: string) => void }) {
           </div>
           <div style={card}>
             <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.16em", color: D.faint, marginBottom: 10 }}>
-              Ready to roll
+              Skip the tour
             </div>
             <h2 style={{ fontSize: 20, fontWeight: 800, color: D.text, margin: "0 0 8px", letterSpacing: "-0.01em" }}>
               Brief us directly
             </h2>
             <p style={{ fontSize: 13, color: D.muted, lineHeight: 1.55, margin: "0 0 18px" }}>
-              Know exactly what you need? Send the full picture — details, files, dates —
-              straight to our production team.
+              Already know the plan? Send it straight to our production team — details,
+              files, dates, the whole picture.
             </p>
             <button type="button" onClick={() => onIntake(email)} style={{ background: "transparent", color: D.text, border: `1.5px solid ${D.line}`, borderRadius: 8, padding: "11px 20px", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
-              Start the brief →
+              Send the brief →
             </button>
           </div>
         </div>
