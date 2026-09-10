@@ -4,7 +4,9 @@ import { createClient } from "@/lib/supabase/client";
 import { resolveSlugFromHost, DEFAULT_SLUG } from "@/lib/tenants";
 import { T, font, mono } from "@/lib/theme";
 import { snapshotMid, defaultPunch, quoteTotal, type Quote, type QuoteLine, type PunchPoint } from "@/lib/menu-quote";
-import { buildPrintersMap, calcCostProduct, lookupPrintPrice } from "@/lib/pricing";
+import { buildPrintersMap, calcCostProduct, lookupPrintPrice, lookupTagPrice } from "@/lib/pricing";
+import { DecorationPanel as DecorationPanelRaw } from "../jobs/[id]/DecorationPanel";
+const DecorationPanel: any = DecorationPanelRaw; // .jsx — bypass narrow inferred prop types
 
 // /intake — leads inbox. Submissions from the public /start form land
 // here. Team triages by:
@@ -1151,29 +1153,26 @@ function ComposeResponseModal({ lead, onClose, onSent }: { lead: MenuLead; onClo
 }
 
 // ─── Quick Quote builder ────────────────────────────────────────
-// Prefilled from the lead's picks + the FROZEN snapshot (interpolated
-// midpoint — the same math the customer's slider showed), so Taylor
-// adjusts numbers instead of assembling a quote. Line prices become
-// items.sell_per_unit on accept→job; punch 'sizes' grids become
-// buy_sheet_lines — the single-source spine starts here.
+// THE SAME costing surface as the job (Jon: "we may as well have this
+// same function on the intake"): margin chips, per-item sell card, and
+// the REAL DecorationPanel embedded per line — vendor, locations, share
+// groups, specialty chips, tag print, packaging, setup fees, custom
+// costs. calcCostProduct runs across all lines so share groups price
+// exactly like in-project costing. On convert the spec seeds
+// costing_data.costProds (qtys never persisted — single-source).
 
-// The quick quote runs the REAL costing engine (lib/pricing) per line:
-// blank + vendor rate card at the line's qty, per-location color counts,
-// margin on sell. Same math as the Costing tab, blanks and decoration only
-// (no ship/CC buffers).
-// Same presets as the in-job DecorationPanel — cohesion for Taylor.
-const PRINT_LOCATIONS = ["Front", "Back", "Left Sleeve", "Right Sleeve", "Left Chest", "Right Chest", "Neck", "Hood", "Pocket"];
+const QQ_MARGINS = [10, 15, 20, 25, 30];
 
 function QuoteBuilderModal({ lead, onClose, onSent }: { lead: MenuLead; onClose: () => void; onSent: () => void }) {
   const supabase = createClient();
   const [printers, setPrinters] = useState<Record<string, any>>({});
-  const [vendorOpts, setVendorOpts] = useState<{ key: string; name: string }[]>([]);
+  const [decoratorRecords, setDecoratorRecords] = useState<any[]>([]);
   const [rateMeta, setRateMeta] = useState<Record<string, { blank: number | null; group: string }>>({});
   useEffect(() => {
-    supabase.from("decorators").select("name, short_code, pricing_data, capabilities").not("pricing_data", "is", null).then(({ data }) => {
+    supabase.from("decorators").select("id, name, short_code, pricing_data, capabilities").then(({ data }) => {
       const rows = (data as any[]) || [];
+      setDecoratorRecords(rows);
       setPrinters(buildPrintersMap(rows));
-      setVendorOpts(rows.filter(d => d.pricing_data?.qtys?.length).map(d => ({ key: d.short_code || d.name, name: d.name })));
     });
     supabase.from("menu_rates").select("style_code,product_group,seed_meta").eq("active", true).then(({ data }) => {
       const m: Record<string, { blank: number | null; group: string }> = {};
@@ -1184,33 +1183,9 @@ function QuoteBuilderModal({ lead, onClose, onSent }: { lead: MenuLead; onClose:
       setRateMeta(m);
     });
   }, []);
+  const lookupPrint = (pk: string, qty: number, colors: number) => lookupPrintPrice(printers, pk, qty, colors);
+  const lookupTag = (pk: string, qty: number) => lookupTagPrice(printers, pk, qty);
 
-  // Build the engine's costProd from a quote line and run it.
-  function runEngine(l: QuoteLine): { sell: number; costPerPc: number; printPerPc: number; setup: number } | null {
-    const c = l.costing;
-    if (!c?.vendor || c.blank == null || !l.styleCode) return null;
-    const group = rateMeta[l.styleCode]?.group || "tee";
-    if (!["tee", "hoodie", "hat"].includes(group)) return null; // accessories price manually
-    const printLocations: Record<number, any> = {};
-    c.locations.forEach((loc, i) => {
-      if (loc.colors > 0) printLocations[i + 1] = { location: loc.location, screens: loc.colors, printer: c.vendor };
-    });
-    const prod: any = {
-      id: "quick-quote", name: l.label, totalQty: l.qty,
-      garment_type: group === "hat" ? "hat" : group,
-      blank_vendor: l.label, blankCostPerUnit: c.blank,
-      printVendor: c.vendor, printLocations,
-      isFleece: group === "hoodie",
-    };
-    const r = calcCostProduct(prod, `${Math.round((c.margin ?? 0.3) * 100)}%`, false, false, [prod], printers);
-    if (!r || !(r.sellPerUnit > 0)) return null;
-    return {
-      sell: Math.round(r.sellPerUnit * 20) / 20,
-      costPerPc: Number((r.totalCost / l.qty).toFixed(2)),
-      printPerPc: Number(((r.printTotal || 0) / l.qty).toFixed(2)),
-      setup: Number((r.setupTotal || 0).toFixed(2)),
-    };
-  }
   const initial = useMemo<{ lines: QuoteLine[]; punch: PunchPoint[]; validUntil: string }>(() => {
     if (lead.quote) {
       return { lines: lead.quote.lines, punch: lead.quote.punch, validUntil: lead.quote.validUntil };
@@ -1240,42 +1215,91 @@ function QuoteBuilderModal({ lead, onClose, onSent }: { lead: MenuLead; onClose:
   }, [lead]);
 
   const [lines, setLines] = useState<QuoteLine[]>(initial.lines);
-  // Prefill: blank from the live rate meta, one Front location at 1 color,
-  // 30% margin. Price stays at the snapshot midpoint until Taylor picks a
-  // vendor; then the engine takes over.
+  const [punch, setPunch] = useState<PunchPoint[]>(initial.punch);
+  const [validUntil, setValidUntil] = useState(initial.validUntil);
+  const [marginPct, setMarginPct] = useState<number>(() => {
+    const c: any = initial.lines.find(l => (l.costing as any)?.__margin != null)?.costing;
+    return c?.__margin ?? 30;
+  });
+  const [customPoint, setCustomPoint] = useState("");
+  const [sending, setSending] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  // Seed each styled line's costProd spec once the rate meta lands.
   useEffect(() => {
     if (!Object.keys(rateMeta).length) return;
     setLines(ls => ls.map(l => {
       if (!l.styleCode || l.costing) return l;
       const meta = rateMeta[l.styleCode];
-      if (!meta || meta.blank == null) return l;
-      return { ...l, costing: { blank: meta.blank, margin: 0.3, vendor: null, locations: [{ location: "Front", colors: 1 }] } };
+      const group = meta?.group || "tee";
+      if (!["tee", "hoodie", "hat"].includes(group)) return l; // accessories price manually
+      return {
+        ...l,
+        costing: {
+          garment_type: group === "hat" ? "hat" : group,
+          blank_vendor: l.label,
+          blankCostPerUnit: meta?.blank ?? 0,
+          isFleece: group === "hoodie",
+          printVendor: null, printLocations: {},
+          finishingQtys: {}, setupFees: {}, specialtyQtys: {}, customCosts: [],
+        } as any,
+      };
     }));
   }, [rateMeta]);
-  const [punch, setPunch] = useState<PunchPoint[]>(initial.punch);
-  const [validUntil, setValidUntil] = useState(initial.validUntil);
-  const [customPoint, setCustomPoint] = useState("");
-  const [sending, setSending] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const total = quoteTotal(lines);
-  const unpriced = lines.filter(l => l.unitPrice == null).length;
+
+  // Assemble engine prods (share groups span lines, same as the job).
+  const prods = useMemo(() => lines.map((l, i) => l.costing ? ({
+    ...(l.costing as any),
+    id: `qq-${i}`, name: l.label, totalQty: l.qty,
+  }) : null), [lines]);
+  const allProds = prods.filter(Boolean) as any[];
+
+  function engineFor(i: number): any | null {
+    const prod = prods[i];
+    if (!prod?.printVendor || !Object.keys(printers).length) return null;
+    const r = calcCostProduct(prod, `${marginPct}%`, false, false, allProds, printers);
+    return r && r.sellPerUnit > 0 ? r : null;
+  }
+
+  // DecorationPanel edit hooks — write the spec back onto the line and
+  // resync the auto price.
+  function writeSpec(i: number, newP: any) {
+    setLines(ls => ls.map((l, x) => {
+      if (x !== i) return l;
+      const { id: _id, name: _n, totalQty: _q, ...spec } = newP;
+      return { ...l, costing: spec };
+    }));
+  }
+  const updateProd = (i: number, newP: any) => writeSpec(i, newP);
+  const setCostProdsFn = (fn: any) => {
+    const next = fn(prods.map(p => p || {}));
+    next.forEach((np: any, i: number) => { if (prods[i]) writeSpec(i, np); });
+  };
+
+  // Auto price: engine sell → unitPrice unless overridden.
+  useEffect(() => {
+    if (!Object.keys(printers).length) return;
+    setLines(ls => ls.map((l, i) => {
+      const c: any = l.costing;
+      if (!c || c.sellOverride != null) return l;
+      const prod = { ...c, id: `qq-${i}`, name: l.label, totalQty: l.qty };
+      if (!prod.printVendor) return l;
+      const all = ls.map((l2, x) => l2.costing ? { ...(l2.costing as any), id: `qq-${x}`, name: l2.label, totalQty: l2.qty } : null).filter(Boolean);
+      const r = calcCostProduct(prod, `${marginPct}%`, false, false, all as any[], printers);
+      if (!r || !(r.sellPerUnit > 0)) return l;
+      const sell = Math.round(r.sellPerUnit * 20) / 20;
+      const allIn = Number((r.totalCost / l.qty).toFixed(2));
+      if (l.unitPrice === sell && (c as any).__allIn === allIn) return l;
+      return { ...l, unitPrice: sell, costing: { ...c, __allIn: allIn, __margin: marginPct } };
+    }));
+  }, [JSON.stringify(prods), marginPct, printers]);
 
   function setLine(i: number, patch: Partial<QuoteLine>) {
     setLines(ls => ls.map((l, x) => (x === i ? { ...l, ...patch } : l)));
   }
-  // Editing spec inputs reruns the engine; typing the price directly sets
-  // manual and the engine result becomes reference-only.
-  function setCosting(i: number, patch: Partial<NonNullable<QuoteLine["costing"]>>) {
-    setLines(ls => ls.map((l, x) => {
-      if (x !== i) return l;
-      const c = { blank: null, margin: 0.3, vendor: null, locations: [{ location: "Front", colors: 1 }], ...(l.costing || {}), ...patch };
-      const next = { ...l, costing: c };
-      const r = runEngine(next);
-      if (r && !c.manual) { next.unitPrice = r.sell; next.costing = { ...c, allIn: r.costPerPc }; }
-      else if (r) next.costing = { ...c, allIn: r.costPerPc };
-      return next;
-    }));
-  }
+
+  const total = quoteTotal(lines);
+  const unpriced = lines.filter(l => l.unitPrice == null).length;
 
   async function send() {
     if (sending) return;
@@ -1293,148 +1317,127 @@ function QuoteBuilderModal({ lead, onClose, onSent }: { lead: MenuLead; onClose:
   }
 
   const inp: React.CSSProperties = { background: T.card, border: `1px solid ${T.border}`, borderRadius: 7, color: T.text, fontSize: 12.5, padding: "7px 9px", fontFamily: font };
+  const kpi = (label: string, val: string, color?: string) => (
+    <div>
+      <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.08em", color: T.muted, textTransform: "uppercase" }}>{label}</div>
+      <div style={{ fontSize: 13, fontWeight: 800, fontFamily: mono, color: color || T.text }}>{val}</div>
+    </div>
+  );
+
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", zIndex: 60, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
-      <div onClick={e => e.stopPropagation()} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 24, width: "100%", maxWidth: 640, maxHeight: "92vh", overflowY: "auto", fontFamily: font, color: T.text }}>
-        <h3 style={{ margin: "0 0 2px", fontSize: 17, fontWeight: 700 }}>
-          Quote for {lead.contact?.name || lead.email}
-        </h3>
-        <p style={{ margin: "0 0 16px", fontSize: 12, color: T.faint }}>
-          Same engine as costing: blank + print at their quantity, margin on sell (defaults 30%).
-          Edit any input and the price recomputes; type a price directly to override. These
-          costs carry into the job on convert. Re-sending never wipes the customer&apos;s progress.
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", zIndex: 60, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 22, width: "100%", maxWidth: 820, maxHeight: "94vh", overflowY: "auto", fontFamily: font, color: T.text }}>
+
+        {/* Header — margin chips, same rhythm as JOB PRICING */}
+        <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", marginBottom: 6 }}>
+          <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", color: T.amber, textTransform: "uppercase" }}>
+            Quick quote · {lead.contact?.name || lead.email}
+          </span>
+          <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", color: T.muted, textTransform: "uppercase" }}>Margin</span>
+          <div style={{ display: "flex", background: T.card, borderRadius: 8, padding: 2 }}>
+            {QQ_MARGINS.map(mg => (
+              <button key={mg} onClick={() => setMarginPct(mg)}
+                style={{ padding: "4px 10px", borderRadius: 6, fontSize: 11.5, fontWeight: 700, fontFamily: mono, cursor: "pointer", border: "none", background: marginPct === mg ? T.amber : "transparent", color: marginPct === mg ? "#111" : T.muted }}>
+                {mg}%
+              </button>
+            ))}
+          </div>
+          <span style={{ marginLeft: "auto", fontSize: 17, fontWeight: 800, fontFamily: mono }}>${total.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+        </div>
+        <p style={{ margin: "0 0 14px", fontSize: 11.5, color: T.faint }}>
+          Same engine as in-project costing (blanks + decoration; no ship/CC buffers). Specs carry into the job&apos;s Costing on convert. Re-sending never wipes the customer&apos;s checklist progress.
         </p>
 
-        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: T.muted, marginBottom: 6 }}>LINES</div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 10 }}>
-          {lines.map((l, i) => (
-            <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 72px 92px 24px", gap: 8, alignItems: "center" }}>
-              <div style={{ minWidth: 0 }}>
-                <input value={l.label} onChange={e => setLine(i, { label: e.target.value })} style={{ ...inp, width: "100%", boxSizing: "border-box" }} />
-                {(l.colors.length > 0 || l.note) && (
-                  <div style={{ fontSize: 10.5, color: T.faint, fontFamily: mono, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {l.colors.join(", ")}{l.note ? ` · "${l.note}"` : ""}
-                  </div>
-                )}
-                {l.costing && (() => {
-                  const c = l.costing!;
-                  // Filled rows + one trailing empty slot, min 2 shown — the
-                  // same auto-grow rhythm as the job's DecorationPanel.
-                  const rows = [...c.locations];
-                  if (rows.length < 6 && (rows.length < 2 || rows[rows.length - 1].location)) rows.push({ location: "", colors: 0 });
-                  const setLoc = (idx: number, patch: Partial<{ location: string; colors: number }>) => {
-                    const next = rows.map((x, y) => (y === idx ? { ...x, ...patch } : x)).filter((x, y) => x.location || x.colors || y < c.locations.length);
-                    setCosting(i, { locations: next.filter(x => x.location || x.colors) });
-                  };
-                  const eng = runEngine(l);
-                  return (
-                    <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
-                      {/* Vendor + blank + margin — single row, DecorationPanel select styling */}
-                      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                        <select
-                          value={c.vendor || ""}
-                          onChange={e => setCosting(i, { vendor: e.target.value || null })}
-                          style={{ background: T.surface, border: "1px solid " + (c.vendor ? T.accent + "66" : T.border), borderRadius: 6, color: c.vendor ? T.text : T.muted, fontFamily: font, fontSize: 12, padding: "6px 10px", outline: "none", cursor: "pointer", minWidth: 140 }}
-                        >
-                          <option value="">Vendor</option>
-                          {vendorOpts.map(v => <option key={v.key} value={v.key}>{v.name}</option>)}
-                        </select>
-                        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                          <span style={{ fontSize: 10, color: T.muted }}>blank $</span>
-                          <input type="text" inputMode="decimal" value={c.blank ?? ""} onChange={e => setCosting(i, { blank: e.target.value === "" ? null : Number(e.target.value) || 0 })}
-                            style={{ width: 52, textAlign: "center", background: T.card, border: `1px solid ${T.border}`, borderRadius: 5, color: T.text, fontSize: 13, fontWeight: 700, fontFamily: mono, outline: "none", padding: "3px 4px" }} />
-                        </div>
-                        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                          <span style={{ fontSize: 10, color: T.muted }}>margin</span>
-                          <input type="text" inputMode="numeric" value={c.margin != null ? Math.round(c.margin * 100) : ""} onChange={e => setCosting(i, { margin: e.target.value === "" ? null : (Number(e.target.value) || 0) / 100 })}
-                            style={{ width: 38, textAlign: "center", background: T.card, border: `1px solid ${T.border}`, borderRadius: 5, color: T.text, fontSize: 13, fontWeight: 700, fontFamily: mono, outline: "none", padding: "3px 4px" }} />
-                          <span style={{ fontSize: 10, color: T.muted }}>%</span>
-                        </div>
+        {/* Lines */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {lines.map((l, i) => {
+            const c: any = l.costing;
+            const r = engineFor(i);
+            return (
+              <div key={i} style={{ border: `1px solid ${T.border}`, borderRadius: 10, padding: 12, background: T.card }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 70px 92px 24px", gap: 8, alignItems: "center" }}>
+                  <div style={{ minWidth: 0 }}>
+                    <input value={l.label} onChange={e => setLine(i, { label: e.target.value })} style={{ ...inp, width: "100%", boxSizing: "border-box", background: T.surface }} />
+                    {(l.colors.length > 0 || l.note) && (
+                      <div style={{ fontSize: 10.5, color: T.faint, fontFamily: mono, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {l.colors.join(", ")}{l.note ? ` · "${l.note}"` : ""}
                       </div>
+                    )}
+                  </div>
+                  <input type="number" value={l.qty || ""} onChange={e => setLine(i, { qty: Number(e.target.value) || 0 })} style={{ ...inp, textAlign: "right", fontFamily: mono, background: T.surface }} />
+                  <div style={{ position: "relative" }}>
+                    <span style={{ position: "absolute", left: 8, top: 8, fontSize: 12, color: c?.sellOverride != null ? T.amber : T.faint }}>$</span>
+                    <input
+                      type="number" step="0.05"
+                      value={l.unitPrice ?? ""}
+                      placeholder="price"
+                      title={c?.sellOverride != null ? "Manual override — clear to return to engine pricing" : undefined}
+                      onChange={e => {
+                        const v = e.target.value === "" ? null : Number(e.target.value);
+                        setLine(i, { unitPrice: v, costing: c ? { ...c, sellOverride: v } : c });
+                      }}
+                      style={{ ...inp, width: "100%", boxSizing: "border-box", paddingLeft: 18, textAlign: "right", fontFamily: mono, background: T.surface, borderColor: c?.sellOverride != null ? T.amber : l.unitPrice == null ? T.amber : T.border }}
+                    />
+                  </div>
+                  <span onClick={() => setLines(ls => ls.filter((_, x) => x !== i))} style={{ color: T.faint, cursor: "pointer", textAlign: "center" }}>×</span>
+                </div>
 
-                      {!c.vendor ? (
-                        <div style={{ padding: "10px 0", textAlign: "center", fontSize: 11, color: T.faint }}>Select a vendor to set up decoration</div>
-                      ) : rows.map((loc, li2) => {
-                        const isActive = !!loc.location && loc.colors > 0;
-                        const unitCost = isActive ? lookupPrintPrice(printers, c.vendor!, l.qty, loc.colors) : 0;
-                        return (
-                          <div key={li2} style={{ background: isActive ? T.surface : "transparent", border: `1px solid ${isActive ? T.border : T.border + "66"}`, borderRadius: 8, padding: "6px 10px", display: "flex", alignItems: "center", gap: 10, minHeight: 38 }}>
-                            <div style={{ flex: "1 1 200px", minWidth: 140, position: "relative" }}>
-                              <input value={loc.location || ""} onChange={e => setLoc(li2, { location: e.target.value })}
-                                list={`qq-loc-${i}-${li2}`}
-                                style={{ background: "transparent", border: "none", outline: "none", color: T.text, fontSize: 13, fontWeight: 700, fontFamily: font, width: "100%", padding: 0 }}
-                                placeholder="Location..." />
-                              <datalist id={`qq-loc-${i}-${li2}`}>{PRINT_LOCATIONS.map(pl => <option key={pl} value={pl} />)}</datalist>
-                            </div>
-                            {!!loc.location && (
-                              <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
-                                <input type="text" inputMode="numeric" value={loc.colors || ""} onChange={e => setLoc(li2, { colors: parseInt(e.target.value) || 0 })}
-                                  placeholder="0"
-                                  style={{ width: 34, textAlign: "center", background: T.card, border: `1px solid ${T.border}`, borderRadius: 5, color: T.text, fontSize: 13, fontWeight: 700, fontFamily: mono, outline: "none", padding: "3px 4px" }} />
-                                <span style={{ fontSize: 10, color: T.muted }}>colors</span>
-                              </div>
-                            )}
-                            {isActive && (
-                              <span style={{ marginLeft: "auto", fontSize: 11, color: T.faint, fontFamily: mono, flexShrink: 0 }}>
-                                ${unitCost.toFixed(2)}/pc
-                              </span>
-                            )}
-                          </div>
-                        );
-                      })}
-
-                      {c.vendor && (
-                        <div style={{ display: "flex", justifyContent: "flex-end", fontSize: 10.5, color: eng ? T.faint : T.amber, fontFamily: mono }}>
-                          {eng
-                            ? <>print ${eng.printPerPc.toFixed(2)}/pc · screens ${eng.setup.toFixed(0)} · cost ${eng.costPerPc.toFixed(2)}/pc{c.manual ? " · manual price" : <> → <span style={{ color: T.text, fontWeight: 700 }}>${eng.sell.toFixed(2)}/pc</span></>}</>
-                            : "add a location with colors to price the print"}
-                        </div>
+                {c && (
+                  <>
+                    {/* Sell/unit card — the job modal's per-item summary, condensed */}
+                    <div style={{ display: "flex", gap: 18, flexWrap: "wrap", alignItems: "center", margin: "10px 0", padding: "8px 12px", borderRadius: 8, background: T.surface, border: `1px solid ${T.border}` }}>
+                      <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                        <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.08em", color: T.muted, textTransform: "uppercase" }}>Sell / unit</span>
+                        <span style={{ fontSize: 18, fontWeight: 800, fontFamily: mono, color: T.amber }}>{l.unitPrice != null ? `$${l.unitPrice.toFixed(2)}` : "—"}</span>
+                        {c.sellOverride != null && <span style={{ fontSize: 9.5, color: T.amber }}>override</span>}
+                      </div>
+                      {r ? (
+                        <>
+                          {kpi("Revenue", `$${(r.grossRev || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`)}
+                          {kpi("Blank", `$${(r.blankCost || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`)}
+                          {kpi("Decoration", `$${((r.printTotal || 0) + (r.setupTotal || 0) + (r.finTotal || 0) + (r.specTotal || 0)).toLocaleString(undefined, { maximumFractionDigits: 0 })}`)}
+                          {kpi("Profit / pc", `$${(r.profitPerPiece || 0).toFixed(2)}`, T.amber)}
+                          {kpi("Margin", `${((r.margin_pct || 0) * 100).toFixed(1)}%`, T.amber)}
+                        </>
+                      ) : (
+                        <span style={{ fontSize: 11, color: T.faint }}>{c.printVendor ? "add a location with colors" : "pick a vendor below"}</span>
                       )}
+                      <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 4 }}>
+                        <span style={{ fontSize: 10, color: T.muted }}>blank $</span>
+                        <input type="text" inputMode="decimal" value={c.blankCostPerUnit ?? ""} onChange={e => writeSpec(i, { ...prods[i], blankCostPerUnit: Number(e.target.value) || 0 })}
+                          style={{ width: 54, textAlign: "center", background: T.card, border: `1px solid ${T.border}`, borderRadius: 5, color: T.text, fontSize: 13, fontWeight: 700, fontFamily: mono, outline: "none", padding: "3px 4px" }} />
+                      </div>
                     </div>
-                  );
-                })()}
+
+                    {/* THE real DecorationPanel */}
+                    <DecorationPanel
+                      p={prods[i]} i={i} costProds={prods.map(x => x || {})}
+                      PRINTERS={printers} decoratorRecords={decoratorRecords}
+                      updateProd={updateProd} setCostProds={setCostProdsFn}
+                      lookupPrintPrice={lookupPrint} lookupTagPrice={lookupTag}
+                      hideVendorApplyAll flush
+                    />
+                  </>
+                )}
               </div>
-              <input type="number" value={l.qty || ""} onChange={e => setLine(i, { qty: Number(e.target.value) || 0 })} style={{ ...inp, textAlign: "right", fontFamily: mono }} />
-              <div style={{ position: "relative" }}>
-                <span style={{ position: "absolute", left: 8, top: 8, fontSize: 12, color: T.faint }}>$</span>
-                <input
-                  type="number" step="0.05"
-                  value={l.unitPrice ?? ""}
-                  placeholder="price"
-                  onChange={e => setLine(i, { unitPrice: e.target.value === "" ? null : Number(e.target.value), costing: l.costing ? { ...l.costing, manual: true } : l.costing })}
-                  style={{ ...inp, width: "100%", boxSizing: "border-box", paddingLeft: 18, textAlign: "right", fontFamily: mono, borderColor: l.unitPrice == null ? T.amber : T.border }}
-                />
-              </div>
-              <span onClick={() => setLines(ls => ls.filter((_, x) => x !== i))} style={{ color: T.faint, cursor: "pointer", textAlign: "center" }}>×</span>
-            </div>
-          ))}
+            );
+          })}
         </div>
         <span
           onClick={() => setLines(ls => [...ls, { styleCode: null, label: "", qty: 1, colors: [], unitPrice: null }])}
-          style={{ fontSize: 11.5, color: T.blue, cursor: "pointer", borderBottom: `1px dotted ${T.blue}` }}
+          style={{ display: "inline-block", marginTop: 10, fontSize: 11.5, color: T.blue, cursor: "pointer", borderBottom: `1px dotted ${T.blue}` }}
         >
           + Add line (setup fee, art services, shipping...)
         </span>
+        {unpriced > 0 && <div style={{ fontSize: 11, color: T.amber, marginTop: 6 }}>{unpriced} unpriced line{unpriced > 1 ? "s" : ""} (shows as &quot;quoted on art&quot;)</div>}
 
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", margin: "14px 0 18px", paddingTop: 10, borderTop: `1px solid ${T.border}` }}>
-          <span style={{ fontSize: 12, color: T.muted }}>
-            Total{unpriced ? <span style={{ color: T.amber }}> · {unpriced} unpriced line{unpriced > 1 ? "s" : ""} (shows as &quot;quoted on art&quot;)</span> : ""}
-          </span>
-          <span style={{ fontSize: 17, fontWeight: 800, fontFamily: mono }}>${total.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-        </div>
-
-        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: T.muted, marginBottom: 6 }}>
+        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: T.muted, margin: "18px 0 6px" }}>
           CHECKLIST · what the customer completes on their page
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
           {punch.map((pt, i) => (
             <label key={pt.key} style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12.5, cursor: "pointer" }}>
-              <input
-                type="checkbox"
-                checked
-                onChange={() => setPunch(ps => ps.filter((_, x) => x !== i))}
-                style={{ marginTop: 2 }}
-              />
+              <input type="checkbox" checked onChange={() => setPunch(ps => ps.filter((_, x) => x !== i))} style={{ marginTop: 2 }} />
               <span>
                 <b>{pt.label}</b>{pt.status === "done" ? <span style={{ color: T.green, fontFamily: mono, fontSize: 10.5 }}> · already done</span> : ""}
                 <span style={{ display: "block", color: T.faint, fontSize: 11.5 }}>{pt.desc}</span>
@@ -1442,7 +1445,7 @@ function QuoteBuilderModal({ lead, onClose, onSent }: { lead: MenuLead; onClose:
             </label>
           ))}
         </div>
-        <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+        <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
           <input
             value={customPoint}
             onChange={e => setCustomPoint(e.target.value)}
@@ -1457,7 +1460,7 @@ function QuoteBuilderModal({ lead, onClose, onSent }: { lead: MenuLead; onClose:
           />
         </div>
 
-        <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12.5, marginBottom: 18 }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12.5, marginBottom: 16 }}>
           <span style={{ color: T.muted }}>Quote good through</span>
           <input type="date" value={validUntil} onChange={e => setValidUntil(e.target.value)} style={inp} />
         </label>
@@ -1479,6 +1482,7 @@ function QuoteBuilderModal({ lead, onClose, onSent }: { lead: MenuLead; onClose:
     </div>
   );
 }
+
 
 // ─── Lead detail modal (mirrors the intake submissions' DetailModal) ──
 // The whole lead on one surface for Taylor: contact, picks, art, the

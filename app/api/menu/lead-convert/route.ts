@@ -152,8 +152,8 @@ export async function POST(req: NextRequest) {
           sell_per_unit: line.unitPrice,
           // Quote costing carries into the job (Jon: "blank costs didn't
           // carry over") — real costing refines later, same fields.
-          cost_per_unit: line.costing?.blank ?? null,
-          cost_per_unit_all_in: line.costing?.allIn ?? line.costing?.blank ?? null,
+          cost_per_unit: (line.costing as any)?.blankCostPerUnit ?? null,
+          cost_per_unit_all_in: (line.costing as any)?.__allIn ?? (line.costing as any)?.blankCostPerUnit ?? null,
           sort_order: sortOrder++,
           notes: [line.note, curved ? "Sizes: standard curve seeded — client had not filled the grid; true up in the worksheet." : null]
             .filter(Boolean).join(" · ") || null,
@@ -181,60 +181,46 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // 4b. Seed costing_data.costProds from the quote's REAL specs (vendor,
-  // locations, blank, margin) — Taylor entered them through the same
-  // engine, so the Costing tab opens pre-filled instead of blank. Doctrine
-  // holds: NO qtys/totalQty persisted (single-source: wrapper refills from
-  // buy_sheet_lines); sellStored = the quoted price. Colorways of one line
-  // share screens via shareGroup (same art, one set of screens).
-  const specLines = quote.lines.filter((l) => l.costing?.vendor);
+  // 4b. Seed costing_data.costProds from the quote specs VERBATIM — Taylor
+  // built them in the real DecorationPanel, so the job's Costing opens
+  // exactly as quoted. Doctrine holds: NO qtys/totalQty persisted (the
+  // wrapper refills from buy_sheet_lines); sellStored = the quoted price.
+  // Colorways of one line replicate the spec; if Taylor set no explicit
+  // share groups, screens auto-share across the colorways (same art).
+  const specLines = quote.lines.filter((l) => (l.costing as any)?.printVendor);
   if (specLines.length) {
-    const { data: groupRows } = await supabase
-      .from("menu_rates")
-      .select("style_code,product_group")
-      .in("style_code", quote.lines.map((l) => l.styleCode).filter(Boolean) as string[]);
-    const groupOf: Record<string, string> = {};
-    for (const g of (groupRows as any[]) || []) groupOf[g.style_code] = g.product_group;
-
+    const margin = (quote.lines.find((l) => (l.costing as any)?.__margin != null)?.costing as any)?.__margin ?? 30;
     const costProds = createdItems
       .map(({ itemId, lineIdx, colorway }) => {
         const line = quote.lines[lineIdx];
-        const c = line.costing;
-        if (!c?.vendor || !line.styleCode) return null;
+        const c = line.costing as any;
+        if (!c?.printVendor) return null;
+        const { totalQty: _tq, qtys: _q, id: _id, name: _n, __allIn: _a, __margin: _m, ...spec } = c;
         const multiCw = line.colors.length > 1;
-        const printLocations: Record<number, any> = {};
-        (c.locations || []).forEach((loc, i) => {
-          if (loc.colors > 0) {
-            printLocations[i + 1] = {
-              location: loc.location,
-              screens: loc.colors,
-              printer: c.vendor,
-              ...(multiCw ? { shared: true, shareGroup: `${line.label}-${loc.location}` } : {}),
-            };
-          }
+        const printLocations: Record<string, any> = {};
+        Object.entries(spec.printLocations || {}).forEach(([slot, ld]: [string, any]) => {
+          if (!ld) return;
+          const needsAutoShare = multiCw && !ld.shared;
+          printLocations[slot] = needsAutoShare
+            ? { ...ld, shared: true, shareGroup: `${line.label}-${ld.location || slot}` }
+            : { ...ld };
         });
-        const group = groupOf[line.styleCode] || "tee";
         return {
+          ...spec,
+          printLocations,
           id: itemId,
           name: colorway ? `${line.label} - ${colorway}` : line.label,
-          garment_type: group === "hat" ? "hat" : group,
-          blank_vendor: line.label,
           color: colorway,
-          blankCostPerUnit: c.blank ?? 0,
-          printVendor: c.vendor,
-          printLocations,
-          isFleece: group === "hoodie",
           sellStored: line.unitPrice ?? undefined,
         };
       })
       .filter(Boolean);
     if (costProds.length) {
-      const margin = quote.lines.find((l) => l.costing?.margin != null)?.costing?.margin ?? 0.3;
       await supabase
         .from("jobs")
         .update({
           costing_data: {
-            costMargin: `${Math.round(margin * 100)}%`,
+            costMargin: `${Math.round(margin)}%`,
             inclShip: false,
             inclCC: false,
             costProds,

@@ -13,18 +13,12 @@ export type QuoteLine = {
   colors: string[];
   unitPrice: number | null;   // null = Taylor hasn't priced it yet (DTF small batch)
   note?: string;
-  // The REAL costing engine behind the price (lib/pricing calcCostProduct):
-  // blank + vendor rate card at this qty, per-location color counts, margin
-  // on sell. Carries into the job on convert: items.cost_per_unit/all_in
-  // AND costing_data.costProds, so the Costing tab opens pre-filled.
-  costing?: {
-    blank: number | null;
-    margin: number | null;
-    vendor: string | null;                     // decorator key (short_code || name)
-    locations: { location: string; colors: number }[];
-    manual?: boolean;                          // Taylor typed the price directly
-    allIn?: number | null;                     // engine totalCost/qty at last compute
-  } | null;
+  // The REAL costing spec (a DecorationPanel costProd, minus quantities):
+  // garment_type, blank_vendor, blankCostPerUnit, printVendor,
+  // printLocations, specialty/finishing/setup, customCosts, sellOverride,
+  // plus __allIn/__margin snapshots. Carries verbatim into
+  // costing_data.costProds on convert (qtys never persisted).
+  costing?: Record<string, any> | null;
 };
 
 export type PunchKind = "files" | "sizes" | "date" | "address" | "text" | "confirm";
