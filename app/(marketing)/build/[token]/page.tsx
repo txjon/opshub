@@ -357,7 +357,7 @@ export default function MenuPage() {
           {(status === "quote_requested" || status === "responded" || justSent) && !quote && (
             <div style={{ border: `1px solid ${TEAL}`, background: CARD, padding: "14px 18px", marginBottom: 28 }}>
               <div style={{ fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 3 }}>
-                {justSent ? "Got it. A human replies within 1 business day." : "Quote requested. We are on it."}
+                {justSent ? "Got it. You'll hear from us within 1 business day." : "Quote requested. We are on it."}
               </div>
               <div style={{ fontSize: 12, color: MUTED }}>Keep browsing — your picks stay saved, and you can update your request any time.</div>
             </div>
@@ -454,7 +454,7 @@ export default function MenuPage() {
 
           <p style={{ fontSize: 12, color: FAINT, lineHeight: 1.6, maxWidth: 620 }}>
             Prices include a 1–2 location print and are shown as ranges on purpose — the real
-            quote is exact, comes from a human, and lands within 1 business day of asking.
+            quote is exact and lands within 1 business day of asking.
             Minimums: apparel 50 per design screen-printed (25–49 runs as DTF), hats 25,
             patches and flags 50, stickers 25. Each colorway runs its own minimum. Specialty inks,
             extra locations, and rush timelines move the number.
@@ -703,7 +703,7 @@ function StyleModal({ style, existing, files, placements, onUpload, onRemoveFile
                   )}
                 </div>
               ) : (
-                <div style={{ fontSize: 13, color: FAINT, marginTop: 10 }}>No menu price for this one yet — ask and a human quotes it.</div>
+                <div style={{ fontSize: 13, color: FAINT, marginTop: 10 }}>No listed price for this one yet — ask and we'll quote it.</div>
               )}
 
               {underMin && !inDtfZone && (
@@ -720,7 +720,7 @@ function StyleModal({ style, existing, files, placements, onUpload, onRemoveFile
                 watch), <span style={{ color: MUTED }}>the blank</span> (a premium garment costs
                 more before ink ever touches it), and <span style={{ color: MUTED }}>the print</span>{" "}
                 (1–2 locations included — extra locations, specialty inks, and rush move it).
-                The exact number comes from a human, and it lives inside this range.
+                The exact quote comes from our team, and it lives inside this range.
               </div>
             </div>
 
@@ -862,7 +862,7 @@ function ReviewModal({ token, picks, setPicks, byCode, onEditItem, onRemoveItem,
           <button onClick={onClose} aria-label="Close" style={{ background: "transparent", border: "none", color: FAINT, fontSize: 22, cursor: "pointer", lineHeight: 1, padding: 4 }}>×</button>
         </div>
         <p style={{ margin: "0 0 18px", fontSize: 13, color: MUTED, lineHeight: 1.5 }}>
-          A human replies with exact pricing within 1 business day.
+          Exact pricing from our team within 1 business day.
         </p>
 
         {/* Line items */}
@@ -1075,7 +1075,7 @@ function QuoteView({ token, quote, setQuote, status, setStatus, byCode }: {
           <span style={{ fontSize: 20, fontWeight: 800, fontFamily: monoFont }}>${Number(quote.total || 0).toLocaleString()}</span>
         </div>
         <p style={{ fontSize: 11, color: FAINT, margin: "0 0 26px" }}>
-          Exact pricing from a human, based on your picks. Nothing prints without your approval on the final proof.
+          Exact pricing based on your picks. Nothing prints without your approval on the final proof.
         </p>
 
         {/* Punch list */}

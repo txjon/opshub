@@ -92,7 +92,7 @@ export async function POST(req: NextRequest) {
         bodyHtml:
           "This is your key. It opens The Build, saves everything you do, and picks up right where you leave off.",
         cta: { label: "Open The Build", url: link },
-        hint: "Questions? Just reply — a human reads this.",
+        hint: "Questions? Just reply to this email.",
       }),
     });
   } catch (err) {

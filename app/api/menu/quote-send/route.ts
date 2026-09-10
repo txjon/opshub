@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
         greeting: `Hi ${firstName},`,
         bodyHtml: `Real numbers, not ranges. Review it, knock out the short checklist, and accept when you are ready — nothing prints without your approval on the final proof.<br/><br/><table style="border-collapse:collapse;">${lineHtml}</table>${priced.length ? `<p style="font-size:14px;margin:12px 0 0;"><strong>Total: $${quote.total.toLocaleString()}</strong></p>` : ""}`,
         cta: { label: "View your quote", url: link },
-        hint: `This quote is good through ${validUntil}. Reply to this email any time — a human reads it.`,
+        hint: `This quote is good through ${validUntil}. Reply to this email any time.`,
       }),
     });
   } catch (err) {

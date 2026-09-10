@@ -199,7 +199,7 @@ export async function POST(req: NextRequest) {
         greeting: `Hi ${firstName},`,
         bodyHtml: `We are building your job now. Next step on our side: your proof — you approve it before anything prints.${openPoints.length ? `<br/><br/>Two seconds when you get a chance: <strong>${openPoints.join(", ")}</strong> — still open on <a href="https://housepartydistro.com/build/${lead.token}">your checklist</a>.` : ""}<br/><br/>From here on out, your House Party hub is home — orders, tracking, everything.`,
         cta: hubToken ? { label: "Open your hub", url: `https://app.housepartydistro.com/portal/client/${hubToken}` } : undefined,
-        hint: "Reply to this email any time. A human reads it.",
+        hint: "Reply to this email any time.",
       }),
     });
   } catch (err) {

@@ -708,8 +708,8 @@ function DoorScreen({ onIntake, onEntered }: { onIntake: (email: string) => void
           </div>
           <p style={{ fontSize: 13.5, color: D.muted, lineHeight: 1.7, margin: 0 }}>
             House Party is a sourcing house. We source the blanks, print them, and ship them —
-            or hold them here and fulfill your store. Build it or brief it, a human quotes it
-            within a business day, and you approve the proof before anything prints.
+            or hold them here and fulfill your store. Build it or brief it, we quote it within
+            a business day, and you approve the proof before anything prints.
           </p>
         </div>
       </div>

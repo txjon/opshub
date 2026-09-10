@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
         heading: subject,
         bodyHtml: `<div style="white-space:pre-wrap;">${escapeHtml(text)}</div>`,
         cta: { label: "Open The Build", url: menuLink },
-        hint: "Reply to this email any time. A human reads it.",
+        hint: "Reply to this email any time.",
       }),
     });
   } catch (err) {
