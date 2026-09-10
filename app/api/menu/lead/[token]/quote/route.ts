@@ -104,7 +104,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
       from: `OpsHub <${FROM_EMAIL}>`,
       to: TO_EMAIL,
       replyTo: lead.email,
-      subject: `[Menu] Quote request: ${contact.name}`,
+      subject: `[Build] Quote request: ${contact.name}`,
       text: `${contact.name} <${lead.email}>${contact.phone ? ` · ${contact.phone}` : ""}\n\n${summary}\n\nReview: https://app.housepartydistro.com/intake`,
     });
   } catch (err) {

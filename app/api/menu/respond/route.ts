@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
 
   const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || "housepartydistro.com";
   const proto = req.headers.get("x-forwarded-proto") || "https";
-  const menuLink = `${proto}://${host}/menu/${lead.token}`;
+  const menuLink = `${proto}://${host}/build/${lead.token}`;
 
   try {
     await resendForSlug("hpd").emails.send({
@@ -47,11 +47,11 @@ export async function POST(req: NextRequest) {
       to: lead.email,
       replyTo: FROM_EMAIL,
       subject,
-      text: `${text}\n\nYour menu: ${menuLink}`,
+      text: `${text}\n\nYour link: ${menuLink}`,
       html: renderBrandedEmail({
         heading: subject,
         bodyHtml: `<div style="white-space:pre-wrap;">${escapeHtml(text)}</div>`,
-        cta: { label: "Open your menu", url: menuLink },
+        cta: { label: "Open The Build", url: menuLink },
         hint: "Reply to this email any time. A human reads it.",
       }),
     });

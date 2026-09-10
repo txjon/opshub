@@ -81,17 +81,17 @@ export async function POST(req: NextRequest) {
   // The return key. Send-and-forget — the reveal never waits on it.
   const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || "housepartydistro.com";
   const proto = req.headers.get("x-forwarded-proto") || "https";
-  const link = `${proto}://${host}/menu/${token}`;
+  const link = `${proto}://${host}/build/${token}`;
   try {
     await resendForSlug("hpd").emails.send({
       from: `House Party Distro <${FROM_EMAIL}>`,
       to: clean,
-      subject: "Your House Party menu",
+      subject: "Your link to The Build",
       html: renderBrandedEmail({
         heading: "You're in.",
         bodyHtml:
-          "This is your personal link to the House Party menu. Real styles, real prices, no forms until you want a quote. It picks up right where you leave off.",
-        cta: { label: "Open the menu", url: link },
+          "This is your personal link to The Build. Real styles, real prices, no forms until you want a quote. It picks up right where you leave off.",
+        cta: { label: "Open The Build", url: link },
         hint: "Questions? Just reply to this email.",
       }),
     });

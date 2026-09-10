@@ -97,12 +97,12 @@ export async function POST(req: NextRequest) {
   ];
   const openPoints = quote.punch.filter((p) => p.required && p.status !== "done").map((p) => p.label);
   const noteLines = [
-    `Menu quote accepted ${quote.acceptedAt?.slice(0, 10) || ""} — total $${(quote.total || 0).toLocaleString()} (good through ${quote.validUntil}).`,
+    `Build quote accepted ${quote.acceptedAt?.slice(0, 10) || ""} — total $${(quote.total || 0).toLocaleString()} (good through ${quote.validUntil}).`,
     shipText ? `Ship: ${shipText}` : null,
     openPoints.length ? `STILL OPEN on the client checklist: ${openPoints.join(", ")}` : "Client checklist complete.",
     artFiles.length ? "Client art files:" : null,
     ...artFiles.map((f) => `  • ${f.filename}${(f as any).placement ? ` (${(f as any).placement})` : ""}${f.url ? ` — ${f.url}` : ""}`),
-    `Quote page: https://app.housepartydistro.com/intake (lead) · client link housepartydistro.com/menu/${lead.token}`,
+    `Quote page: https://app.housepartydistro.com/intake (lead) · client link housepartydistro.com/build/${lead.token}`,
   ].filter(Boolean).join("\n");
 
   // job_type is NOT NULL — same default chain as quick-create.
@@ -197,7 +197,7 @@ export async function POST(req: NextRequest) {
       html: renderBrandedEmail({
         heading: "Your order is officially in the works.",
         greeting: `Hi ${firstName},`,
-        bodyHtml: `We are building your job now. Next step on our side: your proof — you approve it before anything prints.${openPoints.length ? `<br/><br/>Two seconds when you get a chance: <strong>${openPoints.join(", ")}</strong> — still open on <a href="https://housepartydistro.com/menu/${lead.token}">your checklist</a>.` : ""}<br/><br/>From here on out, your House Party hub is home — orders, tracking, everything.`,
+        bodyHtml: `We are building your job now. Next step on our side: your proof — you approve it before anything prints.${openPoints.length ? `<br/><br/>Two seconds when you get a chance: <strong>${openPoints.join(", ")}</strong> — still open on <a href="https://housepartydistro.com/build/${lead.token}">your checklist</a>.` : ""}<br/><br/>From here on out, your House Party hub is home — orders, tracking, everything.`,
         cta: hubToken ? { label: "Open your hub", url: `https://app.housepartydistro.com/portal/client/${hubToken}` } : undefined,
         hint: "Reply to this email any time. A human reads it.",
       }),

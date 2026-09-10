@@ -479,14 +479,14 @@ export default function StartPage() {
         </div>
       </section>
 
-      {door === null && <DoorScreen onIntake={() => setDoor("intake")} />}
+      {door === null && <DoorScreen onIntake={(gateEmail) => { update("email", gateEmail); setStep(2); setDoor("intake"); }} />}
 
       {/* Form body */}
       {door === "intake" && (
       <section style={{ padding: "48px 32px 96px", background: "#fff" }}>
         <div style={{ maxWidth: 680, margin: "0 auto" }}>
           {/* Progress bar */}
-          <StepBar step={step} total={TOTAL_STEPS} />
+          <StepBar step={step - 1} total={TOTAL_STEPS - 1} />
 
           <div style={{
             background: "#fff",
@@ -549,7 +549,7 @@ export default function StartPage() {
             <div style={{
               display: "flex", gap: 10, marginTop: 28,
             }}>
-              {step > 1 && (
+              {step > 2 && (
                 <button
                   type="button"
                   onClick={() => setStep((step - 1) as Step)}
@@ -600,10 +600,11 @@ export default function StartPage() {
 // Door 1: email gate → the unlisted menu (instant reveal — the lead is
 // captured the moment they knock; the email is just the return key).
 // Door 2: the classic 6-step intake wizard.
-function DoorScreen({ onIntake }: { onIntake: () => void }) {
+function DoorScreen({ onIntake }: { onIntake: (email: string) => void }) {
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [token, setToken] = useState<string | null>(null);
 
   async function knock() {
     if (busy) return;
@@ -617,10 +618,7 @@ function DoorScreen({ onIntake }: { onIntake: () => void }) {
         body: JSON.stringify({ email }),
       });
       const d = await res.json().catch(() => null);
-      if (res.ok && d?.token) {
-        window.location.href = `/menu/${d.token}`;
-        return;
-      }
+      if (res.ok && d?.token) { setToken(d.token); setBusy(false); return; }
       setErr(d?.error || "Something went wrong. Try again.");
     } catch {
       setErr("Something went wrong. Try again.");
@@ -630,49 +628,77 @@ function DoorScreen({ onIntake }: { onIntake: () => void }) {
 
   const card: React.CSSProperties = {
     background: "#fff", border: "1px solid #e0e0e4", borderRadius: 14,
-    padding: "32px 30px", flex: "1 1 280px", minWidth: 280,
+    padding: "32px 30px", flex: "1 1 280px", minWidth: 280, textAlign: "left",
   };
-  return (
-    <section style={{ padding: "48px 32px 96px", background: "#fff" }}>
-      <div style={{ maxWidth: 760, margin: "0 auto", display: "flex", gap: 16, flexWrap: "wrap" }}>
-        <div style={card}>
-          <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.16em", color: "#a0a0ad", marginBottom: 10 }}>
-            New here?
-          </div>
-          <h2 style={{ fontSize: 20, fontWeight: 800, color: "#1a1a1a", margin: "0 0 8px", letterSpacing: "-0.01em" }}>
-            Show me what House Party can do
-          </h2>
-          <p style={{ fontSize: 13, color: "#6b6b78", lineHeight: 1.55, margin: "0 0 18px" }}>
-            The menu: real styles, real prices, no forms. Drop your email and it opens now — we send your personal link too.
+
+  // One door: the email opens everything. After the knock, two lanes.
+  if (!token) {
+    return (
+      <section style={{ padding: "48px 32px 96px", background: "#fff" }}>
+        <div style={{ maxWidth: 520, margin: "0 auto", textAlign: "center" }}>
+          <p style={{ fontSize: 14, color: "#6b6b78", lineHeight: 1.6, margin: "0 0 22px" }}>
+            Drop your email — it opens everything and saves as you go. No forms until you want them.
           </p>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
             <input
               type="email"
               value={email}
               onChange={e => { setEmail(e.target.value); setErr(null); }}
               onKeyDown={e => e.key === "Enter" && knock()}
               placeholder="you@yourbrand.com"
-              style={{ flex: "1 1 170px", border: "1px solid #e0e0e4", borderRadius: 8, padding: "11px 13px", fontSize: 14, fontFamily: "inherit", color: "#1a1a1a" }}
+              autoFocus
+              style={{ flex: "1 1 240px", maxWidth: 320, border: "1px solid #e0e0e4", borderRadius: 8, padding: "13px 15px", fontSize: 15, fontFamily: "inherit", color: "#1a1a1a" }}
             />
-            <button type="button" onClick={knock} disabled={busy} style={{ background: "#1a1a1a", color: "#fff", border: "none", borderRadius: 8, padding: "11px 20px", fontSize: 14, fontWeight: 700, cursor: "pointer", opacity: busy ? 0.6 : 1 }}>
-              {busy ? "Opening..." : "Open the menu"}
+            <button type="button" onClick={knock} disabled={busy} style={{ background: "#1a1a1a", color: "#fff", border: "none", borderRadius: 8, padding: "13px 26px", fontSize: 15, fontWeight: 700, cursor: "pointer", opacity: busy ? 0.6 : 1 }}>
+              {busy ? "One sec..." : "Let's go"}
             </button>
           </div>
-          {err && <div style={{ fontSize: 12, color: "#c43030", marginTop: 8 }}>{err}</div>}
-        </div>
-        <div style={card}>
-          <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.16em", color: "#a0a0ad", marginBottom: 10 }}>
-            Ready to roll?
-          </div>
-          <h2 style={{ fontSize: 20, fontWeight: 800, color: "#1a1a1a", margin: "0 0 8px", letterSpacing: "-0.01em" }}>
-            I know what I need
-          </h2>
-          <p style={{ fontSize: 13, color: "#6b6b78", lineHeight: 1.55, margin: "0 0 18px" }}>
-            Products, quantities, files, dates — the full intake. Six quick steps and it lands with our production team.
+          {err && <div style={{ fontSize: 12, color: "#c43030", marginTop: 10 }}>{err}</div>}
+          <p style={{ fontSize: 12, color: "#a0a0ad", marginTop: 18 }}>
+            Already a client? <a href="/client-portal" style={{ color: "#1a1a1a", fontWeight: 600 }}>Sign in to your portal →</a>
           </p>
-          <button type="button" onClick={onIntake} style={{ background: "transparent", color: "#1a1a1a", border: "1.5px solid #1a1a1a", borderRadius: 8, padding: "11px 20px", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
-            Start the intake →
-          </button>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section style={{ padding: "48px 32px 96px", background: "#fff" }}>
+      <div style={{ maxWidth: 760, margin: "0 auto" }}>
+        <p style={{ textAlign: "center", fontSize: 13, color: "#6b6b78", margin: "0 0 22px" }}>
+          You&apos;re in — we sent your personal link to <b>{email}</b>. Two ways to roll:
+        </p>
+        <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+          <div style={card}>
+            <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.16em", color: "#a0a0ad", marginBottom: 10 }}>
+              Explore first
+            </div>
+            <h2 style={{ fontSize: 20, fontWeight: 800, color: "#1a1a1a", margin: "0 0 8px", letterSpacing: "-0.01em" }}>
+              Build your drop
+            </h2>
+            <p style={{ fontSize: 13, color: "#6b6b78", lineHeight: 1.55, margin: "0 0 18px" }}>
+              Real styles, real prices — build it piece by piece and ask for the exact quote
+              when it feels right.
+            </p>
+            <a href={`/build/${token}`} style={{ display: "inline-block", background: "#1a1a1a", color: "#fff", borderRadius: 8, padding: "11px 20px", fontSize: 14, fontWeight: 700, textDecoration: "none" }}>
+              Open The Build →
+            </a>
+          </div>
+          <div style={card}>
+            <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.16em", color: "#a0a0ad", marginBottom: 10 }}>
+              Ready to roll
+            </div>
+            <h2 style={{ fontSize: 20, fontWeight: 800, color: "#1a1a1a", margin: "0 0 8px", letterSpacing: "-0.01em" }}>
+              Brief us directly
+            </h2>
+            <p style={{ fontSize: 13, color: "#6b6b78", lineHeight: 1.55, margin: "0 0 18px" }}>
+              Know exactly what you need? Send the full picture — details, files, dates —
+              straight to our production team.
+            </p>
+            <button type="button" onClick={() => onIntake(email)} style={{ background: "transparent", color: "#1a1a1a", border: "1.5px solid #1a1a1a", borderRadius: 8, padding: "11px 20px", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
+              Start the brief →
+            </button>
+          </div>
         </div>
       </div>
     </section>
@@ -772,6 +798,20 @@ function Step2({
 }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <label style={{ display: "block", marginBottom: 18 }}>
+        <span style={{ display: "block", fontSize: 12, fontWeight: 700, color: "#1a1a1a", marginBottom: 6 }}>
+          What kind of help? <span style={{ color: "#a0a0ad", fontWeight: 400 }}>(optional — we can sort this out together)</span>
+        </span>
+        <select
+          value={form.project_type}
+          onChange={e => update("project_type", e.target.value)}
+          style={{ width: "100%", border: "1px solid #e0e0e4", borderRadius: 8, padding: "11px 12px", fontSize: 14, fontFamily: "inherit", color: form.project_type ? "#1a1a1a" : "#a0a0ad", background: "#fff" }}
+        >
+          <option value="">Not sure yet</option>
+          {PROJECT_TYPES.map(t => <option key={t.value} value={t.value}>{t.title}</option>)}
+        </select>
+      </label>
+
       <Field label="Project name *">
         <input
           type="text"

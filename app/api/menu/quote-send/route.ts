@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
 
   const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || "housepartydistro.com";
   const proto = req.headers.get("x-forwarded-proto") || "https";
-  const link = `${proto}://${host}/menu/${lead.token}`;
+  const link = `${proto}://${host}/build/${lead.token}`;
   const firstName = ((lead.contact as any)?.name || "").trim().split(/\s+/)[0] || "there";
   const priced = lines.filter((l) => l.unitPrice != null);
   const lineHtml = lines.map((l) =>

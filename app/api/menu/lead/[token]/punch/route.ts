@@ -78,7 +78,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
         from: `OpsHub <${FROM_EMAIL}>`,
         to: TO_EMAIL,
         replyTo: lead.email,
-        subject: `[Menu] Checklist complete: ${(lead.contact as any)?.name || lead.email}`,
+        subject: `[Build] Checklist complete: ${(lead.contact as any)?.name || lead.email}`,
         text: `Every required point on the quote checklist is done.\n\nReview: https://app.housepartydistro.com/intake`,
       });
     } catch { /* bell only */ }

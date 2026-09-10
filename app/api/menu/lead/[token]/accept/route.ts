@@ -54,7 +54,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
       from: `OpsHub <${FROM_EMAIL}>`,
       to: TO_EMAIL,
       replyTo: lead.email,
-      subject: `[Menu] QUOTE ACCEPTED: ${(lead.contact as any)?.name || lead.email} — $${(quote.total || 0).toLocaleString()}`,
+      subject: `[Build] QUOTE ACCEPTED: ${(lead.contact as any)?.name || lead.email} — $${(quote.total || 0).toLocaleString()}`,
       text: [
         `${(lead.contact as any)?.name || lead.email} accepted the quote ($${(quote.total || 0).toLocaleString()}).`,
         openPoints.length ? `Still open on the checklist: ${openPoints.join(", ")}` : "Checklist complete — everything needed to build the job is on the lead.",

@@ -28,7 +28,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ tok
 
   const { data: lead } = await sb
     .from("menu_leads")
-    .select("status,picks,quote,quote_requested_at")
+    .select("email,status,picks,quote,quote_requested_at")
     .eq("token", token)
     .maybeSingle();
   if (!lead) return NextResponse.json({ error: "Invalid link" }, { status: 404 });
@@ -60,6 +60,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ tok
   }
 
   return NextResponse.json({
+    email: lead.email,
     status: lead.status,
     picks: lead.picks || {},
     quote: lead.quote || null,

@@ -161,12 +161,12 @@ export default function IntakePage() {
       />
 
       <MenuLeadBucket
-        label="Menu · quote pipeline"
+        label="The Build · quote pipeline"
         color={T.purple}
         leads={menuLeads.filter(l => ["quote_requested", "quoted", "accepted", "converted"].includes(l.status))}
         matchNames={matchNames}
         onChanged={load}
-        emptyText="No open quote requests from the menu."
+        emptyText="No open quote requests from The Build."
       />
 
       <Bucket
@@ -198,7 +198,7 @@ export default function IntakePage() {
       />
 
       <MenuLeadBucket
-        label="Menu · browsing"
+        label="The Build · browsing"
         color={T.faint}
         leads={menuLeads.filter(l => !["quote_requested", "quoted", "accepted", "converted"].includes(l.status))}
         matchNames={matchNames}
