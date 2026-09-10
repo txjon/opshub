@@ -66,6 +66,11 @@ const LANES_BY_GROUP: Record<string, { key: string; label: string; blurb: string
 // Accessories tab mixes minimums (patches/flags 50, stickers 25), so
 // per-group band config would lie. Apparel additionally opens a 25–49
 // DTF small-batch zone BELOW its screen-print minimum of 50.
+// The most-ordered style per group (order-line counts from our sales
+// history, derived Sep 10; re-derive when the lineup changes): worn as a
+// MOST ORDERED badge, data speaking as social proof.
+const MOST_ORDERED = new Set(["NL6210", "IND4000", "YP6245CM", "PATCH-PVC"]);
+
 const styleBands = (s: StyleRow): number[] =>
   Object.keys(s.bands).map(Number).filter((n) => !isNaN(n)).sort((a, b) => a - b);
 const styleMin = (s: StyleRow): number => styleBands(s)[0] ?? 50;
@@ -312,14 +317,14 @@ export default function MenuPage() {
       <section style={{ background: BG, padding: "128px 24px 0" }}>
         <div style={{ maxWidth: 1100, margin: "0 auto" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 12, flexWrap: "wrap" }}>
-            <div>
-              <div style={{ ...eyebrowStyle, marginBottom: 8 }}>House Party Distro</div>
-              <h1 style={{ fontSize: 26, fontWeight: 900, letterSpacing: "-0.01em", textTransform: "uppercase", lineHeight: 1.1, margin: 0 }}>
-                The Build
+            <div style={{ maxWidth: 620 }}>
+              <h1 style={{ fontSize: 24, fontWeight: 900, letterSpacing: "-0.01em", lineHeight: 1.2, margin: 0 }}>
+                Nine times out of ten, it starts with one of these.
               </h1>
-              <p style={{ color: FAINT, fontSize: 12.5, lineHeight: 1.5, margin: "6px 0 0" }}>
-                The pieces we actually print, at the prices we actually charge. Build it, then ask
-                for the real number when it feels right.
+              <p style={{ color: MUTED, fontSize: 13.5, lineHeight: 1.6, margin: "8px 0 0" }}>
+                These are the styles our clients build their brands on. Tap one to see colors
+                and real pricing, then add it to your quote. No checkout, no commitment,
+                just numbers.
               </p>
             </div>
             {email && (
@@ -363,10 +368,11 @@ export default function MenuPage() {
             </div>
           )}
 
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 8 }}>
-            <div>
-              <div style={{ ...eyebrowStyle, marginBottom: 4 }}>Our favorites</div>
-              <div style={{ fontSize: 12, color: FAINT }}>The pieces we run every week, at the prices we run them.</div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 30 }}>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {GROUPS.filter((g) => (styles || []).some((s) => s.group === g.key)).map((g) => (
+                <Chip key={g.key} on={group === g.key} onClick={() => setGroup(g.key)}>{g.label}</Chip>
+              ))}
             </div>
             <a
               href={`/start?brief=1${email ? `&email=${encodeURIComponent(email)}` : ""}`}
@@ -374,11 +380,6 @@ export default function MenuPage() {
             >
               I know what I want →
             </a>
-          </div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 30 }}>
-            {GROUPS.filter((g) => (styles || []).some((s) => s.group === g.key)).map((g) => (
-              <Chip key={g.key} on={group === g.key} onClick={() => setGroup(g.key)}>{g.label}</Chip>
-            ))}
           </div>
 
           {(LANES_BY_GROUP[group] || []).map((lane) => {
@@ -409,11 +410,15 @@ export default function MenuPage() {
                           overflow: "hidden", position: "relative",
                         }}
                       >
-                        {inQuote && (
+                        {inQuote ? (
                           <div style={{ position: "absolute", top: 10, left: 10, zIndex: 2, background: TEAL, color: BG, fontSize: 10, fontWeight: 800, letterSpacing: "0.08em", padding: "4px 8px", textTransform: "uppercase" }}>
                             In quote · {inQuote.qty}
                           </div>
-                        )}
+                        ) : MOST_ORDERED.has(s.code) ? (
+                          <div style={{ position: "absolute", top: 10, left: 10, zIndex: 2, background: "rgba(10,10,12,0.85)", color: TEAL, fontSize: 9.5, fontWeight: 800, letterSpacing: "0.1em", padding: "4px 8px", textTransform: "uppercase", border: `1px solid rgba(115,182,201,0.4)` }}>
+                            Most ordered
+                          </div>
+                        ) : null}
                         {s.hero ? (
                           <div style={{ aspectRatio: "1 / 1", background: "#fff", padding: 14, display: "flex", alignItems: "center", justifyContent: "center" }}>
                             <img src={s.hero} alt={s.name} loading="lazy" style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }} />
