@@ -48,18 +48,18 @@ const GROUPS: { key: string; label: string }[] = [
 ];
 
 const GARMENT_LANES: { key: string; label: string; blurb: string }[] = [
-  { key: "la_apparel", label: "LA Apparel", blurb: "Made in Los Angeles. The premium washed look our drops are known for." },
-  { key: "as_colour", label: "AS Colour", blurb: "Boxy, heavy, consistent. The modern brand standard." },
-  { key: "popular", label: "Popular Picks", blurb: "Our most printed blanks. Dependable and priced right." },
+  { key: "la_apparel", label: "LA Apparel", blurb: "Made in LA. The wash everyone's chasing." },
+  { key: "as_colour", label: "AS Colour", blurb: "Boxy. Heavy. Never misses." },
+  { key: "popular", label: "Popular Picks", blurb: "The workhorses. Priced like it." },
 ];
 const LANES_BY_GROUP: Record<string, { key: string; label: string; blurb: string }[]> = {
   tee: GARMENT_LANES,
   hoodie: GARMENT_LANES,
-  hat: [{ key: "headwear", label: "Headwear", blurb: "Embroidered staples. The caps we run every week." }],
+  hat: [{ key: "headwear", label: "Headwear", blurb: "Stitched caps we run every single week." }],
   accessory: [
-    { key: "patches", label: "Patches", blurb: "Sew-on or heat-seal, up to about 3.5 inches. From 50." },
-    { key: "flags", label: "Flags", blurb: "Full-color 3x5. The wall piece. From 50." },
-    { key: "stickers", label: "Stickers", blurb: "Die-cut vinyl. The handout that travels. From 25." },
+    { key: "patches", label: "Patches", blurb: "Sew-on or heat-seal. From 50." },
+    { key: "flags", label: "Flags", blurb: "Full-color 3x5. From 50." },
+    { key: "stickers", label: "Stickers", blurb: "Die-cut vinyl. From 25." },
   ],
 };
 // Minimums and tiers derive from each style's own rate rows — the
@@ -76,29 +76,29 @@ const styleBands = (s: StyleRow): number[] =>
 const styleMin = (s: StyleRow): number => styleBands(s)[0] ?? 50;
 
 const STYLE_META: Record<string, { displayName: string; spec: string; blurb: string }> = {
-  "1801GD": { displayName: "The LA Heavyweight", spec: "6.5 oz · garment dyed", blurb: "The heavyweight with the lived-in fade." },
-  "1801MW": { displayName: "Mineral Wash Tee", spec: "6.5 oz · mineral wash", blurb: "Every piece washes a little different." },
-  "5001":   { displayName: "The Staple Tee", spec: "midweight · clean fit", blurb: "The modern staple. Huge color range." },
-  "5026":   { displayName: "Classic Heavy Tee", spec: "heavyweight · boxy", blurb: "Heavy, structured, streetwear cut." },
-  "5082":   { displayName: "Heavy Faded Tee", spec: "extra heavy · oversized", blurb: "The heaviest tee on the menu." },
-  "NL6210": { displayName: "CVC Everyday Tee", spec: "CVC blend · soft", blurb: "Soft, durable, and the best value here." },
-  "NL3600": { displayName: "Lightweight Cotton Tee", spec: "lightweight cotton", blurb: "Clean lightweight staple." },
-  "CC1717": { displayName: "Garment-Dyed Tee", spec: "6.1 oz · garment dyed", blurb: "The vintage-fade classic everyone knows." },
-  "HF-09":  { displayName: "Heavy Fleece Hoodie", spec: "14 oz heavy fleece", blurb: "Serious hoodie weight, garment dyed." },
-  "5101":   { displayName: "Supply Hood", spec: "midweight fleece", blurb: "The clean everyday hood." },
-  "5161":   { displayName: "Heavy Hood", spec: "heavy fleece · boxy", blurb: "The AS hood we run the most." },
-  "5166":   { displayName: "Oversized Faded Hood", spec: "oversized heavy fleece", blurb: "Drop-shoulder, streetwear cut." },
-  "IND4000": { displayName: "The Workhorse Hoodie", spec: "10 oz fleece", blurb: "Our most printed hoodie." },
-  "CHAMPS700": { displayName: "Champion Eco Hoodie", spec: "9 oz eco fleece", blurb: "The classic C-logo staple." },
-  "CC1567":  { displayName: "Garment-Dyed Hoodie", spec: "garment dyed fleece", blurb: "The vintage-fade hood, built like the 1717." },
-  "YP6245CM":   { displayName: "Classic Dad Hat", spec: "unstructured · embroidered", blurb: "The everyday shape everyone wears." },
-  "474700":     { displayName: "'47 Clean Up Cap", spec: "'47 brand · retail grade", blurb: "The licensed-look upgrade." },
-  "RICHARDSON": { displayName: "Trucker Cap", spec: "mesh back · embroidered", blurb: "The mesh-back workhorse." },
-  "PATCH-EMB":  { displayName: "Embroidered Patch", spec: "embroidered · to 3.5 in", blurb: "The classic stitched look." },
-  "PATCH-PVC":  { displayName: "PVC Patch", spec: "pvc rubber · to 3.5 in", blurb: "Molded, tactical, durable." },
-  "PATCH-WVN":  { displayName: "Woven Patch", spec: "woven · fine detail", blurb: "Holds small text and tight lines." },
-  "FLAG-3X5":   { displayName: "3x5 Flag", spec: "3 x 5 ft · full color", blurb: "The wall piece for the true fans." },
-  "STICKER-DC": { displayName: "Die-Cut Stickers", spec: "die-cut vinyl · to 4 in", blurb: "The handout that ends up everywhere." },
+  "1801GD": { displayName: "The LA Heavyweight", spec: "6.5 oz · garment dyed", blurb: "Heavy, faded, broken in from day one." },
+  "1801MW": { displayName: "Mineral Wash Tee", spec: "6.5 oz · mineral wash", blurb: "No two wash the same." },
+  "5001":   { displayName: "The Staple Tee", spec: "midweight · clean fit", blurb: "The staple. Every color you'd want." },
+  "5026":   { displayName: "Classic Heavy Tee", spec: "heavyweight · boxy", blurb: "Structured, heavy, cut for the street." },
+  "5082":   { displayName: "Heavy Faded Tee", spec: "extra heavy · oversized", blurb: "The heaviest thing we print." },
+  "NL6210": { displayName: "CVC Everyday Tee", spec: "CVC blend · soft", blurb: "Soft, tough, smartest money on the shelf." },
+  "NL3600": { displayName: "Lightweight Cotton Tee", spec: "lightweight cotton", blurb: "Light, clean, no noise." },
+  "CC1717": { displayName: "Garment-Dyed Tee", spec: "6.1 oz · garment dyed", blurb: "The vintage fade everybody knows." },
+  "HF-09":  { displayName: "Heavy Fleece Hoodie", spec: "14 oz heavy fleece", blurb: "14 ounces of serious." },
+  "5101":   { displayName: "Supply Hood", spec: "midweight fleece", blurb: "The everyday hood, done clean." },
+  "5161":   { displayName: "Heavy Hood", spec: "heavy fleece · boxy", blurb: "The hood we run the most." },
+  "5166":   { displayName: "Oversized Faded Hood", spec: "oversized heavy fleece", blurb: "Dropped shoulders, heavy fade." },
+  "IND4000": { displayName: "The Workhorse Hoodie", spec: "10 oz fleece", blurb: "The one everybody prints." },
+  "CHAMPS700": { displayName: "Champion Eco Hoodie", spec: "9 oz eco fleece", blurb: "A classic for a reason." },
+  "CC1567":  { displayName: "Garment-Dyed Hoodie", spec: "garment dyed fleece", blurb: "The 1717's big brother." },
+  "YP6245CM":   { displayName: "Classic Dad Hat", spec: "unstructured · embroidered", blurb: "The shape everyone wears." },
+  "474700":     { displayName: "'47 Clean Up Cap", spec: "'47 brand · retail grade", blurb: "Looks bought, not made." },
+  "RICHARDSON": { displayName: "Trucker Cap", spec: "mesh back · embroidered", blurb: "The mesh back that never left." },
+  "PATCH-EMB":  { displayName: "Embroidered Patch", spec: "embroidered · to 3.5 in", blurb: "Stitched like it means it." },
+  "PATCH-PVC":  { displayName: "PVC Patch", spec: "pvc rubber · to 3.5 in", blurb: "Molded. Tactical. Indestructible." },
+  "PATCH-WVN":  { displayName: "Woven Patch", spec: "woven · fine detail", blurb: "For the fine print." },
+  "FLAG-3X5":   { displayName: "3x5 Flag", spec: "3 x 5 ft · full color", blurb: "For the walls that matter." },
+  "STICKER-DC": { displayName: "Die-Cut Stickers", spec: "die-cut vinyl · to 4 in", blurb: "Ends up everywhere. That's the point." },
 };
 
 const money = (n: number | null | undefined) =>
@@ -319,12 +319,11 @@ export default function MenuPage() {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 12, flexWrap: "wrap" }}>
             <div style={{ maxWidth: 620 }}>
               <h1 style={{ fontSize: 24, fontWeight: 900, letterSpacing: "-0.01em", lineHeight: 1.2, margin: 0 }}>
-                Nine times out of ten, it starts with one of these.
+                Heavy rotation.
               </h1>
               <p style={{ color: MUTED, fontSize: 13.5, lineHeight: 1.6, margin: "8px 0 0" }}>
-                These are the styles our clients build their brands on. Tap one to see colors
-                and real pricing, then add it to your quote. No checkout, no commitment,
-                just numbers.
+                The styles our brands run back over and over. Nine of ten drops start on one
+                of these. Tap in for colors and real pricing. No checkout, no commitment.
               </p>
             </div>
             {email && (
@@ -364,7 +363,7 @@ export default function MenuPage() {
               <div style={{ fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 3 }}>
                 {justSent ? "Got it. You'll hear from us within 1 business day." : "Quote requested. We are on it."}
               </div>
-              <div style={{ fontSize: 12, color: MUTED }}>Keep browsing. Your picks stay saved, and you can update your request any time.</div>
+              <div style={{ fontSize: 12, color: MUTED }}>Keep browsing. Everything stays saved, and you can update your request any time.</div>
             </div>
           )}
 
@@ -470,8 +469,8 @@ export default function MenuPage() {
           </section>
 
           <p style={{ fontSize: 12, color: FAINT, lineHeight: 1.6, maxWidth: 620 }}>
-            Prices include a 1-2 location print and are shown as ranges on purpose. The real
-            quote is exact and lands within 1 business day of asking.
+            Ranges on purpose; your exact quote lands within a business day. 1-2 print
+            locations included.
             Minimums: apparel 50 per design screen-printed (25–49 runs as DTF), hats 25,
             patches and flags 50, stickers 25. Each colorway runs its own minimum. Specialty inks,
             extra locations, and rush timelines move the number.
@@ -500,7 +499,7 @@ export default function MenuPage() {
                 )}
               </>
             ) : (
-              <span style={{ color: FAINT }}>Tap a style to start your quote, or just tell us what you are thinking</span>
+              <span style={{ color: FAINT }}>Tap a style to start, or just tell us what you're thinking</span>
             )}
           </div>
           <button
@@ -704,9 +703,9 @@ function StyleModal({ style, existing, files, placements, onUpload, onRemoveFile
 
               {inDtfZone ? (
                 <div style={{ fontSize: 12.5, color: AMBER, lineHeight: 1.55, marginTop: 10 }}>
-                  <b>{qty} pieces = small batch.</b> 25-49 pieces run as DTF prints instead
-                  of screens, so there is no per-piece price here; we quote it per design. Send it
-                  as is, or slide up to {groupMin}+ for screen-print pricing.
+                  <b>{qty} pieces = small batch territory.</b> 25-49 run DTF instead of
+                  screens; we quote those per design. Send it as is, or slide to {groupMin}+
+                  for screen pricing.
                 </div>
               ) : r ? (
                 <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
@@ -733,11 +732,11 @@ function StyleModal({ style, existing, files, placements, onUpload, onRemoveFile
 
               {/* What moves the number — Taylor's explanation, printed */}
               <div style={{ fontSize: 11.5, color: FAINT, lineHeight: 1.6, marginTop: 12 }}>
-                What moves your price: <span style={{ color: MUTED }}>volume</span> (slide it and
-                watch), <span style={{ color: MUTED }}>the blank</span> (a premium garment costs
-                more before ink ever touches it), and <span style={{ color: MUTED }}>the print</span>{" "}
-                (1-2 locations included; extra locations, specialty inks, and rush move it).
-                The exact quote comes from our team, and it lives inside this range.
+                Price moves three ways: <span style={{ color: MUTED }}>how many</span>,{" "}
+                <span style={{ color: MUTED }}>the blank</span>, and{" "}
+                <span style={{ color: MUTED }}>the print</span>. Slide the count and watch.
+                1-2 print locations included; specialty inks and rush cost more. Your exact
+                quote lands inside this range.
               </div>
             </div>
 
@@ -769,7 +768,7 @@ function StyleModal({ style, existing, files, placements, onUpload, onRemoveFile
                 </div>
               )}
               <button onClick={() => fileInput.current?.click()} style={{ background: "transparent", border: `1px dashed ${LINE}`, color: MUTED, fontSize: 12, padding: "9px 14px", cursor: "pointer", width: "100%", fontFamily: "inherit" }}>
-                + Add artwork (optional, we take it from here)
+                + Drop your art (optional, we take it from here)
               </button>
             </div>
 
@@ -783,8 +782,8 @@ function StyleModal({ style, existing, files, placements, onUpload, onRemoveFile
 
             {/* Trust banner — true, because the proof flow exists */}
             <div style={{ borderLeft: `2px solid ${TEAL}`, background: "rgba(115,182,201,0.07)", padding: "10px 12px", fontSize: 12, color: MUTED, lineHeight: 1.5, marginBottom: 16 }}>
-              Worried about your artwork? Don&apos;t be. Our team reviews every design and you
-              approve the final proof before anything prints.
+              Art not ready for primetime? No sweat. We check every file, and nothing
+              prints until you sign off on the proof.
             </div>
 
           </div>
@@ -879,7 +878,7 @@ function ReviewModal({ token, picks, setPicks, byCode, onEditItem, onRemoveItem,
           <button onClick={onClose} aria-label="Close" style={{ background: "transparent", border: "none", color: FAINT, fontSize: 22, cursor: "pointer", lineHeight: 1, padding: 4 }}>×</button>
         </div>
         <p style={{ margin: "0 0 18px", fontSize: 13, color: MUTED, lineHeight: 1.5 }}>
-          Exact pricing from our team within 1 business day.
+          Exact numbers back within a business day.
         </p>
 
         {/* Line items */}
@@ -910,7 +909,7 @@ function ReviewModal({ token, picks, setPicks, byCode, onEditItem, onRemoveItem,
           </div>
         ) : (
           <div style={{ border: `1px dashed ${LINE}`, padding: "12px 14px", fontSize: 12.5, color: MUTED, marginBottom: 18 }}>
-            No styles picked yet. That is fine. Tell us what you are thinking below and we will point you right.
+            Nothing picked yet? All good. Tell us what you're thinking and we'll point you right.
           </div>
         )}
 
@@ -1092,7 +1091,7 @@ function QuoteView({ token, quote, setQuote, status, setStatus, byCode }: {
           <span style={{ fontSize: 20, fontWeight: 800, fontFamily: monoFont }}>${Number(quote.total || 0).toLocaleString()}</span>
         </div>
         <p style={{ fontSize: 11, color: FAINT, margin: "0 0 26px" }}>
-          Exact pricing based on your picks. Nothing prints without your approval on the final proof.
+          Exact numbers, built from your picks. Nothing prints until you approve the proof.
         </p>
 
         {/* Punch list */}
@@ -1125,7 +1124,7 @@ function QuoteView({ token, quote, setQuote, status, setStatus, byCode }: {
         )}
         {!accepted && requiredOpen.length > 0 && (
           <p style={{ fontSize: 11, color: FAINT, textAlign: "center", marginTop: 8 }}>
-            You can accept now and finish the checklist after. We start on our side either way.
+            Accept now, finish the checklist whenever. We get moving either way.
           </p>
         )}
       </div>
