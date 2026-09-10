@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { resendForSlug } from "@/lib/resend-client";
 import { renderBrandedEmail } from "@/lib/email-template";
 import { distributeCurve, gridKey, SIZE_ORDER, type Quote } from "@/lib/menu-quote";
+import { refreshJobFinancials } from "@/lib/costing-summary";
 
 // POST /api/menu/lead-convert — the accepted quote becomes a real job.
 // { leadId, clientId?, clientName? }
@@ -131,6 +132,7 @@ export async function POST(req: NextRequest) {
 
   // 4. Items per line × colorway + buy_sheet_lines from the punch grids.
   const grids = ((punchOf("sizes")?.payload as any)?.grids || {}) as Record<string, Record<string, number>>;
+  const createdItems: { itemId: string; lineIdx: number; colorway: string | null }[] = [];
   let sortOrder = 0;
   for (let li = 0; li < quote.lines.length; li++) {
     const line = quote.lines[li];
@@ -151,9 +153,7 @@ export async function POST(req: NextRequest) {
           // Quote costing carries into the job (Jon: "blank costs didn't
           // carry over") — real costing refines later, same fields.
           cost_per_unit: line.costing?.blank ?? null,
-          cost_per_unit_all_in: line.costing?.blank != null && line.costing?.print != null
-            ? Number((line.costing.blank + line.costing.print).toFixed(2))
-            : null,
+          cost_per_unit_all_in: line.costing?.allIn ?? line.costing?.blank ?? null,
           sort_order: sortOrder++,
           notes: [line.note, curved ? "Sizes: standard curve seeded — client had not filled the grid; true up in the worksheet." : null]
             .filter(Boolean).join(" · ") || null,
@@ -162,6 +162,7 @@ export async function POST(req: NextRequest) {
         .single();
       if (iErr || !item) return NextResponse.json({ error: iErr?.message || "Item create failed." }, { status: 500 });
       const itemId = (item as { id: string }).id;
+      createdItems.push({ itemId, lineIdx: li, colorway: cw });
 
       const sizes: Record<string, number> = grid && Object.values(grid).some((n) => n > 0)
         ? grid
@@ -177,6 +178,70 @@ export async function POST(req: NextRequest) {
         const { error: bErr } = await supabase.from("buy_sheet_lines").insert(rows as never);
         if (bErr) return NextResponse.json({ error: `Buy sheet failed: ${bErr.message}` }, { status: 500 });
       }
+    }
+  }
+
+  // 4b. Seed costing_data.costProds from the quote's REAL specs (vendor,
+  // locations, blank, margin) — Taylor entered them through the same
+  // engine, so the Costing tab opens pre-filled instead of blank. Doctrine
+  // holds: NO qtys/totalQty persisted (single-source: wrapper refills from
+  // buy_sheet_lines); sellStored = the quoted price. Colorways of one line
+  // share screens via shareGroup (same art, one set of screens).
+  const specLines = quote.lines.filter((l) => l.costing?.vendor);
+  if (specLines.length) {
+    const { data: groupRows } = await supabase
+      .from("menu_rates")
+      .select("style_code,product_group")
+      .in("style_code", quote.lines.map((l) => l.styleCode).filter(Boolean) as string[]);
+    const groupOf: Record<string, string> = {};
+    for (const g of (groupRows as any[]) || []) groupOf[g.style_code] = g.product_group;
+
+    const costProds = createdItems
+      .map(({ itemId, lineIdx, colorway }) => {
+        const line = quote.lines[lineIdx];
+        const c = line.costing;
+        if (!c?.vendor || !line.styleCode) return null;
+        const multiCw = line.colors.length > 1;
+        const printLocations: Record<number, any> = {};
+        (c.locations || []).forEach((loc, i) => {
+          if (loc.colors > 0) {
+            printLocations[i + 1] = {
+              location: loc.location,
+              screens: loc.colors,
+              printer: c.vendor,
+              ...(multiCw ? { shared: true, shareGroup: `${line.label}-${loc.location}` } : {}),
+            };
+          }
+        });
+        const group = groupOf[line.styleCode] || "tee";
+        return {
+          id: itemId,
+          name: colorway ? `${line.label} - ${colorway}` : line.label,
+          garment_type: group === "hat" ? "hat" : group,
+          blank_vendor: line.label,
+          color: colorway,
+          blankCostPerUnit: c.blank ?? 0,
+          printVendor: c.vendor,
+          printLocations,
+          isFleece: group === "hoodie",
+          sellStored: line.unitPrice ?? undefined,
+        };
+      })
+      .filter(Boolean);
+    if (costProds.length) {
+      const margin = quote.lines.find((l) => l.costing?.margin != null)?.costing?.margin ?? 0.3;
+      await supabase
+        .from("jobs")
+        .update({
+          costing_data: {
+            costMargin: `${Math.round(margin * 100)}%`,
+            inclShip: false,
+            inclCC: false,
+            costProds,
+          },
+        } as never)
+        .eq("id", jobId);
+      await refreshJobFinancials(supabase, jobId);
     }
   }
 

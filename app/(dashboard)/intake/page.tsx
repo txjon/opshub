@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/client";
 import { resolveSlugFromHost, DEFAULT_SLUG } from "@/lib/tenants";
 import { T, font, mono } from "@/lib/theme";
 import { snapshotMid, defaultPunch, quoteTotal, type Quote, type QuoteLine, type PunchPoint } from "@/lib/menu-quote";
+import { buildPrintersMap, calcCostProduct } from "@/lib/pricing";
 
 // /intake — leads inbox. Submissions from the public /start form land
 // here. Team triages by:
@@ -1156,40 +1157,59 @@ function ComposeResponseModal({ lead, onClose, onSent }: { lead: MenuLead; onClo
 // items.sell_per_unit on accept→job; punch 'sizes' grids become
 // buy_sheet_lines — the single-source spine starts here.
 
-// Interpolate the print (decoration) cost between band anchors, same
-// shape as the seed's curve.
-function decoAt(rows: { band_min: number; deco: number | null }[], qty: number): number | null {
-  const anchors = rows.filter(r => r.deco != null).sort((a, b) => a.band_min - b.band_min);
-  if (!anchors.length) return null;
-  if (qty <= anchors[0].band_min) return anchors[0].deco!;
-  let prev = anchors[0];
-  for (const a of anchors) {
-    if (qty <= a.band_min) {
-      const t = (qty - prev.band_min) / (a.band_min - prev.band_min);
-      return prev.deco! + (a.deco! - prev.deco!) * t;
-    }
-    prev = a;
-  }
-  return prev.deco!;
-}
+// The quick quote runs the REAL costing engine (lib/pricing) per line:
+// blank + vendor rate card at the line's qty, per-location color counts,
+// margin on sell. Same math as the Costing tab, blanks and decoration only
+// (no ship/CC buffers).
+const PRINT_LOCATIONS = ["Front", "Back", "Left Chest", "Right Chest", "Sleeve", "Nape"];
 
 function QuoteBuilderModal({ lead, onClose, onSent }: { lead: MenuLead; onClose: () => void; onSent: () => void }) {
   const supabase = createClient();
-  // Live rate meta: each style's blank cost + print curve (the same
-  // spec-anchored engine behind the public prices).
-  const [rateMeta, setRateMeta] = useState<Record<string, { blank: number | null; bands: { band_min: number; deco: number | null }[] }>>({});
+  const [printers, setPrinters] = useState<Record<string, any>>({});
+  const [vendorOpts, setVendorOpts] = useState<{ key: string; name: string }[]>([]);
+  const [rateMeta, setRateMeta] = useState<Record<string, { blank: number | null; group: string }>>({});
   useEffect(() => {
-    supabase.from("menu_rates").select("style_code,band_min,seed_meta").eq("active", true).then(({ data }) => {
-      const m: Record<string, { blank: number | null; bands: { band_min: number; deco: number | null }[] }> = {};
+    supabase.from("decorators").select("name, short_code, pricing_data, capabilities").not("pricing_data", "is", null).then(({ data }) => {
+      const rows = (data as any[]) || [];
+      setPrinters(buildPrintersMap(rows));
+      setVendorOpts(rows.filter(d => d.pricing_data?.qtys?.length).map(d => ({ key: d.short_code || d.name, name: d.name })));
+    });
+    supabase.from("menu_rates").select("style_code,product_group,seed_meta").eq("active", true).then(({ data }) => {
+      const m: Record<string, { blank: number | null; group: string }> = {};
       for (const r of (data as any[]) || []) {
-        const meta = r.seed_meta || {};
-        if (!m[r.style_code]) m[r.style_code] = { blank: meta.blank ?? null, bands: [] };
-        m[r.style_code].bands.push({ band_min: r.band_min, deco: meta.deco ?? null });
-        if (m[r.style_code].blank == null && meta.blank != null) m[r.style_code].blank = meta.blank;
+        if (!m[r.style_code]) m[r.style_code] = { blank: r.seed_meta?.blank ?? null, group: r.product_group };
+        if (m[r.style_code].blank == null && r.seed_meta?.blank != null) m[r.style_code].blank = r.seed_meta.blank;
       }
       setRateMeta(m);
     });
   }, []);
+
+  // Build the engine's costProd from a quote line and run it.
+  function runEngine(l: QuoteLine): { sell: number; costPerPc: number; printPerPc: number; setup: number } | null {
+    const c = l.costing;
+    if (!c?.vendor || c.blank == null || !l.styleCode) return null;
+    const group = rateMeta[l.styleCode]?.group || "tee";
+    if (!["tee", "hoodie", "hat"].includes(group)) return null; // accessories price manually
+    const printLocations: Record<number, any> = {};
+    c.locations.forEach((loc, i) => {
+      if (loc.colors > 0) printLocations[i + 1] = { location: loc.location, screens: loc.colors, printer: c.vendor };
+    });
+    const prod: any = {
+      id: "quick-quote", name: l.label, totalQty: l.qty,
+      garment_type: group === "hat" ? "hat" : group,
+      blank_vendor: l.label, blankCostPerUnit: c.blank,
+      printVendor: c.vendor, printLocations,
+      isFleece: group === "hoodie",
+    };
+    const r = calcCostProduct(prod, `${Math.round((c.margin ?? 0.3) * 100)}%`, false, false, [prod], printers);
+    if (!r || !(r.sellPerUnit > 0)) return null;
+    return {
+      sell: Math.round(r.sellPerUnit * 20) / 20,
+      costPerPc: Number((r.totalCost / l.qty).toFixed(2)),
+      printPerPc: Number(((r.printTotal || 0) / l.qty).toFixed(2)),
+      setup: Number((r.setupTotal || 0).toFixed(2)),
+    };
+  }
   const initial = useMemo<{ lines: QuoteLine[]; punch: PunchPoint[]; validUntil: string }>(() => {
     if (lead.quote) {
       return { lines: lead.quote.lines, punch: lead.quote.punch, validUntil: lead.quote.validUntil };
@@ -1219,18 +1239,16 @@ function QuoteBuilderModal({ lead, onClose, onSent }: { lead: MenuLead; onClose:
   }, [lead]);
 
   const [lines, setLines] = useState<QuoteLine[]>(initial.lines);
-  // Prefill each styled line's costing from the live engine once (skip
-  // lines that already carry costing from a saved quote).
+  // Prefill: blank from the live rate meta, one Front location at 1 color,
+  // 30% margin. Price stays at the snapshot midpoint until Taylor picks a
+  // vendor; then the engine takes over.
   useEffect(() => {
     if (!Object.keys(rateMeta).length) return;
     setLines(ls => ls.map(l => {
       if (!l.styleCode || l.costing) return l;
       const meta = rateMeta[l.styleCode];
       if (!meta || meta.blank == null) return l;
-      const print = decoAt(meta.bands, l.qty);
-      const margin = 0.3;
-      const price = print != null ? Math.round(((meta.blank + print) / (1 - margin)) * 20) / 20 : l.unitPrice;
-      return { ...l, costing: { blank: meta.blank, print: print != null ? Number(print.toFixed(2)) : null, margin }, unitPrice: price ?? l.unitPrice };
+      return { ...l, costing: { blank: meta.blank, margin: 0.3, vendor: null, locations: [{ location: "Front", colors: 1 }] } };
     }));
   }, [rateMeta]);
   const [punch, setPunch] = useState<PunchPoint[]>(initial.punch);
@@ -1244,16 +1262,17 @@ function QuoteBuilderModal({ lead, onClose, onSent }: { lead: MenuLead; onClose:
   function setLine(i: number, patch: Partial<QuoteLine>) {
     setLines(ls => ls.map((l, x) => (x === i ? { ...l, ...patch } : l)));
   }
-  // Editing blank/print/margin recomputes the sell; typing the price
-  // directly leaves the costing as reference.
+  // Editing spec inputs reruns the engine; typing the price directly sets
+  // manual and the engine result becomes reference-only.
   function setCosting(i: number, patch: Partial<NonNullable<QuoteLine["costing"]>>) {
     setLines(ls => ls.map((l, x) => {
       if (x !== i) return l;
-      const c = { blank: null, print: null, margin: 0.3, ...(l.costing || {}), ...patch };
-      const price = c.blank != null && c.print != null && c.margin != null
-        ? Math.round(((c.blank + c.print) / (1 - c.margin)) * 20) / 20
-        : l.unitPrice;
-      return { ...l, costing: c, unitPrice: price };
+      const c = { blank: null, margin: 0.3, vendor: null, locations: [{ location: "Front", colors: 1 }], ...(l.costing || {}), ...patch };
+      const next = { ...l, costing: c };
+      const r = runEngine(next);
+      if (r && !c.manual) { next.unitPrice = r.sell; next.costing = { ...c, allIn: r.costPerPc }; }
+      else if (r) next.costing = { ...c, allIn: r.costPerPc };
+      return next;
     }));
   }
 
@@ -1297,20 +1316,60 @@ function QuoteBuilderModal({ lead, onClose, onSent }: { lead: MenuLead; onClose:
                   </div>
                 )}
                 {l.costing && (
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, fontSize: 10.5, fontFamily: mono, color: T.muted, flexWrap: "wrap" }}>
-                    <span>blank $</span>
-                    <input type="number" step="0.05" value={l.costing.blank ?? ""} onChange={e => setCosting(i, { blank: e.target.value === "" ? null : Number(e.target.value) })}
-                      style={{ ...inp, width: 62, padding: "2px 5px", fontSize: 10.5, fontFamily: mono }} />
-                    <span>+ print $</span>
-                    <input type="number" step="0.05" value={l.costing.print ?? ""} onChange={e => setCosting(i, { print: e.target.value === "" ? null : Number(e.target.value) })}
-                      style={{ ...inp, width: 62, padding: "2px 5px", fontSize: 10.5, fontFamily: mono }} />
-                    <span>· margin</span>
-                    <input type="number" step="1" value={l.costing.margin != null ? Math.round(l.costing.margin * 100) : ""} onChange={e => setCosting(i, { margin: e.target.value === "" ? null : Number(e.target.value) / 100 })}
-                      style={{ ...inp, width: 48, padding: "2px 5px", fontSize: 10.5, fontFamily: mono }} />
-                    <span>%</span>
-                    {l.costing.blank != null && l.costing.print != null && (
-                      <span style={{ color: T.faint }}>cost ${(l.costing.blank + l.costing.print).toFixed(2)}/pc</span>
-                    )}
+                  <div style={{ marginTop: 6, padding: "8px 10px", background: T.card, border: `1px solid ${T.border}`, borderRadius: 7, display: "flex", flexDirection: "column", gap: 6 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 10.5, fontFamily: mono, color: T.muted }}>
+                      <select
+                        value={l.costing.vendor || ""}
+                        onChange={e => setCosting(i, { vendor: e.target.value || null })}
+                        style={{ ...inp, padding: "3px 6px", fontSize: 11, minWidth: 120 }}
+                      >
+                        <option value="">pick vendor...</option>
+                        {vendorOpts.map(v => <option key={v.key} value={v.key}>{v.name}</option>)}
+                      </select>
+                      <span>blank $</span>
+                      <input type="number" step="0.05" value={l.costing.blank ?? ""} onChange={e => setCosting(i, { blank: e.target.value === "" ? null : Number(e.target.value) })}
+                        style={{ ...inp, width: 62, padding: "3px 5px", fontSize: 10.5, fontFamily: mono }} />
+                      <span>margin</span>
+                      <input type="number" step="1" value={l.costing.margin != null ? Math.round(l.costing.margin * 100) : ""} onChange={e => setCosting(i, { margin: e.target.value === "" ? null : Number(e.target.value) / 100 })}
+                        style={{ ...inp, width: 46, padding: "3px 5px", fontSize: 10.5, fontFamily: mono }} />
+                      <span>%</span>
+                    </div>
+                    {l.costing.locations.map((loc, li2) => (
+                      <div key={li2} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10.5, fontFamily: mono, color: T.muted }}>
+                        <select
+                          value={loc.location}
+                          onChange={e => setCosting(i, { locations: l.costing!.locations.map((x, y) => y === li2 ? { ...x, location: e.target.value } : x) })}
+                          style={{ ...inp, padding: "3px 6px", fontSize: 11 }}
+                        >
+                          {PRINT_LOCATIONS.map(pl => <option key={pl} value={pl}>{pl}</option>)}
+                        </select>
+                        <input type="number" min={0} max={12} value={loc.colors || ""} placeholder="colors"
+                          onChange={e => setCosting(i, { locations: l.costing!.locations.map((x, y) => y === li2 ? { ...x, colors: Number(e.target.value) || 0 } : x) })}
+                          style={{ ...inp, width: 56, padding: "3px 5px", fontSize: 10.5, fontFamily: mono }} />
+                        <span>colors</span>
+                        {l.costing!.locations.length > 1 && (
+                          <span onClick={() => setCosting(i, { locations: l.costing!.locations.filter((_, y) => y !== li2) })} style={{ color: T.faint, cursor: "pointer" }}>×</span>
+                        )}
+                      </div>
+                    ))}
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                      <span
+                        onClick={() => setCosting(i, { locations: [...l.costing!.locations, { location: "Back", colors: 1 }] })}
+                        style={{ fontSize: 10.5, color: T.blue, cursor: "pointer", borderBottom: `1px dotted ${T.blue}`, fontFamily: mono }}
+                      >
+                        + location
+                      </span>
+                      {(() => {
+                        const r = runEngine(l);
+                        if (!r) return <span style={{ fontSize: 10.5, color: T.amber, fontFamily: mono }}>{l.costing!.vendor ? "no rate match" : "pick a vendor to price the print"}</span>;
+                        return (
+                          <span style={{ fontSize: 10.5, color: T.faint, fontFamily: mono }}>
+                            print ${r.printPerPc.toFixed(2)}/pc · screens ${r.setup.toFixed(0)} flat · cost ${r.costPerPc.toFixed(2)}/pc
+                            {l.costing!.manual ? " · manual price" : ` → $${r.sell.toFixed(2)}/pc`}
+                          </span>
+                        );
+                      })()}
+                    </div>
                   </div>
                 )}
               </div>
@@ -1321,7 +1380,7 @@ function QuoteBuilderModal({ lead, onClose, onSent }: { lead: MenuLead; onClose:
                   type="number" step="0.05"
                   value={l.unitPrice ?? ""}
                   placeholder="price"
-                  onChange={e => setLine(i, { unitPrice: e.target.value === "" ? null : Number(e.target.value) })}
+                  onChange={e => setLine(i, { unitPrice: e.target.value === "" ? null : Number(e.target.value), costing: l.costing ? { ...l.costing, manual: true } : l.costing })}
                   style={{ ...inp, width: "100%", boxSizing: "border-box", paddingLeft: 18, textAlign: "right", fontFamily: mono, borderColor: l.unitPrice == null ? T.amber : T.border }}
                 />
               </div>
