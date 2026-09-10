@@ -454,7 +454,7 @@ function ItemSheet({ entry, line, onClose, onSave, onAddToRelease }: {
               </div>
             )}
             <input value={lineNote} onChange={e => setLineNote(e.target.value)}
-              placeholder="Optional — e.g. no smalls this time"
+              placeholder="Optional, e.g. no smalls this time"
               style={{ marginTop: 10, width: "100%", boxSizing: "border-box", background: H.surface, border: `1px solid ${H.line}`, borderRadius: 10, color: H.text, fontSize: 12.5, padding: "11px 13px", outline: "none", fontFamily: H.font }} />
           </div>
           {entry.lastUnit != null && (
@@ -540,11 +540,11 @@ function ShelfRail({ token }: { token: string }) {
     <div style={{ marginBottom: 34 }}>
       <div style={{ display: "flex", alignItems: "baseline", gap: 10, justifyContent: "center", marginBottom: 4 }}>
         <span style={{ fontSize: 12, fontWeight: 900, letterSpacing: "0.12em", textTransform: "uppercase", color: "#fd3aa3" }}>On the shelf</span>
-        <span style={{ fontSize: 11, color: H.faint }}>greenlit and ready — these haven&rsquo;t run yet</span>
+        <span style={{ fontSize: 11, color: H.faint }}>greenlit and ready. These haven&rsquo;t run yet</span>
       </div>
       {done && (
         <div style={{ fontSize: 12.5, color: H.green, fontWeight: 700, textAlign: "center", margin: "8px 0" }}>
-          ✓ &ldquo;{done}&rdquo; is on its way to production — we&rsquo;ll confirm pricing before anything prints.
+          ✓ &ldquo;{done}&rdquo; is on its way to production. We&rsquo;ll confirm pricing before anything prints.
         </div>
       )}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 12, marginTop: 12 }}>
@@ -563,8 +563,8 @@ function ShelfRail({ token }: { token: string }) {
       </div>
       {open && (
         <div style={{ background: H.panel, border: `1px solid ${H.line}`, borderRadius: 14, padding: 18, marginTop: 14 }}>
-          <div style={{ fontSize: 13, fontWeight: 900, textTransform: "uppercase", marginBottom: 4 }}>{open.title} — first run</div>
-          <div style={{ fontSize: 11, color: H.dim, marginBottom: 12 }}>Rough is fine — we&rsquo;ll confirm everything with you before anything prints.</div>
+          <div style={{ fontSize: 13, fontWeight: 900, textTransform: "uppercase", marginBottom: 4 }}>{open.title} · first run</div>
+          <div style={{ fontSize: 11, color: H.dim, marginBottom: 12 }}>Rough is fine. We&rsquo;ll confirm everything with you before anything prints.</div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
             {SIZES.map(sz => (
               <label key={sz} style={{ display: "flex", flexDirection: "column", gap: 3 }}>

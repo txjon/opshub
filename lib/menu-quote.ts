@@ -100,7 +100,7 @@ export function defaultPunch(opts: {
     key: "art", kind: "files", required: true, status: "needed",
     label: "Print-ready artwork",
     desc: artStatus === "need_help"
-      ? "You asked for design help — our team will build the art with you; drop any references or logos here."
+      ? "You asked for design help. Our team will build the art with you; drop any references or logos here."
       : hasArtFiles
         ? "We have your mockups. Upload the print-ready versions when you have them (vector or 300dpi at print size)."
         : "Upload the final art for each placement (vector or 300dpi at print size).",
@@ -113,7 +113,7 @@ export function defaultPunch(opts: {
   punch.push({
     key: "ship", kind: "address", required: true, status: "needed",
     label: "Where it goes",
-    desc: "Ship-to address — or tell us to hold it at House Party for fulfillment.",
+    desc: "Ship-to address, or tell us to hold it at House Party for fulfillment.",
   });
   punch.push({
     key: "date", kind: "date", required: true, status: neededBy ? "done" : "needed",

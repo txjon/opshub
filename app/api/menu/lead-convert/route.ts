@@ -193,11 +193,11 @@ export async function POST(req: NextRequest) {
       from: `House Party Distro <${FROM_EMAIL}>`,
       to: lead.email,
       replyTo: FROM_EMAIL,
-      subject: "You're in — your order is rolling",
+      subject: "You're in. Your order is rolling.",
       html: renderBrandedEmail({
         heading: "Your order is officially in the works.",
         greeting: `Hi ${firstName},`,
-        bodyHtml: `We are building your job now. Next step on our side: your proof — you approve it before anything prints.${openPoints.length ? `<br/><br/>Two seconds when you get a chance: <strong>${openPoints.join(", ")}</strong> — still open on <a href="https://housepartydistro.com/build/${lead.token}">your checklist</a>.` : ""}<br/><br/>From here on out, your House Party hub is home — orders, tracking, everything.`,
+        bodyHtml: `We are building your job now. Next step on our side: your proof. You approve it before anything prints.${openPoints.length ? `<br/><br/>Two seconds when you get a chance: <strong>${openPoints.join(", ")}</strong> is still open on <a href="https://housepartydistro.com/build/${lead.token}">your checklist</a>.` : ""}<br/><br/>From here on out, your House Party hub is home — orders, tracking, everything.`,
         cta: hubToken ? { label: "Open your hub", url: `https://app.housepartydistro.com/portal/client/${hubToken}` } : undefined,
         hint: "Reply to this email any time.",
       }),

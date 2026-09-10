@@ -98,7 +98,7 @@ export function OrderExperience({ data, token, onAction }: {
       // copy here — the revisedUp branch above owns real growth (a deposit
       // on net terms was reading "your order grew", the #4365 case).
       note = netTerms
-        ? `${fmtMoney(totalPaid)} received — thank you. The remaining ${fmtMoney(balance)} is due on your ${termsLabel || "net"} terms.`
+        ? `${fmtMoney(totalPaid)} received, thank you. The remaining ${fmtMoney(balance)} is due on your ${termsLabel || "net"} terms.`
         : `Balance remaining on invoice ${invoiceNumber ? `#${invoiceNumber}` : ""}.`;
       if (paymentLink) cta = { label: `View Invoice · ${fmtMoney(balance)} due`, href: paymentLink };
     } else if (netTerms) {
@@ -106,7 +106,7 @@ export function OrderExperience({ data, token, onAction }: {
       // invoice is sent with a live link, show it (the old always-no-cta
       // read hid sent invoices from net clients — the #4256 case).
       if (paymentLink && balance > 0.005) {
-        note = `Invoice ${invoiceNumber ? `#${invoiceNumber}` : ""} is ready — due on your ${termsLabel || "net"} terms.`;
+        note = `Invoice ${invoiceNumber ? `#${invoiceNumber}` : ""} is ready, due on your ${termsLabel || "net"} terms.`;
         cta = { label: `View Invoice · ${fmtMoney(balance)} due`, href: paymentLink };
       } else {
         note = `You're on ${termsLabel || "net terms"}. Production proceeds now; your invoice follows on your terms.`;

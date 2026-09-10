@@ -97,7 +97,7 @@ const STYLE_META: Record<string, { displayName: string; spec: string; blurb: str
 };
 
 const money = (n: number | null | undefined) =>
-  n === null || n === undefined ? "—" : `$${n.toFixed(2)}`;
+  n === null || n === undefined ? "-" : `$${n.toFixed(2)}`;
 
 // /shop design language.
 const BG = "#0a0a0c";
@@ -318,7 +318,7 @@ export default function MenuPage() {
                 The Build
               </h1>
               <p style={{ color: FAINT, fontSize: 12.5, lineHeight: 1.5, margin: "6px 0 0" }}>
-                The pieces we actually print, at the prices we actually charge. Build it — ask
+                The pieces we actually print, at the prices we actually charge. Build it, then ask
                 for the real number when it feels right.
               </p>
             </div>
@@ -359,7 +359,7 @@ export default function MenuPage() {
               <div style={{ fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 3 }}>
                 {justSent ? "Got it. You'll hear from us within 1 business day." : "Quote requested. We are on it."}
               </div>
-              <div style={{ fontSize: 12, color: MUTED }}>Keep browsing — your picks stay saved, and you can update your request any time.</div>
+              <div style={{ fontSize: 12, color: MUTED }}>Keep browsing. Your picks stay saved, and you can update your request any time.</div>
             </div>
           )}
 
@@ -453,7 +453,7 @@ export default function MenuPage() {
           </section>
 
           <p style={{ fontSize: 12, color: FAINT, lineHeight: 1.6, maxWidth: 620 }}>
-            Prices include a 1–2 location print and are shown as ranges on purpose — the real
+            Prices include a 1-2 location print and are shown as ranges on purpose. The real
             quote is exact and lands within 1 business day of asking.
             Minimums: apparel 50 per design screen-printed (25–49 runs as DTF), hats 25,
             patches and flags 50, stickers 25. Each colorway runs its own minimum. Specialty inks,
@@ -483,7 +483,7 @@ export default function MenuPage() {
                 )}
               </>
             ) : (
-              <span style={{ color: FAINT }}>Tap a style to start your quote — or just tell us what you are thinking</span>
+              <span style={{ color: FAINT }}>Tap a style to start your quote, or just tell us what you are thinking</span>
             )}
           </div>
           <button
@@ -687,9 +687,9 @@ function StyleModal({ style, existing, files, placements, onUpload, onRemoveFile
 
               {inDtfZone ? (
                 <div style={{ fontSize: 12.5, color: AMBER, lineHeight: 1.55, marginTop: 10 }}>
-                  <b>{qty} pieces = small batch.</b> 25–49 pieces run as DTF prints instead
-                  of screens — no per-piece menu price; we quote it per design. Send it as is,
-                  or slide up to {groupMin}+ for screen-print pricing.
+                  <b>{qty} pieces = small batch.</b> 25-49 pieces run as DTF prints instead
+                  of screens, so there is no per-piece price here; we quote it per design. Send it
+                  as is, or slide up to {groupMin}+ for screen-print pricing.
                 </div>
               ) : r ? (
                 <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
@@ -703,7 +703,7 @@ function StyleModal({ style, existing, files, placements, onUpload, onRemoveFile
                   )}
                 </div>
               ) : (
-                <div style={{ fontSize: 13, color: FAINT, marginTop: 10 }}>No listed price for this one yet — ask and we'll quote it.</div>
+                <div style={{ fontSize: 13, color: FAINT, marginTop: 10 }}>No listed price for this one yet. Ask and we'll quote it.</div>
               )}
 
               {underMin && !inDtfZone && (
@@ -719,7 +719,7 @@ function StyleModal({ style, existing, files, placements, onUpload, onRemoveFile
                 What moves your price: <span style={{ color: MUTED }}>volume</span> (slide it and
                 watch), <span style={{ color: MUTED }}>the blank</span> (a premium garment costs
                 more before ink ever touches it), and <span style={{ color: MUTED }}>the print</span>{" "}
-                (1–2 locations included — extra locations, specialty inks, and rush move it).
+                (1-2 locations included; extra locations, specialty inks, and rush move it).
                 The exact quote comes from our team, and it lives inside this range.
               </div>
             </div>
@@ -752,7 +752,7 @@ function StyleModal({ style, existing, files, placements, onUpload, onRemoveFile
                 </div>
               )}
               <button onClick={() => fileInput.current?.click()} style={{ background: "transparent", border: `1px dashed ${LINE}`, color: MUTED, fontSize: 12, padding: "9px 14px", cursor: "pointer", width: "100%", fontFamily: "inherit" }}>
-                + Add artwork (optional — we take it from here)
+                + Add artwork (optional, we take it from here)
               </button>
             </div>
 
@@ -781,7 +781,7 @@ function StyleModal({ style, existing, files, placements, onUpload, onRemoveFile
             </div>
           ) : inDtfZone ? (
             <div style={{ fontSize: 11.5, fontFamily: monoFont, color: AMBER, marginBottom: 8 }}>
-              {qty} pieces · small batch DTF — quoted per design
+              {qty} pieces · small batch DTF · quoted per design
             </div>
           ) : null}
           <div style={{ display: "flex", gap: 10 }}>
@@ -893,7 +893,7 @@ function ReviewModal({ token, picks, setPicks, byCode, onEditItem, onRemoveItem,
           </div>
         ) : (
           <div style={{ border: `1px dashed ${LINE}`, padding: "12px 14px", fontSize: 12.5, color: MUTED, marginBottom: 18 }}>
-            No styles picked yet — that is fine. Tell us what you are thinking below and we will point you right.
+            No styles picked yet. That is fine. Tell us what you are thinking below and we will point you right.
           </div>
         )}
 
@@ -1033,7 +1033,7 @@ function QuoteView({ token, quote, setQuote, status, setStatus, byCode }: {
             <div style={{ fontSize: 13, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 3 }}>You&apos;re in. We&apos;re rolling.</div>
             <div style={{ fontSize: 12.5, color: MUTED, lineHeight: 1.55 }}>
               {requiredOpen.length
-                ? `Finish the ${requiredOpen.length} open point${requiredOpen.length > 1 ? "s" : ""} below whenever you can — we start on our side now.`
+                ? `Finish the ${requiredOpen.length} open point${requiredOpen.length > 1 ? "s" : ""} below whenever you can. We start on our side now.`
                 : "Everything we need is here."} You approve the final proof before anything prints.
             </div>
           </div>
@@ -1108,7 +1108,7 @@ function QuoteView({ token, quote, setQuote, status, setStatus, byCode }: {
         )}
         {!accepted && requiredOpen.length > 0 && (
           <p style={{ fontSize: 11, color: FAINT, textAlign: "center", marginTop: 8 }}>
-            You can accept now and finish the checklist after — we start on our side either way.
+            You can accept now and finish the checklist after. We start on our side either way.
           </p>
         )}
       </div>
@@ -1241,7 +1241,7 @@ function PunchItem({ token, point, lines, byCode, busy, onSave }: {
             <textarea
               value={text}
               onChange={(e) => setText(e.target.value.slice(0, 1200))}
-              placeholder={point.kind === "address" ? "Ship-to address — or 'hold at House Party for fulfillment'" : "Your answer..."}
+              placeholder={point.kind === "address" ? "Ship-to address, or 'hold at House Party for fulfillment'" : "Your answer..."}
               style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${LINE}`, padding: "8px 10px", fontSize: 12.5, minHeight: 48, fontFamily: "inherit", color: TEXT, background: BG, resize: "vertical" }}
             />
             <button onClick={() => text.trim() && onSave({ payload: { value: text.trim() } })} disabled={busy || !text.trim()} style={{ background: "transparent", border: `1px solid ${TEAL}`, color: TEAL, fontSize: 12, padding: "7px 16px", cursor: "pointer", fontFamily: "inherit", marginTop: 6 }}>

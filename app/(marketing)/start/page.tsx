@@ -693,7 +693,7 @@ function DoorScreen({ onIntake, onEntered }: { onIntake: (email: string) => void
               Brief us directly
             </h2>
             <p style={{ fontSize: 13, color: D.muted, lineHeight: 1.55, margin: "0 0 18px" }}>
-              Already know the plan? Send it straight to our production team — details,
+              Already know the plan? Send it straight to our production team: details,
               files, dates, the whole picture.
             </p>
             <button type="button" onClick={() => onIntake(email)} style={{ background: "transparent", color: D.text, border: `1.5px solid ${D.line}`, borderRadius: 8, padding: "11px 20px", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
@@ -707,7 +707,7 @@ function DoorScreen({ onIntake, onEntered }: { onIntake: (email: string) => void
             How this works
           </div>
           <p style={{ fontSize: 13.5, color: D.muted, lineHeight: 1.7, margin: 0 }}>
-            House Party is a sourcing house. We source the blanks, print them, and ship them —
+            House Party is a sourcing house. We source the blanks, print them, and ship them,
             or hold them here and fulfill your store. Build it or brief it, we quote it within
             a business day, and you approve the proof before anything prints.
           </p>
@@ -812,7 +812,7 @@ function Step2({
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <label style={{ display: "block", marginBottom: 18 }}>
         <span style={{ display: "block", fontSize: 12, fontWeight: 700, color: "#1a1a1a", marginBottom: 6 }}>
-          What kind of help? <span style={{ color: "#a0a0ad", fontWeight: 400 }}>(optional — we can sort this out together)</span>
+          What kind of help? <span style={{ color: "#a0a0ad", fontWeight: 400 }}>(optional, we can sort this out together)</span>
         </span>
         <select
           value={form.project_type}

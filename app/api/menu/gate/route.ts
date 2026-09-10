@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
     await resendForSlug("hpd").emails.send({
       from: `House Party Distro <${FROM_EMAIL}>`,
       to: clean,
-      subject: "You're in — here's your key",
+      subject: "You're in. Here's your key.",
       html: renderBrandedEmail({
         heading: "You're in.",
         bodyHtml:

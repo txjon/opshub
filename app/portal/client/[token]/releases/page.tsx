@@ -23,12 +23,12 @@ const TONE: Record<LineTone, string> = { green: C.green, amber: C.amber, blue: C
 // what happens next. No chips, no counters, no logistics.
 const healthLine = (d: any): { text: string; color: string } => {
   switch (d.status) {
-    case "building": return { text: "Yours to build — send it over when the lineup\u2019s ready.", color: C.amber };
-    case "ready": return { text: "With us — we\u2019re costing and scheduling it.", color: C.blue };
-    case "live": return { text: d.window_close_date ? `Selling now — closes ${fmtDate(d.window_close_date)}.` : "Selling now.", color: "#fd3aa3" };
+    case "building": return { text: "Yours to build. Send it over when the lineup\u2019s ready.", color: C.amber };
+    case "ready": return { text: "With us. We\u2019re costing and scheduling it.", color: C.blue };
+    case "live": return { text: d.window_close_date ? `Selling now. Closes ${fmtDate(d.window_close_date)}.` : "Selling now.", color: "#fd3aa3" };
     case "closed": return { text: "Closed.", color: C.faint };
     case "cut":
-      if (d.payable?.state === "ready") return { text: `In production — invoice${d.payable.invoiceNumber ? ` #${d.payable.invoiceNumber}` : ""} ready to pay.`, color: C.amber };
+      if (d.payable?.state === "ready") return { text: `In production. Invoice${d.payable.invoiceNumber ? ` #${d.payable.invoiceNumber}` : ""} ready to pay.`, color: C.amber };
       if (d.payable?.state === "paid") return { text: "In production \u00b7 paid.", color: C.green };
       return { text: "In production.", color: C.green };
     case "shelved": return { text: "Shelved.", color: C.faint };

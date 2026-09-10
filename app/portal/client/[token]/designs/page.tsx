@@ -621,7 +621,7 @@ function BriefDetailModal({ token, brief, meta, onClose, autoApprove }: {
             </div>
           </div>
           <button onClick={confirmAbort} disabled={!!actionPending}
-            title={`Remove this request — ${tenantLabel} still sees it for 60 days`}
+            title={`Remove this request. ${tenantLabel} still sees it for 60 days`}
             style={{ background: "none", border: `1px solid ${C.border}`, color: C.muted, fontSize: 10, fontWeight: 600, cursor: "pointer", padding: "6px 10px", borderRadius: 5, fontFamily: C.font, minHeight: 32 }}>
             Abort
           </button>

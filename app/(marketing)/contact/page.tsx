@@ -2,7 +2,7 @@ import { Metadata } from "next";
 import { ContactClient } from "./_components/ContactClient";
 
 export const metadata: Metadata = {
-  title: "Contact — House Party Distro",
+  title: "Contact | House Party Distro",
   description: "Get in touch with the team at House Party Distro.",
 };
 
