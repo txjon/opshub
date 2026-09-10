@@ -159,6 +159,7 @@ export default function StartPage() {
   // Two doors (Sep 7 2026): null = the door screen; "intake" = the classic
   // 6-step wizard. The other door is the email gate → /menu/[token].
   const [door, setDoor] = useState<"intake" | null>(null);
+  const [entered, setEntered] = useState(false); // knocked — hero flips to "You're in."
   const sessionRef = useRef<string>(`s-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
 
   // Scroll-to-top on step change so the next step's content is fully
@@ -466,7 +467,7 @@ export default function StartPage() {
             textTransform: "uppercase",
             lineHeight: 1.1,
           }}>
-            {door === "intake" ? "Tell us what you need." : "Everything starts here."}
+            {door === "intake" ? "Tell us what you need." : entered ? "You're in." : "Everything starts here."}
           </h1>
           <p style={{
             fontSize: 14,
@@ -474,12 +475,12 @@ export default function StartPage() {
             marginTop: 12,
             lineHeight: 1.55,
           }}>
-            {door === "intake" ? "Five quick steps. We'll take it from there." : "Your email gets you in."}
+            {door === "intake" ? "Five quick steps. We'll take it from there." : entered ? "Welcome to the party." : "Your email gets you in."}
           </p>
         </div>
       </section>
 
-      {door === null && <DoorScreen onIntake={(gateEmail) => { update("email", gateEmail); setStep(2); setDoor("intake"); }} />}
+      {door === null && <DoorScreen onEntered={() => setEntered(true)} onIntake={(gateEmail) => { update("email", gateEmail); setStep(2); setDoor("intake"); }} />}
 
       {/* Form body */}
       {door === "intake" && (
@@ -600,7 +601,7 @@ export default function StartPage() {
 // Door 1: email gate → the unlisted menu (instant reveal — the lead is
 // captured the moment they knock; the email is just the return key).
 // Door 2: the classic 6-step intake wizard.
-function DoorScreen({ onIntake }: { onIntake: (email: string) => void }) {
+function DoorScreen({ onIntake, onEntered }: { onIntake: (email: string) => void; onEntered: () => void }) {
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -618,7 +619,7 @@ function DoorScreen({ onIntake }: { onIntake: (email: string) => void }) {
         body: JSON.stringify({ email }),
       });
       const d = await res.json().catch(() => null);
-      if (res.ok && d?.token) { setToken(d.token); setBusy(false); return; }
+      if (res.ok && d?.token) { setToken(d.token); onEntered(); setBusy(false); return; }
       setErr(d?.error || "Something went wrong. Try again.");
     } catch {
       setErr("Something went wrong. Try again.");
@@ -666,8 +667,7 @@ function DoorScreen({ onIntake }: { onIntake: (email: string) => void }) {
     <section style={{ padding: "48px 32px 120px", background: D.bg }}>
       <div style={{ maxWidth: 760, margin: "0 auto" }}>
         <p style={{ textAlign: "center", fontSize: 13, color: D.muted, margin: "0 0 22px" }}>
-          You&apos;re in — welcome to the party. Your personal link is on its way to{" "}
-          <b style={{ color: D.text }}>{email}</b>. Where to first?
+          Your personal link is on its way to <b style={{ color: D.text }}>{email}</b>. Where to first?
         </p>
         <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
           <div style={card}>
@@ -700,6 +700,17 @@ function DoorScreen({ onIntake }: { onIntake: (email: string) => void }) {
               Send the brief →
             </button>
           </div>
+        </div>
+
+        <div style={{ maxWidth: 640, margin: "40px auto 0", textAlign: "center" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.16em", color: D.faint, marginBottom: 10 }}>
+            How this works
+          </div>
+          <p style={{ fontSize: 13.5, color: D.muted, lineHeight: 1.7, margin: 0 }}>
+            House Party is a sourcing house. We source the blanks, print them, and ship them —
+            or hold them here and fulfill your store. Build it or brief it, a human quotes it
+            within a business day, and you approve the proof before anything prints.
+          </p>
         </div>
       </div>
     </section>
