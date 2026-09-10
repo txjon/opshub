@@ -466,7 +466,7 @@ export default function StartPage() {
             textTransform: "uppercase",
             lineHeight: 1.1,
           }}>
-            {door === "intake" ? "Tell us what you need." : "Every drop starts at the door."}
+            {door === "intake" ? "Tell us what you need." : "Everything starts here."}
           </h1>
           <p style={{
             fontSize: 14,
@@ -474,7 +474,7 @@ export default function StartPage() {
             marginTop: 12,
             lineHeight: 1.55,
           }}>
-            {door === "intake" ? "Five quick steps. We'll take it from there." : "One email gets you in."}
+            {door === "intake" ? "Five quick steps. We'll take it from there." : "Your email gets you in."}
           </p>
         </div>
       </section>
@@ -639,8 +639,8 @@ function DoorScreen({ onIntake }: { onIntake: (email: string) => void }) {
       <section style={{ padding: "48px 32px 120px", background: D.bg }}>
         <div style={{ maxWidth: 520, margin: "0 auto", textAlign: "center" }}>
           <p style={{ fontSize: 14, color: D.muted, lineHeight: 1.6, margin: "0 0 22px" }}>
-            That&apos;s the whole ask. It unlocks the goods, keeps everything you do saved to you,
-            and gets you real prices — no forms, no phone calls, no chasing.
+            It unlocks the goods, keeps everything you do saved to you, and gets you real
+            prices — no forms, no phone calls, no chasing.
           </p>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
             <input
@@ -658,7 +658,7 @@ function DoorScreen({ onIntake }: { onIntake: (email: string) => void }) {
           </div>
           {err && <div style={{ fontSize: 12, color: "#ff8a96", marginTop: 10 }}>{err}</div>}
           <p style={{ fontSize: 12, color: D.faint, marginTop: 18 }}>
-            Already a client? <a href="/client-portal" style={{ color: D.teal, fontWeight: 600 }}>Sign in to your portal →</a>
+            Already a client? <a href="/client-portal" style={{ color: D.teal, fontWeight: 600 }}>Sign in to your hub →</a>
           </p>
         </div>
       </section>
