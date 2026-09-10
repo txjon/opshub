@@ -363,6 +363,18 @@ export default function MenuPage() {
             </div>
           )}
 
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 8 }}>
+            <div>
+              <div style={{ ...eyebrowStyle, marginBottom: 4 }}>Our favorites</div>
+              <div style={{ fontSize: 12, color: FAINT }}>The pieces we run every week, at the prices we run them.</div>
+            </div>
+            <a
+              href={`/start?brief=1${email ? `&email=${encodeURIComponent(email)}` : ""}`}
+              style={{ fontSize: 12, color: MUTED, textDecoration: "none", border: `1px solid ${LINE_SOFT}`, padding: "8px 14px", whiteSpace: "nowrap" }}
+            >
+              I know what I want →
+            </a>
+          </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 30 }}>
             {GROUPS.filter((g) => (styles || []).some((s) => s.group === g.key)).map((g) => (
               <Chip key={g.key} on={group === g.key} onClick={() => setGroup(g.key)}>{g.label}</Chip>

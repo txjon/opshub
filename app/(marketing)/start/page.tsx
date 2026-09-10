@@ -168,6 +168,18 @@ export default function StartPage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, [step]);
 
+  // /start?brief=1&email=... — The Build's "I know what I want" door:
+  // straight into the wizard, email carried over.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    if (q.get("brief") === "1") {
+      const em = q.get("email") || "";
+      if (em) update("email", em);
+      setStep(2);
+      setDoor("intake");
+    }
+  }, []);
+
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm(f => ({ ...f, [key]: value }));
   }
@@ -669,37 +681,10 @@ function DoorScreen({ onIntake, onEntered }: { onIntake: (email: string) => void
         <p style={{ textAlign: "center", fontSize: 13, color: D.muted, margin: "0 0 22px" }}>
           Your personal link is on its way to <b style={{ color: D.text }}>{email}</b>. Where to first?
         </p>
-        <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-          <div style={card}>
-            <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.16em", color: D.teal, marginBottom: 10 }}>
-              Browse the goods
-            </div>
-            <h2 style={{ fontSize: 20, fontWeight: 800, color: D.text, margin: "0 0 8px", letterSpacing: "-0.01em" }}>
-              Build your drop
-            </h2>
-            <p style={{ fontSize: 13, color: D.muted, lineHeight: 1.55, margin: "0 0 18px" }}>
-              The pieces we actually print, at the prices we actually charge. Put your drop
-              together and ask for the real number when it feels right.
-            </p>
-            <a href={`/build/${token}`} style={{ display: "inline-block", background: "#fff", color: D.bg, borderRadius: 8, padding: "11px 20px", fontSize: 14, fontWeight: 800, textDecoration: "none" }}>
-              Open The Build →
-            </a>
-          </div>
-          <div style={card}>
-            <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.16em", color: D.faint, marginBottom: 10 }}>
-              Skip the tour
-            </div>
-            <h2 style={{ fontSize: 20, fontWeight: 800, color: D.text, margin: "0 0 8px", letterSpacing: "-0.01em" }}>
-              Brief us directly
-            </h2>
-            <p style={{ fontSize: 13, color: D.muted, lineHeight: 1.55, margin: "0 0 18px" }}>
-              Already know the plan? Send it straight to our production team: details,
-              files, dates, the whole picture.
-            </p>
-            <button type="button" onClick={() => onIntake(email)} style={{ background: "transparent", color: D.text, border: `1.5px solid ${D.line}`, borderRadius: 8, padding: "11px 20px", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
-              Send the brief →
-            </button>
-          </div>
+        <div style={{ textAlign: "center" }}>
+          <a href={`/build/${token}`} style={{ display: "inline-block", background: "#fff", color: D.bg, borderRadius: 8, padding: "15px 34px", fontSize: 16, fontWeight: 800, textDecoration: "none" }}>
+            Get started →
+          </a>
         </div>
 
         <div style={{ maxWidth: 640, margin: "40px auto 0", textAlign: "center" }}>
@@ -707,9 +692,10 @@ function DoorScreen({ onIntake, onEntered }: { onIntake: (email: string) => void
             How this works
           </div>
           <p style={{ fontSize: 13.5, color: D.muted, lineHeight: 1.7, margin: 0 }}>
-            House Party is a sourcing house. We source the blanks, print them, and ship them,
-            or hold them here and fulfill your store. Build it or brief it, we quote it within
-            a business day, and you approve the proof before anything prints.
+            House Party Distro is a full service webstore merch provider and sourcing house.
+            Blanks sourced, printed, and shipped, or held here and fulfilled straight to your
+            customers. Quotes come back within a business day, and nothing prints without
+            your approval.
           </p>
         </div>
       </div>
