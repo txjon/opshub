@@ -86,13 +86,13 @@ export async function POST(req: NextRequest) {
     await resendForSlug("hpd").emails.send({
       from: `House Party Distro <${FROM_EMAIL}>`,
       to: clean,
-      subject: "Your link to The Build",
+      subject: "You're in — here's your key",
       html: renderBrandedEmail({
         heading: "You're in.",
         bodyHtml:
-          "This is your personal link to The Build. Real styles, real prices, no forms until you want a quote. It picks up right where you leave off.",
+          "This is your key. It opens The Build, saves everything you do, and picks up right where you leave off.",
         cta: { label: "Open The Build", url: link },
-        hint: "Questions? Just reply to this email.",
+        hint: "Questions? Just reply — a human reads this.",
       }),
     });
   } catch (err) {
