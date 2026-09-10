@@ -899,6 +899,7 @@ function MenuLeadBucket({
   const [collapsed, setCollapsed] = useState(!!collapsedByDefault);
   const [composing, setComposing] = useState<MenuLead | null>(null);
   const [quoting, setQuoting] = useState<MenuLead | null>(null);
+  const [openLead, setOpenLead] = useState<MenuLead | null>(null);
   const [converting, setConverting] = useState<string | null>(null);
   const [convertErr, setConvertErr] = useState<string | null>(null);
   if (leads.length === 0 && !emptyText) return null;
@@ -961,11 +962,15 @@ function MenuLeadBucket({
             return (
               <div
                 key={l.id}
+                onClick={() => setOpenLead(l)}
                 style={{
                   background: T.card, border: `1px solid ${T.border}`, borderRadius: 10,
-                  padding: "14px 16px",
+                  padding: "14px 16px", cursor: "pointer",
                   display: "grid", gridTemplateColumns: "4px 1fr auto", gap: 12, alignItems: "center",
+                  transition: "border-color 0.15s",
                 }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = color; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; }}
               >
                 <div style={{ width: 4, alignSelf: "stretch", background: overdue ? T.amber : color, borderRadius: 2 }} />
                 <div style={{ minWidth: 0 }}>
@@ -1000,7 +1005,7 @@ function MenuLeadBucket({
                   {(l.picks?.files || []).filter(f => f.url).length > 0 && (
                     <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 5 }}>
                       {l.picks!.files!.filter(f => f.url).map(f => (
-                        <a key={f.path} href={f.url!} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: T.blue, textDecoration: "none", borderBottom: `1px dotted ${T.blue}`, fontFamily: mono }}>
+                        <a key={f.path} href={f.url!} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} style={{ fontSize: 11, color: T.blue, textDecoration: "none", borderBottom: `1px dotted ${T.blue}`, fontFamily: mono }}>
                           📎 {f.filename}{f.styleCode ? ` (${f.styleCode}${f.placement ? ` · ${f.placement}` : ""})` : ""}
                         </a>
                       ))}
@@ -1014,18 +1019,18 @@ function MenuLeadBucket({
                   {["quote_requested", "quoted", "accepted"].includes(l.status) && (
                     <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
                       {l.quote && !l.job_id && (
-                        <span onClick={() => convertLead(l)} style={{ fontSize: 11, color: T.green, cursor: "pointer", borderBottom: `1px dotted ${T.green}`, fontWeight: 700 }}>
+                        <span onClick={(e) => { e.stopPropagation(); convertLead(l); }} style={{ fontSize: 11, color: T.green, cursor: "pointer", borderBottom: `1px dotted ${T.green}`, fontWeight: 700 }}>
                           {converting === l.id ? "Creating..." : "Create job"}
                         </span>
                       )}
-                      <span onClick={() => setQuoting(l)} style={{ fontSize: 11, color: T.purple, cursor: "pointer", borderBottom: `1px dotted ${T.purple}`, fontWeight: 700 }}>
+                      <span onClick={(e) => { e.stopPropagation(); setQuoting(l); }} style={{ fontSize: 11, color: T.purple, cursor: "pointer", borderBottom: `1px dotted ${T.purple}`, fontWeight: 700 }}>
                         {l.quote ? "Edit quote" : "Build quote"}
                       </span>
-                      <span onClick={() => setComposing(l)} style={{ fontSize: 11, color: T.blue, cursor: "pointer", borderBottom: `1px dotted ${T.blue}` }}>
+                      <span onClick={(e) => { e.stopPropagation(); setComposing(l); }} style={{ fontSize: 11, color: T.blue, cursor: "pointer", borderBottom: `1px dotted ${T.blue}` }}>
                         Respond
                       </span>
                       {l.status === "quote_requested" && (
-                        <span onClick={() => setStatus(l, "declined")} style={{ fontSize: 11, color: T.faint, cursor: "pointer", borderBottom: `1px dotted ${T.faint}` }}>
+                        <span onClick={(e) => { e.stopPropagation(); setStatus(l, "declined"); }} style={{ fontSize: 11, color: T.faint, cursor: "pointer", borderBottom: `1px dotted ${T.faint}` }}>
                           Decline
                         </span>
                       )}
@@ -1035,7 +1040,7 @@ function MenuLeadBucket({
                     <span style={{ fontSize: 10, fontFamily: mono, color: l.status === "converted" || l.job_id ? T.green : l.status === "accepted" ? T.green : T.purple, fontWeight: 700, letterSpacing: "0.06em" }}>
                       {l.job_id ? "CONVERTED" : l.status === "accepted" ? "ACCEPTED" : "QUOTED"} ${Number(l.quote.total || 0).toLocaleString()} ·{" "}
                       {l.quote.punch.filter(pt => pt.status === "done").length}/{l.quote.punch.length} points
-                      {l.job_id && <a href={`/jobs/${l.job_id}`} style={{ color: T.blue, marginLeft: 8, textDecoration: "none", borderBottom: `1px dotted ${T.blue}` }}>open job →</a>}
+                      {l.job_id && <a href={`/jobs/${l.job_id}`} onClick={(e) => e.stopPropagation()} style={{ color: T.blue, marginLeft: 8, textDecoration: "none", borderBottom: `1px dotted ${T.blue}` }}>open job →</a>}
                     </span>
                   )}
                   {convertErr && converting === null && (
@@ -1064,6 +1069,17 @@ function MenuLeadBucket({
           lead={quoting}
           onClose={() => setQuoting(null)}
           onSent={() => { setQuoting(null); onChanged(); }}
+        />
+      )}
+      {openLead && (
+        <MenuLeadDetailModal
+          lead={openLead}
+          matchNames={matchNames}
+          onClose={() => setOpenLead(null)}
+          onBuildQuote={() => { setQuoting(openLead); setOpenLead(null); }}
+          onRespond={() => { setComposing(openLead); setOpenLead(null); }}
+          onConvert={() => { setOpenLead(null); convertLead(openLead); }}
+          onDecline={() => { setStatus(openLead, "declined"); setOpenLead(null); }}
         />
       )}
     </section>
@@ -1301,6 +1317,146 @@ function QuoteBuilderModal({ lead, onClose, onSent }: { lead: MenuLead; onClose:
           >
             {sending ? "Sending..." : lead.quote ? "Re-send quote" : "Send quote"}
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Lead detail modal (mirrors the intake submissions' DetailModal) ──
+// The whole lead on one surface for Taylor: contact, picks, art, the
+// quote with checklist payloads (size grids, date, ship-to), response
+// history, and every action.
+
+function MenuLeadDetailModal({ lead, matchNames, onClose, onBuildQuote, onRespond, onConvert, onDecline }: {
+  lead: MenuLead;
+  matchNames: Record<string, string>;
+  onClose: () => void;
+  onBuildQuote: () => void;
+  onRespond: () => void;
+  onConvert: () => void;
+  onDecline: () => void;
+}) {
+  const p = lead.picks || {};
+  const q = lead.quote;
+  const sec: React.CSSProperties = { fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: T.muted, margin: "18px 0 8px" };
+  const box: React.CSSProperties = { background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 12.5 };
+  const items = Array.isArray(p.items) ? p.items : [];
+  const files = (p.files || []).filter(f => f.url);
+  const punchSummary = (pt: NonNullable<MenuLead["quote"]>["punch"][number]): string => {
+    const pl = pt.payload as any;
+    if (pt.status !== "done") return "open";
+    if (pt.kind === "files") return `${(pl?.files || []).length} file(s)`;
+    if (pt.kind === "sizes") {
+      const grids = pl?.grids || {};
+      const parts = Object.entries(grids).map(([k, g]: [string, any]) => {
+        const total = Object.values(g as Record<string, number>).reduce((s: number, n) => s + (Number(n) || 0), 0);
+        return `${k.split("|")[1] || "all"}: ${total}u`;
+      });
+      return parts.join(" · ") || (pl?.value ? String(pl.value).slice(0, 60) : "done");
+    }
+    if (pl?.value) return String(pl.value).slice(0, 80);
+    return "done";
+  };
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", zIndex: 60, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 24, width: "100%", maxWidth: 620, maxHeight: "92vh", overflowY: "auto", fontFamily: font, color: T.text }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+          <div>
+            <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>{lead.contact?.name || lead.email}</h3>
+            <div style={{ display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap", marginTop: 4 }}>
+              <a href={`mailto:${lead.email}`} style={{ fontSize: 12, color: T.blue, textDecoration: "none" }}>{lead.email}</a>
+              {lead.contact?.phone && <span style={{ fontSize: 12, color: T.muted, fontFamily: mono }}>{lead.contact.phone}</span>}
+              {lead.client_match && (
+                <span style={{ fontSize: 10, fontWeight: 700, color: T.blue, textTransform: "uppercase", letterSpacing: "0.07em" }}>
+                  Existing client{matchNames[lead.client_match] ? ` · ${matchNames[lead.client_match]}` : ""}
+                </span>
+              )}
+              <span style={{ fontSize: 10, fontWeight: 700, color: lead.job_id ? T.green : T.purple, textTransform: "uppercase", letterSpacing: "0.07em" }}>
+                {lead.job_id ? "Converted" : lead.status.replace(/_/g, " ")}
+              </span>
+            </div>
+          </div>
+          <button onClick={onClose} aria-label="Close" style={{ background: "transparent", border: "none", color: T.faint, fontSize: 20, cursor: "pointer", lineHeight: 1 }}>×</button>
+        </div>
+
+        <div style={sec}>Picks from The Build</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {items.length ? items.map((it, i) => (
+            <div key={i} style={box}>
+              <b>{it.styleCode}</b> × {it.qty}
+              {it.colors?.length ? <span style={{ color: T.muted }}> · {it.colors.join(", ")}</span> : null}
+              {(it as any).notes && <div style={{ color: T.faint, marginTop: 3 }}>&ldquo;{(it as any).notes}&rdquo;</div>}
+            </div>
+          )) : <div style={{ ...box, color: T.faint }}>No styles picked; they were browsing.</div>}
+          {(p.budget || p.artStatus || p.notes || lead.contact?.neededBy) && (
+            <div style={{ ...box, color: T.muted }}>
+              {p.budget ? `Budget $${Number(p.budget).toLocaleString()} · ` : ""}
+              {p.artStatus === "need_help" ? "Needs design help · " : p.artStatus === "ready" ? "Art ready · " : ""}
+              {lead.contact?.neededBy ? `Needed ${lead.contact.neededBy}` : ""}
+              {p.notes && <div style={{ color: T.faint, marginTop: 3 }}>&ldquo;{p.notes}&rdquo;</div>}
+              {lead.contact?.notes && <div style={{ color: T.faint, marginTop: 3 }}>&ldquo;{lead.contact.notes}&rdquo;</div>}
+            </div>
+          )}
+        </div>
+
+        {files.length > 0 && (
+          <>
+            <div style={sec}>Art files</div>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+              {files.map(f => (
+                <a key={f.path} href={f.url!} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: T.blue, textDecoration: "none", borderBottom: `1px dotted ${T.blue}`, fontFamily: mono }}>
+                  📎 {f.filename}{f.styleCode ? ` (${f.styleCode}${f.placement ? ` · ${f.placement}` : ""})` : ""}
+                </a>
+              ))}
+            </div>
+          </>
+        )}
+
+        {q && (
+          <>
+            <div style={sec}>Quote · ${Number(q.total || 0).toLocaleString()} · good through {q.validUntil}</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {q.lines.map((l, i) => (
+                <div key={i} style={{ ...box, display: "flex", justifyContent: "space-between", gap: 10 }}>
+                  <span>{l.label}{l.colors.length ? <span style={{ color: T.faint }}> · {l.colors.join(", ")}</span> : null} × {l.qty}</span>
+                  <span style={{ fontFamily: mono }}>{l.unitPrice != null ? `$${l.unitPrice.toFixed(2)}/pc` : "unpriced"}</span>
+                </div>
+              ))}
+            </div>
+            <div style={sec}>Checklist · {q.punch.filter(pt => pt.status === "done").length}/{q.punch.length} done</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {q.punch.map(pt => (
+                <div key={pt.key} style={{ ...box, display: "flex", justifyContent: "space-between", gap: 10 }}>
+                  <span style={{ color: pt.status === "done" ? T.text : T.amber }}>{pt.status === "done" ? "✓" : "○"} {pt.label}</span>
+                  <span style={{ color: T.faint, fontFamily: mono, fontSize: 11.5, textAlign: "right" }}>{punchSummary(pt)}</span>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        {lead.response?.sent_at && (
+          <>
+            <div style={sec}>Last response · {new Date(lead.response.sent_at).toLocaleString()} by {lead.response.by?.split("@")[0]}</div>
+            <div style={{ ...box, whiteSpace: "pre-wrap", color: T.muted, maxHeight: 140, overflowY: "auto" }}>{lead.response.body}</div>
+          </>
+        )}
+
+        <div style={{ display: "flex", gap: 10, marginTop: 22, justifyContent: "flex-end", flexWrap: "wrap" }}>
+          {lead.job_id ? (
+            <a href={`/jobs/${lead.job_id}`} style={{ background: T.accent, borderRadius: 8, color: "#111", fontSize: 13, fontWeight: 700, padding: "9px 18px", textDecoration: "none" }}>
+              Open job →
+            </a>
+          ) : (
+            <>
+              {q && <button onClick={onConvert} style={{ background: T.greenDim, border: `1px solid ${T.green}`, borderRadius: 8, color: T.green, fontSize: 13, fontWeight: 700, padding: "9px 16px", cursor: "pointer", fontFamily: font }}>Create job</button>}
+              <button onClick={onBuildQuote} style={{ background: T.accent, border: "none", borderRadius: 8, color: "#111", fontSize: 13, fontWeight: 700, padding: "9px 16px", cursor: "pointer", fontFamily: font }}>{q ? "Edit quote" : "Build quote"}</button>
+              <button onClick={onRespond} style={{ background: "transparent", border: `1px solid ${T.border}`, borderRadius: 8, color: T.blue, fontSize: 13, padding: "9px 16px", cursor: "pointer", fontFamily: font }}>Respond</button>
+              <button onClick={onDecline} style={{ background: "transparent", border: `1px solid ${T.border}`, borderRadius: 8, color: T.faint, fontSize: 13, padding: "9px 16px", cursor: "pointer", fontFamily: font }}>Decline</button>
+            </>
+          )}
         </div>
       </div>
     </div>
