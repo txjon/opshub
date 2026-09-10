@@ -251,7 +251,7 @@ function IdeaDoor({ token, base }: { token: string; base: string }) {
       </div>
       <input value={title} onChange={e => setTitle(e.target.value)} autoFocus placeholder="Calling it something"
         style={{ width: "100%", boxSizing: "border-box", background: "transparent", border: "none", outline: "none", color: C.text, fontSize: 17, fontWeight: 800, fontFamily: C.font, padding: "4px 0", borderBottom: `1px solid ${C.border}` }} />
-      <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} placeholder={kind === "idea" ? "What else? Vibe, references, garment, timing, anything." : "What is it, the sizes you'll want, when you need it — anything we should know."}
+      <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} placeholder={kind === "idea" ? "What else? Vibe, references, garment, timing, anything." : "What is it, the sizes you'll want, when you need it, anything we should know."}
         style={{ width: "100%", boxSizing: "border-box", background: "transparent", border: "none", outline: "none", color: C.text, fontSize: 13, fontFamily: C.font, padding: "10px 0 4px", resize: "vertical" }} />
       {files.length > 0 && (
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "4px 0 8px" }}>
