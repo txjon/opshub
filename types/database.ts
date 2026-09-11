@@ -2526,6 +2526,35 @@ export type Database = {
           { foreignKeyName: "job_templates_client_id_fkey"; columns: ["client_id"]; isOneToOne: false; referencedRelation: "clients"; referencedColumns: ["id"] }
         ];
       };
+      job_type_meta_history: {
+        Row: {
+          id: number;
+          job_id: string;
+          old_meta: Json | null;
+          new_meta: Json | null;
+          changed_by: string | null;
+          changed_at: string;
+        };
+        Insert: {
+          id: number;
+          job_id: string;
+          old_meta?: Json | null;
+          new_meta?: Json | null;
+          changed_by?: string | null;
+          changed_at?: string;
+        };
+        Update: {
+          id?: number;
+          job_id?: string;
+          old_meta?: Json | null;
+          new_meta?: Json | null;
+          changed_by?: string | null;
+          changed_at?: string;
+        };
+        Relationships: [
+          { foreignKeyName: "job_type_meta_history_job_id_fkey"; columns: ["job_id"]; isOneToOne: false; referencedRelation: "jobs"; referencedColumns: ["id"] }
+        ];
+      };
       jobs: {
         Row: {
           id: string;
