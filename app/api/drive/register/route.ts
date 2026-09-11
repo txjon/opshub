@@ -3,6 +3,10 @@ import { createClient } from "@/lib/supabase/server";
 import { deleteDriveFileIfUnreferenced } from "@/lib/google-drive-refs";
 import { reopenProofApproval } from "@/lib/proof-revision";
 
+// Stages whose upload folder IS the item's art folder — the only uploads
+// allowed to move items.drive_link (the PO's Production Files link).
+const ART_STAGES = new Set(["mockup", "proof", "print_ready", "client_art", "vector"]);
+
 export async function POST(req: NextRequest) {
   try {
     const supabase = await createClient();
@@ -75,8 +79,12 @@ export async function POST(req: NextRequest) {
 
     if (error) throw new Error(error.message);
 
-    // Auto-set item's drive_link to folder (used by PO PDF — printer needs all files)
-    if (folderLink) {
+    // Auto-set item's drive_link to the folder the ART lives in (the PO's
+    // "Production Files" button — the printer needs all files). ART stages
+    // only: a packing-slip upload used to repoint every item at the job's
+    // "Packing Slips" folder, and a later duplicate copied that pointer onto
+    // a fresh PO (HPD-2609-002 → ICON: "no art files in the links", Sep 11).
+    if (folderLink && ART_STAGES.has(stage)) {
       await supabase.from("items").update({ drive_link: folderLink }).eq("id", itemId);
     }
 
