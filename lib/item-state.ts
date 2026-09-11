@@ -776,13 +776,13 @@ export async function loadShippingBoard(sb: Sb): Promise<ShippingJob[]> {
 // ── forwarded outbound shipments (the Shipping "Forwarded" view) ───────────
 export type ForwardedLine = { itemId: string; jobId: string; itemName: string; mockupFileId: string | null; client: string; invoiceNumber: string | null; route: Route; qtys: SizeQtys };
 export type ForwardedShipment = {
-  id: string; carrier: string | null; tracking: string | null; createdAt: string;
+  id: string; carrier: string | null; tracking: string | null; pickup: boolean; createdAt: string;
   clients: string[]; jobNumbers: string[]; totalUnits: number; lines: ForwardedLine[];
 };
 export async function loadForwardedShipments(sb: Sb): Promise<ForwardedShipment[]> {
   const cutoff = new Date(Date.now() - 45 * 86400000).toISOString();
   const { data: ships } = await sb.from("shipments")
-    .select("id, carrier, tracking, created_at").eq("direction", "outbound").gte("created_at", cutoff)
+    .select("id, carrier, tracking, pickup, created_at").eq("direction", "outbound").gte("created_at", cutoff)
     .order("created_at", { ascending: false }).limit(160);
   if (!ships?.length) return [];
   const ids = (ships as any[]).map(s => s.id);
@@ -808,7 +808,7 @@ export async function loadForwardedShipments(sb: Sb): Promise<ForwardedShipment[
       route: resolveRoute(l.items?.shipping_route, l.items?.jobs?.shipping_route), qtys: l.ship_qtys || {},
     }));
     out.push({
-      id: s.id, carrier: s.carrier, tracking: s.tracking, createdAt: s.created_at,
+      id: s.id, carrier: s.carrier, tracking: s.tracking, pickup: !!s.pickup, createdAt: s.created_at,
       clients: Array.from(new Set(fLines.map(l => l.client))),
       jobNumbers: Array.from(new Set(ls.map((l: any) => l.items?.jobs?.job_number).filter(Boolean))),
       totalUnits: fLines.reduce((a, l) => a + sumQ(l.qtys), 0), lines: fLines,

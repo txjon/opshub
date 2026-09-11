@@ -14,6 +14,11 @@ import { v2WriteAllowed } from "@/lib/v2-flags";
 
 const tQty = (q: Record<string, number>) => Object.values(q || {}).reduce((a, v) => a + (Number(v) || 0), 0);
 const CARRIERS = ["UPS", "DHL", "FedEx", "USPS"];
+// Dropdown sentinel — never stored as a carrier. Selecting it writes shipments.pickup=true
+// (carrier/tracking null), the same flag production2 uses for vendor pickups.
+const PICKUP = "__pickup";
+const shipHow = (s: { pickup: boolean; carrier: string | null; tracking: string | null }) =>
+  s.pickup ? "Pickup" : [s.carrier, s.tracking].filter(Boolean).join(" · ");
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 function fmtWhen(iso: string | null): string {
   if (!iso) return "";
@@ -42,7 +47,7 @@ export default function Board({ jobs, forwarded }: { jobs: ShippingJob[]; forwar
     j.clientName.toLowerCase().includes(q) || j.jobNumber.toLowerCase().includes(q) ||
     (j.invoiceNumber || "").toLowerCase().includes(q) || j.items.some(i => i.name.toLowerCase().includes(q))), [jobs, q]);
   const shownFwd = useMemo(() => !q ? forwarded : forwarded.filter(s =>
-    s.clients.some(c => c.toLowerCase().includes(q)) || (s.tracking || "").toLowerCase().includes(q) ||
+    s.clients.some(c => c.toLowerCase().includes(q)) || (s.tracking || "").toLowerCase().includes(q) || (s.pickup && "pickup".includes(q)) ||
     s.jobNumbers.some(n => n.toLowerCase().includes(q)) || s.lines.some(l => l.itemName.toLowerCase().includes(q))), [forwarded, q]);
 
   const agg = useMemo(() => ({
@@ -154,6 +159,7 @@ function ForwardModal({ job, onClose, onDone }: { job: ShippingJob; onClose: () 
   const [whole, setWhole] = useState(true);
   const [carrier, setCarrier] = useState("UPS");
   const [tracking, setTracking] = useState("");
+  const isPickup = carrier === PICKUP;
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [done, setDone] = useState<{ shipmentId: string; forwarded: number } | null>(null);
@@ -169,7 +175,7 @@ function ForwardModal({ job, onClose, onDone }: { job: ShippingJob; onClose: () 
   async function confirm() {
     setBusy(true); setErr(null);
     const res = await forwardToClient(createClient(), {
-      jobId: job.jobId, carrier, tracking: tracking.trim() || null,
+      jobId: job.jobId, pickup: isPickup, carrier: isPickup ? null : carrier, tracking: isPickup ? null : tracking.trim() || null,
       items: items.map(it => ({ itemId: it.itemId, jobId: job.jobId, itemName: it.name, qtys: qtys[it.itemId] || {} })),
     });
     setBusy(false);
@@ -177,8 +183,8 @@ function ForwardModal({ job, onClose, onDone }: { job: ShippingJob; onClose: () 
       // fire-and-forget tracker registration (same as production2's ship path):
       // the outbound box gets a live carrier feed → Client Hub shipment status +
       // future outbound analytics. ensureTracker's guards make failures silent
-      // and repeats free.
-      fetch("/api/tracking/register", {
+      // and repeats free. Pickups have nothing to track.
+      if (!isPickup) fetch("/api/tracking/register", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ shipmentIds: [res.shipmentId] }),
       }).catch(() => {});
@@ -200,10 +206,11 @@ function ForwardModal({ job, onClose, onDone }: { job: ShippingJob; onClose: () 
           <div style={{ padding: "28px 26px", textAlign: "center" }}>
             <div style={{ width: 46, height: 46, borderRadius: 999, background: T.greenDim, color: T.green, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24, margin: "0 auto 12px" }}>✓</div>
             <div style={{ fontSize: 18, fontWeight: 700 }}>Forwarded {done.forwarded} units</div>
-            <div style={{ fontSize: 13, color: T.muted, marginTop: 3 }}>{job.clientName} · outbound to client</div>
+            <div style={{ fontSize: 13, color: T.muted, marginTop: 3 }}>{job.clientName} · {isPickup ? "picked up by client" : "outbound to client"}</div>
             <div style={{ display: "flex", gap: 10, marginTop: 20, justifyContent: "center", flexWrap: "wrap" }}>
               <a href={`/api/pdf/packing-slip/${job.jobId}?shipment=${done.shipmentId}`} target="_blank" rel="noreferrer" style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "10px 16px", border: `1px solid ${T.border}`, color: T.text, textDecoration: "none" }}>Packing slip ↗</a>
-              <button onClick={openNotify} disabled={notified} style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "10px 16px", cursor: notified ? "default" : "pointer", border: `1px solid ${T.border}`, background: notified ? T.greenDim : T.card, color: notified ? T.green : T.text }}>{notified ? "✓ Client notified" : "Notify client"}</button>
+              {/* a pickup has no shipment to announce — the client just left with it */}
+              {!isPickup && <button onClick={openNotify} disabled={notified} style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "10px 16px", cursor: notified ? "default" : "pointer", border: `1px solid ${T.border}`, background: notified ? T.greenDim : T.card, color: notified ? T.green : T.text }}>{notified ? "✓ Client notified" : "Notify client"}</button>}
               <button onClick={onDone} style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "10px 22px", border: "none", cursor: "pointer", background: T.text, color: "#0a0a0a" }}>Done</button>
             </div>
           </div>
@@ -265,8 +272,11 @@ function ForwardModal({ job, onClose, onDone }: { job: ShippingJob; onClose: () 
           <div style={{ display: "flex", gap: 8 }}>
             <select value={carrier} onChange={e => setCarrier(e.target.value)} style={{ fontSize: 13, padding: "9px 10px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.card, fontFamily: font, fontWeight: 600, cursor: "pointer" }}>
               {CARRIERS.map(c => <option key={c} value={c}>{c}</option>)}
+              <option value={PICKUP}>Pickup</option>
             </select>
-            <input value={tracking} onChange={e => setTracking(e.target.value)} placeholder="Tracking number" style={{ flex: 1, boxSizing: "border-box", fontSize: 13, padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: T.text, outline: "none", fontFamily: mono }} />
+            {isPickup
+              ? <div style={{ flex: 1, fontSize: 12.5, fontWeight: 700, color: T.green, background: T.greenDim, border: `1px solid ${T.green}`, borderRadius: 8, padding: "9px 12px", fontFamily: mono }}>Pickup · {job.clientName} · {fmtWhen(new Date().toISOString())}</div>
+              : <input value={tracking} onChange={e => setTracking(e.target.value)} placeholder="Tracking number" style={{ flex: 1, boxSizing: "border-box", fontSize: 13, padding: "9px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: T.text, outline: "none", fontFamily: mono }} />}
           </div>
         </div>
         <div style={{ fontSize: 12, color: T.blue, background: T.blueDim, border: `1px dashed ${T.blue}`, borderRadius: 8, padding: "9px 11px" }}>
@@ -306,8 +316,8 @@ function ForwardedView({ shipments, view, busyKey, onEdit, onReturn, onHistory }
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         {shipments.map(s => (
           <Card key={s.id}>
-            <BoxHead vendor={`${s.clients.join(", ") || "—"}${s.lines[0]?.invoiceNumber ? " · #" + s.lines[0].invoiceNumber : ""}`} tag="Forwarded" tagColor={T.green}
-              method={s.tracking
+            <BoxHead vendor={`${s.clients.join(", ") || "—"}${s.lines[0]?.invoiceNumber ? " · #" + s.lines[0].invoiceNumber : ""}`} tag={s.pickup ? "Picked up" : "Forwarded"} tagColor={T.green}
+              method={s.pickup ? "Pickup" : s.tracking
                 ? <>{s.carrier ? `${s.carrier} · ` : ""}<TrackingLink tracking={s.tracking} shipmentId={s.id} /></>
                 : (s.carrier || "no tracking")}
               slips={[{ name: "slip", url: `/api/pdf/packing-slip/${s.lines[0]?.jobId}?shipment=${s.id}` }]} when={fmtWhen(s.createdAt)}
@@ -330,7 +340,7 @@ function ForwardedView({ shipments, view, busyKey, onEdit, onReturn, onHistory }
     return <Card>{lines.map(({ l, s }, i) => (
       <div key={i} style={{ borderTop: i === 0 ? "none" : `1px solid ${T.border}`, padding: "10px 16px" }}>
         <ItemRow fileId={l.mockupFileId} name={l.itemName} lead={l.client} route={l.route}
-          sub={<div style={{ fontSize: 11, color: T.faint }}>{[s.carrier, s.tracking].filter(Boolean).join(" · ")}</div>}
+          sub={<div style={{ fontSize: 11, color: T.faint }}>{shipHow(s)}</div>}
           variant={<VariantChips qtys={l.qtys} />} qty={tQty(l.qtys)} actions={rowMenu(l, s.id)} />
       </div>
     ))}</Card>;
@@ -349,7 +359,7 @@ function ForwardedView({ shipments, view, busyKey, onEdit, onReturn, onHistory }
       {rows.map(({ l, s }, i) => (
         <div key={i} style={{ padding: "10px 16px", borderTop: `1px solid ${T.border}` }}>
           <ItemRow fileId={l.mockupFileId} name={l.itemName} route={l.route}
-            sub={<div style={{ fontSize: 11, color: T.faint }}>{[s.carrier, s.tracking].filter(Boolean).join(" · ")}</div>}
+            sub={<div style={{ fontSize: 11, color: T.faint }}>{shipHow(s)}</div>}
             variant={<VariantChips qtys={l.qtys} />} qty={tQty(l.qtys)} actions={rowMenu(l, s.id)} />
         </div>
       ))}

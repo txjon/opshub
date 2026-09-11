@@ -86,9 +86,9 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     let v2Tracking: string | null = null;
     let isV2Forward = false;
     if (shipmentFilter) {
-      const { data: sh } = await supabase.from("shipments").select("id, tracking, direction").eq("id", shipmentFilter).single();
+      const { data: sh } = await supabase.from("shipments").select("id, tracking, pickup, direction").eq("id", shipmentFilter).single();
       if (sh && (sh as any).direction === "outbound") {
-        v2Tracking = (sh as any).tracking || null;
+        v2Tracking = (sh as any).pickup ? "Pickup" : (sh as any).tracking || null;
         const { data: lineRows } = await supabase.from("shipment_lines").select("item_id, ship_qtys").eq("shipment_id", shipmentFilter);
         boxLineByItem = new Map((lineRows || []).map((l: any) => [l.item_id, l]));
         vendorScopedItems = vendorScopedItems.filter((it: any) => boxLineByItem!.has(it.id));
