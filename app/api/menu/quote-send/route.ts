@@ -46,7 +46,9 @@ export async function POST(req: NextRequest) {
     return old?.status === "done" ? { ...p, status: "done" as const, payload: old.payload } : p;
   });
 
-  const quote: Quote = {
+  const quote: Quote & { inclShip?: boolean; inclCC?: boolean } = {
+    inclShip: body?.inclShip !== false,
+    inclCC: body?.inclCC !== false,
     lines,
     punch: mergedPunch,
     validUntil,

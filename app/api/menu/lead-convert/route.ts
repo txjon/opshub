@@ -221,8 +221,8 @@ export async function POST(req: NextRequest) {
         .update({
           costing_data: {
             costMargin: `${Math.round(margin)}%`,
-            inclShip: false,
-            inclCC: false,
+            inclShip: (quote as any).inclShip !== false,
+            inclCC: (quote as any).inclCC !== false,
             costProds,
           },
         } as never)

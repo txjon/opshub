@@ -1221,6 +1221,9 @@ function QuoteBuilderModal({ lead, onClose, onSent }: { lead: MenuLead; onClose:
     const c: any = initial.lines.find(l => (l.costing as any)?.__margin != null)?.costing;
     return c?.__margin ?? 30;
   });
+  // Parity with the in-project modal: Shipping + CC toggles, DEFAULT ON.
+  const [inclShip, setInclShip] = useState<boolean>((lead.quote as any)?.inclShip ?? true);
+  const [inclCC, setInclCC] = useState<boolean>((lead.quote as any)?.inclCC ?? true);
   const [customPoint, setCustomPoint] = useState("");
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -1257,7 +1260,7 @@ function QuoteBuilderModal({ lead, onClose, onSent }: { lead: MenuLead; onClose:
   function engineFor(i: number): any | null {
     const prod = prods[i];
     if (!prod?.printVendor || !Object.keys(printers).length) return null;
-    const r = calcCostProduct(prod, `${marginPct}%`, false, false, allProds, printers);
+    const r = calcCostProduct(prod, `${marginPct}%`, inclShip, inclCC, allProds, printers);
     return r && r.sellPerUnit > 0 ? r : null;
   }
 
@@ -1285,14 +1288,14 @@ function QuoteBuilderModal({ lead, onClose, onSent }: { lead: MenuLead; onClose:
       const prod = { ...c, id: `qq-${i}`, name: l.label, totalQty: l.qty };
       if (!prod.printVendor) return l;
       const all = ls.map((l2, x) => l2.costing ? { ...(l2.costing as any), id: `qq-${x}`, name: l2.label, totalQty: l2.qty } : null).filter(Boolean);
-      const r = calcCostProduct(prod, `${marginPct}%`, false, false, all as any[], printers);
+      const r = calcCostProduct(prod, `${marginPct}%`, inclShip, inclCC, all as any[], printers);
       if (!r || !(r.sellPerUnit > 0)) return l;
       const sell = Math.round(r.sellPerUnit * 20) / 20;
       const allIn = Number((r.totalCost / l.qty).toFixed(2));
       if (l.unitPrice === sell && (c as any).__allIn === allIn) return l;
       return { ...l, unitPrice: sell, costing: { ...c, __allIn: allIn, __margin: marginPct } };
     }));
-  }, [JSON.stringify(prods), marginPct, printers]);
+  }, [JSON.stringify(prods), marginPct, inclShip, inclCC, printers]);
 
   function setLine(i: number, patch: Partial<QuoteLine>) {
     setLines(ls => ls.map((l, x) => (x === i ? { ...l, ...patch } : l)));
@@ -1308,7 +1311,7 @@ function QuoteBuilderModal({ lead, onClose, onSent }: { lead: MenuLead; onClose:
     const res = await fetch("/api/menu/quote-send", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ leadId: lead.id, lines, punch, validUntil }),
+      body: JSON.stringify({ leadId: lead.id, lines, punch, validUntil, inclShip, inclCC }),
     }).catch(() => null);
     setSending(false);
     if (res?.ok) { onSent(); return; }
@@ -1342,10 +1345,19 @@ function QuoteBuilderModal({ lead, onClose, onSent }: { lead: MenuLead; onClose:
               </button>
             ))}
           </div>
+          {[["Shipping", inclShip, setInclShip], ["CC fees", inclCC, setInclCC]].map(([label, on, set]: any) => (
+            <button key={label} onClick={() => set(!on)}
+              style={{ display: "flex", alignItems: "center", gap: 6, background: "transparent", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12, color: on ? T.text : T.faint, padding: 0 }}>
+              <span style={{ width: 28, height: 16, borderRadius: 99, background: on ? T.text : T.card, border: `1px solid ${T.border}`, position: "relative", flexShrink: 0 }}>
+                <span style={{ position: "absolute", top: 1.5, left: on ? 13 : 2, width: 11, height: 11, borderRadius: 99, background: on ? "#111" : T.faint, transition: "left 0.12s" }} />
+              </span>
+              {label}
+            </button>
+          ))}
           <span style={{ marginLeft: "auto", fontSize: 17, fontWeight: 800, fontFamily: mono }}>${total.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
         </div>
         <p style={{ margin: "0 0 14px", fontSize: 11.5, color: T.faint }}>
-          Same engine as in-project costing (blanks + decoration; no ship/CC buffers). Specs carry into the job&apos;s Costing on convert. Re-sending never wipes the customer&apos;s checklist progress.
+          Same engine as in-project costing: blank buffers (LA 10%, others 5%), per-item ship rates, CC. Specs carry into the job&apos;s Costing on convert. Re-sending never wipes the customer&apos;s checklist progress.
         </p>
 
         {/* Lines */}
@@ -1396,6 +1408,8 @@ function QuoteBuilderModal({ lead, onClose, onSent }: { lead: MenuLead; onClose:
                           {kpi("Revenue", `$${(r.grossRev || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`)}
                           {kpi("Blank", `$${(r.blankCost || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`)}
                           {kpi("Decoration", `$${((r.printTotal || 0) + (r.setupTotal || 0) + (r.finTotal || 0) + (r.specTotal || 0)).toLocaleString(undefined, { maximumFractionDigits: 0 })}`)}
+                          {inclShip && kpi("Ship", `$${(r.shipping || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`)}
+                          {inclCC && kpi("CC", `$${(r.ccFees || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`)}
                           {kpi("Profit / pc", `$${(r.profitPerPiece || 0).toFixed(2)}`, T.amber)}
                           {kpi("Margin", `${((r.margin_pct || 0) * 100).toFixed(1)}%`, T.amber)}
                         </>
