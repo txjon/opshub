@@ -32,7 +32,7 @@ const CHARGE_TYPES = [
 
 type Vendor = { id: string; name: string; kind: string; decorator_id: string | null; match_keys?: string[] | null; default_bill_method?: string };
 type Entry = {
-  id: string; vendor_id: string | null; vendor_name: string | null; vendor_invoice_number: string | null;
+  id: string; source?: string; vendor_id: string | null; vendor_name: string | null; vendor_invoice_number: string | null;
   po_ref: string | null; job_id: string | null; amount: number; expected_amount: number | null;
   charge_type: string; status: string; not_job_specific: boolean; notes: string | null; created_at: string; bill_method?: string; qb_bill_id?: string | null; qb_paid_at?: string | null; bill_group_id?: string | null; hpd_bill_number?: string | null;
 };
@@ -1175,8 +1175,13 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
                       const pushed = b.lines.find(e => e.qb_bill_id)?.qb_bill_id;
                       const ids = b.lines.map(e => e.id);
                       const busy = pushingBill === bKey;
+                      // pre-OpsHub close-outs are costing-only: settled before AP existed,
+                      // never a QB Bill (the route refuses too — Sep 4 gate, fixed Sep 11).
+                      const preOps = b.lines.some(e => e.source === "pre_opshub");
                       return <>
-                        {pushed
+                        {preOps && !pushed
+                          ? <span title="Billed and paid before OpsHub AP existed — recorded for job costing only" style={{ fontSize: 10.5, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: 0.4, whiteSpace: "nowrap" }}>pre-OpsHub</span>
+                          : pushed
                           ? (() => {
                               // BillPayment webhook stamps qb_paid_at (mig 126) — the chip
                               // graduates from "in QB" (pushed, awaiting payment) to PAID.

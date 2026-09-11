@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
     const admin = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
     const { data: entries } = await admin.from("cost_entries")
-      .select("id, vendor_id, vendor_name, vendor_invoice_number, po_ref, job_id, amount, qb_bill_id, hpd_bill_number, bill_method")
+      .select("id, source, vendor_id, vendor_name, vendor_invoice_number, po_ref, job_id, amount, qb_bill_id, hpd_bill_number, bill_method")
       .in("id", entryIds);
     if (!entries?.length) return NextResponse.json({ error: "No cost entries found" }, { status: 404 });
 
