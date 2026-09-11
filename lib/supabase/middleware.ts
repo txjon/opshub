@@ -67,6 +67,8 @@ export async function updateSession(request: NextRequest) {
   // open the dashboard's /jobs or similar. Add new marketing pages here
   // when each phase ships (Services, Work, Start, Client Portal).
   const isMarketingPublic = MARKETING_PUBLIC_PATHS.includes(pathname)
+    || pathname.startsWith("/build/")  // The Build — per-lead token URLs (mig 172)
+    || pathname.startsWith("/menu/")   // legacy links in sent emails → redirects to /build
     // /shop/[handle] — product detail pages, sub-paths of /shop
     || pathname.startsWith("/shop/");
   // The legacy /onboard intake form stays publicly reachable.

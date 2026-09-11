@@ -156,6 +156,10 @@ export default function StartPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  // Two doors (Sep 7 2026): null = the door screen; "intake" = the classic
+  // 6-step wizard. The other door is the email gate → /menu/[token].
+  const [door, setDoor] = useState<"intake" | null>(null);
+  const [entered, setEntered] = useState(false); // knocked — hero flips to "You're in."
   const sessionRef = useRef<string>(`s-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
 
   // Scroll-to-top on step change so the next step's content is fully
@@ -163,6 +167,18 @@ export default function StartPage() {
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, [step]);
+
+  // /start?brief=1&email=... — The Build's "I know what I want" door:
+  // straight into the wizard, email carried over.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    if (q.get("brief") === "1") {
+      const em = q.get("email") || "";
+      if (em) update("email", em);
+      setStep(2);
+      setDoor("intake");
+    }
+  }, []);
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm(f => ({ ...f, [key]: value }));
@@ -463,7 +479,7 @@ export default function StartPage() {
             textTransform: "uppercase",
             lineHeight: 1.1,
           }}>
-            Tell us what you need.
+            {door === "intake" ? "Tell us what you need." : entered ? "You're in." : "Everything starts here."}
           </h1>
           <p style={{
             fontSize: 14,
@@ -471,16 +487,19 @@ export default function StartPage() {
             marginTop: 12,
             lineHeight: 1.55,
           }}>
-            Six quick steps. We&apos;ll take it from there.
+            {door === "intake" ? "Five quick steps. We'll take it from there." : entered ? "Welcome to the party." : "Your email gets you in."}
           </p>
         </div>
       </section>
 
+      {door === null && <DoorScreen onEntered={() => setEntered(true)} onIntake={(gateEmail) => { update("email", gateEmail); setStep(2); setDoor("intake"); }} />}
+
       {/* Form body */}
+      {door === "intake" && (
       <section style={{ padding: "48px 32px 96px", background: "#fff" }}>
         <div style={{ maxWidth: 680, margin: "0 auto" }}>
           {/* Progress bar */}
-          <StepBar step={step} total={TOTAL_STEPS} />
+          <StepBar step={step - 1} total={TOTAL_STEPS - 1} />
 
           <div style={{
             background: "#fff",
@@ -543,7 +562,7 @@ export default function StartPage() {
             <div style={{
               display: "flex", gap: 10, marginTop: 28,
             }}>
-              {step > 1 && (
+              {step > 2 && (
                 <button
                   type="button"
                   onClick={() => setStep((step - 1) as Step)}
@@ -585,7 +604,102 @@ export default function StartPage() {
           </p>
         </div>
       </section>
+      )}
     </>
+  );
+}
+
+// ─── The door screen ────────────────────────────────────────────
+// Door 1: email gate → the unlisted menu (instant reveal — the lead is
+// captured the moment they knock; the email is just the return key).
+// Door 2: the classic 6-step intake wizard.
+function DoorScreen({ onIntake, onEntered }: { onIntake: (email: string) => void; onEntered: () => void }) {
+  const [email, setEmail] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [token, setToken] = useState<string | null>(null);
+
+  async function knock() {
+    if (busy) return;
+    if (!/\S+@\S+\.\S+/.test(email)) { setErr("Enter a valid email address."); return; }
+    setBusy(true);
+    setErr(null);
+    try {
+      const res = await fetch("/api/menu/gate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const d = await res.json().catch(() => null);
+      if (res.ok && d?.token) { setToken(d.token); onEntered(); setBusy(false); return; }
+      setErr(d?.error || "Something went wrong. Try again.");
+    } catch {
+      setErr("Something went wrong. Try again.");
+    }
+    setBusy(false);
+  }
+
+  // The Build's world: dark ground, dark cards, white CTA.
+  const D = { bg: "#0a0a0c", card: "#141417", line: "rgba(255,255,255,0.1)", lineSoft: "rgba(255,255,255,0.08)", text: "#fff", muted: "rgba(255,255,255,0.7)", faint: "rgba(255,255,255,0.45)", teal: "#73B6C9" };
+  const card: React.CSSProperties = {
+    background: D.card, border: `1px solid ${D.lineSoft}`, borderRadius: 14,
+    padding: "32px 30px", flex: "1 1 280px", minWidth: 280, textAlign: "left",
+  };
+
+  // One door: the email opens everything. After the knock, two lanes.
+  if (!token) {
+    return (
+      <section style={{ padding: "48px 32px 120px", background: D.bg }}>
+        <div style={{ maxWidth: 520, margin: "0 auto", textAlign: "center" }}>
+          <style dangerouslySetInnerHTML={{ __html: `.hpd-door input:focus-visible { outline: 2px solid ${D.teal}; outline-offset: 1px; }` }} />
+          <div className="hpd-door" style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
+            <input
+              type="email"
+              value={email}
+              onChange={e => { setEmail(e.target.value); setErr(null); }}
+              onKeyDown={e => e.key === "Enter" && knock()}
+              placeholder="you@yourbrand.com"
+              autoFocus
+              style={{ flex: "1 1 240px", maxWidth: 320, border: `1px solid ${D.line}`, borderRadius: 8, padding: "13px 15px", fontSize: 15, fontFamily: "inherit", color: D.text, background: D.card, colorScheme: "dark" }}
+            />
+            <button type="button" onClick={knock} disabled={busy} style={{ background: "#fff", color: D.bg, border: "none", borderRadius: 8, padding: "13px 26px", fontSize: 15, fontWeight: 800, cursor: "pointer", opacity: busy ? 0.6 : 1 }}>
+              {busy ? "Opening..." : "Open the door"}
+            </button>
+          </div>
+          {err && <div style={{ fontSize: 12, color: "#ff8a96", marginTop: 10 }}>{err}</div>}
+          <p style={{ fontSize: 12, color: D.faint, marginTop: 18 }}>
+            Already a client? <a href="/client-portal" style={{ color: D.teal, fontWeight: 600 }}>Sign in to your hub →</a>
+          </p>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section style={{ padding: "48px 32px 120px", background: D.bg }}>
+      <div style={{ maxWidth: 760, margin: "0 auto" }}>
+        <p style={{ textAlign: "center", fontSize: 13, color: D.muted, margin: "0 0 22px" }}>
+          Your personal link is on its way to <b style={{ color: D.text }}>{email}</b>. Where to first?
+        </p>
+        <div style={{ textAlign: "center" }}>
+          <a href={`/build/${token}`} style={{ display: "inline-block", background: "#fff", color: D.bg, borderRadius: 8, padding: "15px 34px", fontSize: 16, fontWeight: 800, textDecoration: "none" }}>
+            Get started →
+          </a>
+        </div>
+
+        <div style={{ maxWidth: 640, margin: "40px auto 0", textAlign: "center" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.16em", color: D.faint, marginBottom: 10 }}>
+            How this works
+          </div>
+          <p style={{ fontSize: 13.5, color: D.muted, lineHeight: 1.7, margin: 0 }}>
+            House Party Distro is a full service webstore merch provider and sourcing house.
+            Blanks sourced, printed, and shipped, or held here and fulfilled straight to your
+            customers. Quotes come back within a business day, and nothing prints without
+            your approval.
+          </p>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -682,6 +796,20 @@ function Step2({
 }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <label style={{ display: "block", marginBottom: 18 }}>
+        <span style={{ display: "block", fontSize: 12, fontWeight: 700, color: "#1a1a1a", marginBottom: 6 }}>
+          What kind of help? <span style={{ color: "#a0a0ad", fontWeight: 400 }}>(optional, we can sort this out together)</span>
+        </span>
+        <select
+          value={form.project_type}
+          onChange={e => update("project_type", e.target.value)}
+          style={{ width: "100%", border: "1px solid #e0e0e4", borderRadius: 8, padding: "11px 12px", fontSize: 14, fontFamily: "inherit", color: form.project_type ? "#1a1a1a" : "#a0a0ad", background: "#fff" }}
+        >
+          <option value="">Not sure yet</option>
+          {PROJECT_TYPES.map(t => <option key={t.value} value={t.value}>{t.title}</option>)}
+        </select>
+      </label>
+
       <Field label="Project name *">
         <input
           type="text"

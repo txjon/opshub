@@ -3099,6 +3099,138 @@ export type Database = {
           { foreignKeyName: "mail_log_company_id_fkey"; columns: ["company_id"]; isOneToOne: false; referencedRelation: "companies"; referencedColumns: ["id"] }
         ];
       };
+      menu_leads: {
+        Row: {
+          id: string;
+          company_id: string | null;
+          token: string;
+          email: string;
+          status: string;
+          picks: Json;
+          rates_snapshot: Json | null;
+          contact: Json | null;
+          client_match: string | null;
+          quote_requested_at: string | null;
+          created_at: string;
+          updated_at: string;
+          responded_at: string | null;
+          response: Json | null;
+          quote: Json | null;
+          quoted_at: string | null;
+          accepted_at: string | null;
+          job_id: string | null;
+        };
+        Insert: {
+          id?: string;
+          company_id?: string | null;
+          token: string;
+          email: string;
+          status?: string;
+          picks: Json;
+          rates_snapshot?: Json | null;
+          contact?: Json | null;
+          client_match?: string | null;
+          quote_requested_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+          responded_at?: string | null;
+          response?: Json | null;
+          quote?: Json | null;
+          quoted_at?: string | null;
+          accepted_at?: string | null;
+          job_id?: string | null;
+        };
+        Update: {
+          id?: string;
+          company_id?: string | null;
+          token?: string;
+          email?: string;
+          status?: string;
+          picks?: Json;
+          rates_snapshot?: Json | null;
+          contact?: Json | null;
+          client_match?: string | null;
+          quote_requested_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+          responded_at?: string | null;
+          response?: Json | null;
+          quote?: Json | null;
+          quoted_at?: string | null;
+          accepted_at?: string | null;
+          job_id?: string | null;
+        };
+        Relationships: [
+          { foreignKeyName: "menu_leads_company_id_fkey"; columns: ["company_id"]; isOneToOne: false; referencedRelation: "companies"; referencedColumns: ["id"] },
+          { foreignKeyName: "menu_leads_client_match_fkey"; columns: ["client_match"]; isOneToOne: false; referencedRelation: "clients"; referencedColumns: ["id"] },
+          { foreignKeyName: "menu_leads_job_id_fkey"; columns: ["job_id"]; isOneToOne: false; referencedRelation: "jobs"; referencedColumns: ["id"] }
+        ];
+      };
+      menu_rates: {
+        Row: {
+          id: string;
+          company_id: string | null;
+          product_group: string;
+          lane: string;
+          style_code: string;
+          style_name: string;
+          band_min: number;
+          price_lo: number | null;
+          price_hi: number | null;
+          seeded_lo: number | null;
+          seeded_hi: number | null;
+          seed_meta: Json;
+          edited_at: string | null;
+          edited_by: string | null;
+          active: boolean;
+          sort: number;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          company_id?: string | null;
+          product_group: string;
+          lane: string;
+          style_code: string;
+          style_name: string;
+          band_min: number;
+          price_lo?: number | null;
+          price_hi?: number | null;
+          seeded_lo?: number | null;
+          seeded_hi?: number | null;
+          seed_meta: Json;
+          edited_at?: string | null;
+          edited_by?: string | null;
+          active?: boolean;
+          sort?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          company_id?: string | null;
+          product_group?: string;
+          lane?: string;
+          style_code?: string;
+          style_name?: string;
+          band_min?: number;
+          price_lo?: number | null;
+          price_hi?: number | null;
+          seeded_lo?: number | null;
+          seeded_hi?: number | null;
+          seed_meta?: Json;
+          edited_at?: string | null;
+          edited_by?: string | null;
+          active?: boolean;
+          sort?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          { foreignKeyName: "menu_rates_company_id_fkey"; columns: ["company_id"]; isOneToOne: false; referencedRelation: "companies"; referencedColumns: ["id"] }
+        ];
+      };
       messages: {
         Row: {
           id: string;

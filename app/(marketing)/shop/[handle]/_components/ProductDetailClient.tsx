@@ -141,7 +141,7 @@ export function ProductDetailClient({ product }: { product: Product }) {
             color: "rgba(255,255,255,0.85)",
             marginBottom: 28,
           }}>
-            {variant ? formatMoney(variant.price) : "—"}
+            {variant ? formatMoney(variant.price) : "-"}
             {variant?.compareAtPrice && (
               <span style={{
                 marginLeft: 12,

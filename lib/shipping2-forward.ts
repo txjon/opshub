@@ -20,6 +20,7 @@ export type ForwardItemInput = { itemId: string; jobId: string; itemName: string
 // then appends forward movements + freezes the manifest as shipment_lines.
 export async function forwardToClient(sb: any, args: {
   jobId: string; items: ForwardItemInput[]; carrier: string | null; tracking: string | null;
+  pickup?: boolean;  // client collected in person — no carrier, no tracking, no tracker
 }): Promise<{ ok: boolean; shipmentId?: string; forwarded: number; error?: string }> {
   try {
     const now = new Date().toISOString();
@@ -27,11 +28,12 @@ export async function forwardToClient(sb: any, args: {
     const lines = args.items.map(it => ({ ...it, qtys: cleanPositive(it.qtys) })).filter(it => sum(it.qtys) > 0);
     if (!lines.length) return { ok: false, forwarded: 0, error: "Nothing to forward." };
 
-    const tracking = normTrack(args.tracking);
-    const groupKey = `forward::${args.jobId}::${tracking || "notrk"}::${Date.now()}`;
+    const pickup = !!args.pickup;
+    const tracking = pickup ? null : normTrack(args.tracking);
+    const groupKey = `forward::${args.jobId}::${pickup ? "pickup" : tracking || "notrk"}::${Date.now()}`;
     const { data: ship, error: se } = await sb.from("shipments").insert({
       direction: "outbound", source: "decorator", decorator_id: null, group_key: groupKey,
-      carrier: (args.carrier || "").trim() || null, tracking, pickup: false, status: "closed", created_by: user?.id || null,
+      carrier: pickup ? null : (args.carrier || "").trim() || null, tracking, pickup, status: "closed", created_by: user?.id || null,
     }).select("id").single();
     if (se || !ship?.id) return { ok: false, forwarded: 0, error: se?.message || "Could not create the outbound shipment." };
 
@@ -43,7 +45,7 @@ export async function forwardToClient(sb: any, args: {
       forwarded += sum(it.qtys);
     }
     await recalcJobPhase(sb, args.jobId);
-    logJobActivity(args.jobId, `Forwarded ${lines.length} item${lines.length === 1 ? "" : "s"} to client · ${forwarded} units`);
+    logJobActivity(args.jobId, `${pickup ? "Client picked up" : "Forwarded"} ${lines.length} item${lines.length === 1 ? "" : "s"}${pickup ? "" : " to client"} · ${forwarded} units`);
     return { ok: true, shipmentId: ship.id, forwarded };
   } catch (e: any) { console.error("[shipping2] forwardToClient", e); return { ok: false, forwarded: 0, error: e?.message || "Forward failed." }; }
 }

@@ -43,7 +43,7 @@ type Item = {
   design_id: string | null;
 };
 
-const fmtMoney = (n: number | null) => n == null ? "—" : "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtMoney = (n: number | null) => n == null ? "-" : "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtMoneyShort = (n: number) => "$" + Math.round(n || 0).toLocaleString();
 
 // Friendly color name for the header — items.mockup_color is often
@@ -762,7 +762,7 @@ function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClo
                     {isEtaTbd(item) ? (
                       <div style={{ fontSize: 13, color: C.muted, fontWeight: 700, letterSpacing: "0.04em" }}>TBD</div>
                     ) : (
-                      <div style={{ fontSize: 13, color: C.faint }}>—</div>
+                      <div style={{ fontSize: 13, color: C.faint }}>-</div>
                     )}
                   </div>
                 );
@@ -793,7 +793,7 @@ function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClo
               out as a clean text line (no pills). */}
           <div>
             <div style={{ fontSize: 10, color: C.faint, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Quantity</div>
-            <div style={{ fontSize: 14, color: C.text, fontWeight: 700 }}>{item.qty ? `${item.qty.toLocaleString()} pcs` : "—"}</div>
+            <div style={{ fontSize: 14, color: C.text, fontWeight: 700 }}>{item.qty ? `${item.qty.toLocaleString()} pcs` : "-"}</div>
             {/* flex-wrap, NOT margin-joined inline spans — those had no
                 whitespace between them, read as one unbreakable word, and
                 dragged the whole sheet into horizontal scroll on phones. */}
@@ -856,7 +856,7 @@ function ItemDetail({ item, token, onClose }: { item: Item; token: string; onClo
           )}
 
           {item.brief && (
-            <Meta label="Design" value={item.brief.title || "—"} sub={item.brief.state?.replace(/_/g, " ")} />
+            <Meta label="Design" value={item.brief.title || "-"} sub={item.brief.state?.replace(/_/g, " ")} />
           )}
         </div>
       </div>

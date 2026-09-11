@@ -35,6 +35,24 @@ const toMovement = (m: any): Movement => ({
   type: m.type, qtys: m.qtys || {}, shipmentId: m.shipment_id, reversesId: m.reverses_id, id: m.id,
 });
 
+// Supabase caps un-ranged selects at 1,000 rows and silently truncates.
+// That put ENTERED items back on /staging2 (Sep 8 2026): the board's
+// movement set hit 1,222 rows, 222 got dropped in arbitrary order, and
+// whenever an item's entered movements fell in the tail the ledger math
+// saw it as un-entered. Every multi-row batch read here pages through
+// this instead. Callers must include a stable .order() in the builder.
+async function allRows<T = any>(
+  build: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: any }>
+): Promise<T[]> {
+  const out: T[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data } = await build(from, from + 999);
+    out.push(...((data as T[]) || []));
+    if (!data || (data as T[]).length < 1000) break;
+  }
+  return out;
+}
+
 // ── one item ─────────────────────────────────────────────────────────────
 export async function loadItemState(sb: Sb, itemId: string): Promise<ItemView | null> {
   const { data: item } = await sb
@@ -59,8 +77,8 @@ export async function loadItemState(sb: Sb, itemId: string): Promise<ItemView | 
 async function deriveItemsBatch(sb: Sb, items: any[]): Promise<ItemView[]> {
   if (!items.length) return [];
   const ids = items.map(i => i.id);
-  const { data: allMoves } = await sb
-    .from("movements").select("id, item_id, type, qtys, shipment_id, reverses_id").in("item_id", ids);
+  const allMoves = await allRows(( f, t) => sb
+    .from("movements").select("id, item_id, type, qtys, shipment_id, reverses_id").in("item_id", ids).order("id").range(f, t));
   const byItem = new Map<string, Movement[]>();
   for (const m of allMoves || []) {
     const arr = byItem.get(m.item_id) || []; arr.push(toMovement(m)); byItem.set(m.item_id, arr);
@@ -199,10 +217,10 @@ export async function loadProductionBoard(sb: Sb): Promise<BoardStrip[]> {
   const jobById = new Map<string, any>((jobs || []).map((j: any) => [j.id, j]));
   if (!jobById.size) return [];
 
-  const { data: items } = await sb
+  const items = await allRows((f, t) => sb
     .from("items")
     .select("id, job_id, name, mockup_color, garment_type, shipping_route, ship_final, sort_order, pipeline_stage, pipeline_timestamps, expected_arrival, ship_est, buy_sheet_lines(size, qty_ordered), decorator_assignments(decorator_id, decorators(name, short_code))")
-    .in("job_id", Array.from(jobById.keys()));
+    .in("job_id", Array.from(jobById.keys())).order("id").range(f, t));
   if (!items?.length) return [];
   // PO order. Without this the strip's rows (and their A/B/C letters in the
   // Board) ride Postgres's arbitrary return order and can disagree with the
@@ -218,8 +236,8 @@ export async function loadProductionBoard(sb: Sb): Promise<BoardStrip[]> {
 
   // batch movements
   const ids = items.map((i: any) => i.id);
-  const { data: allMoves } = await sb
-    .from("movements").select("id, item_id, type, qtys, shipment_id, reverses_id, tracking").in("item_id", ids);
+  const allMoves = await allRows((f, t) => sb
+    .from("movements").select("id, item_id, type, qtys, shipment_id, reverses_id, tracking").in("item_id", ids).order("id").range(f, t));
   const byItem = new Map<string, Movement[]>();
   const rawByItem = new Map<string, any[]>();
   for (const m of allMoves || []) {
@@ -229,17 +247,17 @@ export async function loadProductionBoard(sb: Sb): Promise<BoardStrip[]> {
 
   // latest mockup/proof per item, for the row thumbnail. Prefer a real mockup
   // (an image) over a proof (often a PDF, which has no thumbnail).
-  const { data: mockupFiles } = await sb
+  const mockupFiles = await allRows((f, t) => sb
     .from("item_files").select("item_id, drive_file_id, stage, created_at")
     .in("stage", ["mockup", "proof"]).is("superseded_at", null).in("item_id", ids)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false }).order("item_id").range(f, t));
   const mockupById = new Map<string, string>();
   for (const f of mockupFiles || []) { if (f.stage === "mockup" && f.drive_file_id && !mockupById.has(f.item_id)) mockupById.set(f.item_id, f.drive_file_id); }
   for (const f of mockupFiles || []) { if (f.drive_file_id && !mockupById.has(f.item_id)) mockupById.set(f.item_id, f.drive_file_id); }
 
   // pending production-declared pulls per item
-  const { data: pulls } = await sb
-    .from("pull_requests").select("id, item_id, kind, qtys, reason, status").in("item_id", ids).in("status", ["pending", "partial"]);
+  const pulls = await allRows((f, t) => sb
+    .from("pull_requests").select("id, item_id, kind, qtys, reason, status").in("item_id", ids).in("status", ["pending", "partial"]).order("id").range(f, t));
   const pullsByItem = new Map<string, PullReq[]>();
   for (const p of pulls || []) {
     const a = pullsByItem.get(p.item_id) || []; a.push({ id: p.id, kind: p.kind, qtys: p.qtys || {}, reason: p.reason }); pullsByItem.set(p.item_id, a);
@@ -690,7 +708,7 @@ export async function loadShippingBoard(sb: Sb): Promise<ShippingJob[]> {
     for (const it of items as any[]) { const n = perJob.get(it.job_id) || 0; letterByItem.set(it.id, String.fromCharCode(65 + n)); perJob.set(it.job_id, n + 1); } }
   const ids = (items as any[]).map(i => i.id);
 
-  const { data: allMoves } = await sb.from("movements").select("id, item_id, type, qtys, shipment_id, reverses_id").in("item_id", ids);
+  const allMoves = await allRows((f, t) => sb.from("movements").select("id, item_id, type, qtys, shipment_id, reverses_id").in("item_id", ids).order("id").range(f, t));
   const byItem = new Map<string, Movement[]>();
   for (const m of allMoves || []) { const a = byItem.get(m.item_id) || []; a.push(toMovement(m)); byItem.set(m.item_id, a); }
 
@@ -705,9 +723,9 @@ export async function loadShippingBoard(sb: Sb): Promise<ShippingJob[]> {
     recvByItem.set(l.item_id, cur);
   }
 
-  const { data: mockupFiles } = await sb.from("item_files")
+  const mockupFiles = await allRows((f, t) => sb.from("item_files")
     .select("item_id, drive_file_id, stage, created_at").in("stage", ["mockup", "proof"]).is("superseded_at", null).in("item_id", ids)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false }).order("item_id").range(f, t));
   const mockById = new Map<string, string>();
   for (const f of mockupFiles || []) { if (f.stage === "mockup" && f.drive_file_id && !mockById.has(f.item_id)) mockById.set(f.item_id, f.drive_file_id); }
   for (const f of mockupFiles || []) { if (f.drive_file_id && !mockById.has(f.item_id)) mockById.set(f.item_id, f.drive_file_id); }
@@ -758,13 +776,13 @@ export async function loadShippingBoard(sb: Sb): Promise<ShippingJob[]> {
 // ── forwarded outbound shipments (the Shipping "Forwarded" view) ───────────
 export type ForwardedLine = { itemId: string; jobId: string; itemName: string; mockupFileId: string | null; client: string; invoiceNumber: string | null; route: Route; qtys: SizeQtys };
 export type ForwardedShipment = {
-  id: string; carrier: string | null; tracking: string | null; createdAt: string;
+  id: string; carrier: string | null; tracking: string | null; pickup: boolean; createdAt: string;
   clients: string[]; jobNumbers: string[]; totalUnits: number; lines: ForwardedLine[];
 };
 export async function loadForwardedShipments(sb: Sb): Promise<ForwardedShipment[]> {
   const cutoff = new Date(Date.now() - 45 * 86400000).toISOString();
   const { data: ships } = await sb.from("shipments")
-    .select("id, carrier, tracking, created_at").eq("direction", "outbound").gte("created_at", cutoff)
+    .select("id, carrier, tracking, pickup, created_at").eq("direction", "outbound").gte("created_at", cutoff)
     .order("created_at", { ascending: false }).limit(160);
   if (!ships?.length) return [];
   const ids = (ships as any[]).map(s => s.id);
@@ -790,7 +808,7 @@ export async function loadForwardedShipments(sb: Sb): Promise<ForwardedShipment[
       route: resolveRoute(l.items?.shipping_route, l.items?.jobs?.shipping_route), qtys: l.ship_qtys || {},
     }));
     out.push({
-      id: s.id, carrier: s.carrier, tracking: s.tracking, createdAt: s.created_at,
+      id: s.id, carrier: s.carrier, tracking: s.tracking, pickup: !!s.pickup, createdAt: s.created_at,
       clients: Array.from(new Set(fLines.map(l => l.client))),
       jobNumbers: Array.from(new Set(ls.map((l: any) => l.items?.jobs?.job_number).filter(Boolean))),
       totalUnits: fLines.reduce((a, l) => a + sumQ(l.qtys), 0), lines: fLines,
@@ -823,9 +841,9 @@ export async function loadStagingBoard(sb: Sb): Promise<StagingItem[]> {
   if (!jobs?.length) return [];
   const jobById = new Map<string, any>((jobs as any[]).map(j => [j.id, j]));
 
-  const { data: items } = await sb.from("items")
+  const items = await allRows((f, t) => sb.from("items")
     .select("id, job_id, name, mockup_color, shipping_route, ship_final, blank_vendor, blank_sku, buy_sheet_lines(size, qty_ordered)")
-    .in("job_id", Array.from(jobById.keys()));
+    .in("job_id", Array.from(jobById.keys())).order("id").range(f, t));
   if (!items?.length) return [];
   // PO order. Without this the strip's rows (and their A/B/C letters in the
   // Board) ride Postgres's arbitrary return order and can disagree with the
@@ -840,13 +858,13 @@ export async function loadStagingBoard(sb: Sb): Promise<StagingItem[]> {
     for (const it of items as any[]) { const n = perJob.get(it.job_id) || 0; letterByItem.set(it.id, String.fromCharCode(65 + n)); perJob.set(it.job_id, n + 1); } }
   const ids = (items as any[]).map(i => i.id);
 
-  const { data: allMoves } = await sb.from("movements").select("id, item_id, type, qtys, shipment_id, reverses_id").in("item_id", ids);
+  const allMoves = await allRows((f, t) => sb.from("movements").select("id, item_id, type, qtys, shipment_id, reverses_id").in("item_id", ids).order("id").range(f, t));
   const byItem = new Map<string, Movement[]>();
   for (const m of allMoves || []) { const a = byItem.get(m.item_id) || []; a.push(toMovement(m)); byItem.set(m.item_id, a); }
 
-  const { data: mockupFiles } = await sb.from("item_files")
+  const mockupFiles = await allRows((f, t) => sb.from("item_files")
     .select("item_id, drive_file_id, stage, created_at").in("stage", ["mockup", "proof"]).is("superseded_at", null).in("item_id", ids)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false }).order("item_id").range(f, t));
   const mockById = new Map<string, string>();
   for (const f of mockupFiles || []) { if (f.stage === "mockup" && f.drive_file_id && !mockById.has(f.item_id)) mockById.set(f.item_id, f.drive_file_id); }
   for (const f of mockupFiles || []) { if (f.drive_file_id && !mockById.has(f.item_id)) mockById.set(f.item_id, f.drive_file_id); }

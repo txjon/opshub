@@ -265,7 +265,7 @@ function Sheet({ detail, token, onClose, onRefresh, nav, onLock }: any) {
       await onRefresh();
     } catch (e: any) {
       // Note + un-sent photos stay staged so nothing is lost.
-      alert(e?.message || "That didn't send — try again.");
+      alert(e?.message || "That didn't send. Try again.");
     } finally { window.removeEventListener("beforeunload", guard); setProgress(null); setBusy(false); onLock?.(false); }
   }
   async function postOne(body: string, file: File | null) {
@@ -275,7 +275,7 @@ function Sheet({ detail, token, onClose, onRefresh, nav, onLock }: any) {
     const res = await fetch(`/api/portal/client/${token}/studio/${b.id}/action`, { method: "POST", body: fd });
     if (!res.ok) {
       const j = await res.json().catch(() => null);
-      throw new Error((j as any)?.error || (res.status === 413 ? `That photo is too big to send${file ? ` (${file.name})` : ""} — 4MB max.` : "That didn't send — try again."));
+      throw new Error((j as any)?.error || (res.status === 413 ? `That photo is too big to send${file ? ` (${file.name})` : ""}. 4MB max.` : "That didn't send — try again."));
     }
   }
 
@@ -310,7 +310,7 @@ function Sheet({ detail, token, onClose, onRefresh, nav, onLock }: any) {
             </>
           ) : (
             <div style={{ background: "rgba(88,201,60,.08)", border: `1px solid rgba(88,201,60,.35)`, borderRadius: 14, padding: "12px 15px", fontSize: 12.5, color: C.dim }}>
-              <b style={{ color: C.green }}>✓ Picks are in</b> — {[...(lineup.options || [])].filter((o: any) => o.picked).sort((a: any, z: any) => a.position - z.position).map((o: any) => String(o.position).padStart(2, "0")).join(", ")}. We&rsquo;re on it.
+              <b style={{ color: C.green }}>✓ Picks are in</b>: {[...(lineup.options || [])].filter((o: any) => o.picked).sort((a: any, z: any) => a.position - z.position).map((o: any) => String(o.position).padStart(2, "0")).join(", ")}. We&rsquo;re on it.
             </div>
           )}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: 10, marginTop: 12 }}>
@@ -394,7 +394,7 @@ function Sheet({ detail, token, onClose, onRefresh, nav, onLock }: any) {
             {bar === "mockup" && (
               <div>
                 <div style={{ fontSize: 12.5, fontWeight: 900, letterSpacing: "0.02em", textTransform: "uppercase", color: C.green }}>Mock it up on…</div>
-                <div style={{ fontSize: 11.5, color: C.dim, marginTop: 4, lineHeight: 1.5 }}>This locks the design — we build product mockups on what you name and send you the lineup.</div>
+                <div style={{ fontSize: 11.5, color: C.dim, marginTop: 4, lineHeight: 1.5 }}>This locks the design. We build product mockups on what you name and send you the lineup.</div>
                 <input value={mockDirection} onChange={e => setMockDirection(e.target.value)} autoFocus
                   onKeyDown={e => { if (e.key === "Enter") sendMockup(); if (e.key === "Escape") closeBar(); }}
                   placeholder="e.g. black heavyweight tee + dad hat" style={{ ...inp, marginTop: 10 }} />
@@ -427,7 +427,7 @@ function Sheet({ detail, token, onClose, onRefresh, nav, onLock }: any) {
             <b style={{ color: C.green }}>✓ Design locked.</b>{" "}
             {orderReq?.open
               ? <>Your order request is in{orderReq.blank ? <> ({orderReq.blank}{orderReq.qty ? ` × ${orderReq.qty}` : ""})</> : null}. We&rsquo;re pricing it and a quote is coming back to you.</>
-              : <>Products from it land in your catalog — ordering and releases happen there.</>}
+              : <>Products from it land in your catalog. Ordering and releases happen there.</>}
             {!orderReq?.open && !reopenForm && (
               <div style={{ marginTop: 10, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
                 <button disabled={busy} onClick={() => setReopenForm(true)} style={{ background: "none", border: "none", color: C.faint, fontSize: 11, fontWeight: 800, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer", fontFamily: C.font, padding: 0 }}>Request a change</button>
@@ -520,7 +520,7 @@ function ShareForm({ token, onClose, onDone }: any) {
         const pr = await fetch(`/api/portal/client/${token}/studio/${bid}/action`, { method: "POST", body: fd });
         // The idea itself is already saved; a photo that doesn't land must
         // say so (never a silent gap in the design).
-        if (!pr.ok) { const pj = await pr.json().catch(() => null); throw new Error((pj as any)?.error || (pr.status === 413 ? `${f.name} is too big to send — 4MB max. Your idea was saved; add that photo from the design.` : `${f.name} didn't send. Your idea was saved; add it again from the design.`)); }
+        if (!pr.ok) { const pj = await pr.json().catch(() => null); throw new Error((pj as any)?.error || (pr.status === 413 ? `${f.name} is too big to send. 4MB max. Your idea was saved; add that photo from the design.` : `${f.name} didn't send. Your idea was saved; add it again from the design.`)); }
       }
       for (const { url } of files) URL.revokeObjectURL(url);
       onDone(bid);
@@ -529,7 +529,7 @@ function ShareForm({ token, onClose, onDone }: any) {
   return (
     <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 16, padding: "16px 18px", maxWidth: 520, margin: "0 auto 26px" }}>
       <input value={title} onChange={e => setTitle(e.target.value)} autoFocus placeholder="Calling it something…" style={{ ...inp, fontSize: 16, fontWeight: 800, border: "none", borderBottom: `1px solid ${C.line}`, borderRadius: 0, padding: "6px 0" }} />
-      <textarea value={body} onChange={e => setBody(e.target.value)} rows={2} placeholder="What's the vibe? references, garment, timing — anything." style={{ ...inp, border: "none", padding: "10px 0", resize: "vertical" }} />
+      <textarea value={body} onChange={e => setBody(e.target.value)} rows={2} placeholder="What's the vibe? References, garment, timing, anything." style={{ ...inp, border: "none", padding: "10px 0", resize: "vertical" }} />
       {files.length > 0 && (
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
           {files.map((x, i) => (

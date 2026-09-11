@@ -16,7 +16,6 @@ import { useCart } from "@/lib/cart-context";
 
 const NAV_LINKS: { label: string; href: string; external?: boolean }[] = [
   { label: "Start a Project", href: "/start" },
-  { label: "Services", href: "/services" },
   { label: "Blog", href: "https://thehouse.blog/", external: true },
   { label: "Shop", href: "/shop" },
 ];

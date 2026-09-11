@@ -1,0 +1,390 @@
+// Pull product imagery for the intake-menu styles from S&S, AS Colour, and
+// LA Apparel's retail Shopify site; self-host EVERY colorway's photo in the
+// public `menu-assets` bucket (resized to 700px jpeg via sharp) and write a
+// manifest to api_cache (key "menu_imagery") that /api/menu/lead serves.
+// Run: npx tsx scripts/fetch-menu-imagery.ts
+//
+// Every color in allColors carries BOTH an image and a hex: S&S provides
+// hex natively (color1); for AS Colour + LA Apparel the hex is computed by
+// sampling the center of the garment photo (sharp) — one download feeds
+// the stored image and the swatch color. Featured = the 6 most-printed
+// colors per style (history_sales volume). A hand-dropped la/<STYLE>.jpg
+// in the bucket OVERRIDES the scraped hero (the slot for HPD's own
+// photography). 1801MW is wholesale-only (no retail listing anywhere in
+// their 1,653-product catalog) — stays a stub until a photo is dropped.
+import { config } from "dotenv";
+config({ path: ".env.local" });
+import { createClient } from "@supabase/supabase-js";
+import sharp from "sharp";
+
+const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+const BUCKET = "menu-assets";
+const FEATURED = 6;
+const CONCURRENCY = 5;
+
+type MenuStyle = { code: string; vendor: "ss" | "ascolour" | "la"; ssSearch?: string; ssStyleName?: string; laHandle?: string; scrapeUrl?: string; hist: RegExp };
+const STYLES: MenuStyle[] = [
+  { code: "NL6210",  vendor: "ss", ssSearch: "Next Level 6210", ssStyleName: "6210", hist: /^(NL|NEXTLEVEL)6210/i },
+  { code: "NL3600",  vendor: "ss", ssSearch: "Next Level 3600", ssStyleName: "3600", hist: /^(NL|NEXTLEVEL)3600/i },
+  { code: "CC1717",  vendor: "ss", ssSearch: "Comfort Colors 1717", ssStyleName: "1717", hist: /^(CC|COMFORTCOLORS)1717/i },
+  { code: "IND4000", vendor: "ss", ssSearch: "IND4000", ssStyleName: "IND4000", hist: /IND4000/i },
+  // Hats (Sep 8 expansion).
+  { code: "YP6245CM",   vendor: "ss", ssSearch: "6245CM", ssStyleName: "6245CM", hist: /^YP6245/i },
+  { code: "RICHARDSON", vendor: "ss", ssSearch: "Richardson 112", ssStyleName: "112", hist: /^RICHARDSON/i },
+  // '47 Brand 4700 Clean Up IS on S&S (initial assumption wrong).
+  { code: "474700",     vendor: "ss", ssSearch: "4700 clean up", ssStyleName: "4700", hist: /^(474700|47BRAND)/i },
+  { code: "5001",    vendor: "ascolour", hist: /^(AS|ASCOLOUR)5001/i },
+  { code: "5026",    vendor: "ascolour", hist: /^(AS|ASCOLOUR)5026/i },
+  // 5082's API variant image URLs are ALL dead on their CDN — the live
+  // product page (Jon-supplied) carries fresh per-color stencil URLs.
+  { code: "5082",    vendor: "ascolour", scrapeUrl: "https://ascolour.com/mens-heavy-faded-tee-5082/", hist: /^(AS|ASCOLOUR)5082/i },
+  { code: "5101",    vendor: "ascolour", hist: /^(AS|ASCOLOUR)5101/i },
+  { code: "5161",    vendor: "ascolour", hist: /^(AS|ASCOLOUR)5161/i },
+  { code: "5166",    vendor: "ascolour", hist: /^(AS|ASCOLOUR)5166/i },
+  { code: "CHAMPS700", vendor: "ss", ssSearch: "Champion S700", ssStyleName: "S700", hist: /^CHAMPIONS700/i },
+  { code: "CC1567",  vendor: "ss", ssSearch: "Comfort Colors 1567", ssStyleName: "1567", hist: /^(CC|COMFORTCOLORS)1567/i },
+  { code: "1801GD",  vendor: "la", laHandle: "the-1801-garment-dye", hist: /1801GD/i },
+  // 1801MW is wholesale-only (absent from their 1,653-product retail
+  // catalog) — imagery comes from their imprintable wholesale page
+  // (Jon-supplied): per-color garment shots in the alt-view carousel.
+  { code: "1801MW",  vendor: "la", scrapeUrl: "https://www.losangelesapparel-imprintable.net/product/1801MW/SS-Mineral-Wash-Crew-65oz.html", hist: /1801MW/i },
+  { code: "HF-09",   vendor: "la", laHandle: "hf09-heavy-fleece-hoodie-garment-dye", hist: /HF.?09/i },
+];
+
+const SS_CDN = "https://cdn.ssactivewear.com/";
+const ssHeaders = {
+  Authorization: "Basic " + Buffer.from(`${process.env.SS_USERNAME}:${process.env.SS_PASSWORD}`).toString("base64"),
+  "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+  Accept: "application/json",
+};
+const uaHeaders = { "User-Agent": "Mozilla/5.0" };
+
+const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+const titleCase = (s: string) => s.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+
+type ColorCount = { qty: number; display: string };
+async function histColorCounts(hist: RegExp): Promise<Map<string, ColorCount>> {
+  const counts = new Map<string, ColorCount>();
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await sb.from("history_sales").select("blank_style,color,qty").range(from, from + 999);
+    if (error) throw error;
+    for (const r of (data as any[]) || []) {
+      const bs = r.blank_style?.trim();
+      const c = r.color?.trim();
+      if (!bs || !c || !hist.test(bs)) continue;
+      const k = norm(c);
+      const cur = counts.get(k) || { qty: 0, display: c };
+      counts.set(k, { qty: cur.qty + (r.qty || 0), display: cur.display });
+    }
+    if (!data || data.length < 1000) break;
+  }
+  return counts;
+}
+const printedQty = (m: Map<string, ColorCount>, name: string) => m.get(norm(name))?.qty || 0;
+
+// Download once → resize to 700px jpeg, upload, AND sample the garment for
+// a swatch hex (center 40% region average — the garment fills the middle
+// of every vendor's product shot).
+async function processAndStore(
+  path: string,
+  candidateUrls: string[],
+  headers?: Record<string, string>
+): Promise<{ url: string; hex: string } | null> {
+  for (const srcUrl of candidateUrls) {
+    try {
+      const res = await fetch(srcUrl, { headers });
+      if (!res.ok) continue;
+      const raw = Buffer.from(await res.arrayBuffer());
+      if (raw.length < 1000) continue;
+
+      const img = sharp(raw).rotate();
+      const meta = await img.metadata();
+      const w = meta.width || 700, h = meta.height || 700;
+      const region = {
+        left: Math.floor(w * 0.3), top: Math.floor(h * 0.3),
+        width: Math.max(Math.floor(w * 0.4), 1), height: Math.max(Math.floor(h * 0.4), 1),
+      };
+      const px = await sharp(raw).rotate().extract(region).resize(1, 1, { fit: "fill" }).removeAlpha().raw().toBuffer();
+      const hex = "#" + [px[0], px[1], px[2]].map((n) => n.toString(16).padStart(2, "0")).join("");
+
+      const out = await sharp(raw).rotate().resize(700, 700, { fit: "inside", withoutEnlargement: true }).flatten({ background: "#ffffff" }).jpeg({ quality: 78 }).toBuffer();
+      const { error } = await sb.storage.from(BUCKET).upload(path, out, { contentType: "image/jpeg", upsert: true });
+      if (error) { console.warn(`  ! upload ${path}: ${error.message}`); return null; }
+      return { url: `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/${BUCKET}/${path}`, hex };
+    } catch (e: any) {
+      console.warn(`  ! ${srcUrl.slice(0, 80)}: ${e.message}`);
+    }
+  }
+  return null;
+}
+
+async function pool<T, R>(items: T[], n: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let i = 0;
+  await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => {
+    while (i < items.length) {
+      const idx = i++;
+      results[idx] = await fn(items[idx]);
+    }
+  }));
+  return results;
+}
+
+// AS Colour public product page (BigCommerce): per-color stencil URLs like
+// .../products/790/25639/5082_HEAVY_FADED_TEE_FADED_BLACK__83817...jpg —
+// front views only ({:size} template → 1280x1280), _BACK/_THUMB skipped.
+async function scrapeAsColourPage(url: string, styleCode: string): Promise<{ name: string; urls: string[]; vendorHex: string | null }[]> {
+  const html = await (await fetch(url, { headers: uaHeaders })).text();
+  const re = new RegExp(`https://cdn11\\.bigcommerce\\.com/[^"'\\s\\\\]+/products/[^"'\\s\\\\]+${styleCode}[^"'\\s\\\\]*\\.jpg\\?c=1`, "g");
+  const urls = new Set(html.match(re) || []);
+  const byColor = new Map<string, string>();
+  for (const u of urls) {
+    const m = u.match(new RegExp(`${styleCode}_(?:HEAVY_FADED|FADED_HEAVY)?_?TEE_([A-Z_]+?)(?:_THUMB)?__`));
+    const raw = m?.[1];
+    if (!raw || /(^|_)(FRONT|BACK|SIDE|TURN|MAIN|LOOSE)$/.test(raw)) continue;
+    if (raw.endsWith("_BACK")) continue;
+    const name = titleCase(raw.replace(/_/g, " "));
+    const full = u.replace("{:size}", "1280x1280");
+    if (!byColor.has(name) || byColor.get(name)!.includes("_THUMB__")) byColor.set(name, full);
+  }
+  return [...byColor.entries()].map(([name, u]) => ({ name, urls: [u], vendorHex: null }));
+}
+
+// LA Apparel imprintable (wholesale) page: alt-view carousel has one
+// garment shot per color at images/thumb/<style><CODE>_<ts>.png with the
+// color name in the img alt text.
+async function scrapeLaImprintable(url: string): Promise<{ name: string; urls: string[]; vendorHex: string | null }[]> {
+  let html = await (await fetch(url, { headers: uaHeaders })).text();
+  html = html
+    .replace(/&#58;/g, ":").replace(/&#47;/g, "/").replace(/&#45;/g, "-")
+    .replace(/&#46;/g, ".").replace(/&#44;/g, ",").replace(/&amp;/g, "&");
+  const out: { name: string; urls: string[]; vendorHex: string | null }[] = [];
+  const seen = new Set<string>();
+  const re = /(https:\/\/www\.losangelesapparel-imprintable\.net\/images\/thumb\/[A-Za-z0-9]+_\d+\.png)'\s+alt="([^"]+)"/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html)) !== null) {
+    const name = m[2].replace(/^.*?\d+(?:\.\d+)?oz/i, "").trim();
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    out.push({ name, urls: [m[1]], vendorHex: null });
+  }
+  return out;
+}
+
+// Hand-dropped hero override: override/<CODE>.jpg works for ANY style
+// (la/<CODE>.jpg kept for back-compat) — the slot for HPD's own
+// photography or a vendor grab we can't automate ('47 sells direct).
+async function droppedHero(code: string): Promise<string | null> {
+  for (const folder of ["override", "la"]) {
+    const { data } = await sb.storage.from(BUCKET).list(folder);
+    const file = (data || []).find((f) => f.name.toLowerCase().startsWith(code.toLowerCase().replace(/[^a-z0-9]/gi, "")) || f.name.toLowerCase().startsWith(code.toLowerCase()));
+    if (file) return `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/${BUCKET}/${folder}/${file.name}`;
+  }
+  return null;
+}
+
+// Swatch hexes for styles with NO imagery source — common blank-color
+// names mapped by hand so the palette still renders as real dots.
+const NAME_HEX: [RegExp, string][] = [
+  [/black/i, "#1c1c1e"], [/white/i, "#f4f4f2"], [/navy/i, "#1f2a44"],
+  [/charcoal/i, "#3f4145"], [/gr[ae]y|heather/i, "#8e9294"], [/red|cardinal|scarlet/i, "#a32638"],
+  [/royal/i, "#1e4f9c"], [/forest|dark green/i, "#2e5339"], [/olive|od green|military/i, "#5b6236"],
+  [/green/i, "#3a7d44"], [/tan|sand/i, "#d2b48c"], [/khaki/i, "#c3b091"],
+  [/brown|chocolate|walnut/i, "#5c4633"], [/orange/i, "#d4692b"], [/maroon|burgundy/i, "#6b1f2c"],
+  [/purple/i, "#5b4a86"], [/pink/i, "#d98fa4"], [/yellow|gold/i, "#d4a72c"],
+  [/blue/i, "#4a7bb5"], [/camo/i, "#6b6f52"], [/natural|cream|bone|ivory/i, "#e8e0cd"],
+];
+const hexForName = (name: string): string | null => {
+  for (const [re, hex] of NAME_HEX) if (re.test(name)) return hex;
+  return null;
+};
+
+// History-derived palette (names + mapped hexes, no photos) for styles
+// with no imagery source. Junk rows (size breakdowns) filtered.
+function historyColors(printed: Map<string, ColorCount>): { name: string; hex: string | null; image: string | null }[] {
+  return [...printed.values()]
+    .filter((c) => c.display.length <= 24 && !/[•\d]/.test(c.display))
+    .sort((a, b) => b.qty - a.qty)
+    .slice(0, 12)
+    .map((c) => ({ name: titleCase(c.display), hex: hexForName(c.display), image: null }));
+}
+
+type ManifestColor = { name: string; hex: string | null; image: string | null };
+type ManifestStyle = { hero: string | null; stub: boolean; colors: ManifestColor[]; allColors: ManifestColor[]; moreCount: number };
+
+// Build allColors: ranked color names → candidate source URLs; download all.
+async function buildColors(
+  code: string,
+  ranked: { name: string; urls: string[]; vendorHex: string | null }[],
+  headers?: Record<string, string>
+): Promise<ManifestColor[]> {
+  return pool(ranked, CONCURRENCY, async (c) => {
+    const stored = await processAndStore(`${code}/${norm(c.name)}.jpg`, c.urls, headers);
+    return { name: c.name, hex: c.vendorHex || stored?.hex || null, image: stored?.url || null };
+  });
+}
+
+async function main() {
+  const { data: buckets } = await sb.storage.listBuckets();
+  if (!(buckets || []).some((b) => b.name === BUCKET)) {
+    const { error } = await sb.storage.createBucket(BUCKET, { public: true });
+    if (error) throw new Error(`createBucket: ${error.message}`);
+  }
+
+  const manifest: Record<string, ManifestStyle> = {};
+
+  for (const st of STYLES) {
+    console.log(`\n${st.code} (${st.vendor})`);
+    const printed = await histColorCounts(st.hist);
+
+    if (st.vendor === "ss") {
+      const sres = await fetch(`https://api.ssactivewear.com/v2/styles?search=${encodeURIComponent(st.ssSearch!)}`, { headers: ssHeaders });
+      const found = (await sres.json()) as any[];
+      const style = Array.isArray(found) ? found.find((s) => norm(s.styleName) === norm(st.ssStyleName!)) || found[0] : null;
+      if (!style) {
+        const hero = await droppedHero(st.code);
+        const hc = historyColors(printed);
+        manifest[st.code] = { hero, stub: hero === null, colors: hc.slice(0, FEATURED), allColors: hc, moreCount: 0 };
+        console.warn(`  ! not on S&S — ${hero ? "hand-dropped hero" : `stub (drop override/${st.code}.jpg in ${BUCKET})`} · ${hc.length} history colors mapped`);
+        continue;
+      }
+      const pres = await fetch(`https://api.ssactivewear.com/v2/products?styleid=${style.styleID}`, { headers: ssHeaders });
+      const products = (await pres.json()) as any[];
+      const byColor = new Map<string, any>();
+      for (const p of products || []) if (p.colorName && !byColor.has(p.colorName)) byColor.set(p.colorName, p);
+      // Prefer ON-MODEL shots (the expensive look) over flat garment shots,
+      // and the _fl (large) rendition over _fm (medium), falling back down
+      // the candidate list per color.
+      const ssUrls = (p: any): string[] => {
+        const out: string[] = [];
+        for (const field of ["colorOnModelFrontImage", "colorFrontImage"]) {
+          const v = p[field];
+          if (!v) continue;
+          if (/_fm\.jpg$/i.test(v)) out.push(SS_CDN + v.replace(/_fm\.jpg$/i, "_fl.jpg"));
+          out.push(SS_CDN + v);
+        }
+        return out;
+      };
+      const ranked = [...byColor.values()]
+        .sort((a, b) => printedQty(printed, b.colorName) - printedQty(printed, a.colorName))
+        .map((p) => ({ name: p.colorName as string, urls: ssUrls(p), vendorHex: (p.color1 as string) || null }));
+      const allColors = await buildColors(st.code, ranked, ssHeaders);
+      const heroStored = style.styleImage ? await processAndStore(`${st.code}/hero.jpg`, [SS_CDN + style.styleImage], ssHeaders) : null;
+      const hero = heroStored?.url || allColors.find((c) => c.image)?.image || null;
+      manifest[st.code] = { hero, stub: false, colors: allColors.slice(0, FEATURED), allColors, moreCount: Math.max(allColors.length - FEATURED, 0) };
+      console.log(`  hero ${hero ? "ok" : "MISSING"} · ${allColors.filter((c) => c.image).length}/${allColors.length} colors imaged`);
+
+    } else if (st.vendor === "ascolour") {
+      const h = { Accept: "application/json", "Content-Type": "application/json", "Subscription-Key": process.env.ASCOLOUR_SUBSCRIPTION_KEY || "" };
+      const all: any[] = [];
+      for (let page = 1; ; page++) {
+        const res = await fetch(`https://api.ascolour.com/v1/catalog/products/${st.code}/variants?pageSize=250&pageNumber=${page}`, { headers: h });
+        if (!res.ok) break;
+        const data = await res.json();
+        const items = data.data || data;
+        if (!Array.isArray(items) || !items.length) break;
+        all.push(...items);
+        if (items.length < 250) break;
+      }
+      // Stale imageUrls (404) are common — every size's URL per colour goes
+      // in as a candidate; processAndStore tries them in order.
+      const urlsByColor = new Map<string, string[]>();
+      for (const v of all) {
+        if (!v.colour || v.discontinued || !v.imageUrl) continue;
+        const list = urlsByColor.get(v.colour) || [];
+        if (!list.includes(v.imageUrl)) list.push(v.imageUrl);
+        urlsByColor.set(v.colour, list);
+      }
+      let ranked = [...urlsByColor.entries()]
+        .sort((a, b) => printedQty(printed, b[0]) - printedQty(printed, a[0]))
+        .map(([name, urls]) => ({ name: titleCase(name), urls, vendorHex: null as string | null }));
+      let allColors = await buildColors(st.code, ranked);
+      if (allColors.every((c) => !c.image) && st.scrapeUrl) {
+        // API variant URLs all dead — the live product page has fresh ones.
+        const scraped = await scrapeAsColourPage(st.scrapeUrl, st.code);
+        ranked = scraped.sort((a, b) => printedQty(printed, b.name) - printedQty(printed, a.name));
+        allColors = await buildColors(st.code, ranked);
+        console.log(`  page-scrape fallback: ${allColors.filter((c) => c.image).length}/${allColors.length} imaged`);
+      }
+      let hero = allColors.find((c) => c.image)?.image || null;
+      if (!hero) {
+        // Whole line's CDN images dead (5082's shape): og:image off the
+        // style's public product page.
+        try {
+          let prod: any = null;
+          for (let page = 1; page <= 8 && !prod; page++) {
+            const cres = await fetch(`https://api.ascolour.com/v1/catalog/products?pageSize=250&pageNumber=${page}`, { headers: h });
+            const cdata = await cres.json();
+            const items = (cdata.data || cdata) as any[];
+            if (!Array.isArray(items) || !items.length) break;
+            prod = items.find((p) => String(p.styleCode) === st.code) || null;
+            if (items.length < 250) break;
+          }
+          if (prod?.websiteURL) {
+            const page = await (await fetch(prod.websiteURL, { headers: uaHeaders })).text();
+            const og = page.match(/property="og:image"\s+content="([^"]+)"/i) || page.match(/content="([^"]+)"\s+property="og:image"/i);
+            if (og) hero = (await processAndStore(`${st.code}/hero.jpg`, [og[1]]))?.url || null;
+          }
+        } catch { /* stub stays */ }
+        console.log(`  og:image fallback ${hero ? "ok" : "failed"}`);
+      }
+      manifest[st.code] = { hero, stub: false, colors: allColors.slice(0, FEATURED), allColors, moreCount: Math.max(allColors.length - FEATURED, 0) };
+      console.log(`  hero ${hero ? "ok" : "MISSING"} · ${allColors.filter((c) => c.image).length}/${allColors.length} colors imaged`);
+
+    } else {
+      const dropped = await droppedHero(st.code);
+      if (!st.laHandle) {
+        // No retail listing (1801MW) — scrape the imprintable wholesale
+        // page when one is configured; else history color names only.
+        if (st.scrapeUrl) {
+          const scraped = await scrapeLaImprintable(st.scrapeUrl);
+          const ranked = scraped.sort((a, b) => printedQty(printed, b.name) - printedQty(printed, a.name));
+          const allColors = await buildColors(st.code, ranked);
+          const hero = dropped || allColors.find((c) => c.image)?.image || null;
+          manifest[st.code] = { hero, stub: hero === null, colors: allColors.slice(0, FEATURED), allColors, moreCount: Math.max(allColors.length - FEATURED, 0) };
+          console.log(`  hero ${hero ? (dropped ? "hand-dropped (override)" : "ok") : "MISSING"} · ${allColors.filter((c) => c.image).length}/${allColors.length} colors imaged (imprintable scrape)`);
+          continue;
+        }
+        const colors = [...printed.values()]
+          .filter((c) => c.display.length <= 24 && !/[•\d]/.test(c.display))
+          .sort((a, b) => b.qty - a.qty)
+          .slice(0, FEATURED)
+          .map((c) => ({ name: titleCase(c.display), hex: null, image: null }));
+        manifest[st.code] = { hero: dropped, stub: dropped === null, colors, allColors: colors, moreCount: 0 };
+        console.log(`  ${dropped ? "hand-dropped hero found" : `STUB — drop la/${st.code}.jpg in the ${BUCKET} bucket and rerun`}`);
+        continue;
+      }
+      const res = await fetch(`https://losangelesapparel.net/products/${st.laHandle}.js`, { headers: uaHeaders });
+      if (!res.ok) {
+        console.warn(`  ! shopify ${res.status} for ${st.laHandle}`);
+        manifest[st.code] = { hero: dropped, stub: dropped === null, colors: [], allColors: [], moreCount: 0 };
+        continue;
+      }
+      const prod = (await res.json()) as any;
+      const colorIdx = (prod.options || []).findIndex((o: any) => String(o.name).toLowerCase() === "color");
+      const imgByColor = new Map<string, string>();
+      for (const v of prod.variants || []) {
+        const color = colorIdx === 0 ? v.option1 : colorIdx === 1 ? v.option2 : v.option3;
+        const src = v.featured_image?.src;
+        if (color && src && !imgByColor.has(color)) imgByColor.set(color, src);
+      }
+      const ranked = [...imgByColor.entries()]
+        .sort((a, b) => printedQty(printed, b[0]) - printedQty(printed, a[0]))
+        .map(([name, url]) => ({ name: titleCase(name), urls: [url], vendorHex: null }));
+      const allColors = await buildColors(st.code, ranked, uaHeaders);
+      const hero = dropped || allColors.find((c) => c.image)?.image || null;
+      manifest[st.code] = { hero, stub: hero === null, colors: allColors.slice(0, FEATURED), allColors, moreCount: Math.max(allColors.length - FEATURED, 0) };
+      console.log(`  hero ${hero ? (dropped ? "hand-dropped (override)" : "ok") : "MISSING"} · ${allColors.filter((c) => c.image).length}/${allColors.length} colors imaged`);
+    }
+  }
+
+  const { error } = await sb.from("api_cache").upsert({
+    key: "menu_imagery",
+    data: { version: 2, generatedAt: new Date().toISOString(), styles: manifest },
+    updated_at: new Date().toISOString(),
+  } as never);
+  if (error) throw error;
+  console.log("\nmanifest written to api_cache key menu_imagery.");
+}
+
+main().catch((e) => { console.error(e); process.exit(1); });

@@ -140,7 +140,7 @@ export default function HomePage() {
         <>
           {/* ── Your move — the only feed on home: what needs the client, amber,
               labeled, nothing else competing with it (Jon, Jul 28) ── */}
-          {sec("Your move.", `${spotlightCount} thing${spotlightCount === 1 ? "" : "s"} need${spotlightCount === 1 ? "s" : ""} you — tap in`)}
+          {sec("Your move.", `${spotlightCount} thing${spotlightCount === 1 ? "" : "s"} need${spotlightCount === 1 ? "s" : ""} you. Tap in`)}
           <div className="gh-grid">
             {actOrders.map(({ o, verb, color }) => {
               const art = (o.items || []).map((it: any) => it.thumb_id).find(Boolean);
@@ -155,7 +155,7 @@ export default function HomePage() {
            that used to crowd this page) */
         <div style={{ textAlign: "center", padding: "34px 0 60px" }}>
           <div style={{ fontSize: 13, color: C.muted, lineHeight: 1.6 }}>
-            {nothing ? (hasStudio ? "Nothing here yet. Share something above to get started." : "Nothing here yet.") : "Nothing needs you right now — we've got it from here."}
+            {nothing ? (hasStudio ? "Nothing here yet. Share something above to get started." : "Nothing here yet.") : "Nothing needs you right now. We've got it from here."}
           </div>
           <div style={{ display: "flex", gap: 22, justifyContent: "center", flexWrap: "wrap", marginTop: 22 }}>
             {([["Your orders", `${base}/orders`], ...(hasPipeline ? [["The pipeline", `${base}/items`]] : []), ["Your catalog", `${base}/reorder`]] as string[][]).map(([label, href]) => (
@@ -216,7 +216,7 @@ function IdeaDoor({ token, base }: { token: string; base: string }) {
           });
         } catch { failed++; }
       }
-      if (failed > 0) setError(`Idea sent, but ${failed} attachment${failed === 1 ? "" : "s"} didn't make it — add ${failed === 1 ? "it" : "them"} from the Studio.`);
+      if (failed > 0) setError(`Idea sent, but ${failed} attachment${failed === 1 ? "" : "s"} didn't make it. Add ${failed === 1 ? "it" : "them"} from the Studio.`);
       setSent(title.trim());
       setTitle(""); setNotes(""); setFiles([]); setOpen(false);
     } catch { setError("Couldn't save the idea."); }
@@ -251,7 +251,7 @@ function IdeaDoor({ token, base }: { token: string; base: string }) {
       </div>
       <input value={title} onChange={e => setTitle(e.target.value)} autoFocus placeholder="Calling it something"
         style={{ width: "100%", boxSizing: "border-box", background: "transparent", border: "none", outline: "none", color: C.text, fontSize: 17, fontWeight: 800, fontFamily: C.font, padding: "4px 0", borderBottom: `1px solid ${C.border}` }} />
-      <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} placeholder={kind === "idea" ? "What else? Vibe, references, garment, timing — anything." : "What is it, the sizes you'll want, when you need it — anything we should know."}
+      <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} placeholder={kind === "idea" ? "What else? Vibe, references, garment, timing, anything." : "What is it, the sizes you'll want, when you need it, anything we should know."}
         style={{ width: "100%", boxSizing: "border-box", background: "transparent", border: "none", outline: "none", color: C.text, fontSize: 13, fontFamily: C.font, padding: "10px 0 4px", resize: "vertical" }} />
       {files.length > 0 && (
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "4px 0 8px" }}>

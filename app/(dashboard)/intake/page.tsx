@@ -3,6 +3,10 @@ import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { resolveSlugFromHost, DEFAULT_SLUG } from "@/lib/tenants";
 import { T, font, mono } from "@/lib/theme";
+import { snapshotMid, defaultPunch, quoteTotal, type Quote, type QuoteLine, type PunchPoint } from "@/lib/menu-quote";
+import { buildPrintersMap, calcCostProduct, lookupPrintPrice, lookupTagPrice } from "@/lib/pricing";
+import { DecorationPanel as DecorationPanelRaw } from "../jobs/[id]/DecorationPanel";
+const DecorationPanel: any = DecorationPanelRaw; // .jsx — bypass narrow inferred prop types
 
 // /intake — leads inbox. Submissions from the public /start form land
 // here. Team triages by:
@@ -43,6 +47,40 @@ type Submission = {
 
 type ClientRow = { id: string; name: string };
 
+// Menu leads (mig 172) — people who knocked at the /start email gate.
+// quote_requested = the actionable queue (1-business-day promise);
+// browsed = window shoppers, collapsed, light-touch follow-up only.
+type MenuLead = {
+  id: string;
+  email: string;
+  status: string;
+  picks: {
+    // Order-builder shape (Sep 8): a basket of items + art files.
+    items?: { styleCode: string; qty: number; colors: string[] }[];
+    files?: { filename: string; path: string; size: number; url?: string | null; styleCode?: string | null; placement?: string | null }[];
+    budget?: number | null;
+    artStatus?: string | null;
+    notes?: string;
+    // Legacy single-pick fields (pre-basket leads)
+    styleCode?: string | null;
+    qty?: number | null;
+    notSure?: boolean;
+    colorways?: number;
+  } | null;
+  contact: { name?: string; phone?: string | null; neededBy?: string | null; notes?: string | null } | null;
+  client_match: string | null;
+  quote: import("@/lib/menu-quote").Quote | null;
+  quoted_at: string | null;
+  accepted_at: string | null;
+  job_id: string | null;
+  quote_requested_at: string | null;
+  rates_snapshot: { style_code: string; style_name: string; band_min: number; price_lo: number | null; price_hi: number | null }[] | null;
+  responded_at: string | null;
+  response: { subject?: string; body?: string; by?: string; sent_at?: string } | null;
+  created_at: string;
+  updated_at: string;
+};
+
 const PROJECT_TYPE_LABEL: Record<string, string> = {
   brand: "Brand",
   tour: "Tour / Artist",
@@ -60,6 +98,8 @@ export default function IntakePage() {
   const supabase = createClient();
   const [rows, setRows] = useState<Submission[] | null>(null);
   const [open, setOpen] = useState<Submission | null>(null);
+  const [menuLeads, setMenuLeads] = useState<MenuLead[]>([]);
+  const [matchNames, setMatchNames] = useState<Record<string, string>>({});
 
   async function load() {
     // Scope to the active tenant. intake_submissions uses company_slug (text,
@@ -71,6 +111,19 @@ export default function IntakePage() {
       .eq("company_slug", activeSlug)
       .order("created_at", { ascending: false });
     setRows(data || []);
+
+    const { data: leads } = await supabase
+      .from("menu_leads")
+      .select("id,email,status,picks,contact,client_match,quote,quoted_at,accepted_at,job_id,quote_requested_at,rates_snapshot,responded_at,response,created_at,updated_at")
+      .order("quote_requested_at", { ascending: false, nullsFirst: false })
+      .order("updated_at", { ascending: false });
+    const leadRows = (leads as unknown as MenuLead[]) || [];
+    setMenuLeads(leadRows);
+    const matchIds = [...new Set(leadRows.map(l => l.client_match).filter(Boolean))] as string[];
+    if (matchIds.length) {
+      const { data: cl } = await supabase.from("clients").select("id,name").in("id", matchIds);
+      setMatchNames(Object.fromEntries(((cl as unknown as ClientRow[]) || []).map(c => [c.id, c.name])));
+    }
   }
 
   useEffect(() => { load(); }, []);
@@ -91,11 +144,16 @@ export default function IntakePage() {
 
   return (
     <div style={{ maxWidth: 1080, margin: "0 auto", fontFamily: font, color: T.text, paddingBottom: 80 }}>
-      <header style={{ marginBottom: 24 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em", marginBottom: 4 }}>Intake</h1>
-        <p style={{ fontSize: 12, color: T.faint }}>
-          Leads from /start on the public site. Review, convert to a client, or decline.
-        </p>
+      <header style={{ marginBottom: 24, display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+        <div>
+          <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em", marginBottom: 4 }}>Intake</h1>
+          <p style={{ fontSize: 12, color: T.faint }}>
+            Leads from /start on the public site. Review, convert to a client, or decline.
+          </p>
+        </div>
+        <a href="/intake/menu" style={{ fontSize: 12, color: T.blue, textDecoration: "none", borderBottom: `1px dotted ${T.blue}`, whiteSpace: "nowrap", marginTop: 6 }}>
+          Menu pricing
+        </a>
       </header>
 
       <StatStrip
@@ -103,6 +161,15 @@ export default function IntakePage() {
         r={buckets.reviewed.length}
         c={buckets.converted.length}
         d={buckets.declined.length}
+      />
+
+      <MenuLeadBucket
+        label="The Build · quote pipeline"
+        color={T.purple}
+        leads={menuLeads.filter(l => ["quote_requested", "quoted", "accepted", "converted"].includes(l.status))}
+        matchNames={matchNames}
+        onChanged={load}
+        emptyText="No open quote requests from The Build."
       />
 
       <Bucket
@@ -130,6 +197,15 @@ export default function IntakePage() {
         color={T.faint}
         items={buckets.declined}
         onClick={setOpen}
+        collapsedByDefault
+      />
+
+      <MenuLeadBucket
+        label="The Build · browsing"
+        color={T.faint}
+        leads={menuLeads.filter(l => !["quote_requested", "quoted", "accepted", "converted"].includes(l.status))}
+        matchNames={matchNames}
+        onChanged={load}
         collapsedByDefault
       />
 
@@ -741,3 +817,823 @@ const inputStyle: React.CSSProperties = {
   background: T.surface,
   boxSizing: "border-box",
 };
+
+// ─── Menu leads (the /start email gate → unlisted menu) ─────────────
+
+function summarizePicks(l: MenuLead): string {
+  const p = l.picks || {};
+  const bits: string[] = [];
+  if (Array.isArray(p.items) && p.items.length) {
+    for (const it of p.items) bits.push(`${it.styleCode}×${it.qty}${it.colors?.length ? ` (${it.colors.length}cw)` : ""}`);
+  } else {
+    // Legacy single-pick leads
+    if (p.styleCode) bits.push(p.styleCode);
+    if (p.notSure) bits.push("qty unsure");
+    else if (p.qty) bits.push(`${p.qty}u`);
+    if (p.colorways && p.colorways > 1) bits.push(`${p.colorways} colorways`);
+  }
+  if (p.budget) bits.push(`browsed at $${Number(p.budget).toLocaleString()} budget`);
+  if (p.artStatus === "need_help") bits.push("needs design");
+  if (p.files?.length) bits.push(`${p.files.length} art file${p.files.length > 1 ? "s" : ""}`);
+  return bits.length ? bits.join(" · ") : "no picks yet";
+}
+
+// Prefilled tailored-response draft. Taylor edits before sending — the
+// bracketed line is where the real number goes.
+function buildResponseDraft(l: MenuLead): { subject: string; body: string } {
+  const p = l.picks || {};
+  const firstName = (l.contact?.name || "").trim().split(/\s+/)[0] || "there";
+  const snapFor = (styleCode: string, qty: number) => {
+    const rows = (l.rates_snapshot || []).filter(r => r.style_code === styleCode).sort((a, b) => b.band_min - a.band_min);
+    return rows.find(r => r.band_min <= qty) || rows[rows.length - 1];
+  };
+  // Normalize legacy single-pick leads into the basket shape.
+  const items = Array.isArray(p.items) && p.items.length
+    ? p.items
+    : p.styleCode
+      ? [{ styleCode: p.styleCode, qty: p.notSure ? 100 : (p.qty || 100), colors: [] as string[] }]
+      : [];
+
+  const lines: string[] = [];
+  lines.push(`Hi ${firstName},`);
+  lines.push("");
+  lines.push("Thanks for knocking. Here is where your picks landed:");
+  lines.push("");
+  const recap: string[] = [];
+  let anyColorways = false;
+  for (const it of items) {
+    const snap = snapFor(it.styleCode, it.qty);
+    const styleName = snap?.style_name || it.styleCode;
+    const colorBit = it.colors?.length ? ` in ${it.colors.join(", ")}` : "";
+    const rangeBit = snap?.price_lo != null ? ` (menu range $${Number(snap.price_lo).toFixed(2)} to $${Number(snap.price_hi).toFixed(2)} per piece)` : "";
+    recap.push(`- ${styleName}, ${it.qty} pieces${colorBit}${rangeBit}`);
+    if ((it.colors?.length || 0) > 1) anyColorways = true;
+  }
+  if (anyColorways) recap.push("- Reminder: each colorway carries its own 48 piece minimum");
+  if (p.artStatus === "need_help") recap.push("- Design help: our in-house team can take your logo and vibe to a finished drop");
+  if (p.files?.length) recap.push(`- Got your ${p.files.length} art file${p.files.length > 1 ? "s" : ""} — thank you`);
+  if (recap.length === 0) recap.push("- (no picks on file yet, they were browsing)");
+  lines.push(...recap);
+  lines.push("");
+  lines.push(items.length > 1 ? "Your exact quote: [$ ___ total — per-style breakdown below]" : "Your exact quote: [$ ___ per piece, $ ___ total]");
+  lines.push("");
+  lines.push("If that works, reply here and we will get sizes, art, and timeline locked. Typical turnaround is [X weeks] from art approval.");
+  const firstSnap = items[0] ? snapFor(items[0].styleCode, items[0].qty) : null;
+  return {
+    subject: items.length === 1
+      ? `Your House Party quote for the ${firstSnap?.style_name || items[0].styleCode}`
+      : "Your House Party quote",
+    body: lines.join("\n"),
+  };
+}
+
+function MenuLeadBucket({
+  label, color, leads, matchNames, onChanged, emptyText, collapsedByDefault,
+}: {
+  label: string;
+  color: string;
+  leads: MenuLead[];
+  matchNames: Record<string, string>;
+  onChanged: () => void;
+  emptyText?: string;
+  collapsedByDefault?: boolean;
+}) {
+  const supabase = createClient();
+  const [collapsed, setCollapsed] = useState(!!collapsedByDefault);
+  const [composing, setComposing] = useState<MenuLead | null>(null);
+  const [quoting, setQuoting] = useState<MenuLead | null>(null);
+  const [openLead, setOpenLead] = useState<MenuLead | null>(null);
+  const [converting, setConverting] = useState<string | null>(null);
+  const [convertErr, setConvertErr] = useState<string | null>(null);
+  if (leads.length === 0 && !emptyText) return null;
+
+  async function convertLead(l: MenuLead) {
+    if (converting) return;
+    let clientName: string | undefined;
+    if (!l.client_match) {
+      const suggested = l.contact?.name || l.email.split("@")[0];
+      const answer = window.prompt("New client name (their brand, not the person):", suggested);
+      if (answer === null) return;
+      clientName = answer.trim() || suggested;
+    }
+    setConverting(l.id);
+    setConvertErr(null);
+    const res = await fetch("/api/menu/lead-convert", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ leadId: l.id, clientName }),
+    }).catch(() => null);
+    setConverting(null);
+    if (res?.ok) { onChanged(); return; }
+    const d = await res?.json().catch(() => null);
+    setConvertErr(d?.error || "Convert failed.");
+  }
+
+  async function setStatus(l: MenuLead, status: string) {
+    await supabase.from("menu_leads").update({ status, updated_at: new Date().toISOString() } as never).eq("id", l.id);
+    onChanged();
+  }
+
+  return (
+    <section style={{ marginBottom: 24 }}>
+      <div
+        style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, cursor: leads.length > 0 ? "pointer" : "default" }}
+        onClick={() => leads.length > 0 && setCollapsed(c => !c)}
+      >
+        <span style={{ width: 8, height: 8, borderRadius: 99, background: color }} />
+        <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: T.muted }}>
+          {label} · {leads.length}
+        </span>
+        {leads.length > 0 && (
+          <span style={{ fontSize: 10, color: T.faint }}>{collapsed ? "▸" : "▾"}</span>
+        )}
+      </div>
+      {leads.length === 0 && emptyText && (
+        <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 16, fontSize: 12, color: T.faint }}>
+          {emptyText}
+        </div>
+      )}
+      {!collapsed && leads.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {leads.map(l => {
+            const isQuote = l.status === "quote_requested";
+            const anchor = isQuote && l.quote_requested_at ? l.quote_requested_at : l.updated_at;
+            const ageHrs = (Date.now() - new Date(anchor).getTime()) / 3600000;
+            const ageText = ageHrs < 1 ? "just now" : ageHrs < 24 ? `${Math.floor(ageHrs)}h ago` : `${Math.floor(ageHrs / 24)}d ago`;
+            // The 1-business-day promise: amber past 24h on the actionable queue.
+            const overdue = isQuote && ageHrs > 24;
+            return (
+              <div
+                key={l.id}
+                onClick={() => setOpenLead(l)}
+                style={{
+                  background: T.card, border: `1px solid ${T.border}`, borderRadius: 10,
+                  padding: "14px 16px", cursor: "pointer",
+                  display: "grid", gridTemplateColumns: "4px 1fr auto", gap: 12, alignItems: "center",
+                  transition: "border-color 0.15s",
+                }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = color; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; }}
+              >
+                <div style={{ width: 4, alignSelf: "stretch", background: overdue ? T.amber : color, borderRadius: 2 }} />
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 14, fontWeight: 700 }}>
+                      {l.contact?.name || l.email}
+                    </span>
+                    {l.contact?.name && (
+                      <a href={`mailto:${l.email}`} style={{ fontSize: 12, color: T.blue, textDecoration: "none" }}>{l.email}</a>
+                    )}
+                    {l.client_match && (
+                      <span style={{ fontSize: 10, fontWeight: 700, color: T.blue, textTransform: "uppercase", letterSpacing: "0.07em" }}>
+                        EXISTING CLIENT{matchNames[l.client_match] ? ` · ${matchNames[l.client_match]}` : ""}
+                      </span>
+                    )}
+                    {!isQuote && (
+                      <span style={{ fontSize: 10, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: "0.07em" }}>
+                        {l.status}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 12, color: T.muted, marginTop: 4, fontFamily: mono }}>
+                    {summarizePicks(l)}
+                    {l.contact?.neededBy ? ` · needed ${l.contact.neededBy}` : ""}
+                    {l.contact?.phone ? ` · ${l.contact.phone}` : ""}
+                  </div>
+                  {(l.picks?.notes || l.contact?.notes) && (
+                    <div style={{ fontSize: 12, color: T.faint, marginTop: 4, whiteSpace: "pre-wrap" }}>
+                      {[l.picks?.notes, l.contact?.notes].filter(Boolean).join(" — ")}
+                    </div>
+                  )}
+                  {(l.picks?.files || []).filter(f => f.url).length > 0 && (
+                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 5 }}>
+                      {l.picks!.files!.filter(f => f.url).map(f => (
+                        <a key={f.path} href={f.url!} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} style={{ fontSize: 11, color: T.blue, textDecoration: "none", borderBottom: `1px dotted ${T.blue}`, fontFamily: mono }}>
+                          📎 {f.filename}{f.styleCode ? ` (${f.styleCode}${f.placement ? ` · ${f.placement}` : ""})` : ""}
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+                  <span style={{ fontSize: 11, color: overdue ? T.amber : T.faint, fontFamily: mono }}>
+                    {overdue ? `⚠ ${ageText}` : ageText}
+                  </span>
+                  {["quote_requested", "quoted", "accepted"].includes(l.status) && (
+                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                      {l.quote && !l.job_id && (
+                        <span onClick={(e) => { e.stopPropagation(); convertLead(l); }} style={{ fontSize: 11, color: T.green, cursor: "pointer", borderBottom: `1px dotted ${T.green}`, fontWeight: 700 }}>
+                          {converting === l.id ? "Creating..." : "Create job"}
+                        </span>
+                      )}
+                      <span onClick={(e) => { e.stopPropagation(); setQuoting(l); }} style={{ fontSize: 11, color: T.purple, cursor: "pointer", borderBottom: `1px dotted ${T.purple}`, fontWeight: 700 }}>
+                        {l.quote ? "Edit quote" : "Build quote"}
+                      </span>
+                      <span onClick={(e) => { e.stopPropagation(); setComposing(l); }} style={{ fontSize: 11, color: T.blue, cursor: "pointer", borderBottom: `1px dotted ${T.blue}` }}>
+                        Respond
+                      </span>
+                      {l.status === "quote_requested" && (
+                        <span onClick={(e) => { e.stopPropagation(); setStatus(l, "declined"); }} style={{ fontSize: 11, color: T.faint, cursor: "pointer", borderBottom: `1px dotted ${T.faint}` }}>
+                          Decline
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  {l.quote && (
+                    <span style={{ fontSize: 10, fontFamily: mono, color: l.status === "converted" || l.job_id ? T.green : l.status === "accepted" ? T.green : T.purple, fontWeight: 700, letterSpacing: "0.06em" }}>
+                      {l.job_id ? "CONVERTED" : l.status === "accepted" ? "ACCEPTED" : "QUOTED"} ${Number(l.quote.total || 0).toLocaleString()} ·{" "}
+                      {l.quote.punch.filter(pt => pt.status === "done").length}/{l.quote.punch.length} points
+                      {l.job_id && <a href={`/jobs/${l.job_id}`} onClick={(e) => e.stopPropagation()} style={{ color: T.blue, marginLeft: 8, textDecoration: "none", borderBottom: `1px dotted ${T.blue}` }}>open job →</a>}
+                    </span>
+                  )}
+                  {convertErr && converting === null && (
+                    <span style={{ fontSize: 10.5, color: T.red }}>{convertErr}</span>
+                  )}
+                  {l.response?.sent_at && (
+                    <span title={l.response.body} style={{ fontSize: 10, color: T.faint, fontFamily: mono }}>
+                      responded {new Date(l.response.sent_at).toLocaleDateString()} by {l.response.by?.split("@")[0]}
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {composing && (
+        <ComposeResponseModal
+          lead={composing}
+          onClose={() => setComposing(null)}
+          onSent={() => { setComposing(null); onChanged(); }}
+        />
+      )}
+      {quoting && (
+        <QuoteBuilderModal
+          lead={quoting}
+          onClose={() => setQuoting(null)}
+          onSent={() => { setQuoting(null); onChanged(); }}
+        />
+      )}
+      {openLead && (
+        <MenuLeadDetailModal
+          lead={openLead}
+          matchNames={matchNames}
+          onClose={() => setOpenLead(null)}
+          onBuildQuote={() => { setQuoting(openLead); setOpenLead(null); }}
+          onRespond={() => { setComposing(openLead); setOpenLead(null); }}
+          onConvert={() => { setOpenLead(null); convertLead(openLead); }}
+          onDecline={() => { setStatus(openLead, "declined"); setOpenLead(null); }}
+        />
+      )}
+    </section>
+  );
+}
+
+function ComposeResponseModal({ lead, onClose, onSent }: { lead: MenuLead; onClose: () => void; onSent: () => void }) {
+  const draft = useMemo(() => buildResponseDraft(lead), [lead]);
+  const [subject, setSubject] = useState(draft.subject);
+  const [body, setBody] = useState(draft.body);
+  const [sending, setSending] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const hasPlaceholder = /\[\$?\s?_+|\[X /.test(body);
+
+  async function send() {
+    if (sending) return;
+    setSending(true);
+    setErr(null);
+    const res = await fetch("/api/menu/respond", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ leadId: lead.id, subject, body }),
+    }).catch(() => null);
+    setSending(false);
+    if (res?.ok) { onSent(); return; }
+    const d = await res?.json().catch(() => null);
+    setErr(d?.error || "Send failed. Try again.");
+  }
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", zIndex: 60, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 24, width: "100%", maxWidth: 560, fontFamily: font, color: T.text }}>
+        <h3 style={{ margin: "0 0 2px", fontSize: 17, fontWeight: 700 }}>Response to {lead.contact?.name || lead.email}</h3>
+        <p style={{ margin: "0 0 16px", fontSize: 12, color: T.faint }}>
+          Prefilled from their picks and the ranges they were shown. Fill the bracketed number, tweak, send. Goes from hello@ with their menu link attached.
+        </p>
+        <input
+          value={subject}
+          onChange={e => setSubject(e.target.value)}
+          style={{ width: "100%", boxSizing: "border-box", background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, fontSize: 13, padding: "9px 11px", marginBottom: 10, fontFamily: font }}
+        />
+        <textarea
+          value={body}
+          onChange={e => setBody(e.target.value)}
+          style={{ width: "100%", boxSizing: "border-box", background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, fontSize: 13, padding: "10px 11px", minHeight: 260, lineHeight: 1.55, fontFamily: font, resize: "vertical" }}
+        />
+        {hasPlaceholder && (
+          <div style={{ fontSize: 11, color: T.amber, marginTop: 8 }}>
+            Draft still has a bracketed placeholder — fill in the real number before sending.
+          </div>
+        )}
+        {err && <div style={{ fontSize: 12, color: T.red, marginTop: 8 }}>{err}</div>}
+        <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
+          <button onClick={onClose} style={{ background: "transparent", border: `1px solid ${T.border}`, borderRadius: 8, color: T.muted, fontSize: 13, padding: "9px 16px", cursor: "pointer", fontFamily: font }}>
+            Cancel
+          </button>
+          <button
+            onClick={send}
+            disabled={sending || hasPlaceholder || !subject.trim() || !body.trim()}
+            style={{ background: T.accent, border: "none", borderRadius: 8, color: "#111", fontSize: 13, fontWeight: 700, padding: "9px 18px", cursor: "pointer", fontFamily: font, opacity: sending || hasPlaceholder || !subject.trim() || !body.trim() ? 0.5 : 1 }}
+          >
+            {sending ? "Sending..." : "Send response"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Quick Quote builder ────────────────────────────────────────
+// THE SAME costing surface as the job (Jon: "we may as well have this
+// same function on the intake"): margin chips, per-item sell card, and
+// the REAL DecorationPanel embedded per line — vendor, locations, share
+// groups, specialty chips, tag print, packaging, setup fees, custom
+// costs. calcCostProduct runs across all lines so share groups price
+// exactly like in-project costing. On convert the spec seeds
+// costing_data.costProds (qtys never persisted — single-source).
+
+const QQ_MARGINS = [10, 15, 20, 25, 30];
+
+function QuoteBuilderModal({ lead, onClose, onSent }: { lead: MenuLead; onClose: () => void; onSent: () => void }) {
+  const supabase = createClient();
+  const [printers, setPrinters] = useState<Record<string, any>>({});
+  const [decoratorRecords, setDecoratorRecords] = useState<any[]>([]);
+  const [rateMeta, setRateMeta] = useState<Record<string, { blank: number | null; group: string }>>({});
+  useEffect(() => {
+    supabase.from("decorators").select("id, name, short_code, pricing_data, capabilities").then(({ data }) => {
+      const rows = (data as any[]) || [];
+      setDecoratorRecords(rows);
+      setPrinters(buildPrintersMap(rows));
+    });
+    supabase.from("menu_rates").select("style_code,product_group,seed_meta").eq("active", true).then(({ data }) => {
+      const m: Record<string, { blank: number | null; group: string }> = {};
+      for (const r of (data as any[]) || []) {
+        if (!m[r.style_code]) m[r.style_code] = { blank: r.seed_meta?.blank ?? null, group: r.product_group };
+        if (m[r.style_code].blank == null && r.seed_meta?.blank != null) m[r.style_code].blank = r.seed_meta.blank;
+      }
+      setRateMeta(m);
+    });
+  }, []);
+  const lookupPrint = (pk: string, qty: number, colors: number) => lookupPrintPrice(printers, pk, qty, colors);
+  const lookupTag = (pk: string, qty: number) => lookupTagPrice(printers, pk, qty);
+
+  const initial = useMemo<{ lines: QuoteLine[]; punch: PunchPoint[]; validUntil: string }>(() => {
+    if (lead.quote) {
+      return { lines: lead.quote.lines, punch: lead.quote.punch, validUntil: lead.quote.validUntil };
+    }
+    const snap = lead.rates_snapshot || [];
+    const items = lead.picks?.items || [];
+    const lines: QuoteLine[] = items.map(it => {
+      const mid = snapshotMid(snap as any, it.styleCode, it.qty);
+      const name = (snap as any[]).find(r => r.style_code === it.styleCode)?.style_name || it.styleCode;
+      return {
+        styleCode: it.styleCode,
+        label: name,
+        qty: it.qty,
+        colors: it.colors || [],
+        unitPrice: mid != null ? Number(mid.toFixed(2)) : null,
+        note: (it as any).notes || undefined,
+      };
+    });
+    const punch = defaultPunch({
+      lines,
+      hasArtFiles: (lead.picks?.files || []).length > 0,
+      artStatus: lead.picks?.artStatus || null,
+      neededBy: lead.contact?.neededBy || null,
+    });
+    const vu = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+    return { lines, punch, validUntil: vu };
+  }, [lead]);
+
+  const [lines, setLines] = useState<QuoteLine[]>(initial.lines);
+  const [punch, setPunch] = useState<PunchPoint[]>(initial.punch);
+  const [validUntil, setValidUntil] = useState(initial.validUntil);
+  const [marginPct, setMarginPct] = useState<number>(() => {
+    const c: any = initial.lines.find(l => (l.costing as any)?.__margin != null)?.costing;
+    return c?.__margin ?? 30;
+  });
+  // Parity with the in-project modal: Shipping + CC toggles, DEFAULT ON.
+  const [inclShip, setInclShip] = useState<boolean>((lead.quote as any)?.inclShip ?? true);
+  const [inclCC, setInclCC] = useState<boolean>((lead.quote as any)?.inclCC ?? true);
+  const [customPoint, setCustomPoint] = useState("");
+  const [sending, setSending] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  // Seed each styled line's costProd spec once the rate meta lands.
+  useEffect(() => {
+    if (!Object.keys(rateMeta).length) return;
+    setLines(ls => ls.map(l => {
+      if (!l.styleCode || l.costing) return l;
+      const meta = rateMeta[l.styleCode];
+      const group = meta?.group || "tee";
+      if (!["tee", "hoodie", "hat"].includes(group)) return l; // accessories price manually
+      return {
+        ...l,
+        costing: {
+          garment_type: group === "hat" ? "hat" : group,
+          blank_vendor: l.label,
+          blankCostPerUnit: meta?.blank ?? 0,
+          isFleece: group === "hoodie",
+          printVendor: null, printLocations: {},
+          finishingQtys: {}, setupFees: {}, specialtyQtys: {}, customCosts: [],
+        } as any,
+      };
+    }));
+  }, [rateMeta]);
+
+  // Assemble engine prods (share groups span lines, same as the job).
+  const prods = useMemo(() => lines.map((l, i) => l.costing ? ({
+    ...(l.costing as any),
+    id: `qq-${i}`, name: l.label, totalQty: l.qty,
+  }) : null), [lines]);
+  const allProds = prods.filter(Boolean) as any[];
+
+  function engineFor(i: number): any | null {
+    const prod = prods[i];
+    if (!prod?.printVendor || !Object.keys(printers).length) return null;
+    const r = calcCostProduct(prod, `${marginPct}%`, inclShip, inclCC, allProds, printers);
+    return r && r.sellPerUnit > 0 ? r : null;
+  }
+
+  // DecorationPanel edit hooks — write the spec back onto the line and
+  // resync the auto price.
+  function writeSpec(i: number, newP: any) {
+    setLines(ls => ls.map((l, x) => {
+      if (x !== i) return l;
+      const { id: _id, name: _n, totalQty: _q, ...spec } = newP;
+      return { ...l, costing: spec };
+    }));
+  }
+  const updateProd = (i: number, newP: any) => writeSpec(i, newP);
+  const setCostProdsFn = (fn: any) => {
+    const next = fn(prods.map(p => p || {}));
+    next.forEach((np: any, i: number) => { if (prods[i]) writeSpec(i, np); });
+  };
+
+  // Auto price: engine sell → unitPrice unless overridden.
+  useEffect(() => {
+    if (!Object.keys(printers).length) return;
+    setLines(ls => ls.map((l, i) => {
+      const c: any = l.costing;
+      if (!c || c.sellOverride != null) return l;
+      const prod = { ...c, id: `qq-${i}`, name: l.label, totalQty: l.qty };
+      if (!prod.printVendor) return l;
+      const all = ls.map((l2, x) => l2.costing ? { ...(l2.costing as any), id: `qq-${x}`, name: l2.label, totalQty: l2.qty } : null).filter(Boolean);
+      const r = calcCostProduct(prod, `${marginPct}%`, inclShip, inclCC, all as any[], printers);
+      if (!r || !(r.sellPerUnit > 0)) return l;
+      const sell = Math.round(r.sellPerUnit * 20) / 20;
+      const allIn = Number((r.totalCost / l.qty).toFixed(2));
+      if (l.unitPrice === sell && (c as any).__allIn === allIn) return l;
+      return { ...l, unitPrice: sell, costing: { ...c, __allIn: allIn, __margin: marginPct } };
+    }));
+  }, [JSON.stringify(prods), marginPct, inclShip, inclCC, printers]);
+
+  function setLine(i: number, patch: Partial<QuoteLine>) {
+    setLines(ls => ls.map((l, x) => (x === i ? { ...l, ...patch } : l)));
+  }
+
+  const total = quoteTotal(lines);
+  const unpriced = lines.filter(l => l.unitPrice == null).length;
+
+  async function send() {
+    if (sending) return;
+    setSending(true);
+    setErr(null);
+    const res = await fetch("/api/menu/quote-send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ leadId: lead.id, lines, punch, validUntil, inclShip, inclCC }),
+    }).catch(() => null);
+    setSending(false);
+    if (res?.ok) { onSent(); return; }
+    const d = await res?.json().catch(() => null);
+    setErr(d?.error || "Send failed. Try again.");
+  }
+
+  const inp: React.CSSProperties = { background: T.card, border: `1px solid ${T.border}`, borderRadius: 7, color: T.text, fontSize: 12.5, padding: "7px 9px", fontFamily: font };
+  const kpi = (label: string, val: string, color?: string) => (
+    <div>
+      <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.08em", color: T.muted, textTransform: "uppercase" }}>{label}</div>
+      <div style={{ fontSize: 13, fontWeight: 800, fontFamily: mono, color: color || T.text }}>{val}</div>
+    </div>
+  );
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", zIndex: 60, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 22, width: "100%", maxWidth: 820, maxHeight: "94vh", overflowY: "auto", fontFamily: font, color: T.text }}>
+
+        {/* Header — margin chips, same rhythm as JOB PRICING */}
+        <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", marginBottom: 6 }}>
+          <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", color: T.amber, textTransform: "uppercase" }}>
+            Quick quote · {lead.contact?.name || lead.email}
+          </span>
+          <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", color: T.muted, textTransform: "uppercase" }}>Margin</span>
+          <div style={{ display: "flex", background: T.card, borderRadius: 8, padding: 2 }}>
+            {QQ_MARGINS.map(mg => (
+              <button key={mg} onClick={() => setMarginPct(mg)}
+                style={{ padding: "4px 10px", borderRadius: 6, fontSize: 11.5, fontWeight: 700, fontFamily: mono, cursor: "pointer", border: "none", background: marginPct === mg ? T.amber : "transparent", color: marginPct === mg ? "#111" : T.muted }}>
+                {mg}%
+              </button>
+            ))}
+          </div>
+          {[["Shipping", inclShip, setInclShip], ["CC fees", inclCC, setInclCC]].map(([label, on, set]: any) => (
+            <button key={label} onClick={() => set(!on)}
+              style={{ display: "flex", alignItems: "center", gap: 6, background: "transparent", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12, color: on ? T.text : T.faint, padding: 0 }}>
+              <span style={{ width: 28, height: 16, borderRadius: 99, background: on ? T.text : T.card, border: `1px solid ${T.border}`, position: "relative", flexShrink: 0 }}>
+                <span style={{ position: "absolute", top: 1.5, left: on ? 13 : 2, width: 11, height: 11, borderRadius: 99, background: on ? "#111" : T.faint, transition: "left 0.12s" }} />
+              </span>
+              {label}
+            </button>
+          ))}
+          <span style={{ marginLeft: "auto", fontSize: 17, fontWeight: 800, fontFamily: mono }}>${total.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+        </div>
+        <p style={{ margin: "0 0 14px", fontSize: 11.5, color: T.faint }}>
+          Same engine as in-project costing: blank buffers (LA 10%, others 5%), per-item ship rates, CC. Specs carry into the job&apos;s Costing on convert. Re-sending never wipes the customer&apos;s checklist progress.
+        </p>
+
+        {/* Lines */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {lines.map((l, i) => {
+            const c: any = l.costing;
+            const r = engineFor(i);
+            return (
+              <div key={i} style={{ border: `1px solid ${T.border}`, borderRadius: 10, padding: 12, background: T.card }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 70px 92px 24px", gap: 8, alignItems: "center" }}>
+                  <div style={{ minWidth: 0 }}>
+                    <input value={l.label} onChange={e => setLine(i, { label: e.target.value })} style={{ ...inp, width: "100%", boxSizing: "border-box", background: T.surface }} />
+                    {(l.colors.length > 0 || l.note) && (
+                      <div style={{ fontSize: 10.5, color: T.faint, fontFamily: mono, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {l.colors.join(", ")}{l.note ? ` · "${l.note}"` : ""}
+                      </div>
+                    )}
+                  </div>
+                  <input type="number" value={l.qty || ""} onChange={e => setLine(i, { qty: Number(e.target.value) || 0 })} style={{ ...inp, textAlign: "right", fontFamily: mono, background: T.surface }} />
+                  <div style={{ position: "relative" }}>
+                    <span style={{ position: "absolute", left: 8, top: 8, fontSize: 12, color: c?.sellOverride != null ? T.amber : T.faint }}>$</span>
+                    <input
+                      type="number" step="0.05"
+                      value={l.unitPrice ?? ""}
+                      placeholder="price"
+                      title={c?.sellOverride != null ? "Manual override — clear to return to engine pricing" : undefined}
+                      onChange={e => {
+                        const v = e.target.value === "" ? null : Number(e.target.value);
+                        setLine(i, { unitPrice: v, costing: c ? { ...c, sellOverride: v } : c });
+                      }}
+                      style={{ ...inp, width: "100%", boxSizing: "border-box", paddingLeft: 18, textAlign: "right", fontFamily: mono, background: T.surface, borderColor: c?.sellOverride != null ? T.amber : l.unitPrice == null ? T.amber : T.border }}
+                    />
+                  </div>
+                  <span onClick={() => setLines(ls => ls.filter((_, x) => x !== i))} style={{ color: T.faint, cursor: "pointer", textAlign: "center" }}>×</span>
+                </div>
+
+                {c && (
+                  <>
+                    {/* Sell/unit card — the job modal's per-item summary, condensed */}
+                    <div style={{ display: "flex", gap: 18, flexWrap: "wrap", alignItems: "center", margin: "10px 0", padding: "8px 12px", borderRadius: 8, background: T.surface, border: `1px solid ${T.border}` }}>
+                      <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                        <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.08em", color: T.muted, textTransform: "uppercase" }}>Sell / unit</span>
+                        <span style={{ fontSize: 18, fontWeight: 800, fontFamily: mono, color: T.amber }}>{l.unitPrice != null ? `$${l.unitPrice.toFixed(2)}` : "—"}</span>
+                        {c.sellOverride != null && <span style={{ fontSize: 9.5, color: T.amber }}>override</span>}
+                      </div>
+                      {r ? (
+                        <>
+                          {kpi("Revenue", `$${(r.grossRev || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`)}
+                          {kpi("Blank", `$${(r.blankCost || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`)}
+                          {kpi("Decoration", `$${((r.printTotal || 0) + (r.setupTotal || 0) + (r.finTotal || 0) + (r.specTotal || 0)).toLocaleString(undefined, { maximumFractionDigits: 0 })}`)}
+                          {inclShip && kpi("Ship", `$${(r.shipping || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`)}
+                          {inclCC && kpi("CC", `$${(r.ccFees || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`)}
+                          {kpi("Profit / pc", `$${(r.profitPerPiece || 0).toFixed(2)}`, T.amber)}
+                          {kpi("Margin", `${((r.margin_pct || 0) * 100).toFixed(1)}%`, T.amber)}
+                        </>
+                      ) : (
+                        <span style={{ fontSize: 11, color: T.faint }}>{c.printVendor ? "add a location with colors" : "pick a vendor below"}</span>
+                      )}
+                      <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 4 }}>
+                        <span style={{ fontSize: 10, color: T.muted }}>blank $</span>
+                        <input type="text" inputMode="decimal" value={c.blankCostPerUnit ?? ""} onChange={e => writeSpec(i, { ...prods[i], blankCostPerUnit: Number(e.target.value) || 0 })}
+                          style={{ width: 54, textAlign: "center", background: T.card, border: `1px solid ${T.border}`, borderRadius: 5, color: T.text, fontSize: 13, fontWeight: 700, fontFamily: mono, outline: "none", padding: "3px 4px" }} />
+                      </div>
+                    </div>
+
+                    {/* THE real DecorationPanel */}
+                    <DecorationPanel
+                      p={prods[i]} i={i} costProds={prods.map(x => x || {})}
+                      PRINTERS={printers} decoratorRecords={decoratorRecords}
+                      updateProd={updateProd} setCostProds={setCostProdsFn}
+                      lookupPrintPrice={lookupPrint} lookupTagPrice={lookupTag}
+                      hideVendorApplyAll flush
+                    />
+                  </>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <span
+          onClick={() => setLines(ls => [...ls, { styleCode: null, label: "", qty: 1, colors: [], unitPrice: null }])}
+          style={{ display: "inline-block", marginTop: 10, fontSize: 11.5, color: T.blue, cursor: "pointer", borderBottom: `1px dotted ${T.blue}` }}
+        >
+          + Add line (setup fee, art services, shipping...)
+        </span>
+        {unpriced > 0 && <div style={{ fontSize: 11, color: T.amber, marginTop: 6 }}>{unpriced} unpriced line{unpriced > 1 ? "s" : ""} (shows as &quot;quoted on art&quot;)</div>}
+
+        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: T.muted, margin: "18px 0 6px" }}>
+          CHECKLIST · what the customer completes on their page
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
+          {punch.map((pt, i) => (
+            <label key={pt.key} style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 12.5, cursor: "pointer" }}>
+              <input type="checkbox" checked onChange={() => setPunch(ps => ps.filter((_, x) => x !== i))} style={{ marginTop: 2 }} />
+              <span>
+                <b>{pt.label}</b>{pt.status === "done" ? <span style={{ color: T.green, fontFamily: mono, fontSize: 10.5 }}> · already done</span> : ""}
+                <span style={{ display: "block", color: T.faint, fontSize: 11.5 }}>{pt.desc}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+          <input
+            value={customPoint}
+            onChange={e => setCustomPoint(e.target.value)}
+            placeholder="Add a custom point (e.g. confirm neck label text)"
+            style={{ ...inp, flex: 1 }}
+            onKeyDown={e => {
+              if (e.key === "Enter" && customPoint.trim()) {
+                setPunch(ps => [...ps, { key: `custom-${Date.now()}`, label: customPoint.trim(), desc: "", kind: "text", required: false, status: "needed" }]);
+                setCustomPoint("");
+              }
+            }}
+          />
+        </div>
+
+        <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12.5, marginBottom: 16 }}>
+          <span style={{ color: T.muted }}>Quote good through</span>
+          <input type="date" value={validUntil} onChange={e => setValidUntil(e.target.value)} style={inp} />
+        </label>
+
+        {err && <div style={{ fontSize: 12, color: T.red, marginBottom: 8 }}>{err}</div>}
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+          <button onClick={onClose} style={{ background: "transparent", border: `1px solid ${T.border}`, borderRadius: 8, color: T.muted, fontSize: 13, padding: "9px 16px", cursor: "pointer", fontFamily: font }}>
+            Cancel
+          </button>
+          <button
+            onClick={send}
+            disabled={sending || lines.length === 0}
+            style={{ background: T.accent, border: "none", borderRadius: 8, color: "#111", fontSize: 13, fontWeight: 700, padding: "9px 18px", cursor: "pointer", fontFamily: font, opacity: sending || lines.length === 0 ? 0.5 : 1 }}
+          >
+            {sending ? "Sending..." : lead.quote ? "Re-send quote" : "Send quote"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+// ─── Lead detail modal (mirrors the intake submissions' DetailModal) ──
+// The whole lead on one surface for Taylor: contact, picks, art, the
+// quote with checklist payloads (size grids, date, ship-to), response
+// history, and every action.
+
+function MenuLeadDetailModal({ lead, matchNames, onClose, onBuildQuote, onRespond, onConvert, onDecline }: {
+  lead: MenuLead;
+  matchNames: Record<string, string>;
+  onClose: () => void;
+  onBuildQuote: () => void;
+  onRespond: () => void;
+  onConvert: () => void;
+  onDecline: () => void;
+}) {
+  const p = lead.picks || {};
+  const q = lead.quote;
+  const sec: React.CSSProperties = { fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: T.muted, margin: "18px 0 8px" };
+  const box: React.CSSProperties = { background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 12.5 };
+  const items = Array.isArray(p.items) ? p.items : [];
+  const files = (p.files || []).filter(f => f.url);
+  const punchSummary = (pt: NonNullable<MenuLead["quote"]>["punch"][number]): string => {
+    const pl = pt.payload as any;
+    if (pt.status !== "done") return "open";
+    if (pt.kind === "files") return `${(pl?.files || []).length} file(s)`;
+    if (pt.kind === "sizes") {
+      const grids = pl?.grids || {};
+      const parts = Object.entries(grids).map(([k, g]: [string, any]) => {
+        const total = Object.values(g as Record<string, number>).reduce((s: number, n) => s + (Number(n) || 0), 0);
+        return `${k.split("|")[1] || "all"}: ${total}u`;
+      });
+      return parts.join(" · ") || (pl?.value ? String(pl.value).slice(0, 60) : "done");
+    }
+    if (pl?.value) return String(pl.value).slice(0, 80);
+    return "done";
+  };
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", zIndex: 60, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: 24, width: "100%", maxWidth: 620, maxHeight: "92vh", overflowY: "auto", fontFamily: font, color: T.text }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+          <div>
+            <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>{lead.contact?.name || lead.email}</h3>
+            <div style={{ display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap", marginTop: 4 }}>
+              <a href={`mailto:${lead.email}`} style={{ fontSize: 12, color: T.blue, textDecoration: "none" }}>{lead.email}</a>
+              {lead.contact?.phone && <span style={{ fontSize: 12, color: T.muted, fontFamily: mono }}>{lead.contact.phone}</span>}
+              {lead.client_match && (
+                <span style={{ fontSize: 10, fontWeight: 700, color: T.blue, textTransform: "uppercase", letterSpacing: "0.07em" }}>
+                  Existing client{matchNames[lead.client_match] ? ` · ${matchNames[lead.client_match]}` : ""}
+                </span>
+              )}
+              <span style={{ fontSize: 10, fontWeight: 700, color: lead.job_id ? T.green : T.purple, textTransform: "uppercase", letterSpacing: "0.07em" }}>
+                {lead.job_id ? "Converted" : lead.status.replace(/_/g, " ")}
+              </span>
+            </div>
+          </div>
+          <button onClick={onClose} aria-label="Close" style={{ background: "transparent", border: "none", color: T.faint, fontSize: 20, cursor: "pointer", lineHeight: 1 }}>×</button>
+        </div>
+
+        <div style={sec}>Picks from The Build</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {items.length ? items.map((it, i) => (
+            <div key={i} style={box}>
+              <b>{it.styleCode}</b> × {it.qty}
+              {it.colors?.length ? <span style={{ color: T.muted }}> · {it.colors.join(", ")}</span> : null}
+              {(it as any).notes && <div style={{ color: T.faint, marginTop: 3 }}>&ldquo;{(it as any).notes}&rdquo;</div>}
+            </div>
+          )) : <div style={{ ...box, color: T.faint }}>No styles picked; they were browsing.</div>}
+          {(p.budget || p.artStatus || p.notes || lead.contact?.neededBy) && (
+            <div style={{ ...box, color: T.muted }}>
+              {p.budget ? `Browsed at a $${Number(p.budget).toLocaleString()} budget · ` : ""}
+              {p.artStatus === "need_help" ? "Needs design help · " : p.artStatus === "ready" ? "Art ready · " : ""}
+              {lead.contact?.neededBy ? `Needed ${lead.contact.neededBy}` : ""}
+              {p.notes && <div style={{ color: T.faint, marginTop: 3 }}>&ldquo;{p.notes}&rdquo;</div>}
+              {lead.contact?.notes && <div style={{ color: T.faint, marginTop: 3 }}>&ldquo;{lead.contact.notes}&rdquo;</div>}
+            </div>
+          )}
+        </div>
+
+        {files.length > 0 && (
+          <>
+            <div style={sec}>Art files</div>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+              {files.map(f => (
+                <a key={f.path} href={f.url!} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: T.blue, textDecoration: "none", borderBottom: `1px dotted ${T.blue}`, fontFamily: mono }}>
+                  📎 {f.filename}{f.styleCode ? ` (${f.styleCode}${f.placement ? ` · ${f.placement}` : ""})` : ""}
+                </a>
+              ))}
+            </div>
+          </>
+        )}
+
+        {q && (
+          <>
+            <div style={sec}>Quote · ${Number(q.total || 0).toLocaleString()} · good through {q.validUntil}</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {q.lines.map((l, i) => (
+                <div key={i} style={{ ...box, display: "flex", justifyContent: "space-between", gap: 10 }}>
+                  <span>{l.label}{l.colors.length ? <span style={{ color: T.faint }}> · {l.colors.join(", ")}</span> : null} × {l.qty}</span>
+                  <span style={{ fontFamily: mono }}>{l.unitPrice != null ? `$${l.unitPrice.toFixed(2)}/pc` : "unpriced"}</span>
+                </div>
+              ))}
+            </div>
+            <div style={sec}>Checklist · {q.punch.filter(pt => pt.status === "done").length}/{q.punch.length} done</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {q.punch.map(pt => (
+                <div key={pt.key} style={{ ...box, display: "flex", justifyContent: "space-between", gap: 10 }}>
+                  <span style={{ color: pt.status === "done" ? T.text : T.amber }}>{pt.status === "done" ? "✓" : "○"} {pt.label}</span>
+                  <span style={{ color: T.faint, fontFamily: mono, fontSize: 11.5, textAlign: "right" }}>{punchSummary(pt)}</span>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        {lead.response?.sent_at && (
+          <>
+            <div style={sec}>Last response · {new Date(lead.response.sent_at).toLocaleString()} by {lead.response.by?.split("@")[0]}</div>
+            <div style={{ ...box, whiteSpace: "pre-wrap", color: T.muted, maxHeight: 140, overflowY: "auto" }}>{lead.response.body}</div>
+          </>
+        )}
+
+        <div style={{ display: "flex", gap: 10, marginTop: 22, justifyContent: "flex-end", flexWrap: "wrap" }}>
+          {lead.job_id ? (
+            <a href={`/jobs/${lead.job_id}`} style={{ background: T.accent, borderRadius: 8, color: "#111", fontSize: 13, fontWeight: 700, padding: "9px 18px", textDecoration: "none" }}>
+              Open job →
+            </a>
+          ) : (
+            <>
+              {q && <button onClick={onConvert} style={{ background: T.greenDim, border: `1px solid ${T.green}`, borderRadius: 8, color: T.green, fontSize: 13, fontWeight: 700, padding: "9px 16px", cursor: "pointer", fontFamily: font }}>Create job</button>}
+              <button onClick={onBuildQuote} style={{ background: T.accent, border: "none", borderRadius: 8, color: "#111", fontSize: 13, fontWeight: 700, padding: "9px 16px", cursor: "pointer", fontFamily: font }}>{q ? "Edit quote" : "Build quote"}</button>
+              <button onClick={onRespond} style={{ background: "transparent", border: `1px solid ${T.border}`, borderRadius: 8, color: T.blue, fontSize: 13, padding: "9px 16px", cursor: "pointer", fontFamily: font }}>Respond</button>
+              <button onClick={onDecline} style={{ background: "transparent", border: `1px solid ${T.border}`, borderRadius: 8, color: T.faint, fontSize: 13, padding: "9px 16px", cursor: "pointer", fontFamily: font }}>Decline</button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

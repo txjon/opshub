@@ -49,7 +49,7 @@ export default async function ShopPage() {
               color: "#ff9aa0", padding: 16, borderRadius: 8,
               fontSize: 13, marginBottom: 24,
             }}>
-              {error} — confirm NEXT_PUBLIC_SHOPIFY_STORE_DOMAIN and NEXT_PUBLIC_SHOPIFY_STOREFRONT_TOKEN are set.
+              {error}: confirm NEXT_PUBLIC_SHOPIFY_STORE_DOMAIN and NEXT_PUBLIC_SHOPIFY_STOREFRONT_TOKEN are set.
             </div>
           )}
           {!error && products.length === 0 && (

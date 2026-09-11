@@ -124,7 +124,7 @@ export default function VendorOrderPage({ params }: { params: { token: string; j
   const shipInfo = stillActive && order.shipDate ? daysUntil(order.shipDate) : null;
   const shipToText = order.shipTo
     ? (typeof order.shipTo === "string" ? order.shipTo : [order.shipTo.name, order.shipTo.address, [order.shipTo.city, order.shipTo.state, order.shipTo.zip].filter(Boolean).join(", ")].filter(Boolean).join("\n"))
-    : "—";
+    : "-";
 
   return (
     <div style={{ minHeight: "100vh", background: C.bg, fontFamily: C.font, color: C.text }}>
@@ -166,9 +166,9 @@ export default function VendorOrderPage({ params }: { params: { token: string; j
           {([
             ["Items", String(order.items.length)],
             ["Units", order.totalUnits.toLocaleString()],
-            ["Decoration total", order.grandTotal > 0 ? fmtMoney(order.grandTotal) : "—"],
-            ["Ship method", order.shipMethod || "—"],
-            ["PO date", order.poSentDate ? fmtDate(order.poSentDate) : "—"],
+            ["Decoration total", order.grandTotal > 0 ? fmtMoney(order.grandTotal) : "-"],
+            ["Ship method", order.shipMethod || "-"],
+            ["PO date", order.poSentDate ? fmtDate(order.poSentDate) : "-"],
           ] as [string, string][]).map(([label, val], i, arr) => (
             <div key={label} style={{ flex: 1, minWidth: 120, padding: "12px 14px", borderRight: i < arr.length - 1 ? `1px solid ${C.border}` : "none" }}>
               <div style={LBL}>{label}</div>
@@ -192,7 +192,7 @@ export default function VendorOrderPage({ params }: { params: { token: string; j
                 <span dangerouslySetInnerHTML={{ __html: billTo.addressHtml }} />
                 {billTo.email && <><br/>{billTo.email}</>}
               </div>
-            ) : <div style={{ fontSize: 12.5, color: C.muted }}>—</div>}
+            ) : <div style={{ fontSize: 12.5, color: C.muted }}>-</div>}
           </div>
         </div>
 
@@ -308,7 +308,7 @@ export default function VendorOrderPage({ params }: { params: { token: string; j
                   </button>
                 )}
                 {VENDOR_ACTIONS_DISABLED && !isShipped && (
-                  <div style={{ fontSize: 12, color: C.muted }}>To report shipments or issues, reply to the PO email — your reply reaches this order&apos;s thread directly.</div>
+                  <div style={{ fontSize: 12, color: C.muted }}>To report shipments or issues, reply to the PO email. Your reply reaches this order&apos;s thread directly.</div>
                 )}
               </div>
 
@@ -393,7 +393,7 @@ export default function VendorOrderPage({ params }: { params: { token: string; j
         {/* PO total */}
         {order.grandTotal > 0 && (
           <div style={{ borderTop: `2px solid ${C.text}`, paddingTop: 12, marginBottom: 16, textAlign: "right" }}>
-            <div style={{ ...LBL, marginBottom: 4 }}>PO Total — Decoration</div>
+            <div style={{ ...LBL, marginBottom: 4 }}>PO Total · Decoration</div>
             <div style={{ fontSize: 24, fontWeight: 800, fontFamily: C.mono }}>{fmtMoney(order.grandTotal)}</div>
           </div>
         )}
