@@ -1,5 +1,6 @@
 "use client";
 import { useState, useMemo, useRef, type CSSProperties } from "react";
+import { patchJobTypeMeta } from "@/lib/job-type-meta";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
@@ -101,13 +102,12 @@ function ShipByEdit({ strip, onSaved }: { strip: BoardStrip; onSaved: () => void
   async function save(date: string) {
     if (!date || !strip.poShipKey || busy) return;
     setBusy(true);
-    const sb = createClient();
-    const { data: job } = await sb.from("jobs").select("type_meta").eq("id", strip.jobId).single();
-    const tm: any = { ...((job as any)?.type_meta || {}) };
-    tm.po_ship_live = { ...(tm.po_ship_live || {}), [strip.poShipKey]: { date, edited_at: new Date().toISOString() } };
-    const { error } = await (sb.from("jobs") as any).update({ type_meta: tm }).eq("id", strip.jobId);
+    const key = strip.poShipKey;
+    const r = await patchJobTypeMeta(createClient(), strip.jobId, tm => ({
+      ...tm, po_ship_live: { ...(tm.po_ship_live || {}), [key]: { date, edited_at: new Date().toISOString() } },
+    }));
     setBusy(false);
-    if (!error) onSaved();
+    if (r.ok) onSaved(); else alert(`Ship-by not saved: ${r.error}`);
   }
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 6, minWidth: 78, justifyContent: "flex-end", position: "relative" }}>

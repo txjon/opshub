@@ -6,6 +6,7 @@
 // with the hub's presentation — art carries, data captions.
 // Legacy /dashboard stays reachable during the transition.
 import { useEffect, useMemo, useState } from "react";
+import { patchJobTypeMeta } from "@/lib/job-type-meta";
 import { createClient } from "@/lib/supabase/client";
 import { H } from "@/components/hub/theme";
 import { JOB_DIRECTIVES, DROP_DIRECTIVES, STUDIO_DIRECTIVE, HOUSE_EXTRA_DIRECTIVES, DISTRO_DIRECTIVES } from "@/lib/directives";
@@ -597,11 +598,11 @@ function ActionSheet({ sheet, onClose, onShipByLogged, onSaleClosed, onVarianceR
     if (!sh.vendorKey) return;
     setBusy("handled"); setErr(null);
     try {
-      const { data: job } = await supabase.from("jobs").select("type_meta").eq("id", sh.job.id).single();
-      const tm: any = { ...((job as any)?.type_meta || {}) };
-      tm.po_ship_confirmed = { ...(tm.po_ship_confirmed || {}), [sh.vendorKey]: { date: sh.due, at: new Date().toISOString() } };
-      const { error } = await (supabase.from("jobs") as any).update({ type_meta: tm }).eq("id", sh.job.id);
-      if (error) throw new Error(error.message);
+      const vk = sh.vendorKey;
+      const r = await patchJobTypeMeta(supabase, sh.job.id, tm => ({
+        ...tm, po_ship_confirmed: { ...(tm.po_ship_confirmed || {}), [vk]: { date: sh.due, at: new Date().toISOString() } },
+      }));
+      if (!r.ok) throw new Error(r.error);
       logJobActivity(sh.job.id, `Vendor confirmed ship-by ${fmtDate(sh.due)} — marked handled from The House`);
       onVendorHandled(sh.job.id, sh.vendorKey, sh.due);
       onClose();
@@ -613,11 +614,11 @@ function ActionSheet({ sheet, onClose, onShipByLogged, onSaleClosed, onVarianceR
     if (!date || !s.vendorKey) return;
     setBusy("shipby"); setErr(null);
     try {
-      const { data: job } = await supabase.from("jobs").select("type_meta").eq("id", s.job.id).single();
-      const tm: any = { ...((job as any)?.type_meta || {}) };
-      tm.po_ship_live = { ...(tm.po_ship_live || {}), [s.vendorKey]: { date, edited_at: new Date().toISOString() } };
-      const { error } = await (supabase.from("jobs") as any).update({ type_meta: tm }).eq("id", s.job.id);
-      if (error) throw new Error(error.message);
+      const vk = s.vendorKey;
+      const r = await patchJobTypeMeta(supabase, s.job.id, tm => ({
+        ...tm, po_ship_live: { ...(tm.po_ship_live || {}), [vk]: { date, edited_at: new Date().toISOString() } },
+      }));
+      if (!r.ok) throw new Error(r.error);
       logJobActivity(s.job.id, `Vendor ship-by moved to ${fmtDate(date)} (logged from The House)`);
       onShipByLogged(s.job.id, s.vendorKey, date);
       onClose();
