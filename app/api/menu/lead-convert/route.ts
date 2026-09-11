@@ -12,7 +12,11 @@ import { refreshJobFinancials } from "@/lib/costing-summary";
 //
 // Single-source doctrine from birth: quote line unitPrice →
 // items.sell_per_unit (sell truth); punch size grids → buy_sheet_lines
-// (qty truth), one ITEM PER COLORWAY (how jobs model reality). No
+// (qty truth), one ITEM PER COLORWAY (how jobs model reality). Custom
+// lines (no styleCode: art services, setup, rush) are NOT products — they
+// land in type_meta.invoice_extra_lines (feeRevenue), never as items. A
+// fee-as-item was a phantom garment on every warehouse surface and split
+// revenue truth (Sep 11: costing-health flagged the first test job). No
 // costing_data is fabricated — money enters the P&L when Taylor runs
 // costing, same gate as every job; refreshJobFinancials no-ops cleanly
 // until then. Missing size grids seed the standard curve, loudly marked
@@ -111,6 +115,18 @@ export async function POST(req: NextRequest) {
   const validTypes = ["corporate", "brand", "artist", "tour", "webstore", "drop_ship"];
   const jobType = validTypes.includes((cRow as any)?.client_type) ? (cRow as any).client_type : "brand";
 
+  // Custom (non-garment) lines → invoice extra lines, same rows the Client
+  // Quote editor writes; amount is the line total.
+  const feeLines = quote.lines
+    .filter((l) => !l.styleCode)
+    .map((l, i) => ({
+      id: `xl_${Date.now()}_${i}`,
+      description: l.label,
+      amount: Math.round((Number(l.unitPrice) || 0) * (Number(l.qty) || 0) * 100) / 100,
+      qb_item: "Service Fee",
+      type: "fee",
+    }));
+
   const { data: job, error: jErr } = await supabase
     .from("jobs")
     .insert({
@@ -123,7 +139,7 @@ export async function POST(req: NextRequest) {
       shipping_route: shippingRoute,
       target_ship_date: targetShip,
       notes: noteLines,
-      type_meta: { menu_lead_id: lead.id, menu_quote_total: quote.total || 0 },
+      type_meta: { menu_lead_id: lead.id, menu_quote_total: quote.total || 0, ...(feeLines.length ? { invoice_extra_lines: feeLines } : {}) },
     } as never)
     .select("id, job_number")
     .single();
@@ -136,12 +152,12 @@ export async function POST(req: NextRequest) {
   let sortOrder = 0;
   for (let li = 0; li < quote.lines.length; li++) {
     const line = quote.lines[li];
+    if (!line.styleCode) continue; // fee line — already an invoice extra line
     const colorways = line.colors.length ? line.colors : [null];
     for (const cw of colorways) {
       const grid = grids[gridKey(li, cw)];
       const splitQty = Math.round(line.qty / colorways.length);
-      const isSized = !!line.styleCode; // custom fee lines get a single OS row
-      const curved = isSized && !grid;
+      const curved = !grid;
       const { data: item, error: iErr } = await supabase
         .from("items")
         .insert({
