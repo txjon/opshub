@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
     const sb = admin();
     const { data: jobs, error } = await sb
       .from("jobs")
-      .select("id, job_number, phase, financial_closed_at, costing_data, costing_summary, items(id, name, is_fleece, archived_at, sell_per_unit, buy_sheet_lines(size, qty_ordered))")
+      .select("id, job_number, phase, is_internal, financial_closed_at, costing_data, costing_summary, items(id, name, is_fleece, archived_at, sell_per_unit, buy_sheet_lines(size, qty_ordered))")
       .not("costing_summary", "is", null);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
@@ -167,8 +167,49 @@ export async function GET(req: NextRequest) {
       } catch { /* one job erroring must not sink the whole sweep */ }
     }
 
+    // ── Sep 11 2026 tripwires — the three failure shapes that sat unnoticed
+    //    for days-to-weeks that day. Detection only; each is a human call.
+    const ACTIVE_PHASES = new Set(["intake", "pending", "ready", "quoting", "approved", "production", "receiving", "shipping", "fulfillment"]);
+
+    // (a) PO art link points somewhere other than the item's own folder. A
+    //     packing-slip upload repointed four items at "Packing Slips"; a
+    //     duplicate copied it; ICON opened an empty folder. Register now moves
+    //     the link on art stages only — this catches any other path.
+    const folderOf = (l: string | null) => (l || "").match(/folders\/([A-Za-z0-9_-]+)/)?.[1] || null;
+    const badLinks: string[] = [];
+    for (let from = 0; ; from += 1000) { // paginate — un-ranged selects cap at 1000 silently
+      const { data: page } = await sb.from("items")
+        .select("id, name, drive_link, drive_folder_id, jobs(job_number, phase)")
+        .is("archived_at", null).not("drive_folder_id", "is", null).range(from, from + 999);
+      for (const it of (page || []) as any[]) {
+        if (!ACTIVE_PHASES.has(it.jobs?.phase)) continue;
+        const f = folderOf(it.drive_link);
+        if (f && f !== it.drive_folder_id) badLinks.push(`${it.jobs.job_number} · ${it.name || "?"} (${it.jobs.phase})`);
+      }
+      if (!page || page.length < 1000) break;
+    }
+
+    // (b) A cost entry the gates forbid carries a QB bill id anyway (mig 177
+    //     refuses new ones at the row; this catches anything that predates it
+    //     or slips through a bypass).
+    const { data: forbidden } = await sb.from("cost_entries")
+      .select("id, source, bill_method, qb_bill_id, vendor_name, amount, job_id, jobs(job_number)")
+      .not("qb_bill_id", "is", null).neq("qb_bill_id", "paid-verified")
+      .or("source.eq.pre_opshub,bill_method.eq.credit_card");
+    const forbiddenPushes = ((forbidden || []) as any[]).map(e =>
+      `${e.jobs?.job_number || "no job"} · ${e.vendor_name || "?"} $${Number(e.amount || 0).toLocaleString()} · ${e.source === "pre_opshub" ? "pre-OpsHub" : "card charge"} → QB Bill #${e.qb_bill_id}`);
+
+    // (c) A PO went out but the job has no invoice number. Either the invoice
+    //     was never drafted, or the job's type_meta lost it (the Sep 11 wipe —
+    //     mig 176 refuses that now). Internal + terminal jobs excluded.
+    const poNoInvoice = ((jobs || []) as any[])
+      .filter(j => !j.is_internal && ACTIVE_PHASES.has(j.phase))
+      .filter(j => ((j.type_meta?.po_sent_vendors || []) as string[]).length > 0 && !j.type_meta?.qb_invoice_number)
+      .map(j => `${j.job_number} (${j.phase}) — PO sent to ${(j.type_meta.po_sent_vendors as string[]).join(", ")}`);
+
     // Email the owner ONLY when something is wrong. Silent when clean.
-    if ((drift.length || healed.length || fleeceGaps.length || phaseDrift.length || qtyHealed.length || qtyDrift.length) && process.env.OWNER_EMAIL) {
+    const sep11Count = badLinks.length + forbiddenPushes.length + poNoInvoice.length;
+    if ((drift.length || healed.length || fleeceGaps.length || phaseDrift.length || qtyHealed.length || qtyDrift.length || sep11Count) && process.env.OWNER_EMAIL) {
       try {
         const resend = resendForSlug("hpd");
         const driftRows = drift.map(d =>
@@ -186,12 +227,15 @@ export async function GET(req: NextRequest) {
   ${phaseDrift.length ? `<h3 style="color:#ef4444;margin:16px 0 8px">Phase drift — stored phase ≠ recomputed (${phaseDrift.length})</h3><ul style="margin:0;padding-left:20px">${phaseRows}</ul>` : ""}
   ${qtyHealed.length ? `<h3 style="color:#16a34a;margin:16px 0 8px">Costing qtys re-synced from the buy sheet (${qtyHealed.length})</h3><ul style="margin:0;padding-left:20px">${qtyHealed.map(h => `<li style="margin:4px 0;font-size:14px"><b>${h.job}</b> — ${h.detail}</li>`).join("")}</ul>` : ""}
   ${qtyDrift.length ? `<h3 style="color:#d97706;margin:16px 0 8px">Costing qtys ≠ buy sheet — needs eyes (${qtyDrift.length})</h3><ul style="margin:0;padding-left:20px">${qtyDrift.map(d => `<li style="margin:4px 0;font-size:14px"><b>${d.job}</b> (${d.phase}) — costing ${d.cpQty}u vs buy sheet ${d.bsQty}u${d.cpQty > d.bsQty ? " · costing overcounts (pre-order/wave shape — review, not auto-healed)" : " · closed or unhealable"}</li>`).join("")}</ul>` : ""}
+  ${badLinks.length ? `<h3 style="color:#ef4444;margin:16px 0 8px">PO art link points away from the item's folder (${badLinks.length})</h3><ul style="margin:0;padding-left:20px">${badLinks.map(t => `<li style="margin:4px 0;font-size:14px">${t}</li>`).join("")}</ul><p style="font-size:12px;color:#666;margin:4px 0 0">The printer's "Production Files" button opens this link. Re-pull the proof or set the folder link on the item.</p>` : ""}
+  ${forbiddenPushes.length ? `<h3 style="color:#ef4444;margin:16px 0 8px">Cost entries in QB that should never be (${forbiddenPushes.length})</h3><ul style="margin:0;padding-left:20px">${forbiddenPushes.map(t => `<li style="margin:4px 0;font-size:14px">${t}</li>`).join("")}</ul><p style="font-size:12px;color:#666;margin:4px 0 0">Delete the QB Bill, then clear the entry's pushed stamp.</p>` : ""}
+  ${poNoInvoice.length ? `<h3 style="color:#d97706;margin:16px 0 8px">PO sent, no invoice on the job (${poNoInvoice.length})</h3><ul style="margin:0;padding-left:20px">${poNoInvoice.map(t => `<li style="margin:4px 0;font-size:14px">${t}</li>`).join("")}</ul><p style="font-size:12px;color:#666;margin:4px 0 0">Draft the invoice, or the job lost its QB link — check job_type_meta_history.</p>` : ""}
   <p style="margin:20px 0 0;font-size:12px;color:#999">Costing: re-save the job's costing tab. Phase: open the job (V2 heals on load). — OpsHub tripwire</p>
 </div>`;
         await resend.emails.send({
           from: process.env.EMAIL_FROM_QUOTES || "onboarding@resend.dev",
           to: process.env.OWNER_EMAIL,
-          subject: `OpsHub · ⚠️ ${drift.length + fleeceGaps.length + phaseDrift.length + qtyDrift.length} health issue${drift.length + fleeceGaps.length + phaseDrift.length + qtyDrift.length !== 1 ? "s" : ""} (${drift.length} rev · ${phaseDrift.length} phase · ${qtyDrift.length} qty)`,
+          subject: `OpsHub · ⚠️ ${drift.length + fleeceGaps.length + phaseDrift.length + qtyDrift.length + sep11Count} health issue${drift.length + fleeceGaps.length + phaseDrift.length + qtyDrift.length + sep11Count !== 1 ? "s" : ""} (${drift.length} rev · ${phaseDrift.length} phase · ${qtyDrift.length} qty${sep11Count ? ` · ${sep11Count} links/pushes/invoices` : ""})`,
           html,
         });
       } catch (emailErr) {
@@ -199,7 +243,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ consistent, drifted: drift.length, healed: healed.length, fleeceGaps: fleeceGaps.length, phaseDrift: phaseDrift.length, qtyHealed: qtyHealed.length, qtyDrift: qtyDrift.length, jobs: drift.map(d => d.job), healedJobs: healed.map(h => h.job), phaseJobs: phaseDrift.map(p => p.job), qtyHealedJobs: qtyHealed.map(h => h.job), qtyDriftJobs: qtyDrift.map(d => d.job) });
+    return NextResponse.json({ consistent, drifted: drift.length, healed: healed.length, fleeceGaps: fleeceGaps.length, phaseDrift: phaseDrift.length, qtyHealed: qtyHealed.length, qtyDrift: qtyDrift.length, jobs: drift.map(d => d.job), healedJobs: healed.map(h => h.job), phaseJobs: phaseDrift.map(p => p.job), qtyHealedJobs: qtyHealed.map(h => h.job), qtyDriftJobs: qtyDrift.map(d => d.job), badLinks, forbiddenPushes, poNoInvoice });
   } catch (e: any) {
     console.error("Costing-health cron error:", e);
     return NextResponse.json({ error: e.message }, { status: 500 });
