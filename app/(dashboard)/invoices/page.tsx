@@ -6,6 +6,7 @@
 // (job Invoice surface / fulfillment detail). No send/adjust/payment verbs
 // here — the only writes this surface will ever gain are close-out (1c).
 import { useEffect, useMemo, useState } from "react";
+import { patchJobTypeMeta } from "@/lib/job-type-meta";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
 import { buildAr, isCloseable, type ArAging, type ArSummary, type InvoiceRow } from "@/lib/ar";
@@ -160,13 +161,13 @@ export default function InvoicesPage() {
   async function closeShort(row: InvoiceRow) {
     setActBusy(true); setActMsg("");
     try {
-      const { data: job } = await supabase.from("jobs").select("type_meta").eq("id", row.id).single();
-      const tm = { ...((job as any)?.type_meta || {}) };
-      tm.invoice_waived_amount = Math.round(((Number(tm.invoice_waived_amount) || 0) + row.balance) * 100) / 100;
-      tm.invoice_waived_at = new Date().toISOString();
-      tm.invoice_waived_note = "closed short from the invoices index";
-      const { error } = await (supabase.from("jobs") as any).update({ type_meta: tm }).eq("id", row.id);
-      if (error) { setActMsg(error.message); return; }
+      const r = await patchJobTypeMeta(supabase, row.id, tm => ({
+        ...tm,
+        invoice_waived_amount: Math.round(((Number(tm.invoice_waived_amount) || 0) + row.balance) * 100) / 100,
+        invoice_waived_at: new Date().toISOString(),
+        invoice_waived_note: "closed short from the invoices index",
+      }));
+      if (!r.ok) { setActMsg(r.error); return; }
       setActMsg(`Closed short — ${money(row.balance)} waived on #${row.invoiceNumber || row.jobNumber}. Revenue reports keep the real paid figure.`);
       setMenuFor(null); load();
     } finally { setActBusy(false); }
@@ -174,11 +175,10 @@ export default function InvoicesPage() {
   async function unWaive(row: InvoiceRow) {
     setActBusy(true); setActMsg("");
     try {
-      const { data: job } = await supabase.from("jobs").select("type_meta").eq("id", row.id).single();
-      const tm = { ...((job as any)?.type_meta || {}) };
-      delete tm.invoice_waived_amount; delete tm.invoice_waived_at; delete tm.invoice_waived_note;
-      const { error } = await (supabase.from("jobs") as any).update({ type_meta: tm }).eq("id", row.id);
-      if (error) { setActMsg(error.message); return; }
+      const r = await patchJobTypeMeta(supabase, row.id, tm => {
+        delete tm.invoice_waived_amount; delete tm.invoice_waived_at; delete tm.invoice_waived_note; return tm;
+      });
+      if (!r.ok) { setActMsg(r.error); return; }
       setActMsg(`Waiver removed on #${row.invoiceNumber || row.jobNumber} — balance is live again.`);
       setMenuFor(null); load();
     } finally { setActBusy(false); }
