@@ -32,7 +32,9 @@ export async function copyItemIntoJob(db: Db, src: any, jobId: string, opts: {
   const { data: ni, error: itemErr } = await db.from("items").insert({
     job_id: jobId, name: src.name, blank_vendor: src.blank_vendor, blank_sku: src.blank_sku,
     cost_per_unit: src.cost_per_unit, sell_per_unit: src.sell_per_unit, blank_costs: src.blank_costs || null,
-    garment_type: src.garment_type || null, drive_link: src.drive_link || null, is_fleece: !!src.is_fleece,
+    // drive_link NOT copied (a moved pointer on the source poisoned a PO,
+    // Sep 11) — set below to the new item's own folder once it exists.
+    garment_type: src.garment_type || null, drive_link: null, is_fleece: !!src.is_fleece,
     status: "tbd",
     sort_order: opts.sortOrder, pipeline_stage: null, blanks_order_number: null, ship_tracking: null,
     design_id: src.design_id || null,
@@ -65,6 +67,7 @@ export async function copyItemIntoJob(db: Db, src: any, jobId: string, opts: {
     if (opts.drive?.clientName && opts.drive?.projectTitle) {
       try {
         const folderId = await getItemFolderId(opts.drive.clientName, opts.drive.projectTitle, src.name || "Item");
+        await db.from("items").update({ drive_link: `https://drive.google.com/drive/folders/${folderId}`, drive_folder_id: folderId }).eq("id", ni.id);
         for (const f of (srcFiles || []) as any[]) {
           if (!f.drive_file_id) continue;
           try { await createShortcut(f.drive_file_id, f.file_name || "file", folderId); }

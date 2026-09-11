@@ -129,7 +129,11 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
           sell_per_unit: (item as any).sell_per_unit,
           blank_costs: (item as any).blank_costs || null,
           garment_type: (item as any).garment_type || null,
-          drive_link: (item as any).drive_link || null,
+          // drive_link is NOT copied — it's a mutable pointer that any later
+          // upload on the source may have moved (a packing slip moved four of
+          // them onto "Packing Slips"). The shortcut step below points the new
+          // item at ITS OWN folder, which holds shortcuts to the original art.
+          drive_link: null,
           is_fleece: !!(item as any).is_fleece,
           status: "tbd",
           // Approval carries with the art (lib/proof-gate.carryProofFields) — same
@@ -241,6 +245,8 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
           console.error("[job duplicate] folder ensure failed:", e?.message || e);
           continue;
         }
+        // The PO's Production Files link = the new item's own folder.
+        await db.from("items").update({ drive_link: `https://drive.google.com/drive/folders/${itemFolderId}`, drive_folder_id: itemFolderId }).eq("id", ni.id);
         for (const f of filesForItem) {
           if (!f.drive_file_id) continue;
           shortcutResult.attempted++;
