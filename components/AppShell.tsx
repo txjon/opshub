@@ -38,6 +38,7 @@ const DEPT_NAV: Record<Department, { href: string; label: string }[]> = {
   ],
   labs: [
     { href: "/dashboard", label: "Dashboard" },
+    { href: "/intake", label: "Intake" },
     { href: "/jobs", label: "Projects" },
     { href: "/studio", label: "The Studio" },
     { href: "/production", label: "Production" },
@@ -52,7 +53,6 @@ const DEPT_NAV: Record<Department, { href: string; label: string }[]> = {
     { href: "/ecomm", label: "The Shop" },
   ],
   contacts: [
-    { href: "/intake", label: "Intake" },
     { href: "/clients", label: "Clients" },
     { href: "/decorators", label: "Decorators" },
     { href: "/settings/designers", label: "Designers" },
@@ -85,7 +85,7 @@ function detectDept(pathname: string): Department {
   // still resolves at /settings/designers — match the more specific
   // path BEFORE the generic /settings catch so the right dept lights up.
   if (pathname.startsWith("/settings/designers")) return "contacts";
-  if (["/intake", "/clients", "/decorators"].some(p => pathname.startsWith(p))) return "contacts";
+  if (["/clients", "/decorators"].some(p => pathname.startsWith(p))) return "contacts";
   if (["/settings"].some(p => pathname.startsWith(p))) return "settings";
   return "labs";
 }

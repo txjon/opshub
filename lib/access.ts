@@ -33,6 +33,8 @@ export const PAGE_CATALOG: CatalogPage[] = [
   // Labs / production
   { key: "/dashboard", href: "/dashboard", label: "Dashboard", group: "labs" },
   { key: "/house", href: "/house", label: "The House", group: "labs" },
+  // Intake moved under The House, above Projects (Jon, 2026-09-14 nav cleanup)
+  { key: "/intake", href: "/intake", label: "Intake", group: "labs" },
   { key: "/the-distro", href: "/the-distro", label: "The Distro", group: "distro" },
   { key: "/jobs", href: "/jobs", label: "Projects", group: "labs" },
   { key: "/projects", href: "/projects", label: "Projects V2", group: "labs" },
@@ -55,7 +57,6 @@ export const PAGE_CATALOG: CatalogPage[] = [
   { key: "/ecomm/staging", href: "/ecomm/staging", label: "Shop Staging", group: "ecomm" },
   { key: "/ecomm/cs", href: "/ecomm/cs", label: "CS Desk", group: "ecomm" },
   // Contacts
-  { key: "/intake", href: "/intake", label: "Intake", group: "contacts" },
   { key: "/clients", href: "/clients", label: "Clients", group: "contacts" },
   { key: "/decorators", href: "/decorators", label: "Decorators", group: "contacts" },
   { key: "/settings/designers", href: "/settings/designers", label: "Designers", group: "contacts" },

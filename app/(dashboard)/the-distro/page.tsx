@@ -22,11 +22,12 @@ export default async function TheDistroPage() {
   const [boxes, strips, dropsRaw] = await Promise.all([
     loadReceivingBoard(sb),
     loadProductionBoard(sb),
-    sb.from("fulfillment_projects")
-      .select("id, name, preorder_status, open_date, close_date, target_ship_date, platform, total_units, clients(name)")
-      .eq("mode", "preorder")
-      .in("preorder_status", ["planning", "building", "open", "closed"])
-      .order("open_date", { ascending: true, nullsFirst: false })
+    // drop schedule — releases in motion (the old fulfillment_projects
+    // pre-orders are retired; /drops is the pipeline, Sep 14 2026)
+    sb.from("releases")
+      .select("id, title, status, target_live_date, window_close_date, clients(name)")
+      .in("status", ["ready", "live", "closed"])
+      .order("target_live_date", { ascending: true, nullsFirst: false })
       .then((r: any) => r.data || []),
   ]);
 
@@ -114,12 +115,11 @@ export default async function TheDistroPage() {
   }
 
   const drops: DropRow[] = (dropsRaw as any[])
-    .filter(d => d.open_date || d.close_date)
+    .filter(d => d.target_live_date || d.window_close_date)
     .map(d => ({
-      id: d.id, name: d.name, client: (d.clients as any)?.name || null,
-      status: d.preorder_status, platform: d.platform || null,
-      openDate: d.open_date || null, closeDate: d.close_date || null,
-      targetShipDate: d.target_ship_date || null, totalUnits: d.total_units || null,
+      id: d.id, name: d.title, client: (d.clients as any)?.name || null,
+      status: d.status,
+      openDate: d.target_live_date || null, closeDate: d.window_close_date || null,
     }));
 
   return <TheDistroView rows={rows} drops={drops} />;
