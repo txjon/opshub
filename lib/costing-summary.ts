@@ -11,6 +11,7 @@
 // CostingTab itself is queued for the Job Page V2 rebuild).
 
 import { calcCostProduct, buildPrintersMap } from "./pricing";
+import { mergeJobTypeMeta } from "@/lib/job-type-meta";
 
 type Sb = any;
 
@@ -167,8 +168,6 @@ export async function snapshotVendorPo(sb: Sb, jobId: string, vendorName: string
   }).filter(Boolean) as any[];
   const vendorPoTotal = Math.round(items.reduce((a, i) => a + i.poTotal, 0) * 100) / 100;
   const snapshot = { at: new Date().toISOString(), items, vendorPoTotal };
-  const tm = { ...(job.type_meta || {}) };
-  tm.po_cost_snapshots = { ...(tm.po_cost_snapshots || {}), [vendorName]: snapshot };
-  const { error } = await sb.from("jobs").update({ type_meta: tm }).eq("id", jobId);
-  return error ? { ok: false, reason: error.message } : { ok: true };
+  const r = await mergeJobTypeMeta(sb, jobId, { po_cost_snapshots: { ...(job.type_meta?.po_cost_snapshots || {}), [vendorName]: snapshot } });
+  return r.ok ? { ok: true } : { ok: false, reason: r.error };
 }

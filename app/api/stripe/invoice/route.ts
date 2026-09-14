@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { mergeJobTypeMeta } from "@/lib/job-type-meta";
 import { createClient } from "@/lib/supabase/server";
 import { getActiveCompany } from "@/lib/company";
 import { findOrCreateCustomer, createAndSendInvoice, voidInvoice, getStripeClient, type StripeLineItem } from "@/lib/stripe";
@@ -206,7 +207,6 @@ export async function POST(req: NextRequest) {
     // Plain create: CLEAR the flag so a later ordered-qty recreate doesn't leave
     // the PDF showing shipped qtys for an invoice that actually bills ordered.
     const newMeta: Record<string, any> = {
-      ...tm,
       stripe_invoice_id: result.invoice_id,
       stripe_invoice_number: result.invoice_number,
       stripe_payment_link: result.hosted_invoice_url,
@@ -219,12 +219,12 @@ export async function POST(req: NextRequest) {
       newMeta.stripe_variance_total_cents = result.total_cents;
       if (billableQtys) newMeta.stripe_variance_billable_qtys = billableQtys;
     } else {
-      delete newMeta.stripe_variance_pushed_at;
-      delete newMeta.stripe_variance_total_cents;
-      delete newMeta.stripe_variance_billable_qtys;
+      newMeta.stripe_variance_pushed_at = null;
+      newMeta.stripe_variance_total_cents = null;
+      newMeta.stripe_variance_billable_qtys = null;
     }
     // Repoint to the new invoice BEFORE voiding the old one — see voidAfter above.
-    await supabase.from("jobs").update({ type_meta: newMeta }).eq("id", job.id);
+    await mergeJobTypeMeta(supabase, job.id, newMeta);
 
     // Retire the prior invoice now that the replacement exists and type_meta
     // points at it (variance flow only). Best-effort — a failure here just

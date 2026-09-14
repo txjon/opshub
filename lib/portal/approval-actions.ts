@@ -12,6 +12,7 @@
 // See [[jon-clean-architecture-standard]].
 
 import { recalcJobPhase } from "@/lib/job-phase-recalc";
+import { mergeJobTypeMeta } from "@/lib/job-type-meta";
 
 type Sb = any; // service-role supabase client (admin())
 
@@ -96,12 +97,8 @@ export async function approvePackage(sb: Sb, jobId: string, ctx: { via?: string 
   };
 
   // Flip the quote gate + freeze the snapshot + clear any prior change request.
-  await sb.from("jobs").update({
-    quote_approved: true,
-    quote_approved_at: now,
-    quote_rejection_notes: null,
-    type_meta: { ...tm, approval_snapshot: snapshot, change_request: null },
-  }).eq("id", jobId);
+  await sb.from("jobs").update({ quote_approved: true, quote_approved_at: now, quote_rejection_notes: null }).eq("id", jobId);
+  await mergeJobTypeMeta(sb, jobId, { approval_snapshot: snapshot, change_request: null });
 
   await sb.from("job_activity").insert({
     job_id: jobId, user_id: null, type: "auto",
@@ -156,9 +153,7 @@ export async function requestChanges(sb: Sb, jobId: string, note: string, itemId
     }
   }
 
-  await sb.from("jobs").update({
-    type_meta: { ...tm, change_request: { note: note || "", at: now, itemIds: taggedIds, itemNames: taggedNames } },
-  }).eq("id", jobId);
+  await mergeJobTypeMeta(sb, jobId, { change_request: { note: note || "", at: now, itemIds: taggedIds, itemNames: taggedNames } });
   await sb.from("job_activity").insert({
     job_id: jobId, user_id: null, type: "auto",
     message: `Changes requested by client via portal${taggedNames.length ? ` on ${taggedNames.join(", ")}` : ""}${note ? `: "${note}"` : ""}`,

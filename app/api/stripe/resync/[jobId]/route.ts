@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { mergeJobTypeMeta } from "@/lib/job-type-meta";
 import { createClient } from "@supabase/supabase-js";
 import { createClient as createAuthClient } from "@/lib/supabase/server";
 import { getStripeClient } from "@/lib/stripe";
@@ -66,9 +67,8 @@ export async function POST(_req: NextRequest, { params }: { params: { jobId: str
       // because type_meta.stripe_invoice_status is stale ("open").
       // We keep the saved invoice id/number for context but update
       // status to "void". Clicking Recreate will push a fresh one.
-      await sb.from("jobs").update({
-        type_meta: { ...tm, stripe_invoice_status: "void" },
-      }).eq("id", (job as any).id);
+      const { error: voidErr } = await sb.rpc("patch_job_type_meta", { p_job_id: (job as any).id, p_patch: { stripe_invoice_status: "void" } });
+      if (voidErr) throw voidErr;
       return NextResponse.json({
         ok: true,
         all_void: true,
@@ -78,14 +78,13 @@ export async function POST(_req: NextRequest, { params }: { params: { jobId: str
     }
 
     const newMeta = {
-      ...tm,
       stripe_invoice_id: pick.id,
       stripe_invoice_number: pick.number || tm.stripe_invoice_number,
       stripe_invoice_status: pick.status,
       stripe_total_cents: pick.total,
       stripe_payment_link: pick.hosted_invoice_url || tm.stripe_payment_link,
     };
-    const { error: updErr } = await sb.from("jobs").update({ type_meta: newMeta }).eq("id", (job as any).id);
+    const { error: updErr } = await sb.rpc("patch_job_type_meta", { p_job_id: (job as any).id, p_patch: newMeta });
     if (updErr) throw updErr;
 
     return NextResponse.json({

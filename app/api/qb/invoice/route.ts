@@ -2,6 +2,7 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 import { NextRequest, NextResponse } from "next/server";
+import { mergeJobTypeMeta } from "@/lib/job-type-meta";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { getOrCreateCustomer, createInvoice, updateInvoice, QBAmbiguousCustomerError, getCustomerById, type QBLineItem } from "@/lib/quickbooks";
@@ -101,15 +102,11 @@ export async function POST(req: NextRequest) {
         await admin.from("clients").update({ qb_customer_id: null }).eq("id", clientRecord.id);
         const tm = (job.type_meta as any) || {};
         if (tm.qb_invoice_id) {
-          const cleanedMeta = { ...tm };
-          delete cleanedMeta.qb_invoice_id;
-          delete cleanedMeta.qb_invoice_number;
-          delete cleanedMeta.qb_payment_link;
-          delete cleanedMeta.qb_tax_amount;
-          delete cleanedMeta.qb_total_with_tax;
-          delete cleanedMeta.qb_invoice_created_at;
-          delete cleanedMeta.qb_invoice_updated_at;
-          await admin.from("jobs").update({ type_meta: cleanedMeta }).eq("id", jobId);
+          // Set to null, never delete — mig 176 refuses an update that DROPS an
+          // identity key; null reads the same everywhere (truthiness).
+          const cleared = { qb_invoice_id: null, qb_invoice_number: null, qb_payment_link: null, qb_tax_amount: null, qb_total_with_tax: null, qb_invoice_created_at: null, qb_invoice_updated_at: null };
+          const cleanedMeta = { ...tm, ...cleared };
+          await mergeJobTypeMeta(admin, jobId, cleared);
           (job as any).type_meta = cleanedMeta;
         }
       }

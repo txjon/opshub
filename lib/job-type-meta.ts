@@ -21,3 +21,18 @@ export async function patchJobTypeMeta(
   if (wErr) return { ok: false, error: wErr.message };
   return { ok: true };
 }
+
+// Server-side (and anywhere a plain add/overwrite is all that's needed): merge
+// IN the database via patch_job_type_meta (mig 178). One statement, no read,
+// no race between concurrent writers, cannot drop a key. Pass null for a key
+// to clear it. Use the read-merge-write helper above only when a key must be
+// REMOVED (rare: un-waive) — the mig-176 guard still watches that path.
+export async function mergeJobTypeMeta(
+  sb: any,
+  jobId: string,
+  patch: Record<string, any>,
+): Promise<{ ok: true; typeMeta: Record<string, any> } | { ok: false; error: string }> {
+  const { data, error } = await sb.rpc("patch_job_type_meta", { p_job_id: jobId, p_patch: patch });
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, typeMeta: (data || {}) as Record<string, any> };
+}

@@ -11,6 +11,7 @@
 // (fully shipped, not yet stamped). Safe to call twice — the stamp check
 // makes it idempotent.
 import { billableQtysForItem, sumForwarded, type SizeMap } from "@/lib/job/billable-qtys";
+import { mergeJobTypeMeta } from "@/lib/job-type-meta";
 
 export async function maybeAutoFinalizeInvoice(supabase: any, jobId: string): Promise<boolean> {
   const { data: job } = await supabase
@@ -45,10 +46,8 @@ export async function maybeAutoFinalizeInvoice(supabase: any, jobId: string): Pr
     }
   }
 
-  const { error } = await supabase.from("jobs").update({
-    type_meta: { ...tm, qb_variance_pushed_at: new Date().toISOString(), invoice_variance_auto: true },
-  }).eq("id", jobId);
-  if (error) return false;
+  const r = await mergeJobTypeMeta(supabase, jobId, { qb_variance_pushed_at: new Date().toISOString(), invoice_variance_auto: true });
+  if (!r.ok) return false;
   await supabase.from("job_activity").insert({
     job_id: jobId, user_id: null, type: "auto",
     message: "Invoice finalized automatically — delivered quantities match the invoice exactly",
