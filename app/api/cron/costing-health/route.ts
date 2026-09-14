@@ -188,6 +188,25 @@ export async function GET(req: NextRequest) {
       }
       if (!page || page.length < 1000) break;
     }
+    //     Items with NO own folder id can't be compared above. Item folders are
+    //     per item, so a link folder shared by 2+ items on one job is a job-level
+    //     folder ("Packing Slips") — the same poison, invisible to the check
+    //     above (Sep 13: four FOG items). Flag those too.
+    const linkShare = new Map<string, { job: string; phase: string; names: string[] }>();
+    for (let from = 0; ; from += 1000) {
+      const { data: page } = await sb.from("items")
+        .select("id, name, job_id, drive_link, drive_folder_id, jobs(job_number, phase)")
+        .is("archived_at", null).is("drive_folder_id", null).not("drive_link", "is", null).range(from, from + 999);
+      for (const it of (page || []) as any[]) {
+        if (!ACTIVE_PHASES.has(it.jobs?.phase)) continue;
+        const f = folderOf(it.drive_link); if (!f) continue;
+        const k = `${it.job_id}::${f}`;
+        const g = linkShare.get(k) || { job: it.jobs.job_number, phase: it.jobs.phase, names: [] as string[] };
+        g.names.push(it.name || "?"); linkShare.set(k, g);
+      }
+      if (!page || page.length < 1000) break;
+    }
+    for (const g of Array.from(linkShare.values())) if (g.names.length > 1) badLinks.push(`${g.job} · ${g.names.join(", ")} (${g.phase}) — ${g.names.length} items share one link folder and have no folder of their own`);
 
     // (b) A cost entry the gates forbid carries a QB bill id anyway (mig 177
     //     refuses new ones at the row; this catches anything that predates it
