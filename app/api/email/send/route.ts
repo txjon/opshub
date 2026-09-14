@@ -316,6 +316,23 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
+    // File the PO exactly as sent: {Client}/{Project}/Sent POs/ (Sep 14 2026).
+    // Best-effort — the email is already out; a Drive hiccup logs and moves on.
+    let sentPdf: { filename: string; drive_file_id: string; drive_link: string } | null = null;
+    if (type === "po" && pdfBuffer && jobId) {
+      try {
+        const { getDriveToken, getSentPoFolderId, uploadFileDirect } = await import("@/lib/drive-token");
+        const token = await getDriveToken();
+        const folderId = await getSentPoFolderId(token, (jobData as any)?.clients?.name || "", projectTitle);
+        const stamp = new Date().toISOString().slice(0, 16).replace("T", " ").replace(":", "");
+        const storedName = filename.replace(/\.pdf$/i, "") + ` — sent ${stamp}.pdf`;
+        const up = await uploadFileDirect(token, folderId, storedName, "application/pdf", pdfBuffer);
+        sentPdf = { filename: storedName, drive_file_id: up.fileId, drive_link: up.webViewLink };
+      } catch (e: any) {
+        console.error("[email/send] PO archive to Drive failed:", e?.message || e);
+      }
+    }
+
     // Save to email_messages for thread view (fire-and-forget)
     try {
       const adminClient = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
@@ -347,6 +364,7 @@ export async function POST(req: NextRequest) {
           ? `Friendly reminder — invoice attached (${filename})\n\nA gentle nudge that the attached invoice is still open. Reply or call if you have questions; if it's already been paid, please disregard.`
           : `${type} attached (${filename})`,
         resend_message_id: data?.id || null,
+        ...(sentPdf ? { attachments: [sentPdf] } : {}),
       });
       // Save sent timestamps for dashboard follow-up tracking
       if (type === "quote" || type === "invoice") {
@@ -386,7 +404,7 @@ export async function POST(req: NextRequest) {
         type === "quote" ? `Quote sent to client (${recipientEmail})`
         : type === "invoice" ? `${(jobData as any)?.type_meta?.invoice_sent_at ? "Revised Invoice" : "Invoice"} sent to client (${recipientEmail})`
         : type === "reminder" ? `Invoice reminder sent to client (${recipientEmail})`
-        : type === "po" ? `PO sent to ${vendor || "decorator"} (${recipientEmail})`
+        : type === "po" ? `PO sent to ${vendor || "decorator"} (${recipientEmail})${sentPdf ? ` · PDF filed in Drive` : ""}`
         : type === "rfq" ? `Quote request sent to ${vendor || "decorator"} (${recipientEmail}${Array.isArray(rfqItemIds) && rfqItemIds.length ? ` · ${rfqItemIds.length} item${rfqItemIds.length !== 1 ? "s" : ""}` : ""})`
         : `Email sent (${type})`;
       await adminClient.from("job_activity").insert({

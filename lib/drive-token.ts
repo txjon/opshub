@@ -193,3 +193,35 @@ export async function getOrCreateNestedFolder(token: string, segments: string[])
   }
   return parent;
 }
+
+// ── Sent documents archive (Sep 14 2026) ────────────────────────────────────
+// The PO PDF used to exist only as an email attachment: regenerated on every
+// view, never stored. When a vendor held a stale copy (ICON, HPD-2609-002) or
+// a job lost its PO ship date, there was nothing to look at. Every PO that
+// goes out is now filed under {Client}/{Project}/Sent POs/ exactly as sent.
+export async function getSentPoFolderId(token: string, clientName: string, projectTitle: string): Promise<string> {
+  const rootId = await getTenantRootFolderId();
+  const clientFolder = await findOrCreateFolder(token, clientName || "Unknown Client", rootId);
+  const projectFolder = await findOrCreateFolder(token, projectTitle || "Untitled Project", clientFolder);
+  return findOrCreateFolder(token, "Sent POs", projectFolder);
+}
+
+// Multipart upload via REST. Unlike lib/google-drive.uploadFile this does NOT
+// grant anyone-with-link access — a PO carries vendor pricing.
+export async function uploadFileDirect(token: string, folderId: string, fileName: string, mimeType: string, buffer: Buffer): Promise<{ fileId: string; webViewLink: string }> {
+  const boundary = "opshub_" + Date.now().toString(36);
+  const meta = JSON.stringify({ name: fileName, parents: [folderId] });
+  const body = Buffer.concat([
+    Buffer.from(`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n`),
+    buffer,
+    Buffer.from(`\r\n--${boundary}--`),
+  ]);
+  const res = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": `multipart/related; boundary=${boundary}` },
+    body,
+  });
+  if (!res.ok) throw new Error(`Drive upload failed (${res.status}): ${(await res.text()).slice(0, 300)}`);
+  const data = await res.json();
+  return { fileId: data.id, webViewLink: data.webViewLink || `https://drive.google.com/file/d/${data.id}/view` };
+}
