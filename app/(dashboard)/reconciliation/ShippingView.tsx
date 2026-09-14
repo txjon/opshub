@@ -79,6 +79,9 @@ export function ShippingView({ companyId, billingOnly = false }: { companyId: st
       const text = await f.text();
       const matched = matchShipments(aggregateShipments(parseUpsCsv(text, invoiceFromName(f.name))), jobs);
       for (const m of matched) {
+        // UPS correction lines that net to $0 (a charge and its reversal on the
+        // same invoice) carry no cost — pure clutter in billing history (Jon, Sep 13 2026).
+        if (Math.abs(m.cost) < 0.005) continue;
         const k = `${m.invoiceNumber}::${m.tracking}`;
         if (seen.has(k)) continue; seen.add(k);
         all.push({ invoiceNumber: m.invoiceNumber, tracking: m.tracking, cost: m.cost, ref: m.ref, sender: m.sender, date: m.date, sections: m.sections, job: m.job as JobFull | null, dupe: importedKeys.has(k) });
