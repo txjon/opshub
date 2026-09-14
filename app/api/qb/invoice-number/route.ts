@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { mergeJobTypeMeta } from "@/lib/job-type-meta";
 import { createClient } from "@/lib/supabase/server";
 
 export async function POST(req: NextRequest) {
@@ -16,8 +17,7 @@ export async function POST(req: NextRequest) {
 
     const tm = (job.type_meta || {}) as any;
     const prevNumber = tm.qb_invoice_number;
-    const typeMeta = { ...tm, qb_invoice_number: invoiceNumber || null };
-    await supabase.from("jobs").update({ type_meta: typeMeta }).eq("id", jobId);
+    await mergeJobTypeMeta(supabase, jobId, { qb_invoice_number: invoiceNumber || null });
 
     // Log activity (only if the number changed)
     if (prevNumber !== (invoiceNumber || null)) {

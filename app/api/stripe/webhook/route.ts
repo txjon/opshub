@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { mergeJobTypeMeta } from "@/lib/job-type-meta";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { verifyWebhookSignature } from "@/lib/stripe";
 import { recalcJobPhase } from "@/lib/job-phase-recalc";
@@ -85,9 +86,7 @@ export async function POST(req: NextRequest) {
           });
           if (payErr) console.error("[stripe/webhook] payment_records insert failed:", payErr.message);
           // Sync invoice status onto jobs.type_meta
-          await sb.from("jobs").update({
-            type_meta: { ...((job as any).type_meta || {}), stripe_invoice_status: "paid" },
-          }).eq("id", job.id);
+          await mergeJobTypeMeta(sb, job.id, { stripe_invoice_status: "paid" });
           await sb.from("job_activity").insert({
             job_id: job.id, user_id: null, type: "auto",
             message: `Stripe invoice #${inv.number || inv.id} paid — $${amount.toFixed(2)}`,
@@ -110,9 +109,7 @@ export async function POST(req: NextRequest) {
           .filter("type_meta->>stripe_invoice_id", "eq", inv.id)
           .single();
         if (job) {
-          await sb.from("jobs").update({
-            type_meta: { ...((job as any).type_meta || {}), stripe_invoice_status: "payment_failed" },
-          }).eq("id", job.id);
+          await mergeJobTypeMeta(sb, job.id, { stripe_invoice_status: "payment_failed" });
           await sb.from("job_activity").insert({
             job_id: job.id, user_id: null, type: "auto",
             message: `Stripe invoice payment failed — ${inv.number || inv.id} · ${inv.last_finalization_error?.message || "unknown error"}`,
@@ -160,10 +157,7 @@ export async function POST(req: NextRequest) {
           .filter("type_meta->>stripe_invoice_id", "eq", inv.id)
           .single();
         if (job) {
-          const tm = (job as any).type_meta || {};
-          await sb.from("jobs").update({
-            type_meta: { ...tm, stripe_invoice_status: "void" },
-          }).eq("id", (job as any).id);
+          await mergeJobTypeMeta(sb, (job as any).id, { stripe_invoice_status: "void" });
         }
         break;
       }

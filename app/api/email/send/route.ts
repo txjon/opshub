@@ -2,6 +2,7 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 import { NextRequest, NextResponse } from "next/server";
+import { mergeJobTypeMeta } from "@/lib/job-type-meta";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { getPortalUrl, getVendorPortalUrl } from "@/lib/auto-email";
@@ -183,9 +184,7 @@ export async function POST(req: NextRequest) {
           const fresh = await refreshPaymentLink(String(invoiceId), recipientEmail);
           if (fresh && fresh !== qbPaymentLink) {
             qbPaymentLink = fresh;
-            await adminClient.from("jobs").update({
-              type_meta: { ...(jobData?.type_meta || {}), qb_payment_link: fresh },
-            }).eq("id", jobId);
+            await mergeJobTypeMeta(adminClient, jobId, { qb_payment_link: fresh });
           }
         } catch (e) {
           console.error("[email/send] refreshPaymentLink failed:", (e as any).message);
@@ -369,20 +368,18 @@ export async function POST(req: NextRequest) {
       // Save sent timestamps for dashboard follow-up tracking
       if (type === "quote" || type === "invoice") {
         const tsKey = type === "quote" ? "quote_sent_at" : "invoice_sent_at";
-        const { data: jd } = await adminClient.from("jobs").select("type_meta").eq("id", jobId).single();
-        const updateData: any = { type_meta: { ...(jd?.type_meta || {}), [tsKey]: new Date().toISOString() } };
+        const patch: Record<string, any> = { [tsKey]: new Date().toISOString() };
         // Sending the quote re-commits pricing: clear any "unlock to revise"
         // override so the revision re-locks on send (see lib/costing-lock.ts).
-        if (type === "quote") { updateData.quote_rejection_notes = null; updateData.type_meta.costing_unlocked = false; }
-        await adminClient.from("jobs").update(updateData).eq("id", jobId);
+        if (type === "quote") patch.costing_unlocked = false;
+        await mergeJobTypeMeta(adminClient, jobId, patch);
+        if (type === "quote") await adminClient.from("jobs").update({ quote_rejection_notes: null }).eq("id", jobId);
       }
       // Reminders don't move invoice_sent_at (the original send date
       // pins the invoice PDF's issue date). Track separately so the
       // dashboard can show "last reminded …" later.
       if (type === "reminder") {
-        const { data: jd } = await adminClient.from("jobs").select("type_meta").eq("id", jobId).single();
-        const meta = { ...(jd?.type_meta || {}), last_reminder_sent_at: new Date().toISOString() };
-        await adminClient.from("jobs").update({ type_meta: meta }).eq("id", jobId);
+        await mergeJobTypeMeta(adminClient, jobId, { last_reminder_sent_at: new Date().toISOString() });
       }
       // RFQ history — append to type_meta.rfq_history so the Costing tab
       // can show "RFQ sent to X · Y days ago" badges next to affected items.
@@ -396,8 +393,7 @@ export async function POST(req: NextRequest) {
           cc: ccEmails || [],
           sent_at: new Date().toISOString(),
         };
-        const newMeta = { ...(jd?.type_meta || {}), rfq_history: [...prevHistory, entry] };
-        await adminClient.from("jobs").update({ type_meta: newMeta }).eq("id", jobId);
+        await mergeJobTypeMeta(adminClient, jobId, { rfq_history: [...prevHistory, entry] });
       }
       // Log activity server-side — works from dashboard, quote tab, anywhere
       const activityMsg =

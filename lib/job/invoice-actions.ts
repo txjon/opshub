@@ -6,6 +6,7 @@
 // See [[jon-clean-architecture-standard]]. NOTE: the triplicated qty/total math
 // in the QB/PDF/variance routes is a SEPARATE, ticketed extraction (billing-derive).
 import { createClient } from "@/lib/supabase/client";
+import { mergeJobTypeMeta } from "@/lib/job-type-meta";
 import { logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
 
 const today = () => new Date().toISOString().split("T")[0];
@@ -99,12 +100,12 @@ export async function deletePayment(id: string): Promise<void> {
 // the merged type_meta so the caller can push it into local job state.
 export async function patchTypeMeta(job: any, patch: Record<string, any>, opts: { logMsg?: string } = {}): Promise<any> {
   const supabase = createClient();
-  const next = { ...(job.type_meta || {}) };
-  for (const [k, v] of Object.entries(patch)) {
-    if (v === null || v === undefined) delete next[k];
-    else next[k] = v;
-  }
-  await supabase.from("jobs").update({ type_meta: next }).eq("id", job.id);
+  // null clears a key (kept present, value null) — mig 176 refuses dropping
+  // identity keys such as qb_invoice_number; readers treat null and absent alike.
+  const norm: Record<string, any> = {};
+  for (const [k, v] of Object.entries(patch)) norm[k] = v === undefined ? null : v;
+  const r = await mergeJobTypeMeta(supabase, job.id, norm);
+  const next = r.ok ? r.typeMeta : { ...(job.type_meta || {}), ...norm };
   if (opts.logMsg) logJobActivity(job.id, opts.logMsg);
   return next;
 }

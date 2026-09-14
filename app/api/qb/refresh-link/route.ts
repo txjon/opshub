@@ -2,6 +2,7 @@ export const runtime = "nodejs";
 export const maxDuration = 30;
 
 import { NextRequest, NextResponse } from "next/server";
+import { mergeJobTypeMeta } from "@/lib/job-type-meta";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { refreshPaymentLink } from "@/lib/quickbooks";
@@ -44,9 +45,7 @@ export async function POST(req: NextRequest) {
       }, { status: 502 });
     }
 
-    await admin.from("jobs").update({
-      type_meta: { ...((job.type_meta as any) || {}), qb_payment_link: link },
-    }).eq("id", jobId);
+    await mergeJobTypeMeta(admin, jobId, { qb_payment_link: link });
 
     return NextResponse.json({ success: true, paymentLink: link });
   } catch (e: any) {

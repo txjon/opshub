@@ -1,6 +1,7 @@
 export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
+import { mergeJobTypeMeta } from "@/lib/job-type-meta";
 import { resolveRecipientEmails, type DocCategory } from "@/lib/recipients";
 import { createClient } from "@/lib/supabase/server";
 import { sendClientNotification } from "@/lib/auto-email";
@@ -199,7 +200,7 @@ export async function POST(req: NextRequest) {
         tracking: trackingNumber || null,
         resend: !!forceResend,
       };
-      await sb.from("jobs").update({ type_meta: { ...typeMeta, shipping_notifications: [...existing, newRecord] } }).eq("id", jobId);
+      await mergeJobTypeMeta(sb, jobId, { shipping_notifications: [...existing, newRecord] });
 
       await sb.from("job_activity").insert({
         job_id: jobId, user_id: null, type: "auto",
@@ -298,7 +299,7 @@ export async function POST(req: NextRequest) {
         tracking: null,
         resend: !!forceResend,
       };
-      await sb.from("jobs").update({ type_meta: { ...typeMeta, shipping_notifications: [...existing, newRecord] } }).eq("id", jobId);
+      await mergeJobTypeMeta(sb, jobId, { shipping_notifications: [...existing, newRecord] });
 
       await sb.from("job_activity").insert({
         job_id: jobId, user_id: null, type: "auto",
@@ -656,10 +657,7 @@ export async function POST(req: NextRequest) {
         tracking: trackingNumber || null,
         resend: !!forceResend,
       };
-      await sb
-        .from("jobs")
-        .update({ type_meta: { ...typeMeta, shipping_notifications: [...existingRecords, newRecord] } })
-        .eq("id", jobId);
+      await mergeJobTypeMeta(sb, jobId, { shipping_notifications: [...existingRecords, newRecord] });
 
       const recipientPreview = effectiveTo.slice(0, 2).join(", ") + (effectiveTo.length > 2 ? ` (+${effectiveTo.length - 2})` : "");
       await sb.from("job_activity").insert({
