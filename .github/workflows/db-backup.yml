@@ -1,0 +1,50 @@
+# Nightly logical backup of the OpsHub database → private Supabase Storage
+# bucket `db-backups`, 60-day retention. Exists because the project's physical
+# backups can only restore the WHOLE project (Sep 11 2026: one job's type_meta
+# was wiped and there was no way to get one row back). With this, any row from
+# any table is one file away: download the dump, pg_restore it locally, query.
+#
+# Secrets: SUPABASE_DB_URL (session pooler, port 5432 — set by Jon, never in
+# the repo or chat), SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY.
+name: db-backup
+on:
+  schedule:
+    - cron: "17 9 * * *"   # 09:17 UTC = 2:17am PT, after the day's work settles
+  workflow_dispatch:
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pg_dump 17 (dumps 15/16/17 servers)
+        run: |
+          sudo sh -c 'echo "deb https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client-17
+      - name: Dump
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          STAMP=$(date -u +%Y-%m-%d_%H%M)
+          echo "STAMP=$STAMP" >> "$GITHUB_ENV"
+          /usr/lib/postgresql/17/bin/pg_dump "$SUPABASE_DB_URL" \
+            --format=custom --compress=6 --no-owner --no-privileges \
+            --schema=public --schema=storage \
+            --file="opshub_$STAMP.dump"
+          ls -la opshub_$STAMP.dump
+      - name: Sanity — the dump restores its table list
+        run: /usr/lib/postgresql/17/bin/pg_restore --list "opshub_$STAMP.dump" | grep -c "TABLE DATA" | xargs -I{} echo "{} tables with data"
+      - name: Upload to Supabase Storage + prune >60 days
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          npm install --no-save --silent @supabase/supabase-js@2
+          node scripts/backup/upload.cjs "opshub_$STAMP.dump"
+      - name: Keep a copy on the run too (14 days)
+        uses: actions/upload-artifact@v4
+        with:
+          name: opshub-${{ env.STAMP }}
+          path: opshub_${{ env.STAMP }}.dump
+          retention-days: 14
