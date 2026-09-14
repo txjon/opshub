@@ -116,6 +116,8 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     const idMap: Record<string, string> = {};
     const newItems: { id: string; name: string }[] = [];
 
+    const fileCopyFailures: string[] = [];
+
     for (let srcIdx = 0; srcIdx < (srcItems || []).length; srcIdx++) {
       const item = (srcItems || [])[srcIdx];
       const { data: ni, error: itemErr } = await db
@@ -175,7 +177,11 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
         .eq("item_id", (item as any).id)
         .is("superseded_at", null);
       if ((srcFiles || []).length > 0) {
-        await db.from("item_files").insert(
+        // The Sep 1 duplicate of HPD-2605-055 carried ZERO file rows and nobody
+        // knew until the printer asked — this insert was never checked. Fail
+        // loud: the duplicate still completes, but the response + activity say
+        // which items lost their art so it's fixed the same day, not weeks later.
+        const { error: fErr } = await db.from("item_files").insert(
           (srcFiles || []).map((f: any) => ({
             item_id: (ni as any).id,
             file_name: f.file_name,
@@ -189,6 +195,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
             notes: f.notes || null,
           }))
         );
+        if (fErr) fileCopyFailures.push(`${(item as any).name || "item"}: ${fErr.message}`);
       }
     }
 
@@ -263,10 +270,11 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
 
     try {
       await logJobActivityServer(newJobId,
-        `Project duplicated from "${(srcJob as any).title || "—"}" (re-order; files shortcut from original).`);
+        `Project duplicated from "${(srcJob as any).title || "—"}" (re-order; files shortcut from original).${fileCopyFailures.length ? ` FILE COPY FAILED on ${fileCopyFailures.length} item(s) — ${fileCopyFailures.join("; ")}` : ""}`);
     } catch {}
 
     return NextResponse.json({
+      fileCopyFailures,
       jobId: newJobId,
       itemCount: newItems.length,
       shortcuts: shortcutResult,
