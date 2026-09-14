@@ -35,8 +35,8 @@ export type ArrivalRow = {
   lines: ArrivalLine[];
 };
 export type DropRow = {
-  id: string; name: string; client: string | null; status: string; platform: string | null;
-  openDate: string | null; closeDate: string | null; targetShipDate: string | null; totalUnits: number | null;
+  id: string; name: string; client: string | null; status: string;
+  openDate: string | null; closeDate: string | null;
 };
 
 const PURPLE = "#fd3aa3";
@@ -209,13 +209,13 @@ export default function TheDistroView({ rows, drops }: { rows: ArrivalRow[]; dro
                 </div>
                 <div style={{ display: "flex", gap: 18, flexWrap: "wrap" }}>
                   {drops.map(d => (
-                    <a key={d.id} href={`/ecomm/${d.id}`} style={{ textDecoration: "none", color: H.text, borderLeft: `2px solid ${PURPLE}`, padding: "4px 16px 4px 12px" }}>
+                    <a key={d.id} href="/drops" style={{ textDecoration: "none", color: H.text, borderLeft: `2px solid ${PURPLE}`, padding: "4px 16px 4px 12px" }}>
                       <div style={{ fontSize: 12.5, fontWeight: 800, textTransform: "uppercase" }}>{d.client ? `${d.client} · ` : ""}{d.name}</div>
                       <div style={{ fontSize: 10.5, fontFamily: H.mono, color: PURPLE, marginTop: 3 }}>
-                        {d.openDate ? `opens ${fmtDay(d.openDate)}` : ""}{d.openDate && d.closeDate ? " · " : ""}{d.closeDate ? `closes ${fmtDay(d.closeDate)}` : ""}
+                        {d.openDate ? `live ${fmtDay(d.openDate)}` : ""}{d.openDate && d.closeDate ? " · " : ""}{d.closeDate ? `closes ${fmtDay(d.closeDate)}` : ""}
                       </div>
                       <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: H.faint, marginTop: 3 }}>
-                        {d.status}{d.totalUnits ? ` · ${d.totalUnits.toLocaleString()} u` : ""}{d.targetShipDate ? ` · ship ${fmtDay(d.targetShipDate)}` : ""}
+                        {d.status}
                       </div>
                     </a>
                   ))}

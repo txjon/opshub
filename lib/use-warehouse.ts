@@ -675,65 +675,6 @@ export function useWarehouse() {
     }
   }
 
-  // Stage-route Shopify handoff. Bulk operation by design — the team
-  // typically enters a whole shipment's worth of items into Shopify in
-  // one sitting. Records who keyed it in (webstore_entered_by) for the
-  // audit trail. Recalcs phase once per affected job: a stage job with
-  // all items received + webstore-entered moves to "complete."
-  // No email side-effect — this is an internal handoff, ShipStation
-  // handles client-facing comms downstream.
-  async function bulkMarkWebstoreEntered(items: WarehouseItem[]) {
-    if (items.length === 0) return;
-    const now = new Date().toISOString();
-    const { data: { user } } = await supabase.auth.getUser();
-    const userId = user?.id || null;
-    await Promise.all(items.map(it =>
-      supabase.from("items").update({
-        webstore_entered_at: now,
-        webstore_entered_by: userId,
-      }).eq("id", it.id)
-    ));
-    // Ledger: one stage movement per item (the auditable "staged qty").
-    for (const it of items) {
-      const base = (it.received_qtys && Object.keys(it.received_qtys).length) ? it.received_qtys : (it.ship_qtys || {});
-      await recordOutbound(supabase, {
-        itemId: it.id, jobId: it.job_id, type: "stage",
-        qtys: outboundQtys(base, (it as any).sample_qtys), description: it.name,
-      });
-    }
-    setJobs(prev => prev.map(j => ({
-      ...j,
-      items: j.items.map(it => {
-        const hit = items.find(x => x.id === it.id);
-        return hit ? { ...it, webstore_entered_at: now } : it;
-      }),
-    })));
-    // Per-job activity log + phase recalc.
-    const byJob = new Map<string, WarehouseItem[]>();
-    for (const it of items) {
-      if (!byJob.has(it.job_id)) byJob.set(it.job_id, []);
-      byJob.get(it.job_id)!.push(it);
-    }
-    for (const [jobId, jobItems] of Array.from(byJob.entries())) {
-      const names = jobItems.map(it => it.name).join(", ");
-      logJobActivity(jobId, `${jobItems.length} item${jobItems.length === 1 ? "" : "s"} entered into Shopify (${names})`);
-      setTimeout(() => recalcJobPhase(jobId), 300);
-    }
-  }
-
-  async function undoWebstoreEntered(item: WarehouseItem) {
-    await supabase.from("items").update({
-      webstore_entered_at: null,
-      webstore_entered_by: null,
-    }).eq("id", item.id);
-    await reverseLastMovement(supabase, item.id, "stage", "Shopify entry undone");
-    setJobs(prev => prev.map(j => ({
-      ...j, items: j.items.map(it => it.id === item.id ? { ...it, webstore_entered_at: null } : it),
-    })));
-    logJobActivity(item.job_id, `${item.name} — Shopify entry undone`);
-    setTimeout(() => recalcJobPhase(item.job_id), 300);
-  }
-
   async function undoReceived(item: WarehouseItem) {
     // Box-scoped undo: reverse ONLY this box's receipt and un-receive ONLY this
     // box's line — the item's other received boxes are untouched. (Legacy items
@@ -837,7 +778,6 @@ export function useWarehouse() {
     loading, jobs, setJobs, boxes, incoming, shipThrough, fulfillment,
     updateReceivedQty, updateSampleQty, forwardItems, markReceived, bulkMarkReceived, undoReceived, returnToProduction,
     fulfillPull, addPull, cancelPull,
-    bulkMarkWebstoreEntered, undoWebstoreEntered,
     updateFulfillment, debounceFulfillmentTracking,
     supabase, logJobActivity,
   };
