@@ -25,6 +25,9 @@ export interface UpsCharge {
 export const FREIGHT_SOURCES = ["ups_inbound", "ups_outbound", "manual_freight"];
 export const isFreightSource = (s: string | null | undefined) => FREIGHT_SOURCES.includes(s || "");
 
+// Section label for account-level UPS charges (no tracking number).
+export const INVOICE_LEVEL_SECTION = "Invoice-level charges (fees/surcharges, no tracking)";
+
 const num = (x: any) => { const n = parseFloat(String(x ?? "").replace(/[$,]/g, "")); return isNaN(n) ? 0 : n; };
 
 // minimal CSV parse (handles quoted fields w/ commas); strips BOM.
@@ -63,15 +66,22 @@ export function parseUpsCsv(text: string, fallbackInvoice = ""): UpsCharge[] {
   const out: UpsCharge[] = [];
   for (const r of rows) {
     const tracking = pick(r, "Tracking Number");
-    if (!tracking) continue; // skip invoice-header / blank rows
+    const cost = is32 ? num(r["Billed Charge"]) : num(r["Net Charge"]);
+    // Rows with no tracking number are either the invoice header (no charge)
+    // or INVOICE-LEVEL charges — payment processing, service fees, surcharges
+    // UPS bills to the account, not a shipment. Those used to be skipped, and
+    // every invoice logged $4–$75 short of the UPS statement (Sep 13 2026;
+    // Billed Charge over ALL rows equals the statement total exactly). Keep
+    // them: tracking "" pools them into one invoice-level record downstream.
+    if (!tracking && !cost) continue;
     out.push({
       invoiceNumber: pick(r, "Invoice Number") || fallbackInvoice,
       tracking,
-      cost: is32 ? num(r["Billed Charge"]) : num(r["Net Charge"]),
+      cost,
       ref: pick(r, "Reference No.2", "Ref No 2", "Reference No.1", "Ref No 1", "Reference No.3"),
       sender: pick(r, "Sender Company Name"),
       receiver: pick(r, "Receiver Company Name"),
-      section: pick(r, "Invoice Section", "Type"),
+      section: tracking ? pick(r, "Invoice Section", "Type") : INVOICE_LEVEL_SECTION,
       date: pick(r, "Pickup Date", "Transaction Date", "Invoice Date"),
     });
   }
