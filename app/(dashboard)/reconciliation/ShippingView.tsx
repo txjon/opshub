@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
-import { parseUpsCsv, aggregateShipments, matchShipments, calculatedShipping, FREIGHT_SOURCES } from "@/lib/ups-freight";
+import { parseUpsCsv, aggregateShipments, matchShipments, calculatedShipping, FREIGHT_SOURCES, INVOICE_LEVEL_SECTION } from "@/lib/ups-freight";
 import { resolvePoRef, buildPoRefIndex, type JobLite } from "@/lib/po-ref-match";
 
 // Inbound production freight (UPS). Upload CSV(s) → match by ref → IMPORT ALL
@@ -88,16 +88,24 @@ export function ShippingView({ companyId, billingOnly = false }: { companyId: st
   }
 
   const fresh = staged.filter(s => !s.dupe);
-  const matchedCount = fresh.filter(s => s.job).length;
+  // Invoice-level charges (no tracking) have no job by nature — they pool into
+  // the freight total (not_job_specific), never the Needs-a-match queue.
+  const matchedCount = fresh.filter(s => s.job || !s.tracking).length;
   const needCount = fresh.length - matchedCount;
   const dupeCount = staged.length - fresh.length;
 
   async function doImport() {
-    const rows = fresh.map(s => ({
+    const rows = fresh.map(s => s.tracking ? ({
       source: "ups_inbound", charge_type: "freight", status: s.job ? "matched" : "unmatched",
       job_id: s.job?.id ?? null, vendor_name: s.sender || "UPS", vendor_invoice_number: s.invoiceNumber,
       po_ref: s.ref || null, ext_tracking: s.tracking, ext_date: s.date || null, amount: s.cost,
       not_job_specific: false, notes: `UPS inbound${s.sections.length ? " · " + s.sections.join("/") : ""}`,
+    }) : ({
+      // account-level fees/surcharges: pooled into total freight, no job
+      source: "ups_inbound", charge_type: "freight", status: "matched",
+      job_id: null, vendor_name: "UPS", vendor_invoice_number: s.invoiceNumber,
+      po_ref: null, ext_tracking: null, ext_date: s.date || null, amount: s.cost,
+      not_job_specific: true, notes: `UPS inbound · ${INVOICE_LEVEL_SECTION}`,
     }));
     if (!rows.length) return;
     setImporting(true);
