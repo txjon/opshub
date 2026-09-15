@@ -170,7 +170,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         const seen = new Map<string, any>();
         for (const l of (data || []) as any[]) {
           const s = l.shipments;
-          if (s && s.direction === "inbound") seen.set(s.id, s);
+          if (s && s.direction !== "outbound") seen.set(s.id, s);
         }
         setInboundBoxes(Array.from(seen.values()));
       });

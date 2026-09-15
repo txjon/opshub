@@ -874,7 +874,7 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
       const res = await shipFromProduction(sb, {
         method, tracking: method === "tracking" ? ref : null, bol: method === "bol" ? ref : null,
         carrier, packingSlipFileId, note, decoratorId, decoratorName: vendorName,
-        items: activeItems.map(it => ({ itemId: it.itemId, jobId: it.jobId, itemName: it.name, qtys: qtys[it.itemId] || {}, final: !!final[it.itemId] })),
+        items: activeItems.map(it => ({ itemId: it.itemId, jobId: it.jobId, itemName: it.name, qtys: qtys[it.itemId] || {}, final: !!final[it.itemId], route: it.route })),
       });
       setBusy(false); setBusyLabel("Shipping…");
       if (res.ok) {

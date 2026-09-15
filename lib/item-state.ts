@@ -372,7 +372,7 @@ export async function loadRecentShipments(sb: Sb): Promise<ShippedBox[]> {
   const cutoff = new Date(Date.now() - 21 * 86400000).toISOString();
   const { data: ships } = await sb.from("shipments")
     .select("id, tracking, carrier, pickup, status, created_at, packing_slip_file_id, warehouse_notified_at, warehouse_notified_to, decorators(name)")
-    .eq("direction", "inbound").gte("created_at", cutoff).order("created_at", { ascending: false }).limit(80);
+    .in("direction", ["inbound", "direct"]).gte("created_at", cutoff).order("created_at", { ascending: false }).limit(80);
   const active = (ships || []).filter((s: any) => s.status !== "received");
   if (!active.length) return [];
   const ids = active.map((s: any) => s.id);

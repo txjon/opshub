@@ -37,6 +37,7 @@ export type ShipmentSeed = {
   expected_arrival?: string | null;
   warehouse_notes?: string | null; // production's instructions to distro
   packing_slip_file_id?: string | null;
+  direction?: "inbound" | "direct"; // vendor→HPD (default) or vendor→client (drop_ship). Mig 180.
 };
 
 // Find-or-create the shipment row for this item's box and upsert its line.
@@ -88,7 +89,7 @@ export async function upsertShipmentForItem(supabase: Sb, seed: ShipmentSeed): P
     } else {
       const { data: { user } = { user: null } } = await supabase.auth.getUser();
       const { data: created, error } = await supabase.from("shipments").insert({
-        direction: "inbound",
+        direction: seed.direction || "inbound",
         source: "decorator",
         decorator_id: seed.decorator_id,
         group_key: groupKey,
