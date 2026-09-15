@@ -50,6 +50,38 @@ export function renderDropValuationHTML(data: DropValuationData): string {
     </div>
   </div>`
     : "";
+  const oversoldUnits = data.oversold.reduce((s, o) => s + o.unitsOversold, 0);
+  const oversoldValue = data.oversold.reduce((s, o) => s + o.retailCommitted, 0);
+  const oversoldHtml = data.oversold.length
+    ? `
+  <div class="section">
+    <div class="section-title">Oversold — variants below zero in Shopify (pre-orders sold past stock)</div>
+    <div class="low-summary">
+      <span><strong>${intFmt.format(data.oversold.length)}</strong> products</span>
+      <span><strong>${intFmt.format(oversoldUnits)}</strong> units owed</span>
+      <span><strong>${currencyFmt.format(oversoldValue)}</strong> retail committed</span>
+      <span class="low-note">not stock on hand · not in the totals above</span>
+    </div>
+    <table class="line-items">
+      <thead>
+        <tr>
+          <th>Product</th>
+          <th>Variants below zero</th>
+          <th class="col-qty">Units Owed</th>
+          <th class="col-total">Retail Committed</th>
+        </tr>
+      </thead>
+      <tbody>${data.oversold.map((o, i) => `
+        <tr class="${i % 2 === 0 ? "row-even" : "row-odd"}">
+          <td class="col-style">${escapeHtml(o.title)}</td>
+          <td class="col-muted">${escapeHtml(o.variantsLabel)}</td>
+          <td class="col-qty">${intFmt.format(o.unitsOversold)}</td>
+          <td class="col-total">${currencyFmt.format(o.retailCommitted)}</td>
+        </tr>`).join("")}
+      </tbody>
+    </table>
+  </div>`
+    : "";
   const zeroNote = data.zeroStockCount
     ? ` ${intFmt.format(data.zeroStockCount)} product${data.zeroStockCount === 1 ? "" : "s"} with zero inventory across all variants ${data.zeroStockCount === 1 ? "is" : "are"} excluded from this report.`
     : "";
@@ -92,7 +124,8 @@ export function renderDropValuationHTML(data: DropValuationData): string {
   .info-cell .primary { font-weight: 700; font-size: 14px; color: #111; margin-bottom: 2px; }
   .info-cell .sub { color: #888; font-size: 9px; }
   .section { padding: 20px 40px 0; }
-  .section-title { font-size: 8px; text-transform: uppercase; letter-spacing: 1.5px; color: #999; font-weight: 700; margin-bottom: 10px; }
+  .section-title { font-size: 8px; text-transform: uppercase; letter-spacing: 1.5px; color: #999; font-weight: 700; margin-bottom: 10px; break-after: avoid; }
+  .low-summary, table.line-items thead { break-after: avoid; }
   table.line-items { width: 100%; border-collapse: collapse; font-size: 10px; }
   table.line-items thead tr { background: #111; color: white; }
   table.line-items thead th { padding: 8px 10px; text-align: left; font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.8px; font-weight: 600; }
@@ -101,6 +134,7 @@ export function renderDropValuationHTML(data: DropValuationData): string {
   .row-even { background: white; }
   .row-odd { background: #fafafa; }
   .col-style { font-weight: 600; color: #333; }
+  .col-muted { color: #777; font-size: 9px; }
   .col-total { font-weight: 700; }
   .totals-section { display: flex; justify-content: flex-end; padding: 16px 40px 0; }
   table.totals { min-width: 280px; border-collapse: collapse; }
@@ -178,6 +212,7 @@ export function renderDropValuationHTML(data: DropValuationData): string {
   </div>
 
 ${lowStockHtml}
+${oversoldHtml}
 
   <div class="totals-section">
     <table class="totals">
@@ -194,7 +229,7 @@ ${lowStockHtml}
 
   <div class="footer-section">
     <div class="section-title">Notes</div>
-    <p>Valuation calculated from current Shopify product export. Retail value = Variant Price × Variant Inventory Qty across all variants. Products with ${data.lowStockMax} units or fewer are rolled up in the Low Stock block and count toward every total.${zeroNote} Untracked inventory is not counted.</p>
+    <p>Valuation calculated from current Shopify product export. Retail value = Variant Price × Variant Inventory Qty across all variants. Products with ${data.lowStockMax} units or fewer are rolled up in the Low Stock block and count toward every total. Variants below zero in Shopify are valued at zero on hand and listed under Oversold.${zeroNote} Untracked inventory is not counted.</p>
 ${flagsHtml}
   </div>
 
