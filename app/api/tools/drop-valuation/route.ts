@@ -5,8 +5,14 @@ import { createClient } from "@/lib/supabase/server";
 import { generatePDF } from "@/lib/pdf/browser";
 import { getPdfBranding } from "@/lib/branding";
 import { renderDropValuationHTML } from "@/lib/pdf/drop-valuation-html";
-import { DropValuationData, ValuationProductRow } from "@/lib/pdf/drop-valuation-types";
+import { DropValuationData } from "@/lib/pdf/drop-valuation-types";
+import { buildValuation } from "@/lib/pdf/drop-valuation-build";
 import { parseShopifyProductCsv } from "@/lib/shopify-csv/parse";
+
+// Products at or under this many units (across all variants) leave the main
+// table and roll up into the low-stock block (Jon, Sep 14 2026: the report
+// was 27 pages, most of it zero-stock rows + a flag per zero-stock row).
+const LOW_STOCK_MAX = 9;
 
 function formatReportDate(d: Date): string {
   return d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
@@ -44,38 +50,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const products: ValuationProductRow[] = parsed.map((p) => {
-      const units = p.variants.reduce((s, v) => s + v.qty, 0);
-      const retailValue = p.variants.reduce((s, v) => s + v.qty * v.price, 0);
-      return {
-        title: p.title,
-        variantCount: p.variants.length,
-        units,
-        retailValue,
-        pctOfDrop: 0,
-      };
-    });
-
-    const totalValue = products.reduce((s, p) => s + p.retailValue, 0);
-    const totalUnits = products.reduce((s, p) => s + p.units, 0);
-    const totalVariants = products.reduce((s, p) => s + p.variantCount, 0);
-    const totalProducts = products.length;
-    const avgRetailPerUnit = totalUnits > 0 ? totalValue / totalUnits : 0;
-
-    for (const p of products) {
-      p.pctOfDrop = totalValue > 0 ? (p.retailValue / totalValue) * 100 : 0;
-    }
-
-    products.sort((a, b) => b.retailValue - a.retailValue);
-
-    const flags: string[] = [];
-    for (const p of products) {
-      if (p.title.toLowerCase().includes("need updated count")) {
-        flags.push(`"${p.title}" listed with title marker indicating count is pending`);
-      }
-      if (p.units === 0) {
-        flags.push(`"${p.title}" has zero units across all variants`);
-      }
+    const v = buildValuation(parsed, LOW_STOCK_MAX);
+    if (v.totalProducts === 0) {
+      return NextResponse.json(
+        { error: "Every product in the CSV has zero inventory" },
+        { status: 400 }
+      );
     }
 
     const now = new Date();
@@ -85,13 +65,7 @@ export async function POST(req: NextRequest) {
     const branding = await getPdfBranding();
 
     const data: DropValuationData = {
-      products,
-      totalValue,
-      totalUnits,
-      totalProducts,
-      totalVariants,
-      avgRetailPerUnit,
-      flags,
+      ...v,
       reportRef,
       reportDate,
       companyName: branding.name,

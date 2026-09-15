@@ -24,8 +24,35 @@ function renderProductRow(p: ValuationProductRow, i: number): string {
         </tr>`;
 }
 
+function renderLowStockCell(p: ValuationProductRow): string {
+  return `
+      <div class="low-item">
+        <span class="low-title">${escapeHtml(p.title)}</span>
+        <span class="low-meta">${intFmt.format(p.units)}u · ${currencyFmt.format(p.retailValue)}</span>
+      </div>`;
+}
+
 export function renderDropValuationHTML(data: DropValuationData): string {
   const productRows = data.products.map(renderProductRow).join("");
+  const lowUnits = data.lowStock.reduce((s, p) => s + p.units, 0);
+  const lowValue = data.lowStock.reduce((s, p) => s + p.retailValue, 0);
+  const lowStockHtml = data.lowStock.length
+    ? `
+  <div class="section">
+    <div class="section-title">Low Stock — ${data.lowStockMax} units or fewer across all variants</div>
+    <div class="low-summary">
+      <span><strong>${intFmt.format(data.lowStock.length)}</strong> products</span>
+      <span><strong>${intFmt.format(lowUnits)}</strong> units</span>
+      <span><strong>${currencyFmt.format(lowValue)}</strong> retail value</span>
+      <span class="low-note">included in the totals above · listed compact below</span>
+    </div>
+    <div class="low-grid">${data.lowStock.map(renderLowStockCell).join("")}
+    </div>
+  </div>`
+    : "";
+  const zeroNote = data.zeroStockCount
+    ? ` ${intFmt.format(data.zeroStockCount)} product${data.zeroStockCount === 1 ? "" : "s"} with zero inventory across all variants ${data.zeroStockCount === 1 ? "is" : "are"} excluded from this report.`
+    : "";
   const companyName = (data.companyName || "").toUpperCase();
   const reportRef = escapeHtml(data.reportRef);
 
@@ -83,6 +110,13 @@ export function renderDropValuationHTML(data: DropValuationData): string {
   .total-row td { border-top: 2px solid #111; padding-top: 10px; padding-bottom: 4px; }
   .total-row .summary-label { font-size: 13px; font-weight: 700; color: #111; }
   .total-row .summary-value { font-size: 15px; font-weight: 800; color: #111; }
+  .low-summary { display: flex; gap: 22px; flex-wrap: wrap; font-size: 10px; color: #555; padding: 8px 0 10px; border-bottom: 1px solid #eee; margin-bottom: 8px; }
+  .low-summary strong { color: #111; font-weight: 700; }
+  .low-summary .low-note { color: #999; }
+  .low-grid { column-count: 3; column-gap: 18px; }
+  .low-item { break-inside: avoid; display: flex; justify-content: space-between; gap: 8px; padding: 3px 0; border-bottom: 1px solid #f0f0f0; font-size: 8.5px; }
+  .low-title { color: #333; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .low-meta { color: #777; white-space: nowrap; }
   .footer-section { padding: 28px 40px 16px; }
   .footer-section p { color: #444; line-height: 1.6; font-size: 10px; }
   .footer-section .note-flag { background: #f5f5f5; border-left: 3px solid #111; padding: 10px 14px; margin-top: 10px; font-size: 10px; color: #333; }
@@ -127,7 +161,7 @@ export function renderDropValuationHTML(data: DropValuationData): string {
   </div>
 
   <div class="section">
-    <div class="section-title">Line Items — Retail Value by Product</div>
+    <div class="section-title">Line Items — Retail Value by Product (more than ${data.lowStockMax} units)</div>
     <table class="line-items">
       <thead>
         <tr>
@@ -142,6 +176,8 @@ export function renderDropValuationHTML(data: DropValuationData): string {
       </tbody>
     </table>
   </div>
+
+${lowStockHtml}
 
   <div class="totals-section">
     <table class="totals">
@@ -158,7 +194,7 @@ export function renderDropValuationHTML(data: DropValuationData): string {
 
   <div class="footer-section">
     <div class="section-title">Notes</div>
-    <p>Valuation calculated from current Shopify product export. Retail value = Variant Price × Variant Inventory Qty across all variants. Products with zero or untracked inventory are excluded from unit totals but listed for completeness.</p>
+    <p>Valuation calculated from current Shopify product export. Retail value = Variant Price × Variant Inventory Qty across all variants. Products with ${data.lowStockMax} units or fewer are rolled up in the Low Stock block and count toward every total.${zeroNote} Untracked inventory is not counted.</p>
 ${flagsHtml}
   </div>
 
