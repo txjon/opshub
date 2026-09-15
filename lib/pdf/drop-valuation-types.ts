@@ -7,7 +7,13 @@ export interface ValuationProductRow {
 }
 
 export interface DropValuationData {
+  /** Main table: products with more than `lowStockMax` units. */
   products: ValuationProductRow[];
+  /** Products with 1..lowStockMax units, summarized in a compact block. */
+  lowStock: ValuationProductRow[];
+  lowStockMax: number;
+  /** Products with zero units across all variants — excluded from the report. */
+  zeroStockCount: number;
   totalValue: number;
   totalUnits: number;
   totalProducts: number;
