@@ -28,7 +28,7 @@ export default function SetPasswordPage() {
       setError(error.message);
       setLoading(false);
     } else {
-      window.location.href = "/dashboard";
+      window.location.href = "/house";
     }
   };
 

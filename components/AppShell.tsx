@@ -37,7 +37,7 @@ const DEPT_NAV: Record<Department, { href: string; label: string }[]> = {
     { href: "/integrations", label: "Integrations" },
   ],
   labs: [
-    { href: "/dashboard", label: "Dashboard" },
+    { href: "/house", label: "The House" },
     { href: "/intake", label: "Intake" },
     { href: "/jobs", label: "Projects" },
     { href: "/studio", label: "The Studio" },
@@ -73,7 +73,7 @@ const SIDE_QUESTS = [
 // Cross-links between departments
 const DEPT_CROSSLINKS: Partial<Record<Department, { href: string; label: string; dept: Department }>> = {
   labs: { href: "/distro", label: "Distro →", dept: "distro" },
-  distro: { href: "/dashboard", label: "← Labs", dept: "labs" },
+  distro: { href: "/house", label: "← Labs", dept: "labs" },
 };
 
 function detectDept(pathname: string): Department {
@@ -136,7 +136,9 @@ export function AppShell({
   // HPD response (quote rejections, proof revisions, vendor flags,
   // unread Art Studio briefs). Refreshes when the user navigates
   // away from /dashboard and on a slow background poll.
-  const [dashboardUnread, setDashboardUnread] = useState(0);
+  // The inbox badge — open external items (lib/inbox), polled each minute.
+  // No "seen" clock: the number only drops when an item resolves or is cleared.
+  const [inboxCount, setInboxCount] = useState(0);
 
   // Sync dept when pathname changes (after navigation completes, not during render)
   useEffect(() => {
@@ -147,20 +149,12 @@ export function AppShell({
     let cancelled = false;
     const load = async () => {
       try {
-        const res = await fetch("/api/dashboard/unread-count", { cache: "no-store" });
+        const res = await fetch("/api/inbox", { cache: "no-store" });
         if (!res.ok) return;
         const body = await res.json();
-        if (!cancelled) setDashboardUnread(Number(body.count) || 0);
+        if (!cancelled) setInboxCount(Number(body.count) || 0);
       } catch {}
     };
-    // Strict-messenger flow: landing on /dashboard bumps the team-wide
-    // last-seen-at via POST /api/dashboard/seen, which clears the badge.
-    // We also optimistically zero it locally so the UI doesn't flash a
-    // stale number while the round-trip completes.
-    if (pathname === "/dashboard" || pathname === "/house") {
-      setDashboardUnread(0);
-      fetch("/api/dashboard/seen", { method: "POST", cache: "no-store" }).catch(() => {});
-    }
     load();
     const id = setInterval(load, 60_000);
     return () => { cancelled = true; clearInterval(id); };
@@ -182,8 +176,7 @@ export function AppShell({
   const navItemsSwapped = swapV2Nav(navItemsRaw);
   const navItems = (STUDIO_UNDER_DEV
     ? navItemsSwapped.filter((i: any) => !STUDIO_HIDDEN_HREFS.includes(i.href))
-    : navItemsSwapped)
-    .filter((i: any) => i.href !== "/dashboard"); // tucked — House is the daily surface
+    : navItemsSwapped);
   // ── Hub sidebar (desktop) — ONE nav, grouped by workflow, every granted
   // destination visible and one click away (Jon, Jul 27: "we're in
   // production, need receiving → click Distro → land on Distro home → click
@@ -200,10 +193,8 @@ export function AppShell({
   const filterNavItems = (items: { href: string; label: string }[]) => {
     const swapped = swapV2Nav(items);
     const studioFiltered = STUDIO_UNDER_DEV ? swapped.filter((i: any) => !STUDIO_HIDDEN_HREFS.includes(i.href)) : swapped;
-    // Dashboard tucked away (Jon, Jul 28: "we really don't use it, it's
-    // noisy") — the House is the daily surface. URL stays reachable.
-    // Retired pages and parked mockups don't earn nav rows either.
-    return studioFiltered.filter((i: any) => i.href !== "/dashboard" && !/retired/i.test(i.label) && !/mockup/i.test(i.label));
+    // Retired pages and parked mockups don't earn nav rows.
+    return studioFiltered.filter((i: any) => !/retired/i.test(i.label) && !/mockup/i.test(i.label));
   };
   // The House leads Labs — the team's daily driver comes first.
   const NAV_FIRST: Record<string, string> = { labs: "/house" };
@@ -283,7 +274,7 @@ export function AppShell({
             const head = homeHref ? g.items.find((i: any) => i.href === homeHref) : undefined;
             const children = head ? g.items.filter((i: any) => i !== head) : g.items;
             const headActive = !!head && (pathname === head.href || pathname?.startsWith(head.href + "/"));
-            const headBadge = head?.href === "/house" && dashboardUnread > 0;
+            const headBadge = head?.href === "/house" && inboxCount > 0;
             const headStyle = { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "7px 8px", borderRadius: 8, fontSize: 15, fontWeight: 800, letterSpacing: "-0.01em" } as const;
             return (
               <div key={g.key} style={{ marginBottom: 14 }}>
@@ -291,7 +282,7 @@ export function AppShell({
                   <Link href={head.href}
                     style={{ ...headStyle, textDecoration: "none", color: headActive ? "#fff" : "rgba(255,255,255,0.88)", background: headActive ? "rgba(255,255,255,0.10)" : "transparent" }}>
                     <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{head.label}</span>
-                    {headBadge && <span style={{ background: "#e8569b", color: "#fff", fontSize: 9.5, fontWeight: 800, padding: "1px 6px", borderRadius: 99, lineHeight: 1.4, minWidth: 16, textAlign: "center" }}>{dashboardUnread}</span>}
+                    {headBadge && <span style={{ background: "#e8569b", color: "#fff", fontSize: 9.5, fontWeight: 800, padding: "1px 6px", borderRadius: 99, lineHeight: 1.4, minWidth: 16, textAlign: "center" }}>{inboxCount}</span>}
                   </Link>
                 ) : (
                   <div style={{ ...headStyle, color: "rgba(255,255,255,0.88)" }}>
@@ -300,12 +291,12 @@ export function AppShell({
                 )}
                 {children.map((item: any) => {
                   const isActive = pathname === item.href || pathname?.startsWith(item.href + "/");
-                  const showBadge = item.href === "/house" && dashboardUnread > 0;
+                  const showBadge = item.href === "/house" && inboxCount > 0;
                   return (
                     <Link key={item.href} href={item.href}
                       style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "5px 8px 5px 20px", borderRadius: 7, fontSize: 12.5, fontWeight: isActive ? 700 : 500, textDecoration: "none", color: isActive ? "#fff" : "rgba(255,255,255,0.6)", background: isActive ? "rgba(255,255,255,0.10)" : "transparent" }}>
                       <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.label}</span>
-                      {showBadge && <span style={{ background: "#e8569b", color: "#fff", fontSize: 9.5, fontWeight: 800, padding: "1px 6px", borderRadius: 99, lineHeight: 1.4, minWidth: 16, textAlign: "center" }}>{dashboardUnread}</span>}
+                      {showBadge && <span style={{ background: "#e8569b", color: "#fff", fontSize: 9.5, fontWeight: 800, padding: "1px 6px", borderRadius: 99, lineHeight: 1.4, minWidth: 16, textAlign: "center" }}>{inboxCount}</span>}
                     </Link>
                   );
                 })}
@@ -361,8 +352,7 @@ export function AppShell({
           }}>
             {navItems.map((item: any) => {
               const isActive = pathname === item.href || pathname?.startsWith(item.href + "/");
-              const isDashboard = item.href === "/dashboard";
-              const showBadge = isDashboard && dashboardUnread > 0;
+              const showBadge = item.href === "/house" && inboxCount > 0;
               const linkStyle = isMobile ? ({
                 padding: "0 14px", minHeight: 44, fontSize: 15,
                 fontWeight: isActive ? 700 : 500,
@@ -387,7 +377,7 @@ export function AppShell({
                   fontSize: 10, fontWeight: 800,
                   padding: "2px 7px", borderRadius: 99, lineHeight: 1.3,
                   minWidth: 18, textAlign: "center",
-                }}>{dashboardUnread}</span>
+                }}>{inboxCount}</span>
               ) : null;
               // External links (static files outside Next routing) use <a> + target=_blank
               if (item.external) {

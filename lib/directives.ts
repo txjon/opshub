@@ -134,6 +134,20 @@ export const HOUSE_EXTRA_DIRECTIVES: Record<string, Directive> = {
   },
 };
 
+// The inbox (Sep 15 2026): external words waiting on a reply
+export const INBOX_DIRECTIVES: Record<string, Directive> = {
+  proof_revision: {
+    verb: "Revise the proof",
+    order: "Read their notes, fix the art, upload the revised proof and re-send it",
+    done: "revised proof sent (or cleared as handled)",
+  },
+  vendor_flag: {
+    verb: "Answer the vendor",
+    order: "They flagged a problem on the PO — read it, sort it with them, then mark it resolved",
+    done: "issue resolved on the assignment",
+  },
+};
+
 export const STUDIO_DIRECTIVE: Directive = {
   verb: "Answer it",
   order: "Read the idea, reply in the thread — even a 'sketching soon'",

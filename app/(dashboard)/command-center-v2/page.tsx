@@ -266,7 +266,7 @@ export default function CommandCenterV2() {
               {totalActions} actions
             </span>
           )}
-          <Link href="/dashboard" style={{ marginLeft: 8, padding: "6px 12px", border: `1px solid ${T.border}`, borderRadius: 6, fontSize: 11, color: T.muted, textDecoration: "none", fontWeight: 600 }}>
+          <Link href="/house" style={{ marginLeft: 8, padding: "6px 12px", border: `1px solid ${T.border}`, borderRadius: 6, fontSize: 11, color: T.muted, textDecoration: "none", fontWeight: 600 }}>
             ← Live dashboard
           </Link>
         </div>

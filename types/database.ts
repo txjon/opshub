@@ -1990,6 +1990,35 @@ export type Database = {
           { foreignKeyName: "history_vendor_costs_company_id_fkey"; columns: ["company_id"]; isOneToOne: false; referencedRelation: "companies"; referencedColumns: ["id"] }
         ];
       };
+      inbox_cleared: {
+        Row: {
+          id: string;
+          company_id: string | null;
+          key: string;
+          cleared_at: string;
+          cleared_by: string | null;
+          note: string | null;
+        };
+        Insert: {
+          id?: string;
+          company_id?: string | null;
+          key: string;
+          cleared_at?: string;
+          cleared_by?: string | null;
+          note?: string | null;
+        };
+        Update: {
+          id?: string;
+          company_id?: string | null;
+          key?: string;
+          cleared_at?: string;
+          cleared_by?: string | null;
+          note?: string | null;
+        };
+        Relationships: [
+          { foreignKeyName: "inbox_cleared_company_id_fkey"; columns: ["company_id"]; isOneToOne: false; referencedRelation: "companies"; referencedColumns: ["id"] }
+        ];
+      };
       intake_submissions: {
         Row: {
           id: string;

@@ -9,7 +9,8 @@ import { useEffect, useMemo, useState } from "react";
 import { patchJobTypeMeta } from "@/lib/job-type-meta";
 import { createClient } from "@/lib/supabase/client";
 import { H } from "@/components/hub/theme";
-import { JOB_DIRECTIVES, DROP_DIRECTIVES, STUDIO_DIRECTIVE, HOUSE_EXTRA_DIRECTIVES, DISTRO_DIRECTIVES } from "@/lib/directives";
+import { JOB_DIRECTIVES, DROP_DIRECTIVES, STUDIO_DIRECTIVE, HOUSE_EXTRA_DIRECTIVES, DISTRO_DIRECTIVES, INBOX_DIRECTIVES } from "@/lib/directives";
+import type { InboxItem } from "@/lib/inbox";
 import { logJobActivity } from "@/components/JobActivityPanel";
 import { deriveInvoice } from "@/lib/job/invoice-derive";
 
@@ -41,6 +42,9 @@ export default function HousePage() {
   const [jobs, setJobs] = useState<any[] | null>(null);
   const [drops, setDrops] = useState<any[]>([]);
   const [briefs, setBriefs] = useState<any[]>([]);
+  // the inbox (lib/inbox): proof revisions + vendor flags render here; brief
+  // words render in The Studio block. Same rule the sidebar badge counts.
+  const [inbox, setInbox] = useState<InboxItem[]>([]);
   const [wire, setWire] = useState<any[]>([]);
   const [jobArt, setJobArt] = useState<Record<string, string>>({});
   const [overduePay, setOverduePay] = useState<any[]>([]);
@@ -126,9 +130,11 @@ export default function HousePage() {
         return true;
       }).slice(0, 6));
       try {
-        const res = await fetch("/api/art-briefs");
-        const body = await res.json();
+        const [bRes, iRes] = await Promise.all([fetch("/api/art-briefs"), fetch("/api/inbox", { cache: "no-store" })]);
+        const body = await bRes.json();
         setBriefs((body.briefs || []).filter((b: any) => !b.client_aborted_at));
+        const ib = await iRes.json();
+        setInbox(ib.items || []);
       } catch {}
       // hero art for the action jobs. The cap is a runaway guard only — it must
       // exceed the eligible-job count or displayed cards silently lose their art
@@ -214,16 +220,15 @@ export default function HousePage() {
         }
         return null;
       }).filter(Boolean) as any[];
-    // studio calls: new ideas + unanswered client words (same rule as studio2)
-    const studioCalls = briefs.filter((b: any) => {
-      const clientAt = b.last_client_activity?.at || "";
-      const hpdAt = [b.last_hpd_activity?.at || "", b.hpd_last_seen_at || ""].sort().pop() || "";
-      return b.state === "draft" || (!!clientAt && clientAt > hpdAt);
-    });
+    // studio calls: new ideas + unanswered client/designer words — the inbox
+    // rule (lib/inbox), so this block and the sidebar badge agree
+    const studioCalls = briefs.filter((b: any) => b.state === "draft" || b.has_unread_external);
+    // the rest of the inbox: proof revisions + vendor flags
+    const inboxWork = inbox.filter(i => i.kind !== "brief");
     const overdue = ourJobs.filter((x: any) => x.target_ship_date && x.target_ship_date < new Date().toISOString().slice(0, 10));
     const dockJobs = J.filter((x: any) => (PHASE_VERB[x.phase] || {}).side === "distro");
-    return { ourJobs, prepJobs, readyJobs, theirJobs, press, dropCalls, studioCalls, overdue, vendorRisk, dockJobs };
-  }, [jobs, drops, briefs]);
+    return { ourJobs, prepJobs, readyJobs, theirJobs, press, dropCalls, studioCalls, inboxWork, overdue, vendorRisk, dockJobs };
+  }, [jobs, drops, briefs, inbox]);
 
   // A magazine plate: the work's art is the cover; the directive is the
   // headline written ON it. Actions as education — what, how, done-when.
@@ -285,7 +290,7 @@ export default function HousePage() {
         ) : (
           <>
             <div style={{ display: "flex", gap: "clamp(18px,4vw,48px)", flexWrap: "wrap", borderTop: `1px solid ${H.line}`, borderBottom: `1px solid ${H.line}`, padding: "16px 0", margin: "18px 0 0" }}>
-              <div><div style={{ fontSize: "clamp(24px,3vw,36px)", fontWeight: 900, lineHeight: 1, color: H.amber }}>{model.ourJobs.length + model.dropCalls.length + model.studioCalls.length + model.vendorRisk.length + variances.length + closeOut.length + overduePay.length + openAR.length + payReview.length}</div><div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.faint, marginTop: 5 }}>your move</div></div>
+              <div><div style={{ fontSize: "clamp(24px,3vw,36px)", fontWeight: 900, lineHeight: 1, color: H.amber }}>{model.ourJobs.length + model.dropCalls.length + model.studioCalls.length + model.inboxWork.length + model.vendorRisk.length + variances.length + closeOut.length + overduePay.length + openAR.length + payReview.length}</div><div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.faint, marginTop: 5 }}>your move</div></div>
               <div><div style={{ fontSize: "clamp(24px,3vw,36px)", fontWeight: 900, lineHeight: 1, color: PURPLE }}>{model.theirJobs.length}</div><div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.faint, marginTop: 5 }}>with clients</div></div>
               <div><div style={{ fontSize: "clamp(24px,3vw,36px)", fontWeight: 900, lineHeight: 1 }}>{model.press.toLocaleString()}</div><div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.faint, marginTop: 5 }}>on presses</div></div>
               <div><div style={{ fontSize: "clamp(24px,3vw,36px)", fontWeight: 900, lineHeight: 1, color: model.overdue.length ? H.red : H.text }}>{model.overdue.length}</div><div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.faint, marginTop: 5 }}>past ship date</div></div>
@@ -295,6 +300,28 @@ export default function HousePage() {
             {/* ── Departmentalized blocks (Jon, Jul 22): studio → production →
                 post-production. Dock work (landing, Shopify entry) lives on
                 The Distro — the stat above is the pointer. ── */}
+
+            {/* ── THE INBOX — external words waiting on a reply. Open until it
+                resolves (revised proof sent, issue resolved) or someone clears
+                it as handled. Brief words live in The Studio block below. ── */}
+            {model.inboxWork.length > 0 && (
+            <section style={{ marginTop: 36 }}>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 14 }}>
+                <h2 style={{ margin: 0, fontSize: 19, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", color: H.amber }}>The inbox.</h2>
+                <span style={{ fontSize: 10.5, color: H.faint }}>someone wrote to us and is waiting — it stays here until it&rsquo;s answered or cleared</span>
+              </div>
+              <div className="hs-grid">
+                {model.inboxWork.map((it: InboxItem) => {
+                  const d = it.kind === "proof" ? INBOX_DIRECTIVES.proof_revision : INBOX_DIRECTIVES.vendor_flag;
+                  const age = daysSince(it.at);
+                  const meta = `${it.subject}${age != null ? ` · ${age === 0 ? "today" : `${age}d waiting`}` : ""}`;
+                  return card(`inbox-${it.key}`, it.jobId && jobArt[it.jobId] ? thumbSrc(jobArt[it.jobId]) : null,
+                    it.client || "—", it.title, meta, d.verb, age != null && age >= 2 ? H.red : H.amber,
+                    it.href, "Handle it", d, () => setSheet({ kind: it.kind === "proof" ? "proof" : "vendorflag", item: it }));
+                })}
+              </div>
+            </section>
+            )}
 
             {/* ── THE DROPS ── */}
             {model.dropCalls.length > 0 && (
@@ -439,7 +466,7 @@ export default function HousePage() {
             </section>
             )}
 
-            {model.ourJobs.length + model.dropCalls.length + model.studioCalls.length + model.vendorRisk.length + variances.length + closeOut.length + overduePay.length === 0 && (
+            {model.ourJobs.length + model.dropCalls.length + model.studioCalls.length + model.inboxWork.length + model.vendorRisk.length + variances.length + closeOut.length + overduePay.length === 0 && (
               <div style={{ color: H.dim, fontSize: 13, padding: "24px 0" }}>Nothing needs the building. Rare air.</div>
             )}
 
@@ -474,6 +501,7 @@ export default function HousePage() {
               : x))}
           onSaleClosed={(releaseId: string) => setDrops(prev => prev.map((r: any) => r.id === releaseId ? { ...r, status: "closed" } : r))}
           onVarianceResolved={(itemId: string) => setVariances(prev => prev.filter((it: any) => it.id !== itemId))}
+          onInboxCleared={(key: string) => setInbox(prev => prev.filter(i => i.key !== key))}
           onVendorHandled={(jobId: string, vendorKey: string, date: string) =>
             setJobs(prev => (prev || []).map((x: any) => x.id === jobId
               ? { ...x, type_meta: { ...(x.type_meta || {}), po_ship_confirmed: { ...((x.type_meta || {}).po_ship_confirmed || {}), [vendorKey]: { date, at: new Date().toISOString() } } } }
@@ -488,12 +516,13 @@ export default function HousePage() {
 // A plate opens here instead of navigating away: the card's context on top,
 // its one-to-three moves below, done and back to the feed. Deep links
 // survive at the bottom for when the real surface is needed.
-function ActionSheet({ sheet, onClose, onShipByLogged, onSaleClosed, onVarianceResolved, onVendorHandled }: {
+function ActionSheet({ sheet, onClose, onShipByLogged, onSaleClosed, onVarianceResolved, onVendorHandled, onInboxCleared }: {
   sheet: any; onClose: () => void;
   onShipByLogged: (jobId: string, vendorKey: string, date: string) => void;
   onSaleClosed: (releaseId: string) => void;
   onVarianceResolved: (itemId: string) => void;
   onVendorHandled: (jobId: string, vendorKey: string, date: string) => void;
+  onInboxCleared: (key: string) => void;
 }) {
   const supabase = createClient();
   const [busy, setBusy] = useState<string | null>(null);
@@ -671,6 +700,36 @@ function ActionSheet({ sheet, onClose, onShipByLogged, onSaleClosed, onVarianceR
     setBusy(null);
   }
 
+  // ── inbox: clear a proof revision as handled (key-based; a NEW revision
+  //    request is a new file → a new key → it comes back on its own) ──
+  async function clearProof() {
+    const it: InboxItem = sheet.item;
+    setBusy("clear"); setErr(null);
+    try {
+      const res = await fetch("/api/inbox", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: it.key, note: resolveNote.trim() || null }) });
+      const b = await res.json();
+      if (!res.ok) throw new Error(b.error || "Failed");
+      if (it.jobId) logJobActivity(it.jobId, `${it.subject} — proof revision cleared as handled from The House${resolveNote.trim() ? `: ${resolveNote.trim()}` : ""}`);
+      onInboxCleared(it.key);
+      onClose();
+    } catch (e: any) { setErr(e.message); setBusy(null); }
+  }
+  // ── inbox: vendor flag resolved on the assignment itself (same write the
+  //    PO tab makes — the card clears for everyone) ──
+  async function resolveVendorFlag() {
+    const it: InboxItem = sheet.item;
+    setBusy("resolve"); setErr(null);
+    try {
+      const { error } = await (supabase.from("decorator_assignments") as any)
+        .update({ issue_resolved_at: new Date().toISOString() })
+        .eq("item_id", it.itemId).eq("decorator_id", it.decoratorId);
+      if (error) throw new Error(error.message);
+      if (it.jobId) logJobActivity(it.jobId, `${it.subject} — vendor issue marked resolved from The House${resolveNote.trim() ? `: ${resolveNote.trim()}` : ""}`);
+      onInboxCleared(it.key);
+      onClose();
+    } catch (e: any) { setErr(e.message); setBusy(null); }
+  }
+
   async function closeSale() {
     setBusy("close"); setErr(null);
     try {
@@ -728,6 +787,33 @@ function ActionSheet({ sheet, onClose, onShipByLogged, onSaleClosed, onVarianceR
             <a href={`/jobs/${sheet.job.id}`} style={linkCss}>Open the job →</a>
           </>
         )}
+        {(sheet.kind === "proof" || sheet.kind === "vendorflag") && (() => {
+          const it: InboxItem = sheet.item;
+          const isProof = sheet.kind === "proof";
+          const d = isProof ? INBOX_DIRECTIVES.proof_revision : INBOX_DIRECTIVES.vendor_flag;
+          return (
+            <>
+              {head(`${it.client || "—"} · ${it.title}`, d.verb, `${it.subject}${it.at ? ` · ${fmtDate(it.at)}` : ""}`, H.amber)}
+              <div style={{ marginBottom: 16 }}>
+                <div style={labelCss}>{isProof ? "What the client asked for" : "What the vendor flagged"}</div>
+                <div style={{ fontSize: 13, lineHeight: 1.6, color: "rgba(255,255,255,0.85)", whiteSpace: "pre-wrap", borderLeft: `3px solid ${PURPLE}`, paddingLeft: 12 }}>
+                  {it.note || (isProof ? "No notes — they asked for a revision without saying what." : "No note left with the flag.")}
+                </div>
+              </div>
+              <div style={{ fontSize: 12.5, color: "rgba(255,255,255,0.8)", lineHeight: 1.55, marginBottom: 14 }}>{d.order}.</div>
+              <a href={it.href} style={{ ...goBtn(true), display: "inline-block", textDecoration: "none" }}>{isProof ? "Open the job → revise the proof" : "Open the job → the PO"}</a>
+              {!isProof && (<>{divider}{nudgeBlock({ itemId: it.itemId })}</>)}
+              {divider}
+              <div style={labelCss}>{isProof ? "Handled another way? Clear it — a new revision request brings it back" : "Sorted with the vendor? Mark it resolved — same as on the PO tab"}</div>
+              <input type="text" value={resolveNote} onChange={e => setResolveNote(e.target.value)}
+                placeholder={isProof ? "How it was handled — 'talked it through, art stands'…" : "How it settled — 'ink swapped, shipping Fri'…"}
+                style={{ ...inputCss, width: "100%", boxSizing: "border-box", fontFamily: H.font, marginBottom: 12 }} />
+              <button style={goBtn(busy !== "clear" && busy !== "resolve")} disabled={busy === "clear" || busy === "resolve"} onClick={isProof ? clearProof : resolveVendorFlag}>
+                {busy ? "Working…" : isProof ? "Clear as handled" : "Mark resolved"}
+              </button>
+            </>
+          );
+        })()}
         {sheet.kind === "variance" && (
           <>
             {head(`${sheet.item.jobs?.clients?.name || ""} · ${sheet.item.jobs?.job_number || ""}`,

@@ -23,7 +23,7 @@ export default async function GodModePage() {
   if (!user) redirect("/login");
   const { data: gate } = await supabase.from("profiles").select("is_god, page_access").eq("id", user.id).single();
   const allowed = gate?.is_god === true || (((gate?.page_access as string[] | null) || []).includes("/god-mode"));
-  if (!allowed) redirect("/dashboard");
+  if (!allowed) redirect("/house");
 
   // ── Fetch ─────────────────────────────────────────────────────────────
   const [

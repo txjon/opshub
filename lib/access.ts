@@ -31,7 +31,6 @@ export const PAGE_CATALOG: CatalogPage[] = [
   { key: "/fog-analytics", href: "/fog-analytics", label: "FOG God Mode", group: "owner", sensitive: true },
   { key: "/reconciliation", href: "/reconciliation", label: "Reconciliation", group: "owner", sensitive: true },
   // Labs / production
-  { key: "/dashboard", href: "/dashboard", label: "Dashboard", group: "labs" },
   { key: "/house", href: "/house", label: "The House", group: "labs" },
   // Intake moved under The House, above Projects (Jon, 2026-09-14 nav cleanup)
   { key: "/intake", href: "/intake", label: "Intake", group: "labs" },
