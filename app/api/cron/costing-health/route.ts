@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
     const sb = admin();
     const { data: jobs, error } = await sb
       .from("jobs")
-      .select("id, job_number, phase, is_internal, financial_closed_at, costing_data, costing_summary, items(id, name, is_fleece, archived_at, sell_per_unit, buy_sheet_lines(size, qty_ordered))")
+      .select("id, job_number, phase, is_internal, financial_closed_at, updated_at, costing_data, costing_summary, items(id, name, is_fleece, archived_at, sell_per_unit, buy_sheet_lines(size, qty_ordered))")
       .not("costing_summary", "is", null);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
@@ -53,6 +53,14 @@ export async function GET(req: NextRequest) {
     // guarded: it only counts as healed when fresh.grossRev lands on target.
     const HEAL_PHASES = new Set(["intake", "pending", "ready"]);
     const healed: { job: string; phase: string; from: number; to: number }[] = [];
+    // IN-FLIGHT GUARD (Sep 15 2026): a pre-production job someone touched in
+    // the last hour is being built — its summary and item prices move
+    // independently until costing saves, so a mid-build snapshot reads as
+    // drift (HPD-2609-021 at 11:41 while Drake was building it). Skip the
+    // check AND the heal (the heal would write a summary under an active
+    // save); the next run catches anything that persists.
+    const IN_FLIGHT_MS = 60 * 60 * 1000;
+    const inFlight: string[] = [];
     const fleeceGaps: string[] = [];
     let consistent = 0;
 
@@ -80,6 +88,11 @@ export async function GET(req: NextRequest) {
       if (Math.abs(delta) <= 1) { consistent++; continue; }
       if (SKIP.has(j.job_number)) continue;
       if (HEAL_PHASES.has(j.phase)) {
+        const touched = Math.max(
+          Date.parse((j as any).updated_at || "") || 0,
+          Date.parse((j.costing_data as any)?._savedAt || "") || 0,
+        );
+        if (Date.now() - touched < IN_FLIGHT_MS) { inFlight.push(j.job_number); continue; }
         try {
           const r = await refreshJobFinancials(sb, (j as any).id);
           const fresh = Number(r.summary?.grossRev);
@@ -262,7 +275,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ consistent, drifted: drift.length, healed: healed.length, fleeceGaps: fleeceGaps.length, phaseDrift: phaseDrift.length, qtyHealed: qtyHealed.length, qtyDrift: qtyDrift.length, jobs: drift.map(d => d.job), healedJobs: healed.map(h => h.job), phaseJobs: phaseDrift.map(p => p.job), qtyHealedJobs: qtyHealed.map(h => h.job), qtyDriftJobs: qtyDrift.map(d => d.job), badLinks, forbiddenPushes, poNoInvoice });
+    return NextResponse.json({ consistent, inFlight, drifted: drift.length, healed: healed.length, fleeceGaps: fleeceGaps.length, phaseDrift: phaseDrift.length, qtyHealed: qtyHealed.length, qtyDrift: qtyDrift.length, jobs: drift.map(d => d.job), healedJobs: healed.map(h => h.job), phaseJobs: phaseDrift.map(p => p.job), qtyHealedJobs: qtyHealed.map(h => h.job), qtyDriftJobs: qtyDrift.map(d => d.job), badLinks, forbiddenPushes, poNoInvoice });
   } catch (e: any) {
     console.error("Costing-health cron error:", e);
     return NextResponse.json({ error: e.message }, { status: 500 });
