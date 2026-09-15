@@ -2134,7 +2134,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
               {!contactForm && <button onClick={() => setContactForm({ name: "", email: "", phone: "", role: "cc" })} style={{ ...ghostBtn, padding: "5px 11px", fontSize: 11 }}>+ Add</button>}
             </span>
           </div>
-          {localContacts.length === 0 && !contactForm ? <div style={{ fontSize: 12.5, color: T.muted }}>No contacts on this job.</div> : localContacts.map((c: any) => (
+          {localContacts.length === 0 && !contactForm ? <div style={{ fontSize: 12.5, color: T.muted }}>No contacts on this job — quotes and proofs have nowhere to go. Sync pulls in the client&rsquo;s contacts; + Add creates one.</div> : localContacts.map((c: any) => (
             <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 0", borderBottom: `1px solid ${T.border}44`, fontSize: 13 }}>
               <span style={{ flex: 1 }}>{c.contacts?.name || c.contacts?.email}<span style={{ color: T.faint }}> · {c.contacts?.email || "no email"}{c.role_on_job ? " · " + c.role_on_job : ""}</span></span>
               <button onClick={() => removeContact(c.id)} title="Remove" style={{ background: "none", border: "none", color: T.faint, fontSize: 14, cursor: "pointer" }}>×</button>

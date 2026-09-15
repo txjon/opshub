@@ -146,6 +146,21 @@ export async function POST(req: NextRequest) {
   if (jErr || !job) return NextResponse.json({ error: jErr?.message || "Job create failed." }, { status: 500 });
   const jobId = (job as { id: string }).id;
 
+  // 3b. Link the client's contacts to the job — same rule as every other
+  // job-creation path (jobs/new, duplicate, cut, client reassign): primary
+  // contact → "primary", the rest → "cc". Quote + proof sends read
+  // job_contacts, not the client's contacts, so without this the first
+  // real quote had nobody to go to (HPD-2609-022, Sep 15 2026).
+  const { data: clientContacts } = await supabase
+    .from("contacts").select("id, is_primary").eq("client_id", clientId);
+  if (clientContacts?.length) {
+    await supabase.from("job_contacts").insert(
+      (clientContacts as { id: string; is_primary: boolean | null }[]).map((c) => ({
+        job_id: jobId, contact_id: c.id, role_on_job: c.is_primary ? "primary" : "cc",
+      })) as never,
+    );
+  }
+
   // 4. Items per line × colorway + buy_sheet_lines from the punch grids.
   const grids = ((punchOf("sizes")?.payload as any)?.grids || {}) as Record<string, Record<string, number>>;
   const createdItems: { itemId: string; lineIdx: number; colorway: string | null }[] = [];
