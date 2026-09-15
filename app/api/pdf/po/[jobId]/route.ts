@@ -9,6 +9,7 @@ import { createClient as createAuthClient } from "@/lib/supabase/server";
 import { generatePDF } from "@/lib/pdf/browser";
 import { contentDisposition } from "@/lib/pdf/filename";
 import { getPdfBranding } from "@/lib/branding";
+import { vendorPaperShipTo, splitShipToHtml } from "@/lib/destinations";
 import { sizeMatrixHtml } from "@/lib/size-grid";
 
 const SIZE_ORDER = ["OSFA","OS","XS","S","M","L","XL","2XL","3XL","4XL","5XL","6XL","YXS","YS","YM","YL","YXL"];
@@ -342,6 +343,7 @@ function renderPOHTML(data: any): string {
           ${rows}
         </div>` : "";
       })()}
+      ${splitShipToHtml(item.split_ship_to, sortSizes, mono)}
       ${item.drive_link ? `<div style="margin-bottom:6px;text-align:right">
         <a href="${item.drive_link}" style="display:inline-block;text-decoration:none;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:#fff;background:#1a1a1a;padding:6px 14px;border-radius:5px">Production Files ↗</a>
       </div>` : ""}
@@ -597,8 +599,14 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       : null;
 
     const itemLetters = vendorItems.map((it: any) => it.letter).join("");
-
     const branding = await getPdfBranding();
+    // Ship-to comes from ONE resolver (lib/destinations): HPD dock unless every
+    // item on this paper drop-ships; a split project prints per-item ship-to blocks.
+    const paper = await vendorPaperShipTo(supabase, {
+      jobId: job.id, jobRoute: (job as any).shipping_route || null, vendorItems, vendorDefaultRoute,
+      hpdBlock: `${branding.name}\n${((branding.fulfillmentAddressHtml || branding.headerAddressHtml) || "").replace(/<br\/>/g, "\n")}\nwarehouse@housepartydistro.com`,
+    });
+
     const poData = {
       job_number: ((job.type_meta as any)?.qb_invoice_number || job.job_number) + itemLetters,
       client_name: (job.clients as any)?.name || "—",
@@ -632,28 +640,9 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
         if (method.includes("fedex")) return accounts.fedex || "";
         return "";
       })(),
-      ship_to_address: (job.type_meta as any)?.po_ship_to?.[vendorName]
-        || ((() => {
-            // Per-vendor effective route: a vendor whose items resolve to
-            // ship_through/stage (per-item override → vendor default → job
-            // route) ships to HPD, even on a drop-ship job. Only all-drop_ship
-            // vendor POs go to the client address.
-            const jobRoute = (job as any).shipping_route || "ship_through";
-            const allDropShip = vendorItems.length > 0 && vendorItems.every(
-              (it: any) => (it.shipping_route || vendorDefaultRoute || jobRoute) === "drop_ship"
-            );
-            return allDropShip;
-          })()
-          ? (job.type_meta as any)?.venue_address || ""
-          // ship_through / stage: prefer the fulfillment address (set
-          // on tenants that ship to a partner — IHM ships through HPD's
-          // warehouse). Falls back to the tenant's own header address
-          // for self-fulfilling tenants like HPD. The contact name
-          // remains branding.name so the decorator routes correctly.
-          // Warehouse receiving contact on the PO ship-to only (all tenants ship
-          // to HPD's 4670 dock — IHM/DMD fulfill through it). Jon 2026-07-19.
-          : `${branding.name}\n${((branding.fulfillmentAddressHtml || branding.headerAddressHtml) || "").replace(/<br\/>/g, "\n")}\nwarehouse@housepartydistro.com`),
-      items: vendorItems,
+      // po_ship_to = the pre-180 per-vendor override (17 complete jobs, nothing writes it now).
+      ship_to_address: (job.type_meta as any)?.po_ship_to?.[vendorName] || paper.address,
+      items: vendorItems.map((it: any) => ({ ...it, split_ship_to: paper.perItem.get(it.id) || null })),
       // Revision metadata — drives the REVISED banner and the per-item
       // NEW chip. is_revision is set when the caller passes ?revised=1
       // AND the vendor has a stored po_sent_dates entry (i.e. there

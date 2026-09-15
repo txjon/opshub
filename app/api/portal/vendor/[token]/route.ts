@@ -7,6 +7,7 @@ import { Resend } from "resend";
 import { renderBrandedEmail } from "@/lib/email-template";
 import { shipFromProduction } from "@/lib/production2-ship";
 import { getPdfBranding } from "@/lib/branding";
+import { vendorPaperShipTo } from "@/lib/destinations";
 import { ensureTracker } from "@/lib/inbound-tracking";
 
 // costProds in ITEM sort order — "first item in a share group" (who carries
@@ -38,7 +39,7 @@ async function prefetchJobData(sb: any, jobs: any[], decorator: any) {
   const itemsById: Record<string, any> = {};
   for (let i = 0; i < wantedIds.length; i += 150) {
     const { data } = await sb.from("items")
-      .select("id, job_id, name, garment_type, blank_vendor, blank_sku, pipeline_stage, drive_link, incoming_goods, production_notes_po, packing_notes, ship_tracking, ship_qtys, blanks_order_number, blanks_order_cost, sort_order, buy_sheet_lines(size, qty_ordered)")
+      .select("id, job_id, name, shipping_route, garment_type, blank_vendor, blank_sku, pipeline_stage, drive_link, incoming_goods, production_notes_po, packing_notes, ship_tracking, ship_qtys, blanks_order_number, blanks_order_cost, sort_order, buy_sheet_lines(size, qty_ordered)")
       .in("id", wantedIds.slice(i, i + 150));
     for (const it of (data || [])) itemsById[it.id] = it;
   }
@@ -74,7 +75,7 @@ export async function GET(
     // Look up decorator by token
     const { data: decorator, error: decErr } = await sb
       .from("decorators")
-      .select("id, name, short_code")
+      .select("id, name, short_code, default_shipping_route")
       .eq("external_token", params.token)
       .single();
 
@@ -153,6 +154,12 @@ export async function GET(
     const completed: any[] = [];
     const pre = await prefetchJobData(sb, activeJobs || [], decorator);
 
+    // Ship-to for vendor paper comes from ONE resolver (lib/destinations) — the
+    // same block the PO PDF prints. No more hardcoded HPD address here.
+    const paperBranding = await getPdfBranding().catch(() => null);
+    const hpdBlock = paperBranding
+      ? `${paperBranding.name}\n${((paperBranding.fulfillmentAddressHtml || paperBranding.headerAddressHtml) || "").replace(/<br\/>/g, "\n")}\nwarehouse@housepartydistro.com`
+      : "House Party Distro\n4670 W Silverado Ranch Blvd, STE 120\nLas Vegas, NV 89139";
     for (const job of activeJobs || []) {
       const costingData = job.costing_data as any;
       if (!costingData?.costProds?.length) continue;
@@ -188,8 +195,12 @@ export async function GET(
       const letterMap: Record<string, string> = pre.lettersByJob[job.id] || {};
 
       // Get ship-to address for this vendor
-      const poShipTo = typeMeta.po_ship_to?.[decorator.name] || typeMeta.po_ship_to?.[decorator.short_code]
-        || (job.shipping_route === "drop_ship" ? (typeMeta.venue_address || null) : "House Party Distro\n4670 W Silverado Ranch Blvd, STE 120\nLas Vegas, NV 89139");
+      const paper = await vendorPaperShipTo(sb, {
+        jobId: job.id, jobRoute: job.shipping_route, vendorItems: items,
+        vendorDefaultRoute: job.shipping_route === "drop_ship" ? ((decorator as any).default_shipping_route || null) : null, hpdBlock,
+      });
+      // po_ship_to = the pre-180 per-vendor override (complete jobs only, nothing writes it now)
+      const poShipTo = typeMeta.po_ship_to?.[decorator.name] || typeMeta.po_ship_to?.[decorator.short_code] || paper.address;
       const poShipMethod = typeMeta.po_ship_methods?.[decorator.name] || typeMeta.po_ship_methods?.[decorator.short_code] || null;
 
       let grandTotal = 0;
@@ -227,6 +238,7 @@ export async function GET(
           shipQtys: item.ship_qtys,
           sizes,
           qtys,
+          splitShipTo: paper.perItem.get(item.id) || null,   // 2+ entries when this item ships to more than one address
           totalQty,
           decoLines,
           itemTotal,
@@ -361,8 +373,12 @@ export async function GET(
       const cMockupByItem = cPre.mockupByItem;
       const cLetterMap: Record<string, string> = cPre.lettersByJob[job.id] || {};
 
-      const poShipTo = typeMeta.po_ship_to?.[decorator.name] || typeMeta.po_ship_to?.[decorator.short_code]
-        || (job.shipping_route === "drop_ship" ? (typeMeta.venue_address || null) : "House Party Distro\n4670 W Silverado Ranch Blvd, STE 120\nLas Vegas, NV 89139");
+      const paper = await vendorPaperShipTo(sb, {
+        jobId: job.id, jobRoute: job.shipping_route, vendorItems: cItems,
+        vendorDefaultRoute: job.shipping_route === "drop_ship" ? ((decorator as any).default_shipping_route || null) : null, hpdBlock,
+      });
+      // po_ship_to = the pre-180 per-vendor override (complete jobs only, nothing writes it now)
+      const poShipTo = typeMeta.po_ship_to?.[decorator.name] || typeMeta.po_ship_to?.[decorator.short_code] || paper.address;
       const poShipMethod = typeMeta.po_ship_methods?.[decorator.name] || typeMeta.po_ship_methods?.[decorator.short_code] || null;
 
       let grandTotal = 0;
@@ -395,6 +411,7 @@ export async function GET(
           shipQtys: item.ship_qtys,
           sizes,
           qtys,
+          splitShipTo: paper.perItem.get(item.id) || null,   // 2+ entries when this item ships to more than one address
           totalQty,
           decoLines,
           itemTotal,

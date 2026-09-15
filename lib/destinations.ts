@@ -184,3 +184,71 @@ export async function loadJobDestinations(sb: Sb, jobId: string): Promise<{
   }
   return { shipTo, locations, byItem };
 }
+
+// ── Vendor paper (PO / RFQ PDF, vendor portal) ─────────────────────────
+
+// Effective route for one item: per-item override → vendor default (drop-ship
+// jobs only, see mig 093) → job route. ONE home for this rule (H8).
+export function effectiveRoute(itemRoute: string | null | undefined, vendorDefaultRoute: string | null | undefined, jobRoute: string | null | undefined): string {
+  return itemRoute || vendorDefaultRoute || jobRoute || "ship_through";
+}
+
+export type PaperDestination = { label: string; address: string; contactName: string | null; contactPhone: string | null; qtys: SizeQtys; total: number };
+export type VendorShipTo = {
+  address: string;            // the header ship-to block (free text, newline lines)
+  isSplit: boolean;           // any item on this paper goes to 2+ addresses
+  perItem: Map<string, PaperDestination[]>;   // itemId → destinations (only when isSplit; 2+ entries per split item, 1 for unsplit)
+};
+
+// What a vendor's paper prints as ship-to.
+//   every item ships to HPD (ship_through/stage)  → the HPD dock block
+//   every item drop-ships, no split              → the project's destination
+//   every item drop-ships, some item is split    → header says "split" + per-item blocks
+// Mixed (some items to HPD, some drop-ship) stays all-to-HPD: the production
+// board can't put two destinations in one box either, and a vendor PO is one
+// consignment. Per-item route badges already flag the drop-ship items.
+export async function vendorPaperShipTo(sb: Sb, args: {
+  jobId: string;
+  jobRoute: string | null;
+  vendorItems: { id: string; shipping_route?: string | null }[];
+  vendorDefaultRoute: string | null;
+  hpdBlock: string;
+}): Promise<VendorShipTo> {
+  const allDrop = args.vendorItems.length > 0 && args.vendorItems.every(it => effectiveRoute(it.shipping_route, args.vendorDefaultRoute, args.jobRoute) === "drop_ship");
+  if (!allDrop) return { address: args.hpdBlock, isSplit: false, perItem: new Map() };
+  const { shipTo, byItem } = await loadJobDestinations(sb, args.jobId);
+  const perItem = new Map<string, PaperDestination[]>();
+  let isSplit = false;
+  for (const it of args.vendorItems) {
+    const dests = byItem.get(it.id) || [];
+    if (dests.length > 1) isSplit = true;
+    perItem.set(it.id, dests.map(d => ({ label: d.shipTo.label, address: d.shipTo.address, contactName: d.shipTo.contactName, contactPhone: d.shipTo.contactPhone, qtys: d.qtys, total: sumQ(d.qtys) })));
+  }
+  const defaultAddr = shipTo?.address || "";
+  if (!isSplit) { perItem.clear(); return { address: defaultAddr, isSplit: false, perItem }; }
+  return {
+    address: `SPLIT SHIPMENT: ship-to is listed on each item below.
+Default: ${shipTo?.label || "Main"}
+${defaultAddr}`,
+    isSplit: true, perItem,
+  };
+}
+
+// Print-palette HTML for a split item's ship-to block (PO + RFQ PDFs share it).
+export function splitShipToHtml(dests: PaperDestination[] | null | undefined, sortSizes: (s: string[]) => string[], mono: string): string {
+  if (!dests || dests.length < 2) return "";
+  const esc = (t: string) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  const rows = dests.map(d => {
+    const sizes = sortSizes(Object.keys(d.qtys)).filter(sz => (d.qtys[sz] || 0) > 0).map(sz => `${esc(sz)} ${d.qtys[sz]}`).join(" · ");
+    return `<div style="display:flex;gap:10px;align-items:flex-start;padding:3px 0;border-top:0.5px solid #d6e3ea">
+      <div style="flex:0 0 150px"><div style="font-weight:800;text-transform:uppercase;letter-spacing:0.06em;font-size:8px;color:#2f6f86">${esc(d.label)}</div><div style="white-space:pre-wrap;line-height:1.45">${esc(d.address)}</div>${d.contactName ? `<div style="color:#5b7683">${esc(d.contactName)}${d.contactPhone ? " · " + esc(d.contactPhone) : ""}</div>` : ""}</div>
+      <div style="flex:1;font-family:${mono};line-height:1.5">${sizes}</div>
+      <div style="flex:0 0 60px;text-align:right;font-family:${mono};font-weight:800">${d.total.toLocaleString()}</div>
+    </div>`;
+  }).join("");
+  return `<div style="font-size:9px;color:#1f3d4a;padding:6px 9px;background:#eef5f8;border:1px solid #9cc4d4;border-radius:4px;margin-bottom:6px">
+    <div style="font-size:8px;font-weight:800;text-transform:uppercase;letter-spacing:0.08em;color:#2f6f86;margin-bottom:2px">Split shipment: this item ships to ${dests.length} addresses</div>
+    ${rows}
+  </div>`;
+}
+
