@@ -1,23 +1,40 @@
 import type { ParsedProduct } from "@/lib/shopify-csv/parse";
-import type { DropValuationData, ValuationProductRow } from "./drop-valuation-types";
+import type { DropValuationData, OversoldRow, ValuationProductRow } from "./drop-valuation-types";
 
 export type ValuationNumbers = Pick<
   DropValuationData,
-  "products" | "lowStock" | "lowStockMax" | "zeroStockCount" | "totalValue" | "totalUnits" | "totalProducts" | "totalVariants" | "avgRetailPerUnit" | "flags"
+  "products" | "lowStock" | "lowStockMax" | "zeroStockCount" | "oversold" | "totalValue" | "totalUnits" | "totalProducts" | "totalVariants" | "avgRetailPerUnit" | "flags"
 >;
 
 // One aggregation for the single-location valuation report (Sep 14 2026):
+//   negative variants    → on-hand value 0; reported as oversold (a live
+//                          pre-order at -2,571 units was silently subtracting
+//                          $107k from the total)
 //   zero-stock products  → dropped, counted in zeroStockCount
 //   1..lowStockMax units → lowStock (compact block), still in every total
 //   more than that       → products (the main table)
 export function buildValuation(parsed: ParsedProduct[], lowStockMax: number): ValuationNumbers {
-  const all: ValuationProductRow[] = parsed.map((p) => ({
-    title: p.title,
-    variantCount: p.variants.length,
-    units: p.variants.reduce((s, v) => s + v.qty, 0),
-    retailValue: p.variants.reduce((s, v) => s + v.qty * v.price, 0),
-    pctOfDrop: 0,
-  }));
+  const oversold: OversoldRow[] = [];
+  const all: ValuationProductRow[] = parsed.map((p) => {
+    const neg = p.variants.filter((v) => v.qty < 0);
+    if (neg.length) {
+      oversold.push({
+        title: p.title,
+        variantsLabel: neg.map((v) => `${v.variantLabel} ${v.qty}`).join(" · "),
+        unitsOversold: neg.reduce((s, v) => s - v.qty, 0),
+        retailCommitted: neg.reduce((s, v) => s - v.qty * v.price, 0),
+      });
+    }
+    const onHand = p.variants.map((v) => ({ ...v, qty: Math.max(0, v.qty) }));
+    return {
+      title: p.title,
+      variantCount: p.variants.length,
+      units: onHand.reduce((s, v) => s + v.qty, 0),
+      retailValue: onHand.reduce((s, v) => s + v.qty * v.price, 0),
+      pctOfDrop: 0,
+    };
+  });
+  oversold.sort((a, b) => b.retailCommitted - a.retailCommitted);
 
   const zeroStockCount = all.filter((p) => p.units <= 0).length;
   const inStock = all.filter((p) => p.units > 0);
@@ -38,6 +55,7 @@ export function buildValuation(parsed: ParsedProduct[], lowStockMax: number): Va
     lowStock: inStock.filter((p) => p.units <= lowStockMax),
     lowStockMax,
     zeroStockCount,
+    oversold,
     totalValue,
     totalUnits,
     totalProducts: inStock.length,
