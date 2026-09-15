@@ -517,7 +517,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
     else delete newMeta.venue_address;
     delete newMeta.po_ship_to;
 
-    const updates: any = { type_meta: newMeta };
+    const updates: any = { type_meta: newMeta, ship_to_location_id: null };   // resolver falls to the new client's default location
     if (newTerms) updates.payment_terms = newTerms;
     await supabase.from("jobs").update(updates).eq("id", job.id);
 

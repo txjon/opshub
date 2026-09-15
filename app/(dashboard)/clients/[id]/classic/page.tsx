@@ -612,7 +612,9 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                   </div>
                   <div>
                     <label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Shipping address</label>
-                    <textarea style={{...ic,minHeight:90,resize:"vertical",lineHeight:1.4}} value={client.shipping_address||""} onChange={e=>updateClient({shipping_address:e.target.value||null})}/>
+                    {/* Superseded by the client address book (client_locations, mig 180) — edit under Locations on the client page. */}
+                    <div style={{fontSize:12.5,color:T.muted,lineHeight:1.4,whiteSpace:"pre-line"}}>{client.shipping_address||"No address on file"}</div>
+                    <a href={`/clients/${client.id}`} style={{fontSize:11,color:T.blue,fontWeight:700,textDecoration:"none"}}>Edit in Locations →</a>
                   </div>
                 </div>
                 <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,fontWeight:600,color:T.text,cursor:"pointer",padding:"6px 10px",background:T.surface,borderRadius:6,width:"fit-content"}}>
