@@ -76,6 +76,11 @@ export function DestinationsPanel({ jobId, clientId, route, shipToLocationId, ty
   };
 
   const splitItems = items.filter(it => (splits[it.id] || []).length > 1);
+  // Ordered changed after the split was saved (buy sheet edit) → shares drift.
+  const drifted = splitItems.filter(it => {
+    const shares = (splits[it.id] || []).reduce((a, r) => a + sumQ(r.qtys), 0);
+    return shares !== sumQ(it.qtys || {});
+  });
   const splitDestIds = Array.from(new Set(splitItems.flatMap(it => splits[it.id].map(r => r.location_id))));
 
   if (route === "stage") return null;   // webstore drop — no client destination
@@ -129,6 +134,11 @@ export function DestinationsPanel({ jobId, clientId, route, shipToLocationId, ty
             <span style={LBL}>Split shipment{splitItems.length ? ` · ${splitItems.length} of ${items.length} items` : ""}</span>
             <button style={LINK} onClick={() => setEditor(true)}>{splitItems.length ? "Edit split" : "Ship to more than one address →"}</button>
           </div>
+          {drifted.length > 0 && (
+            <div style={{ fontSize: 12.5, color: T.amber, fontWeight: 600, marginBottom: 8 }}>
+              Ordered changed since the split was set on {drifted.length === 1 ? drifted[0].name : `${drifted.length} items`}. Open Edit split and save to re-balance.
+            </div>
+          )}
           {splitItems.length > 0 && (
             <div style={{ overflowX: "auto" }}>
               <table style={{ borderCollapse: "collapse", fontSize: 12.5, minWidth: 360 }}>

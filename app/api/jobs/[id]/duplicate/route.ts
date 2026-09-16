@@ -92,6 +92,9 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
         type_meta: clearedTypeMeta,
         notes: (srcJob as any).notes,
         client_id: (srcJob as any).client_id,
+        // destination carries with the venue_address it mirrors (a project-only
+        // address is cloned onto the new job below, after it has an id)
+        ship_to_location_id: (srcJob as any).ship_to_location_id || null,
         job_number: "", // trigger assigns
         costing_data: (srcJob as any).costing_data || null,
         costing_summary: null,
@@ -102,6 +105,15 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       .single();
     if (newJobErr || !newJob) {
       return NextResponse.json({ error: newJobErr?.message || "Failed to create duplicate job" }, { status: 500 });
+    // A project-only address belongs to the source job; give the copy its own.
+    if ((srcJob as any).ship_to_location_id) {
+      const { data: loc } = await db.from("client_locations").select("client_id, job_id, label, address, contact_name, contact_phone").eq("id", (srcJob as any).ship_to_location_id).single();
+      const src: any = loc;
+      if (src?.job_id) {
+        const { data: clone }: any = await db.from("client_locations").insert({ client_id: src.client_id, job_id: (newJob as any).id, label: src.label, address: src.address, contact_name: src.contact_name, contact_phone: src.contact_phone, is_default: false }).select("id").single();
+        if (clone?.id) await db.from("jobs").update({ ship_to_location_id: clone.id }).eq("id", (newJob as any).id);
+      }
+    }
     }
 
     const newJobId = (newJob as any).id as string;
