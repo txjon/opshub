@@ -139,6 +139,11 @@ export function AppShell({
   // The inbox badge — open external items (lib/inbox), polled each minute.
   // No "seen" clock: the number only drops when an item resolves or is cleared.
   const [inboxCount, setInboxCount] = useState(0);
+  // Per-section "your move" counts under The House (lib/house-counts) —
+  // greyed next to Intake / Projects / The Studio / Production; the pillar
+  // badge is their sum.
+  const [houseCounts, setHouseCounts] = useState<Record<string, number> | null>(null);
+  const HOUSE_SECTION_BY_HREF: Record<string, string> = { "/intake": "intake", "/projects": "projects", "/jobs": "projects", "/studio": "studio", "/production2": "production", "/production": "production" };
 
   // Sync dept when pathname changes (after navigation completes, not during render)
   useEffect(() => {
@@ -152,7 +157,9 @@ export function AppShell({
         const res = await fetch("/api/inbox", { cache: "no-store" });
         if (!res.ok) return;
         const body = await res.json();
-        if (!cancelled) setInboxCount(Number(body.count) || 0);
+        if (cancelled) return;
+        setInboxCount(Number(body.total ?? body.count) || 0);
+        setHouseCounts(body.sections || null);
       } catch {}
     };
     load();
@@ -292,11 +299,14 @@ export function AppShell({
                 {children.map((item: any) => {
                   const isActive = pathname === item.href || pathname?.startsWith(item.href + "/");
                   const showBadge = item.href === "/house" && inboxCount > 0;
+                  const sectionKey = g.key === "labs" ? HOUSE_SECTION_BY_HREF[item.href] : undefined;
+                  const sectionCount = sectionKey && houseCounts ? houseCounts[sectionKey] || 0 : 0;
                   return (
                     <Link key={item.href} href={item.href}
                       style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "5px 8px 5px 20px", borderRadius: 7, fontSize: 12.5, fontWeight: isActive ? 700 : 500, textDecoration: "none", color: isActive ? "#fff" : "rgba(255,255,255,0.6)", background: isActive ? "rgba(255,255,255,0.10)" : "transparent" }}>
                       <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.label}</span>
                       {showBadge && <span style={{ background: "#e8569b", color: "#fff", fontSize: 9.5, fontWeight: 800, padding: "1px 6px", borderRadius: 99, lineHeight: 1.4, minWidth: 16, textAlign: "center" }}>{inboxCount}</span>}
+                      {sectionCount > 0 && <span style={{ fontSize: 10.5, fontWeight: 800, fontFamily: "ui-monospace, 'SF Mono', Menlo, monospace", color: isActive ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.38)", minWidth: 16, textAlign: "right" }}>{sectionCount}</span>}
                     </Link>
                   );
                 })}

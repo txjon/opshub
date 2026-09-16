@@ -16,7 +16,6 @@
 // Quote rejections used to be a fourth source; nothing writes
 // quote_rejection_notes any more, so they're gone.
 import { attachUnreadStatus } from "@/lib/art-brief-activity";
-import { getActiveCompanyId } from "@/lib/company";
 
 export type InboxItem = {
   kind: "proof" | "vendor" | "brief";
@@ -31,8 +30,7 @@ export type InboxItem = {
   who?: "client" | "designer";
 };
 
-export async function loadInbox(sb: any): Promise<InboxItem[]> {
-  const companyId = await getActiveCompanyId();
+export async function loadInbox(sb: any, companyId: string): Promise<InboxItem[]> {
   const [proofs, flags, briefs, cleared] = await Promise.all([
     sb.from("item_files")
       .select("id, notes, created_at, items(id, name, job_id, jobs(id, job_number, phase, clients(name)))")
