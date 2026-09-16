@@ -140,8 +140,7 @@ export function AppShell({
   // No "seen" clock: the number only drops when an item resolves or is cleared.
   const [inboxCount, setInboxCount] = useState(0);
   // Per-section "your move" counts under The House (lib/house-counts) —
-  // greyed next to Intake / Projects / The Studio / Production; the pillar
-  // badge is their sum.
+  // greyed next to Intake / Projects / The Studio / Production.
   const [houseCounts, setHouseCounts] = useState<Record<string, number> | null>(null);
   const HOUSE_SECTION_BY_HREF: Record<string, string> = { "/intake": "intake", "/projects": "projects", "/jobs": "projects", "/studio": "studio", "/production2": "production", "/production": "production" };
 
@@ -158,7 +157,9 @@ export function AppShell({
         if (!res.ok) return;
         const body = await res.json();
         if (cancelled) return;
-        setInboxCount(Number(body.total ?? body.count) || 0);
+        // pink pillar badge = the INBOX (someone outside is waiting on us);
+        // the grey section numbers carry the workload (Jon, Sep 16)
+        setInboxCount(Number(body.count) || 0);
         setHouseCounts(body.sections || null);
       } catch {}
     };

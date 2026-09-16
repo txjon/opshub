@@ -1,6 +1,7 @@
 // Sidebar counts under The House (Jon, Sep 16 2026): a greyed number next to
 // Intake / Projects / The Studio / Production, each = things needing a human
-// move ON THAT PAGE, open until handled. The House badge is their sum.
+// move ON THAT PAGE, open until handled. (The pink pillar badge stays the
+// inbox count — external words waiting; total here is for reference.)
 //
 //   intake     — new intake submissions + menu leads asking for a quote or
 //                accepted and not yet converted (the /intake actionable queues)
