@@ -6,7 +6,7 @@
 // else ship_through (the safe default — comes to HPD).
 
 import { deriveItem, type ItemState, type Movement, type Route, type SizeQtys } from "./item-derivation";
-import { resolveJobShipTo, itemDestinations, sentByLocation, owedToLocation, type LocationRow } from "./destinations";
+import { resolveJobShipTo, itemDestinations, sentByLocation, owedToLocation, allocateForward, splitTag, type LocationRow } from "./destinations";
 import { computePhase, paymentGateMet, type PhaseItem, type PhaseGate, type PhaseResult } from "./phase-model";
 import { poSentToItem } from "./item-status";
 import { transitDaysFor } from "./date-chain";
@@ -481,6 +481,7 @@ export type ReceivingLine = {
   overShippedTotal: number;   // cumulative shipped across ALL boxes − ordered (>0 =
                               // likely duplicate ship entry; the Tank Lock signal)
   received: boolean;
+  splitTag: string | null;    // "Marketing 100 · Fulfillment 400" — pre-sort hint on split items (mig 180)
   pullRequests: PullReq[];    // production-declared pulls pending on this item (fulfil at receiving)
 };
 export type ReceivingBox = {
@@ -559,6 +560,23 @@ export async function loadReceivingBoard(sb: Sb): Promise<ReceivingBox[]> {
     if (pick) pullBoxByItem.set(itemId, pick.id);
   }
 
+  // split tags: which destinations a split item is headed to (floor pre-sort)
+  const lineItemIds = Array.from(new Set(open.flatMap((s: any) => (byShip.get(s.id) || []).map((l: any) => l.item_id)).filter(Boolean)));
+  const splitTagByItem = new Map<string, string>();
+  if (lineItemIds.length) {
+    const sRows = await allRows((f, t) => sb.from("item_destinations").select("item_id, location_id, qtys, sort_order").in("item_id", lineItemIds).order("id").range(f, t));
+    const locIds = Array.from(new Set((sRows || []).map((r: any) => r.location_id)));
+    const { data: locRows } = locIds.length ? await sb.from("client_locations").select("id, label, address").in("id", locIds) : { data: [] as any[] };
+    const locById = new Map<string, any>((locRows || []).map((l: any) => [l.id, l]));
+    const byIt = new Map<string, any[]>();
+    for (const r of sRows || []) { const a = byIt.get(r.item_id) || []; a.push(r); byIt.set(r.item_id, a); }
+    for (const [itemId, rows] of Array.from(byIt.entries())) {
+      const dests = rows.sort((a, b) => a.sort_order - b.sort_order).filter(r => locById.has(r.location_id))
+        .map(r => ({ shipTo: { locationId: r.location_id, label: locById.get(r.location_id).label, address: locById.get(r.location_id).address, contactName: null, contactPhone: null }, qtys: r.qtys || {}, sortOrder: r.sort_order }));
+      const tag = splitTag(dests); if (tag) splitTagByItem.set(itemId, tag);
+    }
+  }
+
   const boxes: ReceivingBox[] = [];
   for (const s of open) {
     const ls = byShip.get(s.id) || [];
@@ -573,7 +591,8 @@ export async function loadReceivingBoard(sb: Sb): Promise<ReceivingBox[]> {
         orderedTotal,
         shipFinal: !!l.items?.ship_final,
         overShippedTotal: orderedTotal > 0 ? Math.max(0, sumQ(l.items?.ship_qtys || {}) - orderedTotal) : 0,
-        received: !!l.received, pullRequests: pullBoxByItem.get(l.item_id) === s.id ? (pullsByItem.get(l.item_id) || []) : [],
+        received: !!l.received, splitTag: splitTagByItem.get(l.item_id) || null,
+        pullRequests: pullBoxByItem.get(l.item_id) === s.id ? (pullsByItem.get(l.item_id) || []) : [],
       };
     })
       // drop_ship goes vendor→client and never touches HPD — it must not appear in
@@ -719,10 +738,14 @@ export type ShippingItem = {
   shortTotal: number;                             // received short + all boxes in = a real shortage (NOT coming)
   pulledTotal: number; forwardedTotal: number; receivedTotal: number;
   readyDownstream: boolean; done: boolean; status: string;
+  remainingTotal: number;                         // still owed to THIS card's destination
 };
+// One card = one job × one destination (split shipments, mig 180). An unsplit
+// job is one card; a split job is one card per address, each forwarded once.
 export type ShippingJob = {
-  jobId: string; jobNumber: string; jobTitle: string; clientName: string;
+  key: string; jobId: string; jobNumber: string; jobTitle: string; clientName: string;
   invoiceNumber: string | null; shipTo: string | null;
+  destination: { locationId: string | null; label: string; address: string } | null;
   items: ShippingItem[];
   status: "ready" | "awaiting";
   readyUnits: number; comingUnits: number;
@@ -730,7 +753,7 @@ export type ShippingJob = {
 
 export async function loadShippingBoard(sb: Sb): Promise<ShippingJob[]> {
   const { data: jobs } = await sb.from("jobs")
-    .select("id, job_number, title, phase, shipping_route, type_meta, clients(name, shipping_address)")
+    .select("id, job_number, title, phase, shipping_route, type_meta, client_id, ship_to_location_id, clients(name, shipping_address)")
     .in("phase", ["receiving", "shipping", "fulfillment"]);
   if (!jobs?.length) return [];
   const jobById = new Map<string, any>((jobs as any[]).map(j => [j.id, j]));
@@ -774,47 +797,92 @@ export async function loadShippingBoard(sb: Sb): Promise<ShippingJob[]> {
   for (const f of mockupFiles || []) { if (f.stage === "mockup" && f.drive_file_id && !mockById.has(f.item_id)) mockById.set(f.item_id, f.drive_file_id); }
   for (const f of mockupFiles || []) { if (f.drive_file_id && !mockById.has(f.item_id)) mockById.set(f.item_id, f.drive_file_id); }
 
-  const byJob = new Map<string, ShippingItem[]>();
+  // destinations (split shipments): address books + per-item splits + which
+  // outbound box went where. One card per job × destination.
+  const clientIds = Array.from(new Set((jobs as any[]).map(j => j.client_id).filter(Boolean)));
+  const allLocs = clientIds.length ? await allRows((f, t) => sb.from("client_locations")
+    .select("id, client_id, job_id, label, address, contact_name, contact_phone, is_default, active")
+    .in("client_id", clientIds).eq("active", true).order("id").range(f, t)) : [];
+  const locsByClient = new Map<string, LocationRow[]>();
+  for (const l of (allLocs || []) as LocationRow[]) {
+    if (l.job_id && !jobById.has(l.job_id)) continue;
+    const a = locsByClient.get(l.client_id) || []; a.push(l); locsByClient.set(l.client_id, a);
+  }
+  const splitRows = await allRows((f, t) => sb.from("item_destinations")
+    .select("item_id, location_id, qtys, sort_order").in("item_id", ids).order("id").range(f, t));
+  const splitsByItem = new Map<string, any[]>();
+  for (const r of splitRows || []) { const a = splitsByItem.get(r.item_id) || []; a.push(r); splitsByItem.set(r.item_id, a); }
+  const boxIds = Array.from(new Set((allMoves || []).map((m: any) => m.shipment_id).filter(Boolean)));
+  const boxLoc = new Map<string, string | null>();
+  for (let i = 0; i < boxIds.length; i += 300) {
+    const { data: bx } = await sb.from("shipments").select("id, location_id").in("id", boxIds.slice(i, i + 300));
+    for (const b of bx || []) boxLoc.set(b.id, b.location_id || null);
+  }
+
+  const cards = new Map<string, ShippingJob>();
+  const cardFor = (job: any, dest: ShippingJob["destination"]) => {
+    const key = `${job.id}::${dest?.locationId || "none"}`;
+    let c = cards.get(key);
+    if (!c) {
+      c = { key, jobId: job.id, jobNumber: job.job_number, jobTitle: job.title,
+        clientName: job.clients?.name || "—", invoiceNumber: job.type_meta?.qb_invoice_number || null,
+        shipTo: dest?.address || null, destination: dest, items: [], status: "ready", readyUnits: 0, comingUnits: 0 };
+      cards.set(key, c);
+    }
+    return c;
+  };
   for (const item of items as any[]) {
     const job = jobById.get(item.job_id); if (!job) continue;
     const route = resolveRoute(item.shipping_route, job.shipping_route);
     if (route !== "ship_through") continue;
     const rc = recvByItem.get(item.id);
     const receiveFinal = !!rc && rc.inbound > 0 && rc.received === rc.inbound;
-    const st = deriveItem({ ordered: orderedFrom(item.buy_sheet_lines || []), route, shipFinal: !!item.ship_final, receiveFinal, movements: byItem.get(item.id) || [] });
+    const moves = byItem.get(item.id) || [];
+    const st = deriveItem({ ordered: orderedFrom(item.buy_sheet_lines || []), route, shipFinal: !!item.ship_final, receiveFinal, movements: moves });
     // In the shipping window = something has shipped and it's not fully forwarded.
     if (st.shippedTotal === 0 && st.owedTotal === 0) continue;
     if (st.done) continue;
     // shipped − received: still in-transit if a box is unreceived; a real shortage if all boxes are in.
     const gap = Math.max(0, st.shippedTotal - st.receivedTotal);
-    const a = byJob.get(item.job_id) || [];
-    a.push({
+    const stillComing = st.owedTotal > 0 || (!receiveFinal && gap > 0);
+    const base = {
       itemId: item.id, jobId: item.job_id, name: item.name, mockupFileId: mockById.get(item.id) || null,
-      availableTotal: st.availableToForwardTotal, available: st.availableToForward,
-      owedTotal: st.owedTotal, comingTotal: st.owedTotal + (receiveFinal ? 0 : gap), shortTotal: receiveFinal ? gap : 0,
-      pulledTotal: st.pulledTotal, forwardedTotal: st.forwardedTotal, receivedTotal: st.receivedTotal,
-      readyDownstream: st.readyDownstream, done: st.done, status: st.status,
-    });
-    byJob.set(item.job_id, a);
+      owedTotal: st.owedTotal, pulledTotal: st.pulledTotal, receivedTotal: st.receivedTotal, status: st.status,
+    };
+    const locs = (locsByClient.get(job.client_id) || []).filter(l => !l.job_id || l.job_id === job.id);
+    const dests = itemDestinations({ ordered: st.ordered, jobShipTo: resolveJobShipTo(job, locs), splits: splitsByItem.get(item.id) || [], locations: locs });
+    if (!dests.length) {
+      // no address anywhere yet — one card, plain forward-once (pre-180 behaviour)
+      cardFor(job, null).items.push({ ...base,
+        availableTotal: st.availableToForwardTotal, available: st.availableToForward,
+        comingTotal: st.owedTotal + (receiveFinal ? 0 : gap), shortTotal: receiveFinal ? gap : 0,
+        forwardedTotal: st.forwardedTotal, readyDownstream: st.readyDownstream, done: st.done, remainingTotal: st.orderedTotal - st.forwardedTotal });
+      continue;
+    }
+    const unlocated: SizeQtys = {};
+    for (const m of moves) {
+      if (m.type !== "forward" || (m.shipmentId && boxLoc.get(m.shipmentId))) continue;
+      for (const [sz, n] of Object.entries(m.qtys || {})) unlocated[sz] = (unlocated[sz] || 0) + (Number(n) || 0);
+    }
+    const allocs = allocateForward({ dests, availableToForward: st.availableToForward, forwardedByLoc: sentByLocation(moves, boxLoc, "forward"), unlocatedForwarded: unlocated, stillComing });
+    for (const al of allocs) {
+      if (al.done) continue;
+      cardFor(job, { locationId: al.locationId, label: al.label, address: al.address }).items.push({ ...base,
+        availableTotal: al.availableTotal, available: al.available, comingTotal: al.comingTotal, shortTotal: al.shortTotal,
+        forwardedTotal: al.sentTotal, readyDownstream: al.ready, done: al.done, remainingTotal: al.remainingTotal });
+    }
   }
 
   const out: ShippingJob[] = [];
-  for (const [jobId, its] of Array.from(byJob.entries())) {
-    if (!its.length) continue;
-    const job = jobById.get(jobId);
+  for (const c of Array.from(cards.values())) {
+    if (!c.items.length) continue;
     // awaiting = any item still coming (not ready and not done); else ready.
-    const awaiting = its.some(it => !it.readyDownstream && !it.done);
-    out.push({
-      jobId, jobNumber: job.job_number, jobTitle: job.title,
-      clientName: job.clients?.name || "—", invoiceNumber: job.type_meta?.qb_invoice_number || null,
-      shipTo: job.clients?.shipping_address || null,
-      items: its,
-      status: awaiting ? "awaiting" : "ready",
-      readyUnits: its.reduce((s, it) => s + it.availableTotal, 0),
-      comingUnits: its.reduce((s, it) => s + it.comingTotal, 0),
-    });
+    const awaiting = c.items.some(it => !it.readyDownstream && !it.done);
+    out.push({ ...c, status: awaiting ? "awaiting" : "ready",
+      readyUnits: c.items.reduce((s, it) => s + it.availableTotal, 0),
+      comingUnits: c.items.reduce((s, it) => s + it.comingTotal, 0) });
   }
-  return out.sort((a, b) => (a.status === b.status ? 0 : a.status === "ready" ? -1 : 1) || a.jobNumber.localeCompare(b.jobNumber));
+  return out.sort((a, b) => (a.status === b.status ? 0 : a.status === "ready" ? -1 : 1) || a.jobNumber.localeCompare(b.jobNumber) || (a.destination?.label || "").localeCompare(b.destination?.label || ""));
 }
 
 // ── forwarded outbound shipments (the Shipping "Forwarded" view) ───────────
@@ -822,11 +890,12 @@ export type ForwardedLine = { itemId: string; jobId: string; itemName: string; m
 export type ForwardedShipment = {
   id: string; carrier: string | null; tracking: string | null; pickup: boolean; createdAt: string;
   clients: string[]; jobNumbers: string[]; totalUnits: number; lines: ForwardedLine[];
+  destination: string | null;   // where the box went (frozen at forward, mig 180)
 };
 export async function loadForwardedShipments(sb: Sb): Promise<ForwardedShipment[]> {
   const cutoff = new Date(Date.now() - 45 * 86400000).toISOString();
   const { data: ships } = await sb.from("shipments")
-    .select("id, carrier, tracking, pickup, created_at").eq("direction", "outbound").gte("created_at", cutoff)
+    .select("id, carrier, tracking, pickup, created_at, location_id, ship_to_snapshot, client_locations(label)").eq("direction", "outbound").gte("created_at", cutoff)
     .order("created_at", { ascending: false }).limit(160);
   if (!ships?.length) return [];
   const ids = (ships as any[]).map(s => s.id);
@@ -856,6 +925,7 @@ export async function loadForwardedShipments(sb: Sb): Promise<ForwardedShipment[
       clients: Array.from(new Set(fLines.map(l => l.client))),
       jobNumbers: Array.from(new Set(ls.map((l: any) => l.items?.jobs?.job_number).filter(Boolean))),
       totalUnits: fLines.reduce((a, l) => a + sumQ(l.qtys), 0), lines: fLines,
+      destination: (s as any).client_locations?.label || ((s as any).ship_to_snapshot ? String((s as any).ship_to_snapshot).split("\n")[0].trim() : null) || null,
     });
   }
   return out;

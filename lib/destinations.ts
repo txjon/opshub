@@ -249,3 +249,72 @@ export function splitShipToHtml(dests: PaperDestination[] | null | undefined, so
   </div>`;
 }
 
+// ── Shipping (ship_through): allocate what's on hand across destinations ─────
+// The item's forwardable pool (received − pulled − forwarded) is ONE pool shared
+// by every destination. Fill order (R7): the first destination takes what it is
+// still owed, the next takes from what's left. Forwards on a box with no
+// location (pre-180) count toward the FIRST destination — parity for unsplit
+// items, and the only honest reading for a legacy forward on a split one.
+//
+// Readiness (H6): a destination is ready when what's on hand covers what it's
+// still owed, OR nothing more is coming for the item (closed + all boxes in) —
+// then whatever is on hand is all there is, forward it once, the rest is short.
+// Done when nothing remains, OR nothing more is coming and nothing is on hand
+// for it — so a short-closed item can never hang a destination open.
+export type DestAlloc = {
+  locationId: string | null; label: string; address: string;
+  share: SizeQtys; shareTotal: number;         // this destination's slice of the order
+  sent: SizeQtys; sentTotal: number;           // already forwarded here
+  remaining: SizeQtys; remainingTotal: number; // share − sent
+  available: SizeQtys; availableTotal: number; // on hand, allocated to this destination in fill order
+  comingTotal: number;                         // remaining − available, when more is genuinely coming
+  shortTotal: number;                          // remaining − available, when nothing more is coming
+  ready: boolean; done: boolean;
+};
+export function allocateForward(args: {
+  dests: ItemDestination[];
+  availableToForward: SizeQtys;      // the shared pool
+  forwardedByLoc: Map<string, SizeQtys>;
+  unlocatedForwarded: SizeQtys;      // forward movements on boxes with no location
+  stillComing: boolean;              // item not closed, or a box still unreceived
+}): DestAlloc[] {
+  const pool: SizeQtys = { ...args.availableToForward };
+  const out = args.dests.map((d, i) => {
+    const sent: SizeQtys = { ...(d.shipTo.locationId ? args.forwardedByLoc.get(d.shipTo.locationId) : undefined) || {} };
+    if (i === 0) for (const [sz, n] of Object.entries(args.unlocatedForwarded || {})) sent[sz] = (sent[sz] || 0) + (Number(n) || 0);
+    const remaining = owedToLocation(d.qtys, sent);
+    const available: SizeQtys = {};
+    for (const [sz, n] of Object.entries(remaining)) {
+      const take = Math.min(n, Math.max(0, pool[sz] || 0));
+      if (take > 0) { available[sz] = take; pool[sz] = (pool[sz] || 0) - take; }
+    }
+    const remainingTotal = sumQ(remaining), availableTotal = sumQ(available);
+    const gap = Math.max(0, remainingTotal - availableTotal);
+    const done = remainingTotal === 0 || (!args.stillComing && availableTotal === 0);
+    const ready = !done && (availableTotal >= remainingTotal || !args.stillComing);
+    return {
+      locationId: d.shipTo.locationId, label: d.shipTo.label, address: d.shipTo.address,
+      share: d.qtys, shareTotal: sumQ(d.qtys), sent, sentTotal: sumQ(sent), remaining, remainingTotal,
+      available, availableTotal, comingTotal: args.stillComing ? gap : 0, shortTotal: args.stillComing ? 0 : gap, ready, done,
+    };
+  });
+  // Over-receipt / units beyond every share: still forwardable. They ride with
+  // the LAST destination (H6: logged bonus, never stranded on the floor).
+  const leftover: SizeQtys = {}; for (const [sz, n] of Object.entries(pool)) if (n > 0) leftover[sz] = n;
+  const last = out[out.length - 1];
+  if (last && sumQ(leftover) > 0) {
+    for (const [sz, n] of Object.entries(leftover)) { last.available[sz] = (last.available[sz] || 0) + n; last.remaining[sz] = (last.remaining[sz] || 0) + n; }
+    last.availableTotal = sumQ(last.available); last.remainingTotal = sumQ(last.remaining);
+    const gap = Math.max(0, last.remainingTotal - last.availableTotal);
+    last.comingTotal = args.stillComing ? gap : 0; last.shortTotal = args.stillComing ? 0 : gap;
+    last.done = false; last.ready = last.availableTotal >= last.remainingTotal || !args.stillComing;
+  }
+  return out;
+}
+
+// "Marketing office 100 · Fulfillment center 400" — the floor's pre-sort hint.
+export function splitTag(dests: ItemDestination[]): string | null {
+  if (dests.length < 2) return null;
+  return dests.map(d => `${d.shipTo.label} ${sumQ(d.qtys)}`).join(" · ");
+}
+

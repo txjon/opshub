@@ -265,6 +265,7 @@ function LineRow({ l, box, status, acts, showClient }: { l: ReceivingLine; box: 
     </span>
   );
   return <ItemRow fileId={l.mockupFileId} name={l.itemName} lead={showClient ? l.client : undefined} route={l.route}
+    sub={l.splitTag ? <div title="Split shipment — going to more than one address" style={{ fontSize: 10, fontWeight: 800, letterSpacing: 0.4, textTransform: "uppercase", color: T.muted }}>{l.splitTag}</div> : undefined}
     variant={(partial || countedIn > 0 || over) ? (
       <div style={{ textAlign: "right", display: "flex", gap: 12, justifyContent: "flex-end", alignItems: "baseline" }}>
         {countedIn > 0 && <span style={{ fontSize: 10, fontWeight: 800, fontFamily: mono, color: T.amber }} title="Counted in so far — the rest of this item is still coming in this box">{countedIn}/{tQty(l.shipQtys)} in</span>}
@@ -551,7 +552,10 @@ function ItemView({ boxes, status, onReceive, acts }: { boxes: ReceivingBox[]; s
 function FlatRow({ l, status, onReceive, acts, showBox, showClient }: { l: FlatLine; status: Status; onReceive: () => void; acts?: LineActions; showBox?: boolean; showClient?: boolean }) {
   const received = status === "received";
   const ell: React.CSSProperties = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
-  const sub = showBox ? <div style={{ fontSize: 11, color: T.faint, ...ell }}>{l.box.vendorName} · {boxHow(l.box)}</div> : undefined;
+  const sub = (showBox || l.splitTag) ? <div>
+    {showBox && <div style={{ fontSize: 11, color: T.faint, ...ell }}>{l.box.vendorName} · {boxHow(l.box)}</div>}
+    {l.splitTag && <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 0.4, textTransform: "uppercase", color: T.muted }}>{l.splitTag}</div>}
+  </div> : undefined;
   const actions = received
     ? <><ReceivedTally l={l} />{acts && <RowActions l={l} box={l.box} acts={acts} />}</>
     : <><span onClick={onReceive} style={{ fontSize: 12, fontWeight: 700, color: T.text, cursor: "pointer" }}>Receive →</span>{acts && <IncomingActions l={l} box={l.box} acts={acts} />}</>;

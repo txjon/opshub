@@ -71,7 +71,7 @@ export default function Board({ jobs, forwarded }: { jobs: ShippingJob[]; forwar
       {status === "to_forward" ? (<>
         <KpiStrip metrics={METRICS} get={k => agg[k]} onClick={setKpi} />
         {shownJobs.length === 0 && <Empty>{q ? "No orders match your search." : "Nothing waiting to forward."}</Empty>}
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>{shownJobs.map(j => <JobCard key={j.jobId} job={j} onForward={() => setForwardFor(j)} onHistory={(itemId, itemName) => setHistoryFor({ itemId, itemName })} />)}</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>{shownJobs.map(j => <JobCard key={j.key} job={j} onForward={() => setForwardFor(j)} onHistory={(itemId, itemName) => setHistoryFor({ itemId, itemName })} />)}</div>
       </>) : (<>
         <SliceSortRow>
           <SegmentControl options={[["shipment", "By shipment"], ["job", "By job"], ["item", "By item"]]} value={fwdView} onChange={setFwdView} />
@@ -124,7 +124,9 @@ function JobCard({ job, onForward, onHistory }: { job: ShippingJob; onForward: (
         <span style={{ fontSize: 14, fontWeight: 800 }}>{job.clientName}</span>
         {job.invoiceNumber && <span style={{ fontFamily: mono, fontSize: 12.5, color: T.muted }}>#{job.invoiceNumber}</span>}
       </div>
-      {job.shipTo && <div style={{ padding: "0 16px 10px", fontSize: 11.5, color: T.faint }}><span style={{ fontWeight: 700 }}>Ship to:</span> {job.shipTo.replace(/\s*\n\s*/g, " · ")}</div>}
+      {job.destination
+        ? <div style={{ padding: "0 16px 10px", fontSize: 11.5, color: T.faint }}><span style={{ fontSize: 10, fontWeight: 800, letterSpacing: 0.5, textTransform: "uppercase", color: T.muted, marginRight: 8 }}>{job.destination.label}</span>{job.destination.address.replace(/\s*\n\s*/g, " · ")}</div>
+        : <div style={{ padding: "0 16px 10px", fontSize: 11.5, color: T.amber, fontWeight: 600 }}>No delivery address on the project yet.</div>}
       <div>
         {job.items.map(it => (
           <div key={it.itemId} style={{ padding: "10px 16px", borderTop: `1px solid ${T.border}` }}>
@@ -176,6 +178,7 @@ function ForwardModal({ job, onClose, onDone }: { job: ShippingJob; onClose: () 
     setBusy(true); setErr(null);
     const res = await forwardToClient(createClient(), {
       jobId: job.jobId, pickup: isPickup, carrier: isPickup ? null : carrier, tracking: isPickup ? null : tracking.trim() || null,
+      locationId: job.destination?.locationId || null, shipToSnapshot: job.destination?.address || null,
       items: items.map(it => ({ itemId: it.itemId, jobId: job.jobId, itemName: it.name, qtys: qtys[it.itemId] || {} })),
     });
     setBusy(false);
@@ -229,9 +232,9 @@ function ForwardModal({ job, onClose, onDone }: { job: ShippingJob; onClose: () 
   return (
     <ModalShell onClose={onClose} maxWidth={600} dismissable={false}>
       <div style={{ padding: "18px 22px", borderBottom: `1px solid ${T.border}` }}>
-        <div style={{ fontSize: 17, fontWeight: 700 }}>Forward to client · {job.jobNumber}</div>
+        <div style={{ fontSize: 17, fontWeight: 700 }}>Forward to client · {job.jobNumber}{job.destination ? ` · ${job.destination.label}` : ""}</div>
         <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>{job.clientName}</div>
-        {job.shipTo && <div style={{ marginTop: 9, background: T.blueDim, border: `1px solid ${T.blue}`, borderRadius: 8, padding: "8px 11px", fontSize: 12, color: T.blue }}><b>Ship to:</b> {job.shipTo}</div>}
+        {job.destination && <div style={{ marginTop: 9, background: T.blueDim, border: `1px solid ${T.blue}`, borderRadius: 8, padding: "8px 11px", fontSize: 12, color: T.blue, whiteSpace: "pre-line", lineHeight: 1.45 }}><b>Ship to · {job.destination.label}</b>{"\n"}{job.destination.address}</div>}
       </div>
       <div style={{ padding: "16px 22px", display: "flex", flexDirection: "column", gap: 14 }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -316,7 +319,7 @@ function ForwardedView({ shipments, view, busyKey, onEdit, onReturn, onHistory }
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         {shipments.map(s => (
           <Card key={s.id}>
-            <BoxHead vendor={`${s.clients.join(", ") || "—"}${s.lines[0]?.invoiceNumber ? " · #" + s.lines[0].invoiceNumber : ""}`} tag={s.pickup ? "Picked up" : "Forwarded"} tagColor={T.green}
+            <BoxHead vendor={`${s.clients.join(", ") || "—"}${s.lines[0]?.invoiceNumber ? " · #" + s.lines[0].invoiceNumber : ""}${s.destination ? " → " + s.destination : ""}`} tag={s.pickup ? "Picked up" : "Forwarded"} tagColor={T.green}
               method={s.pickup ? "Pickup" : s.tracking
                 ? <>{s.carrier ? `${s.carrier} · ` : ""}<TrackingLink tracking={s.tracking} shipmentId={s.id} /></>
                 : (s.carrier || "no tracking")}
