@@ -226,12 +226,9 @@ export async function vendorPaperShipTo(sb: Sb, args: {
   }
   const defaultAddr = shipTo?.address || "";
   if (!isSplit) { perItem.clear(); return { address: defaultAddr, isSplit: false, perItem }; }
-  return {
-    address: `SPLIT SHIPMENT: ship-to is listed on each item below.
-Default: ${shipTo?.label || "Main"}
-${defaultAddr}`,
-    isSplit: true, perItem,
-  };
+  // Header carries NO address on a split — one address up top made vendors
+  // read that instead of the per-item blocks (Jon, Sep 15).
+  return { address: "SPLIT SHIPMENT: ship-to is listed on each item below.", isSplit: true, perItem };
 }
 
 // Print-palette HTML for a split item's ship-to block (PO + RFQ PDFs share it).
