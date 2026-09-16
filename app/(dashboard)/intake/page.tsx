@@ -163,10 +163,13 @@ export default function IntakePage() {
         d={buckets.declined.length}
       />
 
+      {/* The pipeline holds OPEN work only — a converted lead is a job now
+          (open job → on the card) and parks in its own collapsed bucket
+          below, like the /start Converted bucket. */}
       <MenuLeadBucket
         label="The Build · quote pipeline"
         color={T.purple}
-        leads={menuLeads.filter(l => ["quote_requested", "quoted", "accepted", "converted"].includes(l.status))}
+        leads={menuLeads.filter(l => ["quote_requested", "quoted", "accepted"].includes(l.status) && !l.job_id)}
         matchNames={matchNames}
         onChanged={load}
         emptyText="No open quote requests from The Build."
@@ -201,9 +204,18 @@ export default function IntakePage() {
       />
 
       <MenuLeadBucket
+        label="The Build · converted"
+        color={T.green}
+        leads={menuLeads.filter(l => l.status === "converted" || !!l.job_id)}
+        matchNames={matchNames}
+        onChanged={load}
+        emptyText="Nothing converted from The Build yet."
+        collapsedByDefault
+      />
+      <MenuLeadBucket
         label="The Build · browsing"
         color={T.faint}
-        leads={menuLeads.filter(l => !["quote_requested", "quoted", "accepted", "converted"].includes(l.status))}
+        leads={menuLeads.filter(l => !["quote_requested", "quoted", "accepted", "converted"].includes(l.status) && !l.job_id)}
         matchNames={matchNames}
         onChanged={load}
         collapsedByDefault
