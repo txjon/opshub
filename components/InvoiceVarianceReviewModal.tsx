@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { billableQtysForItem, sumForwarded } from "@/lib/job/billable-qtys";
+import { patchJobTypeMeta } from "@/lib/job-type-meta";
 import { T, font, mono, SIZE_ORDER, sortSizes } from "@/lib/theme";
 
 type VarianceRow = {
@@ -31,7 +32,10 @@ export function InvoiceVarianceReviewModal({
   jobTitle: string;
   clientName: string;
   onClose: () => void;
-  onApproved: () => void;
+  /** "pushed" = QB (or Stripe) got revised qtys; "as_billed" = nothing changed
+   *  on the invoice, reconcile just stamped done (short absorbed / overage
+   *  waived). Callers log accordingly. */
+  onApproved: (mode?: "pushed" | "as_billed") => void;
   /** Which invoicing backend to push to. QB updates in place; Stripe
    *  voids + recreates. Defaults to QB so existing call sites are unchanged. */
   provider?: "quickbooks" | "stripe";
@@ -116,7 +120,7 @@ export function InvoiceVarianceReviewModal({
         setPushing(false);
         return;
       }
-      onApproved();
+      onApproved("pushed");
       onClose();
     } catch (e: any) {
       setError(e.message || "Push failed");
@@ -124,12 +128,35 @@ export function InvoiceVarianceReviewModal({
     }
   }
 
+  // Finalize AS BILLED (Jon, Sep 16 2026): every line billable at its quoted
+  // qty → the invoice doesn't change, so nothing goes to QB or the client.
+  // Stamp the same variance-finalized keys the push writes (total/tax = the
+  // invoice as it stands) so every reader — rail, House close-out, AR —
+  // sees "reconciled". A paid-in-full job short a unit is the textbook case:
+  // keep the money, absorb the short.
+  async function finalizeAsBilled() {
+    setPushing(true);
+    setError(null);
+    const r = await patchJobTypeMeta(supabase, jobId, (tm) => ({
+      ...tm,
+      qb_variance_pushed_at: new Date().toISOString(),
+      qb_variance_total: tm.qb_total_with_tax ?? null,
+      qb_variance_tax: tm.qb_tax_amount ?? null,
+      qb_variance_billable_qtys: billableQtys,
+      qb_variance_as_billed: true,
+    }));
+    if (!r.ok) { setError(r.error); setPushing(false); return; }
+    onApproved("as_billed");
+    onClose();
+  }
+
   function setBillable(itemId: string, qty: number) {
     setBillableQtys(p => ({ ...p, [itemId]: Math.max(0, Math.floor(Number(qty) || 0)) }));
   }
 
-  function waiveRow(row: VarianceRow) {
-    // Waive = bill at ordered qty, absorbing the extra we shipped
+  function billAsQuoted(row: VarianceRow) {
+    // Bill at the quoted qty either way: over-shipped → we waive the overage;
+    // short → the client keeps what they paid for and we absorb the short.
     setBillable(row.id, row.orderedTotal);
   }
 
@@ -140,6 +167,8 @@ export function InvoiceVarianceReviewModal({
   const totalBillable = rows?.reduce((a, r) => a + (billableQtys[r.id] ?? r.actualTotal), 0) || 0;
   const totalBillableRev = rows?.reduce((a, r) => a + (billableQtys[r.id] ?? r.actualTotal) * r.sellPerUnit, 0) || 0;
   const totalDelta = totalBillableRev - totalOrderedRev;
+  // Nothing on the invoice would change → finalize locally, no push.
+  const asBilled = !!rows?.length && rows.every(r => (billableQtys[r.id] ?? r.actualTotal) === r.orderedTotal);
 
   const fmt$ = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -195,7 +224,8 @@ export function InvoiceVarianceReviewModal({
                   const deltaColor = qtyDelta === 0 ? T.faint : qtyDelta > 0 ? T.green : T.red;
                   const sortedSizes = sortSizes(Object.keys(r.orderedPerSize));
                   const overship = r.actualTotal > r.orderedTotal;
-                  const waived = overship && billable === r.orderedTotal;
+                  const differs = r.actualTotal !== r.orderedTotal;
+                  const quoted = differs && billable === r.orderedTotal;
                   return (
                     <tr key={r.id} style={{ borderBottom: `1px solid ${T.border}` }}>
                       <td style={{ padding: "10px 8px", verticalAlign: "top" }}>
@@ -226,15 +256,15 @@ export function InvoiceVarianceReviewModal({
                             onFocus={(e) => e.target.select()}
                             style={{ width: 64, textAlign: "right", padding: "4px 6px", border: `1px solid ${billable !== r.actualTotal ? T.accent : T.border}`, borderRadius: 4, background: T.card, color: T.text, fontSize: 12, fontFamily: mono, outline: "none", fontWeight: 700 }}
                           />
-                          {overship && !waived && (
+                          {differs && !quoted && (
                             <button
-                              onClick={() => waiveRow(r)}
-                              title="Waive overage — bill at quoted quantity"
-                              style={{ padding: "2px 8px", background: "transparent", border: `1px solid ${T.amber}`, color: T.amber, borderRadius: 4, fontSize: 9, fontWeight: 600, cursor: "pointer", fontFamily: font }}
-                            >Waive</button>
+                              onClick={() => billAsQuoted(r)}
+                              title={overship ? "Waive the overage — bill at the quoted quantity" : "Keep as billed — the client keeps what they paid for, we absorb the short"}
+                              style={{ padding: "2px 8px", background: "transparent", border: `1px solid ${T.amber}`, color: T.amber, borderRadius: 4, fontSize: 9, fontWeight: 600, cursor: "pointer", fontFamily: font, whiteSpace: "nowrap" }}
+                            >Bill as quoted</button>
                           )}
-                          {waived && (
-                            <span style={{ fontSize: 9, color: T.amber, fontWeight: 600, fontFamily: font }}>waived</span>
+                          {quoted && (
+                            <span style={{ fontSize: 9, color: T.amber, fontWeight: 600, fontFamily: font, whiteSpace: "nowrap" }}>{overship ? "overage waived" : "short absorbed"}</span>
                           )}
                         </div>
                       </td>
@@ -283,9 +313,11 @@ export function InvoiceVarianceReviewModal({
         {/* Footer */}
         <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
           <div style={{ fontSize: 11, color: T.muted }}>
-            {provider === "stripe"
-              ? "Approving voids the current invoice and creates a revised one. Send it to the client from the Send Invoice button."
-              : "Approving pushes updated qtys to QuickBooks and emails the client the revised invoice."}
+            {asBilled
+              ? "Every line bills at its quoted quantity — the invoice does not change. Finalizing marks the reconcile done; nothing goes to QuickBooks or the client."
+              : provider === "stripe"
+                ? "Approving voids the current invoice and creates a revised one. Send it to the client from the Send Invoice button."
+                : "Approving pushes updated qtys to QuickBooks. Send the revised invoice to the client from the Send Invoice button."}
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             {error && <span style={{ color: T.red, fontSize: 11 }}>{error}</span>}
@@ -295,10 +327,10 @@ export function InvoiceVarianceReviewModal({
               style={{ padding: "8px 16px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.muted, fontSize: 12, fontWeight: 600, cursor: pushing ? "default" : "pointer", fontFamily: font }}
             >Cancel</button>
             <button
-              onClick={approveAndPush}
+              onClick={asBilled ? finalizeAsBilled : approveAndPush}
               disabled={pushing || loading || !rows?.length}
               style={{ padding: "8px 20px", borderRadius: 6, border: "none", background: pushing ? T.faint : T.accent, color: "#0a0a0a", fontSize: 12, fontWeight: 700, cursor: pushing ? "default" : "pointer", fontFamily: font }}
-            >{pushing ? "Pushing…" : (provider === "stripe" ? "Approve & Revise Invoice" : "Approve & Push to QB")}</button>
+            >{pushing ? (asBilled ? "Finalizing…" : "Pushing…") : asBilled ? "Finalize as billed" : (provider === "stripe" ? "Approve & Revise Invoice" : "Approve & Push to QB")}</button>
           </div>
         </div>
       </div>

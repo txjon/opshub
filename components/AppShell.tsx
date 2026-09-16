@@ -31,8 +31,8 @@ function swapV2Nav(items: { href: string; label: string }[]): { href: string; la
 const DEPT_NAV: Record<Department, { href: string; label: string }[]> = {
   owner: [
     // Insights merged into God Mode ("Overview") — /insights now redirects there.
+    { href: "/reconciliation", label: "Bills" },
     { href: "/reports", label: "Reports" },
-    { href: "/reconciliation", label: "Reconciliation" },
     { href: "/hours", label: "Hours" },
     { href: "/integrations", label: "Integrations" },
   ],
