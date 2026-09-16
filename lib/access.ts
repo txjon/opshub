@@ -22,14 +22,22 @@ export type CatalogPage = {
 };
 
 // The grantable pages. Add a row here to make a new page grantable.
-// NOTE: order doesn't matter; pathToPageKey sorts by href length for prefix matching.
+// NOTE: catalog order IS the sidebar order within a group (per-user nav);
+// pathToPageKey sorts by href length itself, so prefix matching is unaffected.
 export const PAGE_CATALOG: CatalogPage[] = [
-  // The Office — owner / financial (Billing folded in 2026-08-13 nav cleanup)
+  // The Office — owner / financial. Sidebar order = this order (Jon, Sep 16
+  // 2026): money first, cockpits after. /reconciliation is /billing's twin
+  // (redirects there) and rides along hidden.
+  // Financial V2 Phase 1 — the AR index (docs/financial-v2-phase1-invoices.md)
+  { key: "/invoices", href: "/invoices", label: "Invoices", group: "owner", sensitive: true },
+  // Billing (bookkeeper surface) — its own grantable key so billing-only
+  // users (Abigail) see just it.
+  { key: "/billing", href: "/billing", label: "Bills", group: "owner", sensitive: true },
+  { key: "/reconciliation", href: "/reconciliation", label: "Reconciliation", group: "owner", sensitive: true },
+  { key: "/reports", href: "/reports", label: "Reports", group: "owner", sensitive: true },
   { key: "/god-mode", href: "/god-mode", label: "God Mode", group: "owner", sensitive: true },
   { key: "/god-mode-v2", href: "/god-mode-v2", label: "God Mode V2", group: "owner", sensitive: true },
-  { key: "/reports", href: "/reports", label: "Reports", group: "owner", sensitive: true },
   { key: "/fog-analytics", href: "/fog-analytics", label: "FOG God Mode", group: "owner", sensitive: true },
-  { key: "/reconciliation", href: "/reconciliation", label: "Reconciliation", group: "owner", sensitive: true },
   // Labs / production
   { key: "/house", href: "/house", label: "The House", group: "labs" },
   // Intake moved under The House, above Projects (Jon, 2026-09-14 nav cleanup)
@@ -59,11 +67,6 @@ export const PAGE_CATALOG: CatalogPage[] = [
   { key: "/clients", href: "/clients", label: "Clients", group: "contacts" },
   { key: "/decorators", href: "/decorators", label: "Decorators", group: "contacts" },
   { key: "/settings/designers", href: "/settings/designers", label: "Designers", group: "contacts" },
-  // Billing (bookkeeper surface) — lives in The Office group; kept as its own
-  // grantable key so billing-only users (Abigail) see just it.
-  { key: "/billing", href: "/billing", label: "Bills", group: "owner", sensitive: true },
-  // Financial V2 Phase 1 — the AR index (docs/financial-v2-phase1-invoices.md)
-  { key: "/invoices", href: "/invoices", label: "Invoices", group: "owner", sensitive: true },
   // Admin utilities (bottom of sidebar)
   { key: "/settings", href: "/settings", label: "Team", group: "settings", sensitive: true },
   { key: "/integrations", href: "/integrations", label: "Integrations", group: "settings", sensitive: true },
