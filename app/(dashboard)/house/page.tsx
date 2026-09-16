@@ -11,6 +11,7 @@ import { createClient } from "@/lib/supabase/client";
 import { H } from "@/components/hub/theme";
 import { JOB_DIRECTIVES, DROP_DIRECTIVES, STUDIO_DIRECTIVE, HOUSE_EXTRA_DIRECTIVES, DISTRO_DIRECTIVES, INBOX_DIRECTIVES } from "@/lib/directives";
 import type { InboxItem } from "@/lib/inbox";
+import { vendorRiskFor } from "@/lib/house-model";
 import { logJobActivity } from "@/components/JobActivityPanel";
 import { deriveInvoice } from "@/lib/job/invoice-derive";
 
@@ -68,7 +69,7 @@ export default function HousePage() {
       const none = Promise.resolve({ data: [] as any[] });
       const [{ data: j }, { data: r }, { data: act }, { data: latePay }, { count: pullCount }, { data: coJobs }, { data: arJobs }, { data: recv }] = await Promise.all([
         supabase.from("jobs")
-          .select("id, job_number, title, phase, target_ship_date, created_at, updated_at, phase_timestamps, type_meta, clients(name), items(id, pipeline_stage, pipeline_timestamps, buy_sheet_lines(qty_ordered))")
+          .select("id, job_number, title, phase, target_ship_date, created_at, updated_at, phase_timestamps, type_meta, costing_data, clients(name), items(id, pipeline_stage, pipeline_timestamps, buy_sheet_lines(qty_ordered), decorator_assignments(decorators(name, short_code)))")
           .not("phase", "in", "(complete,cancelled,on_hold)"),
         supabase.from("releases").select("*, clients(name)").not("status", "in", "(cut,shelved)"),
         supabase.from("job_activity").select("message, created_at, jobs(job_number, clients(name))").order("created_at", { ascending: false }).limit(16),
@@ -179,47 +180,10 @@ export default function HousePage() {
       if (r.status === "live" && r.window_close_date && r.window_close_date <= soon) return true;
       return false;
     });
-    // Vendor risk, timed off the REAL promises: the PO ship-by chips
-    // (po_ship_live > po_ship_dates), falling back to target ship date
-    // minus a transit buffer when no promise exists. Late = passed (red);
-    // confirm = within 3 days and still on press (amber).
+    // vendor risk — the shared rule (lib/house-model), so the sidebar's
+    // Production count and these cards are the same list
     const soonV = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
-    const vendorRisk = J.filter((x: any) => x.phase === "production" && (x.items || []).some((i: any) => i.pipeline_stage === "in_production"))
-      .map((x: any) => {
-        const tm = (x.type_meta || {}) as any;
-        // Per-vendor: a logged LIVE ship-by REPLACES that vendor's PO date
-        // (Jon, Jul 22: adjusted dates were still showing the old promise —
-        // pooling + min let the stale PO date win). Live > agreed, then the
-        // earliest effective date across vendors is the clock.
-        const ok = (d: any) => /^\d{4}-\d{2}-\d{2}$/.test(String(d || ""));
-        const vendorsAll = Array.from(new Set([...Object.keys(tm.po_ship_dates || {}), ...Object.keys(tm.po_ship_live || {})]));
-        const dated: [string, string][] = [];
-        for (const k of vendorsAll) {
-          const live = tm.po_ship_live?.[k]?.date;
-          const agreed = tm.po_ship_dates?.[k];
-          const eff = ok(live) ? live : ok(agreed) ? agreed : null;
-          if (eff) dated.push([k, eff]);
-        }
-        dated.sort((a, b) => a[1].localeCompare(b[1]));
-        const promise = dated[0]?.[1] || null;
-        // the vendor key the ship-by write attaches to (Board's poShipKey rule)
-        const vendorKey = dated[0]?.[0]
-          || Object.keys(tm.po_ship_dates || {})[0] || Object.keys(tm.po_ship_live || {})[0] || null;
-        const fallback = x.target_ship_date
-          ? new Date(new Date(x.target_ship_date + "T00:00").getTime() - 7 * 86400000).toISOString().slice(0, 10)
-          : null;
-        const due = promise || fallback;
-        if (!due) return null;
-        if (due < today) return { job: x, due, level: "late", promised: !!promise, vendorKey };
-        if (due <= soonV) {
-          // "this is handled": Drake already heard from the vendor for THIS
-          // date — confirmation is date-stamped, so a slip re-arms the card
-          const conf = vendorKey ? tm.po_ship_confirmed?.[vendorKey] : null;
-          if (conf?.date === due) return null;
-          return { job: x, due, level: "confirm", promised: !!promise, vendorKey };
-        }
-        return null;
-      }).filter(Boolean) as any[];
+    const vendorRisk = J.map((x: any) => vendorRiskFor(x, today, soonV)).filter(Boolean) as any[];
     // studio calls: new ideas + unanswered client/designer words — the inbox
     // rule (lib/inbox), so this block and the sidebar badge agree
     const studioCalls = briefs.filter((b: any) => b.state === "draft" || b.has_unread_external);
