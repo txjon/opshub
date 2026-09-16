@@ -69,7 +69,7 @@ export default function HousePage() {
       const none = Promise.resolve({ data: [] as any[] });
       const [{ data: j }, { data: r }, { data: act }, { data: latePay }, { count: pullCount }, { data: coJobs }, { data: arJobs }, { data: recv }] = await Promise.all([
         supabase.from("jobs")
-          .select("id, job_number, title, phase, target_ship_date, created_at, updated_at, phase_timestamps, type_meta, clients(name), items(id, pipeline_stage, pipeline_timestamps, buy_sheet_lines(qty_ordered))")
+          .select("id, job_number, title, phase, target_ship_date, created_at, updated_at, phase_timestamps, type_meta, costing_data, clients(name), items(id, pipeline_stage, pipeline_timestamps, buy_sheet_lines(qty_ordered), decorator_assignments(decorators(name, short_code)))")
           .not("phase", "in", "(complete,cancelled,on_hold)"),
         supabase.from("releases").select("*, clients(name)").not("status", "in", "(cut,shelved)"),
         supabase.from("job_activity").select("message, created_at, jobs(job_number, clients(name))").order("created_at", { ascending: false }).limit(16),
