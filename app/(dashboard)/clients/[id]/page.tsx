@@ -301,10 +301,9 @@ export default function ClientSpacePage() {
         {section === "Pipeline" && (
           <>
             {secHead("The pipeline.", "the working sheet — cost, retail, status, promises")}
-            {/* The Working Sheet moved here from classic (Jon, Jul 28) — same
-                component both places; edits sync this page's jobs state. */}
+            {/* The Working Sheet (moved here from classic, Jul 28) — edits
+                sync this page's jobs state. */}
             <ClientWorkingSheet
-              variant="inline"
               clientId={params.id}
               clientName={client.name}
               jobs={jobs}
