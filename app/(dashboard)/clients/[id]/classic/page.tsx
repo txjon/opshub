@@ -18,7 +18,7 @@ import { ClientWorkingSheet, flattenClientItems, resolveWsState, ITEM_STATE_COLO
 // date-only as LOCAL (bare new Date shows the previous day in Vegas).
 const asLocalD = (iso: string) => (iso.includes("T") ? new Date(iso) : (parseDay(iso) as Date));
 
-type Client = { id:string; name:string; client_type:string|null; default_terms:string|null; notes:string|null; website:string|null; billing_address:string|null; shipping_address:string|null; tax_exempt:boolean; allow_cc?:boolean; allow_ach?:boolean; qb_customer_id?:string|null; client_hub_enabled?:boolean; portal_token?:string|null; company_id?:string|null; };
+type Client = { id:string; name:string; client_type:string|null; default_terms:string|null; notes:string|null; website:string|null; billing_address:string|null; tax_exempt:boolean; allow_cc?:boolean; allow_ach?:boolean; qb_customer_id?:string|null; client_hub_enabled?:boolean; portal_token?:string|null; company_id?:string|null; };
 type Contact = { id:string; name:string; email:string|null; phone:string|null; role_label:string|null; is_primary:boolean; };
 type ClientFile = { id:string; file_name:string; drive_file_id:string|null; drive_link:string|null; mime_type:string|null; file_size:number|null; kind:string; notes:string|null; created_at:string; };
 type Job = { id:string; title:string; job_number:string; phase:string; target_ship_date:string|null; costing_summary:any; items:any[]; payment_records:any[]; };
@@ -612,9 +612,8 @@ export default function ClientDetailPage({ params }: { params: { id: string } })
                   </div>
                   <div>
                     <label style={{fontSize:11,color:T.muted,marginBottom:3,display:"block"}}>Shipping address</label>
-                    {/* Superseded by the client address book (client_locations, mig 180) — edit under Locations on the client page. */}
-                    <div style={{fontSize:12.5,color:T.muted,lineHeight:1.4,whiteSpace:"pre-line"}}>{client.shipping_address||"No address on file"}</div>
-                    <a href={`/clients/${client.id}`} style={{fontSize:11,color:T.blue,fontWeight:700,textDecoration:"none"}}>Edit in Locations →</a>
+                    {/* Shipping addresses live in the client address book (client_locations, mig 180). */}
+                    <a href={`/clients/${client.id}`} style={{fontSize:12.5,color:T.blue,fontWeight:700,textDecoration:"none"}}>See Locations on the client page →</a>
                   </div>
                 </div>
                 <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,fontWeight:600,color:T.text,cursor:"pointer",padding:"6px 10px",background:T.surface,borderRadius:6,width:"fit-content"}}>

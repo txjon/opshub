@@ -12,7 +12,7 @@ import { T, font, mono, sortSizes } from "@/lib/theme";
 import { createClient } from "@/lib/supabase/client";
 import { ModalShell } from "@/components/board-kit";
 import { logJobActivity } from "@/components/JobActivityPanel";
-import { addressLines, resolveJobShipTo, sumQ, type LocationRow, type SizeQtys } from "@/lib/destinations";
+import { addressLines, resolveJobShipTo, sumQ, type LocationRow, type ShipTo, type SizeQtys } from "@/lib/destinations";
 import { createLocation, saveItemSplit, setJobShipTo, type SplitRow } from "@/lib/destination-actions";
 
 type Item = { id: string; name: string; qtys?: Record<string, number> | null };
@@ -25,16 +25,14 @@ const LINK: React.CSSProperties = { background: "none", border: "none", padding:
 const BTN: React.CSSProperties = { fontSize: 12.5, fontWeight: 800, padding: "8px 14px", borderRadius: 999, border: `1px solid ${T.border}`, background: T.card, color: T.text, cursor: "pointer", fontFamily: font };
 const BTN_PRIMARY: React.CSSProperties = { ...BTN, background: T.accent, color: "#111", border: `1px solid ${T.accent}` };
 
-export function DestinationsPanel({ jobId, clientId, route, shipToLocationId, typeMeta, clientShippingAddress, items, isMobile, onShipToChange, onError }: {
+export function DestinationsPanel({ jobId, clientId, route, shipToLocationId, items, isMobile, onShipToChange, onError }: {
   jobId: string;
   clientId: string | null;
   route: string;                       // job route; stage = no client destination
   shipToLocationId: string | null;
-  typeMeta: any;                       // legacy fallback only (resolveJobShipTo)
-  clientShippingAddress: string | null;
   items: Item[];
   isMobile: boolean;
-  onShipToChange: (projectedTypeMeta: Record<string, any>) => void;   // keeps V2's job state in step
+  onShipToChange: (shipTo: ShipTo) => void;   // keeps the job page's ship-to in step
   onError: (msg: string, e?: any) => void;
 }) {
   const sb = useMemo(() => createClient(), []);
@@ -62,15 +60,16 @@ export function DestinationsPanel({ jobId, clientId, route, shipToLocationId, ty
   };
   useEffect(() => { reload(); }, [clientId, jobId, items.length]);   // eslint-disable-line react-hooks/exhaustive-deps
 
-  const shipTo = resolveJobShipTo({ ship_to_location_id: localShipToId, type_meta: typeMeta, clients: { shipping_address: clientShippingAddress } }, locations);
+  const shipTo = resolveJobShipTo({ ship_to_location_id: localShipToId }, locations);
   const book = locations.filter(l => !l.job_id);
   const projectOnly = locations.filter(l => l.job_id);
   const locById = useMemo(() => new Map(locations.map(l => [l.id, l])), [locations]);
 
   const choose = async (loc: LocationRow) => {
     try {
-      const meta = await setJobShipTo(sb, jobId, loc);
-      setLocalShipToId(loc.id); setPicking(false); onShipToChange(meta);
+      await setJobShipTo(sb, jobId, loc);
+      setLocalShipToId(loc.id); setPicking(false);
+      onShipToChange({ locationId: loc.id, label: loc.label, address: loc.address, contactName: loc.contact_name ?? null, contactPhone: loc.contact_phone ?? null });
       logJobActivity(jobId, `Ship-to set to ${loc.label}`);
     } catch (e) { onError("Ship-to save failed — not saved", e); }
   };

@@ -113,7 +113,6 @@ export default function NewJobPage() {
     if (nc.website.trim()) insertData.website = nc.website.trim();
     if (nc.billingAddress.trim()) insertData.billing_address = nc.billingAddress.trim();
     const shipAddr = nc.sameAsBilling ? nc.billingAddress.trim() : nc.shippingAddress.trim();
-    if (shipAddr) insertData.shipping_address = shipAddr;
     if (nc.taxExempt) insertData.tax_exempt = true;
 
     let { data, error: err } = await supabase.from("clients").insert(insertData).select("id, name, default_terms").single();
@@ -125,7 +124,6 @@ export default function NewJobPage() {
     }
     if (err || !data) { setSavingClient(false); setError(err?.message || "Failed to create client"); return; }
     // Address book (mig 180): the shipping address is the client's Main location.
-    // createLocation also projects clients.shipping_address, so both agree.
     if (shipAddr) { try { await createLocation(supabase, { clientId: data.id, label: "Main", address: shipAddr }); } catch {} }
 
     // Create primary contact

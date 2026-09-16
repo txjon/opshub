@@ -36,7 +36,7 @@ export type LocationRow = {
 };
 
 export type ShipTo = {
-  locationId: string | null;   // null only on the legacy fallback (pre-backfill rows)
+  locationId: string | null;
   label: string;
   address: string;
   contactName: string | null;
@@ -56,24 +56,15 @@ const toShipTo = (l: LocationRow): ShipTo => ({
 // ── Pure resolvers ─────────────────────────────────────────────────────
 
 // The project's default destination.
-//   1. jobs.ship_to_location_id (set by the backfill for every existing job,
-//      by Logistics for new ones)
+//   1. jobs.ship_to_location_id (set in Logistics; the backfill set it for every
+//      job that existed at mig 180)
 //   2. the client's default book entry
-//   3. LEGACY: type_meta.venue_address / clients.shipping_address — only for a
-//      job created between mig 180 and the Logistics cutover. Deleted in the
-//      cleanup phase together with those fields.
-export function resolveJobShipTo(
-  job: { ship_to_location_id?: string | null; type_meta?: any; clients?: { shipping_address?: string | null } | null },
-  locations: LocationRow[],
-): ShipTo | null {
+export function resolveJobShipTo(job: { ship_to_location_id?: string | null }, locations: LocationRow[]): ShipTo | null {
   const byId = new Map(locations.map(l => [l.id, l]));
   const chosen = job.ship_to_location_id ? byId.get(job.ship_to_location_id) : undefined;
   if (chosen) return toShipTo(chosen);
   const def = locations.find(l => l.is_default && !l.job_id && l.active);
-  if (def) return toShipTo(def);
-  const legacy = String(job.type_meta?.venue_address || job.clients?.shipping_address || "").trim();
-  if (legacy) return { locationId: null, label: "Main", address: legacy, contactName: null, contactPhone: null };
-  return null;
+  return def ? toShipTo(def) : null;
 }
 
 // Where an item's units go. No split rows → everything to the project default.
@@ -152,7 +143,7 @@ export async function loadLocations(sb: Sb, clientId: string | null, jobId?: str
 
 export async function loadJobShipTo(sb: Sb, jobId: string): Promise<ShipTo | null> {
   const { data: job } = await sb.from("jobs")
-    .select("id, client_id, ship_to_location_id, type_meta, clients(shipping_address)").eq("id", jobId).single();
+    .select("id, client_id, ship_to_location_id").eq("id", jobId).single();
   if (!job) return null;
   const locations = await loadLocations(sb, job.client_id, jobId);
   return resolveJobShipTo(job, locations);
@@ -165,7 +156,7 @@ export async function loadJobDestinations(sb: Sb, jobId: string): Promise<{
   byItem: Map<string, ItemDestination[]>;
 }> {
   const { data: job } = await sb.from("jobs")
-    .select("id, client_id, ship_to_location_id, type_meta, clients(shipping_address), items(id, buy_sheet_lines(size, qty_ordered))")
+    .select("id, client_id, ship_to_location_id, items(id, buy_sheet_lines(size, qty_ordered))")
     .eq("id", jobId).single();
   if (!job) return { shipTo: null, locations: [], byItem: new Map() };
   const locations = await loadLocations(sb, job.client_id, jobId);

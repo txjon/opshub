@@ -218,7 +218,7 @@ export type BoardStrip = {
 export async function loadProductionBoard(sb: Sb): Promise<BoardStrip[]> {
   const { data: allJobs } = await sb
     .from("jobs")
-    .select("id, job_number, title, phase, priority, target_ship_date, shipping_route, type_meta, costing_data, client_id, ship_to_location_id, clients(name, shipping_address)")
+    .select("id, job_number, title, phase, priority, target_ship_date, shipping_route, type_meta, costing_data, client_id, ship_to_location_id, clients(name)")
     .not("phase", "in", '("complete","cancelled","on_hold")');
   const jobs = (allJobs || []).filter((j: any) => ((j.type_meta?.po_sent_vendors || []) as string[]).length > 0);
   const jobById = new Map<string, any>((jobs || []).map((j: any) => [j.id, j]));
@@ -753,7 +753,7 @@ export type ShippingJob = {
 
 export async function loadShippingBoard(sb: Sb): Promise<ShippingJob[]> {
   const { data: jobs } = await sb.from("jobs")
-    .select("id, job_number, title, phase, shipping_route, type_meta, client_id, ship_to_location_id, clients(name, shipping_address)")
+    .select("id, job_number, title, phase, shipping_route, type_meta, client_id, ship_to_location_id, clients(name)")
     .in("phase", ["receiving", "shipping", "fulfillment"]);
   if (!jobs?.length) return [];
   const jobById = new Map<string, any>((jobs as any[]).map(j => [j.id, j]));

@@ -151,12 +151,12 @@ export function useWarehouse() {
     const [activeRes, recentEnteredRes] = await Promise.all([
       supabase
         .from("jobs")
-        .select("id, title, job_number, client_id, shipping_route, fulfillment_status, fulfillment_tracking, phase, type_meta, clients(name, shipping_address)")
+        .select("id, title, job_number, client_id, shipping_route, fulfillment_status, fulfillment_tracking, phase, type_meta, clients(name)")
         .not("phase", "in", '("complete","cancelled")')
         .order("created_at", { ascending: false }),
       supabase
         .from("jobs")
-        .select("id, title, job_number, client_id, shipping_route, fulfillment_status, fulfillment_tracking, phase, type_meta, clients(name, shipping_address)")
+        .select("id, title, job_number, client_id, shipping_route, fulfillment_status, fulfillment_tracking, phase, type_meta, clients(name)")
         .eq("shipping_route", "stage")
         .eq("phase", "complete")
         .gte("updated_at", fortyEightHoursAgo)
@@ -260,7 +260,7 @@ export function useWarehouse() {
         fulfillment_status: j.fulfillment_status,
         fulfillment_tracking: j.fulfillment_tracking,
         client_name: (j as any).clients?.name || "",
-        ship_to_address: typeMeta.venue_address || (j as any).clients?.shipping_address || "",
+        ship_to_address: "",   // legacy surface (nothing in app/ renders it); ship-to lives in lib/destinations
         ship_method: Object.values(typeMeta.po_ship_methods || {})[0] as string || "",
         packing_notes: packingNotes,
         shipping_notes: typeMeta.shipping_notes || "",

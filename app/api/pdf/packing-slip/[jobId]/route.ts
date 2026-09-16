@@ -2,6 +2,7 @@ export const runtime = "nodejs";
 export const maxDuration = 30;
 
 import { NextRequest, NextResponse } from "next/server";
+import { loadJobShipTo } from "@/lib/destinations";
 import { createClient } from "@supabase/supabase-js";
 import { createClient as createAuthClient } from "@/lib/supabase/server";
 import { generatePDF } from "@/lib/pdf/browser";
@@ -214,9 +215,8 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
         return a + Object.values(continuing).reduce((b: number, v) => b + (v || 0), 0);
       }, 0);
 
-    // Frozen box address first; otherwise the project's current destination
-    // (venue_address is the mirror of jobs.ship_to_location_id until cleanup).
-    const shipTo = frozenShipTo || (job.type_meta as any)?.venue_address || (job.type_meta as any)?.po_ship_to?.default || "";
+    // Frozen box address first; otherwise the project's current destination.
+    const shipTo = frozenShipTo || (await loadJobShipTo(supabase, job.id))?.address || "";
 
     const fnt = `'Helvetica Neue', Arial, sans-serif`;
     // format the date-only value (was printed as raw "YYYY-MM-DD" text);

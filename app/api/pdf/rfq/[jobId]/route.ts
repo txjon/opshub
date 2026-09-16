@@ -318,15 +318,13 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     const tenantWarehouse = `${branding.name}\n${(branding.fulfillmentAddressHtml || branding.headerAddressHtml).replace(/<br\/>/g, "\n")}`;
     const route = (job as any).shipping_route || "ship_through";
     // Same resolver as the PO so the vendor quotes against the address (or
-    // split) they will later receive on the purchase order. po_ship_to = the
-    // pre-180 per-vendor override, read-only now.
+    // split) they will later receive on the purchase order.
     const paper = await vendorPaperShipTo(supabase, {
       jobId: job.id, jobRoute: route, vendorItems: mappedItems,
       vendorDefaultRoute: route === "drop_ship" ? ((decoratorRecord as any)?.default_shipping_route || null) : null,
       hpdBlock: tenantWarehouse,
     });
-    const shipToAddress = (job.type_meta as any)?.po_ship_to?.[vendorName] || paper.address
-      || (route === "drop_ship" ? "Drop ship address — to be confirmed" : tenantWarehouse);
+    const shipToAddress = paper.address || (route === "drop_ship" ? "Drop ship address — to be confirmed" : tenantWarehouse);
 
     const rfqData = {
       job_number: (job.job_number || "—") + (itemLetters ? `-${itemLetters}` : ""),

@@ -199,8 +199,7 @@ export async function GET(
         jobId: job.id, jobRoute: job.shipping_route, vendorItems: items,
         vendorDefaultRoute: job.shipping_route === "drop_ship" ? ((decorator as any).default_shipping_route || null) : null, hpdBlock,
       });
-      // po_ship_to = the pre-180 per-vendor override (complete jobs only, nothing writes it now)
-      const poShipTo = typeMeta.po_ship_to?.[decorator.name] || typeMeta.po_ship_to?.[decorator.short_code] || paper.address;
+      const poShipTo = paper.address;
       const poShipMethod = typeMeta.po_ship_methods?.[decorator.name] || typeMeta.po_ship_methods?.[decorator.short_code] || null;
 
       let grandTotal = 0;
@@ -377,8 +376,7 @@ export async function GET(
         jobId: job.id, jobRoute: job.shipping_route, vendorItems: cItems,
         vendorDefaultRoute: job.shipping_route === "drop_ship" ? ((decorator as any).default_shipping_route || null) : null, hpdBlock,
       });
-      // po_ship_to = the pre-180 per-vendor override (complete jobs only, nothing writes it now)
-      const poShipTo = typeMeta.po_ship_to?.[decorator.name] || typeMeta.po_ship_to?.[decorator.short_code] || paper.address;
+      const poShipTo = paper.address;
       const poShipMethod = typeMeta.po_ship_methods?.[decorator.name] || typeMeta.po_ship_methods?.[decorator.short_code] || null;
 
       let grandTotal = 0;

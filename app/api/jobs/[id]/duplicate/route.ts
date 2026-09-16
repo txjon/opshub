@@ -36,7 +36,7 @@ export const dynamic = "force-dynamic";
 //   - decorator_assignments (start clean for the new run)
 //   - pipeline_stage / blanks_order_number / tracking
 //   - quote_approved / quote_approved_at (this job needs its own approval)
-//   - type_meta beyond the explicit allowlist (venue_address,
+//   - type_meta beyond the explicit allowlist (shipping_notes,
 //     shipping_notes, payment_method) — QB/Stripe/PO/lock/change-request
 //     state never rides into a fresh order
 
@@ -69,7 +69,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     // QB/Stripe state, PO promises/snapshots, lock stamps, change
     // requests, client PO numbers, invoice extras, studio lineage —
     // stays behind by default, including keys that don't exist yet.
-    const TYPE_META_CARRY = ["venue_address", "shipping_notes", "payment_method"];
+    const TYPE_META_CARRY = ["shipping_notes", "payment_method"];   // ship-to carries as ship_to_location_id
     const clearedTypeMeta = (() => {
       const src: Record<string, any> = ((srcJob as any).type_meta || {});
       const m: Record<string, any> = {};
@@ -92,7 +92,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
         type_meta: clearedTypeMeta,
         notes: (srcJob as any).notes,
         client_id: (srcJob as any).client_id,
-        // destination carries with the venue_address it mirrors (a project-only
+        // destination carries with the job (a project-only
         // address is cloned onto the new job below, after it has an id)
         ship_to_location_id: (srcJob as any).ship_to_location_id || null,
         job_number: "", // trigger assigns

@@ -834,7 +834,6 @@ export type Database = {
           qb_customer_id: string | null;
           website: string | null;
           billing_address: string | null;
-          shipping_address: string | null;
           tax_exempt: boolean;
           portal_token: string | null;
           portal_tier: string | null;
@@ -861,7 +860,6 @@ export type Database = {
           qb_customer_id?: string | null;
           website?: string | null;
           billing_address?: string | null;
-          shipping_address?: string | null;
           tax_exempt?: boolean;
           portal_token?: string | null;
           portal_tier?: string | null;
@@ -888,7 +886,6 @@ export type Database = {
           qb_customer_id?: string | null;
           website?: string | null;
           billing_address?: string | null;
-          shipping_address?: string | null;
           tax_exempt?: boolean;
           portal_token?: string | null;
           portal_tier?: string | null;

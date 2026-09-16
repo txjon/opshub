@@ -640,8 +640,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
         if (method.includes("fedex")) return accounts.fedex || "";
         return "";
       })(),
-      // po_ship_to = the pre-180 per-vendor override (17 complete jobs, nothing writes it now).
-      ship_to_address: (job.type_meta as any)?.po_ship_to?.[vendorName] || paper.address,
+      ship_to_address: paper.address,
       items: vendorItems.map((it: any) => ({ ...it, split_ship_to: paper.perItem.get(it.id) || null })),
       // Revision metadata — drives the REVISED banner and the per-item
       // NEW chip. is_revision is set when the caller passes ?revised=1

@@ -39,6 +39,7 @@ import { QBCustomerChooser } from "@/components/QBCustomerChooser";
 import { InvoiceVarianceReviewModal } from "@/components/InvoiceVarianceReviewModal";
 import { deriveInvoice } from "@/lib/job/invoice-derive";
 import { DestinationsPanel } from "@/components/DestinationsPanel";
+import { loadJobShipTo, type ShipTo } from "@/lib/destinations";
 import { applyPoSentToVendorItems, revertPoSentFromVendorItems } from "@/lib/po-actions";
 import { recalcJobPhase } from "@/lib/job-phase-recalc";
 import { PROOF_RENDERER_VERSION } from "@/lib/proof-client";
@@ -114,7 +115,7 @@ const ADD_SIZES = ["S", "M", "L", "XL", "2XL", "3XL", "OSFA"];
 const GARMENT_TYPES = ["accessory", "bandana", "banner", "beanie", "crewneck", "custom", "flag", "hat", "hoodie", "jacket", "koozie", "lighter", "longsleeve", "pants", "patch", "pin", "poster", "samples", "shorts", "socks", "sticker", "tee", "tote", "towel", "water_bottle"];
 const ADD_GARMENTS: [string, string][] = GARMENT_TYPES.map(t => [t, t.replace(/_/g, " ")]);
 
-export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: paymentsProp = [], contacts = [], thumbByItem = {} }: any) {
+export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: paymentsProp = [], contacts = [], thumbByItem = {}, shipTo: shipToProp = null }: any) {
   // Local state so edits reflect live; reseeds if the parent reloads. Note:
   // costing_data mutations are shown via the decoState overlay (not job here),
   // so cpFor(job) stays the DB baseline — don't mutate job.costing_data locally.
@@ -122,6 +123,9 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   useEffect(() => { setJob(jobProp); }, [jobProp]);
   const [items, setItems] = useState<any[]>(itemsProp);
   useEffect(() => { setItems(itemsProp); }, [itemsProp]);
+  // The project's ship-to (client address book, mig 180). Logistics edits it.
+  const [shipTo, setShipTo] = useState<ShipTo | null>(shipToProp);
+  useEffect(() => { setShipTo(shipToProp); }, [shipToProp]);
   const [payments, setPayments] = useState<any[]>(paymentsProp);
   useEffect(() => { setPayments(paymentsProp); }, [paymentsProp]);
   const [localContacts, setLocalContacts] = useState<any[]>(contacts);
@@ -571,16 +575,13 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       if (cc?.length) await (supabase.from("job_contacts") as any).insert(cc.map((c: any) => ({ job_id: job.id, contact_id: c.id, role_on_job: c.is_primary ? "primary" : "cc" })));
       const { data: freshJc }: any = await supabase.from("job_contacts").select("*, contacts(*)").eq("job_id", job.id);
       setLocalContacts(freshJc || []);
-      // Address + terms from the new client's profile; stale po_ship_to cleared.
-      const { data: row }: any = await supabase.from("clients").select("shipping_address, default_terms").eq("id", clientId).single();
-      const meta = { ...(job.type_meta || {}) };
-      if (row?.shipping_address) meta.venue_address = row.shipping_address; else delete meta.venue_address;
-      delete meta.po_ship_to;
-      // ship_to_location_id → null: the resolver falls to the new client's default location.
-      const updates: any = { type_meta: meta, ship_to_location_id: null };
+      // Terms from the new client's profile; ship-to falls to the new client's default location.
+      const { data: row }: any = await supabase.from("clients").select("default_terms").eq("id", clientId).single();
+      const updates: any = { ship_to_location_id: null };
       if (row?.default_terms) updates.payment_terms = row.default_terms;
       await (supabase.from("jobs") as any).update(updates).eq("id", job.id);
-      setJob((j: any) => ({ ...j, client_id: clientId, clients: { ...(j.clients || {}), id: clientId, name: clientName }, type_meta: meta, ...(row?.default_terms ? { payment_terms: row.default_terms } : {}) }));
+      setShipTo(await loadJobShipTo(supabase, job.id));
+      setJob((j: any) => ({ ...j, client_id: clientId, clients: { ...(j.clients || {}), id: clientId, name: clientName }, ship_to_location_id: null, ...(row?.default_terms ? { payment_terms: row.default_terms } : {}) }));
       logJobActivity(job.id, `Project reassigned to client: ${clientName}`);
       if (row?.default_terms) recalcPhase(); // new client's terms may move the payment gate
       setClientPick(false); setClientQuery("");
@@ -811,7 +812,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   // Ship-to resolves by route: drop_ship → client; ship_through/stage → HPD
   // warehouse (goods land with us first). Per-vendor defaults can still route
   // individual vendors to HPD on a drop_ship job — the PO handles that per vendor.
-  const clientAddr = tm.venue_address || job?.clients?.shipping_address || "";
+  const clientAddr = shipTo?.address || "";
   const address = route === "drop_ship" ? clientAddr : (route ? (warehouseAddr || "HPD warehouse") : clientAddr);
   const created = job?.created_at ? new Date(job.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—";
   const inHands = job?.target_ship_date ? new Date(job.target_ship_date + "T12:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—";
@@ -2406,12 +2407,10 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
             );
           })()}
           {/* Destinations: the project's ship-to (client address book) + per-item
-              per-size split across addresses. Mig 180. Writes project the legacy
-              venue_address so every un-migrated reader stays right. */}
+              per-size split across addresses. Mig 180. */}
           <DestinationsPanel jobId={job.id} clientId={job.client_id || null} route={route} shipToLocationId={job.ship_to_location_id || null}
-            typeMeta={tm} clientShippingAddress={job?.clients?.shipping_address || null}
             items={items.map((x: any) => ({ id: x.id, name: x.name, qtys: x.qtys || {} }))} isMobile={isMobile}
-            onShipToChange={(meta) => setJob((j: any) => ({ ...j, type_meta: meta }))}
+            onShipToChange={(st) => { setShipTo(st); setJob((j: any) => ({ ...j, ship_to_location_id: st.locationId })); }}
             onError={failed} />
           {/* packing slips — frozen per outbound shipment, or the live job-level slip */}
           {(() => {

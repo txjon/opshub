@@ -2,6 +2,7 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 import { NextRequest, NextResponse } from "next/server";
+import { loadLocations } from "@/lib/destinations";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { getOrCreateCustomer, createInvoice, updateInvoice, QBAmbiguousCustomerError, getCustomerById, type QBLineItem } from "@/lib/quickbooks";
@@ -36,7 +37,7 @@ export async function POST(req: NextRequest) {
 
     const { data: report, error: reportErr } = await admin
       .from("shipstation_reports")
-      .select("*, clients(id, name, qb_customer_id, default_terms, shipping_address, allow_cc, allow_ach)")
+      .select("*, clients(id, name, qb_customer_id, default_terms, allow_cc, allow_ach)")
       .eq("id", reportId)
       .single();
     if (reportErr || !report) return NextResponse.json({ error: "Report not found" }, { status: 404 });
@@ -240,7 +241,7 @@ export async function POST(req: NextRequest) {
           ? `Fulfillment Invoice — ${report.period_label}`
           : `Services Invoice — ${report.period_label}`;
 
-    const shipAddr = client.shipping_address || undefined;
+    const shipAddr = (await loadLocations(admin, client.id)).find(l => l.is_default)?.address || undefined;   // client address book default (mig 180)
     const existingInvoiceId = report.qb_invoice_id;
 
     if (existingInvoiceId) {
