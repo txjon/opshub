@@ -285,7 +285,6 @@ export default function ClientSpacePage() {
           <>
             <ActionFeed jobs={jobs} phaseViews={phaseViews} proofStatus={proofStatus} thumbs={itemThumbs} router={router} secHead={secHead} />
             <Overview client={client} contacts={contacts} wire={wire} model={model} briefs={briefs} secHead={secHead} onEdit={() => setEditOpen(true)} />
-            <ClientLocations clientId={client.id} secHead={secHead} />
           </>
         )}
         {editOpen && (
@@ -349,6 +348,8 @@ function Overview({ client, contacts, wire, model, briefs, secHead, onEdit }: an
               </div>
             </div>
           ))}
+          {/* Locations: the address book — left column, below People (Jon, Sep 15). */}
+          <div style={{ marginTop: 28 }}><ClientLocations clientId={client.id} secHead={secHead} /></div>
           {client.notes && (
             <>
               {secHead("Notes.", "the standing context")}
