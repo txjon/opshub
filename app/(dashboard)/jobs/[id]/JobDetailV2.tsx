@@ -3232,7 +3232,12 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       {showVariance && (
         <InvoiceVarianceReviewModal jobId={job.id} shippingRoute={job.shipping_route} jobTitle={job.title} clientName={client}
           onClose={() => setShowVariance(false)}
-          onApproved={() => { logJobActivity(job.id, "QB invoice updated with actual qtys — revised invoice emailed to client"); setShowVariance(false); refetchTypeMeta(); recalcPhase(); }} />
+          onApproved={(mode) => {
+            logJobActivity(job.id, mode === "as_billed"
+              ? "Invoice finalized as billed — actual qtys reviewed, no revision sent (short absorbed / overage waived)"
+              : "QB invoice updated with actual qtys — send the revised invoice from Send Invoice");
+            setShowVariance(false); refetchTypeMeta(); recalcPhase();
+          }} />
       )}
 
       {/* ── QB customer chooser (ambiguous invoice push → pick/create/unlink) ── */}
