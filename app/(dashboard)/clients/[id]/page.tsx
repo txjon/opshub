@@ -249,6 +249,9 @@ export default function ClientSpacePage() {
         <div style={{ display: "flex", alignItems: "baseline", gap: 16, flexWrap: "wrap" }}>
           <h1 style={{ fontSize: "clamp(34px,5vw,64px)", fontWeight: 900, lineHeight: 0.98, letterSpacing: "-0.02em", textTransform: "uppercase", margin: "6px 0 8px" }}>{client.name}.</h1>
           <span style={{ display: "inline-flex", gap: 10, alignItems: "baseline" }}>
+            {/* the team works from the client space (Jon, Sep 16 2026) —
+                a project starts here, client + terms pre-filled */}
+            <a href={`/jobs/new?client=${params.id}`} style={{ borderRadius: 999, border: "none", background: "#fff", color: H.ink, fontSize: 10, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", padding: "8px 14px", textDecoration: "none", alignSelf: "center", whiteSpace: "nowrap" }}>+ New project</a>
             {client.portal_token && (
               <a href={`/portal/client/${client.portal_token}`} target="_blank" rel="noreferrer" style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: PURPLE, textDecoration: "none" }}>their hub ↗</a>
             )}
