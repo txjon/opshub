@@ -134,6 +134,18 @@ export function GlobalSearch({ compact = false, bar = false, pages = [] }: {
 
     const results: Result[] = [];
 
+    // Clients first (Jon, Sep 16 2026): typing a client's name should land
+    // on the client, with their projects listed under it.
+    for (const c of (clientsRes.data || [])) {
+      results.push({
+        type: "client",
+        id: c.id,
+        href: `/clients/${c.id}`,
+        title: c.name,
+        subtitle: c.client_type || "Client",
+      });
+    }
+
     // Jobs
     for (const j of (jobsRes.data || [])) {
       const displayNum = (j as any).type_meta?.qb_invoice_number || j.job_number;
@@ -158,17 +170,6 @@ export function GlobalSearch({ compact = false, bar = false, pages = [] }: {
           subtitle: `${(j.clients as any)?.name || ""} · ${displayNum} · ${j.phase}`,
         });
       }
-    }
-
-    // Clients
-    for (const c of (clientsRes.data || [])) {
-      results.push({
-        type: "client",
-        id: c.id,
-        href: `/clients/${c.id}`,
-        title: c.name,
-        subtitle: c.client_type || "Client",
-      });
     }
 
     // Decorators

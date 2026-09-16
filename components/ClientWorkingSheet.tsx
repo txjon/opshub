@@ -1,9 +1,9 @@
 "use client";
 // Client Working Sheet — the back-office financial worksheet extracted from
 // the classic client page (Jul 28 2026, Jon: "move that to the pipeline
-// section of the new client page"). ONE component, two renderers:
-//   - classic /clients/[id]/classic → variant="card" (summary card → modal)
-//   - the client space /clients/[id] Pipeline section → variant="inline"
+// section of the new client page"). Renders inline in the client space's
+// Pipeline section. (The classic page and its summary-card → modal variant
+// were deleted Sep 16 2026.)
 // Per-item cost/retail tracking, canonical status buckets, chain ETAs, notes —
 // across every job for the client. Inline edits to sell_per_unit propagate to
 // quote/invoice/portal (pricing source of truth); client_retail_per_unit is
@@ -100,15 +100,13 @@ type TabKey = "setup" | "in_production" | "shipped" | "in_stock" | "archived";
 
 type Props = {
   clientId: string;
-  clientName: string;
+  clientName?: string; // kept for the call site; the inline sheet doesn't print it
   jobs: any[];
   onItemLocalChange: (itemId: string, field: string, value: any) => void;
-  variant?: "card" | "inline";
 };
 
-export function ClientWorkingSheet({ clientId, clientName, jobs, onItemLocalChange, variant = "card" }: Props) {
+export function ClientWorkingSheet({ clientId, jobs, onItemLocalChange }: Props) {
   const supabase = createClient();
-  const [open, setOpen] = useState(false);
   const [workingTab, setWorkingTab] = useState<TabKey>("in_production");
   const [workingRowExpanded, setWorkingRowExpanded] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
@@ -119,7 +117,6 @@ export function ClientWorkingSheet({ clientId, clientName, jobs, onItemLocalChan
   const [itemThumbs, setItemThumbs] = useState<Record<string, string>>({});
   const [chainEtas, setChainEtas] = useState<Record<string, { eta: string | null; source: string | null }>>({});
   const itemSaveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
-  const isOpen = variant === "inline" || open;
 
   // Chain-resolved ETAs — the INTERNAL CLOCK, reference only (rides under the
   // editable promise in the Client date column). Pure chain: never the promise.
@@ -160,16 +157,6 @@ export function ClientWorkingSheet({ clientId, clientName, jobs, onItemLocalChan
     // eslint-disable-next-line
   }, [jobs.length, clientId]);
 
-  // Card-variant modal — Esc closes, body scroll locks while open.
-  useEffect(() => {
-    if (variant !== "card" || !open) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
-    document.addEventListener("keydown", onKey);
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => { document.removeEventListener("keydown", onKey); document.body.style.overflow = prevOverflow; };
-  }, [open, variant]);
-
   // Per-item editor — Esc closes.
   useEffect(() => {
     if (!workingRowExpanded) return;
@@ -180,7 +167,7 @@ export function ClientWorkingSheet({ clientId, clientName, jobs, onItemLocalChan
 
   // Drop the selection whenever the bucket changes or the sheet closes —
   // a selection from one bucket must not silently apply in another.
-  useEffect(() => { setSelectedWsIds(new Set()); setBulkRetail(""); }, [workingTab, isOpen]);
+  useEffect(() => { setSelectedWsIds(new Set()); setBulkRetail(""); }, [workingTab]);
 
   // Debounced auto-save. Optimistic via onItemLocalChange (parent state),
   // write after 600ms idle. Await + check error — silent failures here lost
@@ -679,45 +666,5 @@ export function ClientWorkingSheet({ clientId, clientName, jobs, onItemLocalChan
     </div>
   );
 
-  if (variant === "inline") return <div style={{ fontFamily: font, color: T.text }}>{body}</div>;
-
-  return (
-    <>
-      {/* Summary card — click to open the full-screen worksheet */}
-      <button type="button" onClick={() => setOpen(true)}
-        style={{ width: "100%", background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "14px 18px", display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", cursor: "pointer", textAlign: "left", fontFamily: font, color: T.text, transition: "border-color 0.15s, box-shadow 0.15s" }}
-        onMouseEnter={(e: any) => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.boxShadow = "0 2px 12px rgba(0,0,0,0.05)"; }}
-        onMouseLeave={(e: any) => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.boxShadow = "none"; }}>
-        <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>Working Sheet</div>
-          {wsItems.length > 0 ? (
-            <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 13 }}>
-              <span><span style={{ color: T.muted }}>Active:</span> <strong style={{ color: T.text }}>{activeWsItems.length}</strong></span>
-              <span style={{ color: T.faint }}>·</span>
-              <span><span style={{ color: T.muted }}>Gross:</span> <strong style={{ color: T.text, fontFamily: mono }}>{fmtMoneyShort(rollups.active_total.gross)}</strong></span>
-              <span style={{ color: T.faint }}>·</span>
-              <span><span style={{ color: T.muted }}>Profit:</span> <strong style={{ color: T.green, fontFamily: mono }}>{fmtMoneyShort(rollups.active_total.profit)}</strong></span>
-            </div>
-          ) : (<div style={{ fontSize: 12, color: T.faint }}>No items yet.</div>)}
-        </div>
-        <span style={{ fontSize: 11, fontWeight: 700, color: T.accent, textTransform: "uppercase", letterSpacing: "0.07em", flexShrink: 0 }}>Open →</span>
-      </button>
-
-      {/* Full-page modal — reads like its own page (production-page pattern) */}
-      {open && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 1000, background: T.bg, display: "flex", flexDirection: "column", fontFamily: font, color: T.text }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 28px", borderBottom: `1px solid ${T.border}`, background: T.card, flexShrink: 0 }}>
-            <div>
-              <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.07em" }}>Working Sheet</div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: T.text, marginTop: 2, letterSpacing: "-0.015em" }}>{clientName}</div>
-            </div>
-            <button onClick={() => setOpen(false)}
-              style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 6, color: T.muted, fontSize: 12, fontWeight: 600, padding: "6px 14px", cursor: "pointer", fontFamily: font }}
-              title="Close (Esc)">Close ×</button>
-          </div>
-          <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "22px 28px" }}>{body}</div>
-        </div>
-      )}
-    </>
-  );
+  return <div style={{ fontFamily: font, color: T.text }}>{body}</div>;
 }

@@ -3,7 +3,7 @@
 // Same spine the client sees (Studio · Drops · Orders · Pipeline · Catalog),
 // plus our layers (Archive, Money, contacts, the wire). One mental model on
 // both sides of the glass; ours just has more doors.
-// The old client page lives at /clients/[id]/classic during the transition
+// The old client page still exists at /clients/[id]/classic (no longer linked)
 // (reorder machinery, QB link, file manager) and dies when the space wins.
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
@@ -242,21 +242,24 @@ export default function ClientSpacePage() {
         @media(prefers-reduced-motion:reduce){.cs-card,.cs-card:hover{transition:none;transform:none}}
       ` }} />
       <div style={{ maxWidth: 1080, margin: "0 auto", padding: "26px 0 90px" }}>
-        {/* ── Header ── */}
-        <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase", color: H.faint }}>
-          Client space · {client.client_type || "client"}{client.default_terms ? ` · ${String(client.default_terms).replace(/_/g, " ")}` : ""}
-        </div>
-        <div style={{ display: "flex", alignItems: "baseline", gap: 16, flexWrap: "wrap" }}>
-          <h1 style={{ fontSize: "clamp(34px,5vw,64px)", fontWeight: 900, lineHeight: 0.98, letterSpacing: "-0.02em", textTransform: "uppercase", margin: "6px 0 8px" }}>{client.name}.</h1>
-          <span style={{ display: "inline-flex", gap: 10, alignItems: "baseline" }}>
+        {/* ── Header — name left, actions stacked upper-right (Jon, Sep 16
+            2026): a project starts here; their hub sits under it. ── */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 24, flexWrap: "wrap" }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase", color: H.faint }}>
+              Client space · {client.client_type || "client"}{client.default_terms ? ` · ${String(client.default_terms).replace(/_/g, " ")}` : ""}
+            </div>
+            <h1 style={{ fontSize: "clamp(34px,5vw,64px)", fontWeight: 900, lineHeight: 0.98, letterSpacing: "-0.02em", textTransform: "uppercase", margin: "6px 0 8px" }}>{client.name}.</h1>
+            <div style={{ fontSize: 12, color: H.dim }}>
+              {grants.length ? `hub features: ${grants.join(" + ")}` : "no hub features granted yet"}
+            </div>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 12, paddingTop: 22, flexShrink: 0 }}>
+            <a href={`/jobs/new?client=${params.id}`} style={{ borderRadius: 999, border: "none", background: "#fff", color: H.ink, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", padding: "10px 18px", textDecoration: "none", whiteSpace: "nowrap" }}>+ New project</a>
             {client.portal_token && (
-              <a href={`/portal/client/${client.portal_token}`} target="_blank" rel="noreferrer" style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: PURPLE, textDecoration: "none" }}>their hub ↗</a>
+              <a href={`/portal/client/${client.portal_token}`} target="_blank" rel="noreferrer" style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: PURPLE, textDecoration: "none", whiteSpace: "nowrap" }}>their hub ↗</a>
             )}
-            <a href={`/clients/${params.id}/classic`} style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: H.faint, textDecoration: "none" }}>classic view →</a>
-          </span>
-        </div>
-        <div style={{ fontSize: 12, color: H.dim }}>
-          {grants.length ? `hub features: ${grants.join(" + ")}` : "no hub features granted yet"}
+          </div>
         </div>
 
         {/* ── KPI strip — operational only (lifetime gross/units removed, Jon) ── */}
@@ -298,10 +301,9 @@ export default function ClientSpacePage() {
         {section === "Pipeline" && (
           <>
             {secHead("The pipeline.", "the working sheet — cost, retail, status, promises")}
-            {/* The Working Sheet moved here from classic (Jon, Jul 28) — same
-                component both places; edits sync this page's jobs state. */}
+            {/* The Working Sheet (moved here from classic, Jul 28) — edits
+                sync this page's jobs state. */}
             <ClientWorkingSheet
-              variant="inline"
               clientId={params.id}
               clientName={client.name}
               jobs={jobs}
