@@ -38,6 +38,8 @@ export type ShipmentSeed = {
   warehouse_notes?: string | null; // production's instructions to distro
   packing_slip_file_id?: string | null;
   direction?: "inbound" | "direct"; // vendor→HPD (default) or vendor→client (drop_ship). Mig 180.
+  location_id?: string | null;      // where a vendor→client box is going (client_locations)
+  ship_to_snapshot?: string | null; // the address as it was at ship time — frozen on the box
 };
 
 // Find-or-create the shipment row for this item's box and upsert its line.
@@ -56,6 +58,9 @@ export async function upsertShipmentForItem(supabase: Sb, seed: ShipmentSeed): P
       ship_date: shipDate,
       job_id: seed.job_id,
     });
+    // One box goes to ONE destination (R2): a second destination the same day /
+    // same tracking is a different box, so it gets its own key.
+    if (seed.location_id) groupKey = `${groupKey}::dest:${seed.location_id}`;
     const trk = normalizeTracking(seed.ship_tracking);
     let shipmentId: string | null = null;
     let existing = (await supabase
@@ -90,6 +95,8 @@ export async function upsertShipmentForItem(supabase: Sb, seed: ShipmentSeed): P
       const { data: { user } = { user: null } } = await supabase.auth.getUser();
       const { data: created, error } = await supabase.from("shipments").insert({
         direction: seed.direction || "inbound",
+        location_id: seed.location_id || null,
+        ship_to_snapshot: seed.ship_to_snapshot || null,
         source: "decorator",
         decorator_id: seed.decorator_id,
         group_key: groupKey,

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { loadClientShipments } from "@/lib/portal/client-shipments";
 import { createClient } from "@supabase/supabase-js";
 import { sortSizes } from "@/lib/theme";
 import { approvePackage, requestChanges } from "@/lib/portal/approval-actions";
@@ -92,54 +93,8 @@ export async function GET(
 
     const itemIds = (items || []).map((i: any) => i.id);
 
-    // Per-shipment list — only CLIENT-FACING shipments: drop_ship items'
-    // vendor→client direct (ship_tracking) + ship_through items' aggregated
-    // HPD→client forward (forward_tracking). The inbound vendor→HPD leg of a
-    // ship-through item is internal and NOT surfaced. Vendor name never returned.
-    const jobRoute = (job as any).shipping_route || "ship_through";
-    let shipments: Array<{ decoratorId: string | null; tracking: string; itemCount: number; forwardTracking?: string }> = [];
-    if (itemIds.length > 0) {
-      const { data: assignments } = await sb
-        .from("decorator_assignments")
-        .select("item_id, decorator_id")
-        .in("item_id", itemIds);
-      const decByItem: Record<string, string | null> = {};
-      for (const a of (assignments || [])) {
-        decByItem[(a as any).item_id] = (a as any).decorator_id || null;
-      }
-      // A drop_ship item's ship_tracking must be an OUTBOUND (vendor→client)
-      // shipment. An INBOUND (vendor→HPD) tracking is internal — never surface it.
-      const dsIds = (items || [])
-        .filter((it: any) => ((it.shipping_route || jobRoute) === "drop_ship") && it.ship_tracking)
-        .map((it: any) => it.id);
-      const inboundItems = new Set<string>();
-      if (dsIds.length > 0) {
-        const { data: mv } = await sb.from("movements").select("item_id, shipment_id").in("item_id", dsIds).not("shipment_id", "is", null);
-        const shipIds = [...new Set((mv || []).map((m: any) => m.shipment_id))];
-        if (shipIds.length > 0) {
-          const { data: sh } = await sb.from("shipments").select("id, direction").in("id", shipIds);
-          const inboundShipIds = new Set((sh || []).filter((s: any) => s.direction === "inbound").map((s: any) => s.id));
-          for (const m of (mv || [])) if (inboundShipIds.has((m as any).shipment_id)) inboundItems.add((m as any).item_id);
-        }
-      }
-      const grouped: Record<string, { decoratorId: string | null; tracking: string; itemCount: number; forwardTracking?: string }> = {};
-      for (const it of (items || [])) {
-        const route = (it as any).shipping_route || jobRoute;
-        if (route === "drop_ship") {
-          if (it.pipeline_stage !== "shipped" || !it.ship_tracking || inboundItems.has(it.id)) continue;
-          const decId = decByItem[it.id] || null;
-          const key = `ds__${decId || ""}__${it.ship_tracking}`;
-          if (!grouped[key]) grouped[key] = { decoratorId: decId, tracking: it.ship_tracking, itemCount: 0 };
-          grouped[key].itemCount++;
-        } else if (route === "ship_through") {
-          if (!(it as any).forward_tracking) continue;
-          const key = `fw__${(it as any).forward_tracking}`;
-          if (!grouped[key]) grouped[key] = { decoratorId: null, tracking: (it as any).forward_tracking, forwardTracking: (it as any).forward_tracking, itemCount: 0 };
-          grouped[key].itemCount++;
-        }
-      }
-      shipments = Object.values(grouped);
-    }
+    // Client-facing shipments from the ledger (shared with the hub route).
+    const shipments = await loadClientShipments(sb, { itemIds });
 
     // Proof/mockup files (only stages clients should see)
     let proofFiles: any[] = [];

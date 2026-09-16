@@ -28,6 +28,8 @@ export async function shipFromProduction(sb: any, args: {
   carrier?: string | null;        // parcel carrier (tracking) or freight carrier (BOL)
   packingSlipFileId?: string | null;
   note?: string | null;
+  locationId?: string | null;       // vendor→client boxes: the destination (one per box, R2)
+  shipToSnapshot?: string | null;   // its address, frozen on the box
   decoratorId: string | null;
   decoratorName: string | null;
   items: ShipItemInput[];
@@ -56,6 +58,8 @@ export async function shipFromProduction(sb: any, args: {
         decorator_id: args.decoratorId, decorator_name: args.decoratorName,
         pickup_ready: pickup, ship_tracking: trackingOrBol, ship_date: shipDate,
         direction: it.route === "drop_ship" ? "direct" : "inbound",
+        location_id: it.route === "drop_ship" ? (args.locationId || null) : null,
+        ship_to_snapshot: it.route === "drop_ship" ? (args.shipToSnapshot || null) : null,
         ship_qtys: qtys, carrier, warehouse_notes: args.note || null,
         packing_slip_file_id: args.packingSlipFileId || null,
       });

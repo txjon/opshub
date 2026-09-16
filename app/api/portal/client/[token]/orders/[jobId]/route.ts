@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { loadClientShipments } from "@/lib/portal/client-shipments";
 import { createClient } from "@supabase/supabase-js";
 import { sortSizes } from "@/lib/theme";
 import { resolveItemStatus, clientItemStatus, type ItemState } from "@/lib/item-status";
@@ -143,89 +144,9 @@ export async function GET(
 
     const itemIds = (items || []).map((i: any) => i.id);
 
-    // Per-shipment list — only CLIENT-FACING shipments:
-    //  - drop_ship items: the vendor→client direct shipment (ship_tracking).
-    //  - ship_through items: the aggregated HPD→client forward (forward_tracking).
-    // The inbound vendor→HPD leg of a ship-through item (its ship_tracking) is
-    // internal logistics and is NOT surfaced. Vendor name is never returned
-    // (drop_ship anonymity); decoratorId only lets the PDF scope the slip.
-    const jobRoute = (job as any).shipping_route || "ship_through";
-    let shipments: Array<{ decoratorId: string | null; tracking: string; itemCount: number; forwardTracking?: string }> = [];
-    if (itemIds.length > 0) {
-      const { data: assignments } = await sb
-        .from("decorator_assignments")
-        .select("item_id, decorator_id")
-        .in("item_id", itemIds);
-      const decByItem: Record<string, string | null> = {};
-      for (const a of (assignments || [])) {
-        decByItem[(a as any).item_id] = (a as any).decorator_id || null;
-      }
-      // Belt-and-suspenders: a drop_ship item's ship_tracking must belong to an
-      // OUTBOUND (vendor→client) shipment. If it's an INBOUND (vendor→HPD) leg —
-      // e.g. a drop-ship item wrongly bundled into an inbound multi-select — that
-      // tracking is internal logistics and must NEVER surface to the client.
-      const dsIds = (items || [])
-        .filter((it: any) => ((it.shipping_route || jobRoute) === "drop_ship") && it.ship_tracking)
-        .map((it: any) => it.id);
-      const inboundItems = new Set<string>();
-      if (dsIds.length > 0) {
-        // Link via the LEDGER (shipment_id), not the tracking string — item
-        // ship_tracking and shipments.tracking can differ in case/entry.
-        const { data: mv } = await sb.from("movements").select("item_id, shipment_id").in("item_id", dsIds).not("shipment_id", "is", null);
-        const shipIds = [...new Set((mv || []).map((m: any) => m.shipment_id))];
-        if (shipIds.length > 0) {
-          const { data: sh } = await sb.from("shipments").select("id, direction").in("id", shipIds);
-          const inboundShipIds = new Set((sh || []).filter((s: any) => s.direction === "inbound").map((s: any) => s.id));
-          for (const m of (mv || [])) if (inboundShipIds.has((m as any).shipment_id)) inboundItems.add((m as any).item_id);
-        }
-      }
-      const grouped: Record<string, { decoratorId: string | null; tracking: string; itemCount: number; forwardTracking?: string }> = {};
-      for (const it of (items || [])) {
-        const route = (it as any).shipping_route || jobRoute;
-        if (route === "drop_ship") {
-          if (it.pipeline_stage !== "shipped" || !it.ship_tracking || inboundItems.has(it.id)) continue;
-          const decId = decByItem[it.id] || null;
-          const key = `ds__${decId || ""}__${it.ship_tracking}`;
-          if (!grouped[key]) grouped[key] = { decoratorId: decId, tracking: it.ship_tracking, itemCount: 0 };
-          grouped[key].itemCount++;
-        } else if (route === "ship_through") {
-          if (!(it as any).forward_tracking) continue;
-          const key = `fw__${(it as any).forward_tracking}`;
-          if (!grouped[key]) grouped[key] = { decoratorId: null, tracking: (it as any).forward_tracking, forwardTracking: (it as any).forward_tracking, itemCount: 0 };
-          grouped[key].itemCount++;
-        }
-        // stage → client ship handled by ShipStation/Shopify, not listed here
-      }
-      shipments = Object.values(grouped);
-    }
-
-    // Live carrier status (EasyPost-fed, Phase 4): enrich each client-facing
-    // shipment with its box's tracker fields, matched by tracking number.
-    // Carrier name is safe to show; vendor identity still never leaves here.
-    let shipmentsLive: any[] = shipments;
-    if (shipments.length > 0) {
-      const trks = shipments.map((s) => s.tracking).filter(Boolean);
-      const { data: liveBoxes } = await sb
-        .from("shipments")
-        .select("tracking, carrier_status, carrier_detected, est_delivery_date, delivered_at, last_scan")
-        .in("tracking", trks);
-      const liveByTrk = new Map<string, any>();
-      for (const b of (liveBoxes || []) as any[]) {
-        if (!liveByTrk.has(b.tracking) || b.delivered_at) liveByTrk.set(b.tracking, b);
-      }
-      shipmentsLive = shipments.map((s) => {
-        const lv = liveByTrk.get(s.tracking);
-        if (!lv) return s;
-        return {
-          ...s,
-          carrier: lv.carrier_detected || null,
-          carrierStatus: lv.carrier_status || null,
-          estDelivery: lv.est_delivery_date || null,
-          deliveredAt: lv.delivered_at || null,
-          lastScanLocation: lv.last_scan?.location || null,
-        };
-      });
-    }
+    // Client-facing shipments from the ledger: vendor→client boxes and HPD→client
+    // forwards, each with its destination. Inbound (vendor→HPD) never surfaces.
+    const shipmentsLive = await loadClientShipments(sb, { itemIds });
 
     let proofFiles: any[] = [];
     if (itemIds.length > 0) {
