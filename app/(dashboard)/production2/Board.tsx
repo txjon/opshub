@@ -304,6 +304,11 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
                               )}
                             </span>
                           )}
+                          {it.route === "drop_ship" && it.destinations.length > 1 && (
+                            <span title="Split shipment — owed per destination" style={{ fontSize: 10, fontWeight: 800, letterSpacing: 0.5, textTransform: "uppercase", color: T.muted }}>
+                              {it.destinations.map(d => `${d.label} ${d.owedTotal}`).join("  ·  ")}
+                            </span>
+                          )}
                         </div>
                         {/* per-item date override chip — the visible result of ⋯ → Adjust
                             date. Amber = this item runs on its own arrival, not the strip's. */}
@@ -664,7 +669,7 @@ function ShippedBoxCard({ box }: { box: ShippedBox }) {
 
   return (
     <Card>
-      <BoxHead vendor={box.vendorName} tag={routeLabel(box)} tagColor={T.blue}
+      <BoxHead vendor={box.destination ? `${box.vendorName} → ${box.destination}` : box.vendorName} tag={routeLabel(box)} tagColor={T.blue}
         method={box.pickup ? "Pickup" : box.tracking
           ? <>{box.carrier ? `${box.carrier} · ` : ""}<TrackingLink tracking={box.tracking} shipmentId={box.id} /></>
           : (box.carrier || "no tracking")}
@@ -747,11 +752,49 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
   const [slipFiles, setSlipFiles] = useState<File[]>([]);
   const [slipDrag, setSlipDrag] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  // ── destination (split shipments, mig 180) ──
+  // A vendor→client box goes to ONE address (R2). On a split project the
+  // operator picks which destination this box is for; counts default to what
+  // that destination is still owed. Unsplit drop-ship boxes still record the
+  // project's destination so the slip and hub know where it went.
+  const isDropLeg = items.length > 0 && items.every(it => it.route === "drop_ship");
+  const destOptionsOf = (list: SelItem[]) => {
+    const m = new Map<string, { locationId: string; label: string; address: string; owedTotal: number }>();
+    if (!isDropLeg) return [] as { locationId: string; label: string; address: string; owedTotal: number }[];
+    for (const it of list) for (const d of it.destinations) {
+      if (!d.locationId) continue;
+      const cur = m.get(d.locationId) || { locationId: d.locationId, label: d.label, address: d.address, owedTotal: 0 };
+      cur.owedTotal += d.owedTotal; m.set(d.locationId, cur);
+    }
+    return Array.from(m.values());
+  };
+  const pickDest = (list: SelItem[]) => { const o = destOptionsOf(list); return o.length ? o.slice().sort((a, b) => b.owedTotal - a.owedTotal)[0].locationId : null; };
+  const [destId, setDestId] = useState<string | null>(() => pickDest(items));
+  const destOptions = destOptionsOf(activeItems);
+  const dest = destOptions.find(d => d.locationId === destId) || null;
+  const isSplitBox = isDropLeg && destOptions.length > 1;
+  // what THIS box's destination is owed for an item (falls back to the item's owed when there is no destination)
+  const owedToDestOf = (it: SelItem, id: string | null) => {
+    if (!isDropLeg || !id) return Object.keys(it.owed).length ? it.owed : it.ordered;
+    const d = it.destinations.find(x => x.locationId === id);
+    return d ? d.owed : {};
+  };
+  const owedToDest = (it: SelItem) => owedToDestOf(it, destId);
+  const owedTotalFor = (it: SelItem) => isDropLeg && dest ? Object.values(owedToDest(it)).reduce((a, n) => a + n, 0) : it.owedTotal;
+  // units owed to OTHER destinations — while any remain, "final" makes no sense (H5)
+  const otherOwed = (it: SelItem) => isDropLeg && dest ? it.destinations.filter(x => x.locationId !== destId).reduce((a, x) => a + x.owedTotal, 0) : 0;
   const [qtys, setQtys] = useState<Record<string, Record<string, number>>>(() => {
     const init: Record<string, Record<string, number>> = {};
-    for (const it of items) init[it.itemId] = { ...(Object.keys(it.owed).length ? it.owed : it.ordered) };
+    const d0 = pickDest(items);
+    for (const it of items) init[it.itemId] = { ...owedToDestOf(it, d0) };
     return init;
   });
+  const chooseDest = (id: string) => {
+    setDestId(id);
+    setQtys(() => { const n: Record<string, Record<string, number>> = {}; for (const it of activeItems) n[it.itemId] = { ...owedToDestOf(it, id) }; return n; });
+    setFinal({}); setMoreComing({}); setDupHits(null);
+  };
+  const visibleItems = isSplitBox ? activeItems.filter(it => Object.values(owedToDest(it)).some(n => n > 0)) : activeItems;
   const [final, setFinal] = useState<Record<string, boolean>>({});
   // A wave that leaves an item ≤5% short forces an explicit call: final (book the
   // short) or more-coming (another wave). moreComing = the operator said "more".
@@ -808,11 +851,11 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
   const itemTotal = (id: string) => Object.values(qtys[id] || {}).reduce((a, n) => a + (Number(n) || 0), 0);
   const totalUnits = activeItems.reduce((a, it) => a + itemTotal(it.itemId), 0);
   // Gate: any item shipped ≤5% short with no explicit final/more-coming call yet.
-  const gateBlocked = activeItems.some(it => {
+  const gateBlocked = visibleItems.some(it => {
     const shippedNow = itemTotal(it.itemId);
-    const remainAfter = it.owedTotal - shippedNow;
+    const remainAfter = owedTotalFor(it) - shippedNow;
     const threshold = Math.max(1, Math.ceil(it.orderedTotal * 0.05));
-    return shippedNow > 0 && remainAfter > 0 && remainAfter <= threshold && !final[it.itemId] && !moreComing[it.itemId];
+    return otherOwed(it) === 0 && shippedNow > 0 && remainAfter > 0 && remainAfter <= threshold && !final[it.itemId] && !moreComing[it.itemId];
   });
 
   // Compute what remains owed after the wave we just shipped (final-flagged items
@@ -824,7 +867,13 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
       const shipped = qtys[it.itemId] || {};
       const owed: Record<string, number> = {};
       for (const sz of Object.keys(base)) owed[sz] = Math.max(0, (base[sz] || 0) - (shipped[sz] || 0));
-      return { ...it, owed, owedTotal: Object.values(owed).reduce((a, n) => a + n, 0) };
+      const destinations = it.destinations.map(d => {
+        if (!destId || d.locationId !== destId) return d;
+        const dOwed: Record<string, number> = {};
+        for (const sz of Object.keys(d.owed)) { const left = (d.owed[sz] || 0) - (shipped[sz] || 0); if (left > 0) dOwed[sz] = left; }
+        return { ...d, owed: dOwed, owedTotal: Object.values(dOwed).reduce((a, n) => a + n, 0) };
+      });
+      return { ...it, owed, owedTotal: Object.values(owed).reduce((a, n) => a + n, 0), destinations };
     }).filter(it => it.owedTotal > 0);
   }
   const setQ = (id: string, sz: string, v: string) =>
@@ -874,7 +923,8 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
       const res = await shipFromProduction(sb, {
         method, tracking: method === "tracking" ? ref : null, bol: method === "bol" ? ref : null,
         carrier, packingSlipFileId, note, decoratorId, decoratorName: vendorName,
-        items: activeItems.map(it => ({ itemId: it.itemId, jobId: it.jobId, itemName: it.name, qtys: qtys[it.itemId] || {}, final: !!final[it.itemId] })),
+        locationId: isDropLeg ? destId : null, shipToSnapshot: isDropLeg ? (dest?.address || null) : null,
+        items: activeItems.map(it => ({ itemId: it.itemId, jobId: it.jobId, itemName: it.name, qtys: qtys[it.itemId] || {}, final: !!final[it.itemId], route: it.route })),
       });
       setBusy(false); setBusyLabel("Shipping…");
       if (res.ok) {
@@ -895,7 +945,9 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
     const remaining = remainingAfterWave();
     if (!remaining.length) { onDone(); return; }
     const nextQ: Record<string, Record<string, number>> = {};
-    for (const it of remaining) nextQ[it.itemId] = { ...it.owed };
+    const nd = pickDest(remaining);
+    for (const it of remaining) nextQ[it.itemId] = { ...owedToDestOf(it, nd) };
+    setDestId(nd);
     setActiveItems(remaining);
     setQtys(nextQ); setFinal({}); setMoreComing({}); setRef(""); setSlipFiles([]); setDupHits(null);
     setNotified(false); setNotifyTo(null); setNotifyErr(null); setDone(null);
@@ -911,7 +963,7 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
         <div style={{ padding: "28px 26px", textAlign: "center" }}>
           <div style={{ width: 46, height: 46, borderRadius: 999, background: T.greenDim, color: T.green, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24, margin: "0 auto 12px" }}>✓</div>
           <div style={{ fontSize: 18, fontWeight: 700 }}>Shipped {done.shipped} units</div>
-          <div style={{ fontSize: 13, color: T.muted, marginTop: 3 }}>{vendorName} · {done.boxes} box{done.boxes > 1 ? "es" : ""} → {isDrop ? "client" : "receiving"}</div>
+          <div style={{ fontSize: 13, color: T.muted, marginTop: 3 }}>{vendorName} · {done.boxes} box{done.boxes > 1 ? "es" : ""} → {isDrop ? (dest ? dest.label : "client") : "receiving"}</div>
           <div style={{ fontSize: 13, color: T.muted, marginTop: 8 }}>
             {isDrop
               // drop_ship goes vendor→client — it never comes to HPD/Receiving.
@@ -957,6 +1009,24 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
         </div>
 
         <div style={{ padding: "18px 22px", display: "flex", flexDirection: "column", gap: 14 }}>
+          {/* destination — split drop-ship projects: which address is this box for? */}
+          {isSplitBox && (
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>Which address is this box for?</div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {destOptions.map(d => (
+                  <button key={d.locationId} onClick={() => chooseDest(d.locationId)}
+                    style={{ flex: 1, minWidth: 140, fontSize: 12, fontWeight: 600, padding: "8px 10px", borderRadius: 8, cursor: "pointer", border: `1px solid ${destId === d.locationId ? T.text : T.border}`, background: destId === d.locationId ? T.text : T.card, color: destId === d.locationId ? "#0a0a0a" : T.text }}>
+                    {d.label} <span style={{ fontFamily: mono, fontWeight: 700, opacity: 0.75 }}>· {d.owedTotal} owed</span>
+                  </button>
+                ))}
+              </div>
+              {dest && <div style={{ marginTop: 8, fontSize: 12, color: T.muted, whiteSpace: "pre-line", lineHeight: 1.45 }}>{dest.address}</div>}
+            </div>
+          )}
+          {isDropLeg && !isSplitBox && dest && (
+            <div style={{ fontSize: 12, color: T.muted }}><span style={{ fontSize: 10, fontWeight: 800, letterSpacing: 0.5, textTransform: "uppercase", marginRight: 8 }}>Ship to</span>{dest.label} · {dest.address.split("\n")[0]}</div>
+          )}
           {/* method */}
           <div>
             <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>How it's leaving</div>
@@ -998,22 +1068,28 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
 
           {/* per-item qty + final */}
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {activeItems.map(it => {
-              const sizes = sortSizes(Object.keys(it.owed).length ? Object.keys(it.owed) : Object.keys(it.ordered));
+            {visibleItems.map(it => {
+              const base = owedToDest(it);
+              const sizes = sortSizes(Object.keys(base).length ? Object.keys(base) : Object.keys(it.ordered));
               const shippedNow = itemTotal(it.itemId);
-              const remainAfter = it.owedTotal - shippedNow;
+              const remainAfter = owedTotalFor(it) - shippedNow;
               const threshold = Math.max(1, Math.ceil(it.orderedTotal * 0.05));
-              // Leaves a small (≤5%) short → force the final/more-coming call.
-              const nearShort = shippedNow > 0 && remainAfter > 0 && remainAfter <= threshold;
+              const elsewhere = otherOwed(it);   // units this item still owes to OTHER destinations
+              // Leaves a small (≤5%) short → force the final/more-coming call. Only
+              // on the last destination: while another address is owed, nothing is short.
+              const nearShort = elsewhere === 0 && shippedNow > 0 && remainAfter > 0 && remainAfter <= threshold;
               return (
                 <div key={it.itemId} style={{ border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 12px" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
                     <span style={{ fontSize: 13, fontWeight: 600 }}>{it.name}</span>
                     <span style={{ fontFamily: mono, fontSize: 12, color: T.muted }}>{itemTotal(it.itemId)}u</span>
                     <div style={{ flex: 1 }} />
-                    <label style={{ fontSize: 11, color: final[it.itemId] ? T.text : T.muted, fontWeight: final[it.itemId] ? 600 : 400, display: "flex", alignItems: "center", gap: 5, cursor: "pointer" }}>
+                    {elsewhere > 0 && (
+                      <span title="Final is offered on the box for the last destination" style={{ fontSize: 10, fontWeight: 800, letterSpacing: 0.4, textTransform: "uppercase", color: T.faint }}>{elsewhere} owed elsewhere</span>
+                    )}
+                    {elsewhere === 0 && <label style={{ fontSize: 11, color: final[it.itemId] ? T.text : T.muted, fontWeight: final[it.itemId] ? 600 : 400, display: "flex", alignItems: "center", gap: 5, cursor: "pointer" }}>
                       <input type="checkbox" checked={!!final[it.itemId]} onChange={e => setFinal(p => ({ ...p, [it.itemId]: e.target.checked }))} style={{ accentColor: T.blue }} /> final shipment
-                    </label>
+                    </label>}
                   </div>
                   <VariantGrid sizes={sizes} itemId={it.itemId} value={qtys[it.itemId] || {}} setQ={setQ} />
                   {nearShort && !final[it.itemId] && (

@@ -2,6 +2,7 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 import { NextRequest, NextResponse } from "next/server";
+import { loadJobShipTo } from "@/lib/destinations";
 import { mergeJobTypeMeta } from "@/lib/job-type-meta";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
@@ -49,7 +50,7 @@ export async function POST(req: NextRequest) {
     const admin = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
     // Load job + items + client shipping address
-    const { data: job } = await admin.from("jobs").select("*, clients(name, default_terms, shipping_address, allow_cc, allow_ach)").eq("id", jobId).single();
+    const { data: job } = await admin.from("jobs").select("*, clients(name, default_terms, allow_cc, allow_ach)").eq("id", jobId).single();
     if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
     // Internal lines (mig 164): production-only jobs, never real revenue —
     // pushing a QB invoice would just recreate the zero-out ritual in QB.
@@ -235,8 +236,7 @@ export async function POST(req: NextRequest) {
 
     const existingInvoiceId = job.type_meta?.qb_invoice_id;
 
-    const shipAddr = (job.type_meta as any)?.venue_address
-      || (job.clients as any)?.shipping_address || undefined;
+    const shipAddr = (await loadJobShipTo(admin, jobId))?.address || undefined;   // project destination (client address book)
 
     // Client's own PO # (their reference) → the QB invoice memo, so it shows on
     // the invoice they receive. It has its own field, not the job memo.

@@ -18,6 +18,7 @@ export type ShipItemInput = {
   itemId: string; jobId: string; itemName: string;
   qtys: Record<string, number>;   // per-size for THIS wave
   final: boolean;                  // this is the last shipment for the item
+  route?: string | null;           // effective route: drop_ship boxes are vendor→client ('direct'), else vendor→HPD ('inbound')
 };
 
 export async function shipFromProduction(sb: any, args: {
@@ -27,6 +28,8 @@ export async function shipFromProduction(sb: any, args: {
   carrier?: string | null;        // parcel carrier (tracking) or freight carrier (BOL)
   packingSlipFileId?: string | null;
   note?: string | null;
+  locationId?: string | null;       // vendor→client boxes: the destination (one per box, R2)
+  shipToSnapshot?: string | null;   // its address, frozen on the box
   decoratorId: string | null;
   decoratorName: string | null;
   items: ShipItemInput[];
@@ -54,6 +57,9 @@ export async function shipFromProduction(sb: any, args: {
         job_id: it.jobId, item_id: it.itemId, item_name: it.itemName,
         decorator_id: args.decoratorId, decorator_name: args.decoratorName,
         pickup_ready: pickup, ship_tracking: trackingOrBol, ship_date: shipDate,
+        direction: it.route === "drop_ship" ? "direct" : "inbound",
+        location_id: it.route === "drop_ship" ? (args.locationId || null) : null,
+        ship_to_snapshot: it.route === "drop_ship" ? (args.shipToSnapshot || null) : null,
         ship_qtys: qtys, carrier, warehouse_notes: args.note || null,
         packing_slip_file_id: args.packingSlipFileId || null,
       });
@@ -139,7 +145,7 @@ export async function findDuplicateShipHits(sb: any, args: {
     if (!isRealTracking(trk) || !args.itemIds.length) return [];
     const { data: ships } = await sb.from("shipments")
       .select("id, created_at, created_by, status")
-      .eq("direction", "inbound").eq("tracking", trk);
+      .in("direction", ["inbound", "direct"]).eq("tracking", trk);
     if (!ships?.length) return [];
     const shipById = new Map<string, any>(ships.map((s: any) => [s.id, s]));
     const { data: lines } = await sb.from("shipment_lines")

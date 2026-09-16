@@ -21,6 +21,8 @@ export type ForwardItemInput = { itemId: string; jobId: string; itemName: string
 export async function forwardToClient(sb: any, args: {
   jobId: string; items: ForwardItemInput[]; carrier: string | null; tracking: string | null;
   pickup?: boolean;  // client collected in person — no carrier, no tracking, no tracker
+  locationId?: string | null;      // the destination this box is for (client_locations, mig 180)
+  shipToSnapshot?: string | null;  // its address, frozen on the box — what the slip prints
 }): Promise<{ ok: boolean; shipmentId?: string; forwarded: number; error?: string }> {
   try {
     const now = new Date().toISOString();
@@ -34,6 +36,7 @@ export async function forwardToClient(sb: any, args: {
     const { data: ship, error: se } = await sb.from("shipments").insert({
       direction: "outbound", source: "decorator", decorator_id: null, group_key: groupKey,
       carrier: pickup ? null : (args.carrier || "").trim() || null, tracking, pickup, status: "closed", created_by: user?.id || null,
+      location_id: args.locationId || null, ship_to_snapshot: args.shipToSnapshot || null,
     }).select("id").single();
     if (se || !ship?.id) return { ok: false, forwarded: 0, error: se?.message || "Could not create the outbound shipment." };
 

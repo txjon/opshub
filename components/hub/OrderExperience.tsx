@@ -278,13 +278,15 @@ export function OrderExperience({ data, token, onAction }: {
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {data.shipments.map((s: any, i: number) => {
                 const params = new URLSearchParams({ portal: token, download: "1" });
-                if (s.forwardTracking) params.set("forwardTracking", s.forwardTracking);
+                // HPD → client: the outbound box IS the frozen manifest. Vendor → client: scope by vendor + tracking.
+                if (s.leg === "forward" && s.shipmentId) params.set("shipment", s.shipmentId);
+                else if (s.forwardTracking) params.set("forwardTracking", s.forwardTracking);
                 else { if (s.decoratorId) params.set("decoratorId", s.decoratorId); if (s.tracking) params.set("tracking", s.tracking); }
                 return (
                   <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", padding: "10px 12px", background: H.surface, borderRadius: 10 }}>
                     <div style={{ flex: 1, minWidth: 160 }}>
-                      <div style={{ fontFamily: H.mono, fontSize: 13, fontWeight: 700 }}>{s.tracking}</div>
-                      <div style={{ fontSize: 11, color: H.faint, marginTop: 2 }}>{s.itemCount} item{s.itemCount === 1 ? "" : "s"}</div>
+                      <div style={{ fontFamily: H.mono, fontSize: 13, fontWeight: 700 }}>{s.tracking || (s.pickup ? "Picked up" : "Shipped")}</div>
+                      <div style={{ fontSize: 11, color: H.faint, marginTop: 2 }}>{s.itemCount} item{s.itemCount === 1 ? "" : "s"}{s.destination ? ` · to ${s.destination}` : ""}</div>
                     </div>
                     {dl("Packing slip", `/api/pdf/packing-slip/${project.id}?${params.toString()}`)}
                   </div>

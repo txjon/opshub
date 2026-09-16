@@ -38,6 +38,8 @@ import { pushInvoiceToQB, recordPayment, cyclePaymentStatus, deletePayment, refr
 import { QBCustomerChooser } from "@/components/QBCustomerChooser";
 import { InvoiceVarianceReviewModal } from "@/components/InvoiceVarianceReviewModal";
 import { deriveInvoice } from "@/lib/job/invoice-derive";
+import { DestinationsPanel } from "@/components/DestinationsPanel";
+import { loadJobShipTo, type ShipTo } from "@/lib/destinations";
 import { applyPoSentToVendorItems, revertPoSentFromVendorItems } from "@/lib/po-actions";
 import { recalcJobPhase } from "@/lib/job-phase-recalc";
 import { PROOF_RENDERER_VERSION } from "@/lib/proof-client";
@@ -113,7 +115,7 @@ const ADD_SIZES = ["S", "M", "L", "XL", "2XL", "3XL", "OSFA"];
 const GARMENT_TYPES = ["accessory", "bandana", "banner", "beanie", "crewneck", "custom", "flag", "hat", "hoodie", "jacket", "koozie", "lighter", "longsleeve", "pants", "patch", "pin", "poster", "samples", "shorts", "socks", "sticker", "tee", "tote", "towel", "water_bottle"];
 const ADD_GARMENTS: [string, string][] = GARMENT_TYPES.map(t => [t, t.replace(/_/g, " ")]);
 
-export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: paymentsProp = [], contacts = [], thumbByItem = {} }: any) {
+export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: paymentsProp = [], contacts = [], thumbByItem = {}, shipTo: shipToProp = null }: any) {
   // Local state so edits reflect live; reseeds if the parent reloads. Note:
   // costing_data mutations are shown via the decoState overlay (not job here),
   // so cpFor(job) stays the DB baseline — don't mutate job.costing_data locally.
@@ -121,6 +123,9 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   useEffect(() => { setJob(jobProp); }, [jobProp]);
   const [items, setItems] = useState<any[]>(itemsProp);
   useEffect(() => { setItems(itemsProp); }, [itemsProp]);
+  // The project's ship-to (client address book, mig 180). Logistics edits it.
+  const [shipTo, setShipTo] = useState<ShipTo | null>(shipToProp);
+  useEffect(() => { setShipTo(shipToProp); }, [shipToProp]);
   const [payments, setPayments] = useState<any[]>(paymentsProp);
   useEffect(() => { setPayments(paymentsProp); }, [paymentsProp]);
   const [localContacts, setLocalContacts] = useState<any[]>(contacts);
@@ -570,15 +575,13 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       if (cc?.length) await (supabase.from("job_contacts") as any).insert(cc.map((c: any) => ({ job_id: job.id, contact_id: c.id, role_on_job: c.is_primary ? "primary" : "cc" })));
       const { data: freshJc }: any = await supabase.from("job_contacts").select("*, contacts(*)").eq("job_id", job.id);
       setLocalContacts(freshJc || []);
-      // Address + terms from the new client's profile; stale po_ship_to cleared.
-      const { data: row }: any = await supabase.from("clients").select("shipping_address, default_terms").eq("id", clientId).single();
-      const meta = { ...(job.type_meta || {}) };
-      if (row?.shipping_address) meta.venue_address = row.shipping_address; else delete meta.venue_address;
-      delete meta.po_ship_to;
-      const updates: any = { type_meta: meta };
+      // Terms from the new client's profile; ship-to falls to the new client's default location.
+      const { data: row }: any = await supabase.from("clients").select("default_terms").eq("id", clientId).single();
+      const updates: any = { ship_to_location_id: null };
       if (row?.default_terms) updates.payment_terms = row.default_terms;
       await (supabase.from("jobs") as any).update(updates).eq("id", job.id);
-      setJob((j: any) => ({ ...j, client_id: clientId, clients: { ...(j.clients || {}), id: clientId, name: clientName }, type_meta: meta, ...(row?.default_terms ? { payment_terms: row.default_terms } : {}) }));
+      setShipTo(await loadJobShipTo(supabase, job.id));
+      setJob((j: any) => ({ ...j, client_id: clientId, clients: { ...(j.clients || {}), id: clientId, name: clientName }, ship_to_location_id: null, ...(row?.default_terms ? { payment_terms: row.default_terms } : {}) }));
       logJobActivity(job.id, `Project reassigned to client: ${clientName}`);
       if (row?.default_terms) recalcPhase(); // new client's terms may move the payment gate
       setClientPick(false); setClientQuery("");
@@ -809,7 +812,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   // Ship-to resolves by route: drop_ship → client; ship_through/stage → HPD
   // warehouse (goods land with us first). Per-vendor defaults can still route
   // individual vendors to HPD on a drop_ship job — the PO handles that per vendor.
-  const clientAddr = tm.venue_address || job?.clients?.shipping_address || "";
+  const clientAddr = shipTo?.address || "";
   const address = route === "drop_ship" ? clientAddr : (route ? (warehouseAddr || "HPD warehouse") : clientAddr);
   const created = job?.created_at ? new Date(job.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—";
   const inHands = job?.target_ship_date ? new Date(job.target_ship_date + "T12:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—";
@@ -2134,7 +2137,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
               {!contactForm && <button onClick={() => setContactForm({ name: "", email: "", phone: "", role: "cc" })} style={{ ...ghostBtn, padding: "5px 11px", fontSize: 11 }}>+ Add</button>}
             </span>
           </div>
-          {localContacts.length === 0 && !contactForm ? <div style={{ fontSize: 12.5, color: T.muted }}>No contacts on this job.</div> : localContacts.map((c: any) => (
+          {localContacts.length === 0 && !contactForm ? <div style={{ fontSize: 12.5, color: T.muted }}>No contacts on this job — quotes and proofs have nowhere to go. Sync pulls in the client&rsquo;s contacts; + Add creates one.</div> : localContacts.map((c: any) => (
             <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 0", borderBottom: `1px solid ${T.border}44`, fontSize: 13 }}>
               <span style={{ flex: 1 }}>{c.contacts?.name || c.contacts?.email}<span style={{ color: T.faint }}> · {c.contacts?.email || "no email"}{c.role_on_job ? " · " + c.role_on_job : ""}</span></span>
               <button onClick={() => removeContact(c.id)} title="Remove" style={{ background: "none", border: "none", color: T.faint, fontSize: 14, cursor: "pointer" }}>×</button>
@@ -2403,6 +2406,12 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
               </div>
             );
           })()}
+          {/* Destinations: the project's ship-to (client address book) + per-item
+              per-size split across addresses. Mig 180. */}
+          <DestinationsPanel jobId={job.id} clientId={job.client_id || null} route={route} shipToLocationId={job.ship_to_location_id || null}
+            items={items.map((x: any) => ({ id: x.id, name: x.name, qtys: x.qtys || {} }))} isMobile={isMobile}
+            onShipToChange={(st) => { setShipTo(st); setJob((j: any) => ({ ...j, ship_to_location_id: st.locationId })); }}
+            onError={failed} />
           {/* packing slips — frozen per outbound shipment, or the live job-level slip */}
           {(() => {
             const hasShipping = items.some((x: any) => x.ship_tracking || x.received_at_hpd || x.pipeline_stage === "shipped");
@@ -3060,8 +3069,6 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                 <input key={"jt:" + job.title} defaultValue={job.title || ""} onBlur={e => { const v = e.target.value.trim(); if (!v || v === job.title) return; saveJobCol("title", v); fetch("/api/drive/rename", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ entity: "job", id: job.id, name: v }) }).catch(() => {}); }} style={field} /></label>
               <label><span style={{ ...lbl, display: "block", marginBottom: 5 }}>Requested in-hands date</span>
                 <input type="date" key={"jd:" + (job.target_ship_date || "")} defaultValue={job.target_ship_date || ""} onChange={e => { const v = e.target.value || null; saveJobCol("target_ship_date", v); if (v) saveJobCol("priority", calculatePriority(v)); }} style={field} /></label>
-              <label><span style={{ ...lbl, display: "block", marginBottom: 5 }}>Client delivery address</span>
-                <textarea key={"jv:" + (tm.venue_address || "")} defaultValue={tm.venue_address || ""} onBlur={e => saveTypeMeta({ venue_address: e.target.value.trim() || null })} rows={2} style={{ ...field, resize: "vertical" }} /></label>
               <label><span style={{ ...lbl, display: "block", marginBottom: 5 }}>Client PO #</span>
                 <input key={"jp:" + (tm.client_po_number || "")} defaultValue={tm.client_po_number || ""} onBlur={e => saveTypeMeta({ client_po_number: e.target.value.trim() || null })} style={field} /></label>
               <label><span style={{ ...lbl, display: "block", marginBottom: 5 }}>Project notes</span>

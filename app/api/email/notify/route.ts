@@ -550,6 +550,23 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      // Where this box is going (split shipments, mig 180): the vendor→client or
+      // HPD→client box under this tracking carries its destination + frozen address.
+      let destinationBlock = "";
+      if (trackingNumber) {
+        const { data: destBox } = await sb.from("shipments").select("ship_to_snapshot, client_locations(label)")
+          .in("direction", ["direct", "outbound"]).eq("tracking", String(trackingNumber).trim().toUpperCase()).order("created_at", { ascending: false }).limit(1).maybeSingle();
+        const label = (destBox as any)?.client_locations?.label || null;
+        const addr = (destBox as any)?.ship_to_snapshot || null;
+        if (addr) {
+          const esc = (t: string) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+          destinationBlock = `<div style="margin:14px 0 4px;padding:10px 14px;background:#f4f6f8;border-left:3px solid #73b6c9;border-radius:4px;">
+            <div style="font-size:11px;font-weight:800;letter-spacing:0.05em;text-transform:uppercase;color:#4a6c7a;margin-bottom:4px;">Shipping to${label ? " · " + esc(label) : ""}</div>
+            <div style="font-size:13px;color:#333;line-height:1.5;white-space:pre-line;">${esc(addr)}</div>
+          </div>`;
+        }
+      }
+
       // Subject + body per route
       let subject: string;
       let heading: string;
@@ -616,7 +633,7 @@ export async function POST(req: NextRequest) {
         heading,
         greeting,
         bodyHtml: customMessageHtml + bodyHtml + (pdfBuffer ? "" : `<br/><br/><em style="color:#888">Packing slip couldn't be attached — view it on the receiving board.</em>`),
-        extraHtml: trackingBlock(trackingNumber || null, carrier || null),
+        extraHtml: trackingBlock(trackingNumber || null, carrier || null) + (route === "drop_ship" ? destinationBlock : ""),
         cta: route === "drop_ship" && portalUrl ? { label: "Open project portal →", url: portalUrl, style: "outline" } : route !== "drop_ship" ? { label: "Open receiving →", url: `${await appBaseUrl()}/receiving`, style: "outline" } : undefined,
         closing,
       });

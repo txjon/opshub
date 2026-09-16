@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from "react";
 import { similarClients } from "@/lib/client-match";
 import { createClient } from "@/lib/supabase/client";
+import { createLocation } from "@/lib/destination-actions";
 import { useRouter, useSearchParams } from "next/navigation";
 import { T, font, mono } from "@/lib/theme";
 import { useIsMobile } from "@/lib/useIsMobile";
@@ -112,7 +113,6 @@ export default function NewJobPage() {
     if (nc.website.trim()) insertData.website = nc.website.trim();
     if (nc.billingAddress.trim()) insertData.billing_address = nc.billingAddress.trim();
     const shipAddr = nc.sameAsBilling ? nc.billingAddress.trim() : nc.shippingAddress.trim();
-    if (shipAddr) insertData.shipping_address = shipAddr;
     if (nc.taxExempt) insertData.tax_exempt = true;
 
     let { data, error: err } = await supabase.from("clients").insert(insertData).select("id, name, default_terms").single();
@@ -123,6 +123,8 @@ export default function NewJobPage() {
       data = retry.data; err = retry.error;
     }
     if (err || !data) { setSavingClient(false); setError(err?.message || "Failed to create client"); return; }
+    // Address book (mig 180): the shipping address is the client's Main location.
+    if (shipAddr) { try { await createLocation(supabase, { clientId: data.id, label: "Main", address: shipAddr }); } catch {} }
 
     // Create primary contact
     if (nc.contactName.trim() || nc.email.trim()) {

@@ -3,6 +3,7 @@ export const maxDuration = 60;
 export const preferredRegion = "iad1";
 
 import { NextRequest, NextResponse } from "next/server";
+import { vendorPaperShipTo, splitShipToHtml } from "@/lib/destinations";
 import { createClient } from "@supabase/supabase-js";
 import { createClient as createAuthClient } from "@/lib/supabase/server";
 import { generatePDF } from "@/lib/pdf/browser";
@@ -136,6 +137,7 @@ function renderRFQHTML(data: any): string {
       ${sizeGridHtml || (sizeStr ? `<div style="font-size:9px;color:#555;padding:3px 8px;background:#f7f7f7;border-radius:3px;margin-bottom:4px">
         <span style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#aaa;margin-right:6px">Sizes</span>${sizeStr}
       </div>` : "")}
+      ${splitShipToHtml(item.split_ship_to, sortSizes, mono)}
       ${item.drive_link ? `<div style="font-size:9px;margin-bottom:4px;padding:3px 8px;background:#f0f5ff;border-radius:3px">
         <span style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#888;margin-right:6px">Art / reference</span>
         <a href="${item.drive_link}" style="color:#1a56db">${item.drive_link}</a>
@@ -272,6 +274,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       const mockupFileId = mockupByItem[it.id];
       return {
         id: it.id,
+        shipping_route: it.shipping_route || null,   // per-item route override (lib/destinations effectiveRoute)
         name: it.name,
         blank_vendor: it.blank_vendor,
         blank_sku: it.blank_sku,
@@ -314,11 +317,14 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     // warehouse) then fall back to the tenant's own header address.
     const tenantWarehouse = `${branding.name}\n${(branding.fulfillmentAddressHtml || branding.headerAddressHtml).replace(/<br\/>/g, "\n")}`;
     const route = (job as any).shipping_route || "ship_through";
-    const perVendorShipTo = (job.type_meta as any)?.po_ship_to?.[vendorName];
-    const shipToAddress = perVendorShipTo
-      || (route === "drop_ship"
-        ? ((job.type_meta as any)?.venue_address || "Drop ship address — to be confirmed")
-        : tenantWarehouse);
+    // Same resolver as the PO so the vendor quotes against the address (or
+    // split) they will later receive on the purchase order.
+    const paper = await vendorPaperShipTo(supabase, {
+      jobId: job.id, jobRoute: route, vendorItems: mappedItems,
+      vendorDefaultRoute: route === "drop_ship" ? ((decoratorRecord as any)?.default_shipping_route || null) : null,
+      hpdBlock: tenantWarehouse,
+    });
+    const shipToAddress = paper.address || (route === "drop_ship" ? "Drop ship address — to be confirmed" : tenantWarehouse);
 
     const rfqData = {
       job_number: (job.job_number || "—") + (itemLetters ? `-${itemLetters}` : ""),
@@ -328,7 +334,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       vendor_short_code: (decoratorRecord as any)?.short_code || vendorName,
       ship_to_address: shipToAddress,
       shipping_route: route,
-      items: mappedItems,
+      items: mappedItems.map((it: any) => ({ ...it, split_ship_to: paper.perItem.get(it.id) || null })),
       branding,
     };
 

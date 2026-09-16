@@ -17,6 +17,7 @@ import { JobStatusBar } from "@/components/JobStatusBar";
 import { ItemsPeekRail } from "@/components/JobItemsPeek";
 import { deriveProjectStage } from "@/lib/project-stage";
 import { loadJobPhasesBatch } from "@/lib/item-state";
+import { ClientLocations } from "@/components/ClientLocations";
 
 const PURPLE = "#fd3aa3";
 // Forward Observations Group — their space carries a link to the internal
@@ -347,6 +348,8 @@ function Overview({ client, contacts, wire, model, briefs, secHead, onEdit }: an
               </div>
             </div>
           ))}
+          {/* Locations: the address book — left column, below People (Jon, Sep 15). */}
+          <div style={{ marginTop: 28 }}><ClientLocations clientId={client.id} secHead={secHead} /></div>
           {client.notes && (
             <>
               {secHead("Notes.", "the standing context")}
@@ -527,7 +530,7 @@ function EditClientModal({ client, contacts, onClose, onSaved }: any) {
   const [form, setForm] = useState<any>({
     name: client.name || "", client_type: client.client_type || "",
     default_terms: client.default_terms || "", website: client.website || "",
-    billing_address: client.billing_address || "", shipping_address: client.shipping_address || "",
+    billing_address: client.billing_address || "",
     notes: client.notes || "",
     tax_exempt: !!client.tax_exempt, allow_cc: client.allow_cc !== false, allow_ach: client.allow_ach !== false,
   });
@@ -629,7 +632,7 @@ function EditClientModal({ client, contacts, onClose, onSaved }: any) {
       const cPatch = {
         name: form.name.trim(), client_type: form.client_type || null,
         default_terms: form.default_terms || null, website: form.website.trim() || null,
-        billing_address: form.billing_address.trim() || null, shipping_address: form.shipping_address.trim() || null,
+        billing_address: form.billing_address.trim() || null,   // shipping address lives in Locations (client_locations)
         notes: form.notes.trim() || null,
         tax_exempt: !!form.tax_exempt, allow_cc: !!form.allow_cc, allow_ach: !!form.allow_ach,
       };
@@ -681,7 +684,6 @@ function EditClientModal({ client, contacts, onClose, onSaved }: any) {
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
             <div><span style={lab}>Billing address</span><textarea style={{ ...inp, minHeight: 76, resize: "vertical", lineHeight: 1.5 }} value={form.billing_address} onChange={e => setForm((f: any) => ({ ...f, billing_address: e.target.value }))} /></div>
-            <div><span style={lab}>Shipping address</span><textarea style={{ ...inp, minHeight: 76, resize: "vertical", lineHeight: 1.5 }} value={form.shipping_address} onChange={e => setForm((f: any) => ({ ...f, shipping_address: e.target.value }))} /></div>
           </div>
           <div><span style={lab}>Notes</span><textarea style={{ ...inp, minHeight: 64, resize: "vertical", lineHeight: 1.5 }} value={form.notes} onChange={e => setForm((f: any) => ({ ...f, notes: e.target.value }))} /></div>
 

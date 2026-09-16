@@ -24,6 +24,7 @@ type OrderItem = {
   incomingGoods: string | null; productionNotes: string | null;
   packingNotes: string | null; shipTracking: string | null;
   shipQtys: Record<string, number> | null; sizes: string[]; qtys: Record<string, number>;
+  splitShipTo?: { label: string; address: string; contactName: string | null; contactPhone: string | null; qtys: Record<string, number>; total: number }[] | null;
   totalQty: number; decoLines: DecoLine[]; itemTotal: number;
   mockupThumb: string | null; blanksOrdered: boolean;
 };
@@ -230,6 +231,26 @@ export default function VendorOrderPage({ params }: { params: { token: string; j
                     <div>
                       <div style={{ ...LBL, marginBottom: 4 }}>Sizes</div>
                       <SizeGrid labels={item.sizes} qtys={item.qtys} palette={{ text: C.text, muted: C.muted, faint: C.faint, border: C.border, surface: C.bg, accent: C.accent }} mono={C.mono} />
+                    </div>
+                  )}
+                  {item.splitShipTo && item.splitShipTo.length > 1 && (
+                    <div>
+                      <div style={{ ...LBL, marginBottom: 4 }}>Split shipment: this item ships to {item.splitShipTo.length} addresses</div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        {item.splitShipTo.map((d, di) => (
+                          <div key={di} style={{ display: "flex", gap: 12, alignItems: "flex-start", flexWrap: "wrap", padding: "8px 10px", border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 12.5 }}>
+                            <div style={{ flex: "0 0 180px", minWidth: 160 }}>
+                              <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: C.muted, marginBottom: 2 }}>{d.label}</div>
+                              <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{d.address}</div>
+                              {d.contactName && <div style={{ color: C.muted, marginTop: 2 }}>{d.contactName}{d.contactPhone ? ` · ${d.contactPhone}` : ""}</div>}
+                            </div>
+                            <div style={{ flex: 1, fontFamily: "ui-monospace, monospace", lineHeight: 1.6 }}>
+                              {sortSizes(Object.keys(d.qtys)).filter(sz => (d.qtys[sz] || 0) > 0).map(sz => `${sz} ${d.qtys[sz]}`).join(" · ")}
+                            </div>
+                            <div style={{ fontFamily: "ui-monospace, monospace", fontWeight: 800 }}>{d.total.toLocaleString()}</div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
                   {item.decoLines.length > 0 && (

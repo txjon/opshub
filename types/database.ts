@@ -685,6 +685,55 @@ export type Database = {
           { foreignKeyName: "client_files_company_id_fkey"; columns: ["company_id"]; isOneToOne: false; referencedRelation: "companies"; referencedColumns: ["id"] }
         ];
       };
+      client_locations: {
+        Row: {
+          id: string;
+          company_id: string | null;
+          client_id: string;
+          job_id: string | null;
+          label: string;
+          address: string;
+          contact_name: string | null;
+          contact_phone: string | null;
+          is_default: boolean;
+          active: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          company_id?: string | null;
+          client_id: string;
+          job_id?: string | null;
+          label: string;
+          address: string;
+          contact_name?: string | null;
+          contact_phone?: string | null;
+          is_default?: boolean;
+          active?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          company_id?: string | null;
+          client_id?: string;
+          job_id?: string | null;
+          label?: string;
+          address?: string;
+          contact_name?: string | null;
+          contact_phone?: string | null;
+          is_default?: boolean;
+          active?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          { foreignKeyName: "client_locations_company_id_fkey"; columns: ["company_id"]; isOneToOne: false; referencedRelation: "companies"; referencedColumns: ["id"] },
+          { foreignKeyName: "client_locations_client_id_fkey"; columns: ["client_id"]; isOneToOne: false; referencedRelation: "clients"; referencedColumns: ["id"] },
+          { foreignKeyName: "client_locations_job_id_fkey"; columns: ["job_id"]; isOneToOne: false; referencedRelation: "jobs"; referencedColumns: ["id"] }
+        ];
+      };
       client_proposal_items: {
         Row: {
           id: string;
@@ -785,7 +834,6 @@ export type Database = {
           qb_customer_id: string | null;
           website: string | null;
           billing_address: string | null;
-          shipping_address: string | null;
           tax_exempt: boolean;
           portal_token: string | null;
           portal_tier: string | null;
@@ -812,7 +860,6 @@ export type Database = {
           qb_customer_id?: string | null;
           website?: string | null;
           billing_address?: string | null;
-          shipping_address?: string | null;
           tax_exempt?: boolean;
           portal_token?: string | null;
           portal_tier?: string | null;
@@ -839,7 +886,6 @@ export type Database = {
           qb_customer_id?: string | null;
           website?: string | null;
           billing_address?: string | null;
-          shipping_address?: string | null;
           tax_exempt?: boolean;
           portal_token?: string | null;
           portal_tier?: string | null;
@@ -2138,6 +2184,43 @@ export type Database = {
           { foreignKeyName: "inventory_records_item_id_fkey"; columns: ["item_id"]; isOneToOne: false; referencedRelation: "items"; referencedColumns: ["id"] }
         ];
       };
+      item_destinations: {
+        Row: {
+          id: string;
+          company_id: string | null;
+          item_id: string;
+          location_id: string;
+          qtys: Json;
+          sort_order: number;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          company_id?: string | null;
+          item_id: string;
+          location_id: string;
+          qtys: Json;
+          sort_order?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          company_id?: string | null;
+          item_id?: string;
+          location_id?: string;
+          qtys?: Json;
+          sort_order?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          { foreignKeyName: "item_destinations_company_id_fkey"; columns: ["company_id"]; isOneToOne: false; referencedRelation: "companies"; referencedColumns: ["id"] },
+          { foreignKeyName: "item_destinations_item_id_fkey"; columns: ["item_id"]; isOneToOne: false; referencedRelation: "items"; referencedColumns: ["id"] },
+          { foreignKeyName: "item_destinations_location_id_fkey"; columns: ["location_id"]; isOneToOne: false; referencedRelation: "client_locations"; referencedColumns: ["id"] }
+        ];
+      };
       item_files: {
         Row: {
           id: string;
@@ -2621,6 +2704,7 @@ export type Database = {
           financial_closed_at: string | null;
           financial_closed_by: string | null;
           is_internal: boolean;
+          ship_to_location_id: string | null;
         };
         Insert: {
           id?: string;
@@ -2658,6 +2742,7 @@ export type Database = {
           financial_closed_at?: string | null;
           financial_closed_by?: string | null;
           is_internal?: boolean;
+          ship_to_location_id?: string | null;
         };
         Update: {
           id?: string;
@@ -2695,13 +2780,15 @@ export type Database = {
           financial_closed_at?: string | null;
           financial_closed_by?: string | null;
           is_internal?: boolean;
+          ship_to_location_id?: string | null;
         };
         Relationships: [
           { foreignKeyName: "jobs_client_id_fkey"; columns: ["client_id"]; isOneToOne: false; referencedRelation: "clients"; referencedColumns: ["id"] },
           { foreignKeyName: "jobs_parent_job_id_fkey"; columns: ["parent_job_id"]; isOneToOne: false; referencedRelation: "jobs"; referencedColumns: ["id"] },
           { foreignKeyName: "jobs_template_id_fkey"; columns: ["template_id"]; isOneToOne: false; referencedRelation: "job_templates"; referencedColumns: ["id"] },
           { foreignKeyName: "jobs_company_id_fkey"; columns: ["company_id"]; isOneToOne: false; referencedRelation: "companies"; referencedColumns: ["id"] },
-          { foreignKeyName: "jobs_release_id_fkey"; columns: ["release_id"]; isOneToOne: false; referencedRelation: "releases"; referencedColumns: ["id"] }
+          { foreignKeyName: "jobs_release_id_fkey"; columns: ["release_id"]; isOneToOne: false; referencedRelation: "releases"; referencedColumns: ["id"] },
+          { foreignKeyName: "jobs_ship_to_location_id_fkey"; columns: ["ship_to_location_id"]; isOneToOne: false; referencedRelation: "client_locations"; referencedColumns: ["id"] }
         ];
       };
       la_apparel_catalog: {
@@ -4199,6 +4286,8 @@ export type Database = {
           delivered_not_found_at: string | null;
           warehouse_notified_at: string | null;
           warehouse_notified_to: string | null;
+          location_id: string | null;
+          ship_to_snapshot: string | null;
         };
         Insert: {
           id?: string;
@@ -4231,6 +4320,8 @@ export type Database = {
           delivered_not_found_at?: string | null;
           warehouse_notified_at?: string | null;
           warehouse_notified_to?: string | null;
+          location_id?: string | null;
+          ship_to_snapshot?: string | null;
         };
         Update: {
           id?: string;
@@ -4263,10 +4354,13 @@ export type Database = {
           delivered_not_found_at?: string | null;
           warehouse_notified_at?: string | null;
           warehouse_notified_to?: string | null;
+          location_id?: string | null;
+          ship_to_snapshot?: string | null;
         };
         Relationships: [
           { foreignKeyName: "shipments_company_id_fkey"; columns: ["company_id"]; isOneToOne: false; referencedRelation: "companies"; referencedColumns: ["id"] },
-          { foreignKeyName: "shipments_decorator_id_fkey"; columns: ["decorator_id"]; isOneToOne: false; referencedRelation: "decorators"; referencedColumns: ["id"] }
+          { foreignKeyName: "shipments_decorator_id_fkey"; columns: ["decorator_id"]; isOneToOne: false; referencedRelation: "decorators"; referencedColumns: ["id"] },
+          { foreignKeyName: "shipments_location_id_fkey"; columns: ["location_id"]; isOneToOne: false; referencedRelation: "client_locations"; referencedColumns: ["id"] }
         ];
       };
       shipments_legacy_pre117: {

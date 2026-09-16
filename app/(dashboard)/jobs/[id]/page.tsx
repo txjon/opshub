@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { loadJobShipTo, type ShipTo } from "@/lib/destinations";
 import { useRouter } from "next/navigation";
 import { clientShippingRoutes } from "@/lib/tenants";
 import { useIsMobile } from "@/lib/useIsMobile";
@@ -161,6 +162,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   // shipment_lines by job_id and dedupe. Carrier signals only; delivered is
   // NOT received — counting stays on /receiving2.
   const [inboundBoxes, setInboundBoxes] = useState<any[]>([]);
+  const [shipTo, setShipTo] = useState<ShipTo | null>(null);
   useEffect(() => {
     if (!params.id) return;
     createClient().from("shipment_lines")
@@ -170,7 +172,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         const seen = new Map<string, any>();
         for (const l of (data || []) as any[]) {
           const s = l.shipments;
-          if (s && s.direction === "inbound") seen.set(s.id, s);
+          if (s && s.direction !== "outbound") seen.set(s.id, s);
         }
         setInboundBoxes(Array.from(seen.values()));
       });
@@ -343,18 +345,14 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   async function loadData() {
     setLoading(true);
     const [jobRes, itemsRes, paymentsRes, contactsRes] = await Promise.all([
-      supabase.from("jobs").select("*, clients(name, shipping_address)").eq("id", params.id).single(),
+      supabase.from("jobs").select("*, clients(name)").eq("id", params.id).single(),
       supabase.from("items").select("*, decorator_assignments(pipeline_stage, decoration_type, decorator_id, decorators(id, name, short_code)), buy_sheet_lines(size, qty_ordered, qty_shipped_from_vendor, qty_received_at_hpd)").eq("job_id", params.id).order("sort_order"),
       supabase.from("payment_records").select("*").eq("job_id", params.id).order("created_at"),
       supabase.from("job_contacts").select("*, contacts(*)").eq("job_id", params.id),
     ]);
     if (jobRes.data) {
-      const j = jobRes.data as any;
-      // Auto-fill shipping address from client profile if not set
-      if (!j.type_meta?.venue_address && j.clients?.shipping_address) {
-        j.type_meta = { ...(j.type_meta || {}), venue_address: j.clients.shipping_address };
-      }
-      setJob(j as Job);
+      setJob(jobRes.data as Job);
+      setShipTo(await loadJobShipTo(supabase, params.id));   // client address book (mig 180)
     }
     if (itemsRes.data) {
       const mapped = itemsRes.data.map((it: any) => {
@@ -470,11 +468,11 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   // Swap all client-tied fields on the job when the client changes
   // (e.g. duplicated job → reassigned to test client). Without this,
   // Send Quote/Invoice/PO emails the wrong contacts AND ships to the
-  // wrong address because job_contacts + venue_address still point at
+  // wrong address because job_contacts + the ship-to still point at
   // the original client.
   //
-  // Replaces: job_contacts, type_meta.venue_address, payment_terms.
-  // Clears:   type_meta.po_ship_to (per-vendor overrides reference the
+  // Replaces: job_contacts, ship_to_location_id (→ new client default), payment_terms.
+  // (pre-180 this also cleared type_meta.po_ship_to — per-vendor overrides referenced the
   //           old client's destination, no longer valid).
   // Leaves alone: QB invoice fields (those need explicit re-generation
   //               on the Invoice tab; we don't auto-clear them here so
@@ -502,28 +500,18 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
       setContacts([]);
     }
 
-    // 2. Address + payment terms — pull from new client's profile.
-    const { data: newClientRow } = await supabase
-      .from("clients")
-      .select("shipping_address, default_terms")
-      .eq("id", newClientId)
-      .single();
-    const newAddress = (newClientRow as any)?.shipping_address || null;
+    // 2. Payment terms from the new client's profile; ship-to falls to the new
+    //    client's default location (client address book, mig 180).
+    const { data: newClientRow } = await supabase.from("clients").select("default_terms").eq("id", newClientId).single();
     const newTerms = (newClientRow as any)?.default_terms || null;
-
-    // 3. type_meta — overwrite venue_address, clear po_ship_to.
-    const newMeta = { ...((job as any).type_meta || {}) };
-    if (newAddress) newMeta.venue_address = newAddress;
-    else delete newMeta.venue_address;
-    delete newMeta.po_ship_to;
-
-    const updates: any = { type_meta: newMeta };
+    const updates: any = { ship_to_location_id: null };
     if (newTerms) updates.payment_terms = newTerms;
     await supabase.from("jobs").update(updates).eq("id", job.id);
+    setShipTo(await loadJobShipTo(supabase, job.id));
 
     // Reflect in local state so the Overview shipping panel updates
     // immediately without a reload.
-    setJob(j => j ? ({ ...j, type_meta: newMeta, ...(newTerms ? { payment_terms: newTerms } : {}) } as any) : j);
+    setJob(j => j ? ({ ...j, ship_to_location_id: null, ...(newTerms ? { payment_terms: newTerms } : {}) } as any) : j);
   }
 
   // Centralized tab switch — flushes ALL pending saves before navigating
@@ -719,5 +707,5 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
   // CLASSIC DECOMMISSIONED (Sep 5 2026) — V2 has been the only daily driver
   // since the Jul 28 cutover; DMD (the cut-and-sew tenant the classic
   // fallback guarded) has zero jobs ever. ?classic=1 / ?v2=1 params retired.
-  return <JobDetailV2 job={job} items={items} payments={payments} contacts={contacts} thumbByItem={thumbByItem} />;
+  return <JobDetailV2 job={job} items={items} payments={payments} contacts={contacts} thumbByItem={thumbByItem} shipTo={shipTo} />;
 }

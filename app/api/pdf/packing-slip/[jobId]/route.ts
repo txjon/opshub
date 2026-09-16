@@ -2,6 +2,7 @@ export const runtime = "nodejs";
 export const maxDuration = 30;
 
 import { NextRequest, NextResponse } from "next/server";
+import { loadJobShipTo } from "@/lib/destinations";
 import { createClient } from "@supabase/supabase-js";
 import { createClient as createAuthClient } from "@/lib/supabase/server";
 import { generatePDF } from "@/lib/pdf/browser";
@@ -85,10 +86,12 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     const shipmentFilter = req.nextUrl.searchParams.get("shipment");
     let v2Tracking: string | null = null;
     let isV2Forward = false;
+    let frozenShipTo: string | null = null;   // the address as it was when the box left (mig 180)
     if (shipmentFilter) {
-      const { data: sh } = await supabase.from("shipments").select("id, tracking, pickup, direction").eq("id", shipmentFilter).single();
+      const { data: sh } = await supabase.from("shipments").select("id, tracking, pickup, direction, ship_to_snapshot").eq("id", shipmentFilter).single();
       if (sh && (sh as any).direction === "outbound") {
         v2Tracking = (sh as any).pickup ? "Pickup" : (sh as any).tracking || null;
+        frozenShipTo = (sh as any).ship_to_snapshot || null;
         const { data: lineRows } = await supabase.from("shipment_lines").select("item_id, ship_qtys").eq("shipment_id", shipmentFilter);
         boxLineByItem = new Map((lineRows || []).map((l: any) => [l.item_id, l]));
         vendorScopedItems = vendorScopedItems.filter((it: any) => boxLineByItem!.has(it.id));
@@ -212,7 +215,8 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
         return a + Object.values(continuing).reduce((b: number, v) => b + (v || 0), 0);
       }, 0);
 
-    const shipTo = (job.type_meta as any)?.venue_address || (job.type_meta as any)?.po_ship_to?.default || "";
+    // Frozen box address first; otherwise the project's current destination.
+    const shipTo = frozenShipTo || (await loadJobShipTo(supabase, job.id))?.address || "";
 
     const fnt = `'Helvetica Neue', Arial, sans-serif`;
     // format the date-only value (was printed as raw "YYYY-MM-DD" text);

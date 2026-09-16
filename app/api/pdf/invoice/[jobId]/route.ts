@@ -3,6 +3,7 @@ export const maxDuration = 60;
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { loadJobShipTo } from "@/lib/destinations";
 import { createClient as createAuthClient } from "@/lib/supabase/server";
 import { generatePDF } from "@/lib/pdf/browser";
 import { contentDisposition } from "@/lib/pdf/filename";
@@ -345,7 +346,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       terms,
       shipDate: latestEta ? new Date(latestEta + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "",
       clientName,
-      shipToAddress: job.type_meta?.venue_address || (job.clients as any)?.shipping_address || "",
+      shipToAddress: (await loadJobShipTo(supabase, job.id))?.address || "",   // project destination (client address book)
       notes: orderInfo.notes || job.notes || "",
       poNumber: (job.type_meta as any)?.client_po_number || "",
       prods,
