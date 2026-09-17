@@ -309,6 +309,11 @@ export default function DropsBoard() {
                     {dropValue > 0 && <span style={{ fontSize: 10.5, fontFamily: H.mono, color: H.dim }}>~${Math.round(dropValue).toLocaleString()} at retail{valueGaps > 0 ? ` · ${valueGaps} unpriced` : ""}</span>}
                     {soldValue > 0 && <span style={{ fontSize: 10.5, fontFamily: H.mono, color: H.green, fontWeight: 700 }}>${Math.round(soldValue).toLocaleString()} sold</span>}
                     {(() => {
+                      // Landed = the ledger's coverage over EVERY line with sales
+                      // (pipeline + re-run), not just pipeline items' own state —
+                      // that read 4/5 on a 6-line release (Sep 17).
+                      const c = coverageOf(r);
+                      if (c.lines) return <span style={{ fontSize: 10.5, fontFamily: H.mono, color: c.covered === c.lines ? H.green : H.amber, fontWeight: 700 }}>{c.covered}/{c.lines} landed</span>;
                       const pipe = r.slots.filter(isPipelineSlot);
                       if (!pipe.length) return null;
                       const landed = pipe.filter((s: any) => lineLanded(lineState(s, s.items, { releaseCut: cut, briefState: s.art_briefs?.state }))).length;
