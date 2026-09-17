@@ -323,6 +323,7 @@ export function AppShell({
             sectionByHref={HOUSE_SECTION_BY_HREF}
             utilities={[...utilityItems, ...(showRefs ? [{ href: "/references", label: "References" }] : []), ...sideQuestItems]}
             email={email}
+            onSignOut={signOut}
             onClose={() => setMenuOpen(false)}
           />
         )}
@@ -359,14 +360,6 @@ export function AppShell({
           <div style={{ flex: 1, minWidth: 0 }}>
             <GlobalSearch bar pages={searchPages} />
           </div>
-          <button type="button" onClick={signOut} title="Sign out" aria-label="Sign out"
-            style={{
-              width: 44, height: 44, borderRadius: 10, flexShrink: 0,
-              background: "transparent", border: "none", color: "#888", cursor: "pointer",
-              display: "flex", alignItems: "center", justifyContent: "center",
-            }}>
-            <LogOut size={17} />
-          </button>
         </div>
       )}
     </div>
@@ -377,7 +370,7 @@ export function AppShell({
 // ── MOBILE NAV MENU — the whole grouped nav in one sheet. The department
 // you're in comes first and open (its pages with their grey counts); the
 // other pillars sit collapsed beneath; admin utilities at the bottom.
-function MobileNavMenu({ groups, homes, currentGroup, pathname, inboxCount, sectionCounts, sectionByHref, utilities, email, onClose }: {
+function MobileNavMenu({ groups, homes, currentGroup, pathname, inboxCount, sectionCounts, sectionByHref, utilities, email, onSignOut, onClose }: {
   groups: { key: string; label: string; items: { href: string; label: string }[] }[];
   homes: Record<string, string | undefined>;
   currentGroup: string | null;
@@ -387,6 +380,7 @@ function MobileNavMenu({ groups, homes, currentGroup, pathname, inboxCount, sect
   sectionByHref: Record<string, string>;
   utilities: { href: string; label: string }[];
   email?: string | null;
+  onSignOut: () => void;
   onClose: () => void;
 }) {
   const ordered = [...groups].sort((a, b) => (a.key === currentGroup ? -1 : 0) - (b.key === currentGroup ? -1 : 0));
@@ -456,6 +450,13 @@ function MobileNavMenu({ groups, homes, currentGroup, pathname, inboxCount, sect
             {utilities.map(u => row(u.href, u.label))}
           </div>
         )}
+        <div style={{ borderTop: "1px solid rgba(255,255,255,0.09)", marginTop: 10, paddingTop: 10 }}>
+          <button type="button" onClick={onSignOut}
+            style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, minHeight: 48, padding: "0 14px", borderRadius: 10, border: "none", background: "transparent", color: "rgba(255,255,255,0.7)", fontSize: 15, fontWeight: 500, textAlign: "left", cursor: "pointer", font: "inherit" }}>
+            <LogOut size={16} />
+            <span>Sign out{email ? <span style={{ color: "rgba(255,255,255,0.4)" }}> · {email.split("@")[0]}</span> : null}</span>
+          </button>
+        </div>
       </div>
     </div>
   );
