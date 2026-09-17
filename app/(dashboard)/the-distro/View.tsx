@@ -87,9 +87,12 @@ export default function TheDistroView({ rows, drops }: { rows: ArrivalRow[]; dro
         supabase.from("job_activity").select("message, created_at, jobs(job_number, clients(name))").order("created_at", { ascending: false }).limit(40),
         // late landings: expected date passed, still not delivered — "where is it"
         // (moved here from The House — chasing boxes is dock work; Jon, Jul 22)
+        // inbound only: 'direct' shipments are drop-ship (vendor → client) and
+        // never land here. Status is 'expected' until received (the old
+        // pending/in_transit filter matched nothing — Sep 17).
         supabase.from("shipments")
           .select("id, expected_arrival, status, carrier, tracking_number, carrier_status, shipment_lines(item_id, items(name, jobs(job_number, clients(name))))")
-          .lt("expected_arrival", todayStr).in("status", ["pending", "in_transit", "exception"])
+          .eq("direction", "inbound").eq("status", "expected").lt("expected_arrival", todayStr)
           .order("expected_arrival").limit(6),
       ]);
       setPulls(pr || []); setFulfill(fj || []); setLateLandings(lateShips || []);
