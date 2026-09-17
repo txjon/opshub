@@ -12,6 +12,8 @@
 // The cut processes brief + re-run slots; pipeline slots are never re-made.
 // A lineup that is ALL pipeline just launches — nothing to cut, no sale close.
 
+import { sortSizes } from "@/lib/theme";
+
 export const isRerunLineId = (lineId?: string | null): boolean =>
   typeof lineId === "string" && lineId.startsWith("rerun:");
 
@@ -59,15 +61,22 @@ export const briefApproved = (state?: string | null): boolean =>
 
 export type SizeQty = { size: string; qty: number };
 
+// Size lists come out in garment order (S…3XL, lib/theme SIZE_ORDER), never
+// alphanumeric — "M L XL 2XL" read as a scramble (Jon, Sep 17 2026).
+const inSizeOrder = (list: SizeQty[]): SizeQty[] => {
+  const order = sortSizes(list.map(s => s.size));
+  return [...list].sort((a, b) => order.indexOf(a.size) - order.indexOf(b.size));
+};
+
 /** Total units across a slot's entered per-size numbers. Integer-only. */
 export const sumQtys = (qtys?: Record<string, unknown> | null): number =>
   Object.values(qtys || {}).reduce((a: number, b) => a + (Math.round(Number(b)) || 0), 0);
 
 /** The slot's entered numbers as a size list (zero rows dropped). */
 export const enteredSizes = (qtys?: Record<string, unknown> | null): SizeQty[] =>
-  Object.entries(qtys || {})
+  inSizeOrder(Object.entries(qtys || {})
     .map(([size, qty]) => ({ size, qty: Math.round(Number(qty)) || 0 }))
-    .filter(s => s.qty > 0);
+    .filter(s => s.qty > 0));
 
 // Item shapes both sides produce: the hub items API sends sizes[]; the
 // internal board joins buy_sheet_lines(size, qty_ordered) raw.
@@ -82,11 +91,11 @@ export type ItemLike = {
 } | null | undefined;
 
 export const itemRunSizes = (item: ItemLike): SizeQty[] =>
-  item?.sizes?.length
+  inSizeOrder(item?.sizes?.length
     ? item.sizes.filter(s => (s.qty || 0) > 0)
     : (item?.buy_sheet_lines || [])
         .map(l => ({ size: l.size, qty: Math.round(Number(l.qty_ordered)) || 0 }))
-        .filter(s => s.qty > 0);
+        .filter(s => s.qty > 0));
 
 /**
  * THE quantity precedence rule. An item is this line's run when the slot is
