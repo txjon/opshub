@@ -98,7 +98,7 @@ export const lineUnits = (
   slot: SlotLike & { qtys?: Record<string, unknown> | null },
   item: ItemLike,
   releaseCut: boolean,
-): { total: number; sizes: SizeQty[]; source: "item" | "slot" | "none" } => {
+): { total: number; sizes: SizeQty[]; source: "item" | "slot" | "sold" | "none" } => {
   const itemIsThisRun = !!(slot.item_id ?? slot.itemId) && (isPipelineSlot(slot) || releaseCut);
   if (itemIsThisRun && item) {
     const sizes = itemRunSizes(item);
@@ -106,7 +106,12 @@ export const lineUnits = (
     if (total > 0) return { total, sizes, source: "item" };
   }
   const sizes = enteredSizes(slot.qtys);
-  return { total: sumQtys(slot.qtys), sizes, source: sizes.length ? "slot" : "none" };
+  if (sizes.length) return { total: sumQtys(slot.qtys), sizes, source: "slot" };
+  // No hand-entered numbers → the sales import is the line's numbers (the
+  // multi-buy ledger; a re-run bought off its import read "no numbers yet").
+  const sold = enteredSizes((slot as any).sold_qtys);
+  if (sold.length) return { total: sumQtys((slot as any).sold_qtys), sizes: sold, source: "sold" };
+  return { total: 0, sizes: [], source: "none" };
 };
 
 /** Cut gate: every line the cut will birth has entered numbers. */

@@ -512,11 +512,15 @@ function OpsNumbers({ slot, onSave }: { slot: any; onSave: (q: Record<string, nu
   const [openEntry, setOpenEntry] = useState(false);
   const [q, setQ] = useState<Record<string, string>>(() => {
     const out: Record<string, string> = {};
-    for (const s of Array.from(new Set([...OPS_SIZES, ...Object.keys(slot.qtys || {})]))) out[s] = slot.qtys?.[s] != null ? String(slot.qtys[s]) : "";
+    // Entry starts from the hand-entered numbers, else from the sales import
+    // (the same fallback lineUnits uses) so editing a bought-off-import line
+    // doesn't begin from blanks.
+    const seed = Object.keys(slot.qtys || {}).length ? slot.qtys : (slot.sold_qtys || {});
+    for (const s of Array.from(new Set([...OPS_SIZES, ...Object.keys(seed || {})]))) out[s] = seed?.[s] != null ? String(seed[s]) : "";
     return out;
   });
   if (!openEntry) {
-    const has = Object.keys(slot.qtys || {}).length > 0;
+    const has = Object.keys(slot.qtys || {}).length > 0 || Object.keys(slot.sold_qtys || {}).length > 0;
     return (
       <button onClick={() => setOpenEntry(true)}
         style={{ background: has ? "none" : "#fff", color: has ? H.dim : H.ink, border: has ? `1px solid ${H.line}` : "none", borderRadius: 999, padding: "7px 12px", fontSize: 9, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>
