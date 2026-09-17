@@ -1711,14 +1711,13 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   };
 
   return (
-    <div style={{ fontFamily: font, color: T.text, maxWidth: 1120, margin: "0 auto", padding: "0 20px 80px" }}>
+    <div style={{ fontFamily: font, color: T.text, maxWidth: 1120, margin: "0 auto", padding: isMobile ? "0 4px 80px" : "0 20px 80px" }}>
       {/* top bar */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 0 6px", fontSize: 13 }}>
         <a href="/projects" style={{ color: T.muted, fontWeight: 700, textDecoration: "none" }}>‹ Projects</a>
         <div style={{ display: "flex", alignItems: "center", gap: 10, position: "relative" }}>
           <button onClick={() => setGuidePersist(!guide)} title="Show or hide the guides that explain each section" style={{ fontSize: 11, fontWeight: 800, color: guide ? "#0a0a0a" : T.muted, background: guide ? T.accent : "none", padding: "5px 11px", borderRadius: 999, border: `1px solid ${guide ? T.accent : T.border}`, cursor: "pointer", fontFamily: font }}>? Guide</button>
           <button onClick={() => setDetailsOpen(true)} style={{ fontSize: 11, fontWeight: 700, color: T.muted, background: "none", padding: "5px 11px", borderRadius: 999, border: `1px solid ${T.border}`, cursor: "pointer", fontFamily: font }}>Job details</button>
-          <a href={`/jobs/${job?.id}?classic=1`} style={{ fontSize: 11, fontWeight: 700, color: T.muted, textDecoration: "none", padding: "5px 11px", borderRadius: 999, border: `1px solid ${T.border}` }}>Classic ›</a>
           <button onClick={() => setMenuOpen(v => !v)} aria-label="More" style={{ width: 30, height: 30, borderRadius: 999, border: `1px solid ${T.border}`, background: "none", color: T.muted, fontSize: 16, cursor: "pointer", lineHeight: 1 }}>⋯</button>
           {menuOpen && (
             <>
