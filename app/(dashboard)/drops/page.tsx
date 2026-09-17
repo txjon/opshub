@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { H, HUB_PAGE } from "@/components/hub/theme";
 import { backwardChain } from "@/lib/portal/drop-chain";
-import { isPipelineSlot, isRerunSlot, lineupIsPipelineOnly, lineUnits, lineState, lineLanded, LINE_LABELS, releaseNumbersDone, buildLedger, suggestNextBuy, lineCovered, sumQtys, type LineTone, type Ledger } from "@/lib/release-lanes";
+import { isPipelineSlot, isRerunSlot, lineupIsPipelineOnly, lineUnits, lineState, lineLanded, LINE_LABELS, releaseNumbersDone, buildLedger, suggestNextBuy, lineCovered, lineBought, sumQtys, type LineTone, type Ledger } from "@/lib/release-lanes";
 import { fmtDay as fmtDate, daysUntilDay as daysTo } from "@/lib/dates";
 import { parseSalesCsv, matchSalesToSlots } from "@/lib/shopify-sales-import";
 import { sortSizes } from "@/lib/theme";
@@ -37,7 +37,21 @@ const STATUS_META: Record<string, { label: string; color: string }> = {
   live: { label: "Live", color: PURPLE },
   closed: { label: "Numbers in?", color: H.amber },
   cut: { label: "Cut", color: H.green },
+  done: { label: "Done", color: H.green },
   shelved: { label: "Shelved", color: H.faint },
+};
+
+// Multi-buy coverage for a closed release: lines with a ledger (sales import
+// and/or buys) and how many are covered (delivered ≥ sold, per size).
+// covered = landed ≥ sold (done); boughtOut = on order ≥ sold (buying is
+// finished, the rest is waiting on vendors). "Buy more" only when a size is
+// genuinely short of orders (FOG Aug 26: 5/6 landed, 6/6 bought — Sep 17).
+const coverageOf = (r: any): { lines: number; covered: number; boughtOut: number; bought: boolean } => {
+  const ledgered = (r.slots || []).filter((s: any) => hasLedger(s));
+  const ledgers: Ledger[] = ledgered.map((s: any) => ledgerOf(s));
+  const covered = ledgers.filter(l => l.totals.sold > 0 && lineCovered(l)).length;
+  const boughtOut = ledgers.filter(l => l.totals.sold > 0 && lineBought(l)).length;
+  return { lines: ledgered.length, covered, boughtOut, bought: (r.slots || []).some((s: any) => (s._buys || []).length > 0) };
 };
 
 export default function DropsBoard() {
@@ -164,7 +178,7 @@ export default function DropsBoard() {
       { key: "your_move", title: "Your move.", color: H.amber, hint: "submitted drops, ended sale windows, and closed sales ready to cut", list: list.filter((r: any) => r.status === "ready" || r.status === "closed" || (r.status === "live" && daysTo(r.window_close_date) != null && (daysTo(r.window_close_date) as number) <= 0)) },
       { key: "live", title: "Live now.", color: PURPLE, hint: "selling — close the sale when the window ends", list: list.filter((r: any) => r.status === "live" && !(daysTo(r.window_close_date) != null && (daysTo(r.window_close_date) as number) <= 0)) },
       { key: "building", title: "Building.", hint: "being assembled — by the client or by us, same powers", list: list.filter((r: any) => r.status === "building") },
-      { key: "cut", title: "Cut.", color: H.green, hint: "born as jobs — the floor has them", list: list.filter((r: any) => r.status === "cut") },
+      { key: "cut", title: "Done.", color: H.green, hint: "cut into a job or bought out — the floor has them", list: list.filter((r: any) => r.status === "cut" || r.status === "done") },
       { key: "shelved", title: "On ice.", hint: "", list: list.filter((r: any) => r.status === "shelved") },
     ].map(b => ({ ...b, numbersDone }));
   }, [rows]);
@@ -221,7 +235,15 @@ export default function DropsBoard() {
                           return dd != null && dd <= 0 ? H.red : dd != null && dd <= 3 ? H.amber : m.color;
                         })(), whiteSpace: "nowrap" }}>
                         {(() => {
-                          if (r.status === "closed") return nd ? "Numbers in — cut it" : "Awaiting numbers";
+                          if (r.status === "closed") {
+                            const c = coverageOf(r);
+                            if (c.bought) {
+                              if (c.lines > 0 && c.covered === c.lines) return `${c.covered}/${c.lines} lines landed — mark it done`;
+                              if (c.lines > 0 && c.boughtOut === c.lines) return `all bought · ${c.covered}/${c.lines} landed — waiting on the vendor`;
+                              return `${c.boughtOut}/${c.lines} lines bought — buy more`;
+                            }
+                            return nd ? "Numbers in — cut it" : "Awaiting numbers";
+                          }
                           if (r.status === "live" && lineupIsPipelineOnly(r.slots)) return "Launched";
                           if (r.status === "live") {
                             const dd = daysTo(r.window_close_date);
@@ -245,7 +267,7 @@ export default function DropsBoard() {
 
       {open && (() => {
         const r = (rows || []).find((x: any) => x.id === open.id) || open;
-        const cut = r.status === "cut";
+        const cut = r.status === "cut" || r.status === "done";
         const numbersDone = releaseNumbersDone(r.slots);
         const totalUnits = r.slots.reduce((a: number, s: any) => a + lineUnits(s, s.items, cut).total, 0);
         // Drop value: retail × run qty per line; unpriced/unquantified lines
@@ -287,6 +309,11 @@ export default function DropsBoard() {
                     {dropValue > 0 && <span style={{ fontSize: 10.5, fontFamily: H.mono, color: H.dim }}>~${Math.round(dropValue).toLocaleString()} at retail{valueGaps > 0 ? ` · ${valueGaps} unpriced` : ""}</span>}
                     {soldValue > 0 && <span style={{ fontSize: 10.5, fontFamily: H.mono, color: H.green, fontWeight: 700 }}>${Math.round(soldValue).toLocaleString()} sold</span>}
                     {(() => {
+                      // Landed = the ledger's coverage over EVERY line with sales
+                      // (pipeline + re-run), not just pipeline items' own state —
+                      // that read 4/5 on a 6-line release (Sep 17).
+                      const c = coverageOf(r);
+                      if (c.lines) return <span style={{ fontSize: 10.5, fontFamily: H.mono, color: c.covered === c.lines ? H.green : H.amber, fontWeight: 700 }}>{c.covered}/{c.lines} landed</span>;
                       const pipe = r.slots.filter(isPipelineSlot);
                       if (!pipe.length) return null;
                       const landed = pipe.filter((s: any) => lineLanded(lineState(s, s.items, { releaseCut: cut, briefState: s.art_briefs?.state }))).length;
@@ -410,7 +437,18 @@ export default function DropsBoard() {
                     Close the sale
                   </button>
                 )}
-                {r.status === "closed" && (
+                {r.status === "closed" && (() => {
+                  const c = coverageOf(r);
+                  const allCovered = c.lines > 0 && c.covered === c.lines;
+                  return c.bought ? (
+                    <button disabled={busy === r.id || !allCovered} title={allCovered ? "" : (c.boughtOut === c.lines ? `all bought · ${c.covered}/${c.lines} landed — waiting on the vendor` : `${c.boughtOut}/${c.lines} lines bought — buy more`)}
+                      onClick={() => act(r, "", "PATCH", { action: "done" })}
+                      style={{ background: allCovered ? H.green : "transparent", color: allCovered ? "#0a0a0a" : H.text, border: allCovered ? "none" : `1px solid ${H.line}`, borderRadius: 999, padding: "12px 22px", fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: allCovered ? "pointer" : "default", fontFamily: H.font, opacity: allCovered ? 1 : 0.6 }}>
+                      ✓ Mark done · {c.covered}/{c.lines} landed
+                    </button>
+                  ) : null;
+                })()}
+                {r.status === "closed" && !coverageOf(r).bought && (
                   <button disabled={busy === r.id || !numbersDone} title={numbersDone ? "" : "Waiting on the client's production numbers"}
                     onClick={async () => { const n = r.slots.filter((s: any) => !isPipelineSlot(s)).length; if (confirm(`CUT "${r.title}"? One job, ${n} item${n === 1 ? "" : "s"}, quantities from the entered numbers.`)) { const out = await act(r, "/cut", "POST"); if (out?.jobId) window.location.href = `/jobs/${out.jobId}`; } }}
                     style={{ background: numbersDone ? H.green : "transparent", color: numbersDone ? "#0a0a0a" : H.text, border: numbersDone ? "none" : `1px solid ${H.line}`, borderRadius: 999, padding: "13px 26px", fontSize: 11.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: numbersDone ? "pointer" : "default", opacity: numbersDone ? 1 : 0.4, fontFamily: H.font }}>
@@ -488,11 +526,15 @@ function OpsNumbers({ slot, onSave }: { slot: any; onSave: (q: Record<string, nu
   const [openEntry, setOpenEntry] = useState(false);
   const [q, setQ] = useState<Record<string, string>>(() => {
     const out: Record<string, string> = {};
-    for (const s of Array.from(new Set([...OPS_SIZES, ...Object.keys(slot.qtys || {})]))) out[s] = slot.qtys?.[s] != null ? String(slot.qtys[s]) : "";
+    // Entry starts from the hand-entered numbers, else from the sales import
+    // (the same fallback lineUnits uses) so editing a bought-off-import line
+    // doesn't begin from blanks.
+    const seed = Object.keys(slot.qtys || {}).length ? slot.qtys : (slot.sold_qtys || {});
+    for (const s of Array.from(new Set([...OPS_SIZES, ...Object.keys(seed || {})]))) out[s] = seed?.[s] != null ? String(seed[s]) : "";
     return out;
   });
   if (!openEntry) {
-    const has = Object.keys(slot.qtys || {}).length > 0;
+    const has = Object.keys(slot.qtys || {}).length > 0 || Object.keys(slot.sold_qtys || {}).length > 0;
     return (
       <button onClick={() => setOpenEntry(true)}
         style={{ background: has ? "none" : "#fff", color: has ? H.dim : H.ink, border: has ? `1px solid ${H.line}` : "none", borderRadius: 999, padding: "7px 12px", fontSize: 9, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>

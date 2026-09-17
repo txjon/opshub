@@ -4,7 +4,7 @@ const fs = require("fs");
 require("dotenv").config({ path: ".env.local", quiet: true });
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 (async () => {
-  const { error } = await supabase.rpc("exec_sql", { sql: fs.readFileSync("supabase/migrations/180_split_shipments_foundation.sql", "utf8") });
+  const { error } = await supabase.rpc("exec_sql", { sql: fs.readFileSync("supabase/migrations/180_release_done.sql", "utf8") });
   if (error) { console.error("RPC failed:\n", error.message); process.exit(1); }
   console.log("✓ Migration 180 applied.");
 })();

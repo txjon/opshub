@@ -12,6 +12,8 @@
 // The cut processes brief + re-run slots; pipeline slots are never re-made.
 // A lineup that is ALL pipeline just launches — nothing to cut, no sale close.
 
+import { sortSizes } from "@/lib/theme";
+
 export const isRerunLineId = (lineId?: string | null): boolean =>
   typeof lineId === "string" && lineId.startsWith("rerun:");
 
@@ -59,15 +61,22 @@ export const briefApproved = (state?: string | null): boolean =>
 
 export type SizeQty = { size: string; qty: number };
 
+// Size lists come out in garment order (S…3XL, lib/theme SIZE_ORDER), never
+// alphanumeric — "M L XL 2XL" read as a scramble (Jon, Sep 17 2026).
+const inSizeOrder = (list: SizeQty[]): SizeQty[] => {
+  const order = sortSizes(list.map(s => s.size));
+  return [...list].sort((a, b) => order.indexOf(a.size) - order.indexOf(b.size));
+};
+
 /** Total units across a slot's entered per-size numbers. Integer-only. */
 export const sumQtys = (qtys?: Record<string, unknown> | null): number =>
   Object.values(qtys || {}).reduce((a: number, b) => a + (Math.round(Number(b)) || 0), 0);
 
 /** The slot's entered numbers as a size list (zero rows dropped). */
 export const enteredSizes = (qtys?: Record<string, unknown> | null): SizeQty[] =>
-  Object.entries(qtys || {})
+  inSizeOrder(Object.entries(qtys || {})
     .map(([size, qty]) => ({ size, qty: Math.round(Number(qty)) || 0 }))
-    .filter(s => s.qty > 0);
+    .filter(s => s.qty > 0));
 
 // Item shapes both sides produce: the hub items API sends sizes[]; the
 // internal board joins buy_sheet_lines(size, qty_ordered) raw.
@@ -82,11 +91,11 @@ export type ItemLike = {
 } | null | undefined;
 
 export const itemRunSizes = (item: ItemLike): SizeQty[] =>
-  item?.sizes?.length
+  inSizeOrder(item?.sizes?.length
     ? item.sizes.filter(s => (s.qty || 0) > 0)
     : (item?.buy_sheet_lines || [])
         .map(l => ({ size: l.size, qty: Math.round(Number(l.qty_ordered)) || 0 }))
-        .filter(s => s.qty > 0);
+        .filter(s => s.qty > 0));
 
 /**
  * THE quantity precedence rule. An item is this line's run when the slot is
@@ -98,7 +107,7 @@ export const lineUnits = (
   slot: SlotLike & { qtys?: Record<string, unknown> | null },
   item: ItemLike,
   releaseCut: boolean,
-): { total: number; sizes: SizeQty[]; source: "item" | "slot" | "none" } => {
+): { total: number; sizes: SizeQty[]; source: "item" | "slot" | "sold" | "none" } => {
   const itemIsThisRun = !!(slot.item_id ?? slot.itemId) && (isPipelineSlot(slot) || releaseCut);
   if (itemIsThisRun && item) {
     const sizes = itemRunSizes(item);
@@ -106,13 +115,21 @@ export const lineUnits = (
     if (total > 0) return { total, sizes, source: "item" };
   }
   const sizes = enteredSizes(slot.qtys);
-  return { total: sumQtys(slot.qtys), sizes, source: sizes.length ? "slot" : "none" };
+  if (sizes.length) return { total: sumQtys(slot.qtys), sizes, source: "slot" };
+  // No hand-entered numbers → the sales import is the line's numbers (the
+  // multi-buy ledger; a re-run bought off its import read "no numbers yet").
+  const sold = enteredSizes((slot as any).sold_qtys);
+  if (sold.length) return { total: sumQtys((slot as any).sold_qtys), sizes: sold, source: "sold" };
+  return { total: 0, sizes: [], source: "none" };
 };
 
 /** Cut gate: every line the cut will birth has entered numbers. */
-export const releaseNumbersDone = (slots: (SlotLike & { qtys?: Record<string, unknown> | null })[]): boolean => {
+// Numbers are "in" for a line when the client entered them (qtys) OR the sale
+// imported them (sold_qtys — the multi-buy ledger). A re-run bought twice off
+// its sales import read "awaiting numbers" forever (FOG Aug 26, Sep 17 2026).
+export const releaseNumbersDone = (slots: (SlotLike & { qtys?: Record<string, unknown> | null; sold_qtys?: Record<string, unknown> | null })[]): boolean => {
   const cuttable = slots.filter(s => !isPipelineSlot(s));
-  return cuttable.length > 0 && cuttable.every(s => sumQtys(s.qtys) > 0);
+  return cuttable.length > 0 && cuttable.every(s => sumQtys(s.qtys) > 0 || sumQtys(s.sold_qtys) > 0);
 };
 
 // ── Line state: one truth, two label registers ─────────────────────────
@@ -217,6 +234,11 @@ export const suggestNextBuy = (ledger: Ledger, overagePct: number): Record<strin
 /** A line is covered when every sold size has landed at least that many. */
 export const lineCovered = (ledger: Ledger): boolean =>
   Object.keys(ledger.sold).every(s => (ledger.delivered[s] || 0) >= ledger.sold[s]);
+
+/** A line is bought when every sold size has at least that many on order —
+ *  the buying is done; what's left is waiting on the vendor. */
+export const lineBought = (ledger: Ledger): boolean =>
+  Object.keys(ledger.sold).every(s => (ledger.bought[s] || 0) >= ledger.sold[s]);
 
 /** Finished = window passed AND every line covered. daysToClose from lib/dates. */
 export const releaseFinished = (daysToClose: number | null, ledgers: Ledger[]): boolean =>
