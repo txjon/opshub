@@ -46,6 +46,7 @@ import { PROOF_RENDERER_VERSION } from "@/lib/proof-client";
 import { clientShippingRoutes } from "@/lib/tenants";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { backOrigin } from "@/lib/back-nav";
+import { patchJobTypeMeta } from "@/lib/job-type-meta";
 import { similarClients } from "@/lib/client-match";
 import { calculatePriority } from "@/lib/dates";
 import { SHIP_METHODS } from "@/lib/ship-methods";
@@ -628,10 +629,15 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     // payment) — recompute so switching terms opens/closes "ready" immediately.
     if (col === "payment_terms") recalcPhase();
   };
+  // Every type_meta write on this page goes through patchJobTypeMeta
+  // (read-merge-write on the LIVE row). A whole-blob update built from page
+  // state silently lost to the mig-176 guard once the server had added a
+  // key behind the page's back — PO sends recorded no vendor (Sep 17 2026).
   const saveTypeMeta = async (patch: Record<string, any>) => {
     const meta = { ...(job.type_meta || {}), ...patch };
     setJob((j: any) => ({ ...j, type_meta: meta }));
-    try { await (createClient().from("jobs") as any).update({ type_meta: meta }).eq("id", job.id); } catch (e) { failed("SaveTypeMeta failed — not saved", e); }
+    const r = await patchJobTypeMeta(createClient(), job.id, tm => ({ ...tm, ...patch }));
+    if (!r.ok) failed("SaveTypeMeta failed — not saved", new Error(r.error));
     // invoice_extra_lines feed costing_summary (feeRevenue / passthruTotal) —
     // refresh so KPIs don't lag additional-charge edits. Scoped to that key;
     // other type_meta keys (venue, PO#, notes) don't touch the summary.
@@ -1201,9 +1207,10 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     const supabase = createClient();
     try {
       await applyPoSentToVendorItems(supabase, job.id, vendor);
-      const meta = { ...(job.type_meta || {}), po_sent_vendors: Array.from(new Set([...(job.type_meta?.po_sent_vendors || []), vendor])), po_sent_dates: { ...(job.type_meta?.po_sent_dates || {}), [vendor]: new Date().toISOString().slice(0, 10) } };
-      await (supabase.from("jobs") as any).update({ type_meta: meta }).eq("id", job.id);
-      setJob((j: any) => ({ ...j, type_meta: { ...j.type_meta, ...meta } }));
+      const sentOn = new Date().toISOString().slice(0, 10);
+      const r = await patchJobTypeMeta(supabase, job.id, tm => ({ ...tm, po_sent_vendors: Array.from(new Set([...(tm.po_sent_vendors || []), vendor])), po_sent_dates: { ...(tm.po_sent_dates || {}), [vendor]: sentOn } }));
+      if (!r.ok) throw new Error(r.error);
+      setJob((j: any) => ({ ...j, type_meta: { ...j.type_meta, po_sent_vendors: Array.from(new Set([...(j.type_meta?.po_sent_vendors || []), vendor])), po_sent_dates: { ...(j.type_meta?.po_sent_dates || {}), [vendor]: sentOn } } }));
       setItems(prev => prev.map(x => (cpFor(x)?.printVendor || x.decorator || "Unassigned") === vendor && x.pipeline_stage !== "shipped" ? { ...x, pipeline_stage: "in_production" } : x));
       logJobActivity(job.id, `PO for ${vendor} manually marked sent`);
       recalcPhase();
@@ -1213,9 +1220,9 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     const supabase = createClient();
     try {
       await revertPoSentFromVendorItems(supabase, job.id, vendor);
-      const meta = { ...(job.type_meta || {}), po_sent_vendors: (job.type_meta?.po_sent_vendors || []).filter((v: string) => v !== vendor) };
-      await (supabase.from("jobs") as any).update({ type_meta: meta }).eq("id", job.id);
-      setJob((j: any) => ({ ...j, type_meta: meta }));
+      const r = await patchJobTypeMeta(supabase, job.id, tm => ({ ...tm, po_sent_vendors: (tm.po_sent_vendors || []).filter((v: string) => v !== vendor) }));
+      if (!r.ok) throw new Error(r.error);
+      setJob((j: any) => ({ ...j, type_meta: { ...j.type_meta, po_sent_vendors: (j.type_meta?.po_sent_vendors || []).filter((v: string) => v !== vendor) } }));
       setItems(prev => prev.map(x => (cpFor(x)?.printVendor || x.decorator || "Unassigned") === vendor && x.pipeline_stage === "in_production" ? { ...x, pipeline_stage: null } : x));
       logJobActivity(job.id, `PO for ${vendor} unmarked`);
       recalcPhase();
@@ -1254,16 +1261,18 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       const supabase = createClient();
       const [to, ...cc] = emails;
       const alreadySent = ((job.type_meta?.po_sent_vendors) || []).includes(poVendor);
-      const meta = { ...(job.type_meta || {}), po_ship_dates: { ...(job.type_meta?.po_ship_dates || {}), [poVendor]: poShipDate }, po_ship_methods: { ...(job.type_meta?.po_ship_methods || {}), [poVendor]: poMethod || null } };
-      await (supabase.from("jobs") as any).update({ type_meta: meta }).eq("id", job.id);
+      const r1 = await patchJobTypeMeta(supabase, job.id, tm => ({ ...tm, po_ship_dates: { ...(tm.po_ship_dates || {}), [poVendor]: poShipDate }, po_ship_methods: { ...(tm.po_ship_methods || {}), [poVendor]: poMethod || null } }));
+      if (!r1.ok) throw new Error(r1.error);
       const r = await fetch("/api/email/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "po", jobId: job.id, vendor: poVendor, recipientEmail: to, ccEmails: cc, revised: alreadySent }) });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "PO email failed");
       await applyPoSentToVendorItems(supabase, job.id, poVendor);
       try { await fetch(`/api/jobs/${job.id}/snapshot-po`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ vendor: poVendor }) }); } catch {}
-      const sentVendors = Array.from(new Set([...(job.type_meta?.po_sent_vendors || []), poVendor]));
-      const meta2 = { ...meta, po_sent_vendors: sentVendors, po_sent_dates: { ...(job.type_meta?.po_sent_dates || {}), [poVendor]: new Date().toISOString().slice(0, 10) } };
-      await (supabase.from("jobs") as any).update({ type_meta: meta2 }).eq("id", job.id);
-      setJob((j: any) => ({ ...j, type_meta: { ...j.type_meta, ...meta2 } }));
+      // record the send on the LIVE row (the server just added the cost
+      // snapshot + sent-PDF refs; a stale whole-blob write is refused)
+      const sentOn = new Date().toISOString().slice(0, 10);
+      const r2 = await patchJobTypeMeta(supabase, job.id, tm => ({ ...tm, po_sent_vendors: Array.from(new Set([...(tm.po_sent_vendors || []), poVendor])), po_sent_dates: { ...(tm.po_sent_dates || {}), [poVendor]: sentOn } }));
+      if (!r2.ok) throw new Error(`PO emailed, but recording it failed: ${r2.error}`);
+      refetchTypeMeta();
       setItems(prev => prev.map(x => (cpFor(x)?.printVendor || x.decorator || "Unassigned") === poVendor && x.pipeline_stage !== "shipped" ? { ...x, pipeline_stage: "in_production" } : x));
       setPoVendor(null);
       recalcPhase();
@@ -1545,9 +1554,8 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   };
   const toggleUnlock = async () => {
     const unlocked = !job?.type_meta?.costing_unlocked;
-    const meta = { ...(job.type_meta || {}), costing_unlocked: unlocked };
-    setJob((j: any) => ({ ...j, type_meta: meta }));
-    try { await (createClient().from("jobs") as any).update({ type_meta: meta }).eq("id", job.id); logJobActivity(job.id, unlocked ? "Costing unlocked to revise" : "Costing re-locked"); } catch (e) { failed("Lock toggle failed — not saved", e); }
+    setJob((j: any) => ({ ...j, type_meta: { ...(j.type_meta || {}), costing_unlocked: unlocked } }));
+    try { const r = await patchJobTypeMeta(createClient(), job.id, tm => ({ ...tm, costing_unlocked: unlocked })); if (!r.ok) throw new Error(r.error); logJobActivity(job.id, unlocked ? "Costing unlocked to revise" : "Costing re-locked"); } catch (e) { failed("Lock toggle failed — not saved", e); }
   };
   const calcFor = (item: any) => {
     if (!Object.keys(printers).length) return null;             // wait for decorator pricing
@@ -2059,10 +2067,10 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                         <button onClick={async () => {
                           if (!reopenArm) { setReopenArm(true); setTimeout(() => setReopenArm(false), 4000); return; }
                           setReopenArm(false);
-                          const tm = { ...(job.type_meta || {}) };
-                          delete tm.qb_variance_pushed_at; delete tm.qb_variance_total; delete tm.qb_variance_tax; delete tm.qb_variance_billable_qtys;
-                          await (createClient().from("jobs") as any).update({ type_meta: tm }).eq("id", job.id);
-                          setJob((j: any) => ({ ...j, type_meta: tm }));
+                          const clear = (tm: Record<string, any>) => { delete tm.qb_variance_pushed_at; delete tm.qb_variance_total; delete tm.qb_variance_tax; delete tm.qb_variance_billable_qtys; delete tm.qb_variance_as_billed; return tm; };
+                          const r = await patchJobTypeMeta(createClient(), job.id, tm => clear({ ...tm }));
+                          if (!r.ok) { failed("Reopen failed — not saved", new Error(r.error)); return; }
+                          setJob((j: any) => ({ ...j, type_meta: clear({ ...(j.type_meta || {}) }) }));
                           try { logJobActivity(job.id, "Invoice reconcile reopened — finalization cleared"); } catch {}
                           refetchTypeMeta();
                         }} style={{ background: "none", border: "none", color: reopenArm ? T.red : T.faint, fontSize: 10.5, fontWeight: 700, cursor: "pointer", fontFamily: font }}>
