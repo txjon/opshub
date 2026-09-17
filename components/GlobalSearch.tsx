@@ -231,7 +231,7 @@ export function GlobalSearch({ bar = false, pages = [] }: {
 
   return (
     <>
-      {/* Trigger — bar pill (mobile bottom bar), compact icon, or desktop field. */}
+      {/* Trigger — bar pill (mobile bottom bar) or desktop field. */}
       {bar ? (
         <button onClick={openSearch}
           aria-label="Search and navigate"
