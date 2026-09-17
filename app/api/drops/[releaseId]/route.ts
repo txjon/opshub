@@ -26,6 +26,7 @@ const ALLOWED: Record<string, string[]> = {
   ready: ["building"],
   live: ["ready"],
   closed: ["live"],
+  done: ["closed"],     // multi-buy release bought out — every line covered
   shelved: ["building", "ready", "live", "closed"],
   building: ["ready", "shelved"],
 };

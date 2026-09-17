@@ -37,7 +37,16 @@ const STATUS_META: Record<string, { label: string; color: string }> = {
   live: { label: "Live", color: PURPLE },
   closed: { label: "Numbers in?", color: H.amber },
   cut: { label: "Cut", color: H.green },
+  done: { label: "Done", color: H.green },
   shelved: { label: "Shelved", color: H.faint },
+};
+
+// Multi-buy coverage for a closed release: lines with a ledger (sales import
+// and/or buys) and how many are covered (delivered ≥ sold, per size).
+const coverageOf = (r: any): { lines: number; covered: number; bought: boolean } => {
+  const ledgered = (r.slots || []).filter((s: any) => hasLedger(s));
+  const covered = ledgered.filter((s: any) => { const l = ledgerOf(s); return l.totals.sold > 0 && lineCovered(l); }).length;
+  return { lines: ledgered.length, covered, bought: (r.slots || []).some((s: any) => (s._buys || []).length > 0) };
 };
 
 export default function DropsBoard() {
@@ -164,7 +173,7 @@ export default function DropsBoard() {
       { key: "your_move", title: "Your move.", color: H.amber, hint: "submitted drops, ended sale windows, and closed sales ready to cut", list: list.filter((r: any) => r.status === "ready" || r.status === "closed" || (r.status === "live" && daysTo(r.window_close_date) != null && (daysTo(r.window_close_date) as number) <= 0)) },
       { key: "live", title: "Live now.", color: PURPLE, hint: "selling — close the sale when the window ends", list: list.filter((r: any) => r.status === "live" && !(daysTo(r.window_close_date) != null && (daysTo(r.window_close_date) as number) <= 0)) },
       { key: "building", title: "Building.", hint: "being assembled — by the client or by us, same powers", list: list.filter((r: any) => r.status === "building") },
-      { key: "cut", title: "Cut.", color: H.green, hint: "born as jobs — the floor has them", list: list.filter((r: any) => r.status === "cut") },
+      { key: "cut", title: "Done.", color: H.green, hint: "cut into a job or bought out — the floor has them", list: list.filter((r: any) => r.status === "cut" || r.status === "done") },
       { key: "shelved", title: "On ice.", hint: "", list: list.filter((r: any) => r.status === "shelved") },
     ].map(b => ({ ...b, numbersDone }));
   }, [rows]);
@@ -221,7 +230,11 @@ export default function DropsBoard() {
                           return dd != null && dd <= 0 ? H.red : dd != null && dd <= 3 ? H.amber : m.color;
                         })(), whiteSpace: "nowrap" }}>
                         {(() => {
-                          if (r.status === "closed") return nd ? "Numbers in — cut it" : "Awaiting numbers";
+                          if (r.status === "closed") {
+                            const c = coverageOf(r);
+                            if (c.bought) return c.lines > 0 && c.covered === c.lines ? `${c.covered}/${c.lines} lines covered — mark it done` : `${c.covered}/${c.lines} lines covered — buy more`;
+                            return nd ? "Numbers in — cut it" : "Awaiting numbers";
+                          }
                           if (r.status === "live" && lineupIsPipelineOnly(r.slots)) return "Launched";
                           if (r.status === "live") {
                             const dd = daysTo(r.window_close_date);
@@ -245,7 +258,7 @@ export default function DropsBoard() {
 
       {open && (() => {
         const r = (rows || []).find((x: any) => x.id === open.id) || open;
-        const cut = r.status === "cut";
+        const cut = r.status === "cut" || r.status === "done";
         const numbersDone = releaseNumbersDone(r.slots);
         const totalUnits = r.slots.reduce((a: number, s: any) => a + lineUnits(s, s.items, cut).total, 0);
         // Drop value: retail × run qty per line; unpriced/unquantified lines
@@ -410,7 +423,18 @@ export default function DropsBoard() {
                     Close the sale
                   </button>
                 )}
-                {r.status === "closed" && (
+                {r.status === "closed" && (() => {
+                  const c = coverageOf(r);
+                  const allCovered = c.lines > 0 && c.covered === c.lines;
+                  return c.bought ? (
+                    <button disabled={busy === r.id || !allCovered} title={allCovered ? "" : `${c.covered}/${c.lines} lines covered — buy more or wait for landings`}
+                      onClick={() => act(r, "", "PATCH", { action: "done" })}
+                      style={{ background: allCovered ? H.green : "transparent", color: allCovered ? "#0a0a0a" : H.text, border: allCovered ? "none" : `1px solid ${H.line}`, borderRadius: 999, padding: "12px 22px", fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: allCovered ? "pointer" : "default", fontFamily: H.font, opacity: allCovered ? 1 : 0.6 }}>
+                      ✓ Mark done · {c.covered}/{c.lines} covered
+                    </button>
+                  ) : null;
+                })()}
+                {r.status === "closed" && !coverageOf(r).bought && (
                   <button disabled={busy === r.id || !numbersDone} title={numbersDone ? "" : "Waiting on the client's production numbers"}
                     onClick={async () => { const n = r.slots.filter((s: any) => !isPipelineSlot(s)).length; if (confirm(`CUT "${r.title}"? One job, ${n} item${n === 1 ? "" : "s"}, quantities from the entered numbers.`)) { const out = await act(r, "/cut", "POST"); if (out?.jobId) window.location.href = `/jobs/${out.jobId}`; } }}
                     style={{ background: numbersDone ? H.green : "transparent", color: numbersDone ? "#0a0a0a" : H.text, border: numbersDone ? "none" : `1px solid ${H.line}`, borderRadius: 999, padding: "13px 26px", fontSize: 11.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: numbersDone ? "pointer" : "default", opacity: numbersDone ? 1 : 0.4, fontFamily: H.font }}>

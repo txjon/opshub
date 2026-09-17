@@ -71,7 +71,7 @@ export default function HousePage() {
         supabase.from("jobs")
           .select("id, job_number, title, phase, target_ship_date, created_at, updated_at, phase_timestamps, type_meta, costing_data, clients(name), items(id, pipeline_stage, pipeline_timestamps, buy_sheet_lines(qty_ordered), decorator_assignments(decorators(name, short_code)))")
           .not("phase", "in", "(complete,cancelled,on_hold)"),
-        supabase.from("releases").select("*, clients(name)").not("status", "in", "(cut,shelved)"),
+        supabase.from("releases").select("*, clients(name)").not("status", "in", "(cut,shelved,done)"),
         supabase.from("job_activity").select("message, created_at, jobs(job_number, clients(name))").order("created_at", { ascending: false }).limit(16),
         god ? supabase.from("payment_records").select("id, job_id, amount, status, due_date, invoice_number, jobs!inner(id, job_number, title, phase, type_meta, clients(name))").in("status", ["sent", "viewed", "partial", "overdue"]).lt("due_date", new Date().toISOString().slice(0, 10)).not("jobs.phase", "eq", "cancelled").limit(8) : none,
         supabase.from("pull_requests").select("id", { count: "exact", head: true }).in("status", ["pending", "partial"]),

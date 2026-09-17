@@ -110,9 +110,12 @@ export const lineUnits = (
 };
 
 /** Cut gate: every line the cut will birth has entered numbers. */
-export const releaseNumbersDone = (slots: (SlotLike & { qtys?: Record<string, unknown> | null })[]): boolean => {
+// Numbers are "in" for a line when the client entered them (qtys) OR the sale
+// imported them (sold_qtys — the multi-buy ledger). A re-run bought twice off
+// its sales import read "awaiting numbers" forever (FOG Aug 26, Sep 17 2026).
+export const releaseNumbersDone = (slots: (SlotLike & { qtys?: Record<string, unknown> | null; sold_qtys?: Record<string, unknown> | null })[]): boolean => {
   const cuttable = slots.filter(s => !isPipelineSlot(s));
-  return cuttable.length > 0 && cuttable.every(s => sumQtys(s.qtys) > 0);
+  return cuttable.length > 0 && cuttable.every(s => sumQtys(s.qtys) > 0 || sumQtys(s.sold_qtys) > 0);
 };
 
 // ── Line state: one truth, two label registers ─────────────────────────
