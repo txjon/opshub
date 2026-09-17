@@ -48,7 +48,7 @@ const STATUS_META: Record<string, { label: string; color: string }> = {
 // genuinely short of orders (FOG Aug 26: 5/6 landed, 6/6 bought — Sep 17).
 const coverageOf = (r: any): { lines: number; covered: number; boughtOut: number; bought: boolean } => {
   const ledgered = (r.slots || []).filter((s: any) => hasLedger(s));
-  const ledgers = ledgered.map((s: any) => ledgerOf(s));
+  const ledgers: Ledger[] = ledgered.map((s: any) => ledgerOf(s));
   const covered = ledgers.filter(l => l.totals.sold > 0 && lineCovered(l)).length;
   const boughtOut = ledgers.filter(l => l.totals.sold > 0 && lineBought(l)).length;
   return { lines: ledgered.length, covered, boughtOut, bought: (r.slots || []).some((s: any) => (s._buys || []).length > 0) };
