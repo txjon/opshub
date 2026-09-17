@@ -77,8 +77,11 @@ export default async function TheDistroPage() {
     });
   }
 
-  // at-vendor strips (owed units still in production)
-  for (const s of strips) {
+  // at-vendor strips (owed units still in production). Drop-ship items go
+  // vendor → client and never touch the dock, so they're not the Distro's
+  // business (Jon, Sep 17); a strip that is ONLY drop-ship drops out.
+  for (const s0 of strips) {
+    const s = { ...s0, items: s0.items.filter(i => i.route !== "drop_ship") };
     const owed = s.items.reduce((a, i) => a + i.owedTotal, 0);
     if (owed <= 0) continue;
     const tm = metaByJob.get(s.jobId) || {};

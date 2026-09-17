@@ -13,6 +13,7 @@ import { enterIntoShopify, returnEntered, editEntered } from "@/lib/staging-ente
 import LedgerHistory from "@/components/LedgerHistory";
 import type { StagingItem } from "@/lib/item-state";
 import { v2WriteAllowed } from "@/lib/v2-flags";
+import { useIsMobile } from "@/lib/useIsMobile";
 
 const tQty = (q: Record<string, number>) => Object.values(q || {}).reduce((a, v) => a + (Number(v) || 0), 0);
 const blankLine = (it: StagingItem) => [it.blankVendor, it.blankSku, it.color].filter(Boolean).join(" · ");
@@ -150,8 +151,12 @@ export default function StagingBoard({ items, side }: { items: StagingItem[]; si
   );
 }
 
-// Enter-into-Shopify modal — per-variant qty (default = available), gated to test.
+// Enter-into-Shopify modal — a product page, not a form (Jon, Sep 17 2026):
+// Dante builds the Shopify listing from this, so the full mockup (with a
+// full-res download), the client, the blank's vendor / style / color and the
+// per-size inputs all read big. Per-variant qty defaults to available.
 function EnterModal({ item, onClose, onDone }: { item: StagingItem; onClose: () => void; onDone: () => void }) {
+  const isMobile = useIsMobile();
   const sizes = sortSizes(Object.keys(item.available));
   const [qtys, setQtys] = useState<Record<string, number>>({ ...item.available });
   const [busy, setBusy] = useState(false);
@@ -159,6 +164,8 @@ function EnterModal({ item, onClose, onDone }: { item: StagingItem; onClose: () 
   const isTest = v2WriteAllowed({ clientName: item.client });
   const total = tQty(qtys);
   const setQ = (sz: string, v: string) => setQtys(p => ({ ...p, [sz]: Math.max(0, Math.floor(Number(v) || 0)) }));
+  const img = item.mockupFileId ? `/api/files/thumbnail?id=${item.mockupFileId}&thumb=1&size=1400` : null;
+  const fullRes = item.mockupFileId ? `/api/files/thumbnail?id=${item.mockupFileId}&dl=1` : null;
 
   async function confirm() {
     setBusy(true); setErr(null);
@@ -167,37 +174,68 @@ function EnterModal({ item, onClose, onDone }: { item: StagingItem; onClose: () 
     if (res.ok) onDone(); else setErr(res.error || "Enter failed.");
   }
 
+  const fact = (label: string, value: string | null | undefined) => value ? (
+    <div>
+      <div style={{ fontSize: 10, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</div>
+      <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginTop: 2, fontFamily: /vendor|style|color|invoice/i.test(label) ? mono : font }}>{value}</div>
+    </div>
+  ) : null;
+
   return (
-    <ModalShell onClose={onClose} maxWidth={520} dismissable={false}>
-      <div style={{ padding: "18px 22px", borderBottom: `1px solid ${T.border}` }}>
-        <div style={{ fontSize: 17, fontWeight: 700 }}>Enter into Shopify — {item.name}</div>
-        <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>{item.client}{item.invoiceNumber ? ` · #${item.invoiceNumber}` : ""}{blankLine(item) ? ` · ${blankLine(item)}` : ""}</div>
-      </div>
-      <div style={{ padding: "18px 22px" }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>Quantity per size</div>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {sizes.map(sz => (
-            <label key={sz} style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", minWidth: 46 }}>
-              <span style={{ fontSize: 9, fontWeight: 700, color: T.faint, marginBottom: 2 }}>{sz}</span>
-              <input inputMode="numeric" value={qtys[sz] ?? 0} onChange={e => setQ(sz, e.target.value)} onFocus={e => e.target.select()}
-                style={{ width: 46, boxSizing: "border-box", textAlign: "center", fontFamily: mono, fontSize: 13, fontWeight: 700, padding: "5px 4px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.card }} />
-              <span style={{ fontSize: 9, color: T.faint, fontFamily: mono, marginTop: 2 }}>/{item.available[sz] ?? 0}</span>
-            </label>
-          ))}
+    <ModalShell onClose={onClose} maxWidth={980} dismissable={false}>
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "minmax(0, 5fr) minmax(0, 6fr)" }}>
+        {/* the product — full mockup on white, like a store listing */}
+        <div style={{ background: "#fff", borderRadius: isMobile ? "14px 14px 0 0" : "14px 0 0 14px", padding: 18, display: "flex", flexDirection: "column", gap: 12, minHeight: isMobile ? 260 : 460 }}>
+          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", minHeight: 0 }}>
+            {img
+              ? <img src={img} alt={item.name} style={{ maxWidth: "100%", maxHeight: isMobile ? 300 : 520, objectFit: "contain", display: "block" }} />
+              : <div style={{ fontSize: 12, color: "#888" }}>No mockup on this item.</div>}
+          </div>
+          {fullRes && (
+            <a href={fullRes} download style={{ alignSelf: "center", fontSize: 11, fontWeight: 800, letterSpacing: 0.5, textTransform: "uppercase", color: "#0a0a0a", textDecoration: "none", border: "1px solid #0a0a0a", borderRadius: 999, padding: "8px 16px" }}>Download full-res mockup ↓</a>
+          )}
         </div>
-        <div style={{ marginTop: 14, fontSize: 12, color: "#b5892a", background: "#faf3e2", border: `1px dashed #b5892a`, borderRadius: 8, padding: "9px 11px" }}>
-          Entering marks these units keyed into Shopify — the end of OpsHub's road for them.
+
+        {/* the listing facts + the entry */}
+        <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+          <div style={{ padding: "20px 24px 16px", borderBottom: `1px solid ${T.border}` }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: 0.5 }}>Enter into Shopify</div>
+            <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: "-0.01em", lineHeight: 1.1, marginTop: 4 }}>{item.client}</div>
+            <div style={{ fontSize: 17, fontWeight: 700, marginTop: 6 }}>{item.name}</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 12, marginTop: 14 }}>
+              {fact("Blank vendor", item.blankVendor)}
+              {fact("Style", item.blankSku)}
+              {fact("Color", item.color)}
+              {fact("Invoice", item.invoiceNumber ? `#${item.invoiceNumber}` : item.jobNumber)}
+            </div>
+          </div>
+          <div style={{ padding: "16px 24px", flex: 1 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 8 }}>Quantity per size</div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {sizes.map(sz => (
+                <label key={sz} style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", minWidth: 60 }}>
+                  <span style={{ fontSize: 11, fontWeight: 800, color: T.muted, marginBottom: 4 }}>{sz}</span>
+                  <input inputMode="numeric" value={qtys[sz] ?? 0} onChange={e => setQ(sz, e.target.value)} onFocus={e => e.target.select()}
+                    style={{ width: 60, boxSizing: "border-box", textAlign: "center", fontFamily: mono, fontSize: 16, fontWeight: 700, padding: "9px 4px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.card, color: T.text, outline: "none" }} />
+                  <span style={{ fontSize: 10, color: T.faint, fontFamily: mono, marginTop: 3 }}>/{item.available[sz] ?? 0}</span>
+                </label>
+              ))}
+            </div>
+            <div style={{ marginTop: 14, fontSize: 12, color: "#b5892a", background: "#faf3e2", border: `1px dashed #b5892a`, borderRadius: 8, padding: "9px 11px" }}>
+              Entering marks these units keyed into Shopify — the end of OpsHub's road for them.
+            </div>
+          </div>
+          <div style={{ padding: "14px 24px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            {!isTest && <span style={{ fontSize: 12, color: T.amber, fontWeight: 600 }}>Entry is limited to the test job.</span>}
+            {err && <span style={{ fontSize: 12, color: T.red, fontWeight: 600 }}>{err}</span>}
+            <div style={{ flex: 1 }} />
+            <button onClick={onClose} disabled={busy} style={{ fontSize: 13, background: "none", border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 16px", cursor: "pointer", color: T.muted }}>Cancel</button>
+            <button onClick={confirm} disabled={!isTest || busy || total === 0}
+              style={{ fontSize: 14, fontWeight: 700, borderRadius: 8, padding: "10px 22px", border: "none", cursor: (!isTest || busy || total === 0) ? "not-allowed" : "pointer", background: (!isTest || busy || total === 0) ? T.accentDim : T.text, color: (!isTest || busy || total === 0) ? T.faint : "#0a0a0a" }}>
+              {busy ? "Entering…" : `Enter · ${total}u`}
+            </button>
+          </div>
         </div>
-      </div>
-      <div style={{ padding: "14px 22px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
-        {!isTest && <span style={{ fontSize: 12, color: T.amber, fontWeight: 600 }}>Entry is limited to the test job.</span>}
-        {err && <span style={{ fontSize: 12, color: T.red, fontWeight: 600 }}>{err}</span>}
-        <div style={{ flex: 1 }} />
-        <button onClick={onClose} disabled={busy} style={{ fontSize: 13, background: "none", border: `1px solid ${T.border}`, borderRadius: 8, padding: "9px 16px", cursor: "pointer", color: T.muted }}>Cancel</button>
-        <button onClick={confirm} disabled={!isTest || busy || total === 0}
-          style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: "9px 20px", border: "none", cursor: (!isTest || busy || total === 0) ? "not-allowed" : "pointer", background: (!isTest || busy || total === 0) ? T.accentDim : T.text, color: (!isTest || busy || total === 0) ? T.faint : "#0a0a0a" }}>
-          {busy ? "Entering…" : `Enter · ${total}u`}
-        </button>
       </div>
     </ModalShell>
   );

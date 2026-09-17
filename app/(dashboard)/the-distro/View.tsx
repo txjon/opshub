@@ -87,9 +87,12 @@ export default function TheDistroView({ rows, drops }: { rows: ArrivalRow[]; dro
         supabase.from("job_activity").select("message, created_at, jobs(job_number, clients(name))").order("created_at", { ascending: false }).limit(40),
         // late landings: expected date passed, still not delivered — "where is it"
         // (moved here from The House — chasing boxes is dock work; Jon, Jul 22)
+        // inbound only: 'direct' shipments are drop-ship (vendor → client) and
+        // never land here. Status is 'expected' until received (the old
+        // pending/in_transit filter matched nothing — Sep 17).
         supabase.from("shipments")
           .select("id, expected_arrival, status, carrier, tracking_number, carrier_status, shipment_lines(item_id, items(name, jobs(job_number, clients(name))))")
-          .lt("expected_arrival", todayStr).in("status", ["pending", "in_transit", "exception"])
+          .eq("direction", "inbound").eq("status", "expected").lt("expected_arrival", todayStr)
           .order("expected_arrival").limit(6),
       ]);
       setPulls(pr || []); setFulfill(fj || []); setLateLandings(lateShips || []);
@@ -112,44 +115,40 @@ export default function TheDistroView({ rows, drops }: { rows: ArrivalRow[]; dro
   }, [rows]);
   const pullableNow = pulls.filter((p: any) => p.items?.received_at_hpd);
 
-  // With onOpen the plate acts in place (opens its action sheet); without, it
-  // links out to the deep surface — same rule as The House.
+  // Your Move rows (Jon, Sep 17: a list, not big cards). Verb in the signal
+  // color, then who/what/meta; the directive's order + done-when ride as the
+  // tooltip. With onOpen the row acts in place (its action sheet); without,
+  // it links out to the deep surface — same rule as The House.
   const plate = (key: string, eyebrow: string, title: string, meta: string, d: { verb: string; order: string; done: string }, color: string, href: string, go: string, onOpen?: () => void) => {
     const inner = (
-      <span className="body">
-        <span style={{ display: "block", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: "rgba(255,255,255,0.6)" }}>{eyebrow}</span>
-        <span style={{ display: "block", fontSize: "clamp(19px,1.8vw,24px)", fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.02em", lineHeight: 1.05, marginTop: 6, color: color === H.red ? H.red : "#fff" }}>{d.verb}.</span>
-        <span style={{ display: "block", fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", marginTop: 7, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</span>
-        <span style={{ display: "block", fontSize: 10.5, fontFamily: H.mono, color: H.blue, marginTop: 3 }}>{meta}</span>
-        <span style={{ display: "block", fontSize: 12, color: "rgba(255,255,255,0.85)", marginTop: 9, lineHeight: 1.5, maxWidth: "40ch" }}>
-          {d.order}.
-          <span style={{ display: "block", fontSize: 10, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: color === H.red ? H.red : H.amber, marginTop: 5 }}>done when {d.done}</span>
+      <>
+        <span style={{ width: 132, flexShrink: 0, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: color === H.faint ? H.faint : color, lineHeight: 1.3 }}>{d.verb}</span>
+        <span style={{ flex: 1, minWidth: 0 }}>
+          <span style={{ display: "block", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(255,255,255,0.45)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{eyebrow}</span>
+          <span style={{ display: "block", fontSize: 13, fontWeight: 800, textTransform: "uppercase", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 2 }}>{title}</span>
+          <span style={{ display: "block", fontSize: 10.5, fontFamily: H.mono, color: H.blue, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{meta}</span>
         </span>
-        <span style={{ display: "inline-block", marginTop: 12, background: "#fff", color: H.ink, borderRadius: 999, padding: "9px 16px", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", width: "max-content" }}>{go} →</span>
-      </span>
+        <span style={{ flexShrink: 0, fontSize: 9.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(255,255,255,0.7)", whiteSpace: "nowrap" }}>{go} →</span>
+      </>
     );
+    const tip = `${d.order}. Done when ${d.done}.`;
     return onOpen
-      ? <button key={key} type="button" onClick={onOpen} className="ds-plate">{inner}</button>
-      : <a key={key} href={href} className="ds-plate">{inner}</a>;
+      ? <button key={key} type="button" onClick={onOpen} className="ds-row" title={tip}>{inner}</button>
+      : <a key={key} href={href} className="ds-row" title={tip}>{inner}</a>;
   };
 
   return (
     <div style={HUB_PAGE}>
       <style dangerouslySetInnerHTML={{ __html: `
-        .ds-grid{display:grid;grid-template-columns:1fr;gap:16px}
-        @media(min-width:760px){.ds-grid{grid-template-columns:repeat(2,1fr)}}
-        @media(min-width:1100px){.ds-grid{grid-template-columns:repeat(3,1fr)}}
-        .ds-plate{position:relative;border-radius:8px;overflow:hidden;background:#141414;border:1px solid ${H.line};display:flex;flex-direction:column;justify-content:flex-end;text-decoration:none;color:#fff;transition:transform .16s ease}
-        .ds-plate:hover{transform:translateY(-4px)}
-        .ds-plate .body{position:relative;padding:18px}
-        button.ds-plate{text-align:left;font:inherit;cursor:pointer;width:100%;padding:0}
-        button.ds-plate:focus-visible{outline:2px solid #fff;outline-offset:2px}
+        .ds-row{display:flex;align-items:center;gap:14px;width:100%;padding:11px 8px;border:0;border-bottom:1px solid ${H.line};background:transparent;color:#fff;text-align:left;font:inherit;text-decoration:none;cursor:pointer;border-radius:6px}
+        .ds-row:hover{background:rgba(255,255,255,0.04)}
+        .ds-row:focus-visible{outline:2px solid #fff;outline-offset:-2px}
+        @media(max-width:759px){.ds-row{gap:10px}.ds-row>span:first-child{width:96px}}
         .ds-sheet-wrap{position:fixed;inset:0;z-index:220;background:rgba(0,0,0,.66);display:flex;align-items:flex-end;justify-content:center}
         .ds-sheet{background:#161616;border:1px solid rgba(255,255,255,.13);border-radius:16px 16px 0 0;width:100%;max-width:540px;padding:22px 22px 28px;max-height:88vh;overflow:auto}
         @media(min-width:760px){.ds-sheet-wrap{align-items:center;padding:24px}.ds-sheet{border-radius:16px}}
         .ds-sheet{position:relative}
         .ds-close{position:sticky;top:0;float:right;margin:-8px -8px 0 0;width:40px;height:40px;border-radius:999px;border:1px solid rgba(255,255,255,.16);background:#161616;color:#fff;font-size:22px;line-height:1;cursor:pointer;z-index:1}
-        @media(prefers-reduced-motion:reduce){.ds-plate,.ds-plate:hover{transition:none;transform:none}}
       ` }} />
       <div style={{ maxWidth: 1000, margin: "0 auto", padding: "26px 0 80px" }}>
         <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase", color: H.faint }}>
@@ -229,9 +228,9 @@ export default function TheDistroView({ rows, drops }: { rows: ArrivalRow[]; dro
             <section style={{ marginTop: 36 }}>
               <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 14 }}>
                 <h2 style={{ margin: 0, fontSize: 19, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", color: H.amber }}>Your move.</h2>
-                <span style={{ fontSize: 10.5, color: H.faint }}>every card tells you what, how, and what done looks like — red means a box is missing</span>
+                <span style={{ fontSize: 10.5, color: H.faint }}>tap a row to act — hover for what done looks like; red means a box is missing</span>
               </div>
-              <div className="ds-grid">
+              <div style={{ borderTop: `1px solid ${H.line}` }}>
                 {lateLandings.map((s: any) => {
                   const lines = (s.shipment_lines || []).map((l: any) => l.items).filter(Boolean);
                   const cl = lines[0]?.jobs?.clients?.name || "Inbound";
