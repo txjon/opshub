@@ -372,7 +372,10 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   const [revisedNote, setRevisedNote] = useState("");
   const [revisedSel, setRevisedSel] = useState<Record<string, boolean>>({});
   const [revisedBusy, setRevisedBusy] = useState(false);
-  const [open, setOpen] = useState<Record<string, boolean>>({ products: true, client: false, production: true, logistics: false });
+  // Every block starts collapsed (Jon, Sep 17 2026) — the hero says what's
+  // next; open what you came for. ?tab= deep links and the hero's next-action
+  // link still open their block.
+  const [open, setOpen] = useState<Record<string, boolean>>({});
   const toggle = (k: string) => setOpen(o => ({ ...o, [k]: !o[k] }));
 
   // ── Legacy ?tab= deep links (emails, notifications, bookmarks) — map the
