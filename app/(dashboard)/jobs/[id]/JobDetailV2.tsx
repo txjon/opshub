@@ -1619,16 +1619,18 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   const field: React.CSSProperties = { padding: "9px 11px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13.5, fontFamily: font, outline: "none", boxSizing: "border-box", width: "100%", colorScheme: "dark" };
   const block = (id: string, tick: "done" | "now" | "todo" | "warn", title: string, summary: string, body: React.ReactNode, dim = false) => (
     <div id={id} style={{ border: `1px solid ${tick === "warn" ? T.amber + "88" : T.border}`, borderRadius: 16, background: tick === "warn" ? `${T.amber}0d` : T.card, marginTop: 14, overflow: "hidden", opacity: dim && !open[id] ? 0.6 : 1 }}>
-      <div onClick={() => toggle(id)} style={{ display: "flex", alignItems: "center", gap: 14, padding: "16px 20px", cursor: "pointer" }}>
+      <div onClick={() => toggle(id)} style={{ display: "flex", alignItems: "center", gap: isMobile ? 10 : 14, padding: isMobile ? "14px 14px" : "16px 20px", cursor: "pointer" }}>
         <span style={{ width: 22, height: 22, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 800,
           background: tick === "done" ? T.greenDim : tick === "now" ? "rgba(107,176,232,.14)" : tick === "warn" ? `${T.amber}22` : "transparent",
           color: tick === "done" ? T.green : tick === "now" ? "#6bb0e8" : tick === "warn" ? T.amber : T.faint,
           border: `1px solid ${tick === "done" ? T.green + "66" : tick === "now" ? "#6bb0e880" : tick === "warn" ? T.amber + "88" : T.border}` }}>{tick === "done" ? "✓" : tick === "now" ? "◉" : tick === "warn" ? "!" : "○"}</span>
-        <span style={{ fontSize: 14, fontWeight: 800, letterSpacing: "0.02em", textTransform: "uppercase" }}>{title}</span>
-        <span style={{ flex: 1, fontSize: 12.5, color: tick === "warn" ? T.amber : T.muted, fontFamily: mono, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: tick === "warn" ? 700 : 400 }}>{summary}</span>
+        <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: isMobile ? "column" : "row", alignItems: isMobile ? "flex-start" : "center", gap: isMobile ? 3 : 14 }}>
+          <span style={{ fontSize: 14, fontWeight: 800, letterSpacing: "0.02em", textTransform: "uppercase", whiteSpace: "nowrap" }}>{title}</span>
+  <span style={{ flex: 1, fontSize: 12.5, color: tick === "warn" ? T.amber : T.muted, fontFamily: mono, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: isMobile ? "normal" : "nowrap", lineHeight: 1.35, fontWeight: tick === "warn" ? 700 : 400 }}>{summary}</span>
+        </span>
         <span style={{ color: T.faint, fontSize: 13, transform: open[id] ? "none" : "rotate(-90deg)", transition: "transform .2s" }}>▾</span>
       </div>
-      {open[id] && <div style={{ padding: "4px 20px 20px", borderTop: `1px solid ${T.border}55` }}>{body}</div>}
+      {open[id] && <div style={{ padding: isMobile ? "4px 12px 16px" : "4px 20px 20px", borderTop: `1px solid ${T.border}55` }}>{body}</div>}
     </div>
   );
 
