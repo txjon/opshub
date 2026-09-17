@@ -61,6 +61,21 @@ export const DROP_DIRECTIVES = {
     order: "The window passed — close it so numbers can come in",
     done: "closed — client enters production numbers",
   },
+  nudge_numbers: {
+    verb: "Numbers still out",
+    order: "The sale closed but a line has no numbers — nudge the client for them",
+    done: "every line has numbers",
+  },
+  buy_more: {
+    verb: "Buy more",
+    order: "Orders don't cover what sold on every size — place the next buy from the ledger",
+    done: "every size on order ≥ sold",
+  },
+  mark_done: {
+    verb: "Mark it done",
+    order: "Every line landed — close the release out",
+    done: "marked done — it leaves the desk",
+  },
   closed: {
     verb: "Numbers → cut",
     order: "Numbers in? ✂ Cut births the job. Waiting? Nudge the client",

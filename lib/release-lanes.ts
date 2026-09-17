@@ -243,3 +243,47 @@ export const lineBought = (ledger: Ledger): boolean =>
 /** Finished = window passed AND every line covered. daysToClose from lib/dates. */
 export const releaseFinished = (daysToClose: number | null, ledgers: Ledger[]): boolean =>
   daysToClose != null && daysToClose < 0 && ledgers.length > 0 && ledgers.every(lineCovered);
+
+// ── Slot ledgers + the closed-release move ────────────────────────────
+// A slot's runs: attached buys (items.release_slot_id → carried as _buys by
+// the caller) plus, for a TRUE pipeline slot, the slot's own item (that item
+// IS a run; a re-run's pre-cut item is the past campaign and never counts).
+export const slotRuns = (s: any): any[] => {
+  const runs = [...(s._buys || [])];
+  if (isPipelineSlot(s) && s.items && !runs.some((b: any) => b.id === s.item_id)) {
+    runs.push({ id: s.item_id, name: s.items.name, received_qtys: s.items.received_qtys, buy_sheet_lines: s.items.buy_sheet_lines, jobs: null });
+  }
+  return runs;
+};
+export const slotLedger = (s: any): Ledger => buildLedger(s.sold_qtys, slotRuns(s));
+export const slotHasLedger = (s: any): boolean => slotRuns(s).length > 0 || sumQtys(s.sold_qtys) > 0;
+
+export type ReleaseCoverage = { lines: number; covered: number; boughtOut: number; bought: boolean };
+export const releaseCoverage = (slots: any[]): ReleaseCoverage => {
+  const ledgered = (slots || []).filter(slotHasLedger);
+  const ledgers = ledgered.map(slotLedger);
+  return {
+    lines: ledgered.length,
+    covered: ledgers.filter(l => l.totals.sold > 0 && lineCovered(l)).length,
+    boughtOut: ledgers.filter(l => l.totals.sold > 0 && lineBought(l)).length,
+    bought: (slots || []).some((s: any) => (s._buys || []).length > 0),
+  };
+};
+
+// What a CLOSED release needs from us (Sep 17 2026 — The House said
+// "Numbers → cut" on a release bought out and waiting on the vendor):
+//   nudge_numbers  — a cuttable line still has no numbers (client's move → nudge)
+//   cut            — numbers in, nothing bought yet: the one-job cut
+//   buy_more       — buys exist but a size is short of orders
+//   waiting_vendor — bought out, not all landed: NOT a move, stays off The House
+//   mark_done      — every line landed: close it out
+export type ClosedMove = "nudge_numbers" | "cut" | "buy_more" | "waiting_vendor" | "mark_done";
+export const closedReleaseMove = (slots: any[]): { move: ClosedMove; coverage: ReleaseCoverage } => {
+  const coverage = releaseCoverage(slots);
+  if (coverage.bought) {
+    if (coverage.lines > 0 && coverage.covered === coverage.lines) return { move: "mark_done", coverage };
+    if (coverage.lines > 0 && coverage.boughtOut === coverage.lines) return { move: "waiting_vendor", coverage };
+    return { move: "buy_more", coverage };
+  }
+  return { move: releaseNumbersDone(slots) ? "cut" : "nudge_numbers", coverage };
+};

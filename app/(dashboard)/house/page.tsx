@@ -12,6 +12,7 @@ import { H, HUB_PAGE } from "@/components/hub/theme";
 import { JOB_DIRECTIVES, DROP_DIRECTIVES, STUDIO_DIRECTIVE, HOUSE_EXTRA_DIRECTIVES, DISTRO_DIRECTIVES, INBOX_DIRECTIVES } from "@/lib/directives";
 import type { InboxItem } from "@/lib/inbox";
 import { vendorRiskFor } from "@/lib/house-model";
+import { closedReleaseMove } from "@/lib/release-lanes";
 import { logJobActivity } from "@/components/JobActivityPanel";
 import { deriveInvoice } from "@/lib/job/invoice-derive";
 
@@ -71,7 +72,9 @@ export default function HousePage() {
         supabase.from("jobs")
           .select("id, job_number, title, phase, target_ship_date, created_at, updated_at, phase_timestamps, type_meta, costing_data, clients(name), items(id, pipeline_stage, pipeline_timestamps, buy_sheet_lines(qty_ordered), decorator_assignments(decorators(name, short_code)))")
           .not("phase", "in", "(complete,cancelled,on_hold)"),
-        supabase.from("releases").select("*, clients(name)").not("status", "in", "(cut,shelved,done)"),
+        // slots + their items ride along so a CLOSED release can be read from
+        // the ledger (lib/release-lanes closedReleaseMove); buys attach below
+        supabase.from("releases").select("*, clients(name), release_slots(id, line_id, item_id, sold_qtys, qtys, items!release_slots_item_id_fkey(id, name, received_qtys, buy_sheet_lines(size, qty_ordered)))").not("status", "in", "(cut,shelved,done)"),
         supabase.from("job_activity").select("message, created_at, jobs(job_number, clients(name))").order("created_at", { ascending: false }).limit(16),
         god ? supabase.from("payment_records").select("id, job_id, amount, status, due_date, invoice_number, jobs!inner(id, job_number, title, phase, type_meta, clients(name))").in("status", ["sent", "viewed", "partial", "overdue"]).lt("due_date", new Date().toISOString().slice(0, 10)).not("jobs.phase", "eq", "cancelled").limit(8) : none,
         supabase.from("pull_requests").select("id", { count: "exact", head: true }).in("status", ["pending", "partial"]),
@@ -101,7 +104,15 @@ export default function HousePage() {
           .not("jobs.phase", "in", "(complete,cancelled)")
           .order("received_at_hpd_at", { ascending: false }).limit(60) : none,
       ]);
-      setJobs(j || []); setDrops(r || []); setWire(act || []);
+      // buys per slot (items.release_slot_id) → slot._buys, the way /drops does
+      const slotIds = ((r || []) as any[]).flatMap((x: any) => (x.release_slots || []).map((sl: any) => sl.id));
+      const bySlot: Record<string, any[]> = {};
+      if (slotIds.length) {
+        const { data: buys } = await supabase.from("items").select("id, name, release_slot_id, received_qtys, buy_sheet_lines(size, qty_ordered)").in("release_slot_id", slotIds);
+        for (const b of (buys || []) as any[]) (bySlot[b.release_slot_id] ||= []).push(b);
+      }
+      const drops2 = ((r || []) as any[]).map((x: any) => ({ ...x, slots: (x.release_slots || []).map((sl: any) => ({ ...sl, _buys: bySlot[sl.id] || [] })) }));
+      setJobs(j || []); setDrops(drops2); setWire(act || []);
       setOverduePay(latePay || []); setOpenPulls(pullCount || 0);
       setCloseOut(((coJobs || []) as any[]).filter((x: any) => {
         const s = deriveInvoice(x, x.items || [], []);
@@ -176,7 +187,9 @@ export default function HousePage() {
     const today = new Date().toISOString().slice(0, 10);
     const soon = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
     const dropCalls = drops.filter((r: any) => {
-      if (r.status === "ready" || r.status === "closed") return true;
+      if (r.status === "ready") return true;
+      // closed: only when there's a move — bought out + waiting on the vendor is not one
+      if (r.status === "closed") return closedReleaseMove(r.slots || []).move !== "waiting_vendor";
       if (r.status === "live" && r.window_close_date && r.window_close_date <= soon) return true;
       return false;
     });
@@ -302,14 +315,22 @@ export default function HousePage() {
                   const ended = r.status === "live" && r.window_close_date && r.window_close_date <= today2;
                   const closingSoon = r.status === "live" && !ended;
                   const launchOnly = r.model === "stock";
+                  const closedMove = r.status === "closed" ? closedReleaseMove(r.slots || []) : null;
                   const d = ended ? DROP_DIRECTIVES.window_ended
                     : closingSoon ? HOUSE_EXTRA_DIRECTIVES.closing_soon
-                    : r.status === "closed" ? DROP_DIRECTIVES.closed
+                    : closedMove ? (closedMove.move === "mark_done" ? DROP_DIRECTIVES.mark_done
+                        : closedMove.move === "buy_more" ? DROP_DIRECTIVES.buy_more
+                        : closedMove.move === "nudge_numbers" ? DROP_DIRECTIVES.nudge_numbers
+                        : DROP_DIRECTIVES.closed)
                     : launchOnly ? DROP_DIRECTIVES.ready_launch : DROP_DIRECTIVES.ready_cost;
-                  return card(`drop-${r.id}`, null, r.clients?.name || "Drop", r.title,
-                    r.target_live_date ? `target live ${fmtDate(r.target_live_date)}` : "release",
-                    d.verb, ended ? H.red : H.amber, "/drops", ended ? "Close it here" : "Releases board", d,
-                    ended ? () => setSheet({ kind: "drop_close", release: r }) : undefined);
+                  const meta = closedMove && closedMove.coverage.lines
+                    ? `${closedMove.coverage.covered}/${closedMove.coverage.lines} lines landed · ${closedMove.coverage.boughtOut}/${closedMove.coverage.lines} bought`
+                    : r.target_live_date ? `target live ${fmtDate(r.target_live_date)}` : "release";
+                  const isDone = closedMove?.move === "mark_done";
+                  return card(`drop-${r.id}`, null, r.clients?.name || "Drop", r.title, meta,
+                    d.verb, ended ? H.red : isDone ? H.green : H.amber, "/drops", ended ? "Close it here" : isDone ? "Mark it done" : "Releases board", d,
+                    ended ? () => setSheet({ kind: "drop_close", release: r })
+                      : isDone ? () => setSheet({ kind: "drop_done", release: r, coverage: closedMove!.coverage }) : undefined);
                 })}
               </div>
             </section>
@@ -466,6 +487,7 @@ export default function HousePage() {
               ? { ...x, type_meta: { ...(x.type_meta || {}), po_ship_live: { ...((x.type_meta || {}).po_ship_live || {}), [vendorKey]: { date, edited_at: new Date().toISOString() } } } }
               : x))}
           onSaleClosed={(releaseId: string) => setDrops(prev => prev.map((r: any) => r.id === releaseId ? { ...r, status: "closed" } : r))}
+          onDropDone={(releaseId: string) => setDrops(prev => prev.filter((r: any) => r.id !== releaseId))}
           onVarianceResolved={(itemId: string) => setVariances(prev => prev.filter((it: any) => it.id !== itemId))}
           onInboxCleared={(key: string) => setInbox(prev => prev.filter(i => i.key !== key))}
           onVendorHandled={(jobId: string, vendorKey: string, date: string) =>
@@ -482,10 +504,11 @@ export default function HousePage() {
 // A plate opens here instead of navigating away: the card's context on top,
 // its one-to-three moves below, done and back to the feed. Deep links
 // survive at the bottom for when the real surface is needed.
-function ActionSheet({ sheet, onClose, onShipByLogged, onSaleClosed, onVarianceResolved, onVendorHandled, onInboxCleared }: {
+function ActionSheet({ sheet, onClose, onShipByLogged, onSaleClosed, onDropDone, onVarianceResolved, onVendorHandled, onInboxCleared }: {
   sheet: any; onClose: () => void;
   onShipByLogged: (jobId: string, vendorKey: string, date: string) => void;
   onSaleClosed: (releaseId: string) => void;
+  onDropDone: (releaseId: string) => void;
   onVarianceResolved: (itemId: string) => void;
   onVendorHandled: (jobId: string, vendorKey: string, date: string) => void;
   onInboxCleared: (key: string) => void;
@@ -692,6 +715,17 @@ function ActionSheet({ sheet, onClose, onShipByLogged, onSaleClosed, onVarianceR
       if (error) throw new Error(error.message);
       if (it.jobId) logJobActivity(it.jobId, `${it.subject} — vendor issue marked resolved from The House${resolveNote.trim() ? `: ${resolveNote.trim()}` : ""}`);
       onInboxCleared(it.key);
+      onClose();
+    } catch (e: any) { setErr(e.message); setBusy(null); }
+  }
+
+  async function markDropDone() {
+    setBusy("done"); setErr(null);
+    try {
+      const res = await fetch(`/api/drops/${sheet.release.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "done" }) });
+      const b = await res.json();
+      if (!res.ok) throw new Error(b.error || "Failed");
+      onDropDone(sheet.release.id);
       onClose();
     } catch (e: any) { setErr(e.message); setBusy(null); }
   }
@@ -918,6 +952,21 @@ function ActionSheet({ sheet, onClose, onShipByLogged, onSaleClosed, onVarianceR
             </>
           );
         })()}
+        {sheet.kind === "drop_done" && (
+          <>
+            {head(`${sheet.release.clients?.name || "Drop"} · ${sheet.release.title}`,
+              DROP_DIRECTIVES.mark_done.verb,
+              `${sheet.coverage.covered}/${sheet.coverage.lines} lines landed`, H.green)}
+            <div style={{ fontSize: 12.5, color: "rgba(255,255,255,0.8)", lineHeight: 1.55, marginBottom: 14 }}>
+              {DROP_DIRECTIVES.mark_done.order}. It leaves The House and files under Done on the releases board.
+            </div>
+            <button style={goBtn(busy !== "done")} disabled={busy === "done"} onClick={markDropDone}>
+              {busy === "done" ? "Marking…" : "✓ Mark done"}
+            </button>
+            {divider}
+            <a href="/drops" style={linkCss}>Open the releases board →</a>
+          </>
+        )}
         {sheet.kind === "drop_close" && (
           <>
             {head(`${sheet.release.clients?.name || "Drop"} · ${sheet.release.title}`,
