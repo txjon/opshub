@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { loadStagingBoard } from "@/lib/item-state";
-import { releaseNumbersDone, lineupIsPipelineOnly } from "@/lib/release-lanes";
+import { releaseNumbersDone, lineupIsPipelineOnly, closedReleaseMove } from "@/lib/release-lanes";
 import { daysUntilDay } from "@/lib/dates";
 import TheShopView, { type ReleaseRow, type StagingJobRow, type WireRow } from "./View";
 
@@ -19,7 +19,7 @@ export default async function TheShopPage() {
   const [staging, releasesRaw, act] = await Promise.all([
     loadStagingBoard(sb),
     sb.from("releases")
-      .select("id, title, status, target_live_date, window_close_date, clients(name), release_slots(id, line_id, item_id, qtys)")
+      .select("id, title, status, target_live_date, window_close_date, clients(name), release_slots(id, line_id, item_id, qtys, sold_qtys, items!release_slots_item_id_fkey(id, name, received_qtys, buy_sheet_lines(size, qty_ordered)))")
       .in("status", ["building", "ready", "live", "closed"])
       .order("target_live_date", { ascending: true, nullsFirst: false })
       .then((r: any) => (r.data || []) as any[]),
@@ -40,14 +40,24 @@ export default async function TheShopPage() {
   }
   const stagingJobs = Array.from(byJob.values()).sort((a, b) => b.units - a.units);
 
+  // buys per slot → slot._buys (the ledger's runs), same as /drops and The House
+  const slotIds = releasesRaw.flatMap(r => (r.release_slots || []).map((s: any) => s.id));
+  const bySlot: Record<string, any[]> = {};
+  if (slotIds.length) {
+    const { data: buys } = await sb.from("items").select("id, name, release_slot_id, received_qtys, buy_sheet_lines(size, qty_ordered)").in("release_slot_id", slotIds);
+    for (const b of (buys || []) as any[]) (bySlot[b.release_slot_id] ||= []).push(b);
+  }
   // Releases with "whose move" derived the same way /drops buckets them.
   const releases: ReleaseRow[] = releasesRaw.map(r => {
-    const slots = (r.release_slots || []) as any[];
+    const slots = ((r.release_slots || []) as any[]).map((s: any) => ({ ...s, _buys: bySlot[s.id] || [] }));
     const dClose = daysUntilDay(r.window_close_date);
     let move: ReleaseRow["move"] = null;
     if (r.status === "ready") move = lineupIsPipelineOnly(slots) ? "ready_launch" : "ready_cost";
     else if (r.status === "live" && dClose != null && dClose <= 0) move = "window_ended";
-    else if (r.status === "closed") move = "closed";
+    else if (r.status === "closed") {
+      const m = closedReleaseMove(slots).move;
+      move = m === "waiting_vendor" ? null : m === "cut" ? "closed" : m;
+    }
     return {
       id: r.id, title: r.title, client: r.clients?.name || null, status: r.status,
       liveDate: r.target_live_date || null, closeDate: r.window_close_date || null,

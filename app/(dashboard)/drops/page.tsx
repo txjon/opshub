@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { H, HUB_PAGE } from "@/components/hub/theme";
 import { backwardChain } from "@/lib/portal/drop-chain";
-import { isPipelineSlot, isRerunSlot, lineupIsPipelineOnly, lineUnits, lineState, lineLanded, LINE_LABELS, releaseNumbersDone, buildLedger, suggestNextBuy, lineCovered, lineBought, sumQtys, type LineTone, type Ledger } from "@/lib/release-lanes";
+import { isPipelineSlot, isRerunSlot, lineupIsPipelineOnly, lineUnits, lineState, lineLanded, LINE_LABELS, releaseNumbersDone, suggestNextBuy, lineCovered, lineBought, slotLedger, slotHasLedger, releaseCoverage, closedReleaseMove, sumQtys, type LineTone, type Ledger } from "@/lib/release-lanes";
 import { fmtDay as fmtDate, daysUntilDay as daysTo } from "@/lib/dates";
 import { parseSalesCsv, matchSalesToSlots } from "@/lib/shopify-sales-import";
 import { sortSizes } from "@/lib/theme";
@@ -17,15 +17,8 @@ import { sortSizes } from "@/lib/theme";
 // A line's runs for the ledger: attached buys, plus the slot's own linked
 // run for TRUE pipeline lines (that item IS a run of the product — a
 // re-run's pre-cut item is the PAST campaign and never counts).
-const runsOf = (s: any): any[] => {
-  const runs = [...(s._buys || [])];
-  if (isPipelineSlot(s) && s.items && !runs.some((b: any) => b.id === s.item_id)) {
-    runs.push({ id: s.item_id, name: s.items.name, received_qtys: s.items.received_qtys, buy_sheet_lines: s.items.buy_sheet_lines, jobs: null });
-  }
-  return runs;
-};
-const ledgerOf = (s: any): Ledger => buildLedger(s.sold_qtys, runsOf(s));
-const hasLedger = (s: any): boolean => runsOf(s).length > 0 || sumQtys(s.sold_qtys) > 0;
+const ledgerOf = slotLedger;
+const hasLedger = slotHasLedger;
 
 const thumbSrc = (id: string, size = 300) => `/api/files/thumbnail?id=${id}&thumb=1&size=${size}`;
 const PURPLE = "#fd3aa3";
@@ -43,16 +36,7 @@ const STATUS_META: Record<string, { label: string; color: string }> = {
 
 // Multi-buy coverage for a closed release: lines with a ledger (sales import
 // and/or buys) and how many are covered (delivered ≥ sold, per size).
-// covered = landed ≥ sold (done); boughtOut = on order ≥ sold (buying is
-// finished, the rest is waiting on vendors). "Buy more" only when a size is
-// genuinely short of orders (FOG Aug 26: 5/6 landed, 6/6 bought — Sep 17).
-const coverageOf = (r: any): { lines: number; covered: number; boughtOut: number; bought: boolean } => {
-  const ledgered = (r.slots || []).filter((s: any) => hasLedger(s));
-  const ledgers: Ledger[] = ledgered.map((s: any) => ledgerOf(s));
-  const covered = ledgers.filter(l => l.totals.sold > 0 && lineCovered(l)).length;
-  const boughtOut = ledgers.filter(l => l.totals.sold > 0 && lineBought(l)).length;
-  return { lines: ledgered.length, covered, boughtOut, bought: (r.slots || []).some((s: any) => (s._buys || []).length > 0) };
-};
+const coverageOf = (r: any) => releaseCoverage(r.slots || []);
 
 export default function DropsBoard() {
   const supabase = createClient();
@@ -175,7 +159,8 @@ export default function DropsBoard() {
     return [
       // Live drops whose window has ENDED are a call, not a status — they
       // jump the queue into Your move ("close the sale").
-      { key: "your_move", title: "Your move.", color: H.amber, hint: "submitted drops, ended sale windows, and closed sales ready to cut", list: list.filter((r: any) => r.status === "ready" || r.status === "closed" || (r.status === "live" && daysTo(r.window_close_date) != null && (daysTo(r.window_close_date) as number) <= 0)) },
+      { key: "your_move", title: "Your move.", color: H.amber, hint: "submitted drops, ended sale windows, closed sales needing numbers, a buy, or a done stamp", list: list.filter((r: any) => r.status === "ready" || (r.status === "closed" && closedReleaseMove(r.slots).move !== "waiting_vendor") || (r.status === "live" && daysTo(r.window_close_date) != null && (daysTo(r.window_close_date) as number) <= 0)) },
+      { key: "waiting", title: "Waiting on vendors.", hint: "bought out — lands, then mark done", list: list.filter((r: any) => r.status === "closed" && closedReleaseMove(r.slots).move === "waiting_vendor") },
       { key: "live", title: "Live now.", color: PURPLE, hint: "selling — close the sale when the window ends", list: list.filter((r: any) => r.status === "live" && !(daysTo(r.window_close_date) != null && (daysTo(r.window_close_date) as number) <= 0)) },
       { key: "building", title: "Building.", hint: "being assembled — by the client or by us, same powers", list: list.filter((r: any) => r.status === "building") },
       { key: "cut", title: "Done.", color: H.green, hint: "cut into a job or bought out — the floor has them", list: list.filter((r: any) => r.status === "cut" || r.status === "done") },
@@ -236,13 +221,11 @@ export default function DropsBoard() {
                         })(), whiteSpace: "nowrap" }}>
                         {(() => {
                           if (r.status === "closed") {
-                            const c = coverageOf(r);
-                            if (c.bought) {
-                              if (c.lines > 0 && c.covered === c.lines) return `${c.covered}/${c.lines} lines landed — mark it done`;
-                              if (c.lines > 0 && c.boughtOut === c.lines) return `all bought · ${c.covered}/${c.lines} landed — waiting on the vendor`;
-                              return `${c.boughtOut}/${c.lines} lines bought — buy more`;
-                            }
-                            return nd ? "Numbers in — cut it" : "Awaiting numbers";
+                            const { move, coverage: c } = closedReleaseMove(r.slots);
+                            if (move === "mark_done") return `${c.covered}/${c.lines} lines landed — mark it done`;
+                            if (move === "waiting_vendor") return `all bought · ${c.covered}/${c.lines} landed — waiting on the vendor`;
+                            if (move === "buy_more") return `${c.boughtOut}/${c.lines} lines bought — buy more`;
+                            return move === "cut" ? "Numbers in — cut it" : "Awaiting numbers";
                           }
                           if (r.status === "live" && lineupIsPipelineOnly(r.slots)) return "Launched";
                           if (r.status === "live") {
