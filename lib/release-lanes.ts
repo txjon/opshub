@@ -235,6 +235,11 @@ export const suggestNextBuy = (ledger: Ledger, overagePct: number): Record<strin
 export const lineCovered = (ledger: Ledger): boolean =>
   Object.keys(ledger.sold).every(s => (ledger.delivered[s] || 0) >= ledger.sold[s]);
 
+/** A line is bought when every sold size has at least that many on order —
+ *  the buying is done; what's left is waiting on the vendor. */
+export const lineBought = (ledger: Ledger): boolean =>
+  Object.keys(ledger.sold).every(s => (ledger.bought[s] || 0) >= ledger.sold[s]);
+
 /** Finished = window passed AND every line covered. daysToClose from lib/dates. */
 export const releaseFinished = (daysToClose: number | null, ledgers: Ledger[]): boolean =>
   daysToClose != null && daysToClose < 0 && ledgers.length > 0 && ledgers.every(lineCovered);

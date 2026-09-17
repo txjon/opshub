@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { H, HUB_PAGE } from "@/components/hub/theme";
 import { backwardChain } from "@/lib/portal/drop-chain";
-import { isPipelineSlot, isRerunSlot, lineupIsPipelineOnly, lineUnits, lineState, lineLanded, LINE_LABELS, releaseNumbersDone, buildLedger, suggestNextBuy, lineCovered, sumQtys, type LineTone, type Ledger } from "@/lib/release-lanes";
+import { isPipelineSlot, isRerunSlot, lineupIsPipelineOnly, lineUnits, lineState, lineLanded, LINE_LABELS, releaseNumbersDone, buildLedger, suggestNextBuy, lineCovered, lineBought, sumQtys, type LineTone, type Ledger } from "@/lib/release-lanes";
 import { fmtDay as fmtDate, daysUntilDay as daysTo } from "@/lib/dates";
 import { parseSalesCsv, matchSalesToSlots } from "@/lib/shopify-sales-import";
 import { sortSizes } from "@/lib/theme";
@@ -43,10 +43,15 @@ const STATUS_META: Record<string, { label: string; color: string }> = {
 
 // Multi-buy coverage for a closed release: lines with a ledger (sales import
 // and/or buys) and how many are covered (delivered ≥ sold, per size).
-const coverageOf = (r: any): { lines: number; covered: number; bought: boolean } => {
+// covered = landed ≥ sold (done); boughtOut = on order ≥ sold (buying is
+// finished, the rest is waiting on vendors). "Buy more" only when a size is
+// genuinely short of orders (FOG Aug 26: 5/6 landed, 6/6 bought — Sep 17).
+const coverageOf = (r: any): { lines: number; covered: number; boughtOut: number; bought: boolean } => {
   const ledgered = (r.slots || []).filter((s: any) => hasLedger(s));
-  const covered = ledgered.filter((s: any) => { const l = ledgerOf(s); return l.totals.sold > 0 && lineCovered(l); }).length;
-  return { lines: ledgered.length, covered, bought: (r.slots || []).some((s: any) => (s._buys || []).length > 0) };
+  const ledgers = ledgered.map((s: any) => ledgerOf(s));
+  const covered = ledgers.filter(l => l.totals.sold > 0 && lineCovered(l)).length;
+  const boughtOut = ledgers.filter(l => l.totals.sold > 0 && lineBought(l)).length;
+  return { lines: ledgered.length, covered, boughtOut, bought: (r.slots || []).some((s: any) => (s._buys || []).length > 0) };
 };
 
 export default function DropsBoard() {
@@ -232,7 +237,11 @@ export default function DropsBoard() {
                         {(() => {
                           if (r.status === "closed") {
                             const c = coverageOf(r);
-                            if (c.bought) return c.lines > 0 && c.covered === c.lines ? `${c.covered}/${c.lines} lines covered — mark it done` : `${c.covered}/${c.lines} lines covered — buy more`;
+                            if (c.bought) {
+                              if (c.lines > 0 && c.covered === c.lines) return `${c.covered}/${c.lines} lines landed — mark it done`;
+                              if (c.lines > 0 && c.boughtOut === c.lines) return `all bought · ${c.covered}/${c.lines} landed — waiting on the vendor`;
+                              return `${c.boughtOut}/${c.lines} lines bought — buy more`;
+                            }
                             return nd ? "Numbers in — cut it" : "Awaiting numbers";
                           }
                           if (r.status === "live" && lineupIsPipelineOnly(r.slots)) return "Launched";
@@ -427,10 +436,10 @@ export default function DropsBoard() {
                   const c = coverageOf(r);
                   const allCovered = c.lines > 0 && c.covered === c.lines;
                   return c.bought ? (
-                    <button disabled={busy === r.id || !allCovered} title={allCovered ? "" : `${c.covered}/${c.lines} lines covered — buy more or wait for landings`}
+                    <button disabled={busy === r.id || !allCovered} title={allCovered ? "" : (c.boughtOut === c.lines ? `all bought · ${c.covered}/${c.lines} landed — waiting on the vendor` : `${c.boughtOut}/${c.lines} lines bought — buy more`)}
                       onClick={() => act(r, "", "PATCH", { action: "done" })}
                       style={{ background: allCovered ? H.green : "transparent", color: allCovered ? "#0a0a0a" : H.text, border: allCovered ? "none" : `1px solid ${H.line}`, borderRadius: 999, padding: "12px 22px", fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: allCovered ? "pointer" : "default", fontFamily: H.font, opacity: allCovered ? 1 : 0.6 }}>
-                      ✓ Mark done · {c.covered}/{c.lines} covered
+                      ✓ Mark done · {c.covered}/{c.lines} landed
                     </button>
                   ) : null;
                 })()}
