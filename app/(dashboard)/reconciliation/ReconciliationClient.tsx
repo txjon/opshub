@@ -482,6 +482,17 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
   // amount: source "pre_opshub" (never pushed to QB — the money settled
   // years ago), matched, then mark complete as a clean match.
   const [preOpsArm, setPreOpsArm] = useState<string | null>(null); // `${jobId}::${vendorId}` two-tap
+  // Paid OUTSIDE QuickBooks (vendor portal, card at their checkout — Jon, Sep
+  // 17 2026): no QB Bill will exist, the bank feed carries the money. Same
+  // shape as the legacy "paid-verified" attestation: qb_bill_id sentinel +
+  // qb_paid_at, so the row reads PAID and Push to QB goes away.
+  const [paidOutsideArm, setPaidOutsideArm] = useState<string | null>(null);
+  async function markPaidOutside(bKey: string, entryIds: string[]) {
+    const { error } = await supabase.from("cost_entries").update({ qb_bill_id: "paid-outside", qb_paid_at: new Date().toISOString() } as any).in("id", entryIds);
+    if (error) { alert(`Couldn't mark paid: ${error.message}`); return; }
+    setPaidOutsideArm(null);
+    loadAll();
+  }
   async function markFullyBilledPreOps(jobId: string, v: any) {
     if (!v.apVendorId) return;
     await supabase.from("cost_entries").insert({
@@ -1189,11 +1200,19 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
                               // 'paid-verified' = Jon-attested legacy history (no QB bill
                               // link, date unknown) → plain PAID, no date shown.
                               const verifiedOnly = pushed === "paid-verified";
+                              const outside = pushed === "paid-outside";
                               return paidAt
-                                ? <span title={verifiedOnly ? "Marked paid — legacy batch history, verified by Jon" : `Paid in QuickBooks ${paidAt.slice(0, 10)} · Bill #${pushed}`} style={{ fontSize: 10.5, fontWeight: 800, color: "#fff", background: T.green, padding: "3px 9px", borderRadius: 20, whiteSpace: "nowrap" }}>✓ PAID{verifiedOnly ? "" : " " + paidAt.slice(5, 10)}</span>
+                                ? <span title={verifiedOnly ? "Marked paid — legacy batch history, verified by Jon" : outside ? `Paid outside QuickBooks ${paidAt.slice(0, 10)} — vendor portal / card; the bank feed carries it, no QB Bill` : `Paid in QuickBooks ${paidAt.slice(0, 10)} · Bill #${pushed}`} style={{ fontSize: 10.5, fontWeight: 800, color: "#fff", background: T.green, padding: "3px 9px", borderRadius: 20, whiteSpace: "nowrap" }}>✓ PAID{verifiedOnly ? "" : " " + paidAt.slice(5, 10)}</span>
                                 : <span title={`QuickBooks Bill #${pushed} — awaiting payment`} style={{ fontSize: 10.5, fontWeight: 700, color: T.green, background: T.green + "1f", padding: "3px 9px", borderRadius: 20, whiteSpace: "nowrap" }}>✓ in QB</span>;
                             })()
-                          : <button onClick={ev => { ev.stopPropagation(); if (!busy) pushBillToQb(bKey, ids); }} disabled={busy} className="bq-ghost" style={{ whiteSpace: "nowrap" }}>{busy ? "Pushing…" : "Push to QB"}</button>}
+                          : <>
+                              <button onClick={ev => { ev.stopPropagation(); if (!busy) pushBillToQb(bKey, ids); }} disabled={busy} className="bq-ghost" style={{ whiteSpace: "nowrap" }}>{busy ? "Pushing…" : "Push to QB"}</button>
+                              <button onClick={ev => { ev.stopPropagation(); if (paidOutsideArm === bKey) markPaidOutside(bKey, ids); else { setPaidOutsideArm(bKey); setTimeout(() => setPaidOutsideArm(a => a === bKey ? null : a), 4000); } }}
+                                title="Paid through the vendor's portal or by card — no QuickBooks Bill; the bank feed carries it"
+                                className="bq-ghost" style={{ whiteSpace: "nowrap", color: paidOutsideArm === bKey ? T.amber : undefined }}>
+                                {paidOutsideArm === bKey ? "Tap again — paid outside QB" : "Paid outside QB"}
+                              </button>
+                            </>}
                         <button onClick={ev => { ev.stopPropagation(); openNotify(ids, b.vendor_id, b.vendor_name || "Vendor", "history"); }} className="bq-ghost" style={{ whiteSpace: "nowrap" }}>Notify</button>
                       </>;
                     })()}
