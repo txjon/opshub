@@ -103,6 +103,13 @@ export function AppShell({
 }) {
   const pathname = usePathname();
   const isViewer = role === "viewer";
+  // Sign out via fetch, not a <form>: Safari warns before submitting any form
+  // over plain http (the LAN dev address), and the sheet made the bottom-bar
+  // button look like part of search.
+  const signOut = async () => {
+    try { await fetch("/api/auth/signout", { method: "POST", cache: "no-store" }); } catch {}
+    window.location.href = "/login";
+  };
   // Per-user page access (lib/access). When page_access is set, the whole sidebar
   // is driven off the granted catalog pages; otherwise fall back to the legacy
   // role∩company department list so un-seeded users are completely unchanged.
@@ -332,11 +339,9 @@ export function AppShell({
         {/* footer: user + sign out */}
         <div style={{ borderTop: "1px solid rgba(255,255,255,0.09)", padding: "8px 10px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
           <span style={{ fontSize: 11, color: "#a0a0ad", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{email?.split("@")[0]}</span>
-          <form action="/api/auth/signout" method="post" style={{ display: "flex" }}>
-            <button type="submit" title="Sign out" style={{ width: 30, height: 30, borderRadius: 8, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", color: "#666" }}>
-              <LogOut size={15} />
-            </button>
-          </form>
+          <button type="button" onClick={signOut} title="Sign out" aria-label="Sign out" style={{ width: 30, height: 30, borderRadius: 8, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", color: "#666" }}>
+            <LogOut size={15} />
+          </button>
         </div>
       </aside>
       )}
@@ -434,12 +439,14 @@ export function AppShell({
             )}
           </div>
 
-          {/* Right: search + user. Compact icon button on mobile, full
-              search field on desktop. */}
-          <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 0 : 12, flexShrink: 0 }}>
-            <GlobalSearch compact={isMobile} pages={searchPages} />
-            {!isMobile && <span style={{ fontSize: 11, color: "#a0a0ad" }}>{email?.split("@")[0]}</span>}
-          </div>
+          {/* Right: search + user on desktop only — on phones the bottom
+              bar IS the search (Jon, Sep 17), no second icon up here. */}
+          {!isMobile && (
+            <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+              <GlobalSearch pages={searchPages} />
+              <span style={{ fontSize: 11, color: "#a0a0ad" }}>{email?.split("@")[0]}</span>
+            </div>
+          )}
         </div>
         )}
 
@@ -475,16 +482,14 @@ export function AppShell({
           <div style={{ flex: 1, minWidth: 0 }}>
             <GlobalSearch bar pages={searchPages} />
           </div>
-          <form action="/api/auth/signout" method="post" style={{ display: "flex", flexShrink: 0 }}>
-            <button type="submit" title="Sign out"
-              style={{
-                width: 44, height: 44, borderRadius: 10,
-                background: "transparent", border: "none", color: "#888", cursor: "pointer",
-                display: "flex", alignItems: "center", justifyContent: "center",
-              }}>
-              <LogOut size={17} />
-            </button>
-          </form>
+          <button type="button" onClick={signOut} title="Sign out" aria-label="Sign out"
+            style={{
+              width: 44, height: 44, borderRadius: 10, flexShrink: 0,
+              background: "transparent", border: "none", color: "#888", cursor: "pointer",
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+            <LogOut size={17} />
+          </button>
         </div>
       )}
     </div>
