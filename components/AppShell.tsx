@@ -108,6 +108,16 @@ export function AppShell({
   const [inboxCount, setInboxCount] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
   useEffect(() => { setMenuOpen(false); }, [pathname]);
+  // Where you came from, for "‹ Back" on pages that are entered from many
+  // places (job detail — Jon, Sep 17). Written here so every in-app
+  // navigation records it; read via lib/back-nav.
+  useEffect(() => {
+    try {
+      const cur = sessionStorage.getItem("opshub:path");
+      if (cur && cur !== pathname) sessionStorage.setItem("opshub:prevPath", cur);
+      sessionStorage.setItem("opshub:path", pathname || "");
+    } catch {}
+  }, [pathname]);
   // Per-section "your move" counts under The House (lib/house-counts) —
   // greyed next to Intake / Projects / The Studio / Production.
   const [houseCounts, setHouseCounts] = useState<Record<string, number> | null>(null);

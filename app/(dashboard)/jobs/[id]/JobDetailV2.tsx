@@ -45,6 +45,7 @@ import { recalcJobPhase } from "@/lib/job-phase-recalc";
 import { PROOF_RENDERER_VERSION } from "@/lib/proof-client";
 import { clientShippingRoutes } from "@/lib/tenants";
 import { useIsMobile } from "@/lib/useIsMobile";
+import { backOrigin } from "@/lib/back-nav";
 import { similarClients } from "@/lib/client-match";
 import { calculatePriority } from "@/lib/dates";
 import { SHIP_METHODS } from "@/lib/ship-methods";
@@ -163,6 +164,9 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   // the CURRENT deco edits + items, not the snapshot from when it was scheduled.
   const decoStateRef = React.useRef(decoState); decoStateRef.current = decoState;
   const isMobile = useIsMobile();
+  // origin resolved once on mount (sessionStorage; see lib/back-nav)
+  const [back, setBack] = useState<{ label: string; go: () => void }>({ label: "Projects", go: () => { window.location.href = "/projects"; } });
+  useEffect(() => { setBack(backOrigin("/projects", "Projects", { exclude: /^\/jobs\// })); }, []);
   // ── GUIDE MODE (Jon, for the team cutover): every section explains itself
   // on first landing. 'Got it' hides all guides; the ? pill in the header
   // brings them back any time. Persisted per browser.
@@ -1719,7 +1723,9 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     <div style={{ fontFamily: font, color: T.text, maxWidth: 1120, margin: "0 auto", padding: isMobile ? "0 4px 80px" : "0 20px 80px" }}>
       {/* top bar */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 0 6px", fontSize: 13 }}>
-        <a href="/projects" style={{ color: T.muted, fontWeight: 700, textDecoration: "none" }}>‹ Projects</a>
+        {/* ‹ Back — to wherever this job was opened from (client space, The
+            House, a board…); Projects when there's no in-app origin. */}
+        <button type="button" onClick={() => back.go()} style={{ color: T.muted, fontWeight: 700, background: "none", border: "none", padding: 0, cursor: "pointer", font: "inherit", fontSize: 13 }}>‹ {back.label}</button>
         <div style={{ display: "flex", alignItems: "center", gap: 10, position: "relative" }}>
           <button onClick={() => setGuidePersist(!guide)} title="Show or hide the guides that explain each section" style={{ fontSize: 11, fontWeight: 800, color: guide ? "#0a0a0a" : T.muted, background: guide ? T.accent : "none", padding: "5px 11px", borderRadius: 999, border: `1px solid ${guide ? T.accent : T.border}`, cursor: "pointer", fontFamily: font }}>? Guide</button>
           <button onClick={() => setDetailsOpen(true)} style={{ fontSize: 11, fontWeight: 700, color: T.muted, background: "none", padding: "5px 11px", borderRadius: 999, border: `1px solid ${T.border}`, cursor: "pointer", fontFamily: font }}>Job details</button>
