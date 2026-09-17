@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { patchJobTypeMeta } from "@/lib/job-type-meta";
 import { createClient } from "@/lib/supabase/client";
-import { H } from "@/components/hub/theme";
+import { H, HUB_PAGE } from "@/components/hub/theme";
 import { JOB_DIRECTIVES, DROP_DIRECTIVES, STUDIO_DIRECTIVE, HOUSE_EXTRA_DIRECTIVES, DISTRO_DIRECTIVES, INBOX_DIRECTIVES } from "@/lib/directives";
 import type { InboxItem } from "@/lib/inbox";
 import { vendorRiskFor } from "@/lib/house-model";
@@ -226,7 +226,7 @@ export default function HousePage() {
   };
 
   return (
-    <div style={{ background: H.ink, minHeight: "100vh", margin: -24, padding: 24, color: H.text, fontFamily: H.font }}>
+    <div style={HUB_PAGE}>
       <style dangerouslySetInnerHTML={{ __html: `
         .hs-grid{display:grid;grid-template-columns:1fr;gap:16px}
         @media(min-width:760px){.hs-grid{grid-template-columns:repeat(2,1fr)}}

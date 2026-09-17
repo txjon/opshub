@@ -6,7 +6,7 @@
 // trains the team. Legacy /distro, /receiving2, /warehouse stay for depth.
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { H } from "@/components/hub/theme";
+import { H, HUB_PAGE } from "@/components/hub/theme";
 import { DISTRO_DIRECTIVES, HOUSE_EXTRA_DIRECTIVES } from "@/lib/directives";
 import { fulfillPullRequest, resolvePostShopifyPull } from "@/lib/handoff";
 import { logJobActivity } from "@/components/JobActivityPanel";
@@ -134,7 +134,7 @@ export default function TheDistroView({ rows, drops }: { rows: ArrivalRow[]; dro
   };
 
   return (
-    <div style={{ background: H.ink, minHeight: "100vh", margin: -24, padding: 24, color: H.text, fontFamily: H.font }}>
+    <div style={HUB_PAGE}>
       <style dangerouslySetInnerHTML={{ __html: `
         .ds-grid{display:grid;grid-template-columns:1fr;gap:16px}
         @media(min-width:760px){.ds-grid{grid-template-columns:repeat(2,1fr)}}

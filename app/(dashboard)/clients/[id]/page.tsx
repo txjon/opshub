@@ -9,7 +9,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { hasRun } from "@/lib/run-gate";
-import { H } from "@/components/hub/theme";
+import { H, HUB_PAGE } from "@/components/hub/theme";
 import { JOB_DIRECTIVES } from "@/lib/directives";
 import { ClientWorkingSheet } from "@/components/ClientWorkingSheet";
 import { QBCustomerChooser } from "@/components/QBCustomerChooser";
@@ -231,7 +231,7 @@ export default function ClientSpacePage() {
   const grants: string[] = Array.isArray(client.portal_features) ? client.portal_features : [];
 
   return (
-    <div style={{ background: H.ink, minHeight: "100vh", margin: -24, padding: 24, color: H.text, fontFamily: H.font }}>
+    <div style={HUB_PAGE}>
       <style dangerouslySetInnerHTML={{ __html: `
         .cs-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:18px 14px}
         @media(min-width:900px){.cs-grid{grid-template-columns:repeat(4,1fr)}}

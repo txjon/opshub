@@ -444,12 +444,18 @@ export function AppShell({
         )}
 
         {/* ── Page content ── */}
+        {/* --shell-pad is the ONE number hub-skin pages pull against
+            (HUB_PAGE in components/hub/theme) — a hardcoded -24 was 24px
+            wider than a phone (Jon, Sep 17). The body never scrolls
+            sideways; wide tables scroll inside their own container. */}
         <div style={{
           flex: 1,
           padding: isMobile ? "12px 12px" : 24,
           paddingBottom: isMobile ? 76 : 24, // account for fixed bottom nav
-          overflow: "auto",
+          overflowY: "auto",
+          overflowX: "hidden",
           minHeight: 0,
+          ["--shell-pad" as any]: isMobile ? "12px" : "24px",
         }}>
           {children}
         </div>

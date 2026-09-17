@@ -23,6 +23,19 @@ export const H = {
 
 // Theme object for PackageApproval (it's portal-agnostic and styles itself
 // entirely from this shape). accentText makes the primary pill white-on-ink.
+// The hub-skin page wrapper: bleeds to the shell's edges by exactly the
+// shell's own padding (--shell-pad, set by AppShell per breakpoint) and pads
+// back in by the same amount. Never hardcode -24 here again.
+export const HUB_PAGE = {
+  background: H.ink,
+  minHeight: "100vh",
+  margin: "calc(-1 * var(--shell-pad, 24px))",
+  padding: "var(--shell-pad, 24px)",
+  color: H.text,
+  fontFamily: H.font,
+  minWidth: 0,
+} as const;
+
 export const H_APPROVAL_THEME = {
   font: H.font,
   card: H.panel,
