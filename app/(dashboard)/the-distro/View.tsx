@@ -147,6 +147,8 @@ export default function TheDistroView({ rows, drops }: { rows: ArrivalRow[]; dro
         .ds-sheet-wrap{position:fixed;inset:0;z-index:220;background:rgba(0,0,0,.66);display:flex;align-items:flex-end;justify-content:center}
         .ds-sheet{background:#161616;border:1px solid rgba(255,255,255,.13);border-radius:16px 16px 0 0;width:100%;max-width:540px;padding:22px 22px 28px;max-height:88vh;overflow:auto}
         @media(min-width:760px){.ds-sheet-wrap{align-items:center;padding:24px}.ds-sheet{border-radius:16px}}
+        .ds-sheet{position:relative}
+        .ds-close{position:sticky;top:0;float:right;margin:-8px -8px 0 0;width:40px;height:40px;border-radius:999px;border:1px solid rgba(255,255,255,.16);background:#161616;color:#fff;font-size:22px;line-height:1;cursor:pointer;z-index:1}
         @media(prefers-reduced-motion:reduce){.ds-plate,.ds-plate:hover{transition:none;transform:none}}
       ` }} />
       <div style={{ maxWidth: 1000, margin: "0 auto", padding: "26px 0 80px" }}>
@@ -395,6 +397,9 @@ function DistroActionSheet({ sheet, onClose, onPullDone }: {
   return (
     <div className="ds-sheet-wrap" onClick={onClose}>
       <div className="ds-sheet" onClick={e => e.stopPropagation()}>
+        {/* explicit close — on a phone the sheet fills the screen, so there's
+            no backdrop to tap and no Esc key (Jon, Sep 17) */}
+        <button type="button" onClick={onClose} aria-label="Close" className="ds-close">×</button>
         {sheet.kind === "pull" && (
           <>
             {head(`${sheet.pull.items?.jobs?.clients?.name || "Pull"} · ${sheet.pull.items?.jobs?.job_number || ""}`,
