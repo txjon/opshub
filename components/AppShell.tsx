@@ -283,35 +283,6 @@ export function AppShell({
 
       {/* ── Main content area ── */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
-        {/* ── Top bar — MOBILE ONLY: ☰ + where you are. The menu is the
-            whole grouped nav with the current department expanded (Jon,
-            Sep 17 2026, option 1); desktop nav lives in the hub sidebar. ── */}
-        {isMobile && (() => {
-          const allRows = [...sidebarGroups.flatMap(g => g.items.map(i => ({ ...i, group: g.key, groupLabel: g.label }))), ...utilityItems.map(u => ({ ...u, group: "settings", groupLabel: "Admin" }))];
-          const here = allRows
-            .filter(i => pathname === i.href || pathname?.startsWith(i.href + "/"))
-            .sort((a, b) => b.href.length - a.href.length)[0];
-          const hereGroup = sidebarGroups.find(g => g.key === here?.group);
-          const hereHome = hereGroup ? GROUP_HOMES[hereGroup.key as Department] : undefined;
-          const pillar = hereGroup ? (hereHome && hereGroup.items.find(i => i.href === hereHome)?.label) || hereGroup.label : "";
-          const isHome = !!here && here.href === hereHome;
-          return (
-            <div style={{ background: "#131313", borderBottom: "1px solid rgba(255,255,255,0.13)", padding: "0 8px 0 4px", display: "flex", alignItems: "center", gap: 6, height: 52, flexShrink: 0 }}>
-              <button type="button" onClick={() => setMenuOpen(true)} aria-label="Menu" aria-expanded={menuOpen}
-                style={{ width: 44, height: 44, borderRadius: 10, border: "none", background: "transparent", color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                <Menu size={22} />
-              </button>
-              <div style={{ minWidth: 0, flex: 1, display: "flex", alignItems: "baseline", gap: 8, overflow: "hidden" }}>
-                <span style={{ fontSize: 16, fontWeight: 800, color: "#fff", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{isHome || !here ? (pillar || companyName || "OpsHub") : here.label}</span>
-                {!isHome && here && pillar && <span style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(255,255,255,0.45)", whiteSpace: "nowrap" }}>{pillar}</span>}
-              </div>
-              {inboxCount > 0 && (
-                <Link href="/house" aria-label={`${inboxCount} in the inbox`} style={{ background: "#e8569b", color: "#fff", fontSize: 10.5, fontWeight: 800, padding: "3px 8px", borderRadius: 99, lineHeight: 1.3, minWidth: 20, textAlign: "center", textDecoration: "none", flexShrink: 0 }}>{inboxCount}</Link>
-              )}
-            </div>
-          );
-        })()}
-
         {isMobile && menuOpen && (
           <MobileNavMenu
             groups={sidebarGroups}
@@ -346,22 +317,37 @@ export function AppShell({
         </div>
       </div>
 
-      {/* ── Mobile bottom bar — master search-as-nav (replaced the dept icon
-          rail, Aug 13). One search finds pages, projects, clients, vendors,
-          and items; the empty state IS the full grouped nav, so every child
-          page is one tap away instead of hidden behind icons. ── */}
-      {isMobile && (
-        <div style={{
-          position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 50,
-          background: "#000", borderTop: "1px solid #222",
-          display: "flex", alignItems: "center", gap: 8,
-          padding: "8px 10px calc(8px + env(safe-area-inset-bottom))",
-        }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <GlobalSearch bar pages={searchPages} />
+      {/* ── Mobile bottom bar — the ONE nav on phones (Jon, Sep 17 2026):
+          ☰ menu pill (where you are + inbox badge) | search pill, 50/50.
+          No top bar; the page's own headline says where you are up top. ── */}
+      {isMobile && (() => {
+        const allRows = [...sidebarGroups.flatMap(g => g.items.map(i => ({ ...i, group: g.key }))), ...utilityItems.map(u => ({ ...u, group: "settings" }))];
+        const here = allRows
+          .filter(i => pathname === i.href || pathname?.startsWith(i.href + "/"))
+          .sort((a, b) => b.href.length - a.href.length)[0];
+        const hereGroup = sidebarGroups.find(g => g.key === here?.group);
+        const hereHome = hereGroup ? GROUP_HOMES[hereGroup.key as Department] : undefined;
+        const pillar = hereGroup ? (hereHome && hereGroup.items.find(i => i.href === hereHome)?.label) || hereGroup.label : "";
+        const label = here ? (here.href === hereHome ? here.label : `${pillar ? pillar + " · " : ""}${here.label}`) : (companyName || "Menu");
+        return (
+          <div style={{
+            position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 50,
+            background: "#000", borderTop: "1px solid #222",
+            display: "flex", alignItems: "center", gap: 8,
+            padding: "8px 10px calc(8px + env(safe-area-inset-bottom))",
+          }}>
+            <button type="button" onClick={() => setMenuOpen(true)} aria-label="Menu" aria-expanded={menuOpen}
+              style={{ flex: 1, minWidth: 0, minHeight: 48, display: "flex", alignItems: "center", gap: 10, padding: "0 14px", borderRadius: 999, background: "#1e1e1e", border: "1px solid #2a2a2a", color: "#fff", cursor: "pointer", textAlign: "left", font: "inherit" }}>
+              <Menu size={18} style={{ flexShrink: 0 }} />
+              <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
+              {inboxCount > 0 && <span style={{ background: "#e8569b", color: "#fff", fontSize: 10.5, fontWeight: 800, padding: "2px 7px", borderRadius: 99, lineHeight: 1.3, minWidth: 18, textAlign: "center", flexShrink: 0 }}>{inboxCount}</span>}
+            </button>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <GlobalSearch bar pages={searchPages} />
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
