@@ -53,6 +53,20 @@ async function findOrCreateFolder(token: string, name: string, parentId: string)
   const searchData = await searchRes.json();
   if (searchData.files?.length > 0) return searchData.files[0].id;
 
+  // No exact match — before creating, match on the TRIMMED, case-folded
+  // name. A client folder named "Sike Ops " (trailing space, 2023) missed
+  // the exact search and the app minted a second "Sike Ops" beside it; the
+  // Shopify import + Studio landed there while the art stayed in the first
+  // (Sep 17 2026). Folders get renamed by people; this keeps one per client.
+  const want = name.trim().toLowerCase();
+  const lq = encodeURIComponent(`'${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`);
+  const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${lq}&fields=files(id,name)&pageSize=1000&spaces=drive`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const listData = await listRes.json();
+  const loose = (listData.files || []).find((f: { id: string; name: string }) => String(f.name).trim().toLowerCase() === want);
+  if (loose) return loose.id;
+
   // Create
   const createRes = await fetch("https://www.googleapis.com/drive/v3/files", {
     method: "POST",
