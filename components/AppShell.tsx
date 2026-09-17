@@ -325,10 +325,7 @@ export function AppShell({
         const here = allRows
           .filter(i => pathname === i.href || pathname?.startsWith(i.href + "/"))
           .sort((a, b) => b.href.length - a.href.length)[0];
-        const hereGroup = sidebarGroups.find(g => g.key === here?.group);
-        const hereHome = hereGroup ? GROUP_HOMES[hereGroup.key as Department] : undefined;
-        const pillar = hereGroup ? (hereHome && hereGroup.items.find(i => i.href === hereHome)?.label) || hereGroup.label : "";
-        const label = here ? (here.href === hereHome ? here.label : `${pillar ? pillar + " · " : ""}${here.label}`) : (companyName || "Menu");
+        const label = here?.label || companyName || "Menu";
         return (
           <div style={{
             position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 50,
