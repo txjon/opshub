@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { patchJobTypeMeta } from "@/lib/job-type-meta";
 import { createClient } from "@/lib/supabase/client";
-import { H } from "@/components/hub/theme";
+import { H, HUB_PAGE } from "@/components/hub/theme";
 import { JOB_DIRECTIVES, DROP_DIRECTIVES, STUDIO_DIRECTIVE, HOUSE_EXTRA_DIRECTIVES, DISTRO_DIRECTIVES, INBOX_DIRECTIVES } from "@/lib/directives";
 import type { InboxItem } from "@/lib/inbox";
 import { vendorRiskFor } from "@/lib/house-model";
@@ -226,7 +226,7 @@ export default function HousePage() {
   };
 
   return (
-    <div style={{ background: H.ink, minHeight: "100vh", margin: -24, padding: 24, color: H.text, fontFamily: H.font }}>
+    <div style={HUB_PAGE}>
       <style dangerouslySetInnerHTML={{ __html: `
         .hs-grid{display:grid;grid-template-columns:1fr;gap:16px}
         @media(min-width:760px){.hs-grid{grid-template-columns:repeat(2,1fr)}}
@@ -241,6 +241,8 @@ export default function HousePage() {
         .hs-sheet-wrap{position:fixed;inset:0;z-index:220;background:rgba(0,0,0,.66);display:flex;align-items:flex-end;justify-content:center}
         .hs-sheet{background:#161616;border:1px solid rgba(255,255,255,.13);border-radius:16px 16px 0 0;width:100%;max-width:540px;padding:22px 22px 28px;max-height:88vh;overflow:auto}
         @media(min-width:760px){.hs-sheet-wrap{align-items:center;padding:24px}.hs-sheet{border-radius:16px}}
+        .hs-sheet{position:relative}
+        .hs-close{position:sticky;top:0;float:right;margin:-8px -8px 0 0;width:40px;height:40px;border-radius:999px;border:1px solid rgba(255,255,255,.16);background:#161616;color:#fff;font-size:22px;line-height:1;cursor:pointer;z-index:1}
         @media(prefers-reduced-motion:reduce){.hs-plate,.hs-plate:hover{transition:none;transform:none}}
       ` }} />
       <div style={{ maxWidth: 1000, margin: "0 auto", padding: "26px 0 80px" }}>
@@ -716,6 +718,9 @@ function ActionSheet({ sheet, onClose, onShipByLogged, onSaleClosed, onVarianceR
   return (
     <div className="hs-sheet-wrap" onClick={onClose}>
       <div className="hs-sheet" onClick={e => e.stopPropagation()}>
+        {/* explicit close — on a phone the sheet fills the screen, so there's
+            no backdrop to tap and no Esc key (Jon, Sep 17) */}
+        <button type="button" onClick={onClose} aria-label="Close" className="hs-close">×</button>
         {sheet.kind === "vendor" && (
           <>
             {head(`${sheet.job.clients?.name || "—"} · ${sheet.job.job_number}`,

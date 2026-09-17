@@ -7,7 +7,7 @@
 // from slots, quantities from the client's numbers.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { H } from "@/components/hub/theme";
+import { H, HUB_PAGE } from "@/components/hub/theme";
 import { backwardChain } from "@/lib/portal/drop-chain";
 import { isPipelineSlot, isRerunSlot, lineupIsPipelineOnly, lineUnits, lineState, lineLanded, LINE_LABELS, releaseNumbersDone, buildLedger, suggestNextBuy, lineCovered, sumQtys, type LineTone, type Ledger } from "@/lib/release-lanes";
 import { fmtDay as fmtDate, daysUntilDay as daysTo } from "@/lib/dates";
@@ -170,7 +170,7 @@ export default function DropsBoard() {
   }, [rows]);
 
   return (
-    <div style={{ background: H.ink, minHeight: "100vh", margin: -24, padding: 24, color: H.text, fontFamily: H.font }}>
+    <div style={HUB_PAGE}>
       <style dangerouslySetInnerHTML={{ __html: `
         .dr-card{background:${H.panel};border:1px solid ${H.line};border-radius:16px;padding:16px 18px;cursor:pointer;text-align:left;color:${H.text};font-family:${H.font};width:100%;transition:transform .15s ease,border-color .15s ease;display:block}
         .dr-card:hover{transform:translateY(-2px);border-color:rgba(255,255,255,.3)}

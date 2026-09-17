@@ -1,7 +1,7 @@
 // THE SHOP — front-office landing, hub skin (mirrors the-distro/View.tsx).
 // Every plate is a directive: what, how, done-when. Plates deep-link to the
 // surface that owns the action; nothing is edited here.
-import { H } from "@/components/hub/theme";
+import { H, HUB_PAGE } from "@/components/hub/theme";
 import { DROP_DIRECTIVES, DISTRO_DIRECTIVES, type Directive } from "@/lib/directives";
 import { fmtDay, daysUntilDay } from "@/lib/dates";
 
@@ -62,7 +62,7 @@ export default function TheShopView({ stagingJobs, releases, wire }: { stagingJo
   const quiet = { fontSize: 10.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: H.dim, textDecoration: "none" } as const;
 
   return (
-    <div style={{ background: H.ink, minHeight: "100vh", margin: -24, padding: 24, color: H.text, fontFamily: H.font }}>
+    <div style={HUB_PAGE}>
       <style dangerouslySetInnerHTML={{ __html: `
         .sh-grid{display:grid;grid-template-columns:1fr;gap:16px}
         @media(min-width:760px){.sh-grid{grid-template-columns:repeat(2,1fr)}}

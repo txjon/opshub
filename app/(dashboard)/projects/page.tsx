@@ -36,6 +36,9 @@ function readBoardState(): any {
 }
 
 export default function ProjectsBoard() {
+  const isMobile = useIsMobile();
+  // phones: every filter control full width in a wrapping row (Jon, Sep 17)
+  const sel = isMobile ? { ...selStyle, flex: "1 1 45%", minWidth: 0 } as any : selStyle;
   const supabase = createClient();
   const router = useRouter();
   const [jobs, setJobs] = useState<any[]>([]);
@@ -220,17 +223,17 @@ export default function ProjectsBoard() {
         loading ? <div style={{ color: T.muted, fontSize: 14, padding: 40, textAlign: "center" }}>Loading…</div> : (<>
           <style>{`@keyframes projChipPop{from{transform:translateY(2px);opacity:.35}to{transform:none;opacity:1}}.proj-chip{animation:projChipPop .13s ease-out}`}</style>
           <SliceSortRow>
-            <select value={sortBy} onChange={e => setSortBy(e.target.value as any)} style={selStyle}>
+            <select value={sortBy} onChange={e => setSortBy(e.target.value as any)} style={sel}>
               <option value="newest">Newest</option>
               <option value="due">Next item due</option>
               <option value="invoice">Invoice #</option>
             </select>
-            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-              <select value={clientFilter} onChange={e => setClientFilter(e.target.value)} style={selStyle}>
+            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", flex: isMobile ? "1 1 100%" : undefined }}>
+              <select value={clientFilter} onChange={e => setClientFilter(e.target.value)} style={sel}>
                 <option value="">All clients</option>
                 {clients.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
-              <select value={stageFilter} onChange={e => setStageFilter(e.target.value)} style={selStyle}>
+              <select value={stageFilter} onChange={e => setStageFilter(e.target.value)} style={sel}>
                 <option value="">All stages</option>
                 {/* Filter labels = the WORK each bucket represents, not the
                     milestone reached (Jon: "half a step ahead" — resting at
@@ -261,12 +264,12 @@ export default function ProjectsBoard() {
         <div style={{ marginTop: 4 }}>
           <SliceSortRow>
             <span style={{ fontSize: 12, color: T.muted }}>{doneSorted.length} {doneSorted.length === 1 ? "project" : "projects"}{unpaidOnly ? <> with <b style={{ color: T.text }}>money outstanding</b></> : null}</span>
-            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", flex: isMobile ? "1 1 100%" : undefined }}>
               <button onClick={() => setUnpaidOnly(u => !u)}
-                style={{ ...selStyle, background: unpaidOnly ? T.text : T.card, color: unpaidOnly ? "#0a0a0a" : T.text, border: `1px solid ${unpaidOnly ? T.text : T.border}` }}>
+                style={{ ...sel, background: unpaidOnly ? T.text : T.card, color: unpaidOnly ? "#0a0a0a" : T.text, border: `1px solid ${unpaidOnly ? T.text : T.border}` }}>
                 Unpaid only
               </button>
-              <select value={clientFilter} onChange={e => setClientFilter(e.target.value)} style={selStyle}>
+              <select value={clientFilter} onChange={e => setClientFilter(e.target.value)} style={sel}>
                 <option value="">All clients</option>
                 {clients.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
@@ -312,7 +315,7 @@ function Strip({ r, thumbs, proofStatus, completed = false, flash = false, onOpe
   const opened = job.created_at ? new Date(job.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : null;
   return (
     <div id={`strip-${job.id}`} onClick={onOpen} style={{ background: T.card, border: `1px solid ${T.border}`, borderLeft: edgeColor ? `4px solid ${edgeColor}` : `1px solid ${T.border}`, borderRadius: 12, padding: edgeColor ? "10px 16px 10px 13px" : "10px 16px", marginTop: 8, cursor: "pointer", position: "relative", zIndex: raised ? 40 : undefined, outline: flash ? `2.5px solid ${T.text}` : "none", outlineOffset: -1, transition: "outline-color 0.5s" }}>
-      <div style={isMobile ? { display: "flex", flexDirection: "column" as const, alignItems: "stretch", gap: 10 } : { display: "flex", alignItems: "center" }}>
+      <div style={isMobile ? { display: "flex", flexDirection: "column" as const, alignItems: "stretch", gap: 8 } : { display: "flex", alignItems: "center" }}>
         <div style={{ width: isMobile ? "auto" : 236, flexShrink: 0, minWidth: 0, paddingRight: isMobile ? 0 : 12 }}>
           <div style={{ display: "flex", alignItems: "baseline", gap: 8, minWidth: 0 }}>
             <span style={{ fontFamily: mono, fontSize: 11.5, fontWeight: 700, color: T.muted }}>{invNo}</span>
@@ -363,6 +366,26 @@ function Strip({ r, thumbs, proofStatus, completed = false, flash = false, onOpe
               </div>
             </>);
           })()
+        ) : isMobile ? (
+          /* Phone: no spine. One status line in the signal color (the same
+             caption the spine's ▲ shows) with the countdown beside it, then
+             the date facts. The spine stays desktop-only (Jon, Sep 17). */
+          (() => {
+            const caption = stage.preQuote ? stage.now : (stage.reason || PROJ_MILESTONES.find(m => m.k === stage.milestone)?.label || stage.now);
+            const capColor = onHold ? T.muted : stage.preQuote ? T.muted : sig === "late" ? T.red : sig === "act" ? T.amber : T.muted;
+            return (
+              <div>
+                <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
+                  <span style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: ".05em", textTransform: "uppercase", color: capColor, minWidth: 0 }}>{onHold ? "On hold" : caption}</span>
+                  <span style={{ fontFamily: mono, fontSize: 15, fontWeight: 800, color: onHold ? T.muted : cdColor, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>{onHold ? "" : cd ? cd.text : "TBD"}</span>
+                </div>
+                <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: ".04em", textTransform: "uppercase", color: T.faint, marginTop: 4, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  <span>{onHold ? "dates paused" : firstDue ? <>first item due ~<span style={{ fontFamily: mono }}>{fmtDay(firstDue)}</span></> : "no dates set"}</span>
+                  {opened && <span>opened <span style={{ fontFamily: mono }}>{opened}</span></span>}
+                </div>
+              </div>
+            );
+          })()
         ) : (
           <JobStatusBar job={job} stage={stage} items={job.items} payments={job.payment_records} navigate onHoverChange={setRaised} onBeforeNavigate={onRemember} />
         )}
@@ -372,15 +395,7 @@ function Strip({ r, thumbs, proofStatus, completed = false, flash = false, onOpe
         </div>
         {/* Dates rail — opened date + countdown to expected completion (active only;
             completed strips carry the timeline instead). */}
-        {!completed && (isMobile ? (
-          <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
-            <span style={{ fontFamily: mono, fontSize: 15, fontWeight: 800, color: onHold ? T.muted : cdColor, fontVariantNumeric: "tabular-nums" }}>{onHold ? "ON HOLD" : cd ? cd.text : "TBD"}</span>
-            <span style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: T.faint }}>
-              {onHold ? "dates paused" : firstDue ? <>first item due ~<span style={{ fontFamily: mono }}>{fmtDay(firstDue)}</span></> : "no dates set"}
-            </span>
-            {opened && <span style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: T.faint }}>opened <span style={{ fontFamily: mono }}>{opened}</span></span>}
-          </div>
-        ) : (
+        {!completed && !isMobile && (
           <div style={{ width: 108, flexShrink: 0, textAlign: "right", paddingLeft: 14 }}>
             <div style={{ fontFamily: mono, fontSize: onHold ? 12 : 16, fontWeight: 800, color: onHold ? T.muted : cdColor, fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>
               {onHold ? "ON HOLD" : cd ? cd.text : "TBD"}
@@ -390,7 +405,7 @@ function Strip({ r, thumbs, proofStatus, completed = false, flash = false, onOpe
             </div>
             {opened && <div style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", color: T.faint, marginTop: 3 }}>opened <span style={{ fontFamily: mono }}>{opened}</span></div>}
           </div>
-        ))}
+        )}
       </div>
     </div>
   );

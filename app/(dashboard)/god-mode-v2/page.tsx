@@ -7,7 +7,7 @@
 // number, one client selector drives every module.
 // Access: catalogued sensitive; API gate mirrors /god-mode (is_god or grant).
 import { useEffect, useMemo, useRef, useState } from "react";
-import { H } from "@/components/hub/theme";
+import { H, HUB_PAGE } from "@/components/hub/theme";
 
 const PURPLE = "#fd3aa3";
 const fmt$ = (n: number) => "$" + Math.round(n).toLocaleString();
@@ -145,7 +145,7 @@ export default function GodModeV2Page() {
   }, [data, client, group, scope]);
 
   return (
-    <div style={{ background: H.ink, minHeight: "100vh", margin: -24, padding: 24, color: H.text, fontFamily: H.font }}>
+    <div style={HUB_PAGE}>
       <style dangerouslySetInnerHTML={{ __html: `
         .gm-mod{margin-top:44px}
         .gm-bar{transition:width .5s cubic-bezier(.2,.8,.2,1)}

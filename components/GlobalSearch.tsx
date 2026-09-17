@@ -19,8 +19,7 @@ type Result = {
 // page the sidebar wouldn't). group = the sidebar group title.
 export type SearchPage = { href: string; label: string; group: string };
 
-export function GlobalSearch({ compact = false, bar = false, pages = [] }: {
-  compact?: boolean;
+export function GlobalSearch({ bar = false, pages = [] }: {
   bar?: boolean;          // full-width pill trigger (the mobile bottom bar)
   pages?: SearchPage[];
 } = {}) {
@@ -232,7 +231,7 @@ export function GlobalSearch({ compact = false, bar = false, pages = [] }: {
 
   return (
     <>
-      {/* Trigger — bar pill (mobile bottom bar), compact icon, or desktop field. */}
+      {/* Trigger — bar pill (mobile bottom bar) or desktop field. */}
       {bar ? (
         <button onClick={openSearch}
           aria-label="Search and navigate"
@@ -243,19 +242,7 @@ export function GlobalSearch({ compact = false, bar = false, pages = [] }: {
             color: T.muted, fontSize: 14, fontFamily: font, cursor: "pointer", textAlign: "left",
           }}>
           <Search size={17} />
-          <span style={{ flex: 1 }}>Search or go to…</span>
-        </button>
-      ) : compact ? (
-        <button onClick={openSearch}
-          aria-label="Search"
-          style={{
-            width: 44, height: 44, borderRadius: 10,
-            background: "transparent", border: "none",
-            color: "rgba(255,255,255,0.8)", cursor: "pointer",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            flexShrink: 0,
-          }}>
-          <Search size={20} />
+          <span style={{ flex: 1 }}>Search…</span>
         </button>
       ) : (
         <button onClick={openSearch}
@@ -299,7 +286,8 @@ export function GlobalSearch({ compact = false, bar = false, pages = [] }: {
                 value={query}
                 onChange={e => setQuery(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder={pages.length ? "Search, or go to a page…" : "Search projects, clients, items, decorators..."}
+                autoFocus
+                placeholder={bar ? "Search projects, clients, items…" : pages.length ? "Search, or go to a page…" : "Search projects, clients, items, decorators..."}
                 style={{
                   flex: 1, background: "transparent", border: "none", outline: "none",
                   color: T.text, fontSize: isMobile ? 16 : 14, fontFamily: font, minWidth: 0,
@@ -319,8 +307,10 @@ export function GlobalSearch({ compact = false, bar = false, pages = [] }: {
 
             {/* Results / quick nav */}
             <div style={{ maxHeight: isMobile ? undefined : 400, flex: isMobile ? 1 : undefined, overflowY: "auto", minHeight: 0 }}>
-              {/* Empty query → the full granted nav, grouped like the sidebar. */}
-              {!query && navGroups.length > 0 && navGroups.map(([group, items]) => (
+              {/* Empty query → the full granted nav, grouped like the sidebar
+                  (desktop). The mobile bar is search only — the hamburger is
+                  the nav there (Jon, Sep 17). */}
+              {!bar && !query && navGroups.length > 0 && navGroups.map(([group, items]) => (
                 <div key={group}>
                   <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: T.faint, padding: "12px 16px 4px" }}>{group}</div>
                   {items.map(p => (

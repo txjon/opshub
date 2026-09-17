@@ -138,14 +138,15 @@ export default function StudioPage() {
         .st-back{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:200;display:flex;align-items:flex-start;justify-content:center;padding:34px 14px;overflow-y:auto}
         .st-sheet{background:${H.panel};border:1px solid ${H.line};border-radius:20px;max-width:760px;width:100%;overflow:hidden}
         @media(prefers-reduced-motion:reduce){.st-card,.st-card:hover{transition:none;transform:none}}
+        @media(max-width:759px){.st-start,.st-clients{width:100%;margin-left:0!important;box-sizing:border-box}}
       ` }} />
 
       {confirmListEl}
       <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase", color: H.faint }}>Everything before a job</div>
       <div style={{ display: "flex", alignItems: "baseline", gap: 16, flexWrap: "wrap", margin: "6px 0 4px" }}>
         <h1 style={{ fontSize: "clamp(34px,5vw,60px)", fontWeight: 900, lineHeight: 0.98, letterSpacing: "-0.02em", textTransform: "uppercase", margin: 0 }}>The studio.</h1>
-        <button onClick={() => setShowNew(true)} style={{ ...primaryBtn, padding: "12px 22px" }}>+ Start something</button>
-        <select value={clientFilter} onChange={e => setClientFilter(e.target.value)} style={{ marginLeft: "auto", background: H.surface, border: `1px solid ${clientFilter ? "rgba(255,255,255,.45)" : H.line}`, borderRadius: 999, color: clientFilter ? H.text : H.dim, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", padding: "10px 14px", cursor: "pointer", fontFamily: H.font, outline: "none" }}>
+        <button onClick={() => setShowNew(true)} className="st-start" style={{ ...primaryBtn, padding: "12px 22px" }}>+ Start something</button>
+        <select value={clientFilter} onChange={e => setClientFilter(e.target.value)} className="st-clients" style={{ marginLeft: "auto", background: H.surface, border: `1px solid ${clientFilter ? "rgba(255,255,255,.45)" : H.line}`, borderRadius: 999, color: clientFilter ? H.text : H.dim, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", padding: "10px 14px", cursor: "pointer", fontFamily: H.font, outline: "none" }}>
           <option value="">All clients</option>
           {clientNames.map(n => <option key={n} value={n}>{n}</option>)}
         </select>

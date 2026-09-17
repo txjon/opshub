@@ -240,7 +240,8 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
         {view === "production" && (<>
         <KpiStrip metrics={METRICS} get={k => agg.total[k]} onClick={setKpi} />
 
-        <div style={{ display: "flex", marginBottom: 18, justifyContent: "flex-end", gap: 8 }}>
+        {/* phones: board-filters (board-kit) wraps these full width */}
+        <div className="board-filters" style={{ display: "flex", marginBottom: 18, justifyContent: "flex-end", gap: 8 }}>
           <select value={filterVendor} onChange={e => setFilterVendor(e.target.value)}
             style={{ padding: "9px 14px", borderRadius: 12, border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 13, fontWeight: 700, fontFamily: font, outline: "none", cursor: "pointer" }}>
             <option value="">All vendors</option>
@@ -350,9 +351,9 @@ export default function Board({ strips, freightCarriers, shippedBoxes }: { strip
         </div>
         </>)}
 
-      {/* sticky ship bar */}
+      {/* sticky ship bar — board-stickybar lifts it above the phone's bottom nav */}
       {sel.size > 0 && (
-        <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: T.card, borderTop: `1px solid ${T.border}`, boxShadow: "0 -4px 20px rgba(0,0,0,0.06)", padding: "14px 24px", zIndex: 40 }}>
+        <div className="board-stickybar" style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: T.card, borderTop: `1px solid ${T.border}`, boxShadow: "0 -4px 20px rgba(0,0,0,0.06)", padding: "14px 24px", zIndex: 40 }}>
           <div style={{ maxWidth: 1180, margin: "0 auto", display: "flex", alignItems: "center", gap: 16 }}>
             <span style={{ fontSize: 13, fontWeight: 600 }}>{sel.size} item{sel.size > 1 ? "s" : ""} selected</span>
             <span style={{ fontSize: 12, color: T.muted }}>{selVendorName} · {selUnits} units</span>

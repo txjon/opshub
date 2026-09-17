@@ -45,6 +45,7 @@ import { recalcJobPhase } from "@/lib/job-phase-recalc";
 import { PROOF_RENDERER_VERSION } from "@/lib/proof-client";
 import { clientShippingRoutes } from "@/lib/tenants";
 import { useIsMobile } from "@/lib/useIsMobile";
+import { backOrigin } from "@/lib/back-nav";
 import { similarClients } from "@/lib/client-match";
 import { calculatePriority } from "@/lib/dates";
 import { SHIP_METHODS } from "@/lib/ship-methods";
@@ -163,6 +164,9 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   // the CURRENT deco edits + items, not the snapshot from when it was scheduled.
   const decoStateRef = React.useRef(decoState); decoStateRef.current = decoState;
   const isMobile = useIsMobile();
+  // origin resolved once on mount (sessionStorage; see lib/back-nav)
+  const [back, setBack] = useState<{ label: string; go: () => void }>({ label: "Projects", go: () => { window.location.href = "/projects"; } });
+  useEffect(() => { setBack(backOrigin("/projects", "Projects", { exclude: /^\/jobs\// })); }, []);
   // ── GUIDE MODE (Jon, for the team cutover): every section explains itself
   // on first landing. 'Got it' hides all guides; the ? pill in the header
   // brings them back any time. Persisted per browser.
@@ -372,7 +376,10 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   const [revisedNote, setRevisedNote] = useState("");
   const [revisedSel, setRevisedSel] = useState<Record<string, boolean>>({});
   const [revisedBusy, setRevisedBusy] = useState(false);
-  const [open, setOpen] = useState<Record<string, boolean>>({ products: true, client: false, production: true, logistics: false });
+  // Every block starts collapsed (Jon, Sep 17 2026) — the hero says what's
+  // next; open what you came for. ?tab= deep links and the hero's next-action
+  // link still open their block.
+  const [open, setOpen] = useState<Record<string, boolean>>({});
   const toggle = (k: string) => setOpen(o => ({ ...o, [k]: !o[k] }));
 
   // ── Legacy ?tab= deep links (emails, notifications, bookmarks) — map the
@@ -1619,16 +1626,18 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   const field: React.CSSProperties = { padding: "9px 11px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13.5, fontFamily: font, outline: "none", boxSizing: "border-box", width: "100%", colorScheme: "dark" };
   const block = (id: string, tick: "done" | "now" | "todo" | "warn", title: string, summary: string, body: React.ReactNode, dim = false) => (
     <div id={id} style={{ border: `1px solid ${tick === "warn" ? T.amber + "88" : T.border}`, borderRadius: 16, background: tick === "warn" ? `${T.amber}0d` : T.card, marginTop: 14, overflow: "hidden", opacity: dim && !open[id] ? 0.6 : 1 }}>
-      <div onClick={() => toggle(id)} style={{ display: "flex", alignItems: "center", gap: 14, padding: "16px 20px", cursor: "pointer" }}>
+      <div onClick={() => toggle(id)} style={{ display: "flex", alignItems: "center", gap: isMobile ? 10 : 14, padding: isMobile ? "14px 14px" : "16px 20px", cursor: "pointer" }}>
         <span style={{ width: 22, height: 22, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 800,
           background: tick === "done" ? T.greenDim : tick === "now" ? "rgba(107,176,232,.14)" : tick === "warn" ? `${T.amber}22` : "transparent",
           color: tick === "done" ? T.green : tick === "now" ? "#6bb0e8" : tick === "warn" ? T.amber : T.faint,
           border: `1px solid ${tick === "done" ? T.green + "66" : tick === "now" ? "#6bb0e880" : tick === "warn" ? T.amber + "88" : T.border}` }}>{tick === "done" ? "✓" : tick === "now" ? "◉" : tick === "warn" ? "!" : "○"}</span>
-        <span style={{ fontSize: 14, fontWeight: 800, letterSpacing: "0.02em", textTransform: "uppercase" }}>{title}</span>
-        <span style={{ flex: 1, fontSize: 12.5, color: tick === "warn" ? T.amber : T.muted, fontFamily: mono, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: tick === "warn" ? 700 : 400 }}>{summary}</span>
+        <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: isMobile ? "column" : "row", alignItems: isMobile ? "flex-start" : "center", gap: isMobile ? 3 : 14 }}>
+          <span style={{ fontSize: 14, fontWeight: 800, letterSpacing: "0.02em", textTransform: "uppercase", whiteSpace: "nowrap" }}>{title}</span>
+  <span style={{ flex: 1, fontSize: 12.5, color: tick === "warn" ? T.amber : T.muted, fontFamily: mono, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: isMobile ? "normal" : "nowrap", lineHeight: 1.35, fontWeight: tick === "warn" ? 700 : 400 }}>{summary}</span>
+        </span>
         <span style={{ color: T.faint, fontSize: 13, transform: open[id] ? "none" : "rotate(-90deg)", transition: "transform .2s" }}>▾</span>
       </div>
-      {open[id] && <div style={{ padding: "4px 20px 20px", borderTop: `1px solid ${T.border}55` }}>{body}</div>}
+      {open[id] && <div style={{ padding: isMobile ? "4px 12px 16px" : "4px 20px 20px", borderTop: `1px solid ${T.border}55` }}>{body}</div>}
     </div>
   );
 
@@ -1711,14 +1720,15 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   };
 
   return (
-    <div style={{ fontFamily: font, color: T.text, maxWidth: 1120, margin: "0 auto", padding: "0 20px 80px" }}>
+    <div style={{ fontFamily: font, color: T.text, maxWidth: 1120, margin: "0 auto", padding: isMobile ? "0 4px 80px" : "0 20px 80px" }}>
       {/* top bar */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 0 6px", fontSize: 13 }}>
-        <a href="/projects" style={{ color: T.muted, fontWeight: 700, textDecoration: "none" }}>‹ Projects</a>
+        {/* ‹ Back — to wherever this job was opened from (client space, The
+            House, a board…); Projects when there's no in-app origin. */}
+        <button type="button" onClick={() => back.go()} style={{ color: T.muted, fontWeight: 700, background: "none", border: "none", padding: 0, cursor: "pointer", font: "inherit", fontSize: 13 }}>‹ {back.label}</button>
         <div style={{ display: "flex", alignItems: "center", gap: 10, position: "relative" }}>
           <button onClick={() => setGuidePersist(!guide)} title="Show or hide the guides that explain each section" style={{ fontSize: 11, fontWeight: 800, color: guide ? "#0a0a0a" : T.muted, background: guide ? T.accent : "none", padding: "5px 11px", borderRadius: 999, border: `1px solid ${guide ? T.accent : T.border}`, cursor: "pointer", fontFamily: font }}>? Guide</button>
           <button onClick={() => setDetailsOpen(true)} style={{ fontSize: 11, fontWeight: 700, color: T.muted, background: "none", padding: "5px 11px", borderRadius: 999, border: `1px solid ${T.border}`, cursor: "pointer", fontFamily: font }}>Job details</button>
-          <a href={`/jobs/${job?.id}?classic=1`} style={{ fontSize: 11, fontWeight: 700, color: T.muted, textDecoration: "none", padding: "5px 11px", borderRadius: 999, border: `1px solid ${T.border}` }}>Classic ›</a>
           <button onClick={() => setMenuOpen(v => !v)} aria-label="More" style={{ width: 30, height: 30, borderRadius: 999, border: `1px solid ${T.border}`, background: "none", color: T.muted, fontSize: 16, cursor: "pointer", lineHeight: 1 }}>⋯</button>
           {menuOpen && (
             <>

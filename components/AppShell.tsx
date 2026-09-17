@@ -2,10 +2,10 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LogOut } from "lucide-react";
+import { LogOut, Menu, X, ChevronDown } from "lucide-react";
 import { GlobalSearch, type SearchPage } from "@/components/GlobalSearch";
 import { useIsMobile } from "@/lib/useIsMobile";
-import { grantedPages, pathToGroup } from "@/lib/access";
+import { grantedPages } from "@/lib/access";
 import { V2_WRITES_LIVE, STUDIO_UNDER_DEV, STUDIO_HIDDEN_HREFS } from "@/lib/v2-flags";
 
 type Department = "owner" | "labs" | "distro" | "ecomm" | "contacts" | "settings" | "billing";
@@ -70,26 +70,6 @@ const SIDE_QUESTS = [
   { href: "/toolkit", label: "Toolkit" },
 ];
 
-// Cross-links between departments
-const DEPT_CROSSLINKS: Partial<Record<Department, { href: string; label: string; dept: Department }>> = {
-  labs: { href: "/distro", label: "Distro →", dept: "distro" },
-  distro: { href: "/house", label: "← Labs", dept: "labs" },
-};
-
-function detectDept(pathname: string): Department {
-  if (pathname.startsWith("/billing")) return "billing";
-  if (["/insights", "/reports", "/reconciliation", "/hours", "/god-mode", "/integrations"].some(p => pathname.startsWith(p))) return "owner";
-  if (["/ecomm"].some(p => pathname.startsWith(p))) return "ecomm";
-  if (["/distro", "/receiving", "/shipping", "/fulfillment"].some(p => pathname.startsWith(p))) return "distro";
-  // Designers nav lives under Contacts even though the page itself
-  // still resolves at /settings/designers — match the more specific
-  // path BEFORE the generic /settings catch so the right dept lights up.
-  if (pathname.startsWith("/settings/designers")) return "contacts";
-  if (["/clients", "/decorators"].some(p => pathname.startsWith(p))) return "contacts";
-  if (["/settings"].some(p => pathname.startsWith(p))) return "settings";
-  return "labs";
-}
-
 export function AppShell({
   email, role, isOwner, departments, extraAccess, userId,
   companySlug, companyName, isGod, pageAccess,
@@ -103,6 +83,13 @@ export function AppShell({
 }) {
   const pathname = usePathname();
   const isViewer = role === "viewer";
+  // Sign out via fetch, not a <form>: Safari warns before submitting any form
+  // over plain http (the LAN dev address), and the sheet made the bottom-bar
+  // button look like part of search.
+  const signOut = async () => {
+    try { await fetch("/api/auth/signout", { method: "POST", cache: "no-store" }); } catch {}
+    window.location.href = "/login";
+  };
   // Per-user page access (lib/access). When page_access is set, the whole sidebar
   // is driven off the granted catalog pages; otherwise fall back to the legacy
   // role∩company department list so un-seeded users are completely unchanged.
@@ -114,40 +101,27 @@ export function AppShell({
   const grantedGroups = new Set(grantedCatalog.map(p => p.group));
   const navByGroup: Record<string, { href: string; label: string }[]> = {};
   for (const p of grantedCatalog) (navByGroup[p.group] ||= []).push({ href: p.href, label: p.label });
-  const hasDept = (d: string) => usePerUser ? grantedGroups.has(d as any) : departments.includes(d as any);
   const hasExtra = (page: string) => extraAccess.includes(page);
-  // A user can land (via bookmark/URL) on a page whose department they don't
-  // have — e.g. a contractor on /hours, which lives under "owner". Resolve to
-  // their own first department instead, so we never render another dept's nav
-  // (and never surface owner links like Reports/Reconciliation) to someone who
-  // lacks that dept. Page-level access is a separate guard (tracked).
-  const resolveDept = (d: Department): Department => {
-    if (usePerUser) return grantedGroups.has(d) ? d : ((grantedCatalog[0]?.group as Department) || "labs");
-    return departments.includes(d) ? d : ((departments[0] as Department) || "labs");
-  };
-  // Per-user mode: the active department is the catalog GROUP of the current page
-  // (so /hours lands on Distro, /billing on Billing). Legacy: detectDept.
-  const deptForPath = (path: string): Department =>
-    usePerUser ? ((pathToGroup(path) as Department) || (grantedCatalog[0]?.group as Department) || "labs") : detectDept(path);
-  const [activeDept, setActiveDept] = useState<Department>(resolveDept(deptForPath(pathname)));
-  const [showSideQuests, setShowSideQuests] = useState(false);
   const isMobile = useIsMobile();
-  // Dashboard nav badge — count of external-driven items awaiting an
-  // HPD response (quote rejections, proof revisions, vendor flags,
-  // unread Art Studio briefs). Refreshes when the user navigates
-  // away from /dashboard and on a slow background poll.
   // The inbox badge — open external items (lib/inbox), polled each minute.
   // No "seen" clock: the number only drops when an item resolves or is cleared.
   const [inboxCount, setInboxCount] = useState(0);
+  const [menuOpen, setMenuOpen] = useState(false);
+  useEffect(() => { setMenuOpen(false); }, [pathname]);
+  // Where you came from, for "‹ Back" on pages that are entered from many
+  // places (job detail — Jon, Sep 17). Written here so every in-app
+  // navigation records it; read via lib/back-nav.
+  useEffect(() => {
+    try {
+      const cur = sessionStorage.getItem("opshub:path");
+      if (cur && cur !== pathname) sessionStorage.setItem("opshub:prevPath", cur);
+      sessionStorage.setItem("opshub:path", pathname || "");
+    } catch {}
+  }, [pathname]);
   // Per-section "your move" counts under The House (lib/house-counts) —
   // greyed next to Intake / Projects / The Studio / Production.
   const [houseCounts, setHouseCounts] = useState<Record<string, number> | null>(null);
   const HOUSE_SECTION_BY_HREF: Record<string, string> = { "/intake": "intake", "/projects": "projects", "/jobs": "projects", "/studio": "studio", "/production2": "production", "/production": "production" };
-
-  // Sync dept when pathname changes (after navigation completes, not during render)
-  useEffect(() => {
-    setActiveDept(resolveDept(deptForPath(pathname)));
-  }, [pathname]);
 
   useEffect(() => {
     let cancelled = false;
@@ -168,23 +142,6 @@ export function AppShell({
     return () => { cancelled = true; clearInterval(id); };
   }, [pathname]);
 
-  // Per-user mode: nav items come straight from the granted catalog for the
-  // active group — this is also what moves Log Hours into Distro, God Mode into
-  // Owner, etc. Legacy mode: the static DEPT_NAV with Jon's Overview prepend.
-  const baseNavItems = usePerUser ? (navByGroup[activeDept] || []) : (DEPT_NAV[activeDept] || []);
-  const navItemsRaw = !usePerUser && activeDept === "owner" && email === "jon@housepartydistro.com"
-    ? [{ href: "/god-mode", label: "Overview" }, ...baseNavItems]
-    : baseNavItems;
-  // v2 warehouse cutover: when live, show the v2 surfaces under the primary
-  // names and drop the legacy twins from the nav (legacy pages stay reachable by
-  // URL for rollback). Flag off → nav is exactly as before.
-  // Studio under dev: pull Art Studio / Studio v2 from the nav in BOTH modes
-  // (per-user grantedPages already drops them; this also covers the legacy
-  // DEPT_NAV fallback). Nav-hide only — the routes stay reachable by URL.
-  const navItemsSwapped = swapV2Nav(navItemsRaw);
-  const navItems = (STUDIO_UNDER_DEV
-    ? navItemsSwapped.filter((i: any) => !STUDIO_HIDDEN_HREFS.includes(i.href))
-    : navItemsSwapped);
   // ── Hub sidebar (desktop) — ONE nav, grouped by workflow, every granted
   // destination visible and one click away (Jon, Jul 27: "we're in
   // production, need receiving → click Distro → land on Distro home → click
@@ -239,11 +196,6 @@ export function AppShell({
     ...(showRefs ? [{ href: "/references", label: "References", group: "Utilities" }] : []),
     ...sideQuestItems.map(sq => ({ href: sq.href, label: sq.label, group: "Utilities" })),
   ];
-
-  const rawCrossLink = DEPT_CROSSLINKS[activeDept];
-  const crossLink = rawCrossLink && hasDept(rawCrossLink.dept)
-    ? (rawCrossLink.dept === "labs" ? { ...rawCrossLink, label: "← Labs" } : rawCrossLink)
-    : null;
 
   return (
     <div style={{ height: "100vh", display: "flex", background: "#0a0a0a" }}>
@@ -332,215 +284,173 @@ export function AppShell({
         {/* footer: user + sign out */}
         <div style={{ borderTop: "1px solid rgba(255,255,255,0.09)", padding: "8px 10px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
           <span style={{ fontSize: 11, color: "#a0a0ad", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{email?.split("@")[0]}</span>
-          <form action="/api/auth/signout" method="post" style={{ display: "flex" }}>
-            <button type="submit" title="Sign out" style={{ width: 30, height: 30, borderRadius: 8, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", color: "#666" }}>
-              <LogOut size={15} />
-            </button>
-          </form>
+          <button type="button" onClick={signOut} title="Sign out" aria-label="Sign out" style={{ width: 30, height: 30, borderRadius: 8, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", color: "#666" }}>
+            <LogOut size={15} />
+          </button>
         </div>
       </aside>
       )}
 
       {/* ── Main content area ── */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
-        {/* ── Top nav bar — MOBILE ONLY (desktop nav lives in the hub sidebar) ── */}
-        {isMobile && (
-        <div style={{
-          background: "#131313", borderBottom: "1px solid rgba(255,255,255,0.13)",
-          padding: isMobile ? "0 4px 0 8px" : "0 24px", display: "flex", alignItems: "center", justifyContent: "space-between",
-          height: isMobile ? 52 : 48, flexShrink: 0, gap: 4,
-        }}>
-          {/* Left: nav links (horizontally scrollable on mobile)
-              Mobile gets taller, bolder tabs with iOS-style underline
-              for the active state — proper 44px touch targets and
-              scroll-snap so they land cleanly when swiped. */}
-          <div style={{
-            display: "flex", alignItems: "center", gap: isMobile ? 0 : 2,
-            overflowX: "auto", overflowY: "hidden",
-            minWidth: 0, flex: 1,
-            scrollbarWidth: "none", WebkitOverflowScrolling: "touch",
-            scrollSnapType: isMobile ? "x proximity" : undefined,
-          }}>
-            {navItems.map((item: any) => {
-              const isActive = pathname === item.href || pathname?.startsWith(item.href + "/");
-              const showBadge = item.href === "/house" && inboxCount > 0;
-              const linkStyle = isMobile ? ({
-                padding: "0 14px", minHeight: 44, fontSize: 15,
-                fontWeight: isActive ? 700 : 500,
-                textDecoration: "none", transition: "color 0.12s",
-                color: isActive ? "#fff" : "rgba(255,255,255,0.55)",
-                background: "transparent",
-                borderBottom: isActive ? "2px solid #000" : "2px solid transparent",
-                flexShrink: 0, whiteSpace: "nowrap",
-                display: "inline-flex", alignItems: "center", gap: 8,
-                scrollSnapAlign: "start",
-              } as const) : ({
-                padding: "6px 14px", borderRadius: 6, fontSize: 13, fontWeight: isActive ? 700 : 500,
-                textDecoration: "none", transition: "all 0.12s",
-                color: isActive ? "#fff" : "rgba(255,255,255,0.55)",
-                background: isActive ? "rgba(255,255,255,0.10)" : "transparent",
-                flexShrink: 0, whiteSpace: "nowrap",
-                display: "inline-flex", alignItems: "center", gap: 8,
-              } as const);
-              const badge = showBadge ? (
-                <span style={{
-                  background: "#e8569b", color: "#fff",
-                  fontSize: 10, fontWeight: 800,
-                  padding: "2px 7px", borderRadius: 99, lineHeight: 1.3,
-                  minWidth: 18, textAlign: "center",
-                }}>{inboxCount}</span>
-              ) : null;
-              // External links (static files outside Next routing) use <a> + target=_blank
-              if (item.external) {
-                return (
-                  <a key={item.href} href={item.href} target="_blank" rel="noopener noreferrer" style={linkStyle}>
-                    {item.label}
-                    {badge}
-                  </a>
-                );
-              }
-              return (
-                <Link key={item.href} href={item.href} style={linkStyle}>
-                  {item.label}
-                  {badge}
-                </Link>
-              );
-            })}
-
-            {/* Cross-link to other department */}
-            {crossLink && (
-              <Link
-                href={crossLink.href}
-                onClick={() => setActiveDept(crossLink.dept)}
-                style={{
-                  padding: "6px 14px", borderRadius: 6, fontSize: 12, fontWeight: 500,
-                  textDecoration: "none", color: "#a0a0ad", marginLeft: 4,
-                  flexShrink: 0, whiteSpace: "nowrap",
-                }}
-              >
-                {crossLink.label}
-              </Link>
-            )}
-
-            {/* Side quests dropdown — uses position:fixed w/ ref-measured coords
-                so it escapes the nav container's overflow:hidden clip */}
-            {SIDE_QUESTS.some(sq => usePerUser ? grantedHrefs.has(sq.href) : hasExtra(sq.label.toLowerCase())) && (
-              <SideQuestsMenu
-                items={SIDE_QUESTS.filter(sq => usePerUser ? grantedHrefs.has(sq.href) : hasExtra(sq.label.toLowerCase()))}
-                pathname={pathname}
-                open={showSideQuests}
-                setOpen={setShowSideQuests}
-              />
-            )}
-          </div>
-
-          {/* Right: search + user. Compact icon button on mobile, full
-              search field on desktop. */}
-          <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 0 : 12, flexShrink: 0 }}>
-            <GlobalSearch compact={isMobile} pages={searchPages} />
-            {!isMobile && <span style={{ fontSize: 11, color: "#a0a0ad" }}>{email?.split("@")[0]}</span>}
-          </div>
-        </div>
+        {isMobile && menuOpen && (
+          <MobileNavMenu
+            groups={sidebarGroups}
+            homes={GROUP_HOMES as Record<string, string | undefined>}
+            currentGroup={sidebarGroups.find(g => g.items.some(i => pathname === i.href || pathname?.startsWith(i.href + "/")))?.key || null}
+            pathname={pathname || ""}
+            inboxCount={inboxCount}
+            sectionCounts={houseCounts}
+            sectionByHref={HOUSE_SECTION_BY_HREF}
+            utilities={[...utilityItems, ...(showRefs ? [{ href: "/references", label: "References" }] : []), ...sideQuestItems]}
+            email={email}
+            onSignOut={signOut}
+            onClose={() => setMenuOpen(false)}
+          />
         )}
 
         {/* ── Page content ── */}
+        {/* --shell-pad is the ONE number hub-skin pages pull against
+            (HUB_PAGE in components/hub/theme) — a hardcoded -24 was 24px
+            wider than a phone (Jon, Sep 17). The body never scrolls
+            sideways; wide tables scroll inside their own container. */}
         <div style={{
           flex: 1,
           padding: isMobile ? "12px 12px" : 24,
           paddingBottom: isMobile ? 76 : 24, // account for fixed bottom nav
-          overflow: "auto",
+          overflowY: "auto",
+          overflowX: "hidden",
           minHeight: 0,
+          ["--shell-pad" as any]: isMobile ? "12px" : "24px",
         }}>
           {children}
         </div>
       </div>
 
-      {/* ── Mobile bottom bar — master search-as-nav (replaced the dept icon
-          rail, Aug 13). One search finds pages, projects, clients, vendors,
-          and items; the empty state IS the full grouped nav, so every child
-          page is one tap away instead of hidden behind icons. ── */}
-      {isMobile && (
-        <div style={{
-          position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 50,
-          background: "#000", borderTop: "1px solid #222",
-          display: "flex", alignItems: "center", gap: 8,
-          padding: "8px 10px calc(8px + env(safe-area-inset-bottom))",
-        }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <GlobalSearch bar pages={searchPages} />
-          </div>
-          <form action="/api/auth/signout" method="post" style={{ display: "flex", flexShrink: 0 }}>
-            <button type="submit" title="Sign out"
-              style={{
-                width: 44, height: 44, borderRadius: 10,
-                background: "transparent", border: "none", color: "#888", cursor: "pointer",
-                display: "flex", alignItems: "center", justifyContent: "center",
-              }}>
-              <LogOut size={17} />
+      {/* ── Mobile bottom bar — the ONE nav on phones (Jon, Sep 17 2026):
+          ☰ menu pill (where you are + inbox badge) | search pill, 50/50.
+          No top bar; the page's own headline says where you are up top. ── */}
+      {isMobile && (() => {
+        const allRows = [...sidebarGroups.flatMap(g => g.items.map(i => ({ ...i, group: g.key }))), ...utilityItems.map(u => ({ ...u, group: "settings" }))];
+        const here = allRows
+          .filter(i => pathname === i.href || pathname?.startsWith(i.href + "/"))
+          .sort((a, b) => b.href.length - a.href.length)[0];
+        const label = here?.label || companyName || "Menu";
+        return (
+          <div style={{
+            position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 50,
+            background: "#000", borderTop: "1px solid #222",
+            display: "flex", alignItems: "center", gap: 8,
+            padding: "8px 10px calc(8px + env(safe-area-inset-bottom))",
+          }}>
+            <button type="button" onClick={() => setMenuOpen(true)} aria-label="Menu" aria-expanded={menuOpen}
+              style={{ flex: 1, minWidth: 0, minHeight: 48, display: "flex", alignItems: "center", gap: 10, padding: "0 14px", borderRadius: 999, background: "#1e1e1e", border: "1px solid #2a2a2a", color: "#fff", cursor: "pointer", textAlign: "left", font: "inherit" }}>
+              <Menu size={18} style={{ flexShrink: 0 }} />
+              <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
+              {inboxCount > 0 && <span style={{ background: "#e8569b", color: "#fff", fontSize: 10.5, fontWeight: 800, padding: "2px 7px", borderRadius: 99, lineHeight: 1.3, minWidth: 18, textAlign: "center", flexShrink: 0 }}>{inboxCount}</span>}
             </button>
-          </form>
-        </div>
-      )}
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <GlobalSearch bar pages={searchPages} />
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
 
-// Portal-less dropdown that escapes the nav's overflow:hidden by using
-// position:fixed with measured coords from the trigger button.
-function SideQuestsMenu({ items, pathname, open, setOpen }: {
-  items: { href: string; label: string }[];
-  pathname: string | null;
-  open: boolean;
-  setOpen: (v: boolean) => void;
+
+// ── MOBILE NAV MENU — the whole grouped nav in one sheet. The department
+// you're in comes first and open (its pages with their grey counts); the
+// other pillars sit collapsed beneath; admin utilities at the bottom.
+function MobileNavMenu({ groups, homes, currentGroup, pathname, inboxCount, sectionCounts, sectionByHref, utilities, email, onSignOut, onClose }: {
+  groups: { key: string; label: string; items: { href: string; label: string }[] }[];
+  homes: Record<string, string | undefined>;
+  currentGroup: string | null;
+  pathname: string;
+  inboxCount: number;
+  sectionCounts: Record<string, number> | null;
+  sectionByHref: Record<string, string>;
+  utilities: { href: string; label: string }[];
+  email?: string | null;
+  onSignOut: () => void;
+  onClose: () => void;
 }) {
-  const btnRef = useRef<HTMLButtonElement>(null);
-  const [coords, setCoords] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
-
+  const ordered = [...groups].sort((a, b) => (a.key === currentGroup ? -1 : 0) - (b.key === currentGroup ? -1 : 0));
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set(currentGroup ? [currentGroup] : [ordered[0]?.key].filter(Boolean) as string[]));
   useEffect(() => {
-    if (!open || !btnRef.current) return;
-    const rect = btnRef.current.getBoundingClientRect();
-    setCoords({ top: rect.bottom + 4, left: rect.left });
-  }, [open]);
-
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow; document.body.style.overflow = "hidden";
+    return () => { window.removeEventListener("keydown", onKey); document.body.style.overflow = prev; };
+  }, [onClose]);
+  const toggle = (k: string) => setExpanded(prev => { const n = new Set(prev); if (n.has(k)) n.delete(k); else n.add(k); return n; });
+  const active = (href: string) => pathname === href || pathname.startsWith(href + "/");
+  const row = (href: string, label: string, opts: { count?: number; badge?: number; indent?: boolean } = {}) => {
+    const on = active(href);
+    return (
+      <Link key={href} href={href} onClick={onClose}
+        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, minHeight: 48, padding: opts.indent ? "0 14px 0 26px" : "0 14px", borderRadius: 10, textDecoration: "none", fontSize: 15, fontWeight: on ? 700 : 500, color: on ? "#fff" : "rgba(255,255,255,0.7)", background: on ? "rgba(255,255,255,0.10)" : "transparent" }}>
+        <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
+        <span style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          {!!opts.badge && <span style={{ background: "#e8569b", color: "#fff", fontSize: 10.5, fontWeight: 800, padding: "2px 8px", borderRadius: 99, lineHeight: 1.3, minWidth: 20, textAlign: "center" }}>{opts.badge}</span>}
+          {!!opts.count && <span style={{ fontSize: 12, fontWeight: 800, fontFamily: "ui-monospace, 'SF Mono', Menlo, monospace", color: on ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.38)" }}>{opts.count}</span>}
+        </span>
+      </Link>
+    );
+  };
   return (
-    <div style={{ marginLeft: 4, flexShrink: 0 }}>
-      <button
-        ref={btnRef}
-        onClick={() => setOpen(!open)}
-        style={{
-          padding: "6px 10px", borderRadius: 6, fontSize: 12, fontWeight: 500,
-          border: "none", cursor: "pointer", color: "#a0a0ad",
-          background: open ? "rgba(255,255,255,0.10)" : "transparent",
-        }}
-      >
-        ···
-      </button>
-      {open && (
-        <>
-          <div style={{ position: "fixed", inset: 0, zIndex: 99 }} onClick={() => setOpen(false)} />
-          <div style={{
-            position: "fixed", top: coords.top, left: coords.left, zIndex: 100,
-            background: "#161616", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 8,
-            boxShadow: "0 4px 12px rgba(0,0,0,0.08)", minWidth: 140, padding: 4,
-          }}>
-            {items.map(sq => (
-              <Link
-                key={sq.href}
-                href={sq.href}
-                onClick={() => setOpen(false)}
-                style={{
-                  display: "block", padding: "8px 12px", borderRadius: 4,
-                  fontSize: 12, fontWeight: 500, textDecoration: "none",
-                  color: pathname === sq.href ? "#000" : "#6b6b78",
-                  background: pathname === sq.href ? "rgba(255,255,255,0.10)" : "transparent",
-                }}
-              >
-                {sq.label}
-              </Link>
-            ))}
+    <div role="dialog" aria-modal="true" aria-label="Navigation" style={{ position: "fixed", inset: 0, zIndex: 120, background: "#0d0d0d", color: "#fff", display: "flex", flexDirection: "column" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 8px 0 18px", height: 52, borderBottom: "1px solid rgba(255,255,255,0.13)", flexShrink: 0 }}>
+        <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: "rgba(255,255,255,0.5)" }}>{email?.split("@")[0] || "menu"}</span>
+        <button type="button" onClick={onClose} aria-label="Close menu" style={{ width: 44, height: 44, borderRadius: 10, border: "none", background: "transparent", color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><X size={22} /></button>
+      </div>
+      <div style={{ flex: 1, overflowY: "auto", padding: "10px 8px calc(24px + env(safe-area-inset-bottom))" }}>
+        {ordered.map(g => {
+          const homeHref = homes[g.key];
+          const head = homeHref ? g.items.find(i => i.href === homeHref) : undefined;
+          const children = head ? g.items.filter(i => i !== head) : g.items;
+          const open = expanded.has(g.key);
+          const headOn = !!head && active(head.href);
+          return (
+            <div key={g.key} style={{ marginBottom: 6 }}>
+              <div style={{ display: "flex", alignItems: "stretch", gap: 2 }}>
+                {head ? (
+                  <Link href={head.href} onClick={onClose}
+                    style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, minHeight: 52, padding: "0 14px", borderRadius: 10, textDecoration: "none", fontSize: 19, fontWeight: 800, letterSpacing: "-0.01em", color: "#fff", background: headOn ? "rgba(255,255,255,0.10)" : "transparent" }}>
+                    <span>{head.label}</span>
+                    {head.href === "/house" && inboxCount > 0 && <span style={{ background: "#e8569b", color: "#fff", fontSize: 10.5, fontWeight: 800, padding: "2px 8px", borderRadius: 99, lineHeight: 1.3, minWidth: 20, textAlign: "center" }}>{inboxCount}</span>}
+                  </Link>
+                ) : (
+                  <button type="button" onClick={() => toggle(g.key)}
+                    style={{ flex: 1, display: "flex", alignItems: "center", minHeight: 52, padding: "0 14px", borderRadius: 10, border: "none", background: "transparent", color: "#fff", fontSize: 19, fontWeight: 800, letterSpacing: "-0.01em", textAlign: "left", cursor: "pointer", font: "inherit" }}>
+                    {g.label}
+                  </button>
+                )}
+                {children.length > 0 && (
+                  <button type="button" onClick={() => toggle(g.key)} aria-label={open ? `Collapse ${g.label}` : `Expand ${g.label}`} aria-expanded={open}
+                    style={{ width: 48, borderRadius: 10, border: "none", background: "transparent", color: "rgba(255,255,255,0.6)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <ChevronDown size={20} style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .15s" }} />
+                  </button>
+                )}
+              </div>
+              {open && children.map(i => row(i.href, i.label, { indent: true, count: g.key === "labs" && sectionCounts ? sectionCounts[sectionByHref[i.href] || ""] || 0 : 0 }))}
+            </div>
+          );
+        })}
+        {utilities.length > 0 && (
+          <div style={{ borderTop: "1px solid rgba(255,255,255,0.09)", marginTop: 10, paddingTop: 10 }}>
+            {utilities.map(u => row(u.href, u.label))}
           </div>
-        </>
-      )}
+        )}
+        <div style={{ borderTop: "1px solid rgba(255,255,255,0.09)", marginTop: 10, paddingTop: 10 }}>
+          <button type="button" onClick={onSignOut}
+            style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, minHeight: 48, padding: "0 14px", borderRadius: 10, border: "none", background: "transparent", color: "rgba(255,255,255,0.7)", fontSize: 15, fontWeight: 500, textAlign: "left", cursor: "pointer", font: "inherit" }}>
+            <LogOut size={16} />
+            <span>Sign out{email ? <span style={{ color: "rgba(255,255,255,0.4)" }}> · {email.split("@")[0]}</span> : null}</span>
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
