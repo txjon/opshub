@@ -59,7 +59,8 @@ export function BoardFrame({ title, action, children }: { title: string; action?
   const isMobile = useIsMobile();
   return (
     <div style={{ fontFamily: font, background: T.bg, minHeight: "100vh", color: T.text, paddingBottom: 90 }}>
-      <style>{`@media(max-width:759px){.board-filters{flex-wrap:wrap;justify-content:flex-start}.board-filters>select,.board-filters>button{flex:1 1 45%;min-width:0}.board-stickybar{bottom:calc(64px + env(safe-area-inset-bottom))!important;z-index:60!important;padding:10px 12px!important}}.kpi-tile{transition:transform .12s ease,box-shadow .12s ease,border-color .12s ease}.kpi-tile:hover{transform:translateY(-2px);box-shadow:0 6px 18px rgba(0,0,0,0.09);border-color:#c4c4cc}.kpi-tile:active{transform:translateY(0)}`}</style>
+      {/* dangerouslySetInnerHTML: a `>` in a <style> text child is HTML-escaped on the server and not on the client → hydration mismatch */}
+      <style dangerouslySetInnerHTML={{ __html: `@media(max-width:759px){.board-filters{flex-wrap:wrap;justify-content:flex-start}.board-filters>select,.board-filters>button{flex:1 1 45%;min-width:0}.board-stickybar{bottom:calc(64px + env(safe-area-inset-bottom))!important;z-index:60!important;padding:10px 12px!important}}.kpi-tile{transition:transform .12s ease,box-shadow .12s ease,border-color .12s ease}.kpi-tile:hover{transform:translateY(-2px);box-shadow:0 6px 18px rgba(0,0,0,0.09);border-color:#c4c4cc}.kpi-tile:active{transform:translateY(0)}` }} />
       <div style={{ maxWidth: 1180, margin: "0 auto", padding: isMobile ? "12px 4px" : "28px 24px" }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 4 }}>
           <h1 style={{ fontSize: 26, fontWeight: 700, margin: 0, letterSpacing: -0.3 }}>{title}</h1>
