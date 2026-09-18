@@ -441,7 +441,7 @@ export default function DropsBoard() {
                     ✂ Cut the drop
                   </button>
                 )}
-                {r.status === "cut" && r.job_id && (
+                {(r.status === "cut" || r.status === "done") && r.job_id && (
                   <a href={`/jobs/${r.job_id}`}
                     style={{ background: "#fff", color: H.ink, borderRadius: 999, padding: "12px 22px", fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", textDecoration: "none", fontFamily: H.font }}>
                     Open the job →
