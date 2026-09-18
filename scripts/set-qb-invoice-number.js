@@ -15,29 +15,28 @@ const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.
 (async () => {
   const { data: jobs, error: readErr } = await supabase
     .from("jobs")
-    .select("id, job_number, title, type_meta, clients(name)")
+    .select("id, job_number, title, qb_invoice_number, clients(name)")
     .eq("job_number", jobNumber);
   if (readErr) { console.error("Read failed:", readErr.message); process.exit(1); }
   if (!jobs || jobs.length === 0) { console.error(`No job with job_number ${jobNumber}`); process.exit(1); }
   if (jobs.length > 1) { console.error(`Found ${jobs.length} jobs with job_number ${jobNumber} — aborting`); process.exit(1); }
 
   const job = jobs[0];
-  const before = job.type_meta?.qb_invoice_number || null;
+  const before = job.qb_invoice_number || null;
   console.log("Job:", job.job_number, "·", job.clients?.name || "(no client)", "·", job.title);
   console.log("Current qb_invoice_number:", before);
   console.log("Setting to:", qbInvoiceNumber);
 
-  const newMeta = { ...(job.type_meta || {}), qb_invoice_number: qbInvoiceNumber };
   const { error: writeErr } = await supabase
     .from("jobs")
-    .update({ type_meta: newMeta })
+    .update({ qb_invoice_number: qbInvoiceNumber })
     .eq("id", job.id);
   if (writeErr) { console.error("Write failed:", writeErr.message); process.exit(1); }
 
   const { data: verify } = await supabase
     .from("jobs")
-    .select("type_meta")
+    .select("qb_invoice_number")
     .eq("id", job.id)
     .single();
-  console.log("Verified qb_invoice_number:", verify?.type_meta?.qb_invoice_number);
+  console.log("Verified qb_invoice_number:", verify?.qb_invoice_number);
 })();

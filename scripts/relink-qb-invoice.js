@@ -79,32 +79,24 @@ async function main() {
   console.log(`→ QB Invoice #${invoiceNumber} (Id ${inv.Id}) — $${totalWithTax.toFixed(2)} total, $${taxAmount.toFixed(2)} tax`);
 
   // 2. Load current job type_meta
-  const { data: job, error: jobErr } = await supabase.from("jobs").select("id, title, job_number, type_meta").eq("id", jobId).single();
+  const { data: job, error: jobErr } = await supabase.from("jobs").select("id, title, job_number, qb_invoice_number, qb_invoice_id, type_meta").eq("id", jobId).single();
   if (jobErr || !job) { console.error("Job not found:", jobErr?.message); process.exit(1); }
 
   const prev = job.type_meta || {};
   console.log(`→ Job ${job.job_number} — "${job.title}"`);
-  console.log(`  Before: qb_invoice_id=${prev.qb_invoice_id || "(none)"}, qb_invoice_number=${prev.qb_invoice_number || "(none)"}`);
+  console.log(`  Before: qb_invoice_id=${job.qb_invoice_id || "(none)"}, qb_invoice_number=${job.qb_invoice_number || "(none)"}`);
 
-  // 3. Write the original invoice's fields back into type_meta
-  const newMeta = {
-    ...prev,
-    qb_invoice_id: String(inv.Id),
-    qb_invoice_number: invoiceNumber,
-    qb_payment_link: paymentLink,
-    qb_tax_amount: taxAmount,
-    qb_total_with_tax: totalWithTax,
-    qb_relinked_at: new Date().toISOString(),
-  };
-
-  const { error: upErr } = await supabase.from("jobs").update({ type_meta: newMeta }).eq("id", jobId);
+  // 3. Identity → columns (mig 182); attributes → type_meta via atomic merge (mig 178)
+  const { error: upErr } = await supabase.from("jobs").update({ qb_invoice_id: String(inv.Id), qb_invoice_number: invoiceNumber }).eq("id", jobId);
   if (upErr) { console.error("Update failed:", upErr.message); process.exit(1); }
-  console.log(`  After:  qb_invoice_id=${newMeta.qb_invoice_id}, qb_invoice_number=${newMeta.qb_invoice_number}`);
+  const { error: mErr } = await supabase.rpc("patch_job_type_meta", { p_job_id: jobId, p_patch: { qb_payment_link: paymentLink, qb_tax_amount: taxAmount, qb_total_with_tax: totalWithTax, qb_relinked_at: new Date().toISOString() } });
+  if (mErr) { console.error("Attribute merge failed:", mErr.message); process.exit(1); }
+  console.log(`  After:  qb_invoice_id=${String(inv.Id)}, qb_invoice_number=${invoiceNumber}`);
 
   // 4. Log to job activity
   await supabase.from("job_activity").insert({
     job_id: jobId, type: "auto",
-    message: `Relinked to QB Invoice #${invoiceNumber} (id ${inv.Id}) — was pointing at ${prev.qb_invoice_number || "(none)"}`,
+    message: `Relinked to QB Invoice #${invoiceNumber} (id ${inv.Id}) — was pointing at ${job.qb_invoice_number || "(none)"}`,
   });
 
   console.log("\n✓ Done. The next 'Push to QuickBooks' from OpsHub will update invoice #" + invoiceNumber + ".");

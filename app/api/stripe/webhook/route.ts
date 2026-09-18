@@ -173,13 +173,10 @@ export async function POST(req: NextRequest) {
         if (job && inv.hosted_invoice_url) {
           const tm = (job as any).type_meta || {};
           if (tm.stripe_payment_link !== inv.hosted_invoice_url || tm.stripe_invoice_number !== inv.number) {
-            await sb.from("jobs").update({
-              type_meta: {
-                ...tm,
-                stripe_payment_link: inv.hosted_invoice_url,
-                stripe_invoice_number: inv.number || tm.stripe_invoice_number,
-              },
-            }).eq("id", job.id);
+            await mergeJobTypeMeta(sb, job.id, {
+              stripe_payment_link: inv.hosted_invoice_url,
+              stripe_invoice_number: inv.number || tm.stripe_invoice_number,
+            });
           }
         }
         break;

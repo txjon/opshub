@@ -187,9 +187,9 @@ async function seed() {
   await sb.from('jobs').update({
     costing_data: { costProds, costMargin: 0, inclShip: false, inclCC: false, orderInfo: {} },
     costing_summary: { margin: grossRev ? (netProfit / grossRev) * 100 : 0, grossRev, totalQty, netProfit, totalCost: blankTotalAll, avgPerUnit: totalQty ? grossRev / totalQty : 0 },
+    qb_invoice_number: QB_NUM, qb_invoice_id: 'TEST-INV-4402', // identity = columns (mig 182)
     type_meta: {
       quote_sent_at: iso(-6),
-      qb_invoice_number: QB_NUM, qb_invoice_id: 'TEST-INV-4402',
       qb_payment_link: 'https://connect.intuit.com/pay/TEST', qb_tax_amount: tax, qb_total_with_tax: grossRev + tax,
       po_sent_vendors: [...sentShorts], po_sent_dates: poSentDates, po_ship_dates: poShipDates, po_ship_methods: poShipMethods,
       costing_locked: true,

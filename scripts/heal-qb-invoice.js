@@ -67,8 +67,8 @@ async function qb(access, realm, path, init = {}) {
   // 1. Find the OpsHub job pointing at this invoice
   const { data: jobs, error: jErr } = await supabase
     .from("jobs")
-    .select("id, job_number, title, type_meta")
-    .filter("type_meta->>qb_invoice_id", "eq", String(qbInvoiceId));
+    .select("id, job_number, title, qb_invoice_number, qb_invoice_id, type_meta")
+    .eq("qb_invoice_id", String(qbInvoiceId));
   if (jErr) throw new Error(`Job lookup failed: ${jErr.message}`);
   const job = jobs?.[0];
   if (!job) {
@@ -117,9 +117,8 @@ async function qb(access, realm, path, init = {}) {
 
   // 5. Save to OpsHub job
   if (job) {
-    await supabase.from("jobs").update({
-      type_meta: { ...(job.type_meta || {}), qb_payment_link: link },
-    }).eq("id", job.id);
+    const { error: mErr } = await supabase.rpc("patch_job_type_meta", { p_job_id: job.id, p_patch: { qb_payment_link: link } });
+    if (mErr) { console.error("Save failed:", mErr.message); process.exit(1); }
     await supabase.from("job_activity").insert({
       job_id: job.id, type: "auto",
       message: `QB payment link healed (BillEmail set, link minted)`,
