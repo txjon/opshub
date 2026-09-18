@@ -184,7 +184,7 @@ export function effectiveRoute(itemRoute: string | null | undefined, vendorDefau
   return itemRoute || vendorDefaultRoute || jobRoute || "ship_through";
 }
 
-export type PaperDestination = { label: string; address: string; contactName: string | null; contactPhone: string | null; qtys: SizeQtys; total: number };
+export type PaperDestination = { locationId: string | null; label: string; address: string; contactName: string | null; contactPhone: string | null; qtys: SizeQtys; total: number };
 export type VendorShipTo = {
   address: string;            // the header ship-to block (free text, newline lines)
   isSplit: boolean;           // any item on this paper goes to 2+ addresses
@@ -213,7 +213,7 @@ export async function vendorPaperShipTo(sb: Sb, args: {
   for (const it of args.vendorItems) {
     const dests = byItem.get(it.id) || [];
     if (dests.length > 1) isSplit = true;
-    perItem.set(it.id, dests.map(d => ({ label: d.shipTo.label, address: d.shipTo.address, contactName: d.shipTo.contactName, contactPhone: d.shipTo.contactPhone, qtys: d.qtys, total: sumQ(d.qtys) })));
+    perItem.set(it.id, dests.map(d => ({ locationId: d.shipTo.locationId, label: d.shipTo.label, address: d.shipTo.address, contactName: d.shipTo.contactName, contactPhone: d.shipTo.contactPhone, qtys: d.qtys, total: sumQ(d.qtys) })));
   }
   const defaultAddr = shipTo?.address || "";
   if (!isSplit) { perItem.clear(); return { address: defaultAddr, isSplit: false, perItem }; }

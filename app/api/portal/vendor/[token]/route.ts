@@ -7,7 +7,7 @@ import { Resend } from "resend";
 import { renderBrandedEmail } from "@/lib/email-template";
 import { shipFromProduction } from "@/lib/production2-ship";
 import { getPdfBranding } from "@/lib/branding";
-import { vendorPaperShipTo } from "@/lib/destinations";
+import { vendorPaperShipTo, effectiveRoute, loadJobDestinations } from "@/lib/destinations";
 import { ensureTracker } from "@/lib/inbound-tracking";
 
 // costProds in ITEM sort order — "first item in a share group" (who carries
@@ -501,7 +501,7 @@ export async function POST(
     // Validate token
     const { data: decorator } = await sb
       .from("decorators")
-      .select("id, name")
+      .select("id, name, default_shipping_route")
       .eq("external_token", params.token)
       .single();
 
@@ -510,11 +510,11 @@ export async function POST(
     }
 
     const body = await req.json();
-    const { action, itemId, jobId, tracking, carrier, note, shipQtys } = body;
+    const { action, itemId, jobId, tracking, carrier, note, shipQtys, locationId } = body;
 
     // Helper: get item + job info
     async function getItemContext(iId: string) {
-      const { data: item } = await sb.from("items").select("id, name, job_id").eq("id", iId).single();
+      const { data: item } = await sb.from("items").select("id, name, job_id, shipping_route").eq("id", iId).single();
       if (!item) return null;
       const { data: job } = await sb.from("jobs").select("id, title, job_number, shipping_route, companies:company_id(slug)").eq("id", item.job_id).single();
       return { item, job };
@@ -543,10 +543,23 @@ export async function POST(
         for (const l of bsl || []) qtys[l.size] = (qtys[l.size] || 0) + (Number(l.qty_ordered) || 0);
       }
 
+      // Route + destination (split shipments, mig 180). A drop-ship box goes
+      // vendor→client and must know WHICH client address: the project default
+      // when the item isn't split, the vendor's pick when it is.
+      const route = effectiveRoute((ctx.item as any).shipping_route, ctx.job.shipping_route === "drop_ship" ? ((decorator as any).default_shipping_route || null) : null, ctx.job.shipping_route);
+      let boxLocationId: string | null = null, boxShipTo: string | null = null;
+      if (route === "drop_ship") {
+        const { byItem } = await loadJobDestinations(sb, ctx.job.id);
+        const dests = byItem.get(itemId) || [];
+        const pick = dests.length > 1 ? dests.find(d => d.shipTo.locationId === locationId) : dests[0];
+        if (dests.length > 1 && !pick) return NextResponse.json({ error: "This item ships to more than one address. Pick the address this box is going to." }, { status: 400 });
+        if (pick) { boxLocationId = pick.shipTo.locationId; boxShipTo = pick.shipTo.address; }
+      }
       const shipRes = await shipFromProduction(sb, {
         method: "tracking", tracking, carrier: carrier || null,
         decoratorId: decorator.id, decoratorName: decorator.name,
-        items: [{ itemId, jobId: ctx.job.id, itemName: ctx.item.name, qtys, final: false }],
+        locationId: boxLocationId, shipToSnapshot: boxShipTo,
+        items: [{ itemId, jobId: ctx.job.id, itemName: ctx.item.name, qtys, final: false, route }],
       });
       if (!shipRes.ok) return NextResponse.json({ error: shipRes.error || "Ship failed" }, { status: 500 });
 
