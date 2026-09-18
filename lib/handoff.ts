@@ -18,7 +18,7 @@
 // error but never blocks the legacy path — the legacy columns remain the
 // operational source of truth until readers cut over.
 
-import { shipmentGroupKey, normalizeTracking, isRealTracking } from "./use-shipments";
+import { shipmentGroupKey, normalizeTracking, isRealTracking } from "./box-key";
 import { ensureTracker } from "./inbound-tracking";
 
 type Sb = any; // Supabase client (browser or service) — same convention as po-actions
@@ -47,7 +47,11 @@ export type ShipmentSeed = {
 // group_key and land as lines on one shipment. warehouse_notes: last writer
 // wins ONLY when non-empty (a later item in the batch without notes must not
 // blank an earlier note).
+// Why the last box insert failed — surfaced in the ship error so the operator
+// (and the vendor portal) sees the reason, not a generic "try again".
+export let lastShipmentError: string | null = null;
 export async function upsertShipmentForItem(supabase: Sb, seed: ShipmentSeed): Promise<string | null> {
+  lastShipmentError = null;
   try {
     const shipDate = seed.ship_date || new Date().toISOString();
     let groupKey = shipmentGroupKey({
@@ -115,7 +119,7 @@ export async function upsertShipmentForItem(supabase: Sb, seed: ShipmentSeed): P
         const { data: retry } = await supabase
           .from("shipments").select("id").eq("group_key", groupKey).maybeSingle();
         shipmentId = retry?.id || null;
-        if (!shipmentId) { console.error("[handoff] shipment insert failed", error); return null; }
+        if (!shipmentId) { console.error("[handoff] shipment insert failed", error); lastShipmentError = error?.message || String(error); return null; }
       } else {
         shipmentId = created.id;
       }
@@ -133,6 +137,7 @@ export async function upsertShipmentForItem(supabase: Sb, seed: ShipmentSeed): P
     if (lineErr) console.error("[handoff] shipment_line upsert failed", lineErr);
     return shipmentId;
   } catch (e) {
+    lastShipmentError = (e as any)?.message || String(e);
     console.error("[handoff] upsertShipmentForItem", e);
     return null;
   }

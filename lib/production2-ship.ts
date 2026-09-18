@@ -7,11 +7,11 @@
 // recompute the qty cache). Adds the model's new piece — items.ship_final, THE
 // "no more coming" signal that separates owed from shortage downstream.
 
-import { upsertShipmentForItem } from "./handoff";
+import { lastShipmentError, upsertShipmentForItem } from "./handoff";
 import { recordShip, cleanPositive } from "./inventory-ledger";
 import { recalcJobPhase } from "./job-phase-recalc";
 import { logJobActivity } from "@/components/JobActivityPanel";
-import { normalizeTracking, isRealTracking } from "./use-shipments";
+import { normalizeTracking, isRealTracking } from "./box-key";
 
 export type ShipMethod = "tracking" | "bol" | "pickup";
 export type ShipItemInput = {
@@ -63,7 +63,7 @@ export async function shipFromProduction(sb: any, args: {
         ship_qtys: qtys, carrier, warehouse_notes: args.note || null,
         packing_slip_file_id: args.packingSlipFileId || null,
       });
-      if (!shipmentId) return { ok: false, shipped: 0, boxes: 0, boxIds: [], jobIds: [], error: "Couldn't create the shipment box — nothing was written. Try again." };
+      if (!shipmentId) return { ok: false, shipped: 0, boxes: 0, boxIds: [], jobIds: [], error: `Couldn't create the shipment box — nothing was written.${lastShipmentError ? " " + lastShipmentError : " Try again."}` };
       plan.push({ it, shipmentId, qtys, tot });
       boxes.add(shipmentId);
     }
@@ -108,7 +108,10 @@ export async function shipFromProduction(sb: any, args: {
       : args.method === "bol" ? `${carrier || "freight"}${trackingOrBol ? ` BOL ${trackingOrBol}` : ""}` : "pickup";
     for (const jobId of Array.from(jobsTouched)) {
       const n = args.items.filter(i => i.jobId === jobId).length;
-      logJobActivity(jobId, `Shipped ${n} item${n > 1 ? "s" : ""} from production — ${how}`);
+      // Activity line is browser-only (JobActivityPanel is "use client"); server
+      // callers (vendor portal mark-shipped) get a proxy here, not a function.
+      // The ship is already written above — never let the log line fail it.
+      try { logJobActivity(jobId, `Shipped ${n} item${n > 1 ? "s" : ""} from production — ${how}`); } catch {}
     }
     // Advance legacy jobs.phase so the job lands on the receiving/shipping boards
     // (they filter by phase) and the ~35 phase consumers stay correct.

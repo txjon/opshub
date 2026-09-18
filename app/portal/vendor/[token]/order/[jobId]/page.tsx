@@ -24,7 +24,7 @@ type OrderItem = {
   incomingGoods: string | null; productionNotes: string | null;
   packingNotes: string | null; shipTracking: string | null;
   shipQtys: Record<string, number> | null; sizes: string[]; qtys: Record<string, number>;
-  splitShipTo?: { label: string; address: string; contactName: string | null; contactPhone: string | null; qtys: Record<string, number>; total: number }[] | null;
+  splitShipTo?: { locationId: string | null; label: string; address: string; contactName: string | null; contactPhone: string | null; qtys: Record<string, number>; total: number }[] | null;
   totalQty: number; decoLines: DecoLine[]; itemTotal: number;
   mockupThumb: string | null; blanksOrdered: boolean;
 };
@@ -49,6 +49,8 @@ export default function VendorOrderPage({ params }: { params: { token: string; j
   const [showIssue, setShowIssue] = useState<string | null>(null);
   const [trackingInputs, setTrackingInputs] = useState<Record<string, { tracking: string; carrier: string }>>({});
   const [shipQtyInputs, setShipQtyInputs] = useState<Record<string, Record<string, number>>>({});
+  // split shipments: which client address THIS box is going to (one box, one address)
+  const [destInputs, setDestInputs] = useState<Record<string, string>>({});
   const [packingSlipFiles, setPackingSlipFiles] = useState<Record<string, File | null>>({});
   const [issueInputs, setIssueInputs] = useState<Record<string, string>>({});
   // Bill-to from tenant branding via the API — the same source as the PO PDF.
@@ -99,7 +101,7 @@ export default function VendorOrderPage({ params }: { params: { token: string; j
       const completeShipQtys = { ...(item.qtys || {}), ...(shipQtyInputs[item.id] || {}) };
       await fetch(`/api/portal/vendor/${params.token}`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "enter_tracking", itemId: item.id, jobId: order.jobId, tracking: t.tracking.trim(), carrier: t.carrier || "", shipQtys: Object.keys(completeShipQtys).length > 0 ? completeShipQtys : null }),
+        body: JSON.stringify({ action: "enter_tracking", itemId: item.id, jobId: order.jobId, tracking: t.tracking.trim(), carrier: t.carrier || "", shipQtys: Object.keys(completeShipQtys).length > 0 ? completeShipQtys : null, locationId: destInputs[item.id] || null }),
       });
       await loadData();
       setShowTracking(null);
@@ -336,6 +338,24 @@ export default function VendorOrderPage({ params }: { params: { token: string; j
               {/* Tracking panel */}
               {showTracking === item.id && (
                 <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10, background: C.bg, padding: 14, borderRadius: 10, border: `1px solid ${C.border}` }}>
+                  {item.splitShipTo && item.splitShipTo.length > 1 && (
+                    <div>
+                      <div style={{ ...LBL, color: C.muted, marginBottom: 6 }}>Which address is this box going to?</div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        {item.splitShipTo.map(d => {
+                          const on = destInputs[item.id] === d.locationId;
+                          return (
+                            <button key={d.locationId || d.label} type="button"
+                              onClick={() => { if (!d.locationId) return; setDestInputs(prev => ({ ...prev, [item.id]: d.locationId! })); setShipQtyInputs(prev => ({ ...prev, [item.id]: { ...d.qtys } })); }}
+                              style={{ textAlign: "left", padding: "8px 10px", borderRadius: 8, border: `1px solid ${on ? C.text : C.border}`, background: on ? C.card : "transparent", color: C.text, cursor: "pointer", fontFamily: C.font }}>
+                              <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: on ? C.text : C.muted }}>{d.label} · {d.total} units</div>
+                              <div style={{ fontSize: 12, color: C.muted, whiteSpace: "pre-line", lineHeight: 1.4 }}>{d.address}</div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                   {item.sizes && item.sizes.length > 0 && (
                     <div>
                       <div style={{ ...LBL, color: C.muted, marginBottom: 6 }}>Shipped quantities (defaults to ordered)</div>
@@ -385,7 +405,7 @@ export default function VendorOrderPage({ params }: { params: { token: string; j
                       style={{ flex: 1, minWidth: 160, padding: "8px 10px", borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 12, fontFamily: C.font, background: C.card }} />
                   </div>
                   <button onClick={() => markShipped(item)}
-                    disabled={!trackingInputs[item.id]?.tracking?.trim() || actionLoading === "enter_tracking" + item.id}
+                    disabled={!trackingInputs[item.id]?.tracking?.trim() || actionLoading === "enter_tracking" + item.id || (!!item.splitShipTo && item.splitShipTo.length > 1 && !destInputs[item.id])}
                     style={{ padding: "10px 0", borderRadius: 8, width: "100%", background: C.green, color: "#fff", border: "none", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: C.font, opacity: (!trackingInputs[item.id]?.tracking?.trim() || actionLoading === "enter_tracking" + item.id) ? 0.5 : 1 }}>
                     {actionLoading === "enter_tracking" + item.id ? "Saving..." : "Mark as Shipped"}
                   </button>

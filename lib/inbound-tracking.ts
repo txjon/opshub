@@ -16,7 +16,7 @@
 // delivered_at is a carrier SIGNAL. received_at is human-only. This module
 // never touches received state.
 
-import { isRealTracking } from "./use-shipments";
+import { isRealTracking } from "./box-key";
 import { createHash } from "crypto";
 
 const EP = "https://api.easypost.com/v2";
