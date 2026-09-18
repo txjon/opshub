@@ -88,14 +88,33 @@ export async function GET(_req: NextRequest, { params }: { params: { releaseId: 
     const itemRows = (items || []) as any[];
     const pipeItems = itemRows
       .filter((it: any) => !ACTIVE_HIDDEN.includes(String(it.jobs?.phase || "")) && !slottedItems.has(it.id))
-      .map((it: any) => ({ id: it.id, name: it.name, qty: qtyOf(it) }));
+      .map((it: any) => ({ id: it.id, name: it.name, qty: qtyOf(it), thumbId: null as string | null }));
     const activeIds = new Set(pipeItems.map((it: any) => it.id));
+    // Item thumbs (pipeline + re-run lanes were rendering blank — Sep 17):
+    // newest non-superseded mockup > proof > print_ready, the hub items rule.
+    const itemThumbs: Record<string, string> = {};
+    if (itemRows.length) {
+      const { data: ifiles } = await db.from("item_files")
+        .select("item_id, stage, drive_file_id, created_at")
+        .in("item_id", itemRows.map((it: any) => it.id))
+        .in("stage", ["mockup", "proof", "print_ready"])
+        .is("superseded_at", null)
+        .not("drive_file_id", "is", null)
+        .order("created_at", { ascending: false });
+      const rank: Record<string, number> = { mockup: 3, proof: 2, print_ready: 1 };
+      const best: Record<string, number> = {};
+      for (const f of (ifiles || []) as any[]) {
+        const rk = rank[f.stage] || 0;
+        if (rk > (best[f.item_id] || 0)) { best[f.item_id] = rk; itemThumbs[f.item_id] = f.drive_file_id; }
+      }
+      for (const it of pipeItems) it.thumbId = itemThumbs[it.id] || null;
+    }
     const byKey = new Map<string, any>();
     for (const it of [...itemRows].sort((a: any, b: any) => String(b.created_at || "").localeCompare(String(a.created_at || "")))) {
       if (activeIds.has(it.id) || slottedItems.has(it.id)) continue;
       if (!hasRun(it.jobs?.phase, it.pipeline_stage)) continue;
       const key = `${(it.name || "").trim().toLowerCase()}|${(it.blank_sku || "").trim().toLowerCase()}`;
-      if (!byKey.has(key)) byKey.set(key, { id: it.id, name: it.name, qty: qtyOf(it) });
+      if (!byKey.has(key)) byKey.set(key, { id: it.id, name: it.name, qty: qtyOf(it), thumbId: itemThumbs[it.id] || null });
     }
     // Product lane (Phase 5): un-produced catalog mockups — ready products
     // with no born item and no open slot on a non-cut release.

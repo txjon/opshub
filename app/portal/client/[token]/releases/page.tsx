@@ -31,6 +31,7 @@ const healthLine = (d: any): { text: string; color: string } => {
       if (d.payable?.state === "ready") return { text: `In production. Invoice${d.payable.invoiceNumber ? ` #${d.payable.invoiceNumber}` : ""} ready to pay.`, color: C.amber };
       if (d.payable?.state === "paid") return { text: "In production \u00b7 paid.", color: C.green };
       return { text: "In production.", color: C.green };
+    case "done": return { text: "Delivered. Every line landed.", color: C.green };
     case "shelved": return { text: "Shelved.", color: C.faint };
     default: return { text: d.status, color: C.faint };
   }
@@ -106,7 +107,7 @@ export default function ReleasesPage() {
   const mockupCands = useMemo(() => {
     const slotted = new Set<string>();
     for (const d of (drops || [])) {
-      if (d.status === "cut") continue;
+      if (d.status === "cut" || d.status === "done") continue;
       for (const s of (d.slots || [])) if (s.product && s.lineId) slotted.add(String(s.lineId).slice(8));
     }
     return (mockups || []).filter((m: any) => !slotted.has(m.productId));
@@ -326,7 +327,7 @@ function DropSheet({ drop, token, briefs, committed, pipeItems, catalogItems, mo
     let total = 0, gaps = 0;
     for (const sl of (drop.slots || [])) {
       const pit = sl.itemId ? itemsById[sl.itemId] : null;
-      const qty = lineUnits(sl, pit, drop.status === "cut").total;
+      const qty = lineUnits(sl, pit, drop.status === "cut" || drop.status === "done").total;
       const retail = sl.retail != null ? Number(sl.retail) : null;
       if (qty > 0 && retail != null) total += qty * retail;
       else gaps++;
@@ -352,7 +353,7 @@ function DropSheet({ drop, token, briefs, committed, pipeItems, catalogItems, mo
   // Numbers are OURS now (Jon, Aug 24): sold counts land via the sales-report
   // import on our side and the ledger cuts the buys. Clients see the sold
   // totals; they never type quantities here.
-  const showSold = ["closed", "cut"].includes(drop.status);
+  const showSold = ["closed", "cut", "done"].includes(drop.status);
   const h = healthLine(drop);
   const ready = drop.slots.filter((s: any) => s.ideaApproved).length;
   const allReady = drop.slots.length > 0 && ready === drop.slots.length;
@@ -413,7 +414,7 @@ function DropSheet({ drop, token, briefs, committed, pipeItems, catalogItems, mo
               style={{ fontSize: 18, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", lineHeight: 1.2, background: "transparent", border: "none", outline: "none", color: C.text, width: "100%", fontFamily: C.font, padding: 0 }} />
             <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 4, flexWrap: "wrap" }}>
               <span style={{ fontSize: 12, fontWeight: 700, color: h.color }}>{h.text}</span>
-              {["closed", "cut"].includes(drop.status) && soldValue.total > 0 ? (
+              {["closed", "cut", "done"].includes(drop.status) && soldValue.total > 0 ? (
                 <span style={{ fontSize: 10.5, fontFamily: C.mono, color: C.green, fontWeight: 700 }}>
                   ${Math.round(soldValue.total).toLocaleString()} sold{soldValue.gaps > 0 ? ` \u00b7 ${soldValue.gaps} line${soldValue.gaps === 1 ? "" : "s"} unpriced` : ""}
                 </span>
@@ -462,7 +463,7 @@ function DropSheet({ drop, token, briefs, committed, pipeItems, catalogItems, mo
             const pit = s.itemId ? itemById(s.itemId) : null;
             const b = s.briefId ? briefById(s.briefId) : null;
             const src = pit?.thumb_id ? thumbSrc(pit.thumb_id) : (b ? briefThumb(b) : null);
-            const cut = drop.status === "cut";
+            const cut = drop.status === "cut" || drop.status === "done";
             const lu = lineUnits(s, pit, cut);
             const lastRunPcs = s.rerun && !cut ? (pit?.qty || 0) : 0;
             const st = lineState(s, pit, { releaseCut: cut, briefState: s.briefState });

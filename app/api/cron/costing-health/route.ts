@@ -61,6 +61,7 @@ export async function GET(req: NextRequest) {
     // save); the next run catches anything that persists.
     const IN_FLIGHT_MS = 60 * 60 * 1000;
     const inFlight: string[] = [];
+    const touchedAt = (j: any) => Math.max(Date.parse(j.updated_at || "") || 0, Date.parse(j.costing_data?._savedAt || "") || 0);
     const fleeceGaps: string[] = [];
     let consistent = 0;
 
@@ -88,11 +89,7 @@ export async function GET(req: NextRequest) {
       if (Math.abs(delta) <= 1) { consistent++; continue; }
       if (SKIP.has(j.job_number)) continue;
       if (HEAL_PHASES.has(j.phase)) {
-        const touched = Math.max(
-          Date.parse((j as any).updated_at || "") || 0,
-          Date.parse((j.costing_data as any)?._savedAt || "") || 0,
-        );
-        if (Date.now() - touched < IN_FLIGHT_MS) { inFlight.push(j.job_number); continue; }
+        if (Date.now() - touchedAt(j) < IN_FLIGHT_MS) { inFlight.push(j.job_number); continue; }
         try {
           const r = await refreshJobFinancials(sb, (j as any).id);
           const fresh = Number(r.summary?.grossRev);
@@ -134,6 +131,10 @@ export async function GET(req: NextRequest) {
       const cpQty = carriers.reduce((a, p) => a + Object.values(p.qtys || {}).reduce((x: number, y: any) => x + (Number(y) || 0), 0), 0);
       const bsQty = Object.entries(linesById).filter(([id]) => carrierIds.has(id)).reduce((a, [, q]) => a + Object.values(q).reduce((x, y) => x + y, 0), 0);
       if (bsQty === 0 || Math.abs(cpQty - bsQty) <= Math.max(2, bsQty * 0.05)) continue;
+      // in-flight guard (same as the revenue check): a job someone is
+      // editing right now is not drift, and healing it would write
+      // costing_data under an active save
+      if (Date.now() - touchedAt(j) < IN_FLIGHT_MS) { if (!inFlight.includes(j.job_number)) inFlight.push(j.job_number); continue; }
       if (cpQty > bsQty || (j as any).financial_closed_at) {
         qtyDrift.push({ job: j.job_number, phase: j.phase, cpQty, bsQty });
         continue;

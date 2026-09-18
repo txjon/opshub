@@ -1,4 +1,5 @@
 "use client";
+import { useConfirm } from "@/components/useConfirm";
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
@@ -121,8 +122,9 @@ export default function HoursPage() {
     await supabase.from("contractors").insert({ name, sort_order: sort });
     setNewName(""); load();
   }
+  const [confirmDlg, confirmEl] = useConfirm();
   async function emailSummary() {
-    if (!window.confirm(`Submit hours for ${fmtMD(weekStart)}–${fmtMD(weekEnd)} (${fmtHours(grandTotal)} hrs total)? A breakdown will be emailed to you.`)) return;
+    if (!await confirmDlg({ title: "Submit this week's hours?", message: `${fmtMD(weekStart)}–${fmtMD(weekEnd)} · ${fmtHours(grandTotal)} hrs total. A breakdown is emailed to you.`, confirmLabel: "Submit hours", confirmColor: T.accent })) return;
     setEmailing("sending");
     try {
       const res = await fetch("/api/hours/email", {
@@ -145,6 +147,7 @@ export default function HoursPage() {
 
   return (
     <div style={{ fontFamily: font, color: T.text, display: "flex", flexDirection: "column", gap: 16, maxWidth: 1000 }}>
+      {confirmEl}
       {/* Header + week selector */}
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, letterSpacing: "-0.02em" }}>Hours</h1>

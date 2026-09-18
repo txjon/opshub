@@ -47,6 +47,7 @@ import { clientShippingRoutes } from "@/lib/tenants";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { backOrigin } from "@/lib/back-nav";
 import { patchJobTypeMeta } from "@/lib/job-type-meta";
+import { useConfirm } from "@/components/useConfirm";
 import { similarClients } from "@/lib/client-match";
 import { calculatePriority } from "@/lib/dates";
 import { SHIP_METHODS } from "@/lib/ship-methods";
@@ -183,6 +184,8 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   // toast on error. Saves stay silent on success. ──
   const [saveErr, setSaveErr] = useState<string | null>(null);
   const saveErrTimer = React.useRef<any>(null);
+  // DESIGN.md: no browser confirm()/alert() — styled confirm + the save toast
+  const [confirmDlg, confirmEl] = useConfirm();
   const failed = (msg: string, e?: any) => {
     console.error("[JobV2] " + msg, e);
     setSaveErr(msg);
@@ -278,7 +281,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   // Drive file (the API keeps the Drive copy if another item still references
   // it, e.g. duplicated items sharing art).
   const deleteFile = async (item: any, f: any) => {
-    if (!window.confirm(`Delete "${f.file_name}" from this item? It's removed from the Drive folder too.`)) return;
+    if (!await confirmDlg({ title: "Delete this file?", message: `"${f.file_name}" comes off this item and out of the Drive folder.`, confirmLabel: "Delete file" })) return;
     try {
       const res = await fetch("/api/files", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fileId: f.id, driveFileId: f.drive_file_id }) });
       if (!res.ok) { failed("File delete failed", await res.text().catch(() => "")); return; }
@@ -572,7 +575,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   }, [clientPick]);
   const assignClient = async (clientId: string, clientName: string) => {
     if (clientBusy) return;
-    if (!window.confirm(`Reassign this project to "${clientName}"? Contacts, delivery address, and payment terms swap to the new client. The QB invoice link is left as-is.`)) return;
+    if (!await confirmDlg({ title: `Reassign to ${clientName}?`, message: "Contacts, delivery address, and payment terms swap to the new client. The QB invoice link is left as-is.", confirmLabel: "Reassign", confirmColor: T.amber })) return;
     setClientBusy(true);
     const supabase = createClient();
     try {
@@ -614,7 +617,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       const { data: cc }: any = await supabase.from("contacts").select("id, is_primary").eq("client_id", job.client_id);
       const have = new Set((localContacts || []).map((jc: any) => jc.contact_id || jc.contacts?.id));
       const missing = (cc || []).filter((c: any) => !have.has(c.id));
-      if (!missing.length) { alert("All client contacts are already on this project."); return; }
+      if (!missing.length) { failed("All client contacts are already on this project."); return; }
       await (supabase.from("job_contacts") as any).insert(missing.map((c: any) => ({ job_id: job.id, contact_id: c.id, role_on_job: c.is_primary ? "primary" : "cc" })));
       const { data: freshJc }: any = await supabase.from("job_contacts").select("*, contacts(*)").eq("job_id", job.id);
       setLocalContacts(freshJc || []);
@@ -661,12 +664,12 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   };
   const duplicateJob = async () => {
     setMenuOpen(false);
-    if (!window.confirm("Duplicate this project (items, costing, contacts)?")) return;
-    try { const r = await fetch(`/api/jobs/${job.id}/duplicate`, { method: "POST" }); const d = await r.json(); const nid = d?.jobId || d?.id; if (r.ok && nid) window.location.href = `/jobs/${nid}?v2=1`; else alert(d?.error || "Duplicate failed"); } catch (e: any) { alert(e.message || "Duplicate failed"); }
+    if (!await confirmDlg({ title: "Duplicate this project?", message: "Items, costing, and contacts copy to a new project.", confirmLabel: "Duplicate", confirmColor: T.accent })) return;
+    try { const r = await fetch(`/api/jobs/${job.id}/duplicate`, { method: "POST" }); const d = await r.json(); const nid = d?.jobId || d?.id; if (r.ok && nid) window.location.href = `/jobs/${nid}?v2=1`; else failed(d?.error || "Duplicate failed"); } catch (e: any) { failed(e.message || "Duplicate failed", e); }
   };
   const deleteJob = async () => {
     setMenuOpen(false);
-    if (!window.confirm(`Delete "${job.title}" and everything in it? This cannot be undone.`)) return;
+    if (!await confirmDlg({ title: "Delete this project?", message: `"${job.title}" and everything in it — items, files, payments. This cannot be undone.`, confirmLabel: "Delete project" })) return;
     const supabase = createClient();
     try {
       // Archive the whole project's Drive folder first (classic parity). Non-fatal.
@@ -678,13 +681,13 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       await supabase.from("job_contacts").delete().eq("job_id", job.id);
       await supabase.from("jobs").delete().eq("id", job.id);
       window.location.href = "/projects";
-    } catch (e: any) { alert(e.message || "Delete failed"); }
+    } catch (e: any) { failed(e.message || "Delete failed", e); }
   };
   const cancelVoid = async () => {
     setMenuOpen(false);
-    if (paid > 0) { alert("Can't void — a payment is recorded. Refund/adjust in QB first."); return; }
-    if (!window.confirm("Cancel this project and void its QuickBooks invoice?")) return;
-    try { const r = await fetch("/api/qb/void-invoice", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobId: job.id }) }); if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "Void failed"); await setPhase("cancelled"); } catch (e: any) { alert(e.message || "Void failed"); }
+    if (paid > 0) { failed("Can't void — a payment is recorded. Refund/adjust in QB first."); return; }
+    if (!await confirmDlg({ title: "Cancel and void?", message: "The project is cancelled and its QuickBooks invoice is voided.", confirmLabel: "Cancel & void" })) return;
+    try { const r = await fetch("/api/qb/void-invoice", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobId: job.id }) }); if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "Void failed"); await setPhase("cancelled"); } catch (e: any) { failed(e.message || "Void failed", e); }
   };
   const addContact = async () => {
     if (!contactForm) return;
@@ -708,7 +711,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     try { const next = await cyclePaymentStatus(job, p); const { data: fresh }: any = await createClient().from("payment_records").select("*").eq("job_id", job.id).order("created_at"); if (fresh) setPayments(fresh); else setPayments(prev => prev.map(x => x.id === p.id ? { ...x, status: next } : x)); recalcPhase(); } catch (e) { failed("Payment status change failed — not saved", e); }
   };
   const delPay = async (id: string) => {
-    if (!window.confirm("Delete this payment record?")) return;
+    if (!await confirmDlg({ title: "Delete this payment record?", message: "The record comes off the job. QuickBooks is not touched.", confirmLabel: "Delete" })) return;
     try { await deletePayment(id); setPayments(prev => prev.filter(x => x.id !== id)); recalcPhase(); } catch (e) { failed("Payment delete failed — not saved", e); }
   };
 
@@ -722,7 +725,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     } catch (e) { failed("Route save failed — not saved", e); }
   };
   const removeProduct = async (item: any) => {
-    if (!window.confirm(`Remove "${item.name}" from this job? This deletes the product and its files.`)) return;
+    if (!await confirmDlg({ title: "Remove this item?", message: `"${item.name}" and its files come off the job.`, confirmLabel: "Remove item" })) return;
     const supabase = createClient();
     try {
       // Archive the item's Drive folder BEFORE deleting rows (classic parity —
@@ -1062,7 +1065,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       setItems(prev => [...prev, { ...item, qtys, totalQty: sumQ(qtys), blankCosts: pi.blankCosts || {} }]);
       logJobActivity(job.id, `Product added: ${pi.name}`);
       refreshFinancials();
-    } catch (e: any) { failed("CreateProductFromPicker failed — not saved", e); alert(e.message || "Failed to add product"); }
+    } catch (e: any) { failed(e.message || "Failed to add product", e); }
   };
   const handlePickerAdd = (pi: any) => {
     const target = assignTargetId ? items.find((x: any) => x.id === assignTargetId) : null;
@@ -1660,7 +1663,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   // project totals. ONE computation, two renders: "full" = the worksheet's
   // pinned footer (adjust margin without leaving the item — Jon 2026-08-25),
   // "summary" = read-only totals in the Products header. Job-wide either way.
-  const renderPricing = (mode: "full" | "summary") => {
+  const renderPricing = async (mode: "full" | "summary") => {
             let rev = 0, blank = 0, po = 0, ship = 0;
             items.forEach((it: any) => { const r: any = calcFor(it); const q = qtyOf(it); rev += (Number(it.sell_per_unit) || 0) * q; if (r) { blank += r.blankCost || 0; po += r.poTotal || 0; ship += r.shipping || 0; } });
             const cc = inclCC ? rev * 0.03 : 0;
@@ -1734,6 +1737,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
 
   return (
     <div style={{ fontFamily: font, color: T.text, maxWidth: 1120, margin: "0 auto", padding: isMobile ? "0 4px 80px" : "0 20px 80px" }}>
+      {confirmEl}
       {/* top bar */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 0 6px", fontSize: 13 }}>
         {/* ‹ Back — to wherever this job was opened from (client space, The
@@ -2499,7 +2503,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                     <>
                       <div onClick={() => setWsMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
                       <div style={{ position: "absolute", top: 34, right: 0, zIndex: 41, background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, minWidth: 200, padding: 5, boxShadow: "0 12px 40px rgba(0,0,0,0.4)" }}>
-                        <button onClick={async () => { setWsMenu(false); if (!window.confirm(`Duplicate "${it.name}" on this job? Files are shared; blank and decoration carry over.`)) return; try { const r = await fetch(`/api/items/${it.id}/duplicate`, { method: "POST" }); if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "Duplicate failed"); window.location.reload(); } catch (e: any) { failed("Item duplicate failed", e); } }}
+                        <button onClick={async () => { setWsMenu(false); if (!await confirmDlg({ title: "Duplicate this item?", message: `"${it.name}" is copied on this job. Files are shared; blank and decoration carry over.`, confirmLabel: "Duplicate", confirmColor: T.accent })) return; try { const r = await fetch(`/api/items/${it.id}/duplicate`, { method: "POST" }); if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "Duplicate failed"); window.location.reload(); } catch (e: any) { failed("Item duplicate failed", e); } }}
                           style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.text, borderRadius: 7 }}>Duplicate item</button>
                         <button onClick={() => { setWsMenu(false); setMoveItem({ id: it.id, name: it.name, mode: "copy" }); }}
                           style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.text, borderRadius: 7 }}>Copy to another job…</button>
