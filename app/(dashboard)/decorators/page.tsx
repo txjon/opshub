@@ -411,6 +411,11 @@ function ShipFromSection({ d, upd }: { d: any; upd: (u: any) => void }) {
 export default function DecoratorsPage() {
   const supabase = createClient();
   const [decorators, setDecorators] = useState<Decorator[]>([]);
+  // The AP side of a decorator (ap_vendors, linked by decorator_id): how they
+  // bill. 'credit_card' = card at their checkout → the queue offers "confirm
+  // the charge" and no QB Bill is ever pushed. Editable here because there
+  // was nowhere to set it (Jon, Sep 17 2026).
+  const [apByDecorator, setApByDecorator] = useState<Record<string, { id: string; method: string }>>({});
   const [expanded, setExpanded] = useState<string|null>(null);
   const [pricingOpen, setPricingOpen] = useState<Record<string,boolean>>({});
   const [saving, setSaving] = useState<Record<string,boolean>>({});
@@ -423,8 +428,21 @@ export default function DecoratorsPage() {
   useEffect(() => { load(); }, []);
 
   async function load() {
-    const { data } = await supabase.from("decorators").select("*").order("name");
+    const [{ data }, { data: ap }] = await Promise.all([
+      supabase.from("decorators").select("*").order("name"),
+      supabase.from("ap_vendors").select("id, decorator_id, default_bill_method").eq("active", true),
+    ]);
     setDecorators((data || []) as any as Decorator[]);
+    const m: Record<string, { id: string; method: string }> = {};
+    for (const v of (ap || []) as any[]) if (v.decorator_id) m[v.decorator_id] = { id: v.id, method: v.default_bill_method || "invoice" };
+    setApByDecorator(m);
+  }
+  async function setBillMethod(decoratorId: string, method: string) {
+    const ap = apByDecorator[decoratorId];
+    if (!ap) return;
+    setApByDecorator(prev => ({ ...prev, [decoratorId]: { ...ap, method } }));
+    const { error } = await supabase.from("ap_vendors").update({ default_bill_method: method } as any).eq("id", ap.id);
+    if (error) alert(`Couldn't save bill method: ${error.message}`);
   }
 
   function updateDecorator(id: string, updates: Partial<Decorator>) {
@@ -574,6 +592,18 @@ export default function DecoratorsPage() {
                             <option value="">— None (pick per send)</option>
                             {SHIP_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
                           </select>
+                        </div>
+                        <div style={{ display:"flex", flexDirection:"column", gap:3 }}>
+                          <div style={{ fontSize:10, color:T.muted, fontFamily:font, textTransform:"uppercase" as const, letterSpacing:"0.07em" }}>Bill method</div>
+                          {apByDecorator[d.id] ? (
+                            <select value={apByDecorator[d.id].method} onChange={e=>setBillMethod(d.id, e.target.value)}
+                              style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:6, color:T.text, fontFamily:font, fontSize:12, padding:"7px 10px", outline:"none", width:"100%", boxSizing:"border-box" as const }}>
+                              <option value="invoice">Invoice — they bill us, we push a QB Bill</option>
+                              <option value="credit_card">Card at checkout — no QB Bill, bank feed carries it</option>
+                            </select>
+                          ) : (
+                            <div style={{ fontSize:12, color:T.faint, fontFamily:font, padding:"7px 0" }}>No AP vendor linked yet — appears after their first bill.</div>
+                          )}
                         </div>
                       </div>
                       <DecoratorContacts contacts={(d as any).contacts_list||[]} onChange={list=>upd({contacts_list:list} as any)} />
