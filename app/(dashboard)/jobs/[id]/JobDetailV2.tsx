@@ -1207,6 +1207,11 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     const supabase = createClient();
     try {
       await applyPoSentToVendorItems(supabase, job.id, vendor);
+      // Freeze this vendor's expected costs NOW, same as the emailed-PO path —
+      // vendors ordered at their checkout (Sticker Mule) never get a PO email,
+      // and without the snapshot the billing queue re-priced them off the
+      // live rate card (Jon, Sep 17 2026).
+      try { await fetch(`/api/jobs/${job.id}/snapshot-po`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ vendor }) }); } catch {}
       const sentOn = new Date().toISOString().slice(0, 10);
       const r = await patchJobTypeMeta(supabase, job.id, tm => ({ ...tm, po_sent_vendors: Array.from(new Set([...(tm.po_sent_vendors || []), vendor])), po_sent_dates: { ...(tm.po_sent_dates || {}), [vendor]: sentOn } }));
       if (!r.ok) throw new Error(r.error);
