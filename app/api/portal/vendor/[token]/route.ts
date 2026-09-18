@@ -9,6 +9,7 @@ import { shipFromProduction } from "@/lib/production2-ship";
 import { getPdfBranding } from "@/lib/branding";
 import { vendorPaperShipTo, effectiveRoute, loadJobDestinations } from "@/lib/destinations";
 import { ensureTracker } from "@/lib/inbound-tracking";
+import { loadProductionFiles, releaseFor, itemDrift } from "@/lib/production-files";
 
 // costProds in ITEM sort order — "first item in a share group" (who carries
 // the screen fees) resolves by array position in the pricing engine; every
@@ -39,16 +40,18 @@ async function prefetchJobData(sb: any, jobs: any[], decorator: any) {
   const itemsById: Record<string, any> = {};
   for (let i = 0; i < wantedIds.length; i += 150) {
     const { data } = await sb.from("items")
-      .select("id, job_id, name, shipping_route, garment_type, blank_vendor, blank_sku, pipeline_stage, drive_link, incoming_goods, production_notes_po, packing_notes, ship_tracking, ship_qtys, blanks_order_number, blanks_order_cost, sort_order, buy_sheet_lines(size, qty_ordered)")
+      .select("id, job_id, name, shipping_route, garment_type, blank_vendor, blank_sku, pipeline_stage, incoming_goods, production_notes_po, packing_notes, ship_tracking, ship_qtys, blanks_order_number, blanks_order_cost, sort_order, buy_sheet_lines(size, qty_ordered)")
       .in("id", wantedIds.slice(i, i + 150));
     for (const it of (data || [])) itemsById[it.id] = it;
   }
+  // The printer's file list = the item's ACTIVE production files (print
+  // files, proof, mockup) served through the app — never a Drive folder
+  // (lib/production-files: the HPD-2608-042 wrong-art incident).
+  const filesByItem = await loadProductionFiles(sb, wantedIds);
   const mockupByItem: Record<string, string> = {};
-  for (let i = 0; i < wantedIds.length; i += 150) {
-    const { data } = await sb.from("item_files").select("item_id, drive_file_id")
-      .in("item_id", wantedIds.slice(i, i + 150)).eq("stage", "mockup")
-      .order("created_at", { ascending: false });
-    for (const f of (data || [])) if (!mockupByItem[f.item_id]) mockupByItem[f.item_id] = f.drive_file_id;
+  for (const id of Object.keys(filesByItem)) {
+    const m = filesByItem[id].find(f => f.stage === "mockup");
+    if (m) mockupByItem[id] = m.driveFileId;
   }
   const lettersByJob: Record<string, Record<string, string>> = {};
   for (let i = 0; i < jobIds.length; i += 150) {
@@ -61,7 +64,7 @@ async function prefetchJobData(sb: any, jobs: any[], decorator: any) {
       lettersByJob[jid] = m;
     }
   }
-  return { itemsById, mockupByItem, lettersByJob };
+  return { itemsById, filesByItem, mockupByItem, lettersByJob };
 }
 
 // ── GET: All active work for this decorator ──
@@ -192,6 +195,7 @@ export async function GET(
       if (!poSent) continue;
 
       const mockupByItem = pre.mockupByItem;
+      const filesByItem = pre.filesByItem;
       const letterMap: Record<string, string> = pre.lettersByJob[job.id] || {};
 
       // Get ship-to address for this vendor
@@ -229,7 +233,7 @@ export async function GET(
           blankVendor: item.blank_vendor,
           blankSku: item.blank_sku || costProd?.color || "",
           pipelineStage: item.pipeline_stage || "pending",
-          driveLink: item.drive_link,
+          files: filesByItem[item.id] || [],
           incomingGoods: incoming,
           productionNotes: item.production_notes_po,
           packingNotes: item.packing_notes,
@@ -261,6 +265,15 @@ export async function GET(
         || typeMeta.po_sent_dates?.[decorator.short_code]
         || (assignments || []).find((a: any) => itemIds.includes(a.item_id) && a.sent_to_decorator_date)?.sent_to_decorator_date
         || null;
+      // Release = the exact files this vendor was handed at PO send. Any live
+      // file outside it is flagged on the order page ("updated after your PO").
+      const release = releaseFor(typeMeta, decorator.name) || releaseFor(typeMeta, decorator.short_code);
+      for (const oi of orderItems as any[]) {
+        const d = itemDrift(oi.id, oi.files, release, poSentDate);
+        oi.filesChanged = d.changed;
+        oi.filesAfterPo = d.afterPo.map((f: any) => f.id);
+        oi.filesRemoved = d.removed.map((f: any) => f.file_name);
+      }
 
       // Ship date — match PO PDF: prefer per-vendor date from type_meta.po_ship_dates,
       // fall back to the job-level target_ship_date.
@@ -281,6 +294,7 @@ export async function GET(
         shippingRoute: job.shipping_route,
         poSent,
         poSentDate,
+        release: release ? { version: release.version, sentAt: release.sent_at } : null,
         shipTo: poShipTo,
         shipMethod: poShipMethod,
         shippingAccount: typeMeta.shipping_account || ((poShipMethod || "").toLowerCase().includes("ups") ? "W28Y51" : ""),
@@ -370,6 +384,7 @@ export async function GET(
                      (typeMeta.po_sent_vendors || []).includes(decorator.short_code);
 
       const cMockupByItem = cPre.mockupByItem;
+      const filesByItem = cPre.filesByItem;
       const cLetterMap: Record<string, string> = cPre.lettersByJob[job.id] || {};
 
       const paper = await vendorPaperShipTo(sb, {
@@ -401,7 +416,7 @@ export async function GET(
           blankVendor: item.blank_vendor,
           blankSku: item.blank_sku || costProd?.color || "",
           pipelineStage: item.pipeline_stage || "complete",
-          driveLink: item.drive_link,
+          files: filesByItem[item.id] || [],
           incomingGoods: incoming,
           productionNotes: item.production_notes_po,
           packingNotes: item.packing_notes,
@@ -430,6 +445,15 @@ export async function GET(
       const poSentDate = typeMeta.po_sent_dates?.[decorator.name]
         || typeMeta.po_sent_dates?.[decorator.short_code]
         || null;
+      // Release = the exact files this vendor was handed at PO send. Any live
+      // file outside it is flagged on the order page ("updated after your PO").
+      const release = releaseFor(typeMeta, decorator.name) || releaseFor(typeMeta, decorator.short_code);
+      for (const oi of orderItems as any[]) {
+        const d = itemDrift(oi.id, oi.files, release, poSentDate);
+        oi.filesChanged = d.changed;
+        oi.filesAfterPo = d.afterPo.map((f: any) => f.id);
+        oi.filesRemoved = d.removed.map((f: any) => f.file_name);
+      }
       const vendorShipDate = typeMeta.po_ship_dates?.[decorator.name]
         || typeMeta.po_ship_dates?.[decorator.short_code]
         || job.target_ship_date;
@@ -444,6 +468,7 @@ export async function GET(
         shippingRoute: job.shipping_route,
         poSent,
         poSentDate,
+        release: release ? { version: release.version, sentAt: release.sent_at } : null,
         shipTo: poShipTo,
         shipMethod: poShipMethod,
         shippingAccount: typeMeta.shipping_account || "",

@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getItemFolderId, uploadFile } from "@/lib/google-drive";
 import { deleteDriveFileIfUnreferenced } from "@/lib/google-drive-refs";
+import { supersedeSameNameFiles } from "@/lib/production-files";
 import { reopenProofApproval } from "@/lib/proof-revision";
 
 // Upload a file
@@ -55,6 +56,10 @@ export async function POST(req: NextRequest) {
         await supabase.from("item_files").update({ superseded_at: now }).eq("id", old.id);
         if (old.drive_file_id) await deleteDriveFileIfUnreferenced(old.drive_file_id, old.id);
       }
+    } else if (stage !== "mockup") {
+      // Same name on the same item + stage = new version; retire the old row
+      // (lib/production-files — the vendor must never see two same-named files).
+      await supersedeSameNameFiles(supabase, itemId, stage, file.name);
     }
 
     // Save metadata to database

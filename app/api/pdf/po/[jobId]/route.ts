@@ -11,6 +11,8 @@ import { contentDisposition } from "@/lib/pdf/filename";
 import { getPdfBranding } from "@/lib/branding";
 import { vendorPaperShipTo, splitShipToHtml } from "@/lib/destinations";
 import { sizeMatrixHtml } from "@/lib/size-grid";
+import { loadProductionFiles, releaseFor } from "@/lib/production-files";
+import { appBaseUrl } from "@/lib/public-url";
 
 const SIZE_ORDER = ["OSFA","OS","XS","S","M","L","XL","2XL","3XL","4XL","5XL","6XL","YXS","YS","YM","YL","YXL"];
 const sortSizes = (sizes: string[]) => [...sizes].sort((a, b) => {
@@ -344,9 +346,36 @@ function renderPOHTML(data: any): string {
         </div>` : "";
       })()}
       ${splitShipToHtml(item.split_ship_to, sortSizes, mono)}
-      ${item.drive_link ? `<div style="margin-bottom:6px;text-align:right">
-        <a href="${item.drive_link}" style="display:inline-block;text-decoration:none;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:#fff;background:#1a1a1a;padding:6px 14px;border-radius:5px">Production Files ↗</a>
-      </div>` : ""}
+      ${(() => {
+        // Production files = the item's active files in OpsHub, listed BY NAME
+        // with upload dates, and the button opens the vendor portal order page
+        // (the same list, downloadable) — never a Drive folder. A folder can
+        // hold retired versions the app no longer shows; HPD-2608-042 was
+        // printed from one (Sep 18 2026).
+        const files: any[] = item.files || [];
+        const prints = files.filter((f: any) => f.stage === "print_ready");
+        const others = files.filter((f: any) => f.stage !== "print_ready");
+        const fmtUp = (iso: string) => { try { return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }); } catch { return ""; } };
+        const stageLbl: Record<string, string> = { print_ready: "PRINT FILE", proof: "PROOF", mockup: "MOCKUP" };
+        const row = (f: any, strong: boolean) => `<div style="display:flex;align-items:center;gap:6px;padding:2px 0;border-bottom:0.5px solid #ececec">
+            <span style="display:inline-block;min-width:52px;font-size:7px;font-weight:800;letter-spacing:0.08em;color:${strong ? "#1a1a1a" : "#aaa"}">${stageLbl[f.stage] || f.stage}</span>
+            <span style="flex:1;min-width:0;font-size:9px;font-weight:${strong ? 700 : 500};color:#222;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${f.name}</span>
+            <span style="font-size:8px;color:#888;font-family:${mono};white-space:nowrap">${fmtUp(f.createdAt)}</span>
+          </div>`;
+        const thumbs = prints.slice(0, 4).map((f: any) => `<img src="https://lh3.googleusercontent.com/d/${f.driveFileId}=w200" style="width:44px;height:44px;object-fit:contain;border:0.5px solid #ddd;border-radius:3px;background:#fff" />`).join("");
+        return `<div style="margin-bottom:6px;padding:5px 8px;background:#f9f9f9;border:0.5px solid #e4e4e4;border-radius:4px">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:3px">
+            <div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#888">Production files · ${prints.length} print file${prints.length === 1 ? "" : "s"}${data.release_version ? ` · release v${data.release_version}` : ""}</div>
+            ${data.portal_url ? `<a href="${data.portal_url}" style="display:inline-block;text-decoration:none;font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:#fff;background:#1a1a1a;padding:4px 10px;border-radius:4px">Download files ↗</a>` : ""}
+          </div>
+          ${prints.length === 0 ? `<div style="font-size:9px;color:#b00020;font-weight:700">No print file on this item yet — do not print until one is provided.</div>` : ""}
+          <div style="display:flex;gap:8px;align-items:flex-start">
+            ${thumbs ? `<div style="display:flex;gap:3px;flex-shrink:0">${thumbs}</div>` : ""}
+            <div style="flex:1;min-width:0">${prints.map((f: any) => row(f, true)).join("")}${others.map((f: any) => row(f, false)).join("")}</div>
+          </div>
+          <div style="font-size:7.5px;color:#999;margin-top:3px">Print only from these files, downloaded via the button above. Files not listed here are not part of this PO.</div>
+        </div>`;
+      })()}
       <div style="display:flex;gap:16px;align-items:flex-start">
         ${thumbHtml ? `<div style="flex-shrink:0">${thumbHtml}</div>` : ""}
         <div style="flex:1;min-width:0">${decoSection}</div>
@@ -496,17 +525,14 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
 
     if (itemsError) return NextResponse.json({ error: "Failed to fetch items", detail: itemsError?.message }, { status: 500 });
 
-    // Fetch mockup thumbnails for each item
+    // Production files per item (print files, proof, mockup) — the list the
+    // PO prints and the thumbnail source. One query, one source of truth.
     const itemIds = (items || []).map((it: any) => it.id);
-    const { data: mockupFiles } = await supabase
-      .from("item_files")
-      .select("item_id, drive_file_id")
-      .in("item_id", itemIds)
-      .eq("stage", "mockup")
-      .order("created_at", { ascending: false });
+    const filesByItem = await loadProductionFiles(supabase, itemIds);
     const mockupByItem: Record<string, string> = {};
-    for (const f of (mockupFiles || [])) {
-      if (!mockupByItem[f.item_id]) mockupByItem[f.item_id] = f.drive_file_id;
+    for (const id of Object.keys(filesByItem)) {
+      const m = filesByItem[id].find(f => f.stage === "mockup");
+      if (m) mockupByItem[id] = m.driveFileId;
     }
 
     const costingData = job.costing_data || {};
@@ -548,7 +574,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
         name: it.name,
         blank_vendor: it.blank_vendor,
         blank_sku: it.blank_sku,
-        drive_link: it.drive_link,
+        files: filesByItem[it.id] || [],
         mockupThumb: mockupFileId ? `https://lh3.googleusercontent.com/d/${mockupFileId}=w300` : null,
         incoming_goods: it.incoming_goods,
         production_notes_po: it.production_notes_po,
@@ -647,6 +673,11 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       // AND the vendor has a stored po_sent_dates entry (i.e. there
       // really is a prior PO to supersede). Without the date we fall
       // back to a plain PO so a stale ?revised=1 doesn't lie.
+      // Vendor portal order page = the downloadable version of the file list
+      // printed on each item. Token is per decorator; the order page is per job.
+      portal_url: (decoratorRecord as any)?.external_token ? `${await appBaseUrl()}/portal/vendor/${(decoratorRecord as any).external_token}/order/${jobId}` : null,
+      // This PDF becomes the NEXT release when it's sent (snapshot-po bumps it).
+      release_version: (releaseFor(job.type_meta, vendorName)?.version || 0) + 1,
       is_revision: isRevised && !!(job.type_meta as any)?.po_sent_dates?.[vendorName],
       original_sent_date: (job.type_meta as any)?.po_sent_dates?.[vendorName] || null,
       branding: {
