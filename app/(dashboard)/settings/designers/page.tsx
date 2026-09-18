@@ -1,4 +1,5 @@
 "use client";
+import { useConfirm } from "@/components/useConfirm";
 import { useState, useEffect } from "react";
 import { T, font, mono } from "@/lib/theme";
 import { appBaseUrlSync } from "@/lib/public-url";
@@ -56,13 +57,14 @@ export default function DesignersPage() {
     load();
   }
 
+  const [confirmDlg, confirmEl] = useConfirm();
   async function regenerateToken(id: string) {
-    if (!window.confirm("Regenerate token? The old link will stop working immediately.")) return;
+    if (!await confirmDlg({ title: "Regenerate token?", message: "The old link stops working immediately.", confirmLabel: "Regenerate", confirmColor: T.amber })) return;
     await updateDesigner(id, { regenerate_token: true });
   }
 
   async function deleteDesigner(id: string, name: string) {
-    if (!window.confirm(`Delete designer "${name}"? Any assigned briefs will keep the reference but lose access.`)) return;
+    if (!await confirmDlg({ title: `Delete designer ${name}?`, message: "Assigned briefs keep the reference but lose access.", confirmLabel: "Delete designer" })) return;
     await fetch(`/api/designers?id=${id}`, { method: "DELETE" });
     load();
   }
@@ -89,6 +91,7 @@ export default function DesignersPage() {
 
   return (
     <div style={{ fontFamily: font, color: T.text }}>
+      {confirmEl}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, letterSpacing: "-0.02em" }}>Designers</h1>
