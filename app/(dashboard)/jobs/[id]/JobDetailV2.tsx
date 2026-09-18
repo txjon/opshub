@@ -1065,7 +1065,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       setItems(prev => [...prev, { ...item, qtys, totalQty: sumQ(qtys), blankCosts: pi.blankCosts || {} }]);
       logJobActivity(job.id, `Product added: ${pi.name}`);
       refreshFinancials();
-    } catch (e: any) { failed("CreateProductFromPicker failed — not saved", e); alert(e.message || "Failed to add product"); }
+    } catch (e: any) { failed(e.message || "Failed to add product", e); }
   };
   const handlePickerAdd = (pi: any) => {
     const target = assignTargetId ? items.find((x: any) => x.id === assignTargetId) : null;

@@ -46,6 +46,7 @@ export default function DropsBoard() {
   const [open, setOpen] = useState<any>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState("");
+  const [confirmDlg, confirmEl] = useConfirm(); // DESIGN.md: no browser confirm()
 
   async function load() {
     const { data: releases } = await supabase.from("releases")
@@ -170,6 +171,7 @@ export default function DropsBoard() {
 
   return (
     <div style={HUB_PAGE}>
+      {confirmEl}
       <style dangerouslySetInnerHTML={{ __html: `
         .dr-card{background:${H.panel};border:1px solid ${H.line};border-radius:16px;padding:16px 18px;cursor:pointer;text-align:left;color:${H.text};font-family:${H.font};width:100%;transition:transform .15s ease,border-color .15s ease;display:block}
         .dr-card:hover{transform:translateY(-2px);border-color:rgba(255,255,255,.3)}
@@ -394,7 +396,7 @@ export default function DropsBoard() {
                       {lineupIsPipelineOnly(r.slots) ? "Mark launched" : "Take it live"}
                     </button>
                     {!lineupIsPipelineOnly(r.slots) && <button disabled={busy === r.id || !numbersDone} title={numbersDone ? "" : "Every line needs quantities first (client enters after close, or you can cut a fixed-run drop once numbers exist)"}
-                      onClick={async () => { if (confirm(`Cut "${r.title}" into a job now? Items + quantities come from the lineup.`)) { const out = await act(r, "/cut", "POST"); if (out?.jobId) window.location.href = `/jobs/${out.jobId}`; } }}
+                      onClick={async () => { if (await confirmDlg({ title: "Cut it into a job now?", message: `"${r.title}" — items and quantities come from the lineup; the sale is skipped.`, confirmLabel: "Cut now", confirmColor: H.amber })) { const out = await act(r, "/cut", "POST"); if (out?.jobId) window.location.href = `/jobs/${out.jobId}`; } }}
                       style={{ background: "transparent", color: H.text, border: `1px solid rgba(255,255,255,0.35)`, borderRadius: 999, padding: "12px 20px", fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: numbersDone ? "pointer" : "default", opacity: numbersDone ? 1 : 0.4, fontFamily: H.font }}>
                       Cut now (skip sale)
                     </button>}
@@ -433,7 +435,7 @@ export default function DropsBoard() {
                 })()}
                 {r.status === "closed" && !coverageOf(r).bought && (
                   <button disabled={busy === r.id || !numbersDone} title={numbersDone ? "" : "Waiting on the client's production numbers"}
-                    onClick={async () => { const n = r.slots.filter((s: any) => !isPipelineSlot(s)).length; if (confirm(`CUT "${r.title}"? One job, ${n} item${n === 1 ? "" : "s"}, quantities from the entered numbers.`)) { const out = await act(r, "/cut", "POST"); if (out?.jobId) window.location.href = `/jobs/${out.jobId}`; } }}
+                    onClick={async () => { const n = r.slots.filter((s: any) => !isPipelineSlot(s)).length; if (await confirmDlg({ title: "Cut the drop?", message: `"${r.title}" becomes one job with ${n} item${n === 1 ? "" : "s"}, quantities from the entered numbers.`, confirmLabel: "✂ Cut it", confirmColor: H.green })) { const out = await act(r, "/cut", "POST"); if (out?.jobId) window.location.href = `/jobs/${out.jobId}`; } }}
                     style={{ background: numbersDone ? H.green : "transparent", color: numbersDone ? "#0a0a0a" : H.text, border: numbersDone ? "none" : `1px solid ${H.line}`, borderRadius: 999, padding: "13px 26px", fontSize: 11.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: numbersDone ? "pointer" : "default", opacity: numbersDone ? 1 : 0.4, fontFamily: H.font }}>
                     ✂ Cut the drop
                   </button>
