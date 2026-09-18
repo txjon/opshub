@@ -1663,7 +1663,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   // project totals. ONE computation, two renders: "full" = the worksheet's
   // pinned footer (adjust margin without leaving the item — Jon 2026-08-25),
   // "summary" = read-only totals in the Products header. Job-wide either way.
-  const renderPricing = async (mode: "full" | "summary") => {
+  const renderPricing = (mode: "full" | "summary") => {
             let rev = 0, blank = 0, po = 0, ship = 0;
             items.forEach((it: any) => { const r: any = calcFor(it); const q = qtyOf(it); rev += (Number(it.sell_per_unit) || 0) * q; if (r) { blank += r.blankCost || 0; po += r.poTotal || 0; ship += r.shipping || 0; } });
             const cc = inclCC ? rev * 0.03 : 0;
