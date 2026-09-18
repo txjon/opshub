@@ -53,6 +53,7 @@ export default function VendorPortalPage({ params }: { params: { token: string }
   // lazy-loads it on first open. completed[] from the initial payload only
   // holds this vendor's all-shipped ACTIVE jobs.
   const [completedLoaded, setCompletedLoaded] = useState(false);
+  const [completedError, setCompletedError] = useState<string | null>(null);
 
   useEffect(() => { loadData(); /* eslint-disable-next-line */ }, [params.token]);
 
@@ -70,7 +71,7 @@ export default function VendorPortalPage({ params }: { params: { token: string }
   }
 
   async function loadCompleted(offset: number, search: string, append: boolean) {
-    setCompletedLoading(true);
+    setCompletedLoading(true); setCompletedError(null);
     try {
       const qs = new URLSearchParams({ completed_offset: String(offset), completed_limit: "10" });
       if (search) qs.set("completed_search", search);
@@ -81,8 +82,10 @@ export default function VendorPortalPage({ params }: { params: { token: string }
         setCompletedTotal(d.completedTotal || 0);
         setCompletedOffset(offset);
         setCompletedLoaded(true);
+      } else {
+        setCompletedError(`Past orders did not load (${res.status}). Tap Past again to retry.`);
       }
-    } catch {}
+    } catch (e: any) { setCompletedError("Past orders did not load. Tap Past again to retry."); }
     setCompletedLoading(false);
   }
 
@@ -256,6 +259,9 @@ export default function VendorPortalPage({ params }: { params: { token: string }
                 preloaded all-shipped rows read as the whole list. */}
             {tab === "past" && completedLoading && (
               <div style={{ fontSize: 12, color: C.muted, padding: "6px 2px" }}>Loading past orders…</div>
+            )}
+            {tab === "past" && completedError && (
+              <div style={{ borderLeft: `3px solid ${C.red}`, padding: "6px 10px", fontSize: 12, color: C.text }}>{completedError}</div>
             )}
             {visibleList.map(o => (
               <OrderRow key={o.jobId} order={o} onOpen={() => router.push(`/portal/vendor/${params.token}/order/${o.jobId}`)} />
