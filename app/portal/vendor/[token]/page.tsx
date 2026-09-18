@@ -252,6 +252,11 @@ export default function VendorPortalPage({ params }: { params: { token: string }
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {/* The history scan is slow (~6s); without this line the 2-3
+                preloaded all-shipped rows read as the whole list. */}
+            {tab === "past" && completedLoading && (
+              <div style={{ fontSize: 12, color: C.muted, padding: "6px 2px" }}>Loading past orders…</div>
+            )}
             {visibleList.map(o => (
               <OrderRow key={o.jobId} order={o} onOpen={() => router.push(`/portal/vendor/${params.token}/order/${o.jobId}`)} />
             ))}
